@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.6",
+  "questions": [
+    {
+      "id": "2.6-q1",
+      "type": "single",
+      "stem": "Files arrive continuously in cloud storage, millions per day, with schemas that change. Which method fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A JDBC read"
+        },
+        {
+          "id": "b",
+          "text": "Auto Loader"
+        },
+        {
+          "id": "c",
+          "text": "A dashboard task"
+        },
+        {
+          "id": "d",
+          "text": "A manual upload in the UI"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Auto Loader scales to millions of files per hour and can detect schema drift.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.6-q2",
+      "type": "single",
+      "stem": "Data lives in a SaaS application that has a Lakeflow Connect managed connector. Which method fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A custom notebook that calls the application's API"
+        },
+        {
+          "id": "b",
+          "text": "COPY INTO"
+        },
+        {
+          "id": "c",
+          "text": "The managed connector"
+        },
+        {
+          "id": "d",
+          "text": "Auto Loader"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "When a managed connector exists for the source, it's the lowest-effort reliable option.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.6-q3",
+      "type": "single",
+      "stem": "An analyst has one small CSV file to explore once. What is the simplest way to get it into a table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write a JDBC reader"
+        },
+        {
+          "id": "b",
+          "text": "Upload it through the workspace UI to create a table"
+        },
+        {
+          "id": "c",
+          "text": "Configure a Lakeflow Connect gateway"
+        },
+        {
+          "id": "d",
+          "text": "Build an Auto Loader stream"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Databricks provides a UI to create a Unity Catalog managed table from a file.",
+      "source": "https://docs.databricks.com/aws/en/volumes/volume-files",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.6-q4",
+      "type": "single",
+      "stem": "A source isn't covered by any Databricks connector, but a partner tool the company already licenses supports it. What is a reasonable choice?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use the partner's connector to land the data"
+        },
+        {
+          "id": "b",
+          "text": "Mount the application as a Unity Catalog volume"
+        },
+        {
+          "id": "c",
+          "text": "Use Auto Loader on the application's URL"
+        },
+        {
+          "id": "d",
+          "text": "Use COPY INTO directly against the application"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Partner solutions in the Data Ingestion category of Partner Connect can create tables in your workspace.",
+      "source": "https://docs.databricks.com/aws/en/partner-connect/",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.6-q5",
+      "type": "multiple",
+      "stem": "Which two factors should drive the choice between Auto Loader, Lakeflow Connect and other methods? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The color of the dashboard theme"
+        },
+        {
+          "id": "b",
+          "text": "Where the data comes from: files in storage, an application or a database"
+        },
+        {
+          "id": "c",
+          "text": "How much customization the pipeline needs"
+        },
+        {
+          "id": "d",
+          "text": "The analyst's favorite language"
+        },
+        {
+          "id": "e",
+          "text": "The number of notebooks in the workspace"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "The data source and the level of pipeline customization decide the method.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

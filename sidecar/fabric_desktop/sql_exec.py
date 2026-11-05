@@ -72,7 +72,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, sql, sql_policy, warehouse
+from . import app_settings, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -138,6 +138,7 @@ class Execution:
     confirm_name: str = ""  # warehouse change: the warehouse the person confirmed, checked against Fabric's name
     affected: int = 0  # warehouse change: rows its statements changed
     plan: bool = False  # warehouse target: the estimated plan, not the rows (WH-09)
+    precondition: dict[str, Any] | None = None  # a deploy change: the object as its preview saw it (#947)
     committed: bool = False
 
     @property
@@ -222,7 +223,7 @@ class SqlExecutions:
               allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
               warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-              estimated_plan: bool = False) -> dict[str, Any]:
+              estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit.
@@ -231,7 +232,9 @@ class SqlExecutions:
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric. With
         ``allow=["warehouse_write"]`` it is a change: it runs only with ``confirm`` and
         ``confirm_name``, the warehouse's name as the person confirmed it. With ``estimated_plan``
-        (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML."""
+        (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML. A change
+        with ``precondition`` (warehouse.precondition_problem) runs only if that object is still as a
+        deploy's preview saw it; otherwise nothing is sent (#947)."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -269,6 +272,12 @@ class SqlExecutions:
         change = target == "warehouse" and "warehouse_write" in allowed
         if estimated_plan and (target != "warehouse" or change):
             raise ValueError("An estimated plan is for a warehouse query that reads.")
+        if precondition is not None:
+            if not change:
+                raise ValueError("A precondition is for a warehouse change.")
+            problem = warehouse.precondition_problem(precondition)
+            if problem:
+                raise ValueError(f"The change wasn't sent: {problem}.")
         writes_setting = app_settings.load()["sql_warehouse_writes"] if change else {}
         if change and not writes_setting["value"]:
             raise PermissionError("Warehouse changes are turned off in Settings › SQL"
@@ -290,6 +299,8 @@ class SqlExecutions:
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
             run.confirm_name = confirm_name.strip() if change else ""
             run.plan = bool(estimated_plan)
+            run.precondition = ({k: precondition[k] for k in warehouse.PRECONDITION_KEYS if k in precondition}
+                                if precondition is not None else None)
             stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)
@@ -423,6 +434,8 @@ class SqlExecutions:
                                    "warehouse": {k: run.warehouse[k] for k in ("server", "database")},
                                    "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow,
                                    "plan": run.plan}
+            if run.precondition:
+                job["precondition"] = run.precondition
         else:
             job = {"query": run.query, "dialect": run.dialect, "allow": list(run.allow),
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
@@ -671,12 +684,28 @@ class SqlExecutions:
                 while need > 0 and i < reader.num_record_batches:
                     batch = reader.get_batch(i).slice(skip, need)
                     columns = [c.to_pylist() for c in batch.columns]  # by position: names can repeat
-                    rows.extend([list(r) for r in zip(*columns)])
+                    rows.extend([list(r) for r in zip(*columns, strict=True)])
                     need -= batch.num_rows
                     skip, i = 0, i + 1
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
                 "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
                 "has_next": offset + len(rows) < run.rows}
+
+    def query_of(self, run_id: str) -> str:
+        """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""
+        return self._get(run_id).query
+
+    def table(self, run_id: str) -> tuple[dict[str, Any], pa.Table]:
+        """A completed run's status and its whole result, from its snapshot (Compare, GD-02). Columns
+        with the same name get the export's unique names."""
+        run = self._get(run_id)
+        if run.state != "completed":
+            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to compare.")
+        if not run.snapshot.exists():
+            raise RerunNeeded("This result was cleaned up. Run the query again to compare it.")
+        with pa.memory_map(str(run.snapshot)) as source:
+            table = pa.ipc.open_file(source).read_all()
+        return run.status(), table.rename_columns(_unique_names(table.schema).names)
 
     # ---- export
 
@@ -737,14 +766,14 @@ class SqlExecutions:
                         writer.close()
             if export.cancel.is_set():
                 raise _Stopped()
-            os.replace(partial, export.path)  # over the empty file that reserved the name
+            jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
             export.state = "completed"
         except _Stopped:
+            _discard(partial, export.path)  # before the state changes: a finished export leaves no files
             export.state = "cancelled"
-            _discard(partial, export.path)
         except Exception as exc:  # noqa: BLE001 - shown on the page
-            export.state, export.error = "failed", str(exc) or type(exc).__name__
             _discard(partial, export.path)
+            export.state, export.error = "failed", str(exc) or type(exc).__name__
 
     # ---- clean-up
 
@@ -776,6 +805,20 @@ class _Stopped(Exception):
 
 
 _OUTSIDE_COMMAND = re.compile(r"(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
+_DOLLAR_TAG = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")  # opens $$...$$ or $tag$...$tag$
+
+
+def _escape_string_end(query: str, i: int) -> int:
+    """Just past the quote that ends an E'...' string whose text starts at ``i``."""
+    n = len(query)
+    while i < n:
+        if query[i] == "\\":
+            i += 2
+        elif query[i] == "'":
+            return i + 1
+        else:
+            i += 1
+    return n
 
 
 def _outside_command(query: str) -> str:
@@ -799,8 +842,12 @@ def _outside_command(query: str) -> str:
             start = False
             continue
         ch = query[i]
-        if ch in "'\"":
+        if ch == "'" and i and query[i - 1] in "eE" and not (i > 1 and (query[i - 2].isalnum() or query[i - 2] == "_")):
+            i = _escape_string_end(query, i + 1)  # E'...': a backslash escapes the next character
+        elif ch in "'\"":
             i = n if (j := query.find(ch, i + 1)) < 0 else j + 1  # '' inside a string is two strings back to back
+        elif ch == "$" and not (i and (query[i - 1].isalnum() or query[i - 1] == "_")) and (tag := _DOLLAR_TAG.match(query, i)):
+            i = n if (j := query.find(tag.group(), tag.end())) < 0 else j + len(tag.group())  # quotes inside are text
         elif query.startswith("--", i):
             i = n if (j := query.find("\n", i)) < 0 else j + 1
         elif query.startswith("/*", i):

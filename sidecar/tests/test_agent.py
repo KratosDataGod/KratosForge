@@ -1,6 +1,9 @@
 """The headless agent: config, unattended sign-in, the durable queue, table leases, and real runs."""
 
 import json
+import re
+import sqlite3
+import time
 import threading
 from pathlib import Path
 
@@ -200,6 +203,30 @@ def test_queue_retries_with_backoff_then_gives_up(tmp_path):
     assert q.counts()["dead"] == 1
 
 
+def test_a_claim_waiting_for_the_queue_sees_a_job_added_while_it_waited(tmp_path):
+    # Another thread or process adds a job while this claim waits for the write lock. The claim
+    # reads the time once it has the lock, so the job is due to it (a time read before waiting
+    # made the job look not yet due: the claim came back empty).
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    other = sqlite3.connect(tmp_path / "q.sqlite3", isolation_level=None)
+    try:
+        other.execute("begin immediate")  # holds the write lock, as a writer elsewhere does
+        got = []
+        waiter = threading.Thread(target=lambda: got.append(q.claim("w1", 60)))
+        waiter.start()
+        waiter.join(0.5)
+        assert waiter.is_alive()  # waiting for the lock
+        clock.t += 5
+        other.execute("insert into jobs (id, kind, payload, state, source, max_attempts, next_at, created_at)"
+                      " values ('job-late', 'meta', '{}', 'queued', '', 3, ?, ?)", (clock.t, clock.t))
+        other.execute("commit")
+        waiter.join(10)
+    finally:
+        other.close()
+    assert got and got[0] is not None and got[0]["id"] == "job-late"
+
+
 def test_queue_puts_back_a_job_whose_worker_died(tmp_path):
     clock = Clock()
     q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
@@ -217,6 +244,147 @@ def test_queue_puts_back_a_job_whose_worker_died(tmp_path):
     assert not q.heartbeat(job["id"], "crashed-worker", 60)
     assert not q.succeed(job["id"], "crashed-worker")
     assert q.succeed(job["id"], "w2", {"ok": 1}) and q.get(job["id"])["result"] == {"ok": 1}
+
+
+def test_an_unreadable_queue_file_is_set_aside_and_the_agent_starts_empty(setup, caplog):
+    path = setup.home / "queue.sqlite3"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"garbage" * 1000)
+    (setup.home / "queue.sqlite3-wal").write_bytes(b"old wal")
+    agent = Agent(setup)
+    assert agent.queue.list() == [] and agent.queue.set_aside.name.startswith("queue.sqlite3.corrupt-")
+    assert agent.queue.set_aside.read_bytes() == b"garbage" * 1000  # kept for a person to look at
+    assert not (setup.home / "queue.sqlite3-wal").exists() or (setup.home / "queue.sqlite3-wal").read_bytes() != b"old wal"
+    assert "started with an empty queue" in caplog.text
+    job = agent.enqueue("dev")
+    assert agent.queue.get(job["id"])["state"] == "queued"
+    assert Agent(setup).queue.set_aside is None  # the new file is fine
+
+
+def test_a_queue_file_damaged_inside_is_set_aside_too(tmp_path):
+    path = tmp_path / "q.sqlite3"
+    q = JobQueue(path)
+    for i in range(200):
+        q.enqueue("meta", {"env": "dev", "pad": "x" * 500, "i": i})
+    data = bytearray(path.read_bytes())
+    data[8192:12288] = b"\xff" * 4096  # a page in the middle, past the header
+    path.write_bytes(bytes(data))
+    assert JobQueue(path).set_aside is not None
+
+
+def test_a_busy_queue_file_is_not_set_aside(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "q.sqlite3"
+    JobQueue(path)
+    monkeypatch.setattr(JobQueue, "_open", lambda self: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
+    with pytest.raises(sqlite3.OperationalError):
+        JobQueue(path)
+    assert path.exists() and not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_a_run_whose_job_was_claimed_again_cant_renew_or_finish_the_new_attempt(tmp_path):
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    job = q.enqueue("meta", {"env": "dev"})
+    first = q.claim("etl-01", 60)
+    clock.t += 61
+    assert q.recover() == [job["id"]]
+    second = q.claim("etl-01", 60)  # the same agent claims it again while its first run still works
+    assert second["claim_id"] and second["claim_id"] != first["claim_id"]
+    old = first["claim_id"]
+    assert not q.heartbeat(job["id"], "etl-01", 60, claim=old)
+    assert not q.succeed(job["id"], "etl-01", {"ok": 1}, claim=old)
+    assert not q.fail(job["id"], "etl-01", "boom", claim=old)
+    assert q.retry_later(job["id"], "etl-01", "timeout", claim=old) is None
+    assert not q.cancel(job["id"], "stop", owner="etl-01", claim=old)
+    clock.t += 61
+    assert q.recover() == [job["id"]] and q.get(job["id"])["state"] == "queued"
+    assert not q.cancel(job["id"], "stop", owner="etl-01", claim=old)  # nor the queued retry
+    second = q.claim("etl-01", 60)
+    assert q.get(job["id"])["state"] == "running"
+    assert q.heartbeat(job["id"], "etl-01", 60, claim=second["claim_id"])
+    assert q.succeed(job["id"], "etl-01", {"ok": 2}, claim=second["claim_id"])
+    assert q.get(job["id"])["result"] == {"ok": 2}
+
+
+def test_a_queue_file_from_before_claim_ids_gets_the_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "q.sqlite3"
+    JobQueue(path).enqueue("meta", {"env": "dev"})
+    with sqlite3.connect(path) as db:
+        db.execute("alter table jobs drop column claim_id")
+    q = JobQueue(path)
+    assert q.claim("w1", 60)["claim_id"]
+
+
+def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
+    import dataclasses
+    import sqlite3
+    import threading
+    agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.3))
+    agent.queue.enqueue("meta", {"env": "dev"})
+    job = agent.queue.claim(setup.name, 0.3)
+    real, calls = agent.queue.heartbeat, []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **k)
+    agent.queue.heartbeat = flaky
+    done, lost = threading.Event(), threading.Event()
+    beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
+    beat.start()
+    try:
+        deadline = time.monotonic() + 10
+        while len(calls) < 4 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert beat.is_alive() and len(calls) >= 4 and not lost.is_set()
+        assert agent.queue.recover() == []  # renewed: not put back
+    finally:
+        done.set()
+        beat.join(5)
+
+
+def test_a_run_that_lost_its_lease_stops_and_leaves_the_job_to_the_next_attempt(setup, monkeypatch):
+    import dataclasses
+    agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.15))
+    job = agent.enqueue("dev")
+    claimed = agent.queue.claim(setup.name, 0.15)
+    tables = []
+
+    def run_environment(env, entities, backfill, cascade, job=None, guard=None):
+        # meanwhile its lease ran out and the job was claimed again: the next renewal finds that
+        with agent.queue._tx() as db:
+            db.execute("update jobs set claim_id = 'a-newer-claim' where id = ?", (claimed["id"],))
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            guard()  # before each table
+            tables.append(1)
+            time.sleep(0.02)
+        raise AssertionError("the run never stopped")
+    monkeypatch.setattr(agent.runtime, "run_environment", run_environment)
+    agent.run_job(claimed)
+    after = agent.queue.get(job["id"])
+    assert after["state"] == "running" and after["claim_id"] == "a-newer-claim"  # the newer attempt's, untouched
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "lease_lost", line
+
+
+def test_a_run_whose_lease_ran_out_at_the_end_is_not_recorded_as_ok(setup, monkeypatch):
+    agent = Agent(setup)
+    job = agent.enqueue("dev")
+    claimed = agent.queue.claim(setup.name, setup.job_lease_seconds)
+
+    def run_environment(env, entities, backfill, cascade, job=None, guard=None):
+        with agent.queue._tx() as db:  # claimed again just as it finished
+            db.execute("update jobs set claim_id = 'a-newer-claim' where id = ?", (claimed["id"],))
+        return [{"entity": "silver.orders", "status": "ok", "rows_written": 1}]
+    monkeypatch.setattr(agent.runtime, "run_environment", run_environment)
+    agent.run_job(claimed)
+    assert agent.queue.get(job["id"])["state"] == "running"
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "lease_lost", line
 
 
 def test_queue_survives_a_new_process_and_dedupes(tmp_path):
@@ -339,9 +507,15 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
 
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
     backend = LocalBackend(tmp_path / "leases")
-    order = []
+    order, waiting = [], threading.Event()
+
+    def sleep(_):
+        order.append("waited")
+        waiting.set()
+        threading.Event().wait(0.05)
+
     first = Leases(backend, "a", ttl=60, wait=30)
-    second = Leases(backend, "b", ttl=60, wait=30, sleep=lambda s: order.append("waited") or threading.Event().wait(0.05))
+    second = Leases(backend, "b", ttl=60, wait=30, sleep=sleep)
     with first.hold("t"):
         done = []
 
@@ -350,10 +524,13 @@ def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
                 done.append("b wrote")
         t = threading.Thread(target=run)
         t.start()
-        threading.Event().wait(0.2)
+        # Release only once b has found the lease taken: a fixed pause let a slow Windows runner
+        # start b after the release, so b never had to wait.
+        assert waiting.wait(10), "b never waited for the lease"
+        assert done == []
         order.append("a wrote")
     t.join(5)
-    assert done == ["b wrote"] and "waited" in order
+    assert done == ["b wrote"] and order[0] == "waited" and "a wrote" in order
     assert backend.read("t") is None  # released
 
 
@@ -458,7 +635,10 @@ def test_agent_runs_a_queued_environment_with_run_details(setup):
     finish(agent)
     done = agent.queue.get(job["id"])
     assert done["state"] == "succeeded", done["error"]
-    assert done["result"]["tables"] == 6 and done["result"]["failed"] == 0
+    # It once failed here in a full local run and didn't again in 2 more full runs and 6 alone: say
+    # what the job recorded, so the next failure shows which count was off and why.
+    result = done["result"] or {}
+    assert result.get("tables") == 6 and result.get("failed") == 0, f"job result {result!r}, attempts {done['attempts']}"
     log = LocalStore(setup.project / ".local" / "dev", "dev").meta("run_log")
     assert set(log["worker"]) == {"etl-01"} and set(log["job_id"]) == {job["id"]}
     assert set(log["attempt"]) == {1} and all(b.startswith("agent-") for b in log["batch_id"])
@@ -475,11 +655,17 @@ def test_agent_refuses_environments_it_was_not_given(setup):
         Runtime(setup).run_environment("prod")
 
 
-def test_a_busy_table_is_retried_for_just_the_tables_that_did_not_run(setup):
+def test_a_busy_table_is_retried_for_just_the_tables_that_did_not_run(setup, monkeypatch):
     import dataclasses
+    from fabric_desktop import meta_service
     Leases(LocalBackend(setup.project / ".local" / "dev" / "_leases"), "someone-else", ttl=3600) \
         .try_acquire("LH_Gold/dbo.fact_sales")
-    agent = Agent(dataclasses.replace(setup, table_lease_seconds=0.2))  # wait 0.2 s for a busy table
+    # Wait 0.2 s for a busy table, but keep each lease a minute long: a 0.2 s lease must be renewed
+    # every 0.07 s, which a busy runner misses, and the tables that aren't busy then fail with LeaseLost.
+    # (The agent's table_lease_seconds is 15 s or more, so only a test makes a lease this short.)
+    real = meta_service.Leases
+    monkeypatch.setattr(meta_service, "Leases", lambda backend, owner, ttl, wait: real(backend, owner, ttl=60, wait=wait))
+    agent = Agent(dataclasses.replace(setup, table_lease_seconds=0.2))
     job = agent.enqueue("dev")
     agent.step()
     finish(agent)
@@ -495,9 +681,28 @@ def test_a_failed_check_fails_the_job_without_retrying(setup, tmp_path):
     job = agent.enqueue("dev", ["bronze.orders"])
     agent.step()
     finish(agent)
-    assert agent.queue.get(job["id"])["state"] == "failed"
-    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
-    assert line["outcome"] == "error" and "bronze.orders" in line["error"]
+    # This failed once in a full local run with only its summary line kept (flaky ledger), so each
+    # check says what it saw.
+    done = agent.queue.get(job["id"])
+    recent = agent.audit.recent(10)
+    assert done["state"] == "failed", (done, recent)
+    lines = [e for e in recent if e["action"] == "agent_job"]
+    assert len(lines) == 1, recent
+    assert lines[0]["outcome"] == "error" and "bronze.orders" in lines[0]["error"], lines[0]
+
+
+def test_asking_for_the_project_again_leaves_the_one_a_job_holds_whole(setup):
+    """A job validates and runs the Project it was given while the agent's loop asks for the project
+    again (status, incidents, the mailbox). Asking again must not reload that Project in place: a
+    reload empties its entities before refilling them, and a job that validated then saw gold.dim_customer
+    reading a silver.customers that wasn't there (the flaky ledger's test_a_failed_check_fails_the_job)."""
+    runtime = Runtime(setup)
+    held = runtime._project()
+    names = sorted(held.entities)
+    (setup.project / "metadata" / "entities" / "silver.customers.toml").unlink()
+    again = runtime._project()
+    assert "silver.customers" not in again.entities  # the next caller sees the folder as it is now
+    assert sorted(held.entities) == names  # the job's Project is untouched
 
 
 def test_a_job_from_a_crashed_agent_runs_again_after_restart(setup):
@@ -720,3 +925,56 @@ def test_a_lease_file_being_deleted_reads_as_busy_not_an_error(tmp_path, monkeyp
         return real(self)
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
     assert backend.read("LH/dbo.t").data == b"{}"
+
+
+def test_job_ids_made_in_the_same_second_carry_48_random_bits(tmp_path):
+    """200 jobs in one second with 24 random bits collided about once in 800 runs (UNIQUE constraint failed)."""
+    q = JobQueue(tmp_path / "q.sqlite3", clock=lambda: 1_700_000_000.0)
+    ids = [q.enqueue("meta", {"i": i})["id"] for i in range(200)]
+    assert len(set(ids)) == 200
+    assert all(re.fullmatch(r"job-\d{8}-\d{6}-[0-9a-f]{12}", i) for i in ids), ids[:3]
+
+
+# ---- the policy file (#1670's follow-up): the agent records a change in its own audit log
+
+def test_agent_records_the_policy_file_at_start_and_a_change_at_its_next_check(setup, monkeypatch, tmp_path):
+    from fabric_desktop import agent as agent_mod
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"show_preview": False}), encoding="utf-8")
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock), clock=clock)
+    seen = lambda: [(e["action"], e["target"]["state"]) for e in agent.audit.entries()  # noqa: E731
+                    if e["action"].startswith("policy_file_")]
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied")]
+    assert (setup.home / "policy-seen.json").exists()  # in the agent's home, apart from the desktop app's
+    policy.write_text(json.dumps({"show_preview": True}), encoding="utf-8")
+    clock.t += agent_mod.POLICY_CHECK_SECONDS - 1
+    agent.step()
+    assert len(seen()) == 1  # not time to look again yet
+    clock.t += 1
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied"), ("policy_file_changed", "applied")]
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert len(seen()) == 2  # unchanged: nothing new
+    policy.unlink()
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert seen()[-1] == ("policy_file_changed", "none")
+
+
+def test_a_policy_check_that_fails_is_logged_and_the_loop_carries_on(setup, monkeypatch, caplog):
+    from fabric_desktop import policy_watch
+    def broken(*_):
+        raise OSError("disk gone")
+    monkeypatch.setattr(policy_watch, "check", broken)
+    clock = Clock()
+    q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
+    agent = Agent(setup, queue=q, clock=clock)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert "couldn't check the policy file" in caplog.text
+    assert agent._pruned_at is not None  # the rest of the pass ran

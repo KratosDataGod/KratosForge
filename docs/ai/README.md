@@ -7,11 +7,12 @@ KratosForge is **AI-ready, not AI-dependent**. It has no AI of its own: no chat,
 | This page | Connecting a tool, step by step, with the setup for each one |
 | [Workflows](workflows.md) | Step-by-step workflows your tool can follow (also served as MCP prompts) |
 | [Instructions for your AI tool](agent-instructions.md) | Text to paste into `AGENTS.md`, `CLAUDE.md`, `.cursorrules` or `.github/copilot-instructions.md` |
+| [Use with Microsoft's Fabric skills](microsoft-fabric-skills.md) | The KratosForge skill for Claude Code and GitHub Copilot CLI, and how it works beside Microsoft's Fabric skills |
 | [Architecture](../architecture/ai-integration.md), [security](../product/ai-integration-security.md), [compatibility](../product/ai-integration-compatibility.md) | Developers and IT |
 
 ## Which tools have been tried
 
-Only the MCP Python SDK client and an HTTP client are tested, automatically on every build. **None of the AI tools below has been tried with KratosForge yet**: each setup follows that tool's documented MCP configuration format, but is **Untested**. The [compatibility page](../product/ai-integration-compatibility.md) is kept up to date; if you try one, open an issue with the tool, its version and what happened.
+Only the MCP Python SDK client and an HTTP client are tested, automatically on every build. Claude Code is **Partly tested**: most of the checklist passed on Linux without a Fabric sign-in, and it hasn't been run on Windows yet. Codex CLI reads its setup below, but no steps have been run with it. The other tools are **Untested**: each setup follows that tool's documented MCP configuration format, but nobody has run it with that tool yet. The [compatibility page](../product/ai-integration-compatibility.md) is kept up to date; if you try one, open an issue with the tool, its version and what happened.
 
 ## Connect a tool
 
@@ -26,7 +27,7 @@ KratosForge has to be open while you use it: requests that need your approval ap
 
 ### Claude Code
 
-Run this once in a terminal. Status: **Untested**.
+Run this once in a terminal. Status: **Partly tested** ([what was run](../product/ai-integration-compatibility.md#checklist-runs)).
 
 ```text
 claude mcp add fabric-desktop -- "C:\Users\you\AppData\Local\FabricDesktop\bin\fabric-desktop-mcp.cmd" --client YOUR-CLIENT-ID
@@ -128,6 +129,8 @@ MCP (Streamable HTTP): http://127.0.0.1:47615/mcp
 Header: Authorization: Bearer <the token shown once>
 ```
 
+Use `127.0.0.1` in the address, not `localhost`: on Windows, `localhost` tries the IPv6 address `::1` first, which the API doesn't listen on, so on a PC other people also sign in to, another account's program could answer there. On Windows the API answers only programs running as your own Windows account. Run the tool the way KratosForge runs, not as administrator: Windows may not say who runs an elevated program, and the API then refuses it.
+
 ## What a connected tool can and can't do
 
 | It can, with the permission you gave it | It can't, whatever you give it |
@@ -136,8 +139,9 @@ Header: Authorization: Bearer <the token shown once>
 | Read rows, a few at a time (**Read data**) | Write tables through KratosForge, or change Fabric items |
 | Run read-only SQL, and Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Use Git, or change settings and policies |
 | Read Prove results and receipts, and with your approval compare tables or export a receipt | Read local files through SQL, or run anything without your approval |
+| List an environment's semantic models, export one as Apache Ossie YAML, and preview what an Ossie import would change (Preview; importing stays in KratosForge, behind its confirm) | |
 
-Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through KratosForge are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. A SQL query a tool runs uses the memory share and threads set for the SQL page (**Settings › SQL queries**), and is stopped when its time limit (`timeout_seconds`, 2 minutes unless the tool asks otherwise) runs out or the tool cancels it; the tool gets a timeout error and its next query can start straight away. One tool query runs at a time; another waits for it, and the wait counts towards its time limit. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**, and in an audit trail your IT team can collect (`%LOCALAPPDATA%\FabricDesktop\integrations\audit`).
+Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through KratosForge are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. A SQL query a tool runs uses the memory share and threads set for the SQL page (**Settings › Advanced › SQL queries**), and is stopped when its time limit (`timeout_seconds`, 2 minutes unless the tool asks otherwise) runs out or the tool cancels it; the tool gets a timeout error and its next query can start straight away. One tool query runs at a time; another waits for it, and the wait counts towards its time limit. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**, and in an audit trail your IT team can collect (`%LOCALAPPDATA%\FabricDesktop\integrations\audit`).
 
 These limits apply to what your tool does through KratosForge. A tool that can already run commands on your PC (as most coding agents can) can do anything you can, with or without this connection; see [security](../product/ai-integration-security.md#what-it-does-not-protect-against).
 

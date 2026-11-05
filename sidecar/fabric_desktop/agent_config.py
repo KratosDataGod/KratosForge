@@ -45,6 +45,13 @@
     poll_seconds = 30
     claim = "always"                      # or "when_free": take a request only with a worker free (Preview)
     take_over = false                     # true: take over requests from an agent that stopped reporting (Preview)
+    require_run = false                   # true: only take requests whose pipeline_run checks out in Fabric (Preview)
+
+    [shortcut_health]                     # optional: check the environments' shortcuts, post each break to Teams
+    enabled = true                        # off when left out
+    minutes = 60                          # how often (at least 15)
+    environments = ["prod"]               # agent.environments if left out
+    webhook_env = "SHORTCUTS_TEAMS_WEBHOOK"  # alerts.teams_webhook_env if left out
 
     [[schedule]]
     id = "prod-nightly"
@@ -66,11 +73,12 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .fabric_run import schedule_configuration
 from .local_schedules import local_configuration
 from .meta.project import ENVIRONMENTS
+from .redact import one_line
 
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
@@ -123,6 +131,7 @@ class PipelineConfig:
     retention_days: float = 14.0
     claim: str = "always"  # or "when_free": only claim a request while a worker is free
     take_over: bool = False  # take over requests held by an agent that stopped reporting (mailbox.py)
+    require_run: bool = False  # reject requests whose pipeline_run doesn't check out in Fabric (mailbox.py)
 
 
 @dataclass(frozen=True)
@@ -136,6 +145,15 @@ class IncidentsConfig:
     escalate_after_minutes: float = 0.0
     escalate_to: str = ""
     routes: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class ShortcutHealthConfig:
+    """``[shortcut_health]``: check the shortcuts in each environment's workspaces (shortcut_watch.py)."""
+    enabled: bool = False
+    minutes: float = 60.0
+    environments: list[str] = field(default_factory=list)
+    webhook_env: str = ""
 
 
 @dataclass(frozen=True)
@@ -162,10 +180,17 @@ class AgentConfig:
     schedules: list[Schedule] = field(default_factory=list)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     incidents: IncidentsConfig = field(default_factory=IncidentsConfig)
+    shortcut_health: ShortcutHealthConfig = field(default_factory=ShortcutHealthConfig)
 
     @property
     def teams_webhook(self) -> str:
         return os.environ.get(self.teams_webhook_env, "") if self.teams_webhook_env else ""
+
+    @property
+    def shortcut_webhook(self) -> str:
+        """Where shortcut breaks go: shortcut_health.webhook_env, else alerts.teams_webhook_env."""
+        name = self.shortcut_health.webhook_env or self.teams_webhook_env
+        return os.environ.get(name, "") if name else ""
 
 
 def _secret_keys(table: Any, where: str) -> list[str]:
@@ -193,7 +218,7 @@ def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
         if not isinstance(r, dict):
             errors.append(f"incidents.route {i + 1}: write it as [[incidents.route]] with a name and webhook_env")
             continue
-        where = f"incidents.route {r.get('name') or i + 1}"
+        where = f"incidents.route {one_line(r.get('name') or i + 1, 80)}"
         name = str(r.get("name") or "")
         if not _ID.fullmatch(name) or name == "default":
             errors.append(f"{where}: name is letters, digits, . _ or - (and not \"default\")")
@@ -215,7 +240,7 @@ def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
 
 
 def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None:
-    where = f"schedule {raw.get('id') or i + 1}"
+    where = f"schedule {one_line(raw.get('id') or i + 1, 80)}"
     sid, env = str(raw.get("id", "")), raw.get("env")
     if not _ID.fullmatch(sid):
         errors.append(f"{where}: id is letters, digits, . _ or -")
@@ -260,6 +285,30 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     return Schedule(sid, env, entities, config, str(raw.get("backfill", "")), schedule, shared)
 
 
+def _shortcut_health(raw: dict[str, Any], envs: list[str], alerts_env: str, number: Callable[..., float],
+                     errors: list[str]) -> ShortcutHealthConfig:
+    """``[shortcut_health]``. Turning it on needs somewhere to post: a check nobody hears about is no alert."""
+    enabled = raw.get("enabled", False)
+    if not isinstance(enabled, bool):
+        errors.append("shortcut_health.enabled: true or false")
+    if any(k in raw for k in ("url", "webhook")):
+        errors.append("shortcut_health: give the webhook as webhook_env, the name of an environment variable")
+    unknown = set(raw) - {"enabled", "minutes", "environments", "webhook_env", "url", "webhook"}
+    if unknown:
+        errors.append(f"shortcut_health: doesn't know {', '.join(sorted(unknown))}")
+    given = raw.get("environments")
+    if given is not None and not isinstance(given, list):
+        errors.append('shortcut_health.environments: a list, like ["prod"]')
+        given = None
+    sh_envs = [str(e) for e in given or envs]
+    errors += [f"shortcut_health.environments: {e} isn't in agent.environments" for e in sh_envs if e not in envs]
+    webhook_env = str(raw.get("webhook_env") or "")
+    if enabled is True and not (webhook_env or alerts_env):
+        errors.append("shortcut_health: give webhook_env (or alerts.teams_webhook_env) so breaks go to a Teams channel")
+    return ShortcutHealthConfig(enabled=enabled is True, minutes=number(raw, "minutes", 60, 15, "shortcut_health"),
+                                environments=sh_envs, webhook_env=webhook_env)
+
+
 def host_name() -> str:
     """The default agent name: this machine's name, with anything agent.name can't hold made a ``-``."""
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", socket.gethostname())[:64] or "agent"
@@ -276,15 +325,23 @@ def load(path: Path | str | None = None) -> AgentConfig:
     return parse(raw, path)
 
 
+def _is_file(path: Path) -> bool:
+    """Whether ``path`` exists; a path the system refuses to look up (too long, a bad character) doesn't."""
+    try:
+        return path.exists()
+    except (OSError, ValueError):
+        return False
+
+
 def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors = _secret_keys(raw, "")
-    agent, auth, retry, alerts, pipe, inc = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
-                                                                      "incidents"))
+    agent, auth, retry, alerts, pipe, inc, sh = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
+                                                                          "incidents", "shortcut_health"))
     project = agent.get("project", "")
     if not project:
         errors.append("agent.project: the metadata project folder is required")
-    elif not (Path(project) / "layers.toml").exists():
-        errors.append(f"agent.project: {project} isn't a metadata project (no layers.toml)")
+    elif not _is_file(Path(project) / "layers.toml"):
+        errors.append(f"agent.project: {one_line(project, 200)} isn't a metadata project (no layers.toml)")
     envs = list(agent.get("environments") or [])
     if not envs:
         errors.append("agent.environments: list the environments this agent may run, e.g. [\"prod\"]")
@@ -296,8 +353,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
             errors.append("auth: a service principal needs tenant_id and client_id")
         if not auth.get("certificate_path") and not auth.get("client_secret_env"):
             errors.append("auth: give certificate_path (preferred) or client_secret_env")
-        elif auth.get("certificate_path") and not Path(auth["certificate_path"]).exists():
-            errors.append(f"auth.certificate_path: {auth['certificate_path']} doesn't exist")
+        elif auth.get("certificate_path") and not _is_file(Path(auth["certificate_path"])):
+            errors.append(f"auth.certificate_path: {one_line(auth['certificate_path'], 200)} doesn't exist")
 
     def number(table: dict[str, Any], key: str, default: float, low: float, where: str) -> float:
         value = table.get(key, default)
@@ -312,8 +369,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors += [f"schedule {i}: the id is used twice" for i in sorted({i for i in ids if ids.count(i) > 1})]
     errors += [f"schedule {s.id}: {s.env} isn't in agent.environments" for s in schedules if s.env not in envs]
     pipe_envs = [str(e) for e in pipe.get("environments") or envs]
-    errors += [f"pipeline.environments: {e} isn't in agent.environments" for e in pipe_envs if e not in envs]
-    for key in ("enabled", "allow_backfill", "take_over"):
+    errors += [f"pipeline.environments: {one_line(e, 80)} isn't in agent.environments" for e in pipe_envs if e not in envs]
+    for key in ("enabled", "allow_backfill", "take_over", "require_run"):
         if not isinstance(pipe.get(key, False), bool):
             errors.append(f"pipeline.{key}: true or false")
     pipeline = PipelineConfig(enabled=pipe.get("enabled") is True, environments=pipe_envs,
@@ -321,7 +378,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
                               retention_days=number(pipe, "retention_days", 14, 1, "pipeline"),
-                              claim=str(pipe.get("claim", "always")), take_over=pipe.get("take_over") is True)
+                              claim=str(pipe.get("claim", "always")), take_over=pipe.get("take_over") is True,
+                              require_run=pipe.get("require_run") is True)
     if pipeline.claim not in ("always", "when_free"):
         errors.append('pipeline.claim: "always" or "when_free"')
     for s in schedules:
@@ -332,6 +390,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
             errors.append(f"{where}: a shared schedule goes through the {s.env} mailbox; enable [pipeline] for {s.env}")
         if s.backfill and not pipeline.allow_backfill:
             errors.append(f"{where}: a shared backfill needs pipeline.allow_backfill = true")
+        if pipeline.require_run:
+            errors.append(f"{where}: a shared schedule's requests name no pipeline run, so pipeline.require_run must be false")
         if pipeline.entities:
             if not s.entities:
                 errors.append(f"{where}: list its entities; pipeline.entities only takes {', '.join(pipeline.entities)}")
@@ -355,6 +415,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                                 digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
                                 quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
                                 escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
+    shortcut_health = _shortcut_health(sh, envs, str(alerts.get("teams_webhook_env", "")), number, errors)
     name = agent.get("name") or host_name()
     if not isinstance(name, str) or not _ID.fullmatch(name):  # the mailbox takes over only such names
         errors.append(f"agent.name: {name!r} isn't 1 to 64 letters, digits, . _ or - (it names agents/<name>.json)")
@@ -374,7 +435,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         workspaces=[str(w) for w in agent.get("workspaces") or []],
         teams_webhook_env=str(alerts.get("teams_webhook_env", "")),
         log_level=str(agent.get("log_level", "INFO")).upper(), schedules=schedules, pipeline=pipeline,
-        incidents=incidents)
+        incidents=incidents, shortcut_health=shortcut_health)
     if errors:
         raise ConfigError(path, errors)
     return cfg

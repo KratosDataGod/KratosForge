@@ -96,7 +96,8 @@ function reducedMotion() {
 }
 
 function motionSetting(key, fallback) {
-  const v = state.settings?.[key]?.value;
+  // The load watch below can call this before app.js has declared state (a busy start-up).
+  const v = typeof state === "undefined" ? undefined : state.settings?.[key]?.value;
   return v === undefined ? fallback : v;
 }
 

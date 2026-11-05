@@ -24,18 +24,15 @@ const PERMISSION_HELP = {
 const TESTED_TOOLS = new Set();
 const DECISION_TEXT = { pending: "Waiting", approved: "Approved, not used yet", used: "Approved by you", denied: "Denied",
   expired: "Not answered" };
-const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", timed_out: "wrn", running: "info", queued: "info" };
+const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", timed_out: "wrn", running: "info", queued: "info",
+  started: "wrn", unfinished: "wrn" };
+// An approved call writes a "started" line before it runs; the engine drops it once the result is in.
+const OUTCOME_TITLE = { started: "Started after your approval. No result yet: it is still running, or the tool or KratosForge stopped before it finished." };
 
 const integ = { status: null, activity: null, watching: false, shown: new Set() };
 
 function integWhen(seconds) {
-  if (!seconds) return "Never";
-  const d = new Date(seconds * 1000);
-  const mins = Math.round((Date.now() - d) / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins} min ago`;
-  if (mins < 24 * 60) return `${Math.round(mins / 60)} h ago`;
-  return d.toLocaleDateString();
+  return seconds ? relTime(seconds * 1000) : "Never";
 }
 
 function permissionPills(ids) {
@@ -50,9 +47,10 @@ function untestedTag(kind) {
 
 async function renderIntegrationsTab(box) {
   box.replaceChildren(loading());
-  const [status, activity] = await Promise.all([
+  const [status, activity, editor] = await Promise.all([
     rpc("integrations_status").catch((err) => ({ error: friendlyError(err).text })),
     rpc("integrations_activity", { limit: 50 }).catch(() => []),
+    rpc("editor_status").catch(() => null),
   ]);
   if (!box.isConnected) return;
   integ.status = status;
@@ -64,6 +62,7 @@ async function renderIntegrationsTab(box) {
   const refresh = () => renderIntegrationsTab(box);
   box.replaceChildren(...[
     switchCard(status, refresh),
+    editor ? vscodeRunCard(editor, refresh) : null,
     status.enabled ? connectCard(status, refresh) : null,
     status.enabled ? toolsCard(status, refresh) : null,
     status.enabled && (status.extensions || []).length ? extensionsCard(status, refresh) : null,
@@ -103,6 +102,12 @@ function connectCard(status, refresh) {
   const httpToggle = h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: http.switch ? true : null, disabled: http.allowed ? null : true,
       onchange: async (e) => {
+        // Turning it on opens a port other programs on this PC can call, so it asks first.
+        if (e.target.checked && !(await confirmDialog("Turn on the local HTTP API?",
+          `Programs on this PC can then call KratosForge at ${http.url}. Each one still needs a token you make here, and gets only what you allow it.`, "Turn on"))) {
+          e.target.checked = false;
+          return;
+        }
         const res = await attempt(() => rpc("integrations_set_http", { enabled: e.target.checked }), "The local API didn't change");
         if (res) toast(res.http.running ? `The local API is on at ${res.http.url}` : "The local API is off");
         refresh();
@@ -295,6 +300,8 @@ function editTool(status, c, refresh) {
     }
   };
   const newToken = async () => {
+    if (!(await confirmDialog(`Make a new token for ${c.name}?`,
+      "Its current token stops working at once, so the tool can't connect until you give it the new one.", "Make a new token", { danger: true }))) return;
     const res = await attempt(() => rpc("integrations_new_token", { client_id: c.id }), "No new token");
     if (res) setupDialog(res.client, res.token, "http");
   };
@@ -320,7 +327,7 @@ function approvalBody(a) {
       h("dt", {}, "Permission"), h("dd", {}, permissionPills([a.permission])),
       target ? h("dt", {}, "On") : null, target ? h("dd", {}, target) : null),
     s.content ? h("pre", { class: "mono", style: "max-height:260px;overflow:auto;white-space:pre-wrap;padding:8px;border:1px solid var(--border);border-radius:6px" }, s.content.text) : null,
-    h("p", { class: "muted-text small" }, `Asked at ${new Date(a.created_at * 1000).toLocaleTimeString()}. Cancelled after 5 minutes if you don't answer. `,
+    h("p", { class: "muted-text small" }, `Asked at ${timeText(a.created_at * 1000)}. Cancelled after 5 minutes if you don't answer. `,
       "Approvals are made only here, never from the AI tool. Text the tool sends can't approve anything."));
 }
 
@@ -380,7 +387,7 @@ function activityCard(rows, status) {
   const result = (r) => {
     const state = r.outcome === "ok" ? (r.execution_state || "ok") : r.outcome;
     const pill = state === "ok" ? "pass" : OUTCOME_PILL[state] || (r.outcome === "ok" ? "info" : "fail");
-    return h("span", { class: `pill-s ${pill}`, title: r.error || "" }, state.replaceAll("_", " "));
+    return h("span", { class: `pill-s ${pill}`, title: r.error || OUTCOME_TITLE[state] || "" }, state.replaceAll("_", " "));
   };
   const target = (r) => Object.entries(r.arguments || {}).filter(([, v]) => v !== null && v !== "" && typeof v !== "object")
     .slice(0, 4).map(([k, v]) => `${k} ${v}`).join(" · ");

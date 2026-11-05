@@ -2,9 +2,12 @@
 
 import json
 import threading
+import types
+from contextlib import closing
 
 import polars as pl
 import pytest
+import requests
 
 from fabric_desktop.central import core, udf
 from fabric_desktop.central.client import FabricPlatform, LocalPlatform, PlatformKeys
@@ -63,13 +66,15 @@ class _SqlServer:
 
 def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
     monkeypatch.setattr(core, "ensure_key_table", lambda *a: None)
+    monkeypatch.setattr(core, "require_admin", lambda *a: None)
     conn = _SqlServer()
     rows = [[i, f"bk{i}", "2026-01-01"] for i in range(1, 2501)]
     out = core.import_keys(core.Db(conn, "tsql"), "customer", rows)
     inserts = [p for sql, p in conn.statements if "IDENTITY_INSERT" in sql]
     assert out == {"imported": 2500, "already_there": 0}
     assert sum(len(p) for p in inserts) == 2500 * 3 and len(inserts) == 5
-    assert "RESEED, 2500" in conn.statements[-1][0]
+    keys_sql = [sql for sql, _ in conn.statements if "[audit]" not in sql]  # the import's audit row comes last (#1194)
+    assert "RESEED, 2500" in keys_sql[-1]
 
 
 def test_keys_are_issued_in_batches(platform):
@@ -91,6 +96,8 @@ def test_two_runs_at_once_never_get_two_keys_for_one_business_key(platform):
 
 
 def test_import_keeps_numbers_and_refuses_to_renumber(platform):
+    with pytest.raises(core.PlatformError, match="Only platform admins can copy keys in"):
+        _as(platform, "eve@example.com").call("import_keys", name="customer", rows=[[5, "x", "2026-01-01"]])
     out = platform.call("import_keys", name="customer", rows=[[5, "x", "2026-01-01"], [9, "y", "2026-01-02"]])
     assert out == {"imported": 2, "already_there": 0}
     assert platform.call("import_keys", name="customer", rows=[[5, "x", ""]])["already_there"] == 1
@@ -161,6 +168,7 @@ def test_links_respect_product_access(platform):
 
 
 def test_enrichment_changes_only_the_fields_given(platform):
+    platform.call("register_project", project={"name": "crm"})
     platform.call("save_enrichment", target="crm:gold.dim_customer", fields={"description": "One row per customer",
                                                                             "tags": "pii, gold, pii"})
     platform.call("save_enrichment", target="crm:gold.dim_customer", fields={"classification": "confidential"})
@@ -199,6 +207,75 @@ def test_fabric_platform_calls_the_function_and_drops_by(monkeypatch):
     assert sent["auth"] == "Bearer tok" and "by" not in sent["body"]
 
 
+GATEWAY_PAGE = b"<html>\n<head><title>502 Bad Gateway</title></head>\n<body>Bad Gateway</body>\n</html>"
+
+
+def answering(status, content=b"", reason=""):
+    """A FabricPlatform whose UDF_Platform answers every call with this status and body."""
+    resp = requests.Response()
+    resp.status_code, resp._content, resp.reason, resp.encoding = status, content, reason, "utf-8"
+    resp._content_consumed = True  # read in full, as requests leaves a response it has read
+
+    class Session:
+        def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
+            return resp
+
+    return FabricPlatform(lambda: "tok", "ws", "fn", session=Session(), sleep=lambda _s: None)
+
+
+@pytest.mark.parametrize("status,content,reason", [
+    (502, GATEWAY_PAGE, "Bad Gateway"),
+    (503, b'{"errors": [{"message": "Service Unavailable"}]}', "Service Unavailable"),
+    (500, b"", "Internal Server Error"),
+    (429, b"Too many requests", "Too Many Requests"),
+])
+def test_a_5xx_or_429_says_the_platform_couldnt_be_reached(status, content, reason):
+    with pytest.raises(requests.HTTPError) as err:
+        answering(status, content, reason).call("key_stats", name="customer")
+    assert not isinstance(err.value, core.PlatformError), "a passing outage isn't the platform's own answer"
+    assert isinstance(err.value, requests.RequestException), "what the can't-be-reached fallbacks catch"
+    assert str(err.value) == (f"UDF_Platform couldn't be reached to key stats: Fabric answered {status} {reason}. "
+                              "Try again in a few minutes.")
+    assert err.value.response.status_code == status
+
+
+def test_a_4xx_that_isnt_json_is_a_platform_error_with_the_start_of_the_text():
+    with pytest.raises(core.PlatformError) as err:
+        answering(400, b"Bad request:\n  the function input isn't valid " + b"x" * 500).call("issue_keys", name="c")
+    text = str(err.value)
+    assert text.startswith("The platform couldn't issue keys: UDF_Platform answered 400 with something that isn't JSON: "
+                           "Bad request: the function input isn't valid xxx")
+    assert len(text) < 450
+
+
+@pytest.mark.parametrize("content,kind", [(b"[1, 2]", "JSON that isn't an object"), (b'"done"', "JSON that isn't an object"),
+                                          (b"null", "JSON that isn't an object"),
+                                          (GATEWAY_PAGE, "something that isn't JSON")])
+def test_a_200_that_isnt_a_json_object_is_a_platform_error(content, kind):
+    with pytest.raises(core.PlatformError, match=f"^The platform couldn't key stats: UDF_Platform answered 200 with {kind}: "):
+        answering(200, content).call("key_stats", name="customer")
+
+
+def test_the_401_403_and_404_messages_are_unchanged():
+    for status in (401, 403):
+        with pytest.raises(PermissionError) as err:
+            answering(status, GATEWAY_PAGE).call("key_stats", name="customer")
+        assert str(err.value) == ("The platform refused this call. Ask your platform team for at least Viewer "
+                                  "on the Platform workspace and Execute on UDF_Platform.")
+    with pytest.raises(LookupError) as err:
+        answering(404, GATEWAY_PAGE).call("key_stats", name="customer")
+    assert str(err.value) == "UDF_Platform wasn't found. Open Platform > Settings, then check the platform's workspace."
+
+
+def test_a_4xx_or_failed_json_answer_still_names_its_errors():
+    with pytest.raises(core.PlatformError, match=r"^The platform couldn't issue keys: name is required; too many$"):
+        answering(400, b'{"errors": [{"message": "name is required"}, "too many"]}').call("issue_keys", name="")
+    with pytest.raises(core.PlatformError, match=r"^The platform couldn't key stats: no table$"):
+        answering(200, b'{"status": "Failed", "errors": [{"message": "no table"}]}').call("key_stats", name="c")
+    assert answering(200, b'{"output": {"created": true}}').call("key_stats", name="c") == {"created": True}
+    assert answering(200, b"").call("key_stats", name="c") == {}
+
+
 def test_function_app_has_a_function_per_operation_and_compiles():
     source = udf.function_app()
     compile(source, "function_app.py", "exec")
@@ -206,6 +283,28 @@ def test_function_app_has_a_function_per_operation_and_compiles():
         assert f"def {op}(" in source
     parts = udf.definition("ws", "sql")
     assert "function_app.py" in json.dumps(parts)
+
+
+def test_the_definition_lists_every_function_or_fabric_refuses_it():
+    # Fabric answers "Functions is null or empty" to a definition that lists none (live run 2026-10-30)
+    parts = udf.definition("ws", "sql")
+    listed = [f["name"] for f in json.loads(parts["definition.json"])["functions"]]
+    described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
+    assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
+    assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    # The shape Fabric's own getDefinition returns: schema 1.1.0 and a libraries block (probe, 2026-11-03)
+    body = json.loads(parts["definition.json"])
+    assert body["$schema"].endswith("/definition/1.1.0/schema.json")
+    assert body["libraries"] == {"public": [], "private": []}
+    key_table = next(f for f in described if f["name"] == "ensure_key_table")
+    assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
+        ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
+    assert key_table["bindings"][1]["alias"] == udf.ALIAS
+    # Fabric refuses a connection binding without an item type it knows (live run 3, 2026-11-03)
+    assert key_table["bindings"][1]["itemType"] == "SqlDbNative"
+    assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
+        {"dataType": "str", "name": n} for n in ("name", "businessKey", "description", "domainId")]
+    assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
 
 
 # --------------------------------------------------------------------------- the mesh in a project
@@ -251,6 +350,38 @@ def test_products_are_checked_on_save_and_documented_before_publish(svc):
     assert svc.mesh_about("gold.dim_customer")["publish_problems"] == []
     assert svc.mesh_publish("dev") == {"env": "dev", "published": ["c360"]}
     assert svc.mesh_overview()["published"][0]["id"] == "crm/c360"
+
+
+def test_a_prod_publish_that_changes_a_product_tells_its_followers(svc, monkeypatch):
+    svc.meta_set_environment("prod", target="local")
+    who = {"user": "chris@example.com"}
+    monkeypatch.setattr(svc, "_user", lambda: who["user"])
+    svc.platform_save_domain({"name": "Sales"})
+    svc.mesh_set_project({"domain": "sales"})
+    product = {"name": "c360", "access": "public", "status": "published", "description": "Customers", "owner": "Chris",
+               "ports": [{"name": "customers", "entity": "gold.dim_customer"}]}
+    svc.mesh_save_product(product)
+    svc.mesh_save_about("gold.dim_customer", {"description": "One row per customer"})
+    for c in svc.mesh_about("gold.dim_customer")["columns"]:
+        svc.mesh_save_about("gold.dim_customer", {"description": f"The {c['name']}"}, c["name"])
+    sent = []
+    monkeypatch.setattr(svc, "platform_notify", lambda events: sent.extend(events) or {"sent": len(events)})
+    assert svc.mesh_publish("prod")["published"] == ["c360"]
+    assert svc.platform_products()["can_follow"] and not svc.platform_products()["products"][0]["following"]
+    assert svc.platform_follow("crm/c360") == {"following": ["crm/c360"]}
+    assert svc.platform_products()["products"][0]["following"]
+    who["user"] = "ana@example.com"
+    svc.platform_follow("crm/c360")
+    who["user"] = "chris@example.com"
+
+    svc.mesh_save_product(product | {"version": "2"})
+    svc.mesh_publish("dev")
+    assert sent == [], "Dev changes aren't news to readers"
+    svc.mesh_publish("prod")
+    [event] = sent
+    assert (event["kind"], event["detail"], event["to"]["people"]) == ("product.changed", "Version 1 to 2", ["ana@example.com"]), \
+        "the promoter isn't told about their own change"
+    assert svc.platform_follow("crm/c360", follow=False) == {"following": []}
 
 
 def test_an_entity_reads_another_teams_table_through_a_link(svc, tmp_path):
@@ -423,6 +554,15 @@ def test_only_platform_admins_create_domains_key_tables_and_sources(platform):
     ana.call("remove_admin", user="chris@example.com")
     with pytest.raises(core.PlatformError, match="at least one admin"):
         ana.call("remove_admin", user="ana@example.com")
+    # Only a sign-in name can match a caller, and removing a non-admin isn't recorded as a removal.
+    before = [e for e in ana.call("audit", limit=500) if e["action"] in ("add admin", "remove admin")]
+    for bad in ("ana", "Ana Lopez", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", ""):
+        with pytest.raises(core.PlatformError, match="sign-in name"):
+            ana.call("add_admin", user=bad)
+    with pytest.raises(core.PlatformError, match="lee@example.com isn't a platform admin"):
+        ana.call("remove_admin", user="Lee@Example.com")
+    assert [a["user_name"] for a in ana.call("list_admins")] == ["ana@example.com"]
+    assert [e for e in ana.call("audit", limit=500) if e["action"] in ("add admin", "remove admin")] == before
 
 
 def test_a_new_platform_has_no_admin_until_someone_claims_it(tmp_path):
@@ -447,6 +587,56 @@ def test_domain_owners_keep_their_own_glossary(platform):
                  {"term": "Active customer", "domain_id": "finance"}):
         with pytest.raises(core.PlatformError, match="glossary"):
             ana.call("save_term", term=term)
+
+
+def test_data_requests_go_to_the_domain_or_product_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "Dee@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    port = [{"port": "customers", "entity": "gold.dim_customer", "workspace_id": "w", "lakehouse_id": "l", "table": "dim_customer"}]
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "public",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=port, env="prod")
+    ana, bo, dee = (_as(platform, f"{n}@example.com") for n in ("ana", "bo", "dee"))
+
+    # A new product: the domain's owners decide; nothing is checked against a product.
+    new = ana.call("request", kind="data", target="Sales", project="ledger", reason="Churn by region",
+                   detail={"what": "new", "needed_by": "2026-11-30"})
+    assert (new["target"], new["detail"]["domain_name"], new["detail"]["owners"]) == ("sales", "Sales", "Dee@example.com")
+    with pytest.raises(core.PlatformError, match="already a request waiting"):
+        ana.call("request", kind="data", target="sales", project="ledger", reason=" churn  by REGION ",
+                 detail={"what": "new"})
+    assert [r["can_decide"] for r in dee.call("list_requests", status="waiting")] == [True]
+    assert [r["can_decide"] for r in bo.call("list_requests", status="waiting")] == [False]
+    with pytest.raises(core.PlatformError, match="domain's owners or a platform admin"):
+        bo.call("decide_request", id=new["id"], approve=True)
+    done = dee.call("decide_request", id=new["id"], approve=True, note="In Prod by 30 November")
+    assert (done["status"], done["note"]) == ("approved", "In Prod by 30 November")
+
+    # A change to a product: its owner decides.
+    chg = ana.call("request", kind="data", target="crm/c360", project="ledger", reason="Add a region column",
+                   detail={"what": "change"})
+    assert chg["detail"]["product_name"] == "c360"
+    with pytest.raises(core.PlatformError, match="product's owner or a platform admin"):
+        dee.call("decide_request", id=chg["id"], approve=True)
+    assert bo.call("decide_request", id=chg["id"], approve=False, note="Region is in geo/regions")["status"] == "declined"
+
+    for kwargs, why in (({"target": "sales", "reason": "x", "detail": {"what": "both"}}, "new data product or a change"),
+                        ({"target": "sales", "reason": " ", "detail": {"what": "new"}}, "Say what you need"),
+                        ({"target": "nowhere", "reason": "x", "detail": {"what": "new"}}, "Pick the domain"),
+                        ({"target": "crm/none", "reason": "x", "detail": {"what": "change"}}, "isn't a published"),
+                        ({"target": "sales", "reason": "x", "detail": {"what": "new", "needed_by": "30/11"}}, "Needed by")):
+        with pytest.raises(core.PlatformError, match=why):
+            ana.call("request", kind="data", **kwargs)
+
+
+def test_data_request_notices_name_who_decides():
+    from fabric_desktop import governance_notices as gn
+    new = {"id": "r1", "kind": "data", "target": "sales", "detail": {"what": "new", "domain_id": "sales", "owners": "Dee@example.com"}}
+    event = gn.request_waiting(new, [])
+    assert (event["title"], event["domain"], event["to"]["people"]) == ("Data request to sales", "sales", ["dee@example.com"])
+    chg = {"id": "r2", "kind": "data", "target": "crm/c360", "detail": {"what": "change", "domain_id": "sales"}}
+    event = gn.request_waiting(chg, [{"id": "crm/c360", "owner": "bo@example.com", "domain_id": "sales"}])
+    assert event["to"]["people"] == ["bo@example.com"]
 
 
 def test_requests_for_key_tables_sources_and_access(platform):
@@ -485,6 +675,7 @@ def test_requests_for_key_tables_sources_and_access(platform):
     assert [(s["name"], s["expected_hours"]) for s in ana.call("list_sources")] == [("shopify", "24")]
 
     # Access to another domain's product: its owner decides, then the link is allowed.
+    platform.call("set_project_member", project="ledger", user="ana@example.com", role="member")
     with pytest.raises(core.PlatformError, match="Request access"):
         ana.call("register_link", consumer="ledger", alias="cust", product_id="crm/c360", port="customers", reads=reads)
     acc = ana.call("request", kind="access", target="crm/c360", project="ledger", reason="Invoices by customer")
@@ -497,6 +688,17 @@ def test_requests_for_key_tables_sources_and_access(platform):
     with pytest.raises(core.PlatformError, match="owner or a platform admin"):
         ana.call("revoke_grant", product_id="crm/c360", project="ledger")
     assert bo.call("revoke_grant", product_id="crm/c360", project="ledger") == []
+    # The revoke row keeps what gave the access, since the grant row is gone (#1352).
+    revoked = next(e for e in bo.call("audit", limit=50) if e["action"] == "revoke access")
+    detail = json.loads(revoked["detail"])
+    assert detail.pop("granted_at") and detail == {"project": "ledger", "request": acc["id"], "granted_by": "bo@example.com"}
+    # Taking it away again finds nothing to take: it says so and the audit trail gains no second revoke (#1237).
+    revokes = len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"])
+    with pytest.raises(core.PlatformError, match="ledger has no access to crm/c360 to take away"):
+        bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"]) == revokes == 1
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):  # the role check comes first
+        ana.call("revoke_grant", product_id="crm/c360", project="nowhere")
 
     # Declined and withdrawn requests stay in the list with who and when.
     nope = ana.call("request", kind="key_table", target="vendor")
@@ -629,7 +831,7 @@ class _FakeFabric:
     def list_admin_domains(self):
         from fabric_desktop.fabric_api import FabricError
         if self.status != 200:
-            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized")
+            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized", status=self.status)
         return self.domains
 
     def list_admin_domain_role_assignments(self, domain_id):
@@ -729,7 +931,7 @@ def test_a_platform_made_before_source_ids_gets_them_keeping_its_sources(tmp_pat
     import sqlite3
     path = tmp_path / "old.sqlite"
     LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # the source table as schema 4 made it
+    with closing(sqlite3.connect(path)) as conn, conn:  # the source table as schema 4 made it
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -762,12 +964,8 @@ def test_moving_sources_to_the_platform_keeps_their_ids_and_reports_clashes(plat
     again = platform.call("adopt_sources", systems=[{"id": 3, "code": "CRM"}])
     assert again["moved"] == [] and again["conflicts"] == ["CRM is id 2 in the platform but 3 in this project"]
     # Only platform admins move sources.
-    db = platform._db().__enter__()
-    try:
-        with pytest.raises(core.PlatformError, match="Only platform admins"):
-            core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
-    finally:
-        db.conn.close()
+    with platform._db() as db, pytest.raises(core.PlatformError, match="Only platform admins"):
+        core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
 
 
 def test_a_project_reads_platform_sources_with_the_platform_ids(svc):
@@ -804,7 +1002,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     import sqlite3
     path = tmp_path / "old.sqlite"
     platform = LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
+    with closing(sqlite3.connect(path)) as conn, conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -813,6 +1011,575 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     with platform._db() as db:
         got = {s["name"]: s for s in core.list_sources(db)}
     assert (got["crm"]["source_id"], got["crm"]["code"], got["sap"]["source_id"], got["sap"]["active"]) == (1, "CRM", 2, True)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
+
+
+def test_owner_coverage_lists_what_has_no_owner_no_backup_or_a_quiet_owner(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "Dee@example.com, ed@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    for name, owner, status in (("c360", "bo@example.com", "published"), ("draft", "", "draft"), ("orders", "Sales team", "published")):
+        platform.call("register_product", product={"project": "crm", "name": name, "domain": "sales", "access": "public",
+                                                   "status": status, "owner": owner}, ports=[], env="prod")
+    platform.call("save_source", source={"name": "shopify", "owner": "lee@example.com; bo@example.com"})
+    for who in ("dee", "ed", "lee"):
+        _as(platform, f"{who}@example.com").call("note_seen")
+    old = (core.dt.datetime.now(core.dt.timezone.utc) - core.dt.timedelta(days=61)).isoformat(timespec="seconds")
+    with platform._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'person')} SET last_seen = ? WHERE user_name = ?", (old, "ed@example.com"))
+        db.commit()
+    bo = _as(platform, "bo@example.com")
+    bo.call("note_seen")
+    assert bo.call("note_seen")["last_seen"], "a second call the same day writes nothing new"
+
+    c = platform.call("owner_coverage")
+    gaps = {(g["kind"], g["id"]): g["problems"] for g in c["gaps"]}
+    assert c["gaps"][0]["problems"] == ["No owner"], "nobody owning it comes first"
+    assert gaps == {("domain", "finance"): ["No owner"],
+                    ("domain", "sales"): ["ed@example.com hasn't used the platform for 61 days"],
+                    ("product", "crm/c360"): ["No second owner to cover"],
+                    ("product", "crm/orders"): ["No second owner to cover"]}
+    assert next(g for g in c["gaps"] if g["id"] == "crm/orders")["unchecked"] == ["sales team"]
+    assert (c["checked"], c["covered"], c["no_owner"]) == (5, 1, 1), "drafts aren't checked; shopify is covered"
+    off = platform.call("owner_coverage", presence=False)
+    assert off["presence"] is False and ("domain", "sales") not in {(g["kind"], g["id"]) for g in off["gaps"]}
+    assert not any("used the platform" in p for g in off["gaps"] for p in g["problems"]), "no quiet check without presence"
+
+
+def test_owner_coverage_reads_without_creating_catalog_person(platform):
+    with platform._db() as db:
+        db.run(f"DROP TABLE {db.t('catalog', 'person')}")
+        db.commit()
+    platform.call("save_domain", domain={"name": "Sales", "owners": "dee@example.com"})
+    c = platform.call("owner_coverage")
+    assert c["gaps"][0]["problems"] == ["No second owner to cover", "dee@example.com hasn't used the platform yet"]
+    with platform._db() as db:
+        assert not db.exists("catalog", "person"), "a read created the table"
+
+
+def test_presence_is_noted_in_the_background_only_when_policy_turns_it_on(tmp_path, monkeypatch):
+    from fabric_desktop import app_settings
+    from fabric_desktop.central import service as central_service
+    s = Service(root=tmp_path / "app")
+    monkeypatch.setattr(s, "_user", lambda: "dee@example.com")
+    started = []
+    monkeypatch.setattr(central_service.threading, "Thread",
+                        lambda target, args, **kw: types.SimpleNamespace(start=lambda: started.append(target(*args))))
+    assert app_settings.DEFAULTS["platform_presence"] is False and app_settings.RESTRICTED["platform_presence"] is False
+    monkeypatch.setattr(app_settings, "value", lambda key: False if key == "platform_presence" else app_settings.DEFAULTS[key])
+    assert s.platform_note_seen() == {"noted": False, "reason": "off"} and not started
+    assert s.platform_owner_coverage()["presence"] is False
+    monkeypatch.setattr(app_settings, "value", lambda key: True if key == "platform_presence" else app_settings.DEFAULTS[key])
+    assert s.platform_note_seen() == {"noted": True} and len(started) == 1
+    assert s.platform_note_seen() == {"noted": False, "reason": "already"}, "once a day per run"
+    with s._catalog()._db() as db:
+        assert [r["user_name"] for r in db.rows(f"SELECT * FROM {db.t('catalog', 'person')}")] == ["dee@example.com"]
+    assert s.platform_owner_coverage()["presence"] is True
+
+
+def test_access_reviews_flag_old_grants_for_their_owners_and_take_nothing_away(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "private",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=[], env="prod")
+    bo, ana = _as(platform, "bo@example.com"), _as(platform, "ana@example.com")
+    for project in ("ledger", "billing"):
+        req = ana.call("request", kind="access", target="crm/c360", project=project, reason="Invoices")
+        bo.call("decide_request", id=req["id"], approve=True)
+    fresh = bo.call("access_reviews")
+    assert (fresh["due"], [g["project"] for g in fresh["grants"]]) == (0, ["billing", "ledger"])
+    assert ana.call("access_reviews")["grants"] == [], "only owners and admins review"
+    assert len(platform.call("access_reviews")["grants"]) == 2, "a platform admin sees every product's"
+
+    # Granted 100 days ago: due, and still there.
+    old = (core.dt.datetime.now(core.dt.timezone.utc) - core.dt.timedelta(days=100)).isoformat(timespec="seconds")
+    with platform._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'grant')} SET granted_at = ?", (old,))
+        db.commit()
+    due = bo.call("access_reviews")
+    assert due["due"] == 2 and all(g["due"] and g["days"] >= 100 for g in due["grants"])
+    assert sorted(g["project"] for g in bo.call("list_grants", product_id="crm/c360")) == ["billing", "ledger"]
+
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        ana.call("confirm_access", product_id="crm/c360", projects=["ledger"])
+    with pytest.raises(core.PlatformError, match="nope has no access"):
+        bo.call("confirm_access", product_id="crm/c360", projects=["nope"])
+    after = bo.call("confirm_access", product_id="crm/c360", projects=["ledger"])
+    ledger = next(g for g in after["grants"] if g["project"] == "ledger")
+    assert (after["due"], ledger["due"], ledger["reviewed_by"]) == (1, False, "bo@example.com")
+    assert after["grants"][0]["project"] == "billing", "the longest unconfirmed comes first"
+
+    bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert [g["project"] for g in bo.call("access_reviews")["grants"]] == ["billing"]
+
+
+def test_following_a_product_and_hearing_what_a_publish_changed(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("register_project", project={"name": "ledger", "domain": "sales"})
+    port = {"port": "customers", "entity": "gold.dim_customer", "workspace_id": "w", "lakehouse_id": "l", "table": "dim_customer",
+            "columns": {"id": "Int64", "name": "Utf8", "city": "Utf8"}}
+    product = {"project": "crm", "name": "c360", "domain": "sales", "access": "public", "status": "published", "owner": "bo@example.com"}
+    first = platform.call("register_product", product=product, ports=[port], env="prod")
+    assert first["changes"] == [] and "followers" not in first
+    ana, cy = _as(platform, "Ana@example.com"), _as(platform, "cy@example.com")
+    assert ana.call("follow_product", product_id="crm/c360") == ["crm/c360"]
+    assert ana.call("follow_product", product_id="crm/c360") == ["crm/c360"], "following twice is one follow"
+    with pytest.raises(core.PlatformError, match="isn't a published"):
+        ana.call("follow_product", product_id="crm/none")
+    platform.call("set_project_member", project="ledger", user="cy@example.com", role="member")
+    cy.call("register_link", consumer="ledger", alias="cust", product_id="crm/c360", port="customers",
+            reads={"dev": "prod", "test": "prod", "prod": "prod"})
+    assert platform.call("product_followers", product_id="crm/c360") == ["ana@example.com", "cy@example.com"]
+
+    again = platform.call("register_product", product=product, ports=[port], env="prod")
+    assert again["changes"] == [], "an unchanged publish says nothing"
+    changed = dict(port, columns={"id": "Int64", "name": "Utf8", "region": "Utf8", "city": "Int64"})
+    out = platform.call("register_product", product=dict(product, version="2", status="deprecated", deprecated_on="2027-01-31"),
+                        ports=[changed], env="prod")
+    assert out["changes"] == ["Deprecated, stops 2027-01-31", "Version 1 to 2", "Port customers: region added; city retyped"]
+    assert out["followers"] == ["ana@example.com", "cy@example.com"]
+    gone = dict(port, columns={"id": "Int64"})
+    assert platform.call("register_product", product=dict(product, version="2", status="deprecated", deprecated_on="2027-01-31"),
+                         ports=[gone], env="prod")["changes"] == ["Port customers: city, name, region removed"]
+
+    assert ana.call("unfollow_product", product_id="crm/c360") == []
+    assert platform.call("product_followers", product_id="crm/c360") == ["cy@example.com"]
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        cy.call("product_followers", product_id="crm/c360")
+    assert _as(platform, "bo@example.com").call("product_followers", product_id="crm/c360") == ["cy@example.com"]
+
+
+def test_reads_of_follows_and_reviews_create_no_tables(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published",
+                                               "owner": "bo@example.com"}, ports=[], env="dev")
+    with platform._db() as db:  # a platform made before following and access reviews
+        for table in ("follow", "grant_review"):
+            db.run(f"DROP TABLE {db.t('catalog', table)}")
+        db.commit()
+    assert platform.call("list_follows") == [] and platform.call("product_followers", product_id="crm/c360") == []
+    assert platform.call("access_reviews")["grants"] == []
+    before = len(platform.call("audit", limit=500))
+    assert platform.call("confirm_access", product_id="crm/c360", projects=[])["grants"] == []
+    assert len(platform.call("audit", limit=500)) == before, "an empty confirmation writes no audit row"
+    with platform._db() as db:
+        assert not db.exists("catalog", "follow") and not db.exists("catalog", "grant_review")
+
+
+def test_a_product_change_notice_names_its_followers_and_what_changed():
+    from fabric_desktop import governance_notices as gn
+    from fabric_desktop.workloads import platform_notify as pn
+    product = {"id": "crm/c360", "name": "c360", "domain_id": "sales"}
+    assert gn.product_changed(product, ["Version 1 to 2"], [], "prod") is None, "nobody to tell"
+    assert gn.product_changed(product, [], ["ana@example.com"], "prod") is None, "nothing changed"
+    event = pn.validate(gn.product_changed(product, ["Version 1 to 2"], ["Ana@example.com", "not a upn"], "prod"))
+    assert (event["kind"], event["title"], event["detail"], event["to"]["people"]) == (
+        "product.changed", "c360", "Version 1 to 2", ["ana@example.com"])
+    assert event["open"] == {"view": "onelake", "tab": "products", "target": "crm/c360"}
+    title, lines = pn.message(event)
+    assert title == "Data product changed: c360"
+    assert "Version 1 to 2" in lines and lines[-1] == "Open it in KratosForge: Data mesh > Products."
+
+
+def _owned_product(platform):
+    platform.call("save_domain", domain={"name": "Sales"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    product = {"project": "crm", "name": "c360", "domain": "sales", "access": "public", "status": "published",
+               "owner": "bo@example.com"}
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="member")
+    _as(platform, "bo@example.com").call("register_product", product=product, ports=[], env="prod")
+    return product
+
+
+def test_only_a_products_owners_or_an_admin_publish_it_again(platform):
+    product = _owned_product(platform)
+    eve = _as(platform, "eve@example.com")
+    with pytest.raises(core.PlatformError, match="Only crm's members or a platform admin"):
+        eve.call("register_product", product=product, ports=[], env="prod")
+    platform.call("set_project_member", project="crm", user="eve@example.com", role="member")  # a teammate, not its owner
+    with pytest.raises(core.PlatformError, match="Only crm/c360's owners or a platform admin"):
+        eve.call("register_product", product=dict(product, owner="eve@example.com", status="deprecated",
+                                                  deprecated_on="2020-01-01"), ports=[], env="prod")
+    with pytest.raises(core.PlatformError, match="owners or a platform admin"):
+        eve.call("register_product", product=product, ports=[], env="dev")  # every environment
+    row = [p for p in platform.call("list_products") if p["id"] == "crm/c360"][0]
+    assert (row["owner"], row["status"], row["updated_by"]) == ("bo@example.com", "published", "bo@example.com")
+    # An owner, in any case, and a platform admin both may.
+    _as(platform, "Bo@Example.com").call("register_product", product=dict(product, version="2"), ports=[], env="prod")
+    platform.call("register_product", product=dict(product, version="3"), ports=[], env="prod")
+
+
+def test_the_last_publisher_of_a_product_owned_by_a_team_publishes_it_again(platform):
+    product = dict(_owned_product(platform), owner="Customer team")  # a team name: no one to match
+    _as(platform, "bo@example.com").call("register_product", product=product, ports=[], env="prod")
+    _as(platform, "bo@example.com").call("register_product", product=dict(product, version="2"), ports=[], env="prod")
+    platform.call("set_project_member", project="crm", user="eve@example.com", role="member")
+    with pytest.raises(core.PlatformError, match="owners or a platform admin"):
+        _as(platform, "eve@example.com").call("register_product", product=product, ports=[], env="prod")
+
+
+def test_a_first_publish_naming_only_other_people_as_owners_is_refused(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="eve@example.com", role="member")
+    product = {"project": "crm", "name": "orders", "access": "public", "status": "published", "owner": "bo@example.com"}
+    eve = _as(platform, "eve@example.com")
+    with pytest.raises(core.PlatformError, match="add yourself to its owners"):
+        eve.call("register_product", product=product, ports=[], env="prod")
+    assert not [p for p in platform.call("list_products") if p["id"] == "crm/orders"]
+    eve.call("register_product", product=dict(product, owner="bo@example.com; eve@example.com"), ports=[], env="prod")
+    eve.call("register_product", product=dict(product, name="returns", owner="Orders team"), ports=[], env="prod")
+
+
+# --------------------------------------------------------------------------- project members
+
+
+def test_a_projects_members_change_it_and_others_are_refused(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "olu@example.com"})
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    bo.call("register_project", project={"name": "crm", "team": "Customer analytics"})  # the first to record it owns it
+    assert bo.call("list_project_members", project="crm")["members"] == [{"user": "bo@example.com", "role": "owner"}]
+    for op, kwargs in (("register_project", {"project": {"name": "crm", "team": "Not yours"}}),
+                       ("register_product", {"product": {"project": "crm", "name": "c360", "owner": "eve@example.com"},
+                                             "ports": [], "env": "prod"}),
+                       ("register_link", {"consumer": "crm", "alias": "x", "product_id": "crm/c360", "port": "p", "reads": {}}),
+                       ("set_project_member", {"project": "crm", "user": "eve@example.com", "role": "owner"})):
+        with pytest.raises(core.PlatformError, match="Only crm's members or a platform admin"):
+            eve.call(op, **kwargs)
+    assert [p["team"] for p in platform.call("list_projects")] == ["Customer analytics"]
+    # An owner adds a member, who may then change the project but not its members.
+    bo.call("set_project_member", project="crm", user="Eve@Example.com", role="member")
+    eve.call("register_project", project={"name": "crm", "team": "Customers"})
+    with pytest.raises(core.PlatformError, match="Only crm's owners or a platform admin"):
+        eve.call("set_project_member", project="crm", user="cy@example.com", role="member")
+    with pytest.raises(core.PlatformError, match="crm needs an owner"):
+        bo.call("set_project_member", project="crm", user="bo@example.com", role="")
+    with pytest.raises(core.PlatformError, match="isn't an email"):
+        bo.call("set_project_member", project="crm", user="Customer team", role="member")
+    # A platform admin changes any project's members.
+    platform.call("set_project_member", project="crm", user="eve@example.com", role="")
+    assert [m["user"] for m in bo.call("list_project_members", project="crm")["members"]] == ["bo@example.com"]
+
+
+def test_a_project_from_before_members_starts_with_the_people_who_worked_on_it(platform):
+    platform.call("register_project", project={"name": "crm"})
+    # Recorded and published before members: the catalog names who did it.
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published",
+                                               "owner": "bo@example.com; Customer team"}, ports=[], env="prod")
+    with platform._db() as db:  # as if from before members
+        db.run(f"DELETE FROM {db.t('catalog', 'project_member')}")
+        db.commit()
+    listed = _as(platform, "ana@example.com").call("list_project_members", project="crm")
+    assert listed["earlier"] and [m["user"] for m in listed["members"]] == ["bo@example.com", "chris@example.com"]
+    assert not listed["can_change"]
+    with pytest.raises(core.PlatformError, match=r"Ask one of its owners \(bo@example.com, chris@example.com\)"):
+        _as(platform, "ana@example.com").call("register_project", project={"name": "crm"})
+    _as(platform, "bo@example.com").call("register_project", project={"name": "crm", "team": "Customers"})
+
+
+def test_joining_a_domain_waits_for_its_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "olu@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    bo, olu = _as(platform, "bo@example.com"), _as(platform, "olu@example.com")
+    out = bo.call("register_project", project={"name": "crm", "domain": "sales"})
+    assert out["domain_id"] is None and out["domain_request"]["status"] == "waiting"
+    assert out["domain_request"]["detail"]["owners"] == "olu@example.com"
+    again = bo.call("register_project", project={"name": "crm", "domain": "sales", "team": "Customers"})  # a promote
+    assert again["domain_request"]["id"] == out["domain_request"]["id"], "the same ask isn't sent twice"
+    [req] = olu.call("list_requests", status="waiting")
+    assert req["kind"] == "join_domain" and req["can_decide"]
+    assert not _as(platform, "eve@example.com").call("list_requests", status="waiting")[0]["can_decide"]
+    olu.call("decide_request", id=req["id"], approve=True)
+    [crm] = platform.call("list_projects")
+    assert crm["domain_id"] == "sales"
+    # Moving to a domain with no owners waits for a platform admin; asking again for another withdraws the first ask.
+    first = bo.call("register_project", project={"name": "crm", "domain": "finance"})["domain_request"]
+    assert [r["can_decide"] for r in olu.call("list_requests", status="waiting")] == [False]
+    second = bo.call("register_project", project={"name": "crm", "domain": "sales"})
+    assert "domain_request" not in second, "back in its own domain: nothing to ask"
+    assert [r["status"] for r in platform.call("list_requests") if r["id"] == first["id"]] == ["waiting"]
+    platform.call("decide_request", id=first["id"], approve=False)
+    # A domain owner, or an admin, joins their own project directly.
+    olu.call("register_project", project={"name": "orders", "domain": "sales"})
+    assert {p["name"]: p["domain_id"] for p in platform.call("list_projects")}["orders"] == "sales"
+
+
+def test_project_toml_keeps_the_catalogs_domain_while_a_join_waits(svc):
+    svc.platform_save_domain({"name": "Sales"})
+    svc.platform_save_domain({"name": "Finance", "owners": "olu@example.com"})
+    svc.mesh_set_project({"domain": "sales"})
+    catalog = svc._catalog()
+    catalog.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    catalog._user = lambda: "bo@example.com"
+    out = svc.mesh_set_project({"domain": "finance"})
+    assert out["domain_request"]["status"] == "waiting" and out["project"]["domain"] == "sales"
+    assert 'domain = "sales"' in (svc._project().root / mesh.PROJECT_FILE).read_text(encoding="utf-8")
+    listed = svc.mesh_members()
+    assert listed["domain_request"]["mine"] and listed["domain_request"]["detail"]["domain"] == "finance"
+    catalog._user = lambda: "olu@example.com"
+    catalog.call("decide_request", id=listed["domain_request"]["id"], approve=True)
+    assert svc.mesh_members()["domain_request"] is None
+    assert [p["domain_id"] for p in svc.mesh_overview()["projects"]] == ["finance"]
+
+
+def _forget_members(platform):
+    with platform._db() as db:
+        db.run(f"DELETE FROM {db.t('catalog', 'project_member')}")
+        db.commit()
+
+
+def test_a_project_the_catalog_names_nobody_for_waits_for_an_admin_to_name_its_owner(platform):
+    # Recorded signed out on this PC, so the catalog names nobody; then members came.
+    _as(platform, "").call("register_project", project={"name": "crm"})
+    _forget_members(platform)
+    ana = _as(platform, "ana@example.com")
+    assert not ana.call("list_project_members", project="crm")["can_change"]
+    with pytest.raises(core.PlatformError, match="crm has no owner yet, so only a platform admin"):
+        ana.call("register_project", project={"name": "crm", "team": "Mine now"})
+    with pytest.raises(core.PlatformError, match="no owner yet"):
+        ana.call("set_project_member", project="crm", user="ana@example.com", role="owner")
+    assert ana.call("list_project_members", project="crm")["members"] == []
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    _as(platform, "bo@example.com").call("register_project", project={"name": "crm", "team": "Customers"})
+
+
+def test_a_name_known_only_from_its_links_isnt_claimed_by_the_first_caller(platform):
+    platform.call("register_project", project={"name": "sales"})
+    platform.call("register_product", product={"project": "sales", "name": "orders", "access": "public",
+                                               "status": "published"}, ports=[], env="prod")
+    # A link records no project row: "finance" is in the catalog only as the link's consumer.
+    with platform._db() as db:
+        db.run(f"INSERT INTO {db.t('catalog', 'link')} (id, consumer_project, alias, product_id, port, reads, updated_at, "
+               "updated_by) VALUES ('finance:orders', 'finance', 'orders', 'sales/orders', 'orders', '{}', '', '')")
+        db.commit()
+    with pytest.raises(core.PlatformError, match="finance has no owner yet"):
+        _as(platform, "eve@example.com").call("register_project", project={"name": "finance"})
+    with pytest.raises(core.PlatformError, match="finance has no owner yet"):
+        _as(platform, "eve@example.com").call("register_link", consumer="finance", alias="orders2",
+                                             product_id="sales/orders", port="orders", reads={})
+    # A name the catalog has never seen is the caller's, as their sign-in (an email, never an object id).
+    _as(platform, "eve@example.com").call("register_project", project={"name": "payroll"})
+    assert _as(platform, "eve@example.com").call("list_project_members", project="payroll")["members"] == [
+        {"user": "eve@example.com", "role": "owner"}]
+    with pytest.raises(core.PlatformError, match="no owner yet"):
+        _as(platform, "0b9c6f1e-0000-4000-8000-000000000000").call("register_project", project={"name": "hr"})
+
+
+def test_a_project_recorded_by_an_object_id_with_a_team_as_owner_isnt_claimed(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public",
+                                               "status": "published", "owner": "Customer team"}, ports=[], env="prod")
+    with platform._db() as db:  # as if an object id recorded it all, before members
+        db.run(f"UPDATE {db.t('catalog', 'project')} SET updated_by = '0b9c6f1e-0000-4000-8000-000000000000'")
+        db.run(f"UPDATE {db.t('catalog', 'product')} SET updated_by = '0b9c6f1e-0000-4000-8000-000000000000'")
+        db.commit()
+    _forget_members(platform)
+    mallory = _as(platform, "mallory@example.com")
+    listed = mallory.call("list_project_members", project="crm")
+    assert listed["members"] == [] and not listed["can_change"]
+    with pytest.raises(core.PlatformError, match="crm has no owner yet"):
+        mallory.call("register_project", project={"name": "crm", "team": "Mallory"})
+    assert mallory.call("list_project_members", project="crm")["members"] == []
+
+
+def test_catalog_text_is_saved_by_the_projects_members_and_certified_by_its_domains_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "olu@example.com"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    bo, eve, olu = (_as(platform, u) for u in ("bo@example.com", "eve@example.com", "olu@example.com"))
+    with pytest.raises(core.PlatformError, match="isn't in the platform's catalog yet"):
+        bo.call("save_enrichment", target="nowhere:gold.x", fields={"description": "mine"})
+    for fields in ({"description": "x"}, {"classification": "public"}, {"steward": "eve@example.com"}, {"tags": "a"}):
+        with pytest.raises(core.PlatformError, match="Only crm's members or a platform admin can change its catalog text"):
+            eve.call("save_enrichment", target="crm:gold.dim_customer#email", fields=fields)
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"description": "One row per customer",
+                                                                      "classification": "confidential"})
+    with pytest.raises(core.PlatformError, match="Only the owners of crm's domain or a platform admin"):
+        bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})
+    # The form sends every field: an unchanged certified passes.
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "", "description": "Customers"})
+    with pytest.raises(core.PlatformError, match="Only crm's members"):
+        olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "description": "Mine"})
+    audit = lambda: [a for a in platform.call("audit") if a["action"] == "enrich"]  # noqa: E731
+    seen = audit()
+    eve.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": ""})  # unchanged: writes nothing
+    assert audit() == seen
+    assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["updated_by"] == "bo@example.com"
+    olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})  # not a member: certifying only
+    assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["certified"] == "yes"
+    with pytest.raises(core.PlatformError, match="Only the owners of crm's domain"):
+        bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": ""})
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "tags": "gold"})
+    # Without a domain, only an admin certifies.
+    platform.call("register_project", project={"name": "hr"})
+    platform.call("set_project_member", project="hr", user="bo@example.com", role="owner")
+    with pytest.raises(core.PlatformError, match="isn't in a domain yet, so a platform admin decides"):
+        bo.call("save_enrichment", target="hr:gold.staff", fields={"certified": "yes"})
+    platform.call("save_enrichment", target="hr:gold.staff", fields={"certified": "yes"})
+
+
+def _sc(lh, name, target, ws="w1"):
+    return {"lakehouse_id": lh, "workspace_id": ws, "workspace_name": "Sales", "lakehouse_name": lh, "path": "Tables",
+            "name": name, "target": target}
+
+
+def test_only_a_lakehouses_project_members_or_an_admin_hide_a_shortcut_problem(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    lakehouses = [{"lakehouse_id": "lh1", "workspace_id": "w1"}, {"lakehouse_id": "lh2", "workspace_id": "w2"}]
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("record_shortcuts", lakehouses=lakehouses, shortcuts=[_sc("lh1", "x", a), _sc("lh1", "y", a), _sc("lh2", "z", a, "w2")])
+    sid = {s["name"]: s["id"] for s in platform.call("list_seen_shortcuts")}
+    platform.call("accept_shortcut_risk", shortcut_id=sid["x"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": sid["x"], "health": "broken", "detail": "404"}])
+    # Eve isn't a member of crm: her scan reports a repoint and a removal but changes neither.
+    out = eve.call("record_shortcuts", lakehouses=lakehouses, shortcuts=[_sc("lh1", "x", b), _sc("lh2", "z", a, "w2")])
+    assert sorted((s["change"], s["shortcut_id"]) for s in out["skipped"]) == [("removed", sid["y"]), ("repointed", sid["x"])]
+    [reported] = [c for c in out["changes"] if c["kind"] == "repointed"]
+    assert reported["by_user"] == "eve@example.com" and reported["note"].startswith("reported")
+    seen = {s["name"]: s for s in platform.call("list_seen_shortcuts")}
+    assert set(seen) == {"x", "y", "z"} and seen["x"]["health"] == "broken"
+    assert [r["shortcut_id"] for r in platform.call("list_shortcut_risks")] == [sid["x"]]
+    # Nor can she mark it healthy; anyone may report one broken.
+    got = eve.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"},
+                                                      {"id": sid["y"], "health": "broken", "detail": "gone"}])
+    assert [c["kind"] for c in got] == ["skipped", "broke"] and got[1]["by_user"] == "eve@example.com"
+    assert {s["name"]: s["health"] for s in platform.call("list_seen_shortcuts")} == {"x": "broken", "y": "broken", "z": "not_checked"}
+    # A lakehouse no project has a product in: an admin's only. In crm's, bo's scan and check apply.
+    eve.call("record_shortcuts", lakehouses=lakehouses[1:], shortcuts=[])
+    assert "z" in {s["name"] for s in platform.call("list_seen_shortcuts")}
+    out = bo.call("record_shortcuts", lakehouses=lakehouses[:1], shortcuts=[_sc("lh1", "x", b)])
+    assert not out["skipped"] and {c["kind"] for c in out["changes"]} == {"repointed", "removed"}
+    assert platform.call("list_shortcut_risks") == [], "an applied repoint ends the accepted risk"
+    assert [c["kind"] for c in bo.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"}])] == []
+    assert any(a["action"] == "shortcut scan" and a["by_user"] == "bo@example.com" for a in platform.call("audit"))
+
+
+def test_a_change_logged_from_the_app_follows_the_same_rule(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("log_shortcut_change", kind="added", shortcut=_sc("lh1", "x", a), after={"target": a})  # anyone adds
+    [x] = platform.call("list_seen_shortcuts")
+    platform.call("accept_shortcut_risk", shortcut_id=x["id"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "404"}])
+    with pytest.raises(core.PlatformError, match="only a platform admin, or a member of a project"):
+        eve.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", a), before={"target": a})
+    out = eve.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    assert out["note"].startswith("reported") and out["by_user"] == "eve@example.com"
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "broken" and x["target"]["path"] == "Tables/a" and len(platform.call("list_shortcut_risks")) == 1
+    # A non-member's same-health report doesn't freshen the check either; a broken one always lands.
+    when = x["checked_at"]
+    assert [c["kind"] for c in eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "healthy"}])] == ["skipped"]
+    eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "still 404"}])
+    assert platform.call("list_seen_shortcuts")[0]["health_detail"] == "still 404"
+    bo.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "not_checked" and platform.call("list_shortcut_risks") == [] and x["checked_at"] != when
+    bo.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", b), before={"target": b})
+    assert platform.call("list_seen_shortcuts") == []
+
+
+# --------------------------------------------------------------------------- setup against Fabric's refusals
+
+class _RefusingFabric:
+    """A Fabric that refuses what the live runs saw it refuse (tests/fabric_refusals.py)."""
+
+    def __init__(self):
+        self.items = []
+
+    def list_workspaces(self):
+        return []
+
+    def create_workspace(self, name, capacity_id, description):
+        return {"id": "ws-p", "displayName": name}
+
+    def find_lakehouse(self, ws, name):
+        return None
+
+    def create_lakehouse(self, ws, name, description=""):
+        return {"id": f"lh-{name}"}
+
+    def save_item(self, ws, item_type, name, parts=None, description=""):
+        from tests.fabric_refusals import check_item
+        check_item(item_type, parts)
+        self.items.append((item_type, name))
+        return {"id": f"{item_type}-id", "created": True}
+
+    def save_variable_library(self, ws, name, parts, description=""):
+        return {"id": "vl-id", "created": True}
+
+
+def test_platform_setup_makes_every_item_fabric_accepts(monkeypatch):
+    from fabric_desktop.central import setup as setup_mod
+
+    class Client:
+        def __init__(self, token, ws, fn):
+            pass
+
+        def call(self, op, **kw):
+            return {"created": ["catalog"]} if op == "ensure_schema" else {}
+
+    monkeypatch.setattr(setup_mod, "FabricPlatform", Client)
+    fabric = _RefusingFabric()
+    out = setup_mod.setup(fabric, lambda: "tok", "dev")
+    assert out["ready"], out["steps"]
+    assert ("UserDataFunction", udf.ITEM) in fabric.items
+
+
+def test_the_refusing_fake_refuses_a_udf_with_no_functions():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import UDF_NO_FUNCTIONS, check_item
+    empty = {"definition.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": []})}
+    with pytest.raises(FabricError, match="Functions is null or empty") as err:
+        check_item("UserDataFunction", empty)
+    assert err.value.code == "NullOrEmptyArgument" and UDF_NO_FUNCTIONS in str(err.value)
+
+
+def test_a_parameter_with_an_underscore_is_refused_as_fabric_did():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    code = files["function_app.py"].replace("businessKeys: list", "business_keys: list")
+    with pytest.raises(FabricError, match=r"Function 'issue_keys' \(line \d+\): input parameter 'business_keys' "
+                       r"cannot contain an underscore") as err:
+        check_item("UserDataFunction", {**files, "function_app.py": code})
+    assert err.value.code == "MetadataValidationError"
+
+
+def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
+    from tests.fabric_refusals import UDF_NO_ARTIFACT_TYPE, check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    meta = json.loads(files["resources/functions.json"])
+    for f in meta["functionsMetadata"]:
+        for b in f["bindings"]:
+            if "itemType" in b:
+                b["itemType"] = None
+    files["resources/functions.json"] = json.dumps(meta)
+    with pytest.raises(Exception, match="artifactType") as err:
+        check_item("UserDataFunction", files)
+    assert UDF_NO_ARTIFACT_TYPE in str(err.value)
+
+
+def test_a_data_source_fabric_doesnt_name_is_refused_as_fabric_did():
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    [source] = json.loads(files["definition.json"])["connectedDataSources"]
+    assert source["artifactType"] == "SqlDbNative" and "sourceType" not in source
+    body = json.loads(files["definition.json"])
+    body["connectedDataSources"][0] = {k: v for k, v in source.items() if k != "artifactType"}
+    body["connectedDataSources"][0]["sourceType"] = "SqlDbNative"  # what live run 5 sent
+    files["definition.json"] = json.dumps(body)
+    with pytest.raises(Exception, match="artifactType"):
+        check_item("UserDataFunction", files)

@@ -1,0 +1,91 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E39",
+  "version": 1,
+  "status": "draft",
+  "title": "Late-arriving facts: a reprocessing window that keeps totals right",
+  "objectives": [
+    "2.2.9"
+  ],
+  "objective_text": "Fold a batch of late and retried events into a daily aggregate by recomputing only the days the batch touches, without double counting and without losing days whose detail has been archived.",
+  "scenario": "Tills sometimes upload events a day or two late, and the uploader retries when it times out. daily_sales feeds the morning dashboard. The events table only keeps recent detail; older days exist only as totals in daily_sales, so a full rebuild would wipe them.",
+  "prerequisites": [
+    "LM-12",
+    "E37"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your SQL ran on this PC with DuckDB; daily_sales has the right total for every day, old days are untouched, and the retried event counts once."
+  ],
+  "does_not_verify": [
+    "That the SQL runs unchanged in Spark SQL or a Fabric Warehouse.",
+    "Streaming watermarks in Spark structured streaming, which solve the same problem for streams (see E26 and E42)."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "daily_sales": {
+        "columns": [
+          "sale_date",
+          "total"
+        ],
+        "unique": [
+          "sale_date"
+        ]
+      },
+      "events": {
+        "unique": [
+          "event_id"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over daily_sales, ordered by sale_date."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Every day's total is right.",
+      "fail": "Check 1 and 2 May (no detail any more), 4 May (a retried event) and 6 May (a new day)."
+    },
+    {
+      "kind": "table_shape",
+      "table": "daily_sales",
+      "unique": [
+        "sale_date"
+      ],
+      "pass": "One row per day.",
+      "fail": "A day appears twice."
+    },
+    {
+      "kind": "table_shape",
+      "table": "events",
+      "unique": [
+        "event_id"
+      ],
+      "pass": "Each event is stored once.",
+      "fail": "An event is stored twice."
+    }
+  ],
+  "hints": [
+    "Rebuilding daily_sales from events loses 1 and 2 May: their events are archived. Recompute only the days in stg_events.",
+    "First add the batch to events, skipping event_ids that are already there (e3 is a retry).",
+    "DELETE the affected days from daily_sales, then INSERT them again from events grouped by event_date."
+  ],
+  "explanation": "Late data means an aggregate that was right yesterday is wrong today. The safe pattern is a reprocessing window: find the periods the new batch touches, delete those periods from the aggregate and recompute them from the detail. Adding the batch's totals to the existing rows double counts retries; rebuilding everything loses periods whose detail has aged out and costs more every day. Deduplicating events by their id before aggregating makes the step safe to retry.",
+  "remediation": [
+    "LM-12",
+    "LAB-11",
+    "LM-21",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset restores events, daily_sales and stg_events.",
+  "parity": null
+}

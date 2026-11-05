@@ -80,7 +80,7 @@ function whTableDetail(ref, o, cols, actions) {
       const out = await whCatalogQuery(ref, whProfileSql(o, profiled));
       profile = Object.fromEntries(out.columns.map((c, i) => [c.name, out.rows[0]?.[i] ?? null]));
       const left = cols.length - profiled.length;
-      summary.textContent = `${whCount(profile.n)} rows, counted in Fabric at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ` +
+      summary.textContent = `${whCount(profile.n)} rows, counted in Fabric at ${timeText(new Date())}. ` +
         "Distinct values are Fabric's estimate (APPROX_COUNT_DISTINCT)." + (left > 0 ? ` The last ${left} columns weren't profiled.` : "");
       draw();
     } catch (err) {

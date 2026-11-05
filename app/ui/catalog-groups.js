@@ -12,10 +12,11 @@ const ENV_WORD = /(^|[\s_\-.[(])(dev|development|test|tst|uat|qa|prod|production
 const ENV_OF_WORD = { dev: "dev", development: "dev", test: "test", tst: "test", uat: "test", qa: "test",
   prod: "prod", production: "prod", prd: "prod" };
 
-// {workspace_id: env} from the metadata project's environments.
-function envWorkspaces(environments) {
+// {workspace_id: env} from the metadata project's environments. A workspace two environments share
+// (the Keys workspace, #293) goes to the first of them, or with strictest to the strictest (Prod).
+function envWorkspaces(environments, strictest = false) {
   const out = {};
-  for (const env of ENVS) {
+  for (const env of strictest ? [...ENVS].reverse() : ENVS) {
     const cfg = environments?.[env] || {};
     for (const id of [cfg.workspace_id, cfg.keys_workspace_id]) if (id && !out[id]) out[id] = env;
   }

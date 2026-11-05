@@ -33,6 +33,15 @@ import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 
+from .. import sql_dialects
+
+
+def _duckdb(node: exp.Expr) -> str:
+    """``node`` as DuckDB SQL, refused when sqlglot would leave part of it out (#1253)."""
+    from .. import sql
+    return sql.duckdb_sql(node)
+
+
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 # Characters Fabric (Spark, the SQL endpoint) can't take in a column name without column mapping,
 # which is outside the Fabric-safe profile.
@@ -158,7 +167,7 @@ def parse_tree(tree: exp.Expression, is_delta: Any) -> Write | None:
                 parts += [c.name for c in cols]
         replace = bool(tree.args.get("replace"))
         return Write(target.db or None, target.name, "overwrite" if replace else "create",
-                     query.sql(dialect="duckdb"), if_not_exists=bool(tree.args.get("exists")), replace=replace,
+                     _duckdb(query), if_not_exists=bool(tree.args.get("exists")), replace=replace,
                      partition_by=parts)
     if isinstance(tree, exp.Insert):
         target = tree.this
@@ -170,7 +179,7 @@ def parse_tree(tree: exp.Expression, is_delta: Any) -> Write | None:
         if not isinstance(target, exp.Table) or not is_delta(target.db or None, target.name) or tree.expression is None:
             return None
         return Write(target.db or None, target.name, "overwrite" if tree.args.get("overwrite") else "append",
-                     tree.expression.sql(dialect="duckdb"), by_position=not tree.args.get("by_name"))
+                     _duckdb(tree.expression), by_position=not tree.args.get("by_name"))
     return None
 
 
@@ -183,9 +192,9 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {exc}") from None
+        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(tree, start)
-    return (tree.sql(dialect="duckdb"), found) if found else (sql, [])
+    return (_duckdb(tree), found) if found else (sql, [])
 
 
 def rewrite_tree(tree: exp.Expression, start: int = 0) -> list[AsOf]:
@@ -294,6 +303,63 @@ def _fabric_type(t: pa.DataType, column: str) -> pa.DataType:
     return t
 
 
+def delta_writable(t: pa.DataType) -> bool:
+    """Whether delta-rs writes a column of type ``t`` as it is. Unsigned integers, float16, decimals
+    over 38 digits, TIME and INTERVAL it refuses with a raw error; NULL (no type) it writes as a void
+    column Spark can't use, and an append of one hangs it (deltalake 1.6.6)."""
+    if pa.types.is_unsigned_integer(t) or pa.types.is_float16(t) or pa.types.is_null(t) or pa.types.is_time(t) \
+            or pa.types.is_duration(t) or pa.types.is_interval(t) or (pa.types.is_decimal(t) and t.precision > 38):
+        return False
+    if pa.types.is_dictionary(t):
+        return delta_writable(t.value_type)
+    if pa.types.is_map(t):
+        return delta_writable(t.key_type) and delta_writable(t.item_type)
+    if pa.types.is_struct(t):
+        return all(delta_writable(f.type) for f in t)
+    value = getattr(t, "value_type", None)  # lists of every kind
+    return value is None or delta_writable(value)
+
+
+def naive_timestamps(schema: pa.Schema) -> list[str]:
+    """The columns (a.b for a struct field, a[] for list items) that hold a timestamp without a time
+    zone, which delta-rs writes as timestampNtz: a reader 3 table Fabric can't read."""
+    def walk(t: pa.DataType, name: str) -> list[str]:
+        if pa.types.is_timestamp(t):
+            return [] if t.tz else [name]
+        if pa.types.is_dictionary(t):
+            return walk(t.value_type, name)
+        if pa.types.is_struct(t):
+            return [n for f in t for n in walk(f.type, f"{name}.{f.name}")]
+        if pa.types.is_map(t):
+            return walk(t.key_type, f"{name}{{key}}") + walk(t.item_type, f"{name}{{value}}")
+        value = getattr(t, "value_type", None)
+        return walk(value, f"{name}[]") if value is not None else []
+    return [n for f in schema for n in walk(f.type, f.name)]
+
+
+def delta_safe(schema: pa.Schema, existing: Any = None) -> pa.Schema:
+    """``schema`` with each column delta-rs can't write (delta_writable) in the type Fabric reads,
+    as fabric_schema writes it, or fabric_schema's plain error saying how to cast it. Every other
+    column is left exactly as it is, so tables written today keep their types. ``existing``, for an
+    append: a function giving the table's column types by lower-case name, so an all-NULL column
+    takes the table's type."""
+    if all(delta_writable(f.type) for f in schema):
+        return schema
+    table: dict[str, pa.DataType] | None = None
+    fields = []
+    for f in schema:
+        if delta_writable(f.type):
+            fields.append(f)
+            continue
+        if pa.types.is_null(f.type) and existing is not None:
+            table = existing() if table is None else table
+            if f.name.lower() in table:
+                fields.append(pa.field(f.name, table[f.name.lower()], nullable=True))
+                continue
+        fields.append(pa.field(f.name, _fabric_type(f.type, f.name), nullable=True, metadata=f.metadata))
+    return pa.schema(fields, metadata=schema.metadata)
+
+
 def fits(source: pa.Schema, target: pa.Schema) -> list[str]:
     """Why rows of ``source`` can't be added to a table of ``target`` as they are (empty: they can).
 
@@ -312,6 +378,63 @@ def fits(source: pa.Schema, target: pa.Schema) -> list[str]:
         elif not _assignable(f.type, target.field(f.name).type):
             problems.append(f"{f.name} is {f.type}, the table has {target.field(f.name).type}")
     return problems
+
+
+def conversions(source: pa.Schema, target: pa.Schema) -> list[tuple[str, pa.DataType, pa.DataType]]:
+    """The columns of ``source`` whose values would change if they were added to a table of
+    ``target`` (EA-001): delta-rs casts an append to the table's types without saying so, so 2.75
+    in an INT column becomes 2, a timestamp in a DATE column loses its time, and '12' in an INT
+    column becomes 12. Each is (column, source type, table type). A type of the same kind that
+    holds every value (INT into BIGINT, FLOAT into DOUBLE, a date into a timestamp) is fine, and
+    so is a whole number delta-rs can't fit: it stops the write itself. Matched by lower-case
+    name; a column the table hasn't got is a schema change, not a conversion."""
+    table = {f.name.lower(): f.type for f in target}
+    return [(f.name, f.type, table[f.name.lower()]) for f in source
+            if f.name.lower() in table and not _keeps_values(f.type, table[f.name.lower()])]
+
+
+def _text(t: pa.DataType) -> bool:
+    return pa.types.is_string(t) or pa.types.is_large_string(t) or getattr(pa.types, "is_string_view", bool)(t)
+
+
+def _keeps_values(src: pa.DataType, dst: pa.DataType) -> bool:
+    if src.equals(dst) or pa.types.is_null(src):
+        return True
+    if pa.types.is_integer(src):
+        # Another whole number: delta-rs refuses one that doesn't fit. A float holds every whole
+        # number only up to its mantissa (24 bits in a float, 53 in a double), so a bigint into
+        # either, or an int into a float, can round (16777217 becomes 16777216).
+        if pa.types.is_integer(dst) or pa.types.is_decimal(dst):
+            return True
+        if pa.types.is_floating(dst):
+            return src.bit_width <= 16 or (src.bit_width <= 32 and dst.bit_width >= 64)
+        return False
+    if pa.types.is_floating(src):
+        return pa.types.is_floating(dst) and dst.bit_width >= src.bit_width
+    if pa.types.is_decimal(src):
+        # delta-rs refuses another precision or scale itself. A float rounds most decimals
+        # (decimal(38, 18) into a double keeps about 16 digits), and a whole number drops the fraction.
+        return pa.types.is_decimal(dst)
+    if pa.types.is_date(src):
+        return pa.types.is_date(dst) or pa.types.is_timestamp(dst)
+    if pa.types.is_timestamp(src):
+        return pa.types.is_timestamp(dst)
+    if _text(src):
+        return _text(dst)
+    if pa.types.is_binary(src) or pa.types.is_large_binary(src):
+        return pa.types.is_binary(dst) or pa.types.is_large_binary(dst)
+    if pa.types.is_boolean(src):
+        return pa.types.is_boolean(dst)
+    if pa.types.is_list(src) or pa.types.is_large_list(src):
+        return (pa.types.is_list(dst) or pa.types.is_large_list(dst)) and _keeps_values(src.value_type, dst.value_type)
+    if pa.types.is_map(src):
+        return pa.types.is_map(dst) and _keeps_values(src.key_type, dst.key_type) and _keeps_values(src.item_type, dst.item_type)
+    if pa.types.is_struct(src):
+        if not pa.types.is_struct(dst):
+            return False
+        fields = {f.name.lower(): f.type for f in dst}
+        return all(f.name.lower() not in fields or _keeps_values(f.type, fields[f.name.lower()]) for f in src)
+    return False
 
 
 def _numeric(t: pa.DataType) -> bool:
@@ -333,7 +456,7 @@ def _assignable(src: pa.DataType, dst: pa.DataType) -> bool:
         return _assignable(src.key_type, dst.key_type) and _assignable(src.item_type, dst.item_type)
     if pa.types.is_struct(src) and pa.types.is_struct(dst):
         return [c.name for c in src] == [c.name for c in dst] and \
-            all(_assignable(a.type, b.type) for a, b in zip(src, dst))
+            all(_assignable(a.type, b.type) for a, b in zip(src, dst, strict=True))
     return False
 
 
@@ -359,7 +482,7 @@ class Conform:
             else:
                 columns = [batch.column(batch.schema.get_field_index(f.name)) for f in target]
             out = []
-            for column, f in zip(columns, target):
+            for column, f in zip(columns, target, strict=True):
                 try:
                     out.append(column.cast(f.type))
                 except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:

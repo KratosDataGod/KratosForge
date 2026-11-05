@@ -1,5 +1,5 @@
 // Workloads: one list of everything you build and run, on this PC, on agents and in Fabric, with
-// how healthy each one is, who owns it and what you can do with it. Monitor > Workloads lists them,
+// how healthy each one is, who owns it and what you can do with it. Monitor > KratosForge > Operations > Workloads lists them,
 // the workload page shows one, and Home shows yours. The engine (workload_service.py) builds the
 // records from what the app already reads; nothing here guesses a state the engine didn't report.
 
@@ -14,7 +14,7 @@ const WL_ROLES = [["team", "Team"], ["technical_owner", "Technical owner"], ["bu
 const WL_GROUPS = [["project", "Project"], ["owner", "Owner"], ["environment", "Environment"], ["none", "None"]];
 const WL_RUN_ACTIONS = new Set(["run", "run_item", "run_in_fabric", "run_schedule"]);
 
-// Monitor > Workloads filters, kept for the session. id is the workload the page shows.
+// Monitor > KratosForge > Operations > Workloads filters, kept for the session. id is the workload the page shows.
 const wlPage = { view: "attention", group: "project", offset: 0, limit: 100, id: null, detail: null };
 
 function healthPill(health, label) {
@@ -49,7 +49,8 @@ function lastRunText(run) {
   if (!run) return h("span", { class: "muted-text" }, "No runs recorded");
   const label = { ok: "OK", failed: "Failed", running: "Running", needs_decision: "Needs a decision", skipped: "Skipped",
     cancelled: "Cancelled" }[run.state] || "Unknown";
-  return h("span", {}, h("span", { class: run.state === "failed" ? "reason" : null }, label), " ",
+  return h("span", {}, h("span", { class: run.state === "failed" ? "reason" : null }, label),
+    run.state === "ok" && run.mocked ? [" ", h("span", { class: "pill-s wrn", title: "Some activities were mocked, so this isn't a real run of the whole pipeline" }, "with mocks")] : null, " ",
     h("span", { class: "muted-text small" }, relTime(run.started_at)));
 }
 
@@ -63,13 +64,13 @@ function openWorkload(id) {
   go("workload");
 }
 
-// ---------- Monitor > Workloads ----------
+// ---------- Monitor > KratosForge > Operations > Workloads ----------
 
 function workloadsPanel() {
   const box = h("div", { class: "wl-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading your workloads..."));
   loadWorkloads(box, false);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.workloads", {
-    reads: "Your project's metadata entities, notebooks on this PC, and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
+    reads: "Your project's metadata entities, notebooks on this PC, pipelines on this PC (the Git folders this PC opened, its schedules and local run records; Preview), and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
     changes: "Nothing from the list. On a workload's page, Edit changes its owner, criticality and tags on this PC, and Run, Retry and Cancel the run first say which environment, where it runs, as whom and what it writes.",
     results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Govern > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
     more: [["Not observed is not failing", "When your sign-in has expired or a workspace refuses access, a workload shows Not observed with the reason, never Failing. Its last reading shows as Cached, then Stale after an hour."]],
@@ -106,7 +107,7 @@ async function loadWorkloads(box, refresh) {
       current = r.group_key;
       const g = groups.get(current) || { label: current, count: 0, health: {} };
       const bad = ["failing", "late", "attention"].filter((x) => g.health?.[x]).map((x) => `${g.health[x]} ${x === "attention" ? "need attention" : x}`);
-      rows.push(h("tr", { class: "wl-group" }, h("td", { colspan: 7 }, h("b", {}, g.label),
+      rows.push(h("tr", { class: "wl-group" }, h("td", { colspan: 7 }, h("b", {}, g.label), current === "pipelines" ? [" ", previewTag()] : null,
         h("span", { class: "muted-text small" }, ` · ${g.count} ${g.count === 1 ? "workload" : "workloads"}${bad.length ? ` · ${bad.join(", ")}` : ""}`))));
     }
     rows.push(workloadRow(r));
@@ -120,7 +121,7 @@ async function loadWorkloads(box, refresh) {
     mine: data.user ? `Nothing is owned by ${data.user}. Owners come from project files or are assigned on a workload's page.`
       : "Sign in so KratosForge knows who you are.",
     unowned: "Every workload has an owner.",
-  }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
+  }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities, pipelines on this PC and Fabric items in your workspaces show here.");
   box.replaceChildren(
     h("div", { class: "monitor-filters" }, h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, (data.views || []).map(chip)),
       h("span", { class: "spacer" }), h("label", { class: "muted-text small row" }, "Group by", groupSelect)),
@@ -253,6 +254,7 @@ function workloadSubtitle(w) {
     const file = d.path ? String(d.path).split(/[\\/]/).slice(-2).join("/") : "";
     return [`Metadata entity in ${w.group?.label || d.project}`, d.layer ? `${d.layer} layer` : "", file, w.description].filter(Boolean).join(" · ");
   }
+  if (w.kind === "pipeline") return ["Pipeline on this PC", w.description].filter(Boolean).join(" · ");
   if (w.kind === "notebook") {
     return ["Notebook on this PC", w.link ? `linked to its Fabric item (${w.link.how})` : "not linked to a Fabric item", w.description].filter(Boolean).join(" · ");
   }
@@ -263,13 +265,15 @@ function openButton(w) {
   const d = w.definition || {};
   if (w.kind === "meta_entity") return btn("Open entity", "table", () => openEntity(w.name), "tool outline");
   if (w.kind === "notebook") return btn("Open notebook", "notebook", () => openNotebook(w.name), "tool outline");
+  if (w.kind === "pipeline") return btn("Open pipeline", "flow", () => openWorkloadPipeline(w), "tool outline");
   return d.url ? btn("Open in Fabric", "cloud", () => openInFabric(d.url), "tool outline") : null;
 }
 
 function moreMenu(anchor, w) {
   const items = (w.available_actions || []).map((a) => ({ label: a.label, icon: a.action === "cancel" ? "dismiss" : "play",
     action: () => confirmWorkloadAction(w, a) }));
-  if (w.kind === "notebook" && w.link) items.push({ label: "Unlink from its Fabric item", icon: "dismiss", action: () => unlinkNotebook(w) });
+  // Only a link this PC keeps can be forgotten; a run or a name match finds the item again (inventory.notebook_link).
+  if (w.kind === "notebook" && w.link?.kept) items.push({ label: "Unlink from its Fabric item", icon: "dismiss", action: () => unlinkNotebook(w) });
   items.push({ label: "Read again", icon: "sync", action: async () => {
     wlPage.detail = await attempt(() => rpc("workload_detail", { id: w.id, refresh: true }), "Couldn't read it again");
     render();
@@ -311,7 +315,9 @@ function findingAction(w, f, n) {
   if (n.action === "promote") { if (f.env) state.meta.env = f.env; return goMeta("environments"); }
   if (n.action === "assign") return ownershipDialog(w);
   if (n.action === "link") return confirmLink(w);
-  if (n.action === "open_definition") return w.kind === "meta_entity" ? openEntity(w.name) : openNotebook(w.name);
+  if (n.action === "open_definition") {
+    return w.kind === "meta_entity" ? openEntity(w.name) : w.kind === "pipeline" ? openWorkloadPipeline(w) : openNotebook(w.name);
+  }
   return undefined;
 }
 
@@ -321,7 +327,14 @@ function openRun(open, w = null) {
   if (open.kind === "meta_run") return showRun(open.run_id, open.env);
   if (open.kind === "url" && open.url) return openInFabric(open.url);
   if (open.kind === "pc_schedule") { monitorPage.panel = "schedules"; return go("monitor"); }
+  if (open.kind === "pipeline_run" && open.run_id) return openPipelineRun(open.run_id);
   return undefined;
+}
+
+// A local pipeline opens on the Pipelines page, from its folder (pipelines.js).
+function openWorkloadPipeline(w) {
+  const d = w.definition || {};
+  return openPipeline({ path: d.path }, { label: [d.repo, d.relative].filter(Boolean).join(" · ") || d.path });
 }
 
 function ownershipTable(w) {
@@ -460,7 +473,7 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
   if (recheck && pre.risk) pre.risk = await rpc("risk_check", { id: w.id, action: a.action, env: a.env || null, refresh: true }).catch(() => pre.risk);
   if (!pre.allowed) {
     showDialog(`${a.label}?`, h("p", { class: "text" }, pre.reason), [
-      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a, verb, false, { done: opts.done }); }, "tool primary")
+      /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a, verb, false, { done: opts.done, ends: opts.ends }); }, "tool primary")
         : btn("Close", null, closeDialog, "tool primary")]);
     return;
   }
@@ -476,7 +489,7 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
       schedule_id: a.schedule_id || "", job_id: a.job_id || "" }), `${verb} didn't start`);
     if (!res) { wlPage.detail = null; if (state.view === "workload") render(); return; }
     const s = res.action?.status;
-    toast(s === "submitted" ? `${verb}: submitted. This page shows how it ends when the run finishes.`
+    toast(s === "submitted" ? `${verb}: submitted. ${opts.ends || "This page shows how it ends when the run finishes."}`
       : s === "failed" ? `${verb} failed: ${res.action.detail || "see the run"}` : `${verb}: done.`, s === "failed", { log: true });
     wlPage.detail = null;
     if (opts.done) opts.done(res);
@@ -490,10 +503,10 @@ async function confirmWorkloadAction(w, a, verb = "", recheck = false, opts = {}
       row("Target", pre.target),
       row("What happens", pre.consequence))),
     (pre.warnings || []).map((t) => h("div", { class: "callout wl-warning" }, icon("warning", 18), h("span", {}, t))),
-    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done }); } }),
+    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done, ends: opts.ends }); } }),
     h("p", { class: "muted-text small" }, pre.risk?.note ? `${pre.risk.note} ` : "", pre.recorded)),
   pre.risk?.result === "blocked"
-    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done }); }, "tool outline"),
+    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true, { done: opts.done, ends: opts.ends }); }, "tool outline"),
       btn("Close", null, closeDialog, "tool primary")]
     : [btn("Cancel", null, closeDialog, "tool outline"),
       btn(`${verb}${inEnv}`, null, go_, "tool primary")]);
@@ -514,10 +527,19 @@ function confirmLink(w) {
   }, "tool primary")]);
 }
 
+// A link this PC keeps decides which Fabric item Run in Fabric runs, so unlinking one asks first.
+// Unlink is only offered for a kept link (link.kept, inventory.notebook_link).
 async function unlinkNotebook(w) {
+  const link = w.link || {};
+  const runs = (w.available_actions || []).some((a) => a.action === "run_in_fabric");
+  if (runs && link.kept && !(await confirmDialog(`Unlink ${w.name} from its Fabric item?`,
+    `Run in Fabric runs the notebook in ${link.workspace_name || "its workspace"} (item ${link.item_id}) now. After unlinking, `
+    + "KratosForge finds its item again from runs this app started in Fabric, or by its name in its publish workspace; "
+    + "if neither finds it, Run in Fabric isn't offered until you publish or link it again. Nothing changes in Fabric.",
+    "Unlink", { danger: true }))) return;
   if (await attempt(() => rpc("workload_unlink", { notebook: w.name }), "Not unlinked")) {
     wlPage.detail = null;
-    toast(`${w.name} is no longer linked. If a Fabric notebook has the same name, it's matched by name again.`);
+    toast(`${w.name} is no longer linked. If this app ran it in Fabric, or a Fabric notebook has the same name, it's found again that way.`);
     render();
   }
 }
@@ -566,7 +588,7 @@ function yourWorkloadsCard() {
       unowned ? h("div", { class: "callout" }, icon("person", 20),
         h("span", {}, `${unowned} ${unowned === 1 ? "workload has" : "workloads have"} no owner, so nobody is told when ${unowned === 1 ? "it fails" : "they fail"}.`),
         h("span", { class: "spacer" }), btn("Review", null, () => { wlPage.view = "unowned"; wlPage.offset = 0; backToWorkloads(); }, "tool outline")) : null,
-      !rows.length && !unowned ? h("p", { class: "muted-text" }, "Nothing is assigned to you yet. Open a workload in Monitor > Operations > Workloads to set its owner.") : null);
+      !rows.length && !unowned ? h("p", { class: "muted-text" }, "Nothing is assigned to you yet. Open a workload in Monitor > KratosForge > Operations > Workloads to set its owner.") : null);
     body.replaceWith(next);
   };
   return box;

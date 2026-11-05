@@ -137,7 +137,8 @@ function recommend(ctx = actionContext(), limit = 3) {
     let evidence = null;
     try { evidence = r.when(ctx); } catch { evidence = null; }  // a rule that can't read its evidence recommends nothing
     if (!evidence) continue;
-    found.push({ id: r.id, reason: r.reason, basis: r.basis, why: r.why(evidence, ctx), evidence, state: s });
+    // label: the button's words when the step reads better than the action's own name ("Review warnings").
+    found.push({ id: r.id, reason: r.reason, basis: r.basis, why: r.why(evidence, ctx), label: (typeof r.label === "function" ? r.label(evidence, ctx) : r.label) || s.action.label, evidence, state: s });
   }
   const rank = (x) => RECOMMENDATION_REASONS.indexOf(x.reason);
   found.sort((x, y) => rank(x) - rank(y));  // stable: definition order within a reason
@@ -158,7 +159,7 @@ function nextSteps(ctx = actionContext(), limit = 3) {
     ...items.map((it) => h("div", { class: "next-step", "data-recommendation": it.id },
       h("span", { class: `pill-s ${it.basis === "verified" ? "info" : "neu"}` }, RECOMMENDATION_BASIS[it.basis]),
       h("span", { class: "grow" }, it.why),
-      btn(it.state.action.label, it.state.action.icon || null, () => runAction(it.state.action.id, ctx),
+      btn(it.label, it.state.action.icon || null, () => runAction(it.state.action.id, ctx),
         ranked && it === items[0] ? "tool primary small" : "tool outline small"))));
 }
 

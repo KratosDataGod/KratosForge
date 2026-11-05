@@ -50,6 +50,8 @@ after(async () => {
 test("with no runs, the panel says how to schedule the notebook or run it in Fabric", { skip }, async () => {
   const pane = await openNotebook(empty);
   await pane.getByText("No runs yet.").waitFor();
+  const how = pane.locator(".how-it-works .fold-toggle");
+  if (await how.getAttribute("aria-expanded") === "false") await how.click();
   const text = await pane.innerText();
   assert.match(text, /Schedule \(Home or Run tab\) runs the saved notebook at set times/);
   assert.match(text, /set Runs on to Fabric and press Run all/);

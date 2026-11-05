@@ -4,21 +4,50 @@
 
 // ---------- times ----------
 
-function relTime(iso) {
-  if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return String(iso);
+// Dates and times, the same on every page (#956), in the person's own Windows format. Each takes
+// an ISO string, a Date or milliseconds (callers turn epoch seconds into milliseconds), and gives
+// opts.empty ("" unless the page names a word such as "never") for a missing or unreadable value,
+// never "Invalid Date". opts.seconds adds seconds; opts.weekday adds the day of the week; opts.utc reads a
+// plain day ("2026-10-28") as it is.
+function readDate(at) {
+  if (at === null || at === undefined || at === "") return null;
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dateText(at, opts = {}) {
+  const d = readDate(at);
+  if (!d) return opts.empty ?? "";
+  const zone = opts.utc ? { timeZone: "UTC" } : {};
+  return opts.weekday ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", ...zone })
+    : d.toLocaleDateString(undefined, { dateStyle: "medium", ...zone });
+}
+
+function timeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(opts.seconds ? { second: "2-digit" } : {}) }) : (opts.empty ?? "");
+}
+
+function dateTimeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: opts.seconds ? "medium" : "short" }) : (opts.empty ?? "");
+}
+
+// How long ago, then the date once it's two days back.
+function relTime(at) {
+  const t = readDate(at);
+  if (!t) return "";
   const s = Math.round((Date.now() - t.getTime()) / 1000);
   if (s < 45) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   if (s < 172800) return "yesterday";
-  return t.toLocaleDateString();
+  return dateText(t);
 }
 
 // A relative time with the exact time on hover.
 function when(iso) {
-  return h("span", { title: iso ? new Date(iso).toLocaleString() : "" }, relTime(iso));
+  return h("span", { title: dateTimeText(iso, { seconds: true }) }, relTime(iso));
 }
 
 function took(seconds) {
@@ -78,6 +107,8 @@ function friendlyError(err) {
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],
     [/AADSTS50076|AADSTS50079|AADSTS50074|AADSTS50072/, "Your organization needs an extra sign-in step (multi-factor authentication). Sign in again and finish the step in the Microsoft window."],
     [/AADSTS50020|AADSTS50034|AADSTS90072/, "That account doesn't belong to your organization's Fabric tenant. Sign in with your work account."],
+    // #1079: Windows sign-in refused a token for one service (seen for Azure SQL and Kusto); the rest still works
+    [/IncorrectConfiguration|AADSTS65002/i, "Windows sign-in wouldn't give KratosForge's built-in sign-in a token for this service (warehouse queries or warehouse Monitoring often need one). The rest of the app keeps working. docs/troubleshooting.md says what IT can check."],
     [/AADSTS50058|AADSTS50173|AADSTS700082|AADSTS70043|invalid_grant|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
     [/^SignInError: (AADSTS\d+)/, "Microsoft sign-in didn't finish. Sign in again; if it happens again, ask IT and quote the code in the details below."],
     [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
@@ -96,7 +127,9 @@ function friendlyError(err) {
   if (local) return local;
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
-  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
+  // PlatformError is the platform refusing in words a person can act on (central/core.py), like "Only platform admins can ...".
+  // NotInInventory is a LookupError (workload_service.py) whose name ends in neither Error nor Exception.
+  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|PlatformError|NotSetUp|NoMetadataProject|KernelGone|FileNotFoundError|GateError|GitError|Conflict|NotInInventory): ([\s\S]*)$/.exec(raw);
   if (m) return { text: m[2].replace(/^'(.*)'$/, "$1"), details: m[1] === "GateError" || m[1] === "GitError" ? "" : raw };
   if (/^[A-Z][A-Za-z]*(Error|Exception): /.test(raw)) {
     return { text: "Something went wrong inside the app. The details below help with a bug report.", details: raw };
@@ -133,7 +166,7 @@ function errorPanel(err, { retry = null, label = "", hint = "" } = {}) {
 
 // Items: {id, status: info|ok|error|failed|running, title, text, details, at, progress, results, url, request}.
 // Kept on this PC so the history survives a restart; nothing in them is needed to work.
-const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null };
+const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null, incidents: null };
 
 (function loadActivity() {
   try {
@@ -149,7 +182,26 @@ function saveActivity() {
   } catch { /* storage full or blocked: the tray still works for this session */ }
 }
 
+// The same problem again within ten minutes (the engine failing to start fails every call the pages
+// make) updates the entry already there, with a count and the other places it happened, instead of
+// adding one per call: 34 copies of one failure hide the problem that's actually new.
+const REPEAT_MS = 10 * 60 * 1000;
+
+function repeatOf(item) {
+  if (item.id || !PROBLEM.has(item.status)) return -1;
+  const now = Date.now();
+  return activity.items.findIndex((x) => x.status === item.status && (x.text || "") === (item.text || "")
+    && (x.details || "") === (item.details || "") && now - new Date(x.at).getTime() < REPEAT_MS);
+}
+
 function logActivity(item) {
+  const r = repeatOf(item);
+  if (r >= 0) {
+    const was = activity.items[r];
+    const titles = [...new Set([was.title, ...(was.alsoIn || []), item.title].filter(Boolean))];
+    item = { ...item, id: was.id, repeats: (was.repeats || 1) + 1, title: item.title || was.title,
+      alsoIn: titles.filter((t) => t !== (item.title || was.title)).slice(-5), at: new Date().toISOString() };
+  }
   const id = item.id || `a${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const i = activity.items.findIndex((x) => x.id === id);
   const next = { at: new Date().toISOString(), ...(i >= 0 ? activity.items[i] : {}), ...item, id, stale: false };
@@ -171,13 +223,15 @@ function renderBell() {
   const unseen = (i) => new Date(i.at).getTime() > activity.seenAt;
   const problems = activity.items.filter((i) => PROBLEM.has(i.status) && unseen(i)).length;
   const notices = activity.items.filter((i) => i.notice && !PROBLEM.has(i.status) && unseen(i)).length;
-  const count = running + problems + notices;
+  const forYou = typeof incWaitingOnMe === "function" ? incWaitingOnMe().length : 0;  // incidents.js
+  const count = running + problems + notices + forYou;
   const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : "",
-    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : ""].filter(Boolean);
+    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : "",
+    forYou ? `${forYou} incident${forYou === 1 ? "" : "s"} waiting on you` : ""].filter(Boolean);
   bell.setAttribute("aria-label", `Activity${parts.length ? `, ${parts.join(", ")}` : ""}`);
   bell.title = parts.length ? `Activity: ${parts.join(", ")}` : "Activity";
   bell.classList.toggle("on", activity.open);
-  bell.replaceChildren(icon("alert", 20), ...(count ? [h("span", { class: `badge${problems ? " bad" : ""}` }, count)] : []));
+  bell.replaceChildren(icon("alert", 20), ...(count ? [h("span", { class: `badge${problems || forYou ? " bad" : ""}` }, count)] : []));
 }
 
 function toggleTray(open = !activity.open) {
@@ -187,7 +241,7 @@ function toggleTray(open = !activity.open) {
   renderBell();
   renderTray();
   placeFabricView();
-  if (open) loadPlatformNotices().then(() => { if (activity.open) renderTray(); });
+  if (open) Promise.all([loadPlatformNotices(), loadIncidentsForMe()]).then(() => { if (activity.open) renderTray(); });
 }
 
 function renderTray() {
@@ -197,6 +251,8 @@ function renderTray() {
   const problems = activity.items.filter((i) => PROBLEM.has(i.status));
   const platform = platformNoticesShown();
   if (activity.filter === "platform" && !platform) activity.filter = "all";
+  const forYou = typeof incidentsForMeShown === "function" && incidentsForMeShown();  // incidents.js
+  if (activity.filter === "for_you" && !forYou) activity.filter = "all";
   const shown = activity.filter === "running" ? running : activity.filter === "problems" ? problems : activity.items;
   const chip = (id, label) => h("button", { class: `chip${activity.filter === id ? " on" : ""}`, onclick: () => { activity.filter = id; renderTray(); } }, label);
   root.replaceChildren(h("aside", { class: "tray", "aria-label": "Activity" },
@@ -207,12 +263,14 @@ function renderTray() {
       }, "tool link small"),
       h("button", { class: "tool small", "aria-label": "Close", onclick: () => toggleTray(false) }, icon("dismiss", 16))),
     h("div", { class: "tray-chips" }, chip("all", "All"), chip("running", `Running ${running.length}`), chip("problems", `Problems ${problems.length}`),
+      forYou ? chip("for_you", incForYouLabel()) : null,
       platform ? chip("platform", `Platform ${activity.platform.open.length}`) : null),
-    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : shown.length ? shown.map(trayItem)
+    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : activity.filter === "for_you" ? incidentsTrayList()
+      : shown.length ? shown.map(trayItem)
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 
-const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
+const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], cancelled: ["Cancelled", "neu"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
 
 function trayItem(i) {
   const [label, cls] = i.stale ? ["Unknown", "neu"] : TRAY_LABEL[i.status] || ["", "neu"];
@@ -220,12 +278,17 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
+  if (i.status === "running" && !i.stale && remoteActivity(i) && cancelFabricRunShown()) {
+    links.push(btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger"));
+  }
   if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
     i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
+    i.repeats > 1 ? h("div", { class: "muted-text small" }, `Happened ${i.repeats} times`
+      + (i.alsoIn?.length ? `, also in: ${i.alsoIn.join(", ")}` : "")) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);
@@ -259,11 +322,38 @@ async function trackFabricJobs() {
     } else if (item && item.status === "running" && !item.request) {
       // Metadata runs (item.request) finish through watchMetaFabricRun, which also reads their results.
       const ok = r.status === "Completed";
-      logActivity({ id, status: ok ? "ok" : "failed", text: ok ? "Finished in Fabric" : `${r.status} in Fabric. ${r.message || ""}`.trim(), at: r.finished_at || new Date().toISOString() });
-      toast(`${item.title}: ${ok ? "finished" : r.status.toLowerCase()} in Fabric`, !ok, { quiet: true });
+      const cancelled = r.status === "Cancelled";  // someone stopped it: not a problem
+      logActivity({ id, status: ok ? "ok" : cancelled ? "cancelled" : "failed",
+        text: ok ? "Finished in Fabric" : `${r.status} in Fabric. ${r.message || ""}`.trim(), at: r.finished_at || new Date().toISOString() });
+      toast(`${item.title}: ${ok ? "finished" : r.status.toLowerCase()} in Fabric`, !ok && !cancelled, { quiet: true });
     }
   }
   if (open) activity.pollTimer = setTimeout(trackFabricJobs, 15000);
+}
+
+// Cancel in Monitor > Runs and the tray is Preview until a cancel has been checked on a tenant.
+const cancelFabricRunShown = () => previewShown() && !!PREVIEW_FEATURES.cancelFabricRun;
+
+// Cancel a Fabric job this app started (Monitor > Runs and the tray), after a danger confirm. Fabric
+// stops it in its own time: the run reads Cancelling until fabric_runs reads how it ended.
+async function cancelFabricJob(jobId) {
+  const runs = await rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
+  const r = runs?.find((x) => x.job_id === jobId);
+  if (!r) { toast("This run isn't in the app's list of Fabric runs any more. Cancel it from Fabric's Monitoring hub.", true); return false; }
+  const name = r.name || "this run";
+  const ws = r.workspace_name || "its workspace";
+  if (FABRIC_DONE.has(r.status)) { toast(`${name} already ended in Fabric (${r.status}).`); return false; }
+  const ok = await confirmDialog(`Cancel ${name} in Fabric?`,
+    `This asks Fabric to stop the ${(r.kind || "job").toLowerCase()} on ${ws}. What it already wrote stays written, and the capacity it used so far is still used. It can't be resumed: run it again to start over.`,
+    "Cancel run", { danger: true, cancelLabel: "Keep running" });
+  if (!ok) return false;
+  const out = await attempt(() => rpc("cancel_fabric_run", { workspace_id: r.workspace_id, item_id: r.item_id, job_id: jobId }), "Could not cancel");
+  if (!out) return false;
+  const id = `fabric:${jobId}`;
+  if (activity.items.some((i) => i.id === id)) logActivity({ id, text: `Cancelling in Fabric on ${ws}` });
+  toast(`Asked Fabric to cancel ${name}. It shows Cancelled once Fabric stops it.`);
+  trackFabricJobs();
+  return true;
 }
 
 // ---------- environment and compute in the top bar ----------

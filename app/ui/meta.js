@@ -4,7 +4,8 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "overview",     // overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
+  projectTab: null,    // the Project tab last open, where Project opens again
+  tab: "home",         // home | catalog | requests | overview | entities | layers | keys | sources | runs | health | model | tests | exceptions | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -69,16 +70,33 @@ async function loadMetaProject() {
   return p;
 }
 
-// Data mesh's tabs, in groups so new features join a group instead of a long row. Overview comes first.
-// [group id, label, [[tab id, label, preview feature id]]]
+// Data mesh's tabs, in groups so new features join a group instead of a long row.
+// [group id, label, [[tab id, label, preview feature id]], section]. The "mesh" section is the mesh
+// for everyone: Home (mesh-home.js) as each person sees it, Products (platform.js) every team's products, Requests (mesh-requests.js) everyone's
+// inbox, Domains (platform.js) the organization's domains with the Map and the open project's own
+// domain and workspaces. The "project" section is the open project's editor, behind one Project tab.
 const META_TAB_GROUPS = [
-  ["overview", "Overview", [["overview", "Domains", "mesh"]]],
-  ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
-  ["runs", "Runs", [["runs", "Runs"]]],
-  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]]],
-  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"]]],
-  ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
+  ["home", "Home", [["home", "Home", "mesh"]], "mesh"],
+  ["catalog", "Products", [["catalog", "Products", "mesh"]], "mesh"],
+  ["requests", "Requests", [["requests", "Requests", "mesh"]], "mesh"],
+  ["domains", "Domains", [["domains", "Domains", "mesh"], ["overview", "Map", "mesh"], ["workspaces", "This project", "mesh"]], "mesh"],
+  ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]], "project"],
+  ["runs", "Runs", [["runs", "Runs"]], "project"],
+  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]], "project"],
+  ["publish", "Products and links", [["products", "Data products", "mesh"], ["links", "Links", "mesh"]], "project"],
+  ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]], "project"],
 ];
+
+// The tabs that show the whole mesh rather than the open project, so they show without one.
+const META_NO_PROJECT = ["home", "catalog", "requests", "domains", "overview"];
+
+// The Preview feature every tab in a group shares, so the group's tab carries the one tag; null when
+// any tab in it isn't in preview or they differ.
+function metaGroupPreview(tabs) {
+  const ids = new Set(tabs.map(([, , previewId]) => previewId || null));
+  const [id] = ids;
+  return ids.size === 1 && id && PREVIEW_FEATURES[id] ? id : null;
+}
 
 function metaGroupOf(tab) {
   return META_TAB_GROUPS.find(([, , tabs]) => tabs.some(([id]) => id === tab)) || META_TAB_GROUPS[0];
@@ -89,49 +107,136 @@ function goMeta(tab) {
   go("metadata");
 }
 
+// ---------- one layout for every tab ----------
+// Every Data mesh tab is laid out the same way (Chris, 2026-10-27): the title with one context line and
+// the tab's own buttons top right (the main one last), the tabs, any banner, then the view row (the
+// tab's views as one switcher on the left, its search, filters and Refresh on the right) and the
+// working area in white cards. The page draws the places; a tab fills its parts with meshChrome.
+const meshSlots = {};
+
+// The places a tab fills, made fresh with each page. Context starts as the tab's default line.
+function meshSlotsFor(tab, context) {
+  Object.assign(meshSlots, {
+    context: h("p", { class: "sub mesh-context" }, ...[context ?? MESH_CONTEXT[tab] ?? ""].flat()),
+    actions: h("div", { class: "head-actions" }),
+    banners: h("div", { class: "mesh-banners" }),
+    views: h("div", { class: "row tight mesh-views" }),
+    tools: h("div", { class: "row tight mesh-tools" }),
+  });
+  return meshSlots;
+}
+
+// Fill a tab's parts of the page: context (its one line under the title), actions (its buttons, top
+// right), banners, views (its switcher) and tools (search and filters, left of Refresh). A part left
+// out stays as it is; null empties it.
+function meshChrome(parts) {
+  for (const [slot, nodes] of Object.entries(parts)) {
+    if (nodes !== undefined && meshSlots[slot]?.isConnected) meshSlots[slot].replaceChildren(...[nodes].flat().filter(Boolean));
+  }
+}
+
+// The one line under the title for each of the mesh's own tabs; Home says which project and domain.
+const MESH_CONTEXT = {
+  catalog: "Every team's data products, from the platform's catalog",
+  requests: "Requests for data, access and changes, and who decides them",
+  domains: "Your organization's domains", overview: "Your organization's domains", workspaces: "Your organization's domains",
+};
+
+function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
+  const slots = meshSlotsFor(state.meta.tab, context);
+  if (actions) slots.actions.replaceChildren(...actions.filter(Boolean));
+  return h("div", { class: "page mesh-page" },
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
+    ...tabs,
+    ...banners, slots.banners,
+    h("div", { class: "row mesh-view-row" }, groupSeg, slots.views, h("span", { class: "spacer" }), slots.tools,
+      btn("Refresh", "sync", () => render(), "tool outline mesh-refresh")),
+    body);
+}
+
 // ---------- main page ----------
 
 async function renderMetadata() {
   setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
-  if (state.view !== "metadata" || !p) return;
-  if (!p.path) return renderMetaSetup(p);
+  if (state.view !== "metadata") return;
+  // The mesh's own tabs need no project, so they show even when the project couldn't be read.
+  if (!p) return META_NO_PROJECT.includes(state.meta.tab) && previewShown() ? renderMetaNoProject({}) : undefined;
+  if (!p.path) return META_NO_PROJECT.includes(state.meta.tab) && previewShown() ? renderMetaNoProject(p) : renderMetaSetup(p);
   renderEnvBar();  // the top bar's environment picker waits for the project
   const m = state.meta;
   // A hidden preview tab falls back to its group's first tab.
   const visible = (tabs) => tabs.filter(([, , previewId]) => !previewId || previewShown());
   if (!visible(metaGroupOf(m.tab)[2]).some(([id]) => id === m.tab)) m.tab = visible(metaGroupOf(m.tab)[2])[0]?.[0] || "entities";
   const group = metaGroupOf(m.tab);
+  const inProject = group[3] === "project";
+  if (inProject) m.projectTab = m.tab;  // Project opens where you left it
+  const shownGroups = (section) => META_TAB_GROUPS.filter(([, , tabs, sec]) => sec === section && visible(tabs).length);
+  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, role: "tab", "aria-selected": String(group[0] === id),
+    onclick: () => goMeta(visible(tabs)[0][0]) },
+    label, metaGroupPreview(tabs) ? previewTag() : null);
   const tabLabel = (label, previewId) => {
     const node = h("span", {}, label);
-    return previewId ? preview(previewId, node) : node;
+    return previewId && !metaGroupPreview(group[2]) ? preview(previewId, node) : node;
   };
   const body = h("div", { class: "meta-body" });
-  setView(h("div", { class: "page" },
-    h("div", { class: "page-head" },
-      h("div", {},
-        h("h1", {}, "Data mesh"),
-        h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))),
-      h("div", { class: "head-actions" },
-        btn("New entity", "add", newEntityDialog, "tool outline"),
-        preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
-          { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
-        btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
-          { disabled: p.errors.length ? true : null }))),
-    problemsBanner(p.errors),
-    exceptionBanner(p),
-    h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([, , tabs]) => visible(tabs).length).map(([id, label, tabs]) =>
-      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label))),
-    visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
-      h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
-    body));
-  const render = { overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
+  // Policy exceptions about to end come from the platform, so their banner fills in when it answers.
+  const policyEnding = h("div", { class: "gov-ending-slot" });
+  setView(meshPage({
+    context: inProject ? ["Every table is a file in ", h("span", { class: "mono" }, p.path),
+      ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh")] : undefined,
+    intro: inProject ? null : pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
+    actions: inProject ? [
+      btn("New entity", "add", newEntityDialog, "tool outline"),
+      preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
+        { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
+      btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
+        { disabled: p.errors.length ? true : null })] : null,
+    tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, shownGroups("mesh").map(groupTab),
+      h("button", { class: `tab${inProject ? " active" : ""}`, role: "tab", "aria-selected": String(inProject), onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
+    inProject ? h("div", { class: "subtabs meta-project-groups", role: "tablist", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
+    // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
+    banners: [problemsBanner(p.errors), exceptionBanner(p), policyEnding],
+    groupSeg: visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
+      h("button", { class: m.tab === id ? "on" : null, "aria-pressed": String(m.tab === id), onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
+    body,
+  }));
+  const render = { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
-    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
+    domains: renderMeshOrgDomainsTab, workspaces: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab,
     exceptions: renderExceptionsTab }[m.tab];
   raiseExceptionNotices(p);
+  raisePolicyExceptionNotices(policyEnding);
   await render(body, p);
+}
+
+// With no metadata project open, the mesh's own tabs still show: a CDO or on-call engineer needs no
+// project. The project's tabs wait for one.
+function renderMetaNoProject(p) {
+  const body = h("div", { class: "meta-body" });
+  const tab = state.meta.tab;
+  const shown = (tabs) => tabs.filter(([id]) => META_NO_PROJECT.includes(id));
+  const groups = META_TAB_GROUPS.filter(([, , tabs]) => shown(tabs).length);
+  const group = metaGroupOf(tab);
+  setView(meshPage({
+    intro: pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
+    // Set up a project is the page's own button, before the tab's so the tab's primary stays last.
+    actions: null,
+    tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, groups.map(([id, label, tabs]) =>
+      h("button", { class: `tab${group[0] === id ? " active" : ""}`, role: "tab", "aria-selected": String(group[0] === id), onclick: () => goMeta(shown(tabs)[0][0]) },
+        label, metaGroupPreview(tabs) ? previewTag() : null)))],
+    banners: [],
+    groupSeg: shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>
+      h("button", { class: tab === id ? "on" : null, "aria-pressed": String(tab === id), onclick: () => goMeta(id) }, label))) : null,
+    body,
+  }));
+  if (p.presets) {
+    const wrap = h("div", { class: "head-actions" });
+    meshSlots.actions.replaceWith(wrap);
+    wrap.append(btn("Set up a project", "add", () => renderMetaSetup(p), "tool outline"), meshSlots.actions);
+  }
+  return { home: renderMeshHomeTab, catalog: renderMeshCatalogTab, requests: renderMeshRequestsTab, domains: renderMeshOrgDomainsTab,
+    overview: renderMeshOverviewTab }[tab](body, p);
 }
 
 // Where an environment's runs execute: "local" (this PC) or "fabric" (the workspace's capacity).
@@ -218,7 +323,7 @@ function renderExceptionsTab(body, p) {
 
 function renderMetaSetup(p) {
   let preset = "3";
-  const path = h("input", { id: "meta-path", value: p.default_path });
+  const path = h("input", { id: "meta-path", value: p.default_path, "aria-label": "Folder" });
   const sample = h("input", { type: "checkbox", id: "meta-sample", checked: true });
   const presetButtons = Object.entries(p.presets).map(([id, layers]) => h("button", {
     class: `choice${id === preset ? " selected" : ""}`, "data-preset": id,
@@ -229,13 +334,13 @@ function renderMetaSetup(p) {
     } },
   h("span", { class: "main" }, h("span", { class: "n" }, `${id} layers`),
     h("span", { class: "w" }, layers.map((l) => l.name).join(" → ")))));
-  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata" });
+  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata", "aria-label": "Folder with a layers.toml" });
   setView(h("div", { class: "page narrow" },
     h("h1", {}, "Set up a metadata project"),
-    h("p", { class: "sub" }, "A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
+    pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
     h("div", { class: "card pad" },
       h("h2", { class: "flush" }, "Create a new project"),
-      h("label", { class: "field" }, "Folder", path),
+      h("label", { class: "field" }, "Folder", folderField(path, "the new project's folder")),
       h("div", { class: "field" }, "Layers (you can add, remove and reorder them later)", h("div", { class: "preset-row" }, presetButtons)),
       h("label", { class: "check" }, sample, "Add the sample tables (customers and orders, Bronze to Gold) so you can try it"),
       h("div", { class: "row end" }, btn("Create project", "add", async () => {
@@ -244,7 +349,7 @@ function renderMetaSetup(p) {
       }, "tool primary"))),
     h("div", { class: "card pad" },
       h("h2", { class: "flush" }, "Or open an existing project"),
-      h("label", { class: "field" }, "Folder with a layers.toml", openPath),
+      h("label", { class: "field" }, "Folder with a layers.toml", folderField(openPath, "the project's folder")),
       h("div", { class: "row end" }, btn("Open", "folderOpen", async () => {
         const res = await metaCall("meta_open", { path: openPath.value.trim() });
         if (res) { state.meta.project = res; render(); }
@@ -262,7 +367,7 @@ function lastRuns(runs) {
 async function renderEntitiesTab(body, p) {
   const runs = await attempt(() => rpc("meta_runs", { env: state.meta.env, limit: 300 })) || [];
   const last = lastRuns(runs);
-  const flow = h("div", { class: "flow" }, p.layers.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+  const flow = h("div", { class: "flow" }, p.layers.map((l, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
     h("span", { class: "layer-chip big", style: `background:${layerColor(l.name)}` }, l.name,
       h("span", { class: "count" }, l.entities))]));
   const shown = p.entities.filter((e) => matches(`${e.name} ${e.owner} ${e.source}`));
@@ -379,7 +484,9 @@ async function renderEntity() {
   if (state.view !== "entity" || !e) return;
   state.meta.entity = e;
   if (!state.meta.project) { await loadMetaProject(); renderEnvBar(); }
-  const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false" });
+  const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false", "aria-label": "Entity file (TOML)",
+    "aria-description": "Tab types four spaces. Press Esc, then Tab, to move on; Shift+Tab always goes back.",
+    "data-esc-tab": "" });  // the accessibility audit leaves it with Esc, then Tab
   editor.value = e.text;
   const dirty = () => editor.value !== e.text;
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
@@ -391,10 +498,16 @@ async function renderEntity() {
     if (res.name !== e.name) state.meta.entity = { name: res.name };
     render();
   };
+  // Tab indents; Esc, then Tab, moves focus on, as in the code editors, so Tab never traps focus here (#928).
+  let leaving = false;
   editor.addEventListener("keydown", (ev) => {
     if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); save(); }
-    if (ev.key === "Tab") { ev.preventDefault(); editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end"); }
+    if (ev.key === "Escape") { leaving = true; return; }
+    if (ev.key === "Tab" && !ev.shiftKey && !leaving) { ev.preventDefault(); editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end"); }
+    if (ev.key !== "Shift") leaving = false;
   });
+  editor.addEventListener("blur", () => { leaving = false; });
+  editor.addEventListener("mousedown", () => { leaving = false; });  // a click after Esc goes back to typing
 
   const cols = Object.entries(e.columns).map(([c, t]) => h("div", { class: "col-row" },
     h("span", { class: "mono" }, c), h("span", { class: "muted-text mono" }, t),
@@ -434,7 +547,7 @@ async function renderEntity() {
           () => (dirty() ? save() : Promise.resolve()).then(() => runEntities([e.name])), "tool primary"))),
     h("div", { class: "card pad" },
       h("div", { class: "row" }, h("b", {}, "What happens on every run"), h("span", { class: "muted-text" }, "Grey steps are the framework. Purple is your code, at a fixed point.")),
-      h("div", { class: "steps" }, stepsFor(e).map(([label, kind], i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      h("div", { class: "steps" }, stepsFor(e).map(([label, kind], i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("span", { class: `step ${kind === "your code" ? "custom" : kind === "expression" ? "expr" : ""}` },
           h("span", { class: "n" }, label), h("span", { class: "k" }, kind))]))),
     h("div", { class: "entity-grid" },
@@ -483,14 +596,23 @@ function keysCard(e) {
 
 // opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
 // opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// opts.reason: { label, placeholder, max } asks why in a required box; the dialog then resolves with
+// the trimmed text instead of true.
 // Escape, the close button and a click outside count as Cancel.
 function confirmDialog(title, text, okLabel = "OK", opts = {}) {
   return new Promise((resolve) => {
     let settled = false;
-    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
-    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    let why = null;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v && why ? why.value.trim() : v); };
+    const cancel = btn(opts.cancelLabel || "Cancel", null, () => done(false), "tool outline");
     const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
     let typed = null;
+    if (opts.reason) {
+      ok.disabled = true;
+      why = h("textarea", { rows: 3, maxlength: opts.reason.max || 500, placeholder: opts.reason.placeholder || "",
+        "aria-label": opts.reason.label || "Reason", oninput: (e) => { ok.disabled = !e.target.value.trim(); } });
+      typed = h("label", { class: "field" }, opts.reason.label || "Reason", why);
+    }
     if (opts.typeToConfirm) {
       ok.disabled = true;
       typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
@@ -500,7 +622,7 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     }
     showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
-    if (opts.danger && !typed) cancel.focus();
+    if (opts.danger && (!typed || why)) cancel.focus();
   });
 }
 
@@ -602,8 +724,11 @@ async function watchMetaFabricRun(run, label) {
   render();
   for (let wait = 10; ; wait = Math.min(wait * 1.5, 60)) {
     await new Promise((r) => setTimeout(r, wait * 1000));
-    const res = await attempt(() => rpc("meta_fabric_result", { request_id: run.request_id }));
-    if (!res) return;
+    const res = await attempt(() => rpc("meta_fabric_result", { request_id: run.request_id }), "Couldn't follow the Fabric run");
+    if (!res) {  // the bell would otherwise show it running for good; how it ended isn't known, so not "failed"
+      logActivity({ id, status: "info", text: "The app stopped following this run. Monitor shows how it ended." });
+      return;
+    }
     if (!["Completed", "Failed", "Cancelled", "Deduped"].includes(res.status)) continue;
     const here = state.view === "metadata" || state.view === "entity";
     if (res.results) {
@@ -655,7 +780,7 @@ function showRunResults(results, decision) {
 async function showRun(runId, env = state.meta.env) {
   const r = await metaCall("meta_run_detail", { run_id: runId, env });
   if (!r) return;
-  showDialog(`${r.entity} · ${new Date(r.started_at).toLocaleString()}`, h("div", { class: "scroll" },
+  showDialog(`${r.entity} · ${dateTimeText(r.started_at)}`, h("div", { class: "scroll" },
     h("div", { class: "row wrap" }, statusPill(r.status), h("span", { class: "muted-text" }, `Run ${r.run_id} · ${ranOn(r)}${r.job_id ? ` · job ${r.job_id}` : ""}${r.attempt > 1 ? ` · try ${r.attempt}` : ""} · metadata ${r.metadata} · ${r.seconds}s`)),
     r.message ? h("p", { class: "text" }, r.message) : null,
     h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Step", "Rows", "Time", "Result"].map((c) => h("th", {}, c)))),
@@ -691,7 +816,7 @@ function renderLayersTab(body, p) {
   const rerender = () => renderLayersTab(body, p);
   const move = (i, d) => { const j = i + d; if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; rerender(); };
   body.replaceChildren(
-    h("div", { class: "flow" }, L.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+    h("div", { class: "flow" }, L.map((l, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
       h("span", { class: "layer-chip big", style: `background:${LAYER_COLORS[i % LAYER_COLORS.length]}` }, l.name)])),
     h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["#", "Layer", "Lakehouse in each environment", "Workspace", "Can read from", "Schema drift", "Required checks", "Surrogate keys", "Keep history", "Entities", ""].map((c) => h("th", {}, c)))),
@@ -699,7 +824,7 @@ function renderLayersTab(body, p) {
         h("td", {}, i + 1),
         h("td", {}, h("b", {}, l.name), l.description ? h("div", { class: "muted-text" }, l.description) : null),
         h("td", { class: "mono small" }, `LH_${l.name[0].toUpperCase()}${l.name.slice(1)}`),
-        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Data mesh > Domains > Domain and workspaces)",
+        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Data mesh > Domains > This project)",
           onchange: (ev) => { l.workspace = ev.target.value; rerender(); } },
         h("option", { value: "" }, "Environment's own"),
         (p.designations || []).map((d) => h("option", { value: d.id, selected: l.workspace === d.id ? true : null }, d.label)))),
@@ -1005,7 +1130,7 @@ function keyTableDetail(t, k, rerender) {
     const res = await metaCall("meta_key_lookup", { table: t.name, value: input.value, env: k.env });
     if (res === undefined) return;
     answer.replaceChildren(res ? h("span", {}, h("span", { class: "mono" }, res.bk), " is ", h("b", { class: "mono" }, String(res.sk)),
-      `, created ${new Date(res.create_date).toLocaleString()}.`) : `No ${t.bk} ${input.value.trim()} yet. The first run that sees it gives it a key.`);
+      `, created ${dateTimeText(res.create_date)}.`) : `No ${t.bk} ${input.value.trim()} yet. The first run that sees it gives it a key.`);
   };
   input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") find(); });
   return h("div", { class: "card pad side-panel" },
@@ -1230,7 +1355,8 @@ async function moveSourcesToPlatform(own, env, done) {
 // The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
 registerShortcuts("Entity page", [
   { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
-  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces", when: () => state.view === "entity" },
+  { keys: ["Esc"], label: "In the entity file: the next Tab moves on instead of typing spaces (Shift+Tab always goes back)", when: () => state.view === "entity" },
 ]);
 
 registerFeature({
@@ -1251,15 +1377,8 @@ registerFeature({
 
 // ---------- table health ----------
 
-function formatBytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
 function shortDate(iso) {
-  return iso ? new Date(iso).toLocaleString() : "never";
+  return dateTimeText(iso, { empty: "never" });
 }
 
 async function renderHealthTab(body) {
@@ -1302,7 +1421,7 @@ async function renderHealthTab(body) {
       h("td", {}, h("span", { class: "mono" }, t.entity)),
       h("td", {}, t.layer ? layerChip(t.layer) : h("span", { class: "muted-text" }, "run metadata")),
       t.exists ? [
-        h("td", { class: "n" }, t.files), h("td", { class: "n" }, formatBytes(t.bytes)), h("td", { class: "n" }, formatBytes(t.avg_file_bytes)),
+        h("td", { class: "n" }, t.files), h("td", { class: "n" }, sizeText(t.bytes)), h("td", { class: "n" }, sizeText(t.avg_file_bytes)),
         hl.local ? null : h("td", {}, t.v_ordered ? h("span", { class: "pill-s pass" }, "Yes") : h("span", { class: "pill-s wrn" }, "No")),
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
@@ -1370,6 +1489,8 @@ async function renderModelTab(body) {
       h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure and a total measure for each numeric column, and no column sums on its own. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),
+    directLakeCard(plan, () => build()),
+    dictionaryCard(plan),
     ossieCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
@@ -1385,6 +1506,217 @@ async function renderModelTab(body) {
           : h("p", { class: "muted-text" }, "None found. Facts relate to a dimension through a [[lookup]] block, or a column named like the dimension's surrogate key.")))));
 }
 
+// ---------- Data dictionary (model_dictionary_service.py) ----------
+
+const DICTIONARY_MAX_BYTES = 5 * 1024 * 1024;
+const DICTIONARY_SHOWN = 12;
+
+// Every table, column and measure of the layer's model with its description; null when preview features are hidden.
+function dictionaryCard(plan) {
+  const title = preview("dataDictionary", h("b", {}, "Data dictionary "));
+  if (!title) return null;
+  const body = h("div", { class: "dict-body" }, h("p", { class: "muted-text" }, "Reading the descriptions..."));
+  const load = async () => {
+    const out = await metaCall("meta_model_dictionary", { layer: plan.layer }, "Data dictionary not read");
+    if (!out) { fill(body); return; }
+    fill(body, dictionaryTable(out));
+  };
+  load();
+  const exportCsv = btn("Export CSV", "arrowDownload", async () => {
+    const res = await metaCall("meta_model_dictionary_export", { layer: plan.layer }, "Not exported");
+    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}`);
+  }, "tool primary small");
+  const save = btn("Save to the project", "save", async () => {
+    const res = await metaCall("meta_model_dictionary_save", { layer: plan.layer }, "Not saved");
+    if (res) toast(`Saved ${res.path}: it shows in Changes, ready to commit`);
+  }, "tool outline small");
+  return h("div", { class: "card pad dict-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
+      btn("Import descriptions...", "arrowUpload", () => dictionaryImportDialog(plan, load), "tool outline small"), save, exportCsv),
+    h("p", { class: "muted-text" }, `Every table, column and measure in ${plan.name}, with the description people see in the catalog. Export it to edit in Excel, then import it back: the descriptions are saved to the catalog, and Update model writes them into the model, where they show in Power BI's field list.`),
+    body,
+    howItWorks("dataDictionary", {
+      reads: "The metadata project and the catalog (what the About card saved, else the [catalog] text in each entity's file).",
+      changes: "Export writes a new CSV in Downloads. Save to the project writes semantic/" + plan.name + ".dictionary.csv for Git. Import saves descriptions and classifications to the catalog after you see every change; a catalog in Fabric uses capacity to save. Nothing in Fabric's model changes until Update model.",
+      results: "Update model writes the descriptions into the model's TMDL.",
+      more: [["Where the idea comes from", "Elegant BI's data dictionary and description scripts for Tabular Editor (MIT), written here for the metadata project."]],
+      anchor: "data-dictionary",
+    }));
+}
+
+function dictionaryTable(out) {
+  const c = out.counts;
+  const missing = c.columns - c.columns_described;
+  const rows = (items) => items.map((x) => h("tr", {},
+    h("td", { class: "mono" }, x.table), h("td", { class: x.name ? "mono" : "muted-text" }, x.name || "(table)"),
+    h("td", {}, h("span", { class: `pill-s ${x.kind === "measure" ? "info" : "neu"}` }, x.kind[0].toUpperCase() + x.kind.slice(1))),
+    h("td", { class: "mono" }, x.type),
+    h("td", { class: x.description ? null : "muted-text" }, x.description || h("i", {}, "No description")),
+    h("td", {}, x.classification ? x.classification[0].toUpperCase() + x.classification.slice(1) : "")));
+  const tbody = h("tbody", {}, rows(out.items.slice(0, DICTIONARY_SHOWN)));
+  const more = out.items.length > DICTIONARY_SHOWN ? btn(`Show all ${out.items.length} rows`, null, (e) => {
+    fill(tbody, ...rows(out.items));
+    e.currentTarget.remove();
+  }, "tool link small") : null;
+  return h("div", { class: "dict-out" },
+    h("div", { class: "row wrap dict-counts" },
+      h("span", {}, h("b", {}, String(c.columns_described)), ` of ${c.columns} columns described`),
+      h("span", {}, h("b", {}, String(c.tables_described)), ` of ${c.tables} tables described`),
+      h("span", {}, h("b", {}, String(c.measures)), " measures, described for you"),
+      missing ? h("span", { class: "pill-s wrn" }, `${missing} column${missing === 1 ? " has" : "s have"} no description`) : null),
+    out.problem ? h("p", { class: "warn-text" }, `The catalog couldn't be read, so this shows the text in Git only (${out.problem}).`) : null,
+    h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Column or measure", "Kind", "Type", "Description", "Classification"].map((x) => h("th", {}, x)))), tbody),
+    more);
+}
+
+// Pick an edited dictionary, see every change, then save.
+function dictionaryImportDialog(plan, reload) {
+  const picked = { text: "", name: "" };
+  const input = h("input", { type: "file", accept: ".csv,text/csv", "aria-label": "Data dictionary CSV" });
+  const out = h("div", { class: "dict-preview" });
+  const go = btn("Save changes", "save", null, "tool primary");
+  go.disabled = true;
+  input.onchange = async () => {
+    const f = input.files[0];
+    go.disabled = true;
+    if (!f) return;
+    if (f.size > DICTIONARY_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 5 MB, so it isn't a data dictionary.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    fill(out, h("p", { class: "muted-text" }, "Reading the file..."));
+    const res = await metaCall("meta_model_dictionary_preview", { text: picked.text, layer: plan.layer }, "Not read");
+    if (!res) { fill(out); return; }
+    const field = { description: "Description", classification: "Classification" };
+    const cap = (t) => (/^(public|internal|confidential|restricted)$/.test(t) ? t[0].toUpperCase() + t.slice(1) : t);
+    fill(out,
+      h("div", { class: "row wrap" }, h("span", { class: "pill-s pass" }, `${res.changes.length} to change`),
+        h("span", { class: "pill-s neu" }, `${res.unchanged} unchanged`),
+        res.skipped.length ? h("span", { class: "pill-s wrn" }, `${res.skipped.length} skipped`) : null),
+      res.changes.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Table or column", "What", "Now", "From the file"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, res.changes.map((r) => h("tr", {}, h("td", { class: "mono" }, r.object), h("td", {}, field[r.field]),
+          h("td", { class: r.now ? null : "muted-text" }, r.now ? cap(r.now) : h("i", {}, "none")), h("td", {}, cap(r.new))))))
+        : h("p", { class: "muted-text" }, "Nothing changes: the catalog already has this text."),
+      res.skipped.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Skipped (${res.skipped.length})`),
+        h("ul", { class: "gate-list" }, res.skipped.map((x) => h("li", {}, h("span", { class: "mono" }, x.object), `, row ${x.row}: ${x.reason}`)))) : null,
+      res.problem ? h("p", { class: "error-text" }, `The catalog can't be reached, so nothing can be saved now (${res.problem}).`) : null);
+    go.textContent = `Save ${res.changes.length} change${res.changes.length === 1 ? "" : "s"}`;
+    go.disabled = !res.changes.length || !!res.problem;
+  };
+  go.onclick = async () => {
+    go.disabled = true;
+    const res = await metaCall("meta_model_dictionary_import", { text: picked.text, layer: plan.layer, confirmed: true }, "Not saved");
+    if (!res) { go.disabled = false; return; }
+    closeDialog();
+    toast(`Saved ${res.changes.length} change${res.changes.length === 1 ? "" : "s"} from ${picked.name} to the catalog. Update model writes them into the model.`);
+    reload();
+  };
+  showDialog("Import descriptions", h("div", { class: "scroll dict-import" },
+    h("label", { class: "field" }, "Edited data dictionary (CSV)", input),
+    out,
+    h("p", { class: "muted-text" }, "Takes descriptions and classifications for tables and columns. A blank cell leaves the text as it is; measure rows are skipped, since their descriptions are written for you. Saves to the catalog, as the About card does; the model in Fabric doesn't change until you Update model.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+// ---------- Direct Lake check (model_directlake_service.py) ----------
+
+const DL_SEVERITY = { fail: ["Would fail", "fail"], warn: ["Falls back", "wrn"], info: ["Info", "info"] };
+
+// What would make a model fall back to DirectQuery or fail; null when preview features are hidden. Reads only.
+function directLakeCard(plan, updateModel) {
+  const title = preview("directLakeCheck", h("b", {}, "Direct Lake check "));
+  if (!title) return null;
+  const m = state.meta;
+  const result = h("div", { class: "dl-result" });
+  const model = h("select", { "aria-label": "Model to check" },
+    h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
+  const sku = h("select", { "aria-label": "Capacity limits" }, h("option", { value: "" }, "Reading the capacity..."));
+  const keys = h("input", { type: "checkbox" });
+  const checkBtn = btn("Check now", "search", () => run(), "tool primary small");
+  metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
+    if (!res) return;
+    fill(model, ...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === plan.name ? true : null },
+      x.name === plan.name ? `${x.name} (this layer's model)` : x.name)) : [h("option", { value: "" }, "No semantic models in this workspace yet")]));
+  });
+  metaCall("meta_model_directlake_setup", { env: m.env }, "Capacity not read").then((res) => {
+    if (!res) return;
+    const known = res.sku;
+    fill(sku, ...(known ? [] : [h("option", { value: "" }, res.capacity_sku ? `${res.capacity_sku} (no Direct Lake limits known)` : "Pick the capacity")]),
+      ...res.skus.map((x) => h("option", { value: x, selected: x === known ? true : null }, x === known ? `${x} (this workspace's capacity)` : x)));
+  });
+  const run = async () => {
+    if (!model.value) { toast("Pick a model to check"); return; }
+    checkBtn.disabled = true;
+    fill(result, h("p", { class: "muted-text" }, `Reading ${model.value}'s definition and its Delta tables...`));
+    const out = await metaCall("meta_model_directlake_check", { env: m.env, name: model.value, sku: sku.value, keys: keys.checked }, "Not checked");
+    checkBtn.disabled = false;
+    if (!out) { fill(result); return; }
+    fill(result, directLakeResult(out, plan, updateModel));
+  };
+  return h("div", { class: "card pad dl-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), checkBtn),
+    h("p", { class: "muted-text" }, "Finds what would make the model fall back to DirectQuery, or fail, before people query it: tables past the capacity's Direct Lake limits, columns the Delta table no longer has, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, then checks on this PC. It starts no Fabric job; reading from OneLake uses capacity."),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
+      h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)")),
+    result,
+    howItWorks("directLakeCheck", {
+      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log and Parquet footers from OneLake, and both key columns of each relationship when you tick the box.",
+      changes: "Nothing. Fixes open where you make them: Update model, or Table health to compact a table.",
+      results: "Shown here only.",
+      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."]],
+      anchor: "direct-lake-check",
+    }));
+}
+
+function directLakeFix(f, plan, updateModel) {
+  if (f.fix === "update_model") return btn("Update model", "cube", updateModel, "tool link small");
+  if (f.fix === "compact") return btn("Compact in Table health", "open", () => goMeta("health"), "tool link small");
+  const entity = plan.tables.find((t) => t.name === f.table)?.entity;
+  if (f.fix === "show_rows" && entity) return btn("Open the table", "open", () => openEntity(entity), "tool link small");
+  return h("span", { class: "muted-text" }, "");
+}
+
+function directLakeResult(out, plan, updateModel) {
+  if (!out.direct_lake) return h("p", { class: "muted-text" }, `${out.name} has no Direct Lake tables, so there's nothing to check.`);
+  const c = out.counts;
+  const tile = (label, n, cls) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, label), h("b", { class: cls }, String(n)));
+  const lim = out.limits;
+  const num = (n) => (n === null || n === undefined ? "" : Number(n).toLocaleString());
+  const over = (n, limit) => (lim && n !== null && n !== undefined ? (n > limit ? "n over" : n >= limit * 0.9 ? "n near" : "n") : "n");
+  return h("div", { class: "dl-out" },
+    h("div", { class: "dl-tiles" }, tile("Would fail", c.fail, "fail-text"), tile("Would fall back or slow down", c.warn, "warn-text"),
+      tile("Worth knowing", c.info, "info-text"),
+      h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, "Fallback setting"),
+        h("b", {}, out.behavior.toLowerCase() === "directlakeonly" ? "Direct Lake only" : "Automatic"),
+        h("span", { class: "muted-text" }, out.storage === "onelake" ? "Direct Lake on OneLake: past a limit, refresh fails"
+          : out.behavior.toLowerCase() === "directlakeonly" ? "Past a limit, queries fail" : "Past a limit, queries go to DirectQuery"))),
+    out.findings.length ? h("table", { class: "mini" },
+      h("thead", {}, h("tr", {}, ["Severity", "Table", "Check", "What we found", "Fix"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, out.findings.map((f) => h("tr", {},
+        h("td", {}, h("span", { class: `pill-s ${DL_SEVERITY[f.severity][1]}` }, DL_SEVERITY[f.severity][0])),
+        h("td", { class: "mono" }, f.table || "Model"), h("td", {}, f.check), h("td", {}, f.message),
+        h("td", {}, directLakeFix(f, plan, updateModel))))))
+      : h("div", { class: "pass-box" }, icon("ok", 16), ` Nothing found${lim ? ` at ${lim.sku}'s limits` : ""}.`),
+    out.unread.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Couldn't check (${out.unread.length})`),
+      h("ul", { class: "gate-list" }, out.unread.map((u) => h("li", {}, h("span", { class: "mono" }, u.table), `: ${u.reason}`)))) : null,
+    lim ? null : h("p", { class: "muted-text" }, "Pick the capacity to compare each table with its Direct Lake limits."),
+    out.tables.length ? h("details", {}, h("summary", {}, lim ? `Every table against ${lim.sku}'s limits` : "Every table"),
+      h("table", { class: "mini" }, h("thead", {}, h("tr", {},
+        h("th", {}, "Table"), h("th", {}, "Delta table"),
+        h("th", { class: "n" }, lim ? `Rows (limit ${num(lim.rows)})` : "Rows"),
+        h("th", { class: "n" }, lim ? `Parquet files (limit ${num(lim.files)})` : "Parquet files"),
+        h("th", { class: "n" }, lim ? `Row groups (limit ${num(lim.row_groups)})` : "Row groups"),
+        h("th", { class: "n" }, "Size on OneLake"))),
+        h("tbody", {}, out.tables.map((t) => h("tr", {}, h("td", { class: "mono" }, t.table), h("td", { class: "mono" }, t.delta_table),
+          t.exists ? [
+            h("td", { class: over(t.rows, lim?.rows) }, num(t.rows)), h("td", { class: over(t.files, lim?.files) }, num(t.files)),
+            h("td", { class: over(t.row_groups, lim?.row_groups) }, (t.row_groups_estimated ? "about " : "") + num(t.row_groups)),
+            h("td", { class: "n" }, sizeText(t.bytes))]
+            : h("td", { colspan: 4, class: "muted-text" }, "No Delta table")))),
+        lim?.model_bytes ? h("tfoot", {}, h("tr", {}, h("td", { colspan: 5, class: "muted-text" }, "Model total"),
+          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${sizeText(out.model_bytes)} of ${sizeText(lim.model_bytes)}`))) : null),
+      h("p", { class: "muted-text" }, "Row groups come from each file's Parquet footer, up to 200 files a table; above that they're estimated from a sample and marked \"about\".")) : null,
+    h("p", { class: "muted-text" }, `Checked ${relTime(out.checked_at)}.`));
+}
+
 // ---------- Apache Ossie: export and import a semantic model (model_ossie_service.py) ----------
 
 const OSSIE_MAX_BYTES = 20 * 1024 * 1024;
@@ -1396,32 +1728,53 @@ function ossieCard(plan) {
   if (!title) return null;
   const m = state.meta;
   const result = h("div", { class: "ossie-result" });
+  // Values say where the model is read from: "fabric:<name>" in the environment's workspace, "git:<folder>" in
+  // the project's folder (semantic/<name>.SemanticModel, read on this PC with no Fabric call).
   const model = h("select", { "aria-label": "Model to export" },
-    h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
+    h("option", { value: plan.existing ? `fabric:${plan.name}` : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the models..."));
   const sql = h("input", { type: "checkbox", checked: true });
-  metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
-    if (!res) return;
-    const keep = model.value || plan.name;
-    model.replaceChildren(...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === keep ? true : null },
-      x.name === plan.name ? `${x.name} (this layer's model)` : x.name)) : [h("option", { value: "" }, "No semantic models in this workspace yet")]));
+  Promise.all([
+    rpc("meta_model_ossie_models", { env: m.env }).catch((err) => ({ error: err.message || String(err) })),
+    rpc("meta_model_ossie_folders", {}).catch(() => ({ folders: [] })),
+  ]).then(([fab, git]) => {
+    const keep = model.value || `fabric:${plan.name}`;
+    const opt = (value, label) => h("option", { value, selected: value === keep ? true : null }, label);
+    const inFabric = fab.error ? [h("option", { value: "", disabled: true }, fab.error)]
+      : fab.models.length ? fab.models.map((x) => opt(`fabric:${x.name}`, x.name === plan.name ? `${x.name} (this layer's model)` : x.name))
+        : [h("option", { value: "", disabled: true }, "No semantic models in this workspace yet")];
+    model.replaceChildren(
+      h("optgroup", { label: fab.workspace_name ? `In Fabric (${fab.workspace_name})` : "In Fabric" }, inFabric),
+      git.folders.length ? h("optgroup", { label: "In Git, on this PC" }, git.folders.map((f) => opt(`git:${f.path}`, `${f.name} (${f.path})`))) : null);
+    if (!model.value) model.value = git.folders.length ? `git:${git.folders[0].path}` : "";
+    // The engine lacks a package the converter needs (PyYAML): only this card is off, with the reason.
+    if (git.unavailable) {
+      importBtn.disabled = exportBtn.disabled = true;
+      fill(result, h("div", { class: "warn-box" }, icon("warning", 16), git.unavailable));
+    }
   });
   const exportModel = async () => {
     if (!model.value) { toast("Pick a model to export", true); return; }
-    fill(result, h("p", { class: "muted-text" }, `Reading ${model.value} from Fabric and converting it on this PC...`));
-    const out = await metaCall("meta_model_ossie_export", { env: m.env, name: model.value, translate_dax: sql.checked }, "Not exported");
+    const [where, ...rest] = model.value.split(":");
+    const target = rest.join(":");
+    fill(result, h("p", { class: "muted-text" }, where === "git"
+      ? `Reading ${target} on this PC and converting it...` : `Reading ${target} from Fabric and converting it on this PC...`));
+    const out = where === "git"
+      ? await metaCall("meta_model_ossie_export_folder", { path: target, translate_dax: sql.checked }, "Not exported")
+      : await metaCall("meta_model_ossie_export", { env: m.env, name: target, translate_dax: sql.checked }, "Not exported");
     if (!out) { fill(result); return; }
     fill(result, ossieExportResult(out));
   };
+  const importBtn = btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small");
+  const exportBtn = btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small");
   return h("div", { class: "card pad ossie-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
-      btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small"),
-      btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small")),
-    h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
+      importBtn, exportBtn),
+    h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric, or its TMDL kept in Git, and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
     h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
       h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),
     result,
     howItWorks("ossie", {
-      reads: "The model's definition from Fabric (getDefinition, read only), or the Ossie file you pick.",
+      reads: "The model's definition from Fabric (getDefinition, read only), its TMDL under semantic/ in the project's folder (no Fabric call), or the Ossie file you pick.",
       changes: "Export changes nothing until you save the file into the metadata project's folder. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
       results: "Files under semantic/ in the metadata project, ready to commit in Source control.",
       more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],

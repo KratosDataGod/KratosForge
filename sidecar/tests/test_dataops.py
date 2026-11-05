@@ -1,15 +1,17 @@
 """Compare before promote, quarantine replay and freshness promises."""
 
 import datetime as dt
+import json
 import shutil
 import time
+import types
 
 import polars as pl
 import pytest
+import requests
 
 from fabric_desktop import dataops_service
 from fabric_desktop.meta import freshness
-from fabric_desktop.meta.project import validate
 from fabric_desktop.service import Service
 
 
@@ -62,6 +64,53 @@ def test_compare_with_an_earlier_version_of_the_same_table(svc):
     out = svc.meta_compare("silver.customers", "dev", "dev", left_version=before)
     assert out["only_left"]["count"] == 1 and out["only_left"]["rows"][0]["customer_id"] == "1"
     assert out["rows"]["left"] - out["rows"]["right"] == 1
+
+
+def test_compare_of_a_table_above_the_row_limit_streams_a_checksum(svc, monkeypatch):
+    # PB-069: a table larger than memory is never loaded; the result says it was a hashed compare.
+    from fabric_desktop.meta import compare as compare_mod
+    svc.meta_set_environment("test", target="local")
+    svc.meta_promote("dev", "test")
+    data = svc._project().local_data
+    shutil.copytree(data / "dev" / "LH_Bronze" / "Files", data / "test" / "LH_Bronze" / "Files")
+    assert all(r["status"] == "ok" for r in svc.meta_run(env="test"))
+    monkeypatch.setattr(compare_mod, "LIMIT_ROWS", 1)
+    monkeypatch.setattr(compare_mod, "compare", lambda *a: pytest.fail("the full compare loads both tables"))
+    monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
+
+    same = svc.meta_compare("silver.orders", "test", "dev")
+    assert same["method"] == "hashed" and same["checksum"]["match"] and not same["compared_on_keys"]
+    assert same["rows"]["left"] == same["rows"]["right"] > 1
+    assert "checksums match" in same["note"]
+    assert all(t["diff"] == 0 for t in same["totals"]) and "order_id" not in {t["column"] for t in same["totals"]}
+
+    edit_entity(svc, "silver.orders", 'expr = "amount - coalesce(discount, 0)"', 'expr = "amount"')
+    svc.meta_run(["silver.orders"], backfill="full")
+    moved = svc.meta_compare("silver.orders", "test", "dev")
+    assert moved["method"] == "hashed" and not moved["checksum"]["match"]
+    assert {t["column"]: t for t in moved["totals"]}["net_amount"]["diff"] > 0
+    assert "checksums differ" in moved["note"]
+
+
+def test_hashed_compare_matches_equal_numbers_of_another_type_and_skips_old_versions(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    key = e.keys[0]
+    left = pa.table({key: ["1", "2", "3"], "amount": pa.array([10, 20, 30], pa.int64()), "is_current": [True] * 3})
+    right = pa.table({key: ["3", "1", "2", "2"], "amount": pa.array([30.0, 10.0, 99.0, 20.0]),
+                      "is_current": [True, True, False, True]})
+    out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
+    assert out["checksum"]["match"] and out["rows"] == {"left": 3, "right": 3}
+    assert [c["column"] for c in out["columns"]["type_changed"]] == ["amount"] and out["totals"][0]["diff"] == 0
+    changed = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right.set_column(1, "amount", pa.array([30.0, 11.0, 99.0, 20.0]))))
+    assert not changed["checksum"]["match"] and changed["totals"][0]["diff"] == 1
+
+
+def test_compare_below_the_row_limit_says_every_row_was_compared(svc):
+    out = svc.meta_compare("silver.customers", "dev", "dev")
+    assert out["method"] == "full" and out["compared_on_keys"]
 
 
 # ---- quarantine replay
@@ -184,29 +233,72 @@ def test_freshness_is_checked_by_the_save_gate_and_saved_from_the_app(svc):
     assert any("freshness by" in e for e in bad["errors"]) and any("freshness envs" in e for e in bad["errors"])
 
 
-def test_late_tables_are_posted_to_teams_once(svc, monkeypatch):
+@pytest.mark.parametrize("spec, said", [
+    ({"within_hours": float("nan")}, "within_hours must be a number"),
+    ({"within_hours": float("inf")}, "within_hours must be a number"),
+    ({"by": "07:00\n"}, 'by must be a time like "07:00"'),
+])
+def test_freshness_refuses_nan_infinity_and_a_time_with_more_after_it(spec, said):
+    assert any(said in e for e in freshness.problems("a", {"freshness": spec}, ("dev", "test", "prod")))
+
+
+def _teams_posts(svc, monkeypatch, url="https://example.webhook.office.com/x"):
     posts = []
-    monkeypatch.setattr(dataops_service, "post_teams", lambda url, title, lines: posts.append((title, lines)))
-    svc.meta_set_alerts("https://example.webhook.office.com/x")
+    post = lambda url, title, lines: posts.append((title, lines))  # noqa: E731
+    monkeypatch.setattr(dataops_service, "post_teams", post)
+    monkeypatch.setattr("fabric_desktop.platform_notify_service.post_teams", post)
+    svc.meta_set_alerts(url)
+    return posts
+
+
+def check(svc):
+    """What the app does every 10 minutes (dataops.js checkFreshness), with Preview on or off."""
+    return svc.meta_freshness(), svc.incidents_watch(notify=True)
+
+
+def test_a_late_table_is_posted_to_teams_once_and_its_recovery_once(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
     svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
     time.sleep(0.5)  # 0.0001 h is 0.36 s
-    out = svc.meta_freshness(notify=True)
-    assert out["items"][0]["status"] == "late" and out["alerted"] == 1
-    assert "gold.fact_sales" in posts[0][1][0]
-    assert svc.meta_freshness(notify=True)["alerted"] == 0  # already told
+    fresh, _ = check(svc)
+    assert fresh["items"][0]["status"] == "late" and "alerted" not in fresh  # Home shows it; it posts nothing
+    assert len(posts) == 1 and posts[0][0].startswith("New: ") and "gold.fact_sales" in posts[0][0]
+    check(svc)
+    check(svc)
+    assert len(posts) == 1  # still late: not posted again
+    svc.meta_set_freshness("gold.fact_sales", within_hours=24, envs=["dev"])
+    check(svc)
+    assert len(posts) == 2 and posts[1][0].startswith("Recovered: ") and "gold.fact_sales" in posts[1][0]
+    check(svc)
+    assert len(posts) == 2
     with pytest.raises(ValueError):
         svc.meta_set_alerts("http://not-secure")
 
 
-def test_a_failed_freshness_post_keeps_the_webhook_signature_out(svc, monkeypatch):
+def test_a_late_table_an_older_app_already_posted_is_not_posted_again(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
+    svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
+    time.sleep(0.5)
+    late = svc.meta_freshness()["items"][0]
+    # what the app wrote when meta_freshness posted to Teams itself
+    (svc.root / "freshness_alerts.json").write_text(
+        json.dumps({f"late:dev:gold.fact_sales:{late['last_ok']}": "2026-10-31T10:00:00+00:00"}), encoding="utf-8")
+    opened = svc.incidents_watch(notify=True)["envs"][0]
+    assert [c["change"] for c in opened["changes"]] == ["opened"] and posts == []  # the incident still opens
+    svc.meta_set_freshness("gold.fact_sales", within_hours=24, envs=["dev"])
+    svc.incidents_watch(notify=True)
+    assert len(posts) == 1 and posts[0][0].startswith("Recovered: ")
+
+
+def test_a_failed_teams_post_keeps_the_webhook_signature_out(svc, monkeypatch):
     def down(url, title, lines):
         raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
-    monkeypatch.setattr(dataops_service, "post_teams", down)
+    monkeypatch.setattr("fabric_desktop.platform_notify_service.post_teams", down)
     svc.meta_set_alerts("https://example.webhook.office.com/workflows/x/invoke?sv=1.0&sig=SECRET123")
     svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
     time.sleep(0.5)
-    out = svc.meta_freshness(notify=True)
-    assert out["alerted"] == 0 and "sig=[removed]" in out["alert_error"] and "SECRET123" not in out["alert_error"]
+    error = svc.incidents_watch(notify=True)["envs"][0]["notified"]["error"]
+    assert "sig=[removed]" in error and "SECRET123" not in error
 
 
 def test_teams_card_shape():
@@ -268,3 +360,135 @@ def test_no_project_yet_is_still_just_empty(tmp_path):
     s = Service(root=tmp_path / "app")
     assert s.meta_runs_all() == {"runs": [], "unavailable": {}}
     assert "project_error" not in s.meta_freshness()
+
+
+def test_drift_on_an_entity_source_reads_its_columns_not_its_rows(svc, monkeypatch):
+    from fabric_desktop.meta.store import LocalStore
+    project = svc._project()
+    up = project.entities["silver.orders"].spec["source"]["entity"]
+    upstream = (project.entities[up].schema, project.entities[up].table)
+    reads, real = [], LocalStore.read
+    monkeypatch.setattr(LocalStore, "read", lambda self, lh, schema, table, *a, **k:
+                        reads.append((schema, table)) or real(self, lh, schema, table, *a, **k))
+    d = svc.meta_drift("silver.orders")
+    assert d["checked"] and d["problem"] is None and upstream not in reads
+
+
+def test_hashed_totals_of_floats_added_in_another_order_are_the_same(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    key = e.keys[0]
+    import random
+    values = [random.Random(i).uniform(0, 1000) for i in range(5000)]
+    left = pa.table({key: [str(i) for i in range(len(values))], "amount": pa.array(values)})
+    right = pa.table({key: [str(i) for i in reversed(range(len(values)))], "amount": pa.array(list(reversed(values)))})
+    out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
+    assert out["totals"][0]["diff"] == 0
+    assert compare_mod._diff(1e-12, -1e-12) == 0 and compare_mod._diff(0.1 + 0.2, 0.3) == 0 and compare_mod._diff(1.0, 1.5) == 0.5 and compare_mod._diff(3, 4) == 1
+
+
+def test_hashed_compare_with_no_shared_columns_still_counts_rows(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    out = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1]})))
+    assert out["rows"] == {"left": 2, "right": 1} and out["columns"]["only_left"] == ["a"]
+    even = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1, 2]})))
+    assert even["checksum"]["match"] is None and "share no columns, so no rows could be compared" in even["note"]
+    assert "the rows are the same" not in even["note"]
+
+
+def test_a_table_missing_on_one_side_isnt_loaded_on_the_other(svc, monkeypatch):
+    svc.meta_set_environment("test", target="local")
+    monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
+    out = svc.meta_compare("silver.orders", "dev", "test")
+    assert out["rows"]["right"] is None and out["rows"]["left"] > 0 and "the right" in out["note"]
+
+
+
+# ---- posting to Teams
+
+def _answer(status, body=None, headers=None):
+    return types.SimpleNamespace(status_code=status, headers=headers or {}, json=lambda: body if body is not None else {})
+
+
+def _teams(monkeypatch, answers):
+    """post_teams against a fake Teams webhook that gives ``answers`` in turn (a response or an error)."""
+    from fabric_desktop import retrying
+    sent = []
+
+    def post(url, json, timeout):
+        sent.append(url)
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+    monkeypatch.setattr(dataops_service.http_session, "session", lambda: types.SimpleNamespace(post=post))
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    return sent
+
+
+def test_teams_throttling_is_waited_out_through_the_shared_session(monkeypatch):
+    sent = _teams(monkeypatch, [_answer(429, headers={"Retry-After": "1"}), _answer(202)])
+    dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
+    assert len(sent) == 2
+
+
+def test_a_teams_5xx_is_sent_once_and_says_why_on_one_line(monkeypatch):
+    sent = _teams(monkeypatch, [_answer(503, {"error": {"message": "Service\n  unavailable"}}), _answer(202)])
+    with pytest.raises(RuntimeError) as raised:
+        dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
+    assert str(raised.value) == "Teams answered 503: Service unavailable" and len(sent) == 1
+
+
+def test_a_dropped_connection_to_teams_is_sent_once(monkeypatch):
+    sent = _teams(monkeypatch, [requests.ConnectionError("reset"), _answer(202)])
+    with pytest.raises(requests.ConnectionError):
+        dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
+    assert len(sent) == 1
+
+
+# EA-028: the quarantine rewrite's commit-race retry, pinned before it moved onto retrying.retry_call.
+class _QuarantineRace:
+    """Fakes _quarantine_at: each read sees the table at a newer version; the first ``lose`` writes
+    lose the commit race."""
+
+    def __init__(self, lose: int, error: type[BaseException] | None = None):
+        from deltalake.exceptions import CommitFailedError
+        self.error = error or CommitFailedError
+        self.lose, self.reads, self.writes = lose, 0, []
+        outer = self
+
+        class Store:
+            def write(self, lh, schema, table, df, mode, read_version):
+                outer.writes.append((df["_qid"].to_list(), read_version))
+                if len(outer.writes) <= outer.lose:
+                    raise outer.error("another writer committed first")
+
+        self.store = Store()
+
+    def _quarantine_at(self, project, name, env):
+        self.reads += 1
+        q = pl.DataFrame({"_qid": ["a", "b", "c"], "x": [1, 2, 3]})
+        return self.store, "lh", "t", q, self.reads
+
+
+def test_quarantine_drop_rereads_and_retries_a_lost_commit_up_to_five_times():
+    from deltalake.exceptions import CommitFailedError
+    from fabric_desktop.dataops_service import DataOpsMixin
+
+    race = _QuarantineRace(lose=4)
+    DataOpsMixin._drop_from_quarantine(race, None, "E", "dev", {"b"})
+    assert race.reads == 5 and [v for _, v in race.writes] == [1, 2, 3, 4, 5]  # each try against a fresh read
+    assert race.writes[-1][0] == ["a", "c"]
+    race = _QuarantineRace(lose=5)
+    with pytest.raises(CommitFailedError):
+        DataOpsMixin._drop_from_quarantine(race, None, "E", "dev", {"b"})
+    assert race.reads == 5
+    race = _QuarantineRace(lose=1, error=PermissionError)
+    with pytest.raises(PermissionError):  # anything but a lost commit fails at once
+        DataOpsMixin._drop_from_quarantine(race, None, "E", "dev", {"b"})
+    assert race.reads == 1

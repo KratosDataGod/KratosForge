@@ -19,6 +19,7 @@ import json
 import logging
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,12 +31,15 @@ from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, resolve_schema_mode, stage_locally
+from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
+from .retrying import data_upload_dropped
 
 _log = logging.getLogger(__name__)
 
 MODES = ("overwrite", "append")
+# The write history names a notebook's table write "Notebook write to <lakehouse>"; costs.py tells it from a job run by this.
+WRITE_JOB_PREFIX = "Notebook write to "
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,8 @@ class WriteResult:
     delta_version: int
     uri: str
     skipped: bool = False  # the table already held exactly these rows, so nothing was uploaded
+    # The write committed but its lease lapsed while it wrote (publish's lease_warning, EA-006).
+    warning: str | None = None
 
     def __repr__(self) -> str:
         if self.skipped:
@@ -67,6 +73,8 @@ class WriteResult:
         if self.delta_version == 0:
             # Fabric lists a table written from outside under Unidentified until the lakehouse is refreshed.
             text += ". New table: refresh the lakehouse in Fabric if it shows under Unidentified"
+        if self.warning:
+            text += f"\nWarning: {self.warning}"
         return text
 
 
@@ -143,6 +151,21 @@ def _proof() -> Any:
 # written from a notebook (it is managed by the framework), or None.
 write_guard: Callable[[str, str, str], str | None] | None = None
 
+# Checks for the writes of one cell, by the thread the engine's own kernel runs it on: a cell a
+# paired VS Code window started asks in the app before each write (editor_service.py). A process
+# kernel asks the engine through its write_guard call instead (kernel_proc.ProcessKernel.write_check).
+cell_write_checks: "weakref.WeakKeyDictionary[threading.Thread, Callable[[str, str, str], str | None]]" = \
+    weakref.WeakKeyDictionary()
+
+
+def write_refusal(name: str, schema: str, table: str) -> str | None:
+    """Why this write may not happen (the open metadata project, or the cell's own check), or None."""
+    reason = write_guard(name, schema, table) if write_guard else None
+    if reason:
+        return reason
+    check = cell_write_checks.get(threading.current_thread())
+    return check(name, schema, table) if check else None
+
 
 def attach(context: Attached | None) -> None:
     """Set the lakehouse that notebook code reads from and writes to."""
@@ -172,6 +195,10 @@ def table_ref(table: str) -> TableRef:
     # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
     if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
         parts = parts[1:]
+    # A name is one folder under Tables/: a part that is empty or holds a path separator would
+    # point somewhere else (Tables/a/../b), so it's refused for every read and write.
+    if not all(parts) or any(c in p for p in parts for c in "/\\"):
+        raise ValueError(f"{table!r} isn't a table name: a schema or table name can't be empty or hold / or \\.")
     if len(parts) > 2:
         raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
     schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
@@ -358,6 +385,27 @@ def files(directory: str = "Files") -> list[str]:
     return [e["path"] for e in FileStore(lh.storage_token).list(lh.workspace_id, lh.lakehouse_id, directory)]
 
 
+def _delta_safe(schema: pa.Schema, table: str, mode: str) -> pa.Schema:
+    """``schema`` with each column delta-rs can't write in the type Fabric reads, or a plain error
+    (localdata.delta.delta_safe). An all-NULL column appended to a table that has it takes the
+    table's type."""
+    from .localdata import delta as local_delta
+
+    def existing() -> dict[str, pa.DataType]:
+        try:
+            return {f.name.lower(): f.type for f in pa.schema(open_table(table).schema().to_arrow())}
+        except TableNotFoundError:
+            return {}
+    if naive := local_delta.naive_timestamps(schema):
+        listed = ", ".join(naive)
+        raise ValueError(f"Column{'s' if len(naive) > 1 else ''} {listed} hold{'' if len(naive) > 1 else 's'} timestamps "
+                         "without a time zone, which Delta stores in a form Fabric can't read (timestampNtz). Nothing was "
+                         "written. Give them a time zone first: in Polars .dt.replace_time_zone(\"UTC\"), in pandas "
+                         ".dt.tz_localize(\"UTC\"), in Spark SQL CAST(x AS TIMESTAMP), or with "
+                         "to_utc_timestamp(x, 'your zone').")
+    return local_delta.delta_safe(schema, existing if mode == "append" else None)
+
+
 def _to_arrow(data: Any) -> pa.Table:
     if isinstance(data, pa.Table):
         return data
@@ -422,6 +470,12 @@ def _stream(data: Any) -> tuple[pa.Schema, Iterator[pa.Table]] | None:
     return first.schema, chain()
 
 
+# A table write whose data file upload was dropped (retrying.data_upload_dropped) is written again,
+# whole: nothing of it was committed. On top of object_store's own retries of each part.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_WAIT = 15.0  # seconds, then twice that
+
+
 def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto",
                 upload: str | None = None, skip_unchanged: bool | None = None) -> WriteResult | PendingWrite:
     """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
@@ -449,16 +503,20 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     started = time.monotonic()
     lh = _current()
     ref = table_ref(table)
-    reason = write_guard(lh.name, ref.schema, ref.table) if write_guard else None
+    reason = write_refusal(lh.name, ref.schema, ref.table)
     if reason:
         raise PermissionError(reason)
     streamed = _stream(data)
     arrow, spill = None, None
     if streamed is None:
         arrow = _to_arrow(data)
-        schema = arrow.schema
+        schema = _delta_safe(arrow.schema, table, mode)
+        if schema != arrow.schema:
+            arrow = arrow.cast(schema)
     else:
-        schema = streamed[0]
+        schema = _delta_safe(streamed[0], table, mode)
+        if schema != streamed[0]:
+            streamed = (schema, (part.cast(schema) for part in streamed[1]))
     stage_locally(schema.empty_table(), lh.work_dir / "staging", lh.lakehouse_id, ref.schema, ref.table)
     if (p := _proof()) is not None:
         if arrow is None:
@@ -494,20 +552,29 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     def commit() -> WriteResult:
         uploading = time.monotonic()
         try:
-            delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
-                            schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+            for attempt in range(UPLOAD_ATTEMPTS):
+                try:
+                    delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
+                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+                    break
+                except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+                    if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
+                        raise
+                    wait = UPLOAD_RETRY_WAIT * (attempt + 1)
+                    _log.warning("Writing %s again in %.0f s: a data file's upload was dropped (%s)", name_, wait, describe(exc))
+                    time.sleep(wait)
         finally:
             if spill is not None:
                 spill.remove()
         skipped = bool(getattr(delta, "skipped", False))
-        result = WriteResult(name_, rows, delta.version(), ref.uri, skipped)
+        result = WriteResult(name_, rows, delta.version(), ref.uri, skipped, getattr(delta, "lease_warning", None))
         if stats is not None:
             stats.wrote(uploading, 0 if skipped else rows, getattr(delta, "written_bytes", None), skipped)
         # A table the notebook writes before reading starts, for a replay, at the version before that write.
         _record_table(ref, result.delta_version if skipped else
                       result.delta_version - 1 if result.delta_version > 0 else None, "write", lh)
         if lh.history_file:
-            record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
+            record = {"job": f"{WRITE_JOB_PREFIX}{lh.name}", "table_uri": ref.uri, "mode": mode,
                       "rows": result.rows, "delta_version": result.delta_version,
                       "seconds": round(time.monotonic() - started, 2),
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -523,12 +590,96 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         if queue is None or upload == "direct":
             if queue is not None:
                 queue.wait()  # in order with the cell's writes still uploading
-            return commit()
+            done = commit()
+            if done.warning:
+                print(f"Warning: {done.warning}")  # in the cell's output, as well as its log
+            return done
         # Returns at once, unless the writes already waiting hold too much of this PC's memory.
         future = queue.submit(ref.uri, name_, arrow.nbytes if arrow is not None else 0, commit)
     if spill is not None:  # a write cancelled before it started never runs commit(), which removes it
         future.add_done_callback(lambda f: spill.remove() if f.cancelled() else None)
     return PendingWrite(name_, rows, ref.uri, future)
+
+
+@dataclass
+class ChangeResult:
+    """What a MERGE (PB-015) changed in a lakehouse table, in one Delta commit."""
+    table: str
+    operation: str
+    delta_version: int
+    rows_inserted: int = 0
+    rows_updated: int = 0
+    rows_deleted: int = 0
+
+    def __repr__(self) -> str:
+        return (f"{self.operation.upper()} into {self.table}: {self.rows_inserted} inserted, {self.rows_updated} "
+                f"updated, {self.rows_deleted} deleted (Delta version {self.delta_version})")
+
+
+def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
+    """Run ``change`` (a delta_dml.Change on a table of the attached lakehouse) with delta-rs, in one
+    commit, after the cell's own writes still uploading. ``source`` is a MERGE's rows. During a proof
+    the change is made to this run's sandbox copy (the pinned version, copied in first), never the
+    shared table. The table must pass the Fabric Delta profile check before the change; afterwards a
+    table the change took outside the profile is only noted in the log, since the rows are committed."""
+    from deltalake import CommitProperties, write_deltalake
+
+    from . import delta_dml, delta_profile
+    lh = _current()
+    ref = table_ref(change.name)
+    reason = write_refusal(lh.name, ref.schema, ref.table)
+    if reason:
+        raise PermissionError(reason)
+    name_ = f"{ref.schema}.{ref.table}"
+    if (p := _proof()) is not None:
+        opts = p.options()
+
+        def seed(uri: str, data: pa.Table) -> DeltaTable:
+            write_deltalake(uri, data, mode="overwrite", storage_options=opts)
+            return DeltaTable(uri, storage_options=opts)
+        try:
+            p.read_location(ref.schema, ref.table)  # a table the proof can't read can't be changed in it
+        except Exception as exc:
+            raise TableNotFoundError(str(exc)) from None
+        uri = p.write_location(ref.schema, ref.table, "append", seed)  # "append": the pinned version comes first
+    else:
+        opts = storage_options(lh.storage_token())
+        uri = ref.uri
+        if (queue := _queue()) is not None:
+            queue.wait()  # in order with the cell's writes still uploading
+    table = _open_for_change(uri, opts, name_)
+    try:
+        delta_profile.check_table(table)
+    except delta_profile.ProfileViolation as exc:
+        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Writing to it could make it unreadable in "
+                         "Fabric.") from None
+    before = table.version()
+    names = source.schema.names if source is not None else None
+    out = delta_dml.apply(change, table, source, names,
+                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}))
+    after = DeltaTable(uri, storage_options=opts)
+    delta_profile.note_after_write(after)
+    result = ChangeResult(name_, change.kind, after.version(), out["rows_inserted"], out["rows_updated"],
+                          out["rows_deleted"])
+    if p is None:
+        _record_table(ref, before, "write", lh)  # a replay starts the table at the version before the change
+        if lh.history_file:
+            record = {"job": f"Notebook {change.kind.upper()} in {lh.name}", "table_uri": ref.uri, "mode": change.kind,
+                      "rows": out["rows_inserted"] + out["rows_updated"] + out["rows_deleted"],
+                      "delta_version": result.delta_version,
+                      "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
+            with lh.history_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+    return result
+
+
+def _open_for_change(uri: str, opts: dict[str, str] | None, name: str) -> DeltaTable:
+    try:
+        return DeltaTable(uri, storage_options=opts)
+    except TableNotFoundError:
+        raise TableNotFoundError(f"{name} isn't in {_current().name}, so there's nothing to change. Create it first "
+                                 "(df.write.saveAsTable or CREATE TABLE ... AS SELECT).") from None
 
 
 def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
@@ -538,7 +689,9 @@ def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_m
     from . import delta_profile
 
     def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
-        delta_profile.check_target(uri, proof.options())
+        target = delta_profile.open_target(uri, proof.options())
+        if target is not None and resolve_schema_mode(how, schema) != "overwrite":
+            refuse_conversions(data.schema, target, f"{ref.schema}.{ref.table}")
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),
                         schema_mode=resolve_schema_mode(how, schema))
         table = DeltaTable(uri, storage_options=proof.options())

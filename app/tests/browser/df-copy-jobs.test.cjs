@@ -117,13 +117,18 @@ test("an incremental SQL job lists its keys and says why it runs in Fabric only"
   assert.match(await page().locator(".df-copy-table tbody").textContent(), /UpsertKeys: customer_idSnapshotPlusIncrementalOn id/);
 });
 
-test("a copy job Fabric won't give says why; Open in Fabric goes to its workspace; nothing runs", { skip }, async () => {
+test("a copy job Fabric won't give says why; Open in Fabric goes to the copy job; nothing runs", { skip }, async () => {
   await page().locator(".df-flow-row", { hasText: "cj_broken" }).click();
   await page().locator(".df-detail .error-text", { hasText: "Could not read cj_broken" }).waitFor();
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
-  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
+  // The copy job's own page, as Fabric names it (/groups/<workspace>/copyjobs/<id>), not the workspace list.
+  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/copyjobs/[^/?]+\\?experience=fabric-developer$`));
   assert.ok(!app.calls.some((c) => /workload_act|run_item|job_start/.test(c.method)), "nothing runs");
+  // Its run history still shows, as on the Dataflows tab.
+  await page().locator('[role="tab"]', { hasText: "Run history" }).click();
+  await page().locator(".df-copy-runs").waitFor();
+  await page().locator('[role="tab"]', { hasText: "Tables" }).click();
 });
 
 test("Run in Fabric asks first through the Workloads confirm, then starts it and reads the runs again", { skip }, async () => {
@@ -139,6 +144,7 @@ test("Run in Fabric asks first through the Workloads confirm, then starts it and
   await page().waitForFunction(() => document.querySelectorAll(".wl-confirm").length === 0);
   assert.deepStrictEqual(acted, [{ id: `fabric:${WS}:${CJ}`, action: "run_item", env: null, schedule_id: "", job_id: "" }]);
   await until(() => app.calls.filter((c) => c.method === "fabric_copy_job_runs").length > runsBefore);  // the runs are read again
+  await page().locator(".toast", { hasText: "Run in Fabric: submitted. Monitor > Runs shows how it ends." }).waitFor();
 });
 
 test("a copy job Workloads doesn't list yet offers to pin its workspace, and starts nothing", { skip }, async () => {
@@ -147,9 +153,11 @@ test("a copy job Workloads doesn't list yet offers to pin its workspace, and sta
   await page().locator(".df-detail-head button", { hasText: "Run in Fabric…" }).click();
   await page().locator(".dialog", { hasText: "doesn't list cj_erp_customers yet" }).waitFor();
   await page().locator(".dialog button", { hasText: "Pin and read again" }).click();
-  await until(() => app.calls.some((c) => c.method === "workloads_list"));
+  // Earlier tests already listed the workloads, so wait for the read this pin starts (refresh), not any read.
+  const reread = () => app.calls.some((c) => c.method === "workloads_list" && c.params.refresh === true);
+  await until(reread);
   assert.deepStrictEqual(pinned, [{ workspace_id: WS, mark: "pins", on: true }]);
-  assert.ok(app.calls.some((c) => c.method === "workloads_list" && c.params.refresh === true), "it reads the items again");
+  assert.ok(reread(), "it reads the items again");
   assert.strictEqual(acted.length, 1, "nothing more started");
 });
 

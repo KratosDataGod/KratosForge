@@ -33,6 +33,7 @@ from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
 from ..jsonfile import write_text
+from ..redact import one_line
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -43,16 +44,30 @@ SCD2_COLUMNS = ["valid_from", "valid_to", "is_current", "row_hash"]
 DRIFT_POLICIES = ("evolve", "ignore_new", "strict")
 REQUIRED_CHECKS = ("key_not_null", "key_unique")
 LOAD_MODES = ("full", "incremental", "scd1", "scd2")
+# [load] deletes: what an incremental run does with a key the source no longer has. "none" (the
+# default) leaves the row as it is; "soft" marks it with DELETE_COLUMNS; "hard" removes it.
+DELETE_MODES = ("none", "soft", "hard")
+DELETE_COLUMNS = ["is_deleted", "deleted_at"]
+# [load] max_deletes: the most live keys one run may mark or remove, as "N%" of them or a count. A
+# source that is cut short or whose key type drifted looks like a mass delete; the run stops instead.
+DEFAULT_MAX_DELETES = "20%"
+_MAX_DELETES = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*%\s*$")
+_LOOKBACK = re.compile(r"^\s*(\d+)\s*(minute|minutes|min|mins|hour|hours|day|days)\s*$", re.IGNORECASE)
 LOGIC_KEYS = ("source", "load", "contract", "clean", "derive", "check", "hooks", "step", "scd", "lookup", "keys")
 # Settings that change how a run reads its source, never the rows it writes: changing one isn't a
-# logic change, so it doesn't ask whether to rebuild.
-OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"), ("load", "batch_by"))
+# logic change, so it doesn't ask whether to rebuild. (A lookback reads rows again; the MERGE on the
+# key makes them land once, so the table is the same.)
+OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"), ("load", "batch_by"),
+                    ("load", "lookback"), ("load", "max_deletes"))
 CUSTOM_RULES = ("owner", "custom_code_owner", "custom_code_test", "key_not_null", "key_unique",
                 "surrogate_keys")
 ENVIRONMENTS = ("dev", "test", "prod")
 # An approved exception that ends inside this window raises a notice before the save gate fails.
 EXCEPTION_WARN_DAYS = 14
 _LAYER_NAME = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
+# An entity's name is its file's name and, part by part, its table's folders: none may be empty or
+# hold a path separator or a drive colon.
+_PATH_CHARS = re.compile(r"[/\\:]")
 _IGNORED = {".git", ".local", "__pycache__", ".pytest_cache"}
 # Where each environment writes and runs is deployment settings, not logic: changing it
 # mustn't make an environment look out of date and ask for another promote.
@@ -65,6 +80,42 @@ class GateError(Exception):
     def __init__(self, gate: str, errors: list[str]):
         self.gate, self.errors = gate, errors
         super().__init__(f"Blocked by the {gate} gate:\n" + "\n".join(f"- {e}" for e in errors))
+
+
+def parse_lookback(value: Any) -> dt.timedelta | int | None:
+    """[load] lookback: how far before the saved watermark an incremental run reads again, so rows
+    that arrive late still land. "2 hours", "30 minutes" or "3 days" for a date or datetime
+    watermark; a whole number for a numeric one. None when unset; ValueError when it can't be read."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(value)
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(value)
+        return value
+    m = _LOOKBACK.match(value) if isinstance(value, str) else None
+    if not m:
+        raise ValueError(value)
+    n, unit = int(m.group(1)), m.group(2).lower()
+    if unit.startswith("min"):
+        return dt.timedelta(minutes=n)
+    return dt.timedelta(hours=n) if unit.startswith("hour") else dt.timedelta(days=n)
+
+
+def parse_max_deletes(value: Any) -> tuple[str, float]:
+    """[load] max_deletes: ("share", 0..1) for "N%", or ("count", n) for a whole number. ValueError
+    when it can't be read."""
+    if isinstance(value, bool):
+        raise ValueError(value)
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(value)
+        return "count", float(value)
+    m = _MAX_DELETES.match(value) if isinstance(value, str) else None
+    if not m or float(m.group(1)) > 100:
+        raise ValueError(value)
+    return "share", float(m.group(1)) / 100
 
 
 def as_list(v: Any) -> list:
@@ -142,8 +193,31 @@ class Entity:
         return list(self.spec.get("hooks", {}).get("adds", []))
 
     @property
+    def deletes(self) -> str:
+        """[load] deletes on an incremental load: none (the default), soft or hard."""
+        return str(self.spec.get("load", {}).get("deletes", "none"))
+
+    @property
+    def max_deletes(self) -> tuple[str, float]:
+        """[load] max_deletes, read; the default when unset or unreadable (the save gate says which)."""
+        try:
+            return parse_max_deletes(self.spec.get("load", {}).get("max_deletes", DEFAULT_MAX_DELETES))
+        except ValueError:
+            return parse_max_deletes(DEFAULT_MAX_DELETES)
+
+    @property
+    def soft_deletes(self) -> bool:
+        return self.mode == "incremental" and self.deletes == "soft"
+
+    @property
     def surrogate_key(self) -> str | None:
         return self.spec.get("scd", {}).get("surrogate_key")
+
+    @property
+    def date_column(self) -> str | None:
+        """The date column that makes this dimension the semantic model's date table ([model] date_column)."""
+        model = self.spec.get("model")
+        return (model.get("date_column") or None) if isinstance(model, dict) else None
 
     def logic_hash(self) -> str:
         logic = {k: self.spec.get(k) for k in LOGIC_KEYS}
@@ -175,6 +249,8 @@ class Entity:
             cols |= set(SCD2_COLUMNS)
         for lk in self.spec.get("lookup", []):
             cols.add(lk["as"])
+        if self.soft_deletes:
+            cols |= set(DELETE_COLUMNS)
         return cols | set(self.key_columns)
 
     def python_refs(self):
@@ -260,7 +336,7 @@ class Project:
                 continue
             name = spec.get("name") or p.stem
             if p.stem != name:
-                self.load_errors.append(f"{p.name}: file name must match its name ({name})")
+                self.load_errors.append(f"{p.name}: file name must match its name ({one_line(name, 80)})")
             self.entities[name] = Entity(name, spec, p)
         exc_file = self.root / "exceptions.toml"
         self.exceptions = tomllib.loads(exc_file.read_text(encoding="utf-8")).get("exception", []) \
@@ -493,6 +569,64 @@ def _batch_by_problems(e: Entity) -> list[str]:
     return []
 
 
+def _late_and_delete_problems(e: Entity) -> list[str]:
+    """[load] lookback and deletes: an incremental load of a Delta source, merged on a key."""
+    s, errors = e.spec, []
+    load, src = s.get("load", {}), s.get("source", {})
+    delta_source = any(k in src for k in ("table", "link", "entity"))
+    if "lookback" in load:
+        try:
+            parse_lookback(load["lookback"])
+        except ValueError:
+            errors.append(f'{e.name}: load lookback is a duration like "2 hours", "30 minutes" or "3 days" '
+                          "(or a whole number for a numeric watermark)")
+        if e.mode != "incremental" or not load.get("watermark"):
+            errors.append(f"{e.name}: load lookback is for incremental loads with a watermark")
+        elif not delta_source:
+            errors.append(f"{e.name}: load lookback needs a Delta source (table, link or entity); "
+                          "file sources read new files instead of a watermark")
+        elif not e.keys:
+            errors.append(f"{e.name}: load lookback reads rows again, so it needs [contract] keys for them "
+                          "to replace themselves instead of landing twice")
+    mode = load.get("deletes", "none")
+    if mode not in DELETE_MODES:
+        errors.append(f"{e.name}: load deletes must be one of {', '.join(DELETE_MODES)}")
+    elif mode != "none":
+        if e.mode != "incremental":
+            errors.append(f"{e.name}: load deletes is for incremental loads")
+        elif not delta_source:
+            errors.append(f"{e.name}: load deletes needs a Delta source (table, link or entity) to compare keys with")
+        elif not e.keys:
+            errors.append(f"{e.name}: load deletes compares keys with the source, so it needs [contract] keys")
+        elif "custom" in s.get("step", {}):
+            errors.append(f"{e.name}: load deletes can't be used with a custom step, which makes its own rows")
+        else:
+            made = [k for k in e.keys if k in e.derived or k in e.hook_adds or k in e.key_columns]
+            if made:
+                errors.append(f"{e.name}: load deletes needs keys the source has; {', '.join(made)} "
+                              "is made by this entity")
+        if "max_deletes" in load:
+            try:
+                parse_max_deletes(load["max_deletes"])
+            except ValueError:
+                errors.append(f'{e.name}: load max_deletes is a share like "50%" or a whole number of keys')
+        taken = [c for c in DELETE_COLUMNS if c in s.get("contract", {}).get("columns", {})]
+        if mode == "soft" and taken:
+            errors.append(f'{e.name}: load deletes = "soft" adds {", ".join(taken)} itself; '
+                          "take them out of the contract")
+    return errors
+
+
+
+def entity_name_problem(name: str) -> str | None:
+    """Why ``name`` can't name an entity, or None."""
+    parts = str(name).split(".")
+    if len(parts) not in (2, 3):
+        return "name must be <layer>.<table> or <layer>.<schema>.<table>"
+    if not all(parts) or _PATH_CHARS.search(name):
+        return "each part of the name needs at least one character, and none can hold / \\ or :"
+    return None
+
 def validate(project: Project, today: dt.date | None = None) -> list[str]:
     """The save gate. Every problem in the project; an empty list means it is clean."""
     today = today or dt.date.today()
@@ -506,8 +640,9 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
 
     for e in project.entities.values():
         s = e.spec
-        if len(e.name.split(".")) not in (2, 3):
-            errors.append(f"{e.name}: name must be <layer>.<table> or <layer>.<schema>.<table>")
+        problem = entity_name_problem(e.name)
+        if problem:
+            errors.append(f"{e.name}: {problem}")
             continue
         if e.layer not in names:
             errors.append(f"{e.name}: layer {e.layer} does not exist")
@@ -534,6 +669,16 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: dimensions need a business key in [contract] keys")
             if e.mode == "scd2" and not s.get("scd", {}).get("tracked"):
                 errors.append(f"{e.name}: Type 2 dimensions need [scd] tracked columns")
+        model = s.get("model", {})
+        if not isinstance(model, dict) or not isinstance(model.get("date_column", ""), str):
+            errors.append(f'{e.name}: [model] date_column names a date column, like date_column = "date"')
+        elif e.date_column:
+            if e.mode not in ("scd1", "scd2") or not e.surrogate_key:
+                errors.append(f"{e.name}: [model] date_column is for a dimension (scd1 or scd2 with a surrogate key), "
+                              "which facts relate to")
+            elif str(e.columns.get(e.date_column, "")).lower() not in ("date", "datetime"):
+                errors.append(f"{e.name}: [model] date_column {e.date_column} must be a contract column of type date "
+                              "or datetime")
         files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
         if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
@@ -541,12 +686,15 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)
         errors += objectives_mod.problems(e.name, s, ENVIRONMENTS)
         errors += _batch_by_problems(e)
+        errors += _late_and_delete_problems(e)
         own_drift = s.get("contract", {}).get("drift")
         if own_drift is not None and own_drift not in DRIFT_POLICIES:
             errors.append(f"{e.name}: contract drift must be one of {', '.join(DRIFT_POLICIES)}")
         rename = s.get("source", {}).get("rename", {})
         if not isinstance(rename, dict) or not all(isinstance(v, str) for v in rename.values()):
             errors.append(f'{e.name}: source rename maps a source column to a contract column, like {{ cust_id = "customer_id" }}')
+        if not isinstance(s.get("contract", {}).get("overwrite_schema", False), bool):
+            errors.append(f"{e.name}: contract overwrite_schema is true or false")
 
         # No mixing: never read a later layer; the same layer only when the layer allows it.
         me = project.layer_index(e.layer)

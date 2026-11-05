@@ -217,7 +217,7 @@ def test_quality_checks_split_good_rows_from_rejects_with_reasons(monkeypatch):
     built = wizard.build("quality", ANSWERS["quality"])
     run_cells(built, monkeypatch, lake)
     assert lake.tables["silver.orders"]["order_id"].to_list() == [1, 2]
-    reasons = dict(zip(*lake.tables["silver.orders_rejects"].select("order_id", "reason").to_dict(as_series=False).values()))
+    reasons = dict(zip(*lake.tables["silver.orders_rejects"].select("order_id", "reason").to_dict(as_series=False).values(), strict=True))
     assert reasons == {3: "region is empty", 4: "status is not one of ['open', 'closed']; amount is outside 0.0..100.0"}
     assert set(built["proof"]["tables"]) == {"silver.orders", "silver.orders_rejects"}
 

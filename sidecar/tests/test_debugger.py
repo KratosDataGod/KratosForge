@@ -6,7 +6,6 @@ import time
 
 import pytest
 
-from fabric_desktop import app_settings
 from fabric_desktop.debugger import check_breakpoints
 from fabric_desktop.kernel_proc import ProcessKernel
 from fabric_desktop.notebook import Kernel

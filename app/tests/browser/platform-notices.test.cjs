@@ -17,7 +17,7 @@ const event = (kind, id, title, extra = {}) => ({ kind, id, title, at: "2026-10-
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["app_settings", "save_app_settings", "platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open"],
+    engine: ["app_settings", "save_app_settings", "platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open", "mail_server_save", "mail_server_forget"],
     mocks: { readiness_check: () => [], platform_domains: () => [{ id: "finance", name: "Finance" }, { id: "sales", name: "Sales" }] },
   });
   await page().waitForFunction(() => typeof platformNoticesSection === "function" && !!state.settings);
@@ -34,7 +34,7 @@ test("adding a route shows only its host, and editing keeps the address", { skip
   await page().getByRole("button", { name: "Save", exact: true }).click();
   await page().waitForSelector(".pn-routes");
   const text = await page().textContent(".pn-settings");
-  assert.ok(text.includes("Data platform admins") && text.includes("127.0.0.1") && text.includes("Set, address hidden"));
+  assert.ok(text.includes("Data platform admins") && text.includes("127.0.0.1") && text.includes("Teams webhook") && text.includes("address hidden"));
   assert.ok(!text.includes("SECRET123"));
   await page().getByRole("button", { name: "Edit" }).click();
   assert.strictEqual(await page().inputValue("#pn-url"), "");
@@ -43,7 +43,7 @@ test("adding a route shows only its host, and editing keeps the address", { skip
   await page().getByRole("button", { name: "Save", exact: true }).click();
   await page().waitForFunction(() => document.querySelector(".pn-routes")?.textContent.includes("finance"));
   const saved = await page().evaluate(() => rpc("platform_notify_settings", {}));
-  assert.deepStrictEqual(saved.routes[0], { name: "Data platform admins", kinds: ["request.waiting"], domains: ["finance"], url_set: true, host: "127.0.0.1" });
+  assert.deepStrictEqual(saved.routes[0], { name: "Data platform admins", kinds: ["request.waiting"], domains: ["finance"], url_set: true, kind: "teams", host: "127.0.0.1" });
 });
 
 test("quiet hours and exemptions save from the section", { skip }, async () => {
@@ -68,13 +68,45 @@ test("the bell lists open notices, never a request's reason, and the ones Teams 
   await page().evaluate(() => toggleTray(true));
   await page().getByRole("button", { name: /^Platform \d/ }).click();
   const tray = await page().textContent(".tray");
-  for (const part of ["Platform 1", "Access to LH_Gold_Sales", "waits on platform admins", "Open in Platform > Requests",
+  for (const part of ["Platform 1", "Access to LH_Gold_Sales", "waits on platform admins", "Open in Data mesh > Requests",
     "1 notice hasn't reached Teams", "Teams didn't answer. It waits on this PC", "Details", "as far as this PC's notices know"]) assert.ok(tray.includes(part), part);
   assert.ok(!tray.includes("Q3") && !tray.includes("SECRET123"));
   assert.ok(!tray.includes("Customers_Silver"), "no route takes shortcut notices, so it wasn't posted");
   if (SHOTS) await page().locator(".tray").screenshot({ path: path.join(SHOTS, "platform-notices-bell.png") });
-  await page().getByRole("button", { name: "Open in Platform > Requests" }).click();
-  assert.strictEqual(await page().evaluate(() => [state.view, platformPage.tab].join(":")), "platform:requests");
+  await page().getByRole("button", { name: "Open in Data mesh > Requests" }).click();
+  assert.strictEqual(await page().evaluate(() => [state.view, state.meta.tab].join(":")), "metadata:requests");
+});
+
+test("an email route sends through the company mail server, whose password never comes back", { skip }, async () => {
+  await page().evaluate(() => go("settings"));
+  await page().locator(".pn-mail").getByRole("button", { name: "Set up" }).click();
+  await page().fill("#ms-host", "smtp.contoso.com");
+  await page().fill("#ms-sender", "kratosforge@contoso.com");
+  await page().getByRole("button", { name: "Save", exact: true }).click();
+  await page().waitForFunction(() => document.querySelector(".pn-mail")?.textContent.includes("smtp.contoso.com:587"));
+  assert.ok((await page().textContent(".pn-mail")).includes("STARTTLS required"));
+  await page().getByRole("button", { name: "Add a route" }).click();
+  await page().fill("#pn-name", "admins-mail");
+  await page().getByRole("radio", { name: /^Email/ }).check();
+  assert.ok(await page().locator("#pn-url").isHidden());
+  await page().fill("#pn-to", "ana@contoso.com; li@contoso.com");
+  assert.ok((await page().textContent(".pn-route .note-box")).includes("Mail goes through smtp.contoso.com"));
+  if (SHOTS) await page().locator(".dialog").screenshot({ path: path.join(SHOTS, "platform-notices-email-route.png") });
+  await page().getByRole("button", { name: "Save", exact: true }).click();
+  await page().waitForFunction(() => document.querySelector(".pn-routes")?.textContent.includes("admins-mail"));
+  const row = await page().textContent(".pn-routes");
+  assert.ok(row.includes("Email") && row.includes("2 people, through smtp.contoso.com") && !row.includes("ana@contoso.com"));
+  const saved = await page().evaluate(() => rpc("platform_notify_settings", {}));
+  assert.ok(!JSON.stringify(saved).includes("ana@contoso.com"));
+  assert.strictEqual(saved.routes.find((r) => r.name === "admins-mail").kind, "email");
+  if (SHOTS) await page().locator(".pn-settings").screenshot({ path: path.join(SHOTS, "platform-notices-email-settings.png") });
+  await page().evaluate(async (s) => {  // back to one route and no mail server, for the next test
+    await rpc("platform_notify_save", { routes: s.routes.filter((r) => r.name !== "admins-mail").map((r) => ({ name: r.name, kinds: r.kinds, domains: r.domains })),
+      quiet: s.quiet, quiet_exempt: s.quiet_exempt });
+    await rpc("mail_server_forget", {});
+    go("settings");
+  }, saved);
+  await page().waitForFunction(() => document.querySelector(".pn-mail")?.textContent.includes("Not set"));
 });
 
 test("removing a route asks first", { skip }, async () => {

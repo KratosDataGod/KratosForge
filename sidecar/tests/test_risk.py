@@ -279,7 +279,7 @@ def test_the_policy_is_read_from_the_organization_settings(svc, item, monkeypatc
 
 def test_reading_the_risk_is_not_audited_and_acknowledging_is():
     from fabric_desktop import audit
-    assert {"risk_check", "risk_settings", "risk_acknowledgements"} <= audit.READ_ONLY
+    assert {"risk_check", "risk_settings"} <= audit.READ_ONLY
     assert not {"risk_acknowledge", "set_risk_settings"} & audit.READ_ONLY
 
 

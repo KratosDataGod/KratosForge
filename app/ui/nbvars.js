@@ -22,7 +22,7 @@ function variableRows(rows, { filter = "", sort = "name", desc = false } = {}) {
 }
 
 function variableMemory(bytes) {
-  return bytes == null ? "" : bytes < 1024 ? `${bytes} B` : formatSize(bytes);  // app.js
+  return sizeText(bytes);  // app.js
 }
 
 function variableTable(rows) {

@@ -145,3 +145,74 @@ def apply(text: str, add: dict[str, str] | None = None, retype: dict[str, str] |
     while lines and not lines[-1].strip():
         lines.pop()
     return "\n".join(lines) + "\n"
+
+
+# ---- what a write changes in the table's schema (PB-031)
+
+_EXACT = {pl.Int8: "int8", pl.Int16: "int16", pl.Int32: "int32", pl.Int64: "int64", pl.UInt8: "uint8",
+          pl.UInt16: "uint16", pl.UInt32: "uint32", pl.UInt64: "uint64", pl.Float32: "float32",
+          pl.Float64: "float64", pl.String: "string", pl.Boolean: "bool", pl.Date: "date"}
+_BITS = {pl.Int8: 8, pl.Int16: 16, pl.Int32: 32, pl.Int64: 64, pl.UInt8: 8, pl.UInt16: 16, pl.UInt32: 32,
+         pl.UInt64: 64}
+# Digits a decimal needs left of the point to hold every value of an integer type, as Delta's type
+# widening counts them: 10 for byte, short and int, 20 for long.
+_INT_DIGITS = {8: 10, 16: 10, 32: 10, 64: 20}
+
+
+def type_text(dtype: pl.DataType) -> str:
+    """A column type as the contract writes it, exact (int16 stays int16), for the schema history."""
+    if isinstance(dtype, pl.Decimal):
+        return f"decimal({dtype.precision},{dtype.scale})"
+    if isinstance(dtype, pl.Datetime):
+        return "timestamp" if dtype.time_zone else "timestamp_ntz"
+    return _EXACT.get(dtype, str(dtype).lower())
+
+
+def widens(old: pl.DataType, new: pl.DataType) -> bool:
+    """Whether every value of ``old`` fits ``new`` exactly: the changes Delta's type widening allows
+    (wider integers and floats, an integer to double or to a decimal with room, a decimal with more
+    digits, a date to a timestamp without time zone). Promote's breaking-change check lets the same
+    contract changes through (mesh.WIDENING)."""
+    if old == new:
+        return False
+    if old in _BITS and new in _BITS:
+        signed_old, signed_new = old.is_signed_integer(), new.is_signed_integer()
+        return (signed_old == signed_new or signed_new) and _BITS[new] > _BITS[old]
+    if old in _BITS and new == pl.Float64:
+        return _BITS[old] <= 32
+    if old == pl.Float32 and new == pl.Float64:
+        return True
+    if old in _BITS and isinstance(new, pl.Decimal):
+        return (new.precision or 38) - new.scale >= _INT_DIGITS[_BITS[old]]
+    if isinstance(old, pl.Decimal) and isinstance(new, pl.Decimal):
+        return new.scale >= old.scale and (new.precision or 38) - new.scale >= (old.precision or 38) - old.scale
+    return old == pl.Date and isinstance(new, pl.Datetime) and not new.time_zone
+
+
+def schema_changes(before: Any, after: Any) -> list[dict[str, Any]]:
+    """How a table's schema went from ``before`` to ``after`` (column name to type), one entry per kind
+    of change; ``created`` when there was no table (``before`` is None). ``added`` and ``widened``
+    keep every reader working; ``narrowed``, ``retyped`` (to a type of another kind) and ``dropped``
+    are breaking, the rule promote's breaking-change check applies to a product's ports."""
+    def kind(c: str) -> str:
+        return "widened" if widens(before[c], after[c]) else "narrowed" if widens(after[c], before[c]) else "retyped"
+
+    if before is None:
+        return [{"change": "created", "columns": ", ".join(after), "breaking": False,
+                 "detail": ", ".join(f"{c} {type_text(t)}" for c, t in after.items())}]
+    out: list[dict[str, Any]] = []
+    added = [c for c in after if c not in before]
+    if added:
+        out.append({"change": "added", "columns": ", ".join(added), "breaking": False,
+                    "detail": ", ".join(f"{c} {type_text(after[c])}" for c in added)})
+    changed = [c for c in before if c in after and before[c] != after[c]]
+    for k in ("widened", "narrowed", "retyped"):
+        cols = [c for c in changed if kind(c) == k]
+        if cols:
+            out.append({"change": k, "columns": ", ".join(cols), "breaking": k != "widened",
+                        "detail": ", ".join(f"{c} {type_text(before[c])} to {type_text(after[c])}" for c in cols)})
+    dropped = [c for c in before if c not in after]
+    if dropped:
+        out.append({"change": "dropped", "columns": ", ".join(dropped), "breaking": True,
+                    "detail": ", ".join(f"{c} {type_text(before[c])}" for c in dropped)})
+    return out

@@ -22,7 +22,8 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import http_session
-from .notebookutils_local import Host, NotebookExit, on_vault, vault_url
+from .paging import Pages
+from .notebookutils_local import Host, NotebookExit, keyvault_error, on_vault, vault_url
 from .retrying import send_with_retry
 
 
@@ -182,18 +183,21 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
         headers = {"Authorization": f"Bearer {token('keyvault')}"}
         names: list[SecretMetadata] = []
         params: dict[str, str] | None = {"api-version": "7.4"}
+        pages = Pages(f"the secrets in Key Vault {vault(scope)}", start=url)
         while url:
             resp = send_with_retry(lambda u=url, p=params: http_session.session().get(u, params=p, headers=headers,
                                                                                       timeout=30), "GET")
             if resp.status_code in (401, 403):
                 raise PermissionError(f"Key Vault {vault(scope)} refused to list secrets for your account. "
                                       f"You need the Key Vault Secrets User role on it.")
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise keyvault_error(resp, vault(scope), "list its secrets")
             body = resp.json()
             names += [SecretMetadata(item["id"].rstrip("/").rsplit("/", 1)[-1]) for item in body.get("value", [])]
             url, params = body.get("nextLink"), None
             if url and not on_vault(url, vault(scope)):
                 raise ValueError(f"Key Vault {vault(scope)} answered with a next page on another host; stopped listing.")
+            url = pages.follow(url) if url else url  # a repeated page or too many stops it, never a short list
         return names
 
     def listScopes() -> list[SecretScope]:  # noqa: N802

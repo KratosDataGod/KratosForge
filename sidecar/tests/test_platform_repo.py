@@ -441,3 +441,198 @@ def test_a_parent_whose_child_stays_is_not_removed():
     assert out["steps"] == []
     assert {b["id"]: b["why"] for b in out["blocked"]} == {"b": "is still used by project crm, so it stays.",
                                                           "a": "is still used by subdomain b, so it stays."}
+
+
+# --------------------------------------------------------------------------- landing zones and policy templates
+
+
+@pytest.fixture
+def fabric(monkeypatch):
+    from test_landing_zones import FakeFabric
+    fake = FakeFabric()
+    monkeypatch.setattr(Service, "fabric", property(lambda self: fake))
+    return fake
+
+
+TEMPLATE = NAMING | {"id": "short-names", "name": "Short table names", "description": "Up to 30 characters."}
+
+
+@pytest.fixture
+def zoned(svc, fabric):
+    """The platform with the landing workspace, a secure zone with a group and a person as readers, a
+    source in it, reads switched, and one template of the organization's own."""
+    assert svc.platform_landing_setup()["ready"]
+    svc.platform_save_domain({"name": "HR"})
+    svc.platform_create_landing_zone({"name": "HR-Secure", "domain_id": "hr", "secure": True,
+                                      "readers": ["HR Secure", "pat@contoso.com"], "label": "Highly Confidential"})
+    svc.platform_save_source({"code": "WORKDAY", "title": "Workday", "zone": "hr_secure"})
+    svc.platform_switch_landing_reads()
+    svc.governance_template_save(TEMPLATE)
+    return svc
+
+
+def test_export_writes_zones_and_templates_with_content_only(zoned, repo, tmp_path):
+    out = zoned.git_platform_export(repo)
+    assert {"landing_zones/shared.toml", "landing_zones/hr_secure.toml",
+            "policy_templates/short-names.toml"} <= set(out["written"])
+    assert read(tmp_path, "landing_zones/hr_secure.toml") == {
+        "id": "hr_secure", "name": "HR-Secure", "domain": "hr", "secure": True, "readers": ["HR Secure"],
+        "label": "Highly Confidential", "devtest": "none"}
+    assert read(tmp_path, "landing_zones/shared.toml") == {"id": "shared", "name": "Shared", "domain": "", "secure": False,
+                                                           "readers": [], "label": "", "devtest": "read"}
+    tpl = read(tmp_path, "policy_templates/short-names.toml")
+    assert (tpl["id"], tpl["name"], tpl["category"], tpl["description"]) == (
+        "short-names", "Short table names", "naming", "Up to 30 characters.")
+    assert tpl["definition"]["params"]["max_length"]["value"] == 60 and "name" not in tpl["definition"]
+    # Only the organization's own templates: the built-in ones ship with the app.
+    assert sorted(p.name for p in (tmp_path / "platform" / "policy_templates").glob("*.toml")) == ["short-names.toml"]
+    # A source's zone is in its file; a source in Shared has none.
+    assert read(tmp_path, "sources/workday.toml")["zone"] == "hr_secure"
+    assert "zone" not in read(tmp_path, "sources/sap.toml")
+    written = "".join(p.read_text(encoding="utf-8") for d in ("landing_zones", "policy_templates")
+                      for p in (tmp_path / "platform" / d).glob("*.toml"))
+    for leak in ("pat@contoso.com", "lh-", "ws-landing", "lakehouse", "workspace", "switched", "updated", "created",
+                 "builtin", "can_edit", "table-names", "product-owner"):
+        assert leak not in written, leak
+
+
+def test_zones_and_templates_round_trip_and_diff(zoned, repo, tmp_path):
+    zoned.git_platform_export(repo)
+    commit(zoned, repo)
+    assert zoned.git_platform_export(repo)["written"] == []
+    diff = zoned.git_platform_diff(repo, "prod")
+    assert diff["counts"]["changed"] == diff["counts"]["only_git"] == diff["counts"]["only_deployed"] == 0
+    assert {("landing_zones", "hr_secure"), ("landing_zones", "shared"), ("policy_templates", "short-names")} <= {
+        (i["kind"], i["id"]) for i in diff["items"]}
+    assert diff["labels"]["landing_zones"] == "Landing zone" and diff["labels"]["policy_templates"] == "Policy template"
+    root = tmp_path / "platform"
+    f = root / "landing_zones" / "hr_secure.toml"
+    f.write_text(f.read_text(encoding="utf-8").replace('"Highly Confidential"', '"Confidential"'), encoding="utf-8")
+    t = root / "policy_templates" / "short-names.toml"
+    t.write_text(t.read_text(encoding="utf-8").replace('"Up to 30 characters."', '"Up to 20."'), encoding="utf-8")
+    w = root / "sources" / "workday.toml"
+    w.write_text(w.read_text(encoding="utf-8").replace('zone = "hr_secure"\n', ""), encoding="utf-8")
+    by = {(i["kind"], i["id"]): i for i in zoned.git_platform_diff(repo, "prod")["items"]}
+    assert by[("landing_zones", "hr_secure")]["changes"] == [{"field": "label", "git": "Confidential",
+                                                              "deployed": "Highly Confidential"}]
+    assert by[("policy_templates", "short-names")]["changes"] == [{"field": "description", "git": "Up to 20.",
+                                                                   "deployed": "Up to 30 characters."}]
+    assert by[("sources", "workday")]["changes"] == [{"field": "zone", "git": None, "deployed": "hr_secure"}]
+
+
+def test_deploy_creates_a_missing_zone_template_and_a_sources_zone(zoned, repo, tmp_path, fabric):
+    zoned.git_platform_export(repo)
+    commit(zoned, repo)
+    other = Service(root=tmp_path / "other")
+    other.git_open(repo)
+    assert other.platform_landing_setup()["ready"]  # the other platform has its landing workspace, nothing else
+    preview, done = deploy(other, repo)
+    ops = [(s["op"], s["id"]) for s in preview["steps"]]
+    assert ops.index(("save_domain", "hr")) < ops.index(("platform_create_landing_zone", "hr_secure")) \
+        < ops.index(("save_source", "workday"))
+    assert ops.index(("save_policy_template", "short-names")) < ops.index(("create_policy", "table-names"))
+    assert ("platform_create_landing_zone", "shared") not in ops  # it was there already
+    assert done["deployed"] and not done.get("failed"), done.get("message")
+    zone = next(z for z in other._catalog().call("list_landing_zones") if z["id"] == "hr_secure")
+    assert (zone["lakehouse_name"], zone["lakehouse_id"], zone["secure"], zone["readers"], zone["label"]) == (
+        "LH_Landing_HR_Secure", "lh-LH_Landing_HR_Secure", True, ["HR Secure"], "Highly Confidential")
+    assert ("lakehouse", "LH_Landing_HR_Secure", "ws-landing") in fabric.created
+    assert {s["code"]: s["zone"] for s in other.platform_sources()} == {"SAP": "", "WORKDAY": "hr_secure"}
+    mine = [t for t in other.governance_templates()["templates"] if not t["builtin"]]
+    assert [(t["id"], t["name"]) for t in mine] == [("short-names", "Short table names")]
+    audit = {(a["action"], a["target"]) for a in other._catalog().call("audit", limit=200)}
+    assert {("save landing zone", "hr_secure"), ("policy template created", "short-names")} <= audit
+    diff = other.git_platform_diff(repo, "prod")
+    assert diff["counts"]["changed"] == diff["counts"]["only_git"] == 0
+    assert other.git_platform_deploy(repo)["steps"] == []
+    # Reads stay as they were: switching them is a manual step on the Platform page.
+    shared = next(z for z in other._catalog().call("list_landing_zones") if z["id"] == "shared")
+    assert shared["switched_at"] == "" and not shared["read"]
+    other.kernel.shutdown() if hasattr(other.kernel, "shutdown") else None
+
+
+def test_deploy_never_deletes_a_zone_or_template_and_never_switches_reads(zoned, repo, tmp_path):
+    zoned.git_platform_export(repo)
+    root = tmp_path / "platform"
+    (root / "landing_zones" / "hr_secure.toml").unlink()
+    (root / "policy_templates" / "short-names.toml").unlink()
+    f = root / "landing_zones" / "shared.toml"
+    f.write_text(f.read_text(encoding="utf-8").replace('label = ""', 'label = "General"'), encoding="utf-8")
+    commit(zoned, repo, "No HR zone, no template")
+    by = {(i["kind"], i["id"]): i["state"] for i in zoned.git_platform_diff(repo, "prod")["items"]}
+    assert by[("landing_zones", "hr_secure")] == by[("policy_templates", "short-names")] == "only_deployed"
+    ticked = [{"kind": "landing_zones", "id": "hr_secure"}, {"kind": "policy_templates", "id": "short-names"}]
+    preview, done = deploy(zoned, repo, remove=ticked)
+    assert not any(r["kind"] in ("landing_zones", "policy_templates") for r in preview["removable"])
+    assert any("Landing zone hr_secure" in n and "never removes" in n for n in preview["notes"])
+    assert any("Policy template short-names" in n and "never removes" in n for n in preview["notes"])
+    ops = {s["op"] for s in preview["steps"]}
+    assert ops == {"save_landing_zone"}  # only the Shared zone's label
+    assert done["deployed"]
+    zones = {z["id"]: z for z in zoned._catalog().call("list_landing_zones")}
+    assert set(zones) == {"shared", "hr_secure"} and zones["shared"]["label"] == "General"
+    assert zones["shared"]["switched_at"]  # switched by hand before, and left as it was
+    assert any(t["id"] == "short-names" for t in zoned.governance_templates()["templates"])
+
+
+def test_a_zone_update_keeps_the_people_the_file_leaves_out(zoned, repo, tmp_path):
+    zoned.git_platform_export(repo)
+    f = tmp_path / "platform" / "landing_zones" / "hr_secure.toml"
+    f.write_text(f.read_text(encoding="utf-8").replace('devtest = "none"', 'devtest = "read"'), encoding="utf-8")
+    commit(zoned, repo, "Dev and Test read HR")
+    _, done = deploy(zoned, repo)
+    assert [(s["op"], s["id"]) for s in done["done"]] == [("save_landing_zone", "hr_secure")]
+    zone = next(z for z in zoned._catalog().call("list_landing_zones") if z["id"] == "hr_secure")
+    assert zone["devtest"] == "read" and zone["readers"] == ["HR Secure", "pat@contoso.com"]
+    assert zone["lakehouse_id"] == "lh-LH_Landing_HR_Secure"
+
+
+def test_a_persons_email_as_a_zone_reader_is_a_problem_in_a_file(tmp_path):
+    (tmp_path / "landing_zones").mkdir()
+    (tmp_path / "landing_zones" / "hr.toml").write_text('id = "hr"\nname = "HR"\nreaders = ["pat@contoso.com"]\n',
+                                                        encoding="utf-8")
+    got = platform_files.read_repo(tmp_path)
+    assert got["landing_zones"] == {} and "A person's email" in got["problems"][0]
+
+
+@pytest.mark.parametrize("zid", ["hr-payroll", "1hr"])
+def test_a_zone_id_the_platform_would_store_differently_is_a_problem(tmp_path, zid):
+    # hr-payroll would deploy as hr_payroll and plan its create on every deploy; 1hr fails mid-deploy.
+    (tmp_path / "landing_zones").mkdir()
+    (tmp_path / "landing_zones" / f"{zid}.toml").write_text(f'id = "{zid}"\nname = "HR"\n', encoding="utf-8")
+    (tmp_path / "sources").mkdir()
+    (tmp_path / "sources" / "crm.toml").write_text(f'code = "crm"\nname = "CRM"\nzone = "{zid}"\n', encoding="utf-8")
+    got = platform_files.read_repo(tmp_path)
+    assert got["landing_zones"] == {} and "crm" not in got["sources"]
+    assert len(got["problems"]) == 2 and all("isn't a landing zone id" in p for p in got["problems"])
+
+
+def test_zones_wait_for_the_landing_workspace_and_a_builtin_template_id_is_refused():
+    git = {"landing_zones": {"shared": platform_files.zone_record({"id": "shared", "name": "Shared"}),
+                             "hr": platform_files.zone_record({"id": "hr", "name": "HR"})},
+           "sources": {"workday": platform_files.source_record({"code": "WORKDAY", "source_id": 1, "zone": "hr"})},
+           "policy_templates": {"table-names": platform_files.template_record(
+               {"id": "table-names", "definition": NAMING})}, "problems": []}
+    deployed = platform_files.from_platform({"key_tables": {"prod": []}})
+    out = platform_files.plan(git, {"prod": deployed}, "prod", set(), "note")
+    assert out["steps"] == []
+    why = {b["id"]: b["why"] for b in out["blocked"]}
+    assert "made with the landing workspace" in why["shared"] and "doesn't have yet" in why["hr"]
+    assert "landing zone hr" in why["workday"] and "built-in" in why["table-names"]
+
+
+@pytest.mark.parametrize("op", ["list_landing_zones", "list_policy_templates"])
+def test_platform_functions_older_than_zones_or_templates_are_explained(svc, repo, monkeypatch, op):
+    cat = svc._catalog()
+    real = cat.call
+
+    def old_functions(o, **kw):
+        if o == op:
+            raise LookupError("not found")
+        return real(o, **kw)
+
+    monkeypatch.setattr(cat, "call", old_functions)
+    with pytest.raises(GitError, match="Finish or repair"):
+        svc.git_platform_export(repo)
+    with pytest.raises(GitError, match="Finish or repair"):
+        svc.git_platform_diff(repo)

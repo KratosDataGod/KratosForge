@@ -152,6 +152,7 @@ class FakeSession:
         return item
 
     def request(self, method, url, **kwargs):
+        self.tokens = getattr(self, "tokens", []) + [(kwargs.get("headers") or {}).get("Authorization")]
         return self._next(method, url)
 
     def get(self, url, **kwargs):
@@ -253,3 +254,113 @@ def test_lease_reads_retry_but_conditional_writes_do_not():
     with pytest.raises(requests.HTTPError):
         backend.create("k", b"{}")
     assert len(session.calls) == 1
+
+
+def test_a_throttled_lease_change_waits_briefly_and_is_sent_again():
+    """#1315: OneLake did nothing on a 429 and every lease change is conditional, so it can't take a
+    lease from anyone. Waits are capped at leases.THROTTLE_WAIT_CAP."""
+    slept = []
+    session = FakeSession([R(429, {"Retry-After": "60"}), R(201, {"ETag": "e0"}), R(202),
+                           R(429, {"Retry-After": "1"}), R(200, {"ETag": "e1"})])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=slept.append)
+    assert backend.create("k", b"{}") == "e1"
+    assert [m for m, _ in session.calls] == ["PUT", "PUT", "PATCH", "PATCH", "PATCH"]
+    assert slept == [5.0, 1]
+
+    session = FakeSession([R(429), R(200)])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=lambda s: None)
+    assert backend.delete("k", "e1") is True and len(session.calls) == 2
+
+
+def test_a_lease_throttled_on_every_try_fails_without_outliving_the_lease():
+    slept = []
+    session = FakeSession([R(429, {"Retry-After": "60"})] * 3)
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=slept.append)
+    with pytest.raises(requests.HTTPError) as err:
+        backend.replace("k", b"{}", "e1")
+    assert len(session.calls) == 3 and sum(slept) == 10.0
+    assert str(err.value) == "OneLake didn't write the lease for k (429)." and err.value.response.status_code == 429
+
+
+def test_a_throttled_renewal_stops_once_a_third_of_the_lease_has_gone_by():
+    """Local TPC-H's review of #1327: with lease_timeout(ttl) = ttl / 9, a change's retries stop after
+    3 x timeout (ttl / 3), so a renewal that can't get through fails while the lease is held."""
+    now = [0.0]
+
+    def sleep(s):
+        now[0] += s
+
+    session = FakeSession([R(429, {"Retry-After": "5"})] * 3)
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=sleep, timeout=2.0,
+                             clock=lambda: now[0])
+    with pytest.raises(requests.HTTPError, match="429"):
+        backend.replace("k", b"{}", "e1")
+    assert len(session.calls) == 2 and now[0] == 5.0  # the second wait would pass 6 s, so it isn't taken
+
+    now[0] = 0.0
+    session = FakeSession([R(201, {"ETag": "e0"}), R(429, {"Retry-After": "5"}), R(202), R(429, {"Retry-After": "5"})])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=sleep, timeout=2.0,
+                             clock=lambda: now[0])
+    with pytest.raises(requests.HTTPError):
+        backend.create("k", b"{}")  # one deadline for the whole change: the flush gets no wait
+    assert [m for m, _ in session.calls] == ["PUT", "PATCH", "PATCH", "PATCH"] and now[0] == 5.0
+
+
+def test_a_lease_that_changed_while_throttled_is_still_lost_not_taken():
+    session = FakeSession([R(429), R(412)])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=lambda s: None)
+    assert backend.replace("k", b"{}", "stale") is None and len(session.calls) == 2
+
+    session = FakeSession([R(201, {"ETag": "e0"}), R(202), R(503)])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=lambda s: None)
+    with pytest.raises(requests.HTTPError, match="write the lease for k"):
+        backend.create("k", b"{}")
+    assert len(session.calls) == 3  # a 5xx flush is not sent again
+
+
+def test_a_401_gets_a_new_token_once_and_sends_the_request_again_even_a_write():
+    tokens = iter(["fresh", "fresher"])
+    session = FakeSession([R(401), R(200, body={"id": "lh1"})])
+    c = FabricClient(lambda: "stale", session=session, sleep=lambda s: None, refresh=lambda: next(tokens))
+    assert c.create_lakehouse("ws1", "Sales")["id"] == "lh1"  # a POST: Fabric refused it unread
+    assert session.tokens == ["Bearer stale", "Bearer fresh"]
+
+
+def test_a_second_401_is_the_answer_and_is_not_retried_again():
+    session = FakeSession([R(401), R(401), R(200)])
+    c = FabricClient(lambda: "stale", session=session, sleep=lambda s: None, refresh=lambda: "fresh")
+    with pytest.raises(FabricError):
+        c.get_lakehouse("ws1", "lh1")
+    assert len(session.calls) == 2
+
+
+def test_a_401_without_a_new_token_is_not_sent_again():
+    session = FakeSession([R(401), R(200)])
+    c = FabricClient(lambda: "same", session=session, sleep=lambda s: None)
+    with pytest.raises(FabricError):
+        c.get_lakehouse("ws1", "lh1")
+    assert len(session.calls) == 1
+
+
+def test_the_service_refreshes_the_signed_in_token_after_a_401(tmp_path):
+    from fabric_desktop.auth import EXECUTE_SCOPES, FABRIC_SCOPES
+    from fabric_desktop.service import Service
+
+    class Auth:
+        def __init__(self):
+            self.refreshed = []
+
+        def fabric_token(self):
+            return "stale"
+
+        def _token(self, scopes):
+            return "stale"
+
+        def refreshed_token(self, scopes):
+            self.refreshed.append(scopes)
+            return "fresh"
+
+    svc = Service(root=tmp_path / "app")
+    svc._auth = auth = Auth()  # no client_id: kept whatever the app ID is
+    assert svc.fabric._refresh() == "fresh" and svc.fabric_jobs._refresh() == "fresh"
+    assert auth.refreshed == [FABRIC_SCOPES, EXECUTE_SCOPES]

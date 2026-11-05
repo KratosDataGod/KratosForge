@@ -2,13 +2,16 @@
 
 import datetime as dt
 import json
+import sqlite3
 import threading
 import types
+from contextlib import closing
 
 import pytest
 
 from fabric_desktop import agent_config
 from fabric_desktop.agent import Agent
+from fabric_desktop.errors import NotSetUp
 from fabric_desktop.leases import LocalBackend
 from fabric_desktop.meta import objectives
 from fabric_desktop.meta.project import ENVIRONMENTS
@@ -125,6 +128,41 @@ def test_acknowledge_assign_and_note_are_kept_with_who_and_when(backend):
     log.resolve(i, "dana@contoso.com")
     with pytest.raises(ValueError):
         log.acknowledge(i, "chris@contoso.com")
+
+
+def test_assign_strips_the_owner_unassigns_with_empty_and_records_before_and_after(backend):
+    # Characterizes assign as it is: no state check (a resolved incident can still be reassigned),
+    # the owner is stripped, empty means nobody, and each change is a note and an event.
+    log = IncidentLog(backend, "prod", Clock())
+    [c] = log.sync(failed(), evaluated=True, by="a")
+    i = c["incident"]["id"]
+    log.assign(i, "  dana@contoso.com ", "chris@contoso.com")
+    inc = log.assign(i, "", "dana@contoso.com")
+    assert inc["owner"] == "" and inc["state"] == "open"  # assigning doesn't acknowledge
+    assert [n["text"] for n in inc["notes"]] == ["Assigned: nobody → dana@contoso.com",
+                                                "Assigned: dana@contoso.com → nobody"]
+    assert [(e["what"], e["by"], e["text"]) for e in inc["events"] if e["what"] == "assigned"] == [
+        ("assigned", "chris@contoso.com", "nobody → dana@contoso.com"),
+        ("assigned", "dana@contoso.com", "dana@contoso.com → nobody")]
+    log.resolve(i, "dana@contoso.com")
+    assert log.assign(i, "lee@contoso.com", "chris@contoso.com")["owner"] == "lee@contoso.com"
+    with pytest.raises(LookupError):
+        log.assign("inc-nope", "x", "y")
+
+
+def test_a_long_note_is_cut_and_the_event_list_keeps_the_first_and_the_newest(backend):
+    from fabric_desktop.workloads.incidents import KEEP_EVENTS
+    log = IncidentLog(backend, "prod", Clock())
+    [c] = log.sync(failed(), evaluated=True, by="a")
+    i = c["incident"]["id"]
+    first = c["incident"]["events"][0]
+    inc = log.note(i, "x" * 5000, "chris@contoso.com")
+    assert len(inc["notes"][-1]["text"]) == 2000 and len(inc["events"][-1]["text"]) == 2000
+    for n in range(KEEP_EVENTS + 5):
+        inc = log.note(i, f"note {n}", "chris@contoso.com")
+    assert len(inc["events"]) == KEEP_EVENTS
+    assert inc["events"][0] == first and inc["events"][-1]["text"] == f"note {KEEP_EVENTS + 4}"
+    assert len(inc["notes"]) == KEEP_EVENTS + 6  # notes aren't trimmed
 
 
 def test_resolved_incidents_are_trimmed_to_the_newest(backend, monkeypatch):
@@ -341,7 +379,7 @@ def test_an_environment_that_isnt_set_up_opens_no_incident_and_clears_a_cant_che
     assert {i["kind"] for i in svc.incidents_list("dev")["incidents"] if i["state"] != "resolved"} == {"run_failed", "cant_evaluate"}
 
     def not_set_up(env, limit):
-        raise LookupError("Assign a workspace to Dev first (Data mesh > Environments).")
+        raise NotSetUp("Assign a workspace to Dev first (Data mesh > Environments).")
 
     monkeypatch.setattr(svc, "meta_runs", not_set_up)
     out = svc.incidents_evaluate("dev")
@@ -356,7 +394,7 @@ def test_the_agent_opens_no_incident_for_an_environment_that_isnt_set_up(agent_s
     agent = Agent(agent_setup, clock=Clock())
 
     def not_set_up(env, limit):
-        raise LookupError("Assign a workspace to Dev first.")
+        raise NotSetUp("Assign a workspace to Dev first.")
 
     monkeypatch.setattr(agent.runtime, "meta_runs", not_set_up)
     assert agent.evaluate_incidents() == {"dev": []}
@@ -381,6 +419,12 @@ def test_the_app_and_the_agent_share_one_incident_list(tmp_path, monkeypatch):
     assert svc.incidents_list("dev", include_resolved=False)["incidents"] == []
     with pytest.raises(ValueError):
         svc.incident_note("dev", inc["id"], "  ")
+    # who did it is the signed-in person, and a note is kept without its outer spaces
+    assigned = svc.incident_assign("dev", inc["id"], "dana@contoso.com")
+    assert assigned["owner"] == "dana@contoso.com" and assigned["events"][-1]["by"] == "chris@contoso.com"
+    assert svc.incident_note("dev", inc["id"], "  Source was late  ")["notes"][-1]["text"] == "Source was late"
+    with pytest.raises(LookupError):
+        svc.incident_assign("dev", "inc-nope", "dana@contoso.com")
     with pytest.raises(ValueError):
         svc.incidents_list("staging")
 
@@ -523,7 +567,7 @@ def test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalation
 def test_an_outbox_from_before_routes_is_upgraded_in_place(tmp_path):
     import sqlite3
     path = tmp_path / "alerts.sqlite3"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, lines TEXT, "
                    "attempts INTEGER DEFAULT 0, error TEXT)")
         db.execute("INSERT INTO outbox (created, title, lines, attempts, error) VALUES (?, 'old', '[\"x\"]', 1, 'down')",
@@ -620,7 +664,7 @@ def test_the_app_checks_only_environments_no_running_agent_checks(tmp_path, monk
     name = sorted(svc._project().entities)[0]
     monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")])
     posted = []
-    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", lambda url, title, lines: posted.append(title))
+    monkeypatch.setattr("fabric_desktop.platform_notify_service.post_teams", lambda url, title, lines: posted.append(title))
     settings = svc._settings
     svc._settings = lambda: {**settings(), "teams_webhook": "https://hook"}
     out = {e["env"]: e for e in svc.incidents_watch(notify=True)["envs"]}
@@ -728,3 +772,77 @@ def test_a_legacy_connector_webhook_stays_out_of_a_waiting_job_alert(tmp_path, m
     assert item["error"].startswith("ConnectionError: ")  # what went wrong is kept
     for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
         assert secret not in item["error"] and secret not in str(logged)  # the webhook isn't, however it's masked
+
+
+def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_path):
+    secret = "Login failed: password=hunter2\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123 " + "x" * 2000
+    c = {"change": "opened", "incident": {"kind": "run_failed", "name": "silver.orders", "env": "prod",
+                                          "title": "silver.orders failed in Prod\n" + secret, "text": secret, "owner": ""}}
+    posted, down = [], [True]
+
+    def post(url, title, lines):
+        if down[0]:
+            raise ConnectionError("no network")
+        posted.append((title, lines))
+    outbox = Outbox(tmp_path / "outbox.sqlite")
+    assert send([c], single("https://hook"), outbox, "KratosForge", post)["queued"] == 1
+    with closing(sqlite3.connect(tmp_path / "outbox.sqlite")) as db:
+        stored = json.dumps(db.execute("SELECT title, lines FROM outbox").fetchall())
+    down[0] = False
+    send([], single("https://hook"), outbox, "KratosForge", post)
+    for text in (stored, json.dumps(posted)):
+        assert "hunter2" not in text and "eyJhbGciOiJIUzI1NiJ9" not in text and "[removed]" in text
+    from fabric_desktop.dataops_service import teams_card
+    for title, lines in posted:  # as the card goes to Teams ("Delayed: " is added to the title)
+        blocks = teams_card(title, lines)["attachments"][0]["content"]["body"]
+        assert all("\n" not in b["text"] and len(b["text"]) <= 500 for b in blocks)
+    # a row an older build queued unredacted is cleaned when it's sent
+    card = json.dumps(teams_card("New: " + secret, [secret]))
+    assert "hunter2" not in card and "eyJhbGciOiJIUzI1NiJ9" not in card and "\\n" not in card
+
+
+# ---------------------------------------------------------------------------- stage 3: flow and email delivery
+
+
+def test_the_agent_sends_to_a_flow_and_leaves_email_routes_to_the_app(agent_setup, monkeypatch, caplog):
+    from fabric_desktop.workloads import deliver
+    monkeypatch.setenv("TEST_INCIDENT_HOOK", "flow:https://prod-12.westeurope.logic.azure.com/workflows/abc")
+    flows, teams = [], []
+    monkeypatch.setattr(deliver, "post_flow", lambda url, title, lines, http=None: flows.append((url, title)))
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", lambda url, title, lines: teams.append(title))
+    agent = Agent(agent_setup, clock=Clock())
+    name = sorted(agent.runtime.entity_names())[0]
+    monkeypatch.setattr(agent.runtime, "meta_runs", lambda env, limit: [run(name, "failed", "r1", message="boom")])
+    agent.step()
+    assert flows == [("https://prod-12.westeurope.logic.azure.com/workflows/abc", f"New: {name} failed in Dev (agent etl-01)")]
+    assert teams == []
+    monkeypatch.setenv("TEST_INCIDENT_HOOK", "mailto:oncall@contoso.com")
+    with caplog.at_level("WARNING"):
+        assert agent.incident_routing().routes == []
+    assert any("Email routes are sent from the KratosForge app" in r.getMessage() for r in caplog.records)
+    caplog.clear()
+    with caplog.at_level("WARNING"):  # said once per route, not at every check
+        assert agent.incident_routing().routes == []
+    assert not any("Email routes are sent from the KratosForge app" in r.getMessage() for r in caplog.records)
+
+
+def test_the_app_sends_alerts_to_a_flow_or_email_and_needs_a_mail_server_for_email(tmp_path, monkeypatch):
+    from fabric_desktop.workloads import deliver
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    with pytest.raises(ValueError, match="mail server first"):
+        svc.meta_set_alerts("mailto:oncall@contoso.com")
+    with pytest.raises(ValueError, match="starts with https://"):
+        svc.meta_set_alerts("flow:http://insecure")
+    flows = []
+    monkeypatch.setattr(deliver, "post_flow", lambda url, title, lines, http=None: flows.append((title, lines)))
+    out = svc.meta_set_alerts("flow:https://prod-12.westeurope.logic.azure.com/workflows/abc", test=True)
+    assert out == {"set": True, "kind": "flow", "label": "prod-12.westeurope.logic.azure.com"}
+    assert flows and flows[0][0] == "KratosForge alerts are on"
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1", message="token=abc123secret")])
+    svc.incidents_evaluate("dev", notify=True)
+    title, lines = flows[-1]
+    assert title.startswith("New: ") and "abc123secret" not in " ".join(lines)

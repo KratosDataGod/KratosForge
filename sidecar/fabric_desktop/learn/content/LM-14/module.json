@@ -1,0 +1,74 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-14",
+  "kind": "module",
+  "title": "Dates, times and time zones",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 15,
+  "objectives": [
+    "Filter timestamps with a half-open range instead of casting them",
+    "Turn a local day into the UTC range it covers",
+    "Keep the column bare so the engine can skip data"
+  ],
+  "prerequisites": [
+    "LM-01"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "new-york-day",
+      "prompt": "Sales are stored in UTC. Give the total amount sold on 31 October 2026 in New York, where that day ran from 04:00 UTC on 31 October to 04:00 UTC on 1 November. One column, total.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter adds up the UTC day. Which sales fall on 31 October in UTC but not in New York, and the other way round?",
+        "Compare sold_at itself with two timestamps: from 2026-10-31 04:00 up to, but not including, 2026-11-01 04:00.",
+        "sold_at >= TIMESTAMP '2026-10-31 04:00' AND sold_at < TIMESTAMP '2026-11-01 04:00'"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ002"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "total"
+        ],
+        "rows": [
+          [
+            90.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ002"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq002",
+    "https://duckdb.org/docs/sql/data_types/timestamp"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

@@ -26,7 +26,17 @@ proved = s._progress_observe_proof({"id": "20261020-120000-abcdef", "name": "sal
     "finished_at": "2026-10-20T12:00:00+00:00", "receipt_id": "9" * 64, "code": {"revision": "3f9c1e0d2b7a" + "0" * 52},
     "tables": [{}, {}], "verdict": {"verdict": "same", "level": "exact"},
     "scorecard": {"time": {"pc": {"seconds": 12.5, "kind": "measured"}, "fabric": {"total_seconds": 95, "kind": "measured"}}}})
-json.dump({"profile": s.profile_get(), "report": s.profile_report(), "earned": earned, "proved": proved}, sys.stdout)
+from fabric_desktop import progress
+lab = {"id": "LAB-02", "kind": "lab", "title": "Optimize a slow query", "status": "live", "version": 1, "exercises": [{"id": "store-revenue-2026"}]}
+learn = progress.empty()
+progress.add(learn, progress.from_lab({"exercise": "store-revenue-2026", "version": 1, "passed": True, "results": [
+    {"kind": "result_matches", "passed": True}, {"kind": "faster_than", "passed": True,
+     "measured": {"seconds": 0.12, "baseline_seconds": 0.5, "speedup": 4.17}}]}, lab))
+progress.add(learn, progress.module_complete(learn, lab))
+progress.add(learn, progress.from_fix("SQ002", "Performance", {"result": "match", "level": "complete", "rows": {"after": 4},
+    "seconds": {"before": 1.84, "after": 0.21}, "target": "warehouse"}, {"before": "run-a", "after": "run-b"}, "WH_Gold"))
+json.dump({"profile": s.profile_get(), "report": s.profile_report(), "earned": earned, "proved": proved,
+           "learn": learn["evidence"]}, sys.stdout)
 `;
 
 let app;
@@ -60,7 +70,9 @@ test("Overview shows the verified accomplishment, level and achievement", { skip
   await page.getByText("Validated notebook sales_daily_load").waitFor();
   assert.ok(await page.getByText("Proved notebook sales_daily_load").isVisible());
   assert.ok(await page.getByText("Measured end to end: this PC 12.5 s, Fabric 95 s.", { exact: false }).isVisible());
-  assert.ok(await page.getByText("Level 2 · Apprentice").isVisible());
+  assert.ok(await page.getByText("Level 2", { exact: true }).isVisible());
+  assert.ok(await page.getByText("Apprentice", { exact: true }).first().isVisible());  // the rank is the title (PB-125)
+  assert.ok(await page.getByText("Rank 1 of 13").isVisible());
   assert.ok(await page.getByText("First Flame", { exact: true }).isVisible());
   assert.ok(await page.getByText("They are not a skill rating.").isVisible());
   assert.strictEqual(await page.locator(".profile-bar").getAttribute("aria-valuenow"), "100");
@@ -71,14 +83,42 @@ test("Journey shows the level, milestones and badges; Achievements gives the rul
   const page = app.page;
   await page.getByRole("tab", { name: "Journey" }).click();
   await page.getByText("Recent milestones").waitFor();
-  assert.ok(await page.getByText("Reached level 2, Apprentice").isVisible());
-  assert.ok(await page.getByText("2 of 3 earned").isVisible());
+  assert.ok(await page.getByText("Reached level 2", { exact: true }).isVisible());
+  assert.ok(await page.getByText("2 of 8 earned").isVisible());  // rules v2: five Learn achievements
   assert.strictEqual(await page.locator(".profile-shield-cell.earned").count(), 2);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-journey.png"), fullPage: true });
   await page.getByRole("tab", { name: "Achievements" }).click();
   await page.getByText("How to earn it: Five notebooks", { exact: false }).waitFor();
-  assert.ok(await page.getByText("Not yet").isVisible());
+  assert.ok(await page.getByText("Not yet").first().isVisible());
+  assert.ok(await page.getByText("How to earn it: Every check of one exercise in a published Learn lesson", { exact: false }).isVisible());
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-achievements.png"), fullPage: true });
+});
+
+test("Ranks list every rank by tier with what earns it and a picture prompt to copy (PB-125)", { skip }, async () => {
+  const page = app.page;
+  await page.getByRole("tab", { name: "Ranks" }).click();
+  await page.getByRole("heading", { name: "The Pack" }).waitFor();
+  for (const tier of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("heading", { name: tier }).isVisible());
+  assert.strictEqual(await page.locator(".profile-rank").count(), 13);
+  assert.strictEqual(await page.getByRole("button", { name: "Copy picture prompt" }).count(), 13);
+  assert.ok(await page.getByText("Pass 1 different exercise").isVisible());
+  assert.doesNotMatch(await page.locator(".profile").innerText(), /\bgod\b|deity|divine/i);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks.png"), fullPage: true });
+});
+
+test("a profile picture shows on the page and the account button, and the letter comes back without one (PB-125)", { skip }, async () => {
+  const page = app.page;
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  data.profile.avatar = png;
+  await page.evaluate((url) => { state.user = "dev@contoso.com"; state.avatar = url; renderChrome(); profilePage.tab = "overview"; go("profile"); }, png);
+  await page.locator("img.profile-avatar").waitFor();
+  assert.strictEqual(await page.locator("#account img").count(), 1);
+  data.profile.avatar = "javascript:alert(1)";
+  await page.evaluate(() => { state.avatar = "javascript:alert(1)"; render(); renderChrome(); });
+  await page.locator("div.profile-avatar").waitFor();
+  assert.strictEqual(await page.locator("#account img").count(), 0);
+  data.profile.avatar = null;
+  await page.evaluate(() => { state.avatar = null; state.user = null; renderChrome(); });
 });
 
 test("the report has the verified line and no game terms", { skip }, async () => {
@@ -100,4 +140,23 @@ test("Settings show the switches and the danger delete", { skip }, async () => {
   assert.ok(await page.getByRole("button", { name: "Delete my profile data" }).isVisible());
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-settings.png"), fullPage: true });
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("a Learn exercise and a finished lab read as what was done, with the measured speed-up (LX-07)", { skip }, async () => {
+  const text = await app.page.evaluate((rows) => rows.map((r) => profileRow({ ...r, xp: 0, excluded: false }).textContent), data.learn);
+  assert.match(text[0], /Passed exercise 1 in LAB-02 · Optimize a slow query/);
+  assert.match(text[0], /Every check passed on this PC: Same result, Faster\./);
+  assert.match(text[0], /Measured 4\.17× faster than the starting query on this PC \(0\.12 s against 0\.5 s\)/);
+  assert.match(text[0], /Learn LAB-02\/store-revenue-2026 · lab version 1/);
+  assert.match(text[1], /Finished lab LAB-02 · Optimize a slow query/);
+  assert.match(text[1], /Its exercise passed on this PC\./);
+});
+
+test("a fix checked with Compare reads as what was checked and measured, one run each (GD-06)", { skip }, async () => {
+  const text = await app.page.evaluate((r) => profileRow({ ...r, xp: 0, excluded: false }).textContent, data.learn[2]);
+  assert.match(text, /Fixed SQ002 on WH_Gold, and checked it/);
+  assert.match(text, /Compare ran the query as written and as fixed: the same 4 rows, every row compared\. Measured, one run each: 1\.84 s as written, 0\.21 s fixed\./);
+  assert.match(text, /Compare · runs run-a and run-b/);
+  assert.match(text, /Skills: Engineering Quality, Performance & Optimization/);
+  assert.doesNotMatch(text, /master|XP/i);
 });

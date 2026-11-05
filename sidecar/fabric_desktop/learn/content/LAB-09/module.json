@@ -1,0 +1,55 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-09",
+  "kind": "lab",
+  "title": "Port Snowflake SQL to a Fabric Warehouse",
+  "path": "snowflake",
+  "level": "intermediate",
+  "minutes": 25,
+  "objectives": [
+    "Replace Snowflake-only functions with standard SQL",
+    "Rewrite QUALIFY for an engine that doesn't have it",
+    "Keep division right when the types are integers"
+  ],
+  "prerequisites": [
+    "LM-10"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Snowflake",
+    "Fabric Warehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "top-return-rate",
+      "prompt": "Port the Snowflake query to SQL a Fabric Warehouse runs: for each region, the store with the highest return rate (returns / orders, 0 when orders is 0), with region, store, return_rate, discount (0 when empty) and tier ('review' at 0.1 or more, else 'ok'), in region order. Use no QUALIFY and cast before dividing: DuckDB accepts both mistakes, so the checks can't catch them.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "DIV0, ZEROIFNULL and IFF are Snowflake's. NULLIF, COALESCE and CASE do the same everywhere.",
+        "COALESCE(CAST(returns AS DECIMAL(9, 4)) / NULLIF(orders, 0), 0): the CAST matters in T-SQL, where integer / integer drops the fraction.",
+        "Fabric Warehouse has no QUALIFY: number the rows with row_number() in a subquery, then WHERE n = 1 outside it."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

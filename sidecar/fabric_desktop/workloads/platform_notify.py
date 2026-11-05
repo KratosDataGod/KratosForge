@@ -1,7 +1,8 @@
-"""Telling Teams channels about platform requests and broken shortcuts, once each.
+"""Telling Teams channels about platform requests, broken shortcuts and deprecated products, once each.
 
 Governance sends one event per change (a request waiting on someone, decided or withdrawn; a
-shortcut broken or fixed). Each event goes to the routes whose kinds and domains match it, or to
+shortcut broken or fixed; a data product deprecated, for the projects that read it; a policy exception
+about to end, for whoever asked and the place it covers). Each event goes to the routes whose kinds and domains match it, or to
 the default route when none does. An event is posted once per ``dedupe`` key: a shortcut that
 stays broken isn't posted again, and ``shortcut.fixed`` is posted only when its break was, then
 closes it, so the next break is news again. Quiet hours and Teams being unreachable work as for
@@ -21,19 +22,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from .. import redact
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
+from .. import redact, sqlitefile
+from . import deliver
+from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
 
-KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed")
+KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
+         "product.deprecated", "incident.impact", "product.changed", "exception.ending")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
 CLOSES = {"request.decided": "request.waiting", "request.withdrawn": "request.waiting", "shortcut.fixed": "shortcut.broken"}
-VIEWS = {"platform": ("requests",), "shortcuts": ("health",)}
+VIEWS = {"platform": ("requests",), "shortcuts": ("health",), "metadata": ("links",), "incident": ("detail",),
+         "onelake": ("products",), "governance": ("exceptions",)}
 SEVERITIES = ("info", "warn")
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_ROLE = re.compile(r"^(platform_admin|requester|(domain_owner|product_owner):[A-Za-z0-9._-]+)$")
+_ROLE = re.compile(r"^(platform_admin|requester|(domain_owner|product_owner|project):[A-Za-z0-9._-]+)$")
 _TITLES = {"request.waiting": "Waiting on you", "request.decided": "Decided", "request.withdrawn": "Withdrawn",
-           "shortcut.broken": "Shortcut broken", "shortcut.fixed": "Shortcut fixed"}
-_WHERE = {"requests": "Platform > Requests", "health": "Shortcuts > Health"}
+           "shortcut.broken": "Shortcut broken", "shortcut.fixed": "Shortcut fixed",
+           "product.deprecated": "Data product deprecated", "incident.impact": "Incident upstream of your data",
+           "product.changed": "Data product changed", "exception.ending": "Policy exception ending"}
+_WHERE = {"requests": "Data mesh > Requests", "health": "Shortcuts > Health", "links": "Data mesh > Products and links > Links",
+          "detail": "Monitor > KratosForge > Operations > Incidents", "products": "Data mesh > Products",
+          "exceptions": "Platform > Govern > Governance"}
 
 
 def _strs(value: Any, name: str) -> list[str]:
@@ -75,13 +83,16 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
     if bad := [p for p in people if not _UPN.match(p)]:
         raise ValueError(f"to.people are UPNs (name@domain), not {bad[0]!r}")
     if bad := [r for r in roles if not _ROLE.match(r)]:
-        raise ValueError(f"to.roles are platform_admin, requester, domain_owner:<id> or product_owner:<id>, not {bad[0]!r}")
+        raise ValueError(f"to.roles are platform_admin, requester, domain_owner:<id>, product_owner:<id> or "
+                         f"project:<name>, not {bad[0]!r}")
     if not people and not roles:
         raise ValueError("to names at least one person or role")
     out["to"] = {"people": people, "roles": roles}
     opened = event.get("open") or {}
     if not isinstance(opened, dict) or opened.get("view") not in VIEWS or opened.get("tab") not in VIEWS[opened.get("view")]:
-        raise ValueError("open is {view: platform, tab: requests} or {view: shortcuts, tab: health}")
+        raise ValueError("open is {view: platform, tab: requests}, {view: shortcuts, tab: health}, "
+                         "{view: metadata, tab: links}, {view: incident, tab: detail}, {view: onelake, tab: products} "
+                         "or {view: governance, tab: exceptions}")
     out["open"] = {"view": opened["view"], "tab": opened["tab"], "target": str(opened.get("target") or "")}
     out["dedupe"] = str(event.get("dedupe") or f"{kind}:{out['id']}")
     return out
@@ -93,20 +104,22 @@ def recipients(to: dict[str, list[str]]) -> str:
     for role in to["roles"]:
         kind, _, target = role.partition(":")
         names.append({"platform_admin": "platform admins", "requester": "the requester",
-                      "domain_owner": f"owners of domain {target}", "product_owner": f"owners of data product {target}"}[kind])
+                      "domain_owner": f"owners of domain {target}", "product_owner": f"owners of data product {target}",
+                      "project": f"the team of project {target}"}[kind])
     return ", ".join(names)
 
 
 def message(event: dict[str, Any]) -> tuple[str, list[str]]:
-    """(title, lines) for one event. A request's detail stays out; a shortcut's says what broke."""
+    """(title, lines) for one event. A request's detail stays out; a shortcut's says what broke, and a
+    deprecated product's when it stops and which links read it."""
     lines = [f"For {recipients(event['to'])}."]
     scope = " · ".join(x for x in (f"Domain {event['domain']}" if event["domain"] else "",
                                    event["env"].title() if event["env"] else "") if x)
     if scope:
         lines.append(scope)
-    if event["kind"].startswith("shortcut.") and event["detail"]:
+    if event["kind"].startswith(("shortcut.", "incident.", "product.", "exception.")) and event["detail"]:
         lines.append(event["detail"])
-    lines.append(f"Open it in KratosForge > {_WHERE[event['open']['tab']]}.")
+    lines.append(f"Open it in KratosForge: {_WHERE[event['open']['tab']]}.")
     return f"{_TITLES[event['kind']]}: {event['title']}", lines
 
 
@@ -129,8 +142,10 @@ class PlatformRoute:
         url = str(raw.get("url") or "").strip()
         if not name:
             raise ValueError("every route has a name")
-        if url and not url.startswith("https://"):
-            raise ValueError(f"route {name}: the Teams webhook address starts with https://")
+        try:
+            url = deliver.check(url)
+        except ValueError as exc:
+            raise ValueError(f"route {name}: {exc}") from None
         kinds = tuple(_strs(raw.get("kinds"), f"route {name}: kinds"))
         if bad := [k for k in kinds if k not in KINDS]:
             raise ValueError(f"route {name}: {bad[0]!r} isn't a kind; kinds are {', '.join(KINDS)}")
@@ -172,11 +187,20 @@ class Ledger:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is moved aside and the ledger starts empty. It forgets what was sent
+        # and which breaks are open: an alert already sent may be sent once more, and a fix for a break
+        # posted before isn't posted. Nothing else is lost.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="an alert already sent may be sent once more, and a fix for a break posted before isn't posted")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)")
 
     def _db(self) -> ContextManager[sqlite3.Connection]:
-        return transaction(self.path)
+        return sqlitefile.transaction(self.path)
 
     def get(self, key: str) -> tuple[str, bool] | None:
         with self._db() as db:
@@ -237,7 +261,7 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
         if item["not_before"] > t or route is None or not route.url or route.name in down:
             continue
         when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(item["created"]))
-        first = f"From {when}; Teams couldn't be reached then." if item["attempts"] else f"Held during quiet hours since {when}."
+        first = f"From {when}; it couldn't be sent then." if item["attempts"] else f"Held during quiet hours since {when}."
         try:
             post(route.url, f"Delayed: {item['title']}" if item["attempts"] else item["title"], [first] + item["lines"])
         except Exception as exc:  # noqa: BLE001 - still unreachable: keep it

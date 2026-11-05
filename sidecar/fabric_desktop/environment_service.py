@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import app_settings
+from . import app_settings, fabric_environment
 from .environments import Environments
 from .kernel_proc import ProcessKernel
 
@@ -28,7 +28,18 @@ class EnvironmentMixin:
         """Every environment, and the one ``notebook`` uses."""
         return {"environments": self.environments.list(), "current": self.environments.of(notebook) if notebook else None,
                 "process": bool(app_settings.value("kernel_process")),
-                "allowed": app_settings.value("allow_notebook_packages") is not False}
+                "allowed": app_settings.value("allow_notebook_packages") is not False,
+                "source": self._package_source()[2]}
+
+    def environment_fabric_drift(self, workspace_id: str, environment_id: str, notebook: str | None = None) -> dict[str, Any]:
+        """How the packages ``notebook`` finds on this PC differ from a Fabric Environment item's
+        published libraries and runtime (fabric_environment.py). Two read-only calls; an item that
+        can't be read gives status "couldnt_read", never an error."""
+        env = self.environments.of(notebook) if notebook else None
+        item = fabric_environment.read(self.fabric, workspace_id, environment_id)  # type: ignore[attr-defined]
+        here = fabric_environment.on_this_pc(self.environments.installed(env) if env else None)
+        return fabric_environment.drift(item, here) | {"environment": env, "workspace_id": workspace_id,
+                                                        "environment_id": environment_id}
 
     def environment_create(self, name: str) -> dict[str, Any]:
         return self.environments.create(name)
@@ -55,7 +66,8 @@ class EnvironmentMixin:
 
     def environment_install(self, name: str, packages: list[str]) -> dict[str, Any]:
         self._packages_allowed()
-        return self.environments.start(name, packages)
+        folder, pypi, _ = self._package_source()
+        return self.environments.start(name, packages, folder=folder, pypi=pypi)
 
     def environment_uninstall(self, name: str, packages: list[str]) -> dict[str, Any]:
         return self.environments.start(name, packages, remove=True)
@@ -72,10 +84,28 @@ class EnvironmentMixin:
             env = base if base not in {e["name"] for e in self.environments.list()} else f"{base} packages"
             self.environments.create(env)
             self.environment_attach(notebook, env)
-        return self.environments.start(env, packages)
+        folder, pypi, _ = self._package_source()
+        return self.environments.start(env, packages, folder=folder, pypi=pypi)
+
+    @staticmethod
+    def _package_source() -> tuple[str, bool, str]:
+        """(the approved wheel folder or "", whether PyPI may be used, the source in words)."""
+        folder = str(app_settings.value("notebook_package_folder") or "").strip()
+        pypi = app_settings.value("allow_pypi_packages") is not False
+        if folder:
+            return folder, pypi, ("Your organization's package folder, then PyPI" if pypi
+                                  else "Your organization's package folder only")
+        return "", pypi, "PyPI" if pypi else "None: your organization doesn't allow PyPI and names no package folder"
 
     def _packages_allowed(self) -> None:
         if app_settings.value("allow_notebook_packages") is False:
             raise PermissionError("Your organization doesn't allow installing packages for notebooks on this PC.")
+        folder, pypi, _ = self._package_source()
+        if folder and app_settings.package_folder_problem(folder):
+            raise PermissionError(f"Your organization's package folder setting {app_settings.package_folder_problem(folder)}. "
+                                  "Ask IT to fix notebook_package_folder in the policy file.")
+        if not folder and not pypi:
+            raise PermissionError("Your organization doesn't allow installing packages from PyPI and names no package "
+                                  "folder, so packages can't be installed for notebooks on this PC.")
         if not app_settings.value("kernel_process"):
             raise RuntimeError("Notebook environments need Run notebooks in their own process (Settings > Preview features).")

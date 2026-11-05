@@ -2,7 +2,7 @@
 
 Optimize keeps optimization results in one Microsoft Fabric lakehouse that every KratosForge installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
 
-> **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan is in [plan.md](plan.md).
+> **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan and what is left is in [plan.md](plan.md#4-pr-sequence-and-status).
 
 ## One lakehouse for the organization
 
@@ -75,6 +75,24 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 - **Race-safe setup.** Two installations setting up the same lakehouse at once end up with one set of tables and one schema version row.
 - **Recoverable migrations.** A migration only adds tables or columns, and each step can safely run again. Its version is recorded only after every step succeeded, so a migration that stopped part way finishes the next time.
 
+## Before a lakehouse is connected
+
+Overview lists this PC's last Estate X-ray findings, most severe first, each with its fix. **Effort** says what the fix asks of you: **Low** is one button that asks first and then runs in Fabric (Optimize, Vacuum), **Medium** is steps you take yourself (open the lakehouse, review access, open the notebook). **Dismiss** asks why and hides the finding on this PC only; it stays dismissed when the next scan finds it again, and **Show dismissed** lets you reopen it. Dismissing changes nothing in Fabric.
+
+## When the lakehouse can't be reached
+
+When a write to the central lakehouse fails for a reason that passes (no network, throttling, a commit that lost a race with another installation, a dropped upload), what it was writing waits on this PC instead of being lost. Today that covers Estate X-ray findings and shared runs on this PC.
+
+Sharing runs normally reads which runs the lakehouse already has. With no network at all it can't, so every run not already waiting on this PC is queued; any that turn out to be in the lakehouse already are skipped when they're sent.
+
+- **Where it waits.** In `optimize\outbox.sqlite` in the app's data folder, kept for the lakehouse it was meant for. Errors are stored with secrets removed. Nothing in it is sent anywhere else. If the file is damaged, it's moved aside (`outbox.sqlite.corrupt-<time>`) and a new one starts, so Optimize keeps working; what waited in the old file isn't sent, and running the X-ray or sharing runs again records it.
+- **When it's sent.** The next time Optimize writes to that lakehouse (a finished X-ray scan, sharing runs), and when you connect or switch to it. What waits goes first, oldest first. There's no timer: nothing is sent in the background.
+- **No duplicates.** Every row has its `record_id`, so sending something twice, or finishing a batch that was half sent, adds nothing. Queuing the same thing again doesn't add it twice either: a scan shared again replaces the waiting one, and runs already waiting aren't queued again, so repeats don't fill the limit below.
+- **What isn't kept.** A permission error, a lakehouse open read-only, or the policy switch being off isn't a passing failure: it's shown as before and nothing waits. A waiting item the lakehouse refuses as it is gets dropped, so it can't hold up the rest.
+- **Bounded.** At most 200 items per lakehouse, none older than 30 days. Past either, the oldest go. Every dropped item is counted.
+- **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.
+- **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. Optimize shows it as one line under the lakehouse name: everything sent, results waiting on this PC with why, or how many were dropped, with **Details** for the figures. The line only reads; it never sends.
+
 ## Findings and recommendations
 
 Every installation adds what its analysis finds to the shared lakehouse, and everyone connected sees the combined picture.
@@ -91,7 +109,7 @@ Today the analysis is the [Estate X-ray](../user-guide.md#estate-x-ray-preview):
 
 Optimize can count the notebook work that ran on a PC instead of in Fabric. Sharing it adds one row per run to `fdopt_local_execution`:
 
-- **Notebook writes to OneLake tables**, from this PC's write history. Each row names the lakehouse (by workspace and item id) and the table, and records when the write finished, how long it took and how many rows it wrote.
+- **Notebook writes to OneLake tables**, from this PC's write history. Each row names the lakehouse (by workspace and item id) and the table, and records when the write finished, how long it took and how many rows it wrote. Runs of a [job file](../notebooks.md#job-files) (`fabric-desktop run job.toml`) are kept in the same history and are shown as **Job run**, named after the job.
 - **Scheduled notebook runs on this PC**, from **Schedules**. Each row names the notebook and records when the run started and ended, how long it took and whether it succeeded. Metadata schedules aren't included.
 
 Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.

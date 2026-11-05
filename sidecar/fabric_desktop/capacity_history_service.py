@@ -3,7 +3,6 @@ person can see into the central lakehouse. ``tenant_settings_history`` shows the
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from . import capacity_history as ch
@@ -62,4 +61,4 @@ class CapacityHistoryMixin:
 
 def _outcome(exc: FabricError) -> str:
     """``unreadable`` when the account isn't allowed (401/403), otherwise ``failed``."""
-    return "unreadable" if exc.status in (401, 403) or re.search(r"failed with 40[13]\b", str(exc)) else "failed"
+    return "unreadable" if exc.status in (401, 403) else "failed"

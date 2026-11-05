@@ -29,9 +29,9 @@ function dockBack(section) {
 }
 
 // The Pop out button on a section's band, in the main window only.
-function popOutButton(section) {
+function popOutButton(section, label = "Pop out") {
   if (POP_OUT) return null;
-  return preview("popOut", btn("Pop out", "open", () => popOut(section), "tool outline",
+  return preview("popOut", btn(label, "open", () => popOut(section), "tool outline",
     { title: "Open this in a window of its own, to keep on another screen" }));
 }
 

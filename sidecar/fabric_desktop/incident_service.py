@@ -9,14 +9,15 @@ it does when asked (``incidents_evaluate``), so nothing polls a tenant in the ba
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 from typing import Any
 
-from . import __version__, app_settings
+from . import __version__, app_settings, sealed_settings
 from .auth import STORAGE_SCOPES
-from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
+from .central.core import PlatformError
 from .redact import describe
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
@@ -103,7 +104,7 @@ class IncidentMixin:
     def queue_list(self, hours: float = 24) -> dict[str, Any]:
         """Running, queued and next work across this PC, each agent and Fabric (workloads/queue.py),
         from what the app already holds: agent status records, this PC's schedules, the Fabric jobs
-        this app started as last checked, and the Fabric schedules Monitor > Schedules last read. It
+        this app started as last checked, and the Fabric schedules Monitor > Fabric > Schedules last read. It
         makes no Fabric call of its own, so it never polls a tenant. Each source says how it stands."""
         now = dt.datetime.now(dt.timezone.utc)
         envs, by_env = self._agent_records()
@@ -187,7 +188,8 @@ class IncidentMixin:
         else:
             specs = {n: e.spec for n, e in project.entities.items()}
             signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, criticality=crit,
-                                       team=mesh_mod.identity(project)["team"])
+                                       team=mesh_mod.identity(project)["team"],
+                                       promises=mesh_mod.promises(project))
             evaluated |= evaluate.WORKLOAD_KINDS
         try:
             signals += evaluate.agent_signals(read_status(log.backend), env)
@@ -195,6 +197,8 @@ class IncidentMixin:
         except Exception as exc:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
             _log.warning("Couldn't read agent records; their incidents stay as they are: %s", describe(exc))
         changes = log.sync(signals, evaluated=evaluated, by=f"KratosForge ({self._incident_user()})")
+        if evaluated & evaluate.WORKLOAD_KINDS:
+            self._report_product_status(env, log.active())
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
@@ -203,9 +207,66 @@ class IncidentMixin:
         if notify:
             url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]
-            out["notified"] = send(changes, single(url), outbox, "KratosForge", post_teams)
+            out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge",
+                                   self._notice_post())  # type: ignore[attr-defined]  # Teams, a flow or email
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
+
+    def _report_product_status(self, env: str, incidents: list[dict[str, Any]]) -> None:
+        """Tell the platform's catalog how the open project's products are doing in ``env``, so their readers
+        see it in the Status view of Data mesh > Products (data mesh P5). Only when it changed since this app
+        last told it. A platform that refuses it (older, or the person isn't one of the project's members) isn't
+        asked again this session, so no Fabric function runs for nothing; a network error is tried next check."""
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+            name = mesh_mod.project_name(project)
+            agents_live = any(a["state"] == "live" for a in self._incident_agents(env)["agents"])
+            statuses = mesh_mod.product_statuses(project, incidents, agents_live=agents_live)
+        except Exception as exc:  # noqa: BLE001 - no project open, or it can't be read: nothing to tell
+            _log.debug("No product status to report for %s: %s", env, describe(exc))
+            return
+        sent = self.__dict__.setdefault("_product_status_sent", {})
+        refused = self.__dict__.setdefault("_product_status_refused", set())
+        if not statuses or (name, env) in refused or sent.get((name, env)) == statuses:
+            return
+        try:
+            self._catalog().call("report_product_status", project=name, env=env, statuses=statuses)  # type: ignore[attr-defined]
+        except (LookupError, PermissionError, ValueError, PlatformError) as exc:
+            # Not asked again this session only when the platform said it never will: it's older than the Status
+            # view, or this person isn't one of the project's members. Anything else is tried next check.
+            text = str(exc)
+            if isinstance(exc, (LookupError, PermissionError)) or "report_product_status" in text \
+                    or "no operation" in text or "members or a platform admin" in text or "has no owner yet" in text:
+                refused.add((name, env))
+            _log.info("The platform won't take %s's product status in %s; %s: %s", name, env,
+                      "not asking again this session" if (name, env) in refused else "trying again next check", describe(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - readers keep the last status; the next check tries again
+            _log.info("Couldn't report %s's product status in %s: %s", name, env, describe(exc))
+            return
+        sent[(name, env)] = statuses
+
+    def _not_told_before(self, env: str, changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Leave out an incident opening that an older app already posted as a late or failed
+        table (freshness_alerts.json, no longer written), so updating doesn't post it twice. Its
+        recovery is still posted."""
+        try:
+            told = json.loads((self.root / "freshness_alerts.json").read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+        except FileNotFoundError:
+            return changes
+        except (OSError, ValueError) as exc:  # unreadable: post, a second post beats none
+            _log.warning("Couldn't read the older Teams alert record: %s", describe(exc))
+            return changes
+        if not isinstance(told, dict):
+            return changes
+
+        def legacy_key(inc: dict[str, Any]) -> str:
+            name = str(inc.get("name") or "")
+            prefix = {"late": "late", "run_failed": "failed"}.get(inc.get("kind", ""))
+            evidence = str(inc.get("evidence_id") or "").removeprefix("late:")
+            return f"{prefix}:{env}:{name}:{evidence}" if prefix and name and evidence else ""
+
+        return [c for c in changes if c["change"] != "opened" or legacy_key(c["incident"]) not in told]
 
     def incidents_watch(self, notify: bool = False) -> dict[str, Any]:
         """The app's own check while it is open (every few minutes, from the UI): each environment
@@ -233,11 +294,15 @@ class IncidentMixin:
                 for i in (items := log.active()):
                     i["kind_label"] = KIND_LABELS.get(i["kind"], i["kind"])
                 row["incidents"] = items
+                if checking:  # an agent evaluated it: tell readers what it found (the app's own check already did)
+                    self._report_product_status(env, items)
             except Exception as exc:  # noqa: BLE001
                 state, message = model.classify_error(exc)
                 row.update(mode="unreadable", state=state, detail=message, incidents=[])
             envs.append(row)
-        return {"envs": envs, "alerts": bool(self._settings().get("teams_webhook"))}  # type: ignore[attr-defined]
+        settings = self._settings()  # type: ignore[attr-defined]
+        return {"envs": envs, "alerts": bool(settings.get("teams_webhook")),
+                "alerts_unreadable": sealed_settings.unreadable(settings, "teams_webhook")}
 
     def incident_acknowledge(self, env: str, id: str, note: str = "") -> dict[str, Any]:
         return self._incident_log(env).acknowledge(id, self._incident_user(), note)

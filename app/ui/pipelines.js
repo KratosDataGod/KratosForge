@@ -643,7 +643,7 @@ async function renderPipelineRun() {
   if (!plPage.run || plPage.run.run_id !== id) {
     setView(h("div", { class: "page" }, loading("Reading the run...")));
     const run = await attempt(() => rpc("pipeline_run_status", { run_id: id }), "Could not read the run");
-    if (!run || plPage.runId !== id) return;
+    if (!run || plPage.runId !== id) { if (plPulse === id) plPulse = null; return; }  // a run never drawn never pulses later
     plPage.run = run;
     if (state.view !== "pipelineRun") return;
   }
@@ -702,7 +702,7 @@ function plDrawRun(help) {
   setView(h("div", { class: "page pipelines" }, dfAreaTabs(),
     h("section", { class: "card pad pl-head" },
       h("div", { class: "pl-title" }, h("h1", {}, r.pipeline, " ", plStatePill(r.state, mocked.length), " ", previewTag()),
-        h("p", { class: "muted-text" }, [`Run ${r.run_id.slice(0, 8)} on this PC`, r.started ? `started ${new Date(r.started).toLocaleTimeString()}` : "",
+        h("p", { class: "muted-text" }, [`Run ${r.run_id.slice(0, 8)} on this PC`, r.started ? `started ${timeText(r.started)}` : "",
           took(r.seconds ?? (Date.now() - Date.parse(r.started)) / 1000) + (running ? " so far" : ""), params,
           mocked.length ? `${mocked.length} mock${mocked.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · "), " · ", help)),
       h("div", { class: "pl-actions" },

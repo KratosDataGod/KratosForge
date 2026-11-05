@@ -28,27 +28,40 @@ before(async () => {
     openApp({ mocks, search: "?popout=runs", viewport: { width: 720, height: 640 } }),
     openApp({ mocks, search: "?popout=fabric", viewport: { width: 1100, height: 640 } }),
   ]);
-  await main.page.evaluate(() => { monitorPage.showFabric = true; go("monitor"); });
+  await main.page.evaluate(() => { monitorPage.panel = "runs"; go("monitor"); });
   await main.page.waitForSelector(".monitor-scroll");
 });
 after(async () => { await Promise.all([main, runs, fabric].map((a) => a?.close())); });
 
-test("each Monitor section has Pop out, marked Preview", { skip }, async () => {
-  const bands = await main.page.$$eval(".page.monitor .monitor-band", (els) => els.map((b) => b.textContent));
-  assert.strictEqual(bands.length, 2);
-  for (const band of bands) assert.match(band, /Pop outPreview/);
+test("each Monitor tab's section has Pop out at the top right, marked Preview", { skip }, async () => {
+  const p = main.page;
+  assert.match(await p.textContent(".page.monitor .page-head .head-actions"), /^Pop out runsPreview$/);
+  await p.click(".monitor-tabs .tab:has-text('Fabric')");
+  await p.waitForSelector(".monitor-fabric .fabric-slot");
+  assert.match(await p.textContent(".page.monitor .page-head .head-actions"), /^Pop out hubPreview$/);
+  const row = await p.textContent(".monitor-view-row");
+  for (const b of ["Back", "Home", "Reload", "Open in browser"]) assert.ok(row.includes(b), b);
+  assert.strictEqual(await p.$(".monitor-local"), null, "no list shares the page with the hub");
+  await p.click(".monitor-tabs .tab:has-text('KratosForge')");
+  await p.waitForSelector(".monitor-scroll");
+  assert.strictEqual(await p.$(".monitor-fabric"), null, "the hub is on its own tab");
 });
 
-test("popping out the runs list leaves a band and gives Fabric's hub the page", { skip }, async () => {
+test("popping out the runs list leaves a band", { skip }, async () => {
   const p = main.page;
-  await p.click(".monitor-local .monitor-band button:has-text('Pop out')");
+  await p.click(".page.monitor .page-head button:has-text('Pop out')");
   await p.waitForSelector(".monitor-local.popped-out");
   assert.deepStrictEqual(await shellCalls(p, "pop_out_open"), [{ section: "runs", onTop: false }]);
   assert.match(await p.textContent(".monitor-local.popped-out"), /From KratosForge.*In a window of its own.*Show window.*Dock back/);
   assert.strictEqual(await p.$(".monitor-scroll"), null, "the list is only in its window");
-  const [local, hub] = await p.$$eval(".page.monitor > .card", (els) => els.map((e) => e.getBoundingClientRect().height));
-  assert.ok(hub > local * 5, `Fabric's hub gets the room (${local} vs ${hub})`);
+  assert.ok(await p.isVisible(".monitor-tabs"), "the tabs stay, so the Fabric tab is a click away");
   if (SHOTS) await p.screenshot({ path: path.join(SHOTS, "pop-out-main-runs-out.png") });
+  // The Fabric tab isn't in the runs window: its pages still show here.
+  await p.evaluate(() => { monitorPage.panel = "fabric_schedules"; render(); });
+  await p.waitForSelector(".monitor-tabs .tab.active:has-text('Fabric')");
+  assert.strictEqual(await p.$(".monitor-local.popped-out"), null, "Fabric > Schedules isn't the runs band");
+  await p.evaluate(() => { monitorPage.panel = "runs"; render(); });
+  await p.waitForSelector(".monitor-local.popped-out");
   await p.click(".monitor-local.popped-out button:has-text('Dock back')");
   assert.deepStrictEqual(await shellCalls(p, "pop_out_close"), [{ section: "runs" }]);
   // The shell says the window closed; the list comes back.
@@ -56,18 +69,20 @@ test("popping out the runs list leaves a band and gives Fabric's hub the page", 
   await p.waitForSelector(".monitor-scroll");
 });
 
-test("popping out Fabric's hub hides its view here and gives the runs list the page", { skip }, async () => {
+test("popping out Fabric's hub hides its view here and leaves a band", { skip }, async () => {
   const p = main.page;
   await p.evaluate(() => { window.__fdShellCalls.length = 0; });
-  await p.click(".monitor-fabric .monitor-band button:has-text('Pop out')");
+  await p.click(".monitor-tabs .tab:has-text('Fabric')");
+  await p.waitForSelector(".monitor-fabric .fabric-slot");
+  await p.click(".page.monitor .page-head button:has-text('Pop out hub')");
   await p.waitForSelector(".monitor-fabric.popped-out");
   assert.deepStrictEqual(await shellCalls(p, "pop_out_open"), [{ section: "fabric", onTop: false }]);
   assert.ok((await shellCalls(p, "fabric_view_hide")).length > 0, "the main window's Fabric view is hidden");
-  const [local, hub] = await p.$$eval(".page.monitor > .card", (els) => els.map((e) => e.getBoundingClientRect().height));
-  assert.ok(local > hub * 5, `the runs list gets the room (${local} vs ${hub})`);
   if (SHOTS) await p.screenshot({ path: path.join(SHOTS, "pop-out-main-fabric-out.png") });
   await p.evaluate(() => window.__fdEmit("pop-out", { section: "fabric", open: false }));
   await p.waitForSelector(".monitor-fabric .fabric-slot");
+  await p.click(".monitor-tabs .tab:has-text('KratosForge')");
+  await p.waitForSelector(".monitor-scroll");
 });
 
 test("a Fabric link from a pop-out window opens in the main window's Fabric view", { skip }, async () => {

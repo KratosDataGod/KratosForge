@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import builtins
 import contextlib
 import ctypes
 import hashlib
@@ -33,16 +34,17 @@ import tempfile
 import threading
 import time
 import traceback
+import weakref
 import types
 import uuid
 import warnings
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import pyarrow as pa
 
-from . import chart_output, notebook_cells
+from . import chart_output, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -66,6 +68,11 @@ _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
+
+
+def _change_runs_here(query: str) -> bool:
+    from . import spark_local
+    return spark_local.change_runs_here(query)
 # The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
 # them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
 SPILL_CHARS = 100_000_000
@@ -177,7 +184,11 @@ def display(value: Any) -> dict[str, Any]:
     """The output a value shows as: a table, an image, HTML or text."""
     table = as_table(value)
     if table is not None:
-        rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
+        shown = table.slice(0, PREVIEW_ROWS)
+        # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
+        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
+            [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
         return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}
@@ -204,9 +215,9 @@ def display(value: Any) -> dict[str, Any]:
     if not isinstance(value, type):
         bundle = _mime_bundle(value)
         if bundle:
-            out = _from_bundle(bundle)
-            if out is not None:
-                return out
+            shown = _from_bundle(bundle)
+            if shown is not None:
+                return shown
     return {"type": "text", "text": repr(value)}
 
 
@@ -323,8 +334,9 @@ class _Run:
             self.version += 1
 
     def _reset(self) -> None:
-        if getattr(self, "spill", None) is not None:
-            _drop_spill(self.spill, self.spill_file)
+        spill = getattr(self, "spill", None)
+        if spill is not None:
+            _drop_spill(spill, self.spill_file)
         self._outputs, self._tail, self.clear_pending = [], [], False
         self.stream_chars = self.rich_chars = self.spill_chars = 0
         self.spill: Path | None = None
@@ -608,11 +620,15 @@ class Kernel:
         # "local_first": a cell's lakehouse writes upload in the background and the cell waits for
         # them at its end (write_queue); "direct": each write_table returns once it is in OneLake.
         self.onelake_writes = "local_first"
+        # Set before each cell (service._start_cell); asked before every write the cell makes, by
+        # the cell's thread (lakehouse.cell_write_checks). None for the app's own cells.
+        self.write_check: Any = None
         self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
         self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
+        self._duckdb_connections: weakref.WeakSet[Any] = weakref.WeakSet()  # opened by this kernel's cells (EA-016)
         self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
@@ -685,9 +701,9 @@ class Kernel:
             from .dbutils_local import RestartPython
             raise RestartPython()
         # Fabric's session.restartPython and stop: on this PC both restart Python after the cell.
-        utils.session = types.SimpleNamespace(
+        vars(utils).update(session=types.SimpleNamespace(
             restartPython=restart_python, stop=restart_python,
-            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)"))
+            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)")))
         sys.modules["notebookutils"] = utils
         sys.modules["mssparkutils"] = utils
         dbutils = dbutils_local.build(host, utils)
@@ -797,7 +813,7 @@ class Kernel:
             thread.start()
             thread.join(WIDGET_SECONDS)
             if thread.is_alive():
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), ctypes.py_object(KeyboardInterrupt))
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, thread.ident)), ctypes.py_object(KeyboardInterrupt))
                 thread.join(2.0)
                 if thread.is_alive():  # stuck in native code (a sleep, a query): stop waiting for it
                     status["value"] = "cancelled"
@@ -875,7 +891,7 @@ class Kernel:
                 out = {**out, "display_id": did}
             if run is None:
                 print(out.get("text", out))
-            elif update:
+            elif update and did is not None:
                 for sink in {id(x): x for x in [run, *self._display_sinks.get(did, [])]}.values():
                     sink.replace(did, out)
             else:
@@ -923,6 +939,9 @@ class Kernel:
         self._current = self._last_runs[run.guest] = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
+        if self.write_check is not None:
+            from . import lakehouse
+            lakehouse.cell_write_checks[run.thread] = self.write_check
         run.thread.start()
         return run.snapshot()
 
@@ -946,7 +965,9 @@ class Kernel:
         return run.snapshot(known_version)
 
     def interrupt(self) -> dict[str, Any]:
-        """Stop the running cell, keeping the namespace. Native code (a DuckDB query) is asked to stop too."""
+        """Stop the running cell, keeping the namespace. Native code is asked to stop too: a query on
+        ``spark``, on DuckDB's default connection, or on a connection the notebook's cells opened with
+        duckdb.connect (EA-016). Other native code (a Polars query) finishes before the cell stops."""
         run = self._current
         if run is None or run.done.is_set() or run.thread is None or run.guest != getattr(self._local, "guest", None):
             return {"interrupted": False}
@@ -956,7 +977,7 @@ class Kernel:
             return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
-            spark_local.interrupt()
+            spark_local.interrupt(self._duckdb_connections)
         # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
         # thread's start-up, or before the handlers) would end the thread without finishing the run.
         # Such a cell stops itself as soon as it gets there.
@@ -964,7 +985,7 @@ class Kernel:
         with run.cancel_lock:
             run.cancel_requested = True
             if run.armed:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, run.thread.ident)), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
@@ -977,6 +998,7 @@ class Kernel:
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
+        self.write_check = None  # the app's own run
         self.start(code)
         run = self._current
         assert run is not None
@@ -991,6 +1013,9 @@ class Kernel:
         out, err = _routers()
         ident = threading.get_ident()
         out.targets[ident] = err.targets[ident] = run
+        with contextlib.suppress(Exception):
+            from . import spark_local
+            spark_local.watch_connections(ident, self._duckdb_connections)
         self._local.run = run
         self._local.guest = run.guest  # this thread is the cell's: its namespace is its notebook's
         status = "error"
@@ -1041,6 +1066,9 @@ class Kernel:
             write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
+            with contextlib.suppress(Exception):
+                from . import spark_local
+                spark_local.watch_connections(ident, None)
             self._local.run = None
             if restart and run.guest:
                 self._guests.pop(run.guest, None)  # a guest restarts only its own variables
@@ -1070,6 +1098,8 @@ class Kernel:
         except KeyboardInterrupt:
             failed = writes.flush(cancel=True)
             cancelled = True
+        for warning in getattr(writes, "warnings", []):
+            run.add({"type": "text", "text": f"Warning: {warning}\n"})
         if not failed:
             return "cancelled" if cancelled else status
         if not cancelled:
@@ -1101,7 +1131,6 @@ class Kernel:
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
         code compiled here (not %run notebooks), so its line numbers are the cell's own."""
-        from .notebookutils_local import NotebookExit
         cell = magics.cell(code)
         if cell.language == "sql":
             return self._run_sql(cell.body, run, namespace)
@@ -1154,7 +1183,10 @@ class Kernel:
                 tree = ast.parse(code, _CELL_FILE)
                 if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
                     tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
-                last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+                end = tree.body[-1] if tree.body else None
+                last = end if isinstance(end, ast.Expr) else None
+                if last is not None:
+                    tree.body.pop()
                 body = compile(tree, _CELL_FILE, "exec")
                 tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
                 if debugger is not None:
@@ -1237,13 +1269,15 @@ class Kernel:
         SQL database. That engine is in Fabric, so here the cell is checked against its rules
         (sqlcompat, nothing sent anywhere) and stops, as a Scala cell does."""
         from . import sqlcompat
-        kind = (re.search(r"-type\s+(\w+)", cell.args) or [None, "Warehouse"])[1].lower()
+        typed = re.search(r"-type\s+(\w+)", cell.args)
+        kind = (typed[1] if typed else "Warehouse").lower()
         target = {"warehouse": "warehouse", "lakehouse": "endpoint", "sqlanalyticsendpoint": "endpoint",
                   "sqldatabase": "sqldb", "sqldb": "sqldb"}.get(kind, "warehouse")
         report = sqlcompat.analyze(cell.body, target)
         found = [f"- line {d['line']}: {d['title']}. {d.get('action') or ''}".rstrip()
                  for d in report["diagnostics"] if d["severity"] in ("error", "warning")]
-        artifact = (re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args) or [None, "the item named in -artifact"])[1].strip('"')
+        named = re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args)
+        artifact = (named[1] if named else "the item named in -artifact").strip('"')
         print(f"Checked against {report['target']['label']} rules: {report['outcome']['text']}"
               + ("\n" + "\n".join(found) if found else ""))
         self._emit(run, {"type": "error", "ename": "RunsInFabric", "traceback": "", "evalue":
@@ -1328,7 +1362,7 @@ class Kernel:
                 if current is not None:
                     self._flush_figures(current)
             show._fabric_desktop = True  # type: ignore[attr-defined]
-            plt.show = show
+            vars(plt).update(show=show)
 
     @staticmethod
     def _flush_figures(run: _Run) -> None:
@@ -1344,9 +1378,10 @@ class Kernel:
         """A %%sql cell: Spark SQL on this PC, through the notebook's spark session.
 
         It reads lakehouse tables and the session's temp views; CREATE TABLE AS and INSERT INTO
-        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric. A query's result stays in
+        write lakehouse tables, and MERGE INTO, UPDATE and DELETE change one (Preview). A change to
+        another lakehouse, or with Preview features off, runs in Fabric. A query's result stays in
         ``_sqldf`` as a spark DataFrame, as in Databricks, so the next Python cell can use it."""
-        if _SQL_IN_PLACE.search(query):
+        if _SQL_IN_PLACE.search(query) and not _change_runs_here(query):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
                     "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
@@ -1402,7 +1437,8 @@ class Kernel:
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
         if name == "timeit":
-            m = re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line)  # options lead, as in IPython
+            # options lead, as in IPython; every line matches (both parts can be empty)
+            m = cast(re.Match[str], re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line))
             return self._timeit(m.group(1), m.group(2), self.namespace)
         if name == "lsmagic":
             print(self._line_magic_help())
@@ -1481,8 +1517,9 @@ class Kernel:
         """``%sql SELECT ...`` inside Python: the query's result as a spark DataFrame."""
         if not query.strip():
             raise ValueError("%sql needs a query after it, like: df = %sql SELECT * FROM sales")
-        if _SQL_IN_PLACE.search(query):
-            raise ValueError("MERGE, UPDATE and DELETE change rows in place, which runs in Fabric only. "
+        if _SQL_IN_PLACE.search(query) and not _change_runs_here(query):
+            raise ValueError("This MERGE, UPDATE or DELETE runs in Fabric only: on this PC they change tables of the "
+                             "attached lakehouse, with Preview features on. "
                              "Put the statement in a %%sql cell; it runs once the notebook is published.")
         from . import spark_local
         return spark_local.session().sql(query)
@@ -1510,7 +1547,7 @@ class Kernel:
         if not self.resources_dir:
             raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
                                     "under Resources (Built-in) first.")
-        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        path = notebook_resources.real_path(f"builtin/{file}", self.resources_dir)
         if path is None or not os.path.isfile(path):
             raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
         text = Path(path).read_text(encoding="utf-8-sig")  # Notepad may save a BOM
@@ -1529,7 +1566,6 @@ class Kernel:
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
-        from .notebookutils_local import NotebookExit
         if self.load_notebook is None:
             raise RuntimeError("Other notebooks can't be opened here.")
         depth = getattr(self._local, "depth", 0)
@@ -1620,9 +1656,14 @@ class Kernel:
         """A Variables pane row: name, type, size, a short preview ("hidden" for a secret), the
         memory it holds and whether variable_detail can open it."""
         hidden = self._hidden(name, value)
-        return {"name": name, "type": type(value).__name__, "size": _size(value),
-                "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
-                "expandable": not hidden and _expandable(value)}
+        kind = type(value).__name__
+        try:
+            return {"name": name, "type": kind, "size": _size(value),
+                    "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                    "expandable": not hidden and _expandable(value)}
+        except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
+            return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
+                    "memory": None, "expandable": False}
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,
@@ -1861,7 +1902,7 @@ class _BuiltinPaths(ast.NodeTransformer):
         return (self._parents or {}).get(id(node))
 
     @staticmethod
-    def _call_name(node: ast.AST) -> str:
+    def _call_name(node: ast.AST | None) -> str:
         if not isinstance(node, ast.Call):
             return ""
         return node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
@@ -2160,7 +2201,9 @@ def _count(n: Any) -> str:
 
 def _preview(value: Any) -> str:
     module = type(value).__module__
-    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")):
+    # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
+    # gone), so it shows as its repr, as _columns leaves it unexpanded.
+    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")) and type(value).__name__ != "LazyFrame":
         cols = getattr(value, "columns", None)
         if cols is not None:
             names = list(cols)
@@ -2356,7 +2399,8 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
-    own = md.get("fabric_desktop") if isinstance(md.get("fabric_desktop"), dict) else {}
+    own_md = md.get("fabric_desktop")
+    own = own_md if isinstance(own_md, dict) else {}
     chart = _chart_meta(own.get("chart"))
     if chart:
         meta["chart"] = chart
@@ -2430,7 +2474,8 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     """``new`` (from to_ipynb) with the metadata Fabric Desktop doesn't own carried over from the
     notebook as it was on disk: notebook-level keys, other tools' ``fabric_desktop`` keys and
     ``dependencies`` such as a Fabric environment, and each cell's other metadata, by cell id."""
-    old_meta = before.get("metadata") if isinstance(before.get("metadata"), dict) else {}
+    saved_meta = before.get("metadata")
+    old_meta = saved_meta if isinstance(saved_meta, dict) else {}
     meta = {k: v for k, v in old_meta.items() if k not in _OWN_NOTEBOOK_KEYS + ("fabric_desktop", "dependencies")}
     old_fd = {k: v for k, v in (old_meta.get("fabric_desktop") or {}).items() if k not in _OWN_FD_KEYS}
     old_deps = {k: v for k, v in (old_meta.get("dependencies") or {}).items() if k != "lakehouse"}
@@ -2452,7 +2497,7 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
              compute: str = "default", workspace: dict[str, Any] | None = None) -> dict[str, Any]:
     nb_cells = []
     ids = assign_cell_ids([dict(c) for c in cells], _derived_id)
-    for c, cid in zip(cells, ids):
+    for c, cid in zip(cells, ids, strict=True):
         cell = {"cell_type": "markdown" if c.get("type") == "markdown" else "code", "id": cid,
                 "metadata": _cell_metadata(c.get("meta") or {}), "source": c.get("source", "").splitlines(keepends=True)}
         if cell["cell_type"] == "code":
@@ -2515,19 +2560,15 @@ def _write_atomic(path: Path, text: str) -> None:
 
     Saves of one notebook take turns: Windows refuses a second os.replace onto a file
     another replace is still finishing, and briefly while a reader (or a virus scanner)
-    has it open, so a refused replace is tried a few more times before giving up."""
+    has it open, so a refused replace is waited out by the shared jsonfile.replace."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook
         with _path_write_lock(path):
-            for attempt in range(6):
-                try:
-                    os.replace(tmp, path)
-                    break
-                except PermissionError:
-                    if attempt == 5:
-                        raise
-                    time.sleep(0.05 * (attempt + 1))
+            jsonfile.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -2557,7 +2598,7 @@ class NotebookStore:
     def path(self, name: str) -> Path:
         return self.folder / f"{check_notebook_name(name)}.ipynb"
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         files = sorted(notebook_files(self.folder), key=lambda f: f[1].stat().st_mtime, reverse=True)
         return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
@@ -2565,7 +2606,7 @@ class NotebookStore:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
         return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
-    def save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
+    def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
              compute: str | None = None, workspace: dict[str, Any] | None = None,
              expected_stamp: str | None = None) -> dict[str, Any]:
         """Save the notebook. ``compute`` is where Run all runs it: "local" (this PC), "fabric",
@@ -2582,7 +2623,7 @@ class NotebookStore:
         with self._write_lock:
             return self._save(name, cells, lakehouse, compute, workspace, expected_stamp)
 
-    def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+    def _save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None,
               compute: str | None, workspace: dict[str, Any] | None,
               expected_stamp: str | None = None) -> dict[str, Any]:
         path = self.path(name)
@@ -2797,12 +2838,12 @@ class NotebookShelf(NotebookStore):
             dest.unlink(missing_ok=True)
             raise OSError(f"Couldn't copy {name}'s resources to {where} ({e}). The notebook is still where it was.") from None
         src.unlink()
-        out = {"name": name, "place": self.place_of(name), "moved": True}
+        result: dict[str, Any] = {"name": name, "place": self.place_of(name), "moved": True}
         try:
             notebook_resources.remove_folder(res_src)
         except OSError as e:  # a file held open: the moved copy is whole, the old folder stays
-            out["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
-        return out
+            result["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
+        return result
 
 
 def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, Any]:

@@ -20,7 +20,9 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 | ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Merged | #218 | ORCH-001, ORCH-002 |
 | ORCH-004 | Notebook steps: a Notebook activity runs a notebook saved on this PC | Merged | #319 | ORCH-003, Validate notebook (#282) |
 | P1 | Lookup and Get Metadata read a lakehouse (pipelines plan stage P1) | Merged | #563 | ORCH-004 |
-| P2 | Script runs through the SQL page's runner, on a lakehouse or a local data project | In review | | P1, SQL-003 |
+| P2 | Script runs through the SQL page's runner, on a lakehouse or a local data project | Merged | #568 | P1, SQL-003 |
+| P4 | Pipelines page: open, check and run a pipeline on this PC (Preview) | Merged | #578 | P2 |
+| P6 | Schedule a pipeline on this PC (Windows Task Scheduler) | Merged | #791 | P4 |
 | ORCH-005 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 
 ## ORCH-001: pipeline definition engine
@@ -57,7 +59,7 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 
 **Known limitations.**
 
-- No activity runs on this PC; nothing is `local` or `simulated` until ORCH-003 adds executing adapters with tests.
+- When ORCH-002 merged, no activity ran on this PC. The later stages added executing adapters with tests. At registry version 7, 15 of the 28 entries are `local`, 5 `static` and 8 `cloud`; nothing is `simulated` ([activity-registry.md](activity-registry.md) has the changelog).
 - Source, sink and connection settings are carried, not checked against each connector's schema.
 - `fabric_capacity` says whether an activity can only run in Fabric (`fabric_only`) or is metered when it runs there (`metered_in_fabric`); Fabric meters every activity run. A report counts every activity that can't run on this PC as needing capacity. It doesn't estimate capacity units; that belongs to the FinOps program.
 - Activity policy (timeout, retry, secure input and output) is read but not applied.

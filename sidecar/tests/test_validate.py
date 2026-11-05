@@ -71,7 +71,7 @@ def test_a_secret_in_code_is_an_error_and_is_shown_masked():
 
 
 def test_where_it_runs_decides_whether_a_fabric_only_cell_is_an_error():
-    cells = [code("%%sql\nMERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *")]
+    cells = [code("%%sql\nUPDATE LH_Keys.dbo.t SET x = 1 WHERE id = 2")]
     sev = {where: [f["severity"] for f in findings(validate.check(cells, LH, where), "runs_on_pc")]
            for where in ("pc", "fabric", None)}
     assert sev == {"pc": ["error"], "fabric": ["info"], None: ["warning"]}
@@ -115,9 +115,11 @@ def test_spark_notebooks_get_a_clean_run_on_this_pcs_spark():
 
 def test_spark_features_this_pc_lacks_stop_a_pc_run():
     stops = lambda src: [r["text"] for r in compute_check([code(src)], LH)["local"]["reasons"]]
-    assert "in place with spark.sql" in stops("spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id')")[0]
-    assert stops('spark.sql("""\n  DELETE FROM dbo.t WHERE x = 1""")')
-    assert stops("spark.sql(f\"UPDATE dbo.t SET x = 1\")")
+    assert stops("spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN DELETE')") == []  # PB-015
+    assert stops("spark.sql('UPDATE dbo.t SET x = 1 WHERE id = 2')") == []  # PB-015
+    assert "in place with spark.sql" in stops("spark.sql('UPDATE LH_Keys.dbo.t SET x = 1 WHERE id = 2')")[0]
+    assert stops('spark.sql("""\n  DELETE FROM LH_Keys.dbo.t WHERE x = 1""")')
+    assert stops("spark.sql(f\"UPDATE dbo.t SET x = 1\")") == []  # an f-string's text is only known when it runs
     assert "replaceWhere" in stops("df.write.option('replaceWhere', 'd > 1').saveAsTable('dbo.t')")[0]
     assert stops("spark.sql('SELECT * FROM dbo.t')") == [] and stops("df.write.mode('overwrite').saveAsTable('dbo.t')") == []
 
@@ -223,6 +225,16 @@ def test_hidden_state_fails_the_clean_run_and_leaves_the_persons_kernel_alone(sv
     assert f["code"] == "defined_later" and f["found_by"] == ["code", "run"]  # one finding, found both ways
     assert st["summary"].startswith("The clean run stopped at cell 1")
     assert any(v["name"] == "leftover" for v in svc.kernel.variables())
+
+
+def test_the_clean_run_skips_the_run_on_fabric_cell_and_says_so(svc):
+    # It runs only on Fabric Spark; on this PC it would write without V-Order.
+    cells = [code("x = 1"), {"type": "code", "source": "raise RuntimeError('ran here')", "meta": {"fabric_step": True}}]
+    st = done(svc, call(svc, "notebook_validate_start", name="Step", cells=cells, runs_on="pc")["id"])
+    assert st["run"]["status"] == "ok" and st["cells_total"] == 1 and st["verdict"] == "ready"
+    assert st["summary"].endswith("Cell 2 is marked Run on Fabric, which runs only on Fabric Spark, so this run on this PC skipped it.")
+    [f] = [f for f in st["findings"] if f["code"] == "fabric_step"]
+    assert f["cell"] == 2 and f["severity"] == "info"
 
 
 def test_a_failing_cell_is_reported_with_its_error_and_secrets_removed(svc):

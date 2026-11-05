@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -96,11 +97,13 @@ class FakeFabric:
     def get_lakehouse(self, ws, lh):
         return {"properties": {"defaultSchema": "dbo"}}
 
-    def run_item_job(self, ws, item, job):
+    def run_item_job(self, ws, item, job, execution_data=None):
         if self.before_run:
             self.before_run()
         name, nb = self.saved[-1]
-        self.ran = run_published(nb, self.svc.lh_root, self.svc.tmp, self.env)
+        self.execution_data = execution_data
+        self.ran = run_published(with_parameters(nb, (execution_data or {}).get("parameters")),
+                                 self.svc.lh_root, self.svc.tmp, self.env)
         return "job1"
 
     def job_instance(self, ws, item, job):
@@ -110,6 +113,16 @@ class FakeFabric:
 
     def cancel_job(self, ws, item, job):
         pass
+
+
+def with_parameters(nb: dict, parameters: dict | None) -> dict:
+    """The notebook as Fabric runs it with a job's parameters: a cell setting them after the
+    parameter cell."""
+    if not parameters:
+        return nb
+    at = next(i + 1 for i, c in enumerate(nb["cells"]) if "parameters" in c.get("metadata", {}).get("tags", []))
+    cell = {"cell_type": "code", "metadata": {}, "source": [f"{k} = {v['value']!r}\n" for k, v in parameters.items()]}
+    return nb | {"cells": nb["cells"][:at] + [cell] + nb["cells"][at:]}
 
 
 def run_published(nb: dict, lh_root: Path, tmp: Path, env: dict) -> subprocess.CompletedProcess:
@@ -128,6 +141,49 @@ def run_published(nb: dict, lh_root: Path, tmp: Path, env: dict) -> subprocess.C
     environ = dict(os.environ, PYTHONPATH=str(fake), **env)
     out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, env=environ, cwd=tmp, timeout=300)
     return out
+
+
+# A Python with pyspark and delta-spark, to stand in for Fabric's Spark (opt-in: Spark and its
+# Delta jars are a large download, so CI doesn't run it).
+SPARK_PYTHON = os.environ.get("FD_SPARK_PYTHON")
+SPARK_PRELUDE = """
+import pyspark
+from delta import configure_spark_with_delta_pip
+_builder = (pyspark.sql.SparkSession.builder.master("local[1]").config("spark.ui.enabled", "false")
+            .config("spark.sql.shuffle.partitions", "1")
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"))
+spark = configure_spark_with_delta_pip(_builder).getOrCreate()
+
+def display(df):
+    df.show()
+"""
+
+
+def run_published_spark(nb: dict, lh_root: Path, tmp: Path, env: dict) -> subprocess.CompletedProcess:
+    """Run a published Spark notebook's code cells in order with a real local Spark and Delta.
+
+    Its catalog has no lakehouse tables, so a name the proof didn't point at a path fails the run."""
+    fake = tmp / "fake_fabric"
+    fake.mkdir(exist_ok=True)
+    (fake / "notebookutils.py").write_text(FAKE_NOTEBOOKUTILS, encoding="utf-8")
+    code = "\n\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+    code, n = re.subn(r"^_fd_spark_where = .*$", f"_fd_spark_where = ({str(lh_root)!r}, {str(lh_root)!r})", code, flags=re.M)
+    assert n == 1, "the proof's Spark cell wasn't found"
+    code = re.sub(r"^_fabric_desktop_module\((.*)\)$",
+                  lambda m: f"_fabric_desktop_module({m.group(1)}, root={str(lh_root)!r}, mount={str(lh_root)!r})",
+                  code, flags=re.M)
+    script = tmp / "published_spark.py"
+    script.write_text(SPARK_PRELUDE + code, encoding="utf-8")
+    environ = dict(os.environ, PYTHONPATH=str(fake), PYSPARK_PYTHON=SPARK_PYTHON, **env)
+    return subprocess.run([SPARK_PYTHON, str(script)], capture_output=True, text=True, env=environ, cwd=tmp, timeout=900)
+
+
+class FakeSparkFabric(FakeFabric):
+    def run_item_job(self, ws, item, job, execution_data=None):
+        name, nb = self.saved[-1]
+        self.ran = run_published_spark(nb, self.svc.lh_root, self.svc.tmp, self.env)
+        return "job1"
 
 
 class ProveService(Service):
@@ -201,8 +257,22 @@ def call(svc, method, **params):
     return out["result"]
 
 
-def wait(svc, pid):
-    for _ in range(1200):
+def run_cell(svc, code, **params):
+    """Run a cell over the RPC the way the app does, start_cell then poll_cell, and return its result."""
+    call(svc, "start_cell", code=code, **params)
+    notebook = {"notebook": params["notebook"]} if "notebook" in params else {}
+    version, deadline = -1, time.monotonic() + 600
+    while time.monotonic() < deadline:
+        # Passing the last version makes poll_cell wait (up to 2 s) for news instead of answering at once.
+        out = call(svc, "poll_cell", version=version, wait=2, **notebook)
+        if out["status"] != "running":
+            return call(svc, "poll_cell", version=-1, **notebook)  # -1: all of the finished cell's outputs
+        version = out["version"]
+    raise AssertionError("the cell didn't finish")
+
+
+def wait(svc, pid, seconds=60):
+    for _ in range(seconds * 20):
         status = call(svc, "prove_status", id=pid)
         if status["state"] not in prove_service.RUNNING:
             # A finished proof already has its scorecard and receipt: the state changes last.
@@ -245,7 +315,7 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert out["inputs"]["equivalent"] is True
     # Both environments recorded; Fabric's packages remembered for the dependency check.
     assert out["environment"]["fabric"]["packages"]["polars"] and out["environment"]["pc"]["python"]
-    env = call(svc, "notebook_environment", **payload())
+    env = svc.notebook_environment(**payload())
     assert next(m for m in env["modules"] if m["module"] == "polars")["fabric"]["status"] == "observed"
     # Measured on this PC; Fabric times from the job; cost an estimate with its assumptions.
     assert out["pc"]["cpu_seconds"] is not None and out["pc"]["seconds"] > 0
@@ -278,6 +348,55 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert call(svc, "prove_list", name="Order values")[0]["id"] == out["id"]
 
 
+SPARK_CELLS = [
+    {"type": "markdown", "source": "# Order changes"},
+    {"type": "code", "source": (
+        "changes = spark.createDataFrame([(2, 'west', 99.0), (4, 'north', 5.5)], 'order_id long, region string, amount double')\n"
+        "changes.createOrReplaceTempView('changes')")},
+    {"type": "code", "source": (
+        "spark.sql(\"\"\"MERGE INTO dbo.orders AS t USING changes AS s ON t.order_id = s.order_id\n"
+        "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *\"\"\")")},
+    {"type": "code", "source": "%%sql\nUPDATE dbo.orders SET amount = amount * 2 WHERE region = 'east'"},
+    {"type": "code", "source": "spark.sql(\"DELETE FROM LH_Proof.dbo.orders WHERE order_id = 3\")"},
+    {"type": "code", "source": (
+        "totals = spark.sql('SELECT region, sum(amount) AS total, count(*) AS n FROM dbo.orders GROUP BY region')\n"
+        "totals.write.mode('overwrite').saveAsTable('dbo.region_totals')\n"
+        "print(spark.table('dbo.region_totals').count())")},
+    {"type": "code", "source": (
+        "from delta.tables import DeltaTable\n"
+        "regions = DeltaTable.forName(spark, 'dbo.regions').toDF()\n"
+        "assert spark.catalog.tableExists('dbo.region_totals')\n"
+        "print(regions.join(spark.read.format('delta').load('Tables/dbo/regions'), 'region').count())")},
+]
+
+
+@pytest.mark.skipif(not SPARK_PYTHON, reason="set FD_SPARK_PYTHON to a Python with pyspark and delta-spark")
+def test_a_spark_merge_update_and_delete_proof_compares_this_pc_with_spark(svc):
+    """PB-015 criterion 4 with Fabric faked: the published copy runs on a real Spark with Delta."""
+    svc.fake = FakeSparkFabric(svc)
+    write_deltalake(str(svc.lh_root / "Tables" / "dbo" / "regions"), pa.table({"region": ["east", "west", "north"]}))
+    before = shared_version(svc)
+    started = call(svc, "prove_start", **payload(cells=SPARK_CELLS, name="Order changes"))
+    status = wait(svc, started["id"], 900)  # Spark starts slowly
+    ran = svc.fake.ran
+    assert status["state"] == "done", (status["message"], status["pc"].get("cells"), ran.stdout[-3000:], ran.stderr[-3000:])
+    assert status["fabric"]["engine"] == "spark" and status["fabric"]["status"] == "ok"
+    # The copy Fabric runs: every %%sql cell is a spark.sql call the proof sees, and Spark is bound first.
+    published = svc.fake.saved[-1][1]
+    codes = ["".join(c["source"]) for c in published["cells"] if c["cell_type"] == "code"]
+    assert not any(c.lstrip().startswith("%%sql") for c in codes) and "_fd_smod.bind(" in codes[0]
+    rows = {t["table"]: t for t in status["tables"]}
+    assert set(rows) == {"dbo.orders", "dbo.region_totals"}  # dbo.regions was only opened, on both sides
+    assert all(r["result"] == "match" for r in rows.values()), rows
+    assert status["verdict"]["verdict"] == "same" and status["shared"]["unchanged"]
+    assert shared_version(svc) == before and shared_version(svc, "regions") == 0 and not (svc.lh_root / "Tables" / "dbo" / "region_totals").exists()
+    out = pl.from_arrow(DeltaTable(str(svc.lh_root / f"Files/_fabric_desktop/proofs/{started['id']}/fabric/tables/dbo/orders"))
+                        .to_pyarrow_table()).sort("order_id")
+    assert out.to_dicts() == [{"order_id": 1, "region": "east", "amount": 20.0},
+                              {"order_id": 2, "region": "west", "amount": 99.0},
+                              {"order_id": 4, "region": "north", "amount": 5.5}]
+
+
 def test_a_matching_proof_earns_proof_forged_once(svc):
     svc.fake = FakeFabric(svc)
     out = wait(svc, call(svc, "prove_start", **payload())["id"])
@@ -285,6 +404,26 @@ def test_a_matching_proof_earns_proof_forged_once(svc):
     assert out["earned"] == [{"id": "proof-forged", "name": "Proof Forged", "xp": 150, "first": True}]
     row = call(svc, "profile_get")["evidence"][0]
     assert row["type"] == "prove.match" and row["ref"]["id"] == out["receipt_id"]
+
+
+def test_both_runs_use_the_parameters_bar_values(svc):
+    # With the code's own factor (1) on this PC and the bar's (3) in Fabric, the results would differ.
+    cells = [dict(c) for c in CELLS]
+    cells.insert(2, {"type": "code", "source": "factor = 1", "meta": {"tags": ["parameters"]}})
+    cells[4] = cells[4] | {"source": cells[4]["source"].replace("pl.col('rate')", "pl.col('rate') * factor")}
+    cells = [c | {"cell_id": f"c{i}"} for i, c in enumerate(cells)]
+    svc.fake = FakeFabric(svc)
+    call(svc, "save_notebook", name="Order values", cells=cells, lakehouse_ref=LAKEHOUSE)
+    call(svc, "notebook_inputs_set", name="Order values", cells=cells, values={"parameters": {"factor": "3"}})
+    out = wait(svc, call(svc, "prove_start", **payload(cells))["id"])
+    assert out["verdict"]["verdict"] == "same", out
+    assert svc.fake.execution_data == {"parameters": {"factor": {"value": 3, "type": "int"}}}
+    assert out["parameters"] == {"factor": {"value": 3, "type": "int"}} and "_suffixes" not in out
+    assert call(svc, "receipt_get", id=out["receipt_id"])["receipt"]["notebook"]["parameters"] == out["parameters"]
+    # A value the bar shows in red stops the proof before either run starts.
+    call(svc, "notebook_inputs_set", name="Order values", cells=cells, values={"parameters": {"factor": "three"}})
+    refused = handle(svc, json.dumps({"id": 1, "method": "prove_start", "params": payload(cells)}))
+    assert "Type a whole number" in refused["error"]
 
 
 def test_tiny_floating_point_drift_passes_the_default_tolerance(svc):
@@ -366,18 +505,22 @@ def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
     # cell already done and the long cell then ran to its end.
     # The patch goes in before the proof starts: patched after, the proof's thread could reach the
     # long cell first (Windows CI, #728), so nothing cancelled it and it ran to its end.
+    # The proof's thread can also reach the long cell before prove_start has returned its id (#748),
+    # so the patch waits for the id rather than reading it straight away.
     svc.fake = FakeFabric(svc)
     cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
-    start, started, cancelled = Kernel.start, {}, []
+    start, started, cancelled, has_id = Kernel.start, {}, [], threading.Event()
 
     def cancel_first(self, code, *args, **kwargs):
         if "range(400)" in code:
+            assert has_id.wait(10), "prove_start never returned"
             cancelled.append(call(svc, "prove_cancel", id=started["id"]))
         return start(self, code, *args, **kwargs)
 
     monkeypatch.setattr(Kernel, "start", cancel_first)
     began = time.monotonic()
     started.update(call(svc, "prove_start", **payload(cells)))
+    has_id.set()
     out = wait(svc, started["id"])
     assert cancelled == [{"cancelled": True}]
     assert out["state"] == "cancelled" and time.monotonic() - began < 15, out["pc"]  # the cell alone takes 20 s
@@ -490,13 +633,38 @@ def test_delete_outputs_removes_the_proof_folder_only(svc):
     assert call(svc, "prove_status", id=out["id"])["outputs_deleted_at"]
 
 
+def test_proof_records_saved_at_once_from_two_threads_all_land(svc):
+    """A proof's own thread saves its record as it ends while a request (Delete outputs) may save too.
+    On Windows, two writers of one fixed temporary file failed with PermissionError (seen in CI)."""
+    import threading
+    errors, start = [], threading.Barrier(8)
+
+    def save(n):
+        start.wait()
+        try:
+            for i in range(25):
+                svc._proof_save({"id": f"p{n}-{i}", "state": "done", "pc": {}})
+        except Exception as exc:  # noqa: BLE001 - collected for the assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    assert errors == []
+    assert len(svc._proofs_saved()) == 200, "every save kept the rows the others wrote (the newest 200)"
+
+
 # ---- what can be proven
 
 
 def test_check_blocks_what_a_proof_cant_contain():
     base = CELLS[:2]
     spark = proof.check(base + [{"type": "code", "source": "df = spark.read.table('dbo.x')"}], LAKEHOUSE)
-    assert not spark["ok"] and "uses Spark" in spark["blockers"][0]["text"] and spark["blockers"][0]["cell"] == 3
+    assert spark["ok"] and spark["engine"] == "spark"  # its Fabric side runs through proof_spark
+    drop = proof.check(base + [{"type": "code", "source": "spark.sql('DROP TABLE dbo.x')"}], LAKEHOUSE)
+    assert "drops" in drop["blockers"][0]["text"] and drop["blockers"][0]["cell"] == 3
     direct = proof.check(base + [{"type": "code", "cell_id": "c9", "source": "from deltalake import DeltaTable\nt = DeltaTable('abfss://x')"}], LAKEHOUSE)
     assert direct["blockers"][0]["cell_id"] == "c9" and direct["blockers"][0]["line"] == 2
     fs = proof.check(base + [{"type": "code", "source": "notebookutils.fs.put('Files/x', 'y')"}], LAKEHOUSE)

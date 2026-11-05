@@ -1,7 +1,6 @@
 """Magics with what Windows brings: cells saved with \\r\\n, backslash paths, names with spaces or
 accents, and files saved with a byte order mark (Notepad)."""
 
-from pathlib import Path
 
 import pytest
 

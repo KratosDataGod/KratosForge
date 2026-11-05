@@ -234,7 +234,7 @@ def test_deleted_notebooks_are_kept_thirty_days(svc, monkeypatch):
 
 def test_delete_api_name_also_goes_to_recently_deleted(svc):
     save(svc, "NB", "x = 1")
-    assert call(svc, "delete_notebook", name="NB")["deleted"] == "NB"
+    assert svc.delete_notebook("NB")["deleted"] == "NB"  # in-process: the RPC takes notebook_delete
     assert [d["name"] for d in call(svc, "notebook_deleted")] == ["NB"]
 
 

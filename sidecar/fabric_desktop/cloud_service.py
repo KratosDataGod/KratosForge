@@ -22,8 +22,9 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import fabric_step, maintenance, notebook_files, profiling, semantic
+from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
+from .errors import NotSetUp
 from .fabric_api import FabricClient, FabricError
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
 from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_configuration, uses_local_module, uses_spark
@@ -34,9 +35,11 @@ from .meta_service import NoMetadataProject
 from .notebook import leaf_name
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore, TableRef, storage_options
-from .redact import describe
+from .redact import describe, one_line
 
 _log = logging.getLogger(__name__)
+# How long Monitor waits for Fabric to say how its open runs are doing before showing the rest as last known.
+RUNS_REFRESH_SECONDS = 30
 
 
 class FabricChanged(RuntimeError):
@@ -70,7 +73,7 @@ class CloudMixin:
 
     def _write_fabric_runs(self, runs: list[dict[str, Any]]) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        self.fabric_runs_file.write_text("".join(json.dumps(r) + "\n" for r in runs[-500:]), encoding="utf-8")
+        jsonfile.write_text(self.fabric_runs_file, "".join(json.dumps(r) + "\n" for r in runs[-500:]))
 
     def _log_fabric_run(self, record: dict[str, Any]) -> dict[str, Any]:
         record = {"status": "NotStarted", "started_at": _now(), "finished_at": None, "message": ""} | record
@@ -86,18 +89,38 @@ class CloudMixin:
                          and (job_ids is None or r.get("job_id") in job_ids)]
             fabric = self._quiet_fabric() if open_runs else None
             if fabric is not None:
-                for r in open_runs:
-                    try:
-                        job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
-                    except Exception as exc:  # offline or gone: keep the last known status
-                        r["message"] = r.get("message") or f"Status not available: {exc}"
-                        continue
-                    r["status"] = job.get("status", r["status"])
-                    r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
-                    reason = job.get("failureReason") or {}
-                    r["message"] = reason.get("message", "") if isinstance(reason, dict) else str(reason)
+                unchecked = self._refresh_fabric_runs(fabric, open_runs)
                 self._write_fabric_runs(runs)
+                if unchecked:
+                    # Said only in this answer, not saved: the next refresh may well reach them.
+                    note = "Status not checked this time: Fabric was slow or unreachable, so this is the last known status."
+                    return [dict(r, stale=True, message=" ".join(x for x in (r.get("message"), note) if x))
+                            if id(r) in unchecked else r for r in runs[-limit:][::-1]]
         return runs[-limit:][::-1]
+
+    def _refresh_fabric_runs(self, fabric: FabricClient, open_runs: list[dict[str, Any]]) -> set[int]:
+        """Ask Fabric how each open run is doing, newest first, and return the ones not asked (by id()).
+        Monitor opens with this, and every other page's calls wait behind it, so no new request starts
+        after RUNS_REFRESH_SECONDS, nor after two in a row found Fabric unreachable (a run Fabric no
+        longer knows doesn't count). One request can itself take a few minutes (5 tries of up to 60 s)."""
+        deadline, unreachable, unchecked = time.monotonic() + RUNS_REFRESH_SECONDS, 0, set()
+        for r in reversed(open_runs):
+            if time.monotonic() > deadline or unreachable >= 2:
+                unchecked.add(id(r))
+                continue
+            try:
+                job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
+            except Exception as exc:  # offline or gone: keep the last known status
+                r["message"] = r.get("message") or f"Status not available: {one_line(exc)}"
+                status = retrying.status_of(exc)
+                unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
+                continue
+            unreachable = 0
+            r["status"] = job.get("status", r["status"])
+            r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
+            reason = job.get("failureReason") or {}
+            r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
+        return unchecked
 
     def _quiet_fabric(self) -> FabricClient | None:
         """A Fabric client only if the user is already signed in: Monitor must never pop a sign-in."""
@@ -151,7 +174,24 @@ class CloudMixin:
         return {"runs": runs[:limit], "unavailable": unavailable}
 
     def cancel_fabric_run(self, workspace_id: str, item_id: str, job_id: str) -> dict[str, Any]:
+        """Ask Fabric to stop a job. Fabric stops it in its own time, so a run this app logged is
+        marked ``cancel_requested`` until fabric_runs reads Cancelled (or how it really ended)."""
+        logged = next((r for r in self._read_fabric_runs() if r.get("job_id") == job_id), None)
+        if logged and (logged.get("workspace_id"), logged.get("item_id")) != (workspace_id, item_id):
+            raise ValueError("That job belongs to another item in the app's run log, so it wasn't cancelled.")
+        if logged and logged.get("status") in TERMINAL:
+            raise ValueError(f"{logged.get('name') or 'This run'} already ended in Fabric ({logged['status']}), "
+                             "so there's nothing to cancel.")
         self.fabric_jobs.cancel_job(workspace_id, item_id, job_id)  # type: ignore[attr-defined]
+        if logged:
+            # Read again just before writing, so a status poll since the read above isn't undone. A poll
+            # that writes in between can still drop the mark: the run then reads Running, not
+            # Cancelling, until Fabric reports Cancelled, which is harmless.
+            runs = self._read_fabric_runs()
+            for r in runs:
+                if r.get("job_id") == job_id and r.get("status") not in TERMINAL:
+                    r["cancel_requested"] = _now()
+            self._write_fabric_runs(runs)
         return {"cancelled": job_id}
 
     # ---- notebooks in Fabric
@@ -442,7 +482,8 @@ class CloudMixin:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         item = self._published_item(name, ws["workspace_id"])[0] or self._notebook_item(name, ws["workspace_id"])
         if item is None:
-            raise LookupError(f"{name} isn't published in {ws['workspace_name'] or 'that workspace'}")
+            raise LookupError(f"{name} isn't published in {ws['workspace_name'] or 'that workspace'}, "
+                              "so it has no schedules there. Nothing was removed.")
         self.fabric_jobs.delete_schedule(ws["workspace_id"], item["id"], NOTEBOOK_JOB, schedule_id)  # type: ignore[attr-defined]
         return self.notebook_schedules(name, lakehouse_ref)
 
@@ -571,7 +612,7 @@ class CloudMixin:
         ws = store.workspace_id
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
         if not meta_id:
-            raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+            raise NotSetUp(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
         config: dict[str, Any] = {"env": env, "workspace_id": ws, "lakehouse_ids": dict(store.lakehouse_ids),
                                   "lakehouse_workspaces": dict(store.lakehouse_workspaces),
                                   "optimize_after_run": self._optimize_after_run(project, env)}
@@ -594,8 +635,10 @@ class CloudMixin:
         files = bundle_files(project.root, config)
         digest = bundle_hash(files)
         try:
-            state = json.loads(self._bundles_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            state = jsonfile.read_json(self._bundles_file, {})
+        except OSError:
+            state = {}
+        if not isinstance(state, dict):
             state = {}
         key = f"{env}:{ws}"
         known = state.get(key, {})
@@ -613,7 +656,7 @@ class CloudMixin:
             known = {"hash": digest, "runner_id": runner_id, "at": _now(), "version": project.version}
             state[key] = known
             self.root.mkdir(parents=True, exist_ok=True)
-            self._bundles_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            jsonfile.write_text(self._bundles_file, json.dumps(state, indent=2))
         return {"workspace_id": ws, "meta_lakehouse_id": meta_id, "runner_id": known["runner_id"]}
 
     def _check_runnable(self, project: Any, store: Any) -> None:
@@ -645,7 +688,7 @@ class CloudMixin:
         """A Fabric run's status, and its per-entity results once the runner has saved them."""
         run = next((r for r in self.fabric_runs(200) if r.get("request_id") == request_id), None)
         if run is None:
-            raise KeyError(f"no Fabric run {request_id}")
+            raise LookupError(f"This PC has no record of the Fabric run {request_id}. Monitor lists the runs this app started.")
         out: dict[str, Any] = {"status": run["status"], "message": run.get("message", ""), "results": None}
         if run["status"] in TERMINAL:
             data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]
@@ -661,14 +704,15 @@ class CloudMixin:
             return {"env": env, "compute": "local", "published": False, "schedules": []}
         runner = self._notebook_item(RUNNER, ws)
         schedules = self.fabric.list_schedules(ws, runner["id"], "RunNotebook") if runner else []  # type: ignore[attr-defined]
-        return {"env": env, "compute": "fabric", "published": runner is not None,
+        return {"env": env, "compute": "fabric", "published": runner is not None, "workspace_id": ws,
+                "item_id": runner["id"] if runner else "",
                 "schedules": [s | {"text": describe_schedule(s)} for s in schedules]}
 
     def meta_add_schedule(self, env: str, schedule: dict[str, Any]) -> dict[str, Any]:
         """Schedule "run every entity" in Fabric, from the project as it is now."""
         project = self._project()  # type: ignore[attr-defined]
         if self._compute(project, env) != "fabric":
-            raise ValueError(f"Set {env.title()} to run in Fabric first; scheduled runs need Fabric compute")
+            raise ValueError(f"Set {env.title()} to run in Fabric first: scheduled runs need Fabric compute.")
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),
                                         schedule.get("every_minutes"), schedule.get("weekdays"),
                                         schedule.get("time_zone") or "UTC")
@@ -684,7 +728,8 @@ class CloudMixin:
         ws = self._env_cfg(project, env).get("workspace_id", "")
         runner = self._notebook_item(RUNNER, ws) if ws else None
         if runner is None:
-            raise LookupError(f"There is no runner notebook in the {env.title()} workspace")
+            raise LookupError(f"There is no runner notebook in the {env.title()} workspace, "
+                              "so it has no schedules there. Nothing was removed.")
         self.fabric_jobs.delete_schedule(ws, runner["id"], "RunNotebook", schedule_id)  # type: ignore[attr-defined]
         return self.meta_schedules(env)
 
@@ -756,7 +801,7 @@ class CloudMixin:
                              "Build the model from Test or Prod after promoting.")
         lakehouse = project.layer(layer).lakehouse
         if lakehouse not in store.lakehouse_ids:
-            raise LookupError(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
+            raise NotSetUp(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
         fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
         name = (name or f"SM_{layer.title()}").strip()
         kept = None
@@ -798,9 +843,12 @@ class CloudMixin:
         refreshed = True
         try:  # so the endpoint sees tables this app wrote; the model reads through it
             fabric.refresh_sql_endpoint(store.workspace_of(lakehouse), endpoint["id"])
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the model still builds; the reply says the refresh didn't happen
+            _log.warning("Couldn't refresh %s's SQL analytics endpoint before building the model: %s", lakehouse,
+                         describe(exc))
             refreshed = False
-        parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
+        parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"],
+                               self.model_descriptions(project, layer))  # type: ignore[attr-defined]
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
                                                f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",

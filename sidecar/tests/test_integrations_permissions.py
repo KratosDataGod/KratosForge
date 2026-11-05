@@ -178,6 +178,8 @@ def test_denied_requests_fail_and_say_so(store):
     with pytest.raises(IntegrationError) as err:
         reg.invoke(None, "ext_run", {"code": "x"}, ctx(client["id"]))
     assert err.value.code == "approval_denied" and err.value.details["note"] == "not now"
+    # PB-096: Claude Code read this out as "said no to run python"; the title keeps its own words.
+    assert str(err.value) == "The person said no to this request (Run Python)."
 
 
 def test_ask_categories_can_be_pre_approved_but_code_always_asks(store):
@@ -314,7 +316,7 @@ def test_app_decides_approvals_and_revokes(svc):
     store = svc.integration_store
     request = store.request_approval(store.client(client["id"]), "ext_run", "Run Python", "EXECUTE_LOCAL_CODE",
                                      {"client": "Cursor"}, {"code": "1"})
-    assert [a["id"] for a in rpc(svc, "integrations_approvals")["result"]] == [request["id"]]
+    assert [a["id"] for a in svc.integrations_approvals()] == [request["id"]]
     assert rpc(svc, "integrations_decide", approval_id=request["id"], approve=False)["result"]["state"] == "denied"
     assert rpc(svc, "integrations_revoke_client", client_id=client["id"])["result"]["revoked_at"]
     assert rpc(svc, "integrations_status")["result"]["clients"] == []
@@ -326,3 +328,17 @@ def test_launcher_runs_this_engine(tmp_path):
     import sys
     assert sys.executable in path.read_text()
     assert write_launcher(tmp_path) == path
+
+
+def test_windows_launcher_puts_back_a_missing_localappdata(tmp_path):
+    # PB-096: Codex CLI starts MCP servers with a short list of environment variables. Without
+    # LOCALAPPDATA the engine would read another data folder, so the tool's id wouldn't be found.
+    from fabric_desktop.integrations.config import _script_text
+    launcher = tmp_path / "Local" / "FabricDesktop" / "bin" / "fabric-desktop-mcp.cmd"
+    text = _script_text(launcher, "mcp ", windows=True)
+    base = tmp_path / "Local"
+    assert text.startswith(f'@echo off\r\nif not defined LOCALAPPDATA set "LOCALAPPDATA={base}"\r\n"')
+    assert text.endswith("-m fabric_desktop.cli mcp %*\r\n")
+    odd = tmp_path / "100%" / "FabricDesktop" / "bin" / "kratosforge.cmd"  # cmd would expand it: left out, not mangled
+    assert "LOCALAPPDATA" not in _script_text(odd, "", windows=True)
+    assert "LOCALAPPDATA" not in _script_text(launcher, "mcp ", windows=False)

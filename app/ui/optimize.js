@@ -2,7 +2,7 @@
 // one optimization lakehouse (sidecar optimize/ and optimize_service.py). Setting it up never
 // blocks the page: until a lakehouse is connected, Cost and savings still shows this PC's figures.
 
-const optimizePage = { tab: "overview", closed: false };
+const optimizePage = { tab: "overview", closed: false, localDismissed: false };
 
 const OPTIMIZE_TABS = [["overview", "Overview"], ["opportunities", "Opportunities"], ["cost", "Cost and savings"], ["settings", "Settings history"]];
 
@@ -19,30 +19,43 @@ const REC_MOVES = {
 
 async function renderOptimize() {
   if (!OPTIMIZE_TABS.some(([id]) => id === optimizePage.tab)) optimizePage.tab = "overview";
-  const band = h("div", { class: "optimize-band muted-text" }, "Reading Optimize's settings...");
+  // The page layout every tabbed page shares (docs/ui-guidelines.md): which lakehouse results are shared
+  // through is the line under the title, setting one up is the page's buttons, then the tabs and Refresh.
+  const band = h("p", { class: "sub optimize-band" }, "Reading Optimize's settings...");
+  const sync = h("p", { class: "sub optimize-sync", hidden: true });
+  const actions = h("div", { class: "head-actions" });
   const body = h("div", { class: "optimize-body" });
   setView(h("div", { class: "page optimize" },
     h("div", { class: "page-head" }, h("div", {},
-      h("h1", {}, "Optimize ", previewTag()),
-      h("p", { class: "sub" }, "What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
-        learnMore("optimize-preview")))),
-    band,
+      h("h1", {}, "Optimize ", previewTag()), band, sync,
+      pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
+        learnMore("optimize-preview"))), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
         onclick: () => { optimizePage.tab = id; render(); } }, label))),
+    h("div", { class: "row mesh-view-row" }, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   // Cost and savings doesn't need the shared lakehouse: it reads this PC's runs.
-  if (optimizePage.tab === "cost") body.append(costPanel());
+  if (optimizePage.tab === "cost") body.append(costPanel(), previewShown() ? databricksCostSection() : "");
   // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
   const status = await rpc("optimize_status").catch(() => null);
   if (state.view !== "optimize" || !band.isConnected) return;
-  band.replaceWith(optimizeBand(status));
+  const [line, buttons] = optimizeBand(status);
+  band.replaceChildren(...line);
+  const synced = status?.allowed && status.active ? optimizeSyncLine(status.outbox) : null;
+  sync.hidden = !synced;
+  sync.replaceChildren(...(synced || []));
+  actions.replaceChildren(...buttons);
+  actions.classList.toggle("optimize-setup", !!status?.allowed && !status.active);
   if (optimizePage.tab === "cost" || optimizePage.tab === "settings") return;
   if (!status?.active) {
-    fill(body, h("p", { class: "muted-text" }, status && !status.allowed
+    const note = h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
-      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. Cost and savings works without one."));
+      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one.");
+    // Overview still acts on what this PC's own Estate X-ray found (AF-5).
+    if (optimizePage.tab === "overview") fill(body, optimizeLocalCard(), note);
+    else fill(body, note);
     return;
   }
   fill(body, h("p", { class: "muted-text" }, "Reading shared results..."));
@@ -56,25 +69,122 @@ async function renderOptimize() {
   else fill(body, ...optimizeOpportunities(findings, recs, writable));
 }
 
-// The line under the title: which lakehouse this PC shares results through, or how to set one up.
+// The line under the title (which lakehouse this PC shares results through) and the page's buttons
+// (how to set one up), as [line, buttons].
 function optimizeBand(status) {
-  if (!status) return h("div", { class: "optimize-band muted-text" }, "Optimize's settings can't be read until the local engine is running.");
-  if (!status.allowed) return h("div", { class: "optimize-band muted-text" }, "Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures.");
+  if (!status) return [["Optimize's settings can't be read until the local engine is running."], []];
+  if (!status.allowed) return [["Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures."], []];
   const c = status.active;
   if (!c) {
-    return h("section", { class: "card pad optimize-setup" },
-      h("div", { class: "grow" }, h("b", {}, "Share results with your team"),
-        h("div", { class: "muted-text small" }, "One lakehouse holds what every installation finds, fixes and saves. Your organization usually needs only one. Nothing here waits for it.")),
-      btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
-      btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool primary"));
+    return [["Results from this PC only · not shared with your team yet"],
+      [btn("Connect to a lakehouse", null, () => optimizeConnectFlow(), "tool outline"),
+        btn("Create a lakehouse", "add", () => optimizeCreateFlow(), "tool outline")]];
   }
   const access = { write: "Read and write", read: "Read only", none: "No access" }[c.access] || c.access;
-  return h("div", { class: "optimize-band row wrap" },
-    h("span", {}, h("span", { class: "muted-text" }, "Lakehouse "), h("b", {}, c.lakehouse_name || c.lakehouse_id),
-      c.workspace_name ? h("span", { class: "muted-text" }, ` in ${c.workspace_name}`) : null),
-    h("span", {}, h("span", { class: "muted-text" }, "Access "), access),
-    h("span", { class: "spacer" }),
-    btn("Lakehouses", "settings", () => { state.settingsTab = "general"; go("settings"); }, "tool link small"));
+  return [["Shared through lakehouse ", h("b", {}, c.lakehouse_name || c.lakehouse_id), c.workspace_name ? ` in ${c.workspace_name}` : "", ` · ${access}`],
+    [btn("Lakehouses", "settings", () => { state.settingsTab = "general"; go("settings"); }, "tool outline")]];
+}
+
+// Under the band, for a connected lakehouse (PR-OPT-006, mockup approved 2026-11-03): whether everything
+// this PC wrote reached the lakehouse, what waits on this PC because it couldn't, and what was dropped.
+// Nothing sends from here: waiting results go with the next scan or share, or a connect or switch.
+function optimizeSyncLine(o) {
+  if (!o) return null;
+  const details = h("a", { href: "#", onclick: (e) => { e.preventDefault(); optimizeSyncDetails(o); } }, "Details");
+  if (o.pending) {
+    return [h("span", { class: "pill-s wrn" }, "Waiting on this PC"), " ",
+      `${o.pending} result${o.pending === 1 ? "" : "s"} (${o.pending_rows} row${o.pending_rows === 1 ? "" : "s"}) couldn't reach the lakehouse`,
+      o.last_error ? `: ${o.last_error}` : "", ". They go with the next scan, or when you connect again. ", details];
+  }
+  if (o.dropped) {
+    return [h("span", { class: "pill-s fail" }, `${o.dropped} dropped`), " ",
+      "Older than 30 days or over the 200-item limit before the lakehouse could be reached. Run the X-ray again to record them. ", details];
+  }
+  if (o.last_sync) return ["Everything from this PC is in the lakehouse · last sent ", when(o.last_sync)];
+  return null;
+}
+
+function optimizeSyncDetails(o) {
+  const row = (label, value) => [h("span", { class: "muted-text" }, label), h("span", {}, value)];
+  showDialog("Sync with the lakehouse", h("div", {},
+    h("div", { class: "optimize-sync-grid" },
+      ...row("Waiting", o.pending ? [`${o.pending} result${o.pending === 1 ? "" : "s"}, ${o.pending_rows} rows, oldest `, when(o.oldest)] : "Nothing"),
+      ...row("Last sent", o.last_sync ? when(o.last_sync) : "Not yet"),
+      ...row("Last error", o.last_error ? `${o.last_error} (secrets removed)` : "None"),
+      ...row("Dropped", String(o.dropped || 0))),
+    h("p", { class: "muted-text small" }, "Nothing sends in the background. Waiting results never count in Overview's totals until they're in the lakehouse.")),
+  [btn("Close", null, () => closeDialog(), "tool outline")]);
+}
+
+// Before a shared lakehouse is connected: this PC's last Estate X-ray findings, most severe first,
+// each with the fix the X-ray already offers (xray.js). It reads the saved scan and never starts one.
+const OPTIMIZE_LOCAL_LIMIT = 5;
+const XRAY_IMPACT = { high: "High", medium: "Medium", low: "Low" };
+
+function optimizeLocalCard() {
+  const box = h("section", { class: "card pad optimize-local" },
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Recommended improvements")),
+    h("p", { class: "muted-text" }, state.user ? "Reading this PC's last Estate X-ray scan..."
+      : "Sign in and scan with the Estate X-ray on Home, and what it finds shows here with a fix for each."));
+  if (state.user) loadOptimizeLocal(box);
+  return box;
+}
+
+async function loadOptimizeLocal(box) {
+  const res = await rpc("xray", { refresh: false, auto: false }).catch(() => null);
+  if (!box.isConnected) return;
+  drawOptimizeLocal(box, res);
+}
+
+function drawOptimizeLocal(box, res) {
+  const result = res?.result;
+  const rank = { high: 0, medium: 1, low: 2 };
+  const all = (result?.findings || []).filter((f) => !f.fixed);
+  const dismissed = all.filter((f) => f.dismissed);
+  const open = all.filter((f) => !f.dismissed || optimizePage.localDismissed).sort((a, b) => rank[a.severity] - rank[b.severity]);
+  const redraw = () => drawOptimizeLocal(box, res);
+  const home = (label) => btn(label, null, () => go("home"), "tool link small");
+  fill(box,
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Recommended improvements"),
+      result ? h("span", { class: "muted-text small" }, "From this PC's last Estate X-ray scan, ", when(result.scanned)) : null),
+    !res ? h("p", { class: "muted-text" }, "This PC's Estate X-ray couldn't be read just now.")
+      : !result ? h("p", { class: "muted-text" }, "No Estate X-ray scan on this PC yet. ", home("Scan on Home"))
+      : !open.length ? h("p", { class: "muted-text" }, "Nothing needs attention in the last scan.")
+      : h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, ["Improvement", "Impact", "Effort", "State", ""].map((c) => h("th", {}, c)))),
+        h("tbody", {}, open.slice(0, OPTIMIZE_LOCAL_LIMIT).map((f, i) => h("tr", { "data-finding": f.id },
+          h("td", {}, h("b", {}, f.title), h("div", { class: "muted-text small" }, f.detail),
+            xrayWhere(f) ? h("div", { class: "muted-text small" }, xrayWhere(f)) : null),
+          h("td", {}, XRAY_IMPACT[f.severity] || ""),
+          h("td", { title: f.effort === "Low" ? "One button that asks first, then runs in Fabric" : "Steps you take yourself" }, f.effort || ""),
+          h("td", {}, f.dismissed ? h("span", { title: f.dismissed.reason || "" }, "Dismissed")
+            : f.fix?.state === "submitted" ? "Fix submitted" : f.fix?.state === "failed" ? "Fix didn't finish" : "Open"),
+          h("td", { class: "n" }, f.dismissed ? btn("Reopen", null, () => optimizeLocalDismiss(f, true, box), "tool outline small")
+            : f.fix?.state === "submitted" ? null
+            : [xrayAction(f, redraw, res, { small: true, solid: i === 0 }),
+              btn("Dismiss...", null, () => optimizeLocalDismiss(f, false, box), "tool link small")]))))),
+    dismissed.length ? h("label", { class: "check small" }, h("input", { type: "checkbox", checked: !!optimizePage.localDismissed,
+      onchange: (e) => { optimizePage.localDismissed = e.target.checked; redraw(); } }), `Show dismissed (${dismissed.length})`) : null,
+    open.length > OPTIMIZE_LOCAL_LIMIT ? home(`All ${open.length} in the Estate X-ray on Home`) : null);
+}
+
+// Dismissing one of this PC's findings asks why and is kept on this PC only (OPT-010): it stays
+// dismissed when the next scan finds it again, until it is reopened. Nothing changes in Fabric.
+async function optimizeLocalDismiss(f, reopen, box) {
+  let reason = "";
+  if (!reopen) {
+    reason = await new Promise((resolve) => {
+      const input = h("input", { maxlength: "500", placeholder: "For example: the table is retired next month" });
+      showDialog("Dismiss this improvement?", h("div", {},
+        h("p", { class: "text" }, "It's hidden from this list on this PC, with your reason, and stays dismissed when the next scan finds it again. You can reopen it. Nothing changes in Fabric."),
+        h("label", { class: "field" }, "Why", input)), [
+        btn("Cancel", null, () => { closeDialog(); resolve(null); }, "tool outline"),
+        btn("Dismiss", null, () => { closeDialog(); resolve(input.value.trim()); }, "tool primary")]);
+    });
+    if (reason === null) return;
+  }
+  const done = await attempt(() => rpc("xray_dismiss", { finding_id: f.id, reason, reopen }), "Could not update the improvement");
+  if (done) { toast(reopen ? "Reopened" : "Dismissed on this PC"); loadOptimizeLocal(box); }
 }
 
 // Findings by fingerprint, so a recommendation can show what it is about.

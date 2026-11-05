@@ -4,7 +4,9 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
-const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: whdetail.js:whTableDetail
 
 const WH = { kind: "warehouse", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Gold" };
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -73,6 +75,14 @@ test("Table detail lists the columns and profiles them with one query that reads
     await page().waitForTimeout(400);
     await page().screenshot({ path: path.join(SHOTS, "wh-16-detail.png") });
   }
+  await dialog.getByRole("button", { name: "Close" }).last().click();
+});
+
+test("the dialog passes axe, profiled", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
+  const dialog = await openDetail();
+  await dialog.getByRole("button", { name: "Profile" }).click();
+  await dialog.getByText(/2,000 rows, counted in Fabric/).waitFor();
+  assert.deepStrictEqual(await axeFindings(page(), ".dialog"), []);
   await dialog.getByRole("button", { name: "Close" }).last().click();
 });
 

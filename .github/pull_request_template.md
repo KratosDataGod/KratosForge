@@ -16,6 +16,7 @@ After:
 - **Shared files and contracts touched:** <!-- engine methods in server.py, audit.py READ_ONLY, record or file formats, settings, app.js, features.js, ci.yml; or none -->
 - **Stored data:** <!-- does it change a format on disk or in OneLake? Can an older build still read it? or none -->
 - **Permissions:** <!-- new scope or role, added to docs/permissions.md; or none -->
+- **Visual identity:** <!-- for new illustration, animation, onboarding or achievement visuals: the answers to the eight checks in docs/design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md and the asset manifest rows; or none -->
 
 ## Tests
 

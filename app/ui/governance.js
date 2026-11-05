@@ -4,7 +4,7 @@
 // (central/policy.py) enforces all of it; this page only hides buttons a person can't use.
 
 const GOV_STATUS = { draft: ["Draft", "neu"], published: ["Published", "pass"], deprecated: ["Deprecated", "wrn"], retired: ["Retired", "neu"] };
-const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block (not enforced yet)", "fail"] };
+const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block", "fail"] };  // Block stops promote (GOV-003)
 const GOV_STRICTER = { higher: "Higher", lower: "Lower", superset: "More items", subset: "Fewer items", true: "On", fixed: "Fixed" };
 const GOV_SCOPE = { enterprise: "Enterprise", domain: "Domain", project: "Project", entity: "Entity" };
 const govPage = { query: "", category: "", status: "", open: null, sub: "definition", version: null, explain: null, view: "policies" };
@@ -15,7 +15,7 @@ function govPill(map, key) {
 }
 
 function govDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString() : "";
+  return dateText(iso);
 }
 
 function govValue(v) {
@@ -72,13 +72,86 @@ async function platformGovernanceTab(body) {
             p.draft_version && p.current_version ? [" ", h("span", { class: "pill-s neu" }, `draft v${p.draft_version}`)] : null),
           h("td", {}, govPill(GOV_STATUS, p.status)),
           h("td", {}, p.assignments ? `${p.assignments} place${p.assignments === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "not assigned"))))))
-        : h("p", { class: "muted-text" }, g.query || g.category || g.status ? "No policy matches." : "No policies yet."))].filter(Boolean));
+        : h("p", { class: "muted-text" }, g.query || g.category || g.status ? "No policy matches." : "No policies yet.")),
+    previewShown() ? changeWindowCard(govCan(o).admin) : null].filter(Boolean));
+}
+
+// ---------- the change window (data mesh P6) ----------
+// When the platform agrees changes to Prod happen. A promote outside it, that changes products other
+// projects read, gets a warning naming them. It never blocks (central/core.checked_change_window).
+
+const CW_DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+
+function changeWindowText(w) {
+  const idx = w.days.map((d) => CW_DAYS.findIndex(([k]) => k === d)).filter((i) => i >= 0);
+  const run = idx.length > 2 && idx.every((v, i) => i === 0 || v === idx[i - 1] + 1);
+  const days = run ? `${CW_DAYS[idx[0]][1]} to ${CW_DAYS[idx[idx.length - 1]][1]}` : idx.map((i) => CW_DAYS[i][1]).join(", ");
+  const envs = (w.envs || ["prod"]).map((e) => ({ test: "Test", prod: "Prod" }[e] || e)).join(" and ");
+  return `${days}, ${w.start} to ${w.end} (${w.time_zone}), for ${envs}`;
+}
+
+function changeWindowCard(admin) {
+  const card = h("div", { class: "card pad change-window" }, h("b", {}, "Change window"), loading());
+  const draw = async () => {
+    let res;
+    try { res = await rpc("platform_change_window", {}); } catch (err) {
+      if (card.isConnected) card.replaceChildren(h("b", {}, "Change window"), errorPanel(err, { label: "Couldn't read the change window", retry: draw }));
+      return;
+    }
+    if (!card.isConnected) return;
+    const w = res.window;
+    card.replaceChildren(h("div", { class: "row tight" }, h("b", { class: "grow" }, "Change window"), previewTag(),
+      admin && res.available !== false ? btn(w ? "Change" : "Set a change window", null, () => changeWindowDialog(w, draw), "tool outline small") : null),
+      res.available === false ? h("p", { class: "wrn-text small" }, res.problem || "The platform can't keep a change window yet.")
+        : h("p", { class: "cw-now" }, w ? changeWindowText(w) : h("span", { class: "muted-text" }, "None set: promotes get no change window warning.")),
+      h("p", { class: "muted-text small" }, "A promote outside the window that changes products other projects read gets a warning naming them. It never blocks. Only platform admins set it."));
+  };
+  draw();
+  return card;
+}
+
+function changeWindowDialog(w, done) {
+  const cur = w || { days: ["mon", "tue", "wed", "thu"], start: "08:00", end: "16:00", envs: ["prod"],
+    time_zone: (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") };
+  const boxes = CW_DAYS.map(([k, label]) => ({ k, box: h("input", { type: "checkbox", checked: cur.days.includes(k) ? true : null }), label }));
+  const problem = h("p", { class: "error-text small cw-problem", role: "alert" });
+  const start = h("input", { type: "time", value: cur.start });
+  const end = h("input", { type: "time", value: cur.end });
+  const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const zone = h("input", { value: cur.time_zone, list: "cw-zones", placeholder: "Like Europe/London" });
+  // Offer the window's own envs too (the platform takes any of test and prod), so saving keeps them.
+  const curEnvs = ["test", "prod"].filter((e) => (cur.envs?.length ? cur.envs : ["prod"]).includes(e)).join(",") || "prod";
+  const envChoices = [["prod", "Prod"], ["test,prod", "Test and Prod"]];
+  if (!envChoices.some(([v]) => v === curEnvs)) envChoices.push([curEnvs, curEnvs.split(",").map((e) => ({ test: "Test", prod: "Prod" }[e])).join(" and ")]);
+  const envs = h("select", {}, envChoices.map(([v, t]) => h("option", { value: v, selected: curEnvs === v ? true : null }, t)));
+  const save = async (window) => {
+    if (window) {
+      const wrong = !window.days.length ? "Tick at least one day." : !window.start || !window.end || window.end <= window.start
+        ? "Until must be later than From, on the same day." : !window.time_zone ? "Give a time zone, like Europe/London." : "";
+      problem.textContent = wrong;
+      if (wrong) return;
+    }
+    if (await metaCall("platform_save_change_window", { window }, "Not saved")) { closeDialog(); toast(window ? "Change window saved" : "Change window cleared"); done(); }
+  };
+  showDialog(w ? "Edit the change window" : "Set a change window", h("div", { class: "scroll" },
+    h("fieldset", { class: "cw-days-set" }, h("legend", {}, "Days"), h("div", { class: "row tight cw-days" }, boxes.map((b) => h("label", { class: "check" }, b.box, b.label)))),
+    h("div", { class: "form-grid" }, h("label", { class: "field" }, "From", start), h("label", { class: "field" }, "Until", end),
+      h("label", { class: "field" }, "Time zone", zone), h("label", { class: "field" }, "Applies to", envs)),
+    h("datalist", { id: "cw-zones" }, zones.map((z) => h("option", { value: z }))),
+    h("p", { class: "muted-text small" }, "From and Until are on the same day, and Until must be later. The window uses its own time zone, so every PC agrees."),
+    problem), [
+    w ? btn("Clear", null, async () => {
+      if (await confirmDialog("Clear the change window?", "Promotes get no change window warning until an admin sets one again.", "Clear", { danger: true })) save(null);
+    }, "tool outline") : null,
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Save", "save", () => save({ days: boxes.filter((b) => b.box.checked).map((b) => b.k), start: start.value.slice(0, 5),
+      end: end.value.slice(0, 5), time_zone: zone.value.trim(), envs: envs.value.split(",") }), "tool primary")].filter(Boolean));
 }
 
 // ---------- one policy ----------
 
 async function governancePolicy(body, id) {
-  const [p, o] = await Promise.all([platformCall("governance_policy", { id }, "Could not read the policy"),
+  const [p, o] = await Promise.all([platformCall("governance_policy", { id, include_ended: !!govPage.endedToo }, "Could not read the policy"),
     platformCall("governance_overview", {}, "Could not read the policies")]);
   if (!stillHere("governance") || govPage.open !== id) return;
   if (!p || !o) { govPage.open = null; return platformGovernanceTab(body); }
@@ -130,7 +203,8 @@ async function governancePolicy(body, id) {
       btn("Edit (new draft)", null, () => policyDialog(o.options, p, rerender), "tool outline small")) : null,
     previewShown() && (can.admin || can.domains.length) ? h("div", { class: "row" }, h("span", { class: "grow" }),
       btn("Save as template", null, () => saveAsTemplateDialog(p), "tool outline small")) : null,
-    h("div", { class: "subtabs" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`, onclick: () => { govPage.sub = t; rerender(); } }, label))),
+    h("div", { class: "subtabs", role: "tablist", "aria-label": "Policy" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`,
+      role: "tab", "aria-selected": String(govPage.sub === t), onclick: () => { govPage.sub = t; rerender(); } }, label))),
     sub].filter(Boolean));
   if (govPage.sub === "applies") return governanceApplies(sub, p, o, can, rerender);
   if (govPage.sub === "history") {
@@ -154,7 +228,7 @@ async function governancePolicy(body, id) {
 
 function govEventDetail(e) {
   const d = e.detail || {};
-  if (d.scope) return `${GOV_SCOPE[d.scope] || d.scope} ${d.target === "*" ? "" : d.target}${d.settings && Object.keys(d.settings).length ? `: ${JSON.stringify(d.settings)}` : ""}`;
+  if (d.scope) return `${GOV_SCOPE[d.scope] || d.scope} ${d.target === "*" ? "" : d.target}${d.settings && Object.keys(d.settings).length ? `: ${JSON.stringify(d.settings)}` : ""}${d.reason ? `: ${d.reason}` : ""}`;
   return d.note || "";
 }
 
@@ -274,25 +348,59 @@ function policyDialog(options, p, done, template = null) {
 
 // ---------- where it applies, and why ----------
 
-// Exceptions in force for a policy, granted by approving a request on Platform > Requests.
+// Exceptions in force for a policy, granted by approving a request on Data mesh > Requests.
 function govExceptionCount(list) {
-  return list.length ? h("div", { class: "small" }, h("span", { class: "pill-s wrn" }, `${list.length} exception${list.length === 1 ? "" : "s"} in force`)) : null;
+  const ending = list.filter((e) => e.ending).length;
+  return list.length ? h("div", { class: "small" }, h("span", { class: "pill-s wrn" }, `${list.length} exception${list.length === 1 ? "" : "s"} in force`),
+    ending ? [" ", h("span", { class: "pill-s fail" }, `${ending} ending soon`)] : null) : null;
 }
 
-function govExceptions(p) {
+// Where an exception stands: in force, ending within the warning window, ended on its date, or ended early.
+function govExceptionStatus(e) {
+  if (e.ended_early) return h("span", { class: "pill-s neu" }, "Ended early");
+  if (!e.active) return h("span", { class: "pill-s neu" }, "Ended");
+  if (e.ending) return h("span", { class: "pill-s wrn" }, e.days_left <= 0 ? "Ends today" : `Ends in ${e.days_left} day${e.days_left === 1 ? "" : "s"}`);
+  return h("span", { class: "pill-s pass" }, "In force");
+}
+
+// End early: platform admins only (the platform checks that too), with a reason the policy's history keeps.
+async function govEndException(p, e, rerender) {
+  const reason = await confirmDialog(`End the exception for ${e.target} now?`,
+    `${p.name} applies to ${e.target} again from today instead of ${govDate(e.until)}. The exception isn't deleted: its row in catalog.policy_exception records who ended it, when and why, and the platform's audit and the policy's history get an entry. The reason is visible to anyone who can read the policy's history, which is everyone.`,
+    "End early", { danger: true, reason: { label: "Why it ends early (required)", placeholder: "For example: the masked copy is ready", max: 500 } });
+  if (!reason) return;
+  const out = await platformCall("governance_end_exception", { id: e.id, reason }, "Not ended");
+  if (out) { toast(`The exception for ${e.target} has ended`, false, { log: true }); rerender(); }
+}
+
+function govExceptions(p, can = {}, rerender = () => {}) {
   const list = p.exceptions || [];
+  const endedToo = !!govPage.endedToo;
+  const showEnded = h("input", { type: "checkbox", checked: endedToo ? true : null,
+    onchange: (ev) => { govPage.endedToo = ev.target.checked; rerender(); } });
   return h("div", { class: "card pad gov-exceptions" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Exceptions in force"),
-      btn("Ask for one", null, () => { closeDialog(); newRequestDialog(() => goPlatform("requests"), "exception"); }, "tool outline small")),
-    h("p", { class: "muted-text small" }, "Where an exception covers a place, the policy shows there as excepted until its date instead of applying. Each ends on its own on its date. A platform admin grants one by approving a request."),
+    h("div", { class: "row" }, h("b", { class: "grow" }, endedToo ? "Exceptions" : "Exceptions in force"),
+      h("label", { class: "check small" }, showEnded, "Include ended"),
+      btn("Ask for one", null, () => { closeDialog(); newRequestDialog(() => goMeta("requests"), "exception"); }, "tool outline small")),
+    h("p", { class: "muted-text small" }, "Where an exception covers a place, the policy shows there as excepted until its date instead of applying. Each ends on its own on its date; one that ends within 14 days warns whoever asked and the project. A platform admin grants one by approving a request, and can end it early."),
     ...(p.problems || []).map((x) => h("p", { class: "wrn-text small" }, x)),
     list.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["For", "Until", "Why", "Granted by"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, list.map((e) => h("tr", {},
+      h("thead", {}, h("tr", {}, ["For", "Until", "Status", "Why", "Granted by", ""].map((x) => h("th", {}, x)))),
+      h("tbody", {}, list.map((e) => h("tr", { "data-exception": e.id },
         h("td", {}, h("b", {}, e.target), h("span", { class: "muted-text" }, ` (${e.scope})`)),
-        h("td", {}, govDate(e.until)), h("td", { class: "small" }, e.reason),
-        h("td", { class: "muted-text small" }, `${e.approved_by || "this PC"}, asked by ${e.requested_by || "someone"}`)))))
-      : h("p", { class: "muted-text" }, "None."));
+        h("td", {}, govDate(e.ended_early ? e.granted_until : e.until)),
+        h("td", {}, govExceptionStatus(e),
+          e.ended_early ? h("div", { class: "muted-text small" }, `${govDate(e.ended_at)} by ${e.ended_by || "a platform admin"}: ${e.end_reason || ""}`) : null),
+        h("td", { class: "small" }, e.reason),
+        h("td", { class: "muted-text small" }, `${e.approved_by || "this PC"}, asked by ${e.requested_by || "someone"}`),
+        h("td", {}, can.admin && e.active ? btn("End early", null, () => govEndException(p, e, rerender), "tool small danger") : null)))))
+      : h("p", { class: "muted-text" }, endedToo ? "None, in force or ended." : "None in force."),
+    howItWorks("governance.exceptions", {
+      reads: "The policy's exceptions from the platform's catalog (catalog.policy_exception): those in force, or with Include ended those that ended on their date or early too. With the platform in Fabric that's one call to UDF_Platform, which uses a little capacity.",
+      changes: "End early (platform admins only, with a reason) updates the exception's row in catalog.policy_exception: its end moves to yesterday and ended_at, ended_by, end_reason and granted_until are set. The row is never deleted. It also writes one entry to the platform's audit (catalog.audit) and one to the policy's history (catalog.policy_event, which audits too). Opening Data mesh while an exception ends within 14 days, on a PC with a Teams route that takes the notice, sets its warned_until in catalog.policy_exception, so one PC in the organization posts it. Nothing changes in Fabric or OneLake.",
+      results: "Check now and Explain stop treating the place as excepted at once. The ended exception shows here with Include ended, and in Platform > Govern > Audit.",
+      anchor: "policy-exceptions",
+    }));
 }
 
 async function governanceApplies(sub, p, o, can, rerender) {
@@ -357,7 +465,7 @@ async function governanceApplies(sub, p, o, can, rerender) {
             h("td", {}, r.inactive ? h("span", { class: "muted-text small" }, `Not in force: ${r.inactive}`) : [govPill(GOV_ENFORCEMENT, r.enforcement), ` v${r.version}`]),
             h("td", {}, btn("Explain", null, () => showWhy(r.project), "tool small"))))))
           : h("p", { class: "muted-text" }, "No registered project gets it yet.")),
-      govExceptions(p)),
+      govExceptions(p, can, rerender)),
     h("div", { class: "gov-side" }, explain)));
   if (govPage.explain && reach.projects.some((r) => r.project === govPage.explain)) showWhy(govPage.explain);
 }
@@ -409,4 +517,59 @@ function assignDialog(p, o, can, current, done) {
         closeDialog(); done();
       }
     }, "tool primary")]);
+}
+
+// ---------- policy exceptions about to end ----------
+
+// Opens a policy on Where it applies, where its exceptions are listed (a bell or Teams notice lands here).
+function openPolicyExceptions(id) {
+  Object.assign(govPage, { view: "policies", open: id || null, sub: "applies", version: null });
+  goPlatform("governance");
+}
+
+// Policy exceptions that end within 14 days and concern this person or the open project, asked once a day
+// per project. governance_exceptions_ending also sends each one Teams notice (once per exception and date).
+const govEnding = { key: "", rows: [], loading: null };
+
+function loadEndingPolicyExceptions() {
+  if (!previewShown()) return Promise.resolve([]);
+  const key = `${new Date().toISOString().slice(0, 10)}|${state.meta?.project?.path || ""}`;
+  if (govEnding.key === key) return Promise.resolve(govEnding.rows);
+  if (!govEnding.loading) {
+    govEnding.loading = rpc("governance_exceptions_ending", {})
+      .then((out) => (out?.ending || []).filter((e) => e.for_you)).catch(() => [])
+      .then((rows) => { Object.assign(govEnding, { key, rows, loading: null }); return rows; });
+  }
+  return govEnding.loading;
+}
+
+// One bell item per exception and day, like an exceptions.toml one (exceptionNotice in meta.js).
+function policyExceptionNotice(e, day) {
+  if (!e || !e.ending) return null;
+  const when = e.days_left <= 0 ? "today" : e.days_left === 1 ? "tomorrow" : `in ${e.days_left} days`;
+  return { id: `policy-exception:${e.id}:${e.until}:${day}`, status: "info", notice: true,
+    title: "A policy exception is about to end",
+    text: `The exception to ${e.policy_id} for ${e.target} ends ${when} (${e.until}). After that the policy applies again: meet it, or ask for a new exception on Data mesh > Requests.` };
+}
+
+function policyExceptionBanner(rows) {
+  if (!rows.length) return null;
+  const one = new Set(rows.map((e) => e.policy_id)).size === 1;
+  return h("div", { class: "problems gov-ending" },
+    h("div", { class: "row" }, icon("warning", 18),
+      h("b", {}, `${rows.length} policy exception${rows.length === 1 ? " is" : "s are"} about to end`),
+      h("span", { class: "spacer" }),
+      btn("Review", null, () => openPolicyExceptions(one ? rows[0].policy_id : null), "tool outline")),
+    h("ul", { class: "gate-list" }, rows.map((e) => h("li", {}, policyExceptionNotice(e, "").text))));
+}
+
+// Fills a Data mesh banner slot (or only rings the bell when there's none) once the platform answers.
+async function raisePolicyExceptionNotices(slot) {
+  const rows = await loadEndingPolicyExceptions();
+  const day = new Date().toISOString().slice(0, 10);
+  for (const e of rows) {
+    const item = policyExceptionNotice(e, day);
+    if (item) logActivity(item);
+  }
+  if (slot) slot.replaceChildren(...[policyExceptionBanner(rows)].filter(Boolean));
 }

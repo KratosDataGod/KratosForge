@@ -62,7 +62,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/`, `docs/`
 | Id | Capability | Status | What exists | Gap | Owner |
 | --- | --- | --- | --- | --- | --- |
 | FD-114 | Bounded-memory processing | DUPLICATE (PARTIAL) | Preflight estimate and memory guard (`meta/preflight.py`, PR #69). | Partitioned and streamed full loads (stage 1.5). | Staged roadmap |
-| FD-115 | Surrogate key performance | DUPLICATE (PARTIAL) | Key MERGE with retry (`meta/keys.py`), dimension MERGE of arriving keys (PR #61). | `read_keys` still reads the whole key table. | Staged roadmap |
+| FD-115 | Surrogate key performance | DUPLICATE (PARTIAL) | Key MERGE with retry (`meta/keys.py`), dimension MERGE of arriving keys (PR #61). | Key runs read only the batch's key rows (PB-068, #847, in review). | Staged roadmap |
 | FD-116 | Guided ingestion | BLOCKED | Source registry and landing zone (`central/`). | Waiting on decision D2 (who creates landing Copy jobs). | Staged roadmap |
 | FD-117 | Incremental improvements | DUPLICATE (PARTIAL) | Watermarks, MERGE writes, landing manifest (PR #70). | Late-arriving rows and source deletes. | Staged roadmap |
 | FD-118 | Schema evolution | DUPLICATE (PARTIAL) | Drift policy, schema history, breaking-change check at promote (PR #71). | Type changes still rewrite; versioned port schemas. | Staged roadmap |

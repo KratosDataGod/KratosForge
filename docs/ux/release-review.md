@@ -13,8 +13,9 @@ How a pull request that changes what people see gets a UX review, and the gates 
 | UG-5 Keyboard path | The PR's main action can be done by keyboard | Review; browser test where one exists |
 | UG-6 Destructive actions confirm | Deletes and overwrites of data use `confirmDialog` with danger styling and Cancel as the default (UX-018); nothing mutates OneLake without a preview or confirmation | Review (AGENTS.md data rule) |
 | UG-7 Docs match | The feature's doc section exists and matches the behavior | Review; docs build in strict mode |
+| UG-8 Visual identity | New illustration or animation passes the eight checks in the [visual style guide](../design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md#consistency-checks), its images are in the [asset manifest](../design/assets.md), and it is event-driven, interruptible, region-bounded and off at level Off | The PR's Visual identity line; the motion tests in `app/tests/ui.test.cjs`; the Visual Experience Agent's review |
 
-**Blocking for Stable:** UG-1, UG-2 and UG-6 failures block a promote. UG-3, UG-4, UG-5 and UG-7 failures are recorded and become backlog items; they block only when the Release Manager and Chris agree.
+**Blocking for Stable:** UG-1, UG-2 and UG-6 failures block a promote. UG-3, UG-4, UG-5, UG-7 and UG-8 failures are recorded and become backlog items; they block only when the Release Manager and Chris agree.
 
 ## Review format
 

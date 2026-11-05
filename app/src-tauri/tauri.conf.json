@@ -15,7 +15,8 @@
         "width": 1440,
         "height": 900,
         "minWidth": 960,
-        "minHeight": 600
+        "minHeight": 600,
+        "zoomHotkeysEnabled": true
       }
     ],
     "security": {
@@ -25,7 +26,7 @@
         "style-src": "'self'",
         "img-src": "'self' data:",
         "connect-src": "ipc: http://ipc.localhost",
-        "frame-src": "nbout: http://nbout.localhost https://nbout.localhost",
+        "frame-src": "nbout: http://nbout.localhost https://nbout.localhost pbiembed: http://pbiembed.localhost https://pbiembed.localhost",
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",

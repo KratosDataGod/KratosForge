@@ -72,7 +72,7 @@ What stands between download and first useful work today. Target: nothing but si
 | Entity source and key columns | `meta.js:222-224` | Typed, with a datalist | **Picker** from the source's columns when the source is readable | Data mesh |
 | Domain owners | `mesh.js:155` | Emails typed | Picker with lookup | Data mesh |
 | Source system Key Vault secret names | `platform.js:185-194` | Three free-text names, vault not named | Name the vault, check the secret exists, link to docs (none today) | Platform |
-| Metadata project folder, Git open, init, clone folders, SQL temp folder | `meta.js:160`, `git.js:679-698`, `settings.js:340` | Typed paths, no folder picker anywhere | **Picker**: a native folder dialog (Tauri dialog plugin), path box kept for pasting | Shared shell |
+| Metadata project folder, Git open, init, clone folders, SQL temp folder | `meta.js`, `git.js`, `settings.js` | Done (#971): **Browse…** beside each box opens the Windows folder dialog (`pick_folder` in the shell, `folderField` in `app.js`); the box stays for pasting | Shared shell |
 | Schedule times | `app.js:2138` | "06:00, 18:00" typed | Time pickers with add/remove | Schedules |
 | Platform policy `{env: {workspace_id, functions_id, sql_id, meta_id}}` | `platform.md:42-44` | Four GUIDs per environment | **Automatic** from `workspace_id`: the Join flow already discovers the other three (`central/service.py:95-98`) | Platform |
 

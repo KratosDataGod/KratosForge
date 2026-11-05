@@ -15,7 +15,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 5 | Integrated Git and release workflow | Partial: release records, meaningful diffs and release views merged; rollback in review | This plan, with the Git-native program | Git and Source Control screens are the Git-native program's |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
-| 8 | Cross-project lineage and product compatibility | Partial: 8.1 and 8.3 merged (view in review) | This plan | 8.2 (platform owner decision) |
+| 8 | Cross-project lineage and product compatibility | Partial: 8.1 and 8.3 merged (view in review); 8.2 engine part built | This plan | 8.2's view after a mockup, and a function redeploy by the platform owner |
 | 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3) merged ([PR #58](https://github.com/KratosDataGod/KratosForge/pull/58)); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
 
@@ -185,6 +185,8 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **8.2 Versioned schema contracts.** Effort L, risk medium. Ports carry a schema version and history in the catalog; consumers declare a compatible range; deprecation sets a date, notifies consumers through the 9.1 alert path and is enforced after it. Depends on 8.1 and 9.1.
 
+*Engine part built.* Each publish that changes a port's version or columns adds a row per environment to `catalog.port_version`, and `product_history` reads them back, newest first. A link declares `accepts = "2"`, `"2-3"` or `"2+"`; a new link without it gets the product's current version, and links made before keep reading any version. `register_link` keeps the link's `accepts` and its `[columns]` in two new `catalog.link` columns. 8.1's check now uses them: a raised version that a reader's `accepts` leaves out blocks the promote and names the link, unless the product's `deprecated_on` has passed; a reader that listed its columns is only broken by a change to one of them. From the deprecation date the catalog refuses new links, and a consumer's promote is blocked by a link to the product (a note before the date); runs aren't stopped. The first publish as deprecated, or with a new date, sends one `product.deprecated` platform notice to the reading projects (a new kind and a `project:<name>` role in the platform notice shape; Settings > Notifications doesn't list the kind yet, so it goes to routes with no kind filter). The schema changes are additive and made on first use or by Finish or repair; an older UDF_Platform still publishes and links, and the answer says to run Finish or repair. The view waits for a mockup. 14 tests.
+
 **8.3 Column lineage from configuration.** Effort M, risk low. Column-level lineage derived from what the config states (renames, derive expressions, lookups, keys, hook `adds`), labelled declared or inferred; columns produced by custom Python are marked opaque rather than guessed.
 
 *Engine part merged in [PR #76](https://github.com/KratosDataGod/KratosForge/pull/76).* `meta/lineage.py` gives each column one record: how it's made (source, derived, lookup, key, framework, custom), a declared, inferred or opaque label, and its inputs. A derived column's inputs are read from its expression by Polars' SQL parser. Inputs a column uses from its own table point at that table's column, so cleaning and renames sit on the path. Columns a hook runs after carry `custom_may_change`. `meta_lineage` returns one entity's columns, or one column's full upstream path and every downstream column in the project. Lineage across projects (through mesh links) and the view wait for 8.2 and a mockup. 7 tests.
@@ -192,6 +194,9 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 ### Capability 4: ingestion
 
 **4.1 SQL Server to the landing zone through a Fabric Copy job.** Effort L, risk high until D2 is decided and the Copy job API is checked on a tenant. Connect (pick or create a Fabric connection, so credentials stay in Fabric or Key Vault), Preview (a row-limited copy to a scratch folder), Map (columns and types into a Bronze entity draft), Load (create and run a Copy job writing to `LH_Landing/Files/<source>/<table>/`), Schedule (the Copy job's own schedule). Fabric's Copy job already handles connectors, gateways, incremental copy and retries, so KratosForge does not build its own extractors. Bronze reads new files only (1.4). Depends on D2, 1.4.
+
+- Built (Preview, D2 = teams ask, admins approve): **Request a source** can ask for a Copy job: a Fabric connection (picked from the ones the person can use; credentials stay in Fabric), the tables (`schema.table`), whether each run copies the whole table or the rows changed since the last run by a column, and a daily time in UTC. Approving, by a platform admin, creates `CJ_Landing_<source>` in the landing workspace as that admin (or in the chosen environment's LH_Landing when there's no one landing workspace), writing each table as Parquet to `Files/<source>/<table>/`, then its schedule, then registers the source. Each step is recorded on the request, so approving again after a failure carries on; a Copy job of the same name the request didn't make is never taken over. **Platform > Landing zone** shows which Copy job lands a source, with **Run now...** after a confirm. Code: `orchestration/copyjob_build.py`, `central/landing_copy_service.py`.
+- Not built yet: Preview (a row-limited copy to a scratch folder) and Map (columns into a Bronze entity draft). The Copy job definition follows Microsoft's article and DF-6's reader; no real export has been checked, so it stays Preview until a tenant run creates one.
 
 **4.2 Late rows and source deletes.** Effort M. A watermark lookback window for late-arriving rows (safe because 1.1's MERGE is idempotent per key) and an optional periodic key snapshot that marks deleted keys. Depends on 4.1.
 
@@ -201,7 +206,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71), **5.1** engine (#73), **5.2** engine (#75), **8.3** engine (#76). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
 2. **1.5** (merged in #87).
-3. **4.1** once D2 is answered.
+3. **4.1** (D2 decided; first part in review).
 4. **5.3** rollback (in review), then **8.2**, **4.2** and **4.3**. **7.3** moved to the Workload management program (docs/workloads/multi-worker.md).
 
 Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
@@ -209,7 +214,7 @@ Large tables come first because every later stage runs through the same write pa
 ## Decisions needed
 
 - **D1.** Should promotion to Test and Prod require a committed, pushed revision (recommended), or only warn? *Decided 2026-10-25: Chris chose Block.* Test and Prod in OneLake block files no pushed commit holds; an environment kept on this PC stays a note, and `require_commit` overrides either way.
-- **D2.** Who creates landing-zone writers (Copy jobs into LH_Landing): only the central platform team (current assumption, matching [platform.md](platform.md)), or domain teams through a request the central team approves? Blocks 4.1.
+- **D2.** Who creates landing-zone writers (Copy jobs into LH_Landing): only the central platform team, or domain teams through a request the central team approves? *Decided 2026-10-26: Chris chose teams ask, admins approve.* A team asks for a source with its Copy job; approving makes the job as the platform admin, so only the central team's accounts write to the landing zone.
 
 ## Dependencies outside this plan
 
@@ -230,6 +235,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-25 | Stage 8.2 engine part built: port history, link `accepts` ranges and stored columns in the promote check, deprecation dates enforced at link and promote, a Teams notice to readers. |
 | 2026-10-17 | #73, #75 and #76 merged. Stage 1.5 built: full loads in batches (`[load] batch_by`), one commit. Git operations, Source Control screens and branch and pull request work (5.3's Git part) moved to the Git-native development program; promote rollback stays here. |
 | 2026-10-17 | #87 (stage 1.5) merged. Release records read Git through the Git-native program's layer (`git.repo.Repository`, #85) instead of their own `git` calls; nothing a person sees changes. |
 | 2026-10-18 | #124 merged. Stage 5.3 rollback: promote keeps each release's files in `meta.release_files`, Test and Prod run the release they're on, and **Roll back...** returns an environment to an earlier kept release. Promote times are now recorded to the microsecond, so two promotes in one second keep their order. Stage 7.3 is built by the Workload management program. |
@@ -245,3 +251,4 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 | 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/KratosForge/pull/58)). |
 | 2026-10-16 | Plan written; capabilities 2, 3, 6, 10 assigned to the notebook program; stage 1.1 built and measured ([PR #56](https://github.com/KratosDataGod/KratosForge/pull/56)). |
 | 2026-10-25 | D1 decided (Block): `require_commit` is on by default for Test and Prod in OneLake. |
+| 2026-10-26 | D2 decided (teams ask, admins approve). Stage 4.1 first part: source requests can ask for a Copy job, and approving makes it in the landing workspace (Preview). |

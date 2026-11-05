@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-26",
+  "updated": "2026-11-05",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -78,7 +78,8 @@
       "capability": "A scripted ten-flow smoke test on the maintainer's non-production workspace, plus one live-test harness run, with results recorded in the inventory.",
       "evidence": [
         "livetest.py never run",
-        "docs/README.md lists features tried on the maintainer's tenant"
+        "docs/README.md lists features tried on the maintainer's tenant",
+        "The ten-flow smoke-test harness merged (#884) on main at 188d5a93; the live run waits on Chris's yes"
       ],
       "features": [
         "FEAT-SHL-01",
@@ -122,7 +123,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "mandatory_reason": "Launch to about 5,000 people needs evidence the core flows work on a real tenant.",
       "package": "docs/product/pr-ready/PB-002.md",
       "computed": {
@@ -130,7 +131,13 @@
         "cost": 2.0,
         "score": 2.76,
         "priority": "P0"
-      }
+      },
+      "prs": [
+        884
+      ],
+      "issues": [
+        849
+      ]
     },
     {
       "id": "PB-003",
@@ -140,7 +147,8 @@
       "capability": "The live test extended to leases, two writers and MERGE.",
       "evidence": [
         "leases.py",
-        "livetest.py lacks lease and MERGE checks"
+        "livetest.py lacks lease and MERGE checks",
+        "Live-test checks for a second writer refused by the lease and a Fabric-safe MERGE merged (#892) on main at 188d5a93; not run on a tenant"
       ],
       "features": [
         "FEAT-ORC-03",
@@ -169,7 +177,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "mandatory_reason": "If OneLake ignores conditional requests, concurrent writers can overwrite data.",
       "external_dependencies": [
         "Overlaps HD-016 cross-process leases; HD-029 live harness run (Codebase audit and hardening backlog, PB-101)"
@@ -179,7 +187,13 @@
         "cost": 2.0,
         "score": 2.08,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        892
+      ],
+      "issues": [
+        887
+      ]
     },
     {
       "id": "PB-005",
@@ -189,7 +203,12 @@
       "capability": "DPAPI-protected cache through msal-extensions.",
       "evidence": [
         "auth.py writes a plain cache file",
-        "PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a"
+        "PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a",
+        "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).",
+        "Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f",
+        "Re-review of criterion 2 in docs/product/reviews/PB-005-593.md (2026-11-02): met (#1554, #1590, #1557); recommend Accept with Documented Limitations, since criterion 1 still waits on the product owner's Windows check",
+        "Re-review in docs/product/reviews/PB-005-593.md: Accepted with Documented Limitations (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ); limitations: criterion 1 and the Windows file-lock behaviour aren't checked on Windows (the product owner's check with a second Windows account is still to do), and the plain cache from before encryption isn't wiped"
       ],
       "features": [
         "FEAT-AUTH-03"
@@ -218,7 +237,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "Refresh tokens on disk unencrypted are a security finding any enterprise review will raise.",
       "computed": {
         "benefit": 2.45,
@@ -227,7 +246,10 @@
         "priority": "P1"
       },
       "prs": [
-        593
+        593,
+        1554,
+        1557,
+        1590
       ]
     },
     {
@@ -237,7 +259,8 @@
       "problem": "The main webview runs with csp: null and the Tauri global, so escaping is the only defense against injected HTML.",
       "capability": "Move notebook HTML output to another origin, then set a CSP.",
       "evidence": [
-        "tauri.conf.json csp: null, withGlobalTauri: true"
+        "tauri.conf.json csp: null, withGlobalTauri: true",
+        "Implementation review docs/product/reviews/PB-006-250.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: No committed test renders HTML output and proves the frame can't reach the app. Windows check still to do."
       ],
       "features": [
         "FEAT-SEC-02"
@@ -262,7 +285,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "Defense in depth for a webview that renders user and notebook content.",
       "external_dependencies": [
         "Overlaps HD-020 Content Security Policy (Codebase audit and hardening backlog, PB-101)"
@@ -285,7 +308,8 @@
       "problem": "Nothing records who ran or changed what in a tamper-evident way.",
       "capability": "Hash-chained audit lines, built in PR #89.",
       "evidence": [
-        "PR #89 merged; awaiting implementation review"
+        "PR #89 merged; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Proof receipts have no list screen."
       ],
       "features": [
         "FEAT-ADM-02",
@@ -311,7 +335,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         89
       ],
@@ -334,7 +358,8 @@
       "capability": "Navigation limited to Fabric, Power BI and sign-in hosts; others open in the browser.",
       "evidence": [
         "main.rs fabric_view host check (code reading)",
-        "The Fabric view opens only Fabric and sign-in hosts (SH-12, #259; #455); readiness gate 1 lists SH-12 closed"
+        "The Fabric view opens only Fabric and sign-in hosts (SH-12, #259; #455); readiness gate 1 lists SH-12 closed",
+        "Implementation review docs/product/reviews/PB-008-455.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Only top-level pages and pop-ups are filtered. A refused link does nothing visible."
       ],
       "features": [
         "FEAT-FAB-05"
@@ -362,7 +387,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "The embedded view holds saved Fabric sign-in cookies.",
       "external_dependencies": [
         "Overlaps HD-027 Fabric view navigation filter (Codebase audit and hardening backlog, PB-101)"
@@ -385,7 +410,8 @@
       "problem": "Copies of lakehouse data stay on PCs indefinitely.",
       "capability": "Built in PR #95 (FD-131b).",
       "evidence": [
-        "PR #95 merged; awaiting implementation review"
+        "PR #95 merged; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-ADM-05"
@@ -410,7 +436,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         95
       ],
@@ -431,7 +457,10 @@
       "evidence": [
         "docs/security.md:41",
         "ci.yml audit and SBOM jobs",
-        "docs/enterprise-install.md hosts table"
+        "docs/enterprise-install.md hosts table",
+        "security.md and enterprise-install.md corrected (#917); #925 closed as a duplicate; a test for the host list is #959 on main at b19b7456",
+        "A test keeps the firewall host list in step with the code (#1047, issue #959) on main at 188d5a93",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-SEC-03",
@@ -454,7 +483,7 @@
       "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "mandatory_reason": "Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.",
       "external_dependencies": [
         "Overlaps HD-009 correct false statements in the security docs (P0) (Codebase audit and hardening backlog, PB-101)"
@@ -468,7 +497,16 @@
         "cost": 1.0,
         "score": 2.2,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        917,
+        1047
+      ],
+      "issues": [
+        886,
+        925,
+        959
+      ]
     },
     {
       "id": "PB-012",
@@ -479,7 +517,8 @@
       "evidence": [
         "sidecar/fabric_desktop/spark_local.py raises for MERGE/UPDATE/DELETE and ignores partitionBy and reader schema()",
         "docs/notebooks.md lists limits by hand",
-        "No generated list exists"
+        "No generated list exists",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: MERGE, UPDATE and DELETE, partitionBy and RDDs aren't supported. The page says local results aren't claimed to match Fabric."
       ],
       "features": [
         "FEAT-NB-04",
@@ -508,7 +547,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.9,
         "cost": 1.5,
@@ -530,7 +569,8 @@
         "notebook.py %%sql MERGE path prints a note and returns ok",
         "notebookutils_local.py docstring names session; attribute absent",
         "local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading)",
-        "Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)"
+        "Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-NB-04",
@@ -561,7 +601,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.",
       "package": "docs/product/pr-ready/PB-013.md",
       "computed": {
@@ -571,7 +611,14 @@
         "priority": "P1"
       },
       "prs": [
-        410
+        410,
+        692,
+        762,
+        771,
+        890
+      ],
+      "issues": [
+        851
       ]
     },
     {
@@ -581,8 +628,14 @@
       "problem": "The compute check is a regex scan, so it misses aliased imports and can't say 'not sure'.",
       "capability": "A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.",
       "evidence": [
-        "fabric_run.py compute_check is regex-based",
-        "docs/product/enterprise-gap-analysis.md FD-111 partial"
+        "fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.",
+        "docs/product/enterprise-gap-analysis.md FD-111 partial",
+        "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers",
+        "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met",
+        "Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written",
+        "The notebook names the cells the check can't read in a grey note of their own, with reason and line, built from the mockup Chris approved on 2026-11-02 (#1663) on main at 9367abf7; criterion 2 to be re-reviewed",
+        "Re-review of criterion 2 in docs/product/reviews/PB-014-1190.md (2026-11-02): met (#1663); recommend Accept",
+        "Re-review in docs/product/reviews/PB-014-1190.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); criterion 2's ribbon is met by the notebook's compute note, per the mockup Chris approved"
       ],
       "features": [
         "FEAT-NB-07"
@@ -611,13 +664,22 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.9,
         "cost": 2.5,
         "score": 2.73,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1190,
+        1262,
+        1275,
+        1300,
+        1305,
+        1324,
+        1663
+      ]
     },
     {
       "id": "PB-015",
@@ -627,7 +689,9 @@
       "capability": "spark.sql MERGE/UPDATE/DELETE and DeltaTable merge executed through delta-rs on the PC, with the Fabric Delta profile check, behind a Preview flag.",
       "evidence": [
         "spark_local.py raises for MERGE, UPDATE, DELETE",
-        "meta/engine.py already merges with delta-rs for metadata runs"
+        "meta/engine.py already merges with delta-rs for metadata runs",
+        "MERGE INTO (#933) and UPDATE and DELETE (#1028) run on this PC as Preview, and the run check judges them against the notebook's lakehouse (#1054) on main at 02118fa4. Criterion 4: Prove takes Spark notebooks (proof_spark.py), and a MERGE, UPDATE and DELETE proof matched with Apache Spark 3.5 and Delta 3.2 standing in for Fabric; the live run in Fabric waits on Chris's yes",
+        "Prove takes Spark notebooks with MERGE, UPDATE and DELETE: in Fabric the proof copy's first cell points Spark at the proof, tested with a real Spark and Delta standing in for Fabric (#1157) on main at 0c96c9ce. Criterion 4's live Prove run is still to do"
       ],
       "features": [
         "FEAT-NB-04"
@@ -657,7 +721,7 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps FD-LDE-005 local Delta: the LDE thread builds create, append, overwrite and time travel; MERGE, UPDATE and DELETE semantics stay with this item (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -666,7 +730,17 @@
         "cost": 3.5,
         "score": 2.25,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        933,
+        1028,
+        1054,
+        1157,
+        1272
+      ],
+      "issues": [
+        848
+      ]
     },
     {
       "id": "PB-016",
@@ -677,15 +751,14 @@
       "evidence": [
         "envprofile.py classifies imports only",
         "fabric_api.py has no Environment item calls",
-        "Package-source decision open (Prove)"
+        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb",
+        "Package source decided by the product owner on 2026-11-03 (10:09 UTC): the IT-approved wheel folder first, then PyPI only if policy allows; shipped in #1765"
       ],
       "features": [
         "FEAT-PRV-04",
         "FEAT-FAB-09"
       ],
-      "external_dependencies": [
-        "Product-owner decision: package source for environment profiles (Prove)"
-      ],
+      "external_dependencies": [],
       "acceptance": [
         "A notebook's profile installs the same versions on the PC that its Fabric Environment declares",
         "The app can attach a notebook to an existing Environment item",
@@ -707,13 +780,22 @@
       ],
       "effort": "L",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.8,
         "cost": 3.5,
         "score": 1.9,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        906,
+        942,
+        1765
+      ],
+      "issues": [
+        899,
+        941
+      ]
     },
     {
       "id": "PB-017",
@@ -722,7 +804,8 @@
       "problem": "Choosing This PC or Fabric is a manual guess.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-005), using the compatibility analyzer and measured costs.",
       "evidence": [
-        "Runs on is a saved choice; no recommendation"
+        "Runs on is a saved choice; no recommendation",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: The advice is only offered to AI tools (fabric_desktop_placement_advice) and has no screen."
       ],
       "features": [
         "FEAT-NB-07",
@@ -752,7 +835,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 4.5,
         "cost": 2.5,
@@ -771,7 +854,9 @@
       "capability": "Record the Fabric item id on first publish and update that item afterwards.",
       "evidence": [
         "fabric_api.py save_notebook matches an existing notebook by displayName",
-        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it"
+        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it",
+        "PR #685: publish updates the Fabric notebook it published before, even after a rename",
+        "Implementation review docs/product/reviews/PB-018-685.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: publish after a rename not yet run on a tenant"
       ],
       "features": [
         "FEAT-FAB-06"
@@ -793,14 +878,17 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-018.md",
       "computed": {
         "benefit": 2.7,
         "cost": 2.0,
         "score": 2.16,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        685
+      ]
     },
     {
       "id": "PB-019",
@@ -810,7 +898,9 @@
       "capability": "A lookback window and soft- or hard-delete handling per entity.",
       "evidence": [
         "meta/engine.py watermark comparison",
-        "docs/scale-and-operations-plan.md capability 3"
+        "docs/scale-and-operations-plan.md capability 3",
+        "Late-arriving rows and source deletes in incremental loads merged (#914) on main at 4eb1f509",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Opt-in, for Delta sources with keys only. An empty source stops a deletes run instead of deleting everything. Not run on a tenant."
       ],
       "features": [
         "FEAT-META-02"
@@ -836,7 +926,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps FD-LDE-011 incremental and MERGE: this item's owner keeps FD-114/117; the LDE thread builds dataset-level publish on top of them (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -845,7 +935,14 @@
         "cost": 3.0,
         "score": 2.19,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        914,
+        1013
+      ],
+      "issues": [
+        883
+      ]
     },
     {
       "id": "PB-020",
@@ -900,7 +997,8 @@
       "capability": "Owned and specified by the SQL development sprint (SQL-001).",
       "evidence": [
         "app/ui/app.js SQL page uses a textarea",
-        "PR #118 merged 2026-10-17; awaiting implementation review"
+        "PR #118 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-SQL-01"
@@ -924,7 +1022,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -946,7 +1044,8 @@
       "capability": "Owned and specified by the SQL development sprint (SQL-002).",
       "evidence": [
         "sql.py translates with sqlglot without a compatibility report",
-        "PR #120 merged 2026-10-17; awaiting implementation review"
+        "PR #120 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -971,7 +1070,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -994,7 +1093,8 @@
       "evidence": [
         "service.py run_sql returns a fixed page",
         "No cancel RPC for SQL",
-        "PR #134 merged 2026-10-17; awaiting implementation review"
+        "PR #134 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-SQL-01"
@@ -1018,7 +1118,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)",
         "Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)"
@@ -1035,13 +1135,15 @@
     },
     {
       "id": "PB-024",
-      "title": "Native Warehouse and SQL database connectivity",
+      "title": "Native Warehouse connectivity",
       "category": "SQL, Python, and Notebook Development",
       "problem": "T-SQL developers can't reach a Warehouse, SQL analytics endpoint or Fabric SQL database from the app.",
       "capability": "Owned and specified by the SQL development sprint (SQL-004).",
       "evidence": [
-        "No TDS or ODBC client in sidecar/constraints.txt",
-        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)"
+        "SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636)",
+        "mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809",
+        "Narrowed to warehouses and SQL analytics endpoints (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); Fabric SQL database moved to PB-114. Stays In review until the ODBC driver licence terms (PB-024 review, finding 2) are settled",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Stays open until the end-user terms are settled."
       ],
       "features": [
         "FEAT-FAB-11"
@@ -1070,7 +1172,8 @@
       "confidence": "Medium",
       "state": "In review",
       "external_dependencies": [
-        "Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+        "Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126)",
+        "End-user terms for the Microsoft ODBC driver the engine ships (counsel)"
       ],
       "computed": {
         "benefit": 3.1,
@@ -1092,7 +1195,8 @@
       "capability": "Owned and specified by the SQL development sprint (SQL-005).",
       "evidence": [
         "Lakehouse explorer lists tables only",
-        "WH-02 object explorer (#637) and WH-03 Script as (#638) on the Warehouse page"
+        "WH-02 object explorer (#637) and WH-03 Script as (#638) on the Warehouse page",
+        "Implementation review docs/product/reviews/PB-025-637.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: None blocking. Findings 1 and 2 (wording, keyboard tree) were fixed in #835."
       ],
       "features": [
         "FEAT-FAB-11"
@@ -1119,7 +1223,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.55,
         "cost": 1.5,
@@ -1128,7 +1232,9 @@
       },
       "prs": [
         637,
-        638
+        638,
+        833,
+        835
       ]
     },
     {
@@ -1139,7 +1245,8 @@
       "capability": "Breakpoints and stepping in the process kernel, planned by the Prove program.",
       "evidence": [
         "No debugger code",
-        "docs/prove/plan.md Stage 5 backlog #44"
+        "docs/prove/plan.md Stage 5 backlog #44",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Notebooks only, and it needs Run notebooks in their own process."
       ],
       "features": [
         "FEAT-EXT-04"
@@ -1167,7 +1274,7 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.2,
         "cost": 3.5,
@@ -1185,7 +1292,9 @@
       "problem": "Completion knows only what the kernel has run, so column names of attached tables aren't offered.",
       "capability": "Completion of table and column names from the attached lakehouse's Delta schemas.",
       "evidence": [
-        "notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke)"
+        "notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke)",
+        "A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-NB-08"
@@ -1210,13 +1319,19 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.45,
         "cost": 1.5,
         "score": 2.21,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        901
+      ],
+      "issues": [
+        878
+      ]
     },
     {
       "id": "PB-028",
@@ -1225,7 +1340,8 @@
       "problem": "%pip is skipped with a note, so a missing package fails later; !pip and %%time would be syntax errors.",
       "capability": "%pip and !pip install into the notebook's environment profile, %%time supported.",
       "evidence": [
-        "notebook.py magic handling (code reading)"
+        "notebook.py magic handling (code reading)",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: %%spark, %%sparkr and %%csharp still run in Fabric."
       ],
       "features": [
         "FEAT-NB-06"
@@ -1253,7 +1369,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.5,
         "cost": 2.0,
@@ -1319,13 +1435,15 @@
       "capability": "Additive and widening changes applied in place; versioned schema history tied to the breaking-change check.",
       "evidence": [
         "meta/drift.py",
-        "docs/scale-and-operations-plan.md FD-118"
+        "docs/scale-and-operations-plan.md FD-118",
+        "Each schema change is recorded in meta.schema_history with its version, and narrowing is refused unless overwrite_schema (#979) on main at 188d5a93. Widening still rewrites the table: delta-rs 1.6.6 can't write typeWidening, and it would leave the Fabric-safe profile. Criterion 1 can't be met as written; Chris decides at acceptance",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): criterion 1 changed and Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: widening rewrites the table, because delta-rs 1.6.6 can't write Delta's typeWidening and it would leave the Fabric-safe profile"
       ],
       "features": [
         "FEAT-META-07"
       ],
       "acceptance": [
-        "Widening a type commits without rewriting data files",
+        "Widening a type rewrites the table, narrowing is refused unless overwrite_schema",
         "Each schema change is recorded with its version"
       ],
       "scores": {
@@ -1344,13 +1462,19 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.4,
         "cost": 3.0,
         "score": 2.04,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        979
+      ],
+      "issues": [
+        904
+      ]
     },
     {
       "id": "PB-034",
@@ -1399,7 +1523,8 @@
       "capability": "Owned and specified by the Local Fabric pipeline execution thread (ORCH-001).",
       "evidence": [
         "No pipeline definition parsing in the repo",
-        "PR #130 merged 2026-10-17; awaiting implementation review"
+        "PR #130 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Run in Fabric and Refresh in Fabric haven't run on a tenant."
       ],
       "features": [
         "FEAT-FAB-10"
@@ -1423,7 +1548,7 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         130
       ],
@@ -1441,7 +1566,10 @@
       "problem": "There is no list of which pipeline activities can run locally.",
       "capability": "Owned and specified by the Local Fabric pipeline execution thread (ORCH-002).",
       "evidence": [
-        "No activity registry in the repo"
+        "sidecar/fabric_desktop/orchestration/registry.py and activities.py: 28 entries at registry version 7 (15 local, 5 static, 8 cloud), with the overclaim rules and a fingerprint test",
+        "sidecar/tests/test_activity_registry.py: 77 tests pass on main at d0747a66 (2026-10-28)",
+        "fabric-desktop pipeline compat|activities, Service pipeline_compatibility and pipeline_activity_registry, two Preview capabilities; docs/orchestration/activity-registry.md",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "depends_on": [
         "PB-035"
@@ -1465,7 +1593,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.45,
         "cost": 2.0,
@@ -1473,10 +1601,16 @@
         "priority": "P1"
       },
       "prs": [
-        150
+        150,
+        563,
+        568,
+        871
       ],
       "features": [
         "FEAT-ORC-09"
+      ],
+      "issues": [
+        868
       ]
     },
     {
@@ -1486,7 +1620,8 @@
       "problem": "Pipelines run only in Fabric.",
       "capability": "Owned and specified by the Local Fabric pipeline execution thread (ORCH-003; ORCH-004..010 follow in that thread).",
       "evidence": [
-        "Metadata runs order entities by dependency; no general DAG runner"
+        "Metadata runs order entities by dependency; no general DAG runner",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Copy data runs only in Fabric until P5. Steps that read or write OneLake use capacity."
       ],
       "depends_on": [
         "PB-035",
@@ -1512,7 +1647,7 @@
       ],
       "effort": "XL",
       "confidence": "Low",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 4.5,
         "cost": 4.5,
@@ -1526,7 +1661,8 @@
         563,
         568,
         578,
-        579
+        579,
+        791
       ],
       "features": [
         "FEAT-ORC-08"
@@ -1539,7 +1675,9 @@
       "problem": "Workspaces connected to Git can't be seen or driven from the app.",
       "capability": "Owned and specified by the Git-native program (Phase 2); not restated here.",
       "evidence": [
-        "docs/git-integration-plan.md Phase 2"
+        "docs/git-integration-plan.md Phase 2",
+        "A registry of which item types work with Fabric Git, deployment pipelines and KratosForge (#1739) on main at 5f8144f7",
+        "Link a repository to a workspace (#1740), which items differ and conflict (#1761), a Fabric workspace tab in Source control (#1762), Update from Git only after a fresh status check with conflicts chosen and the workspace name typed (#1763) and its dialog (#1766, Preview) on main at 9b7848eb; deployment pipelines are PB-041"
       ],
       "features": [
         "FEAT-FAB-12"
@@ -1566,13 +1704,21 @@
       ],
       "effort": "L",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.85,
         "cost": 3.0,
         "score": 2.31,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        1739,
+        1740,
+        1761,
+        1762,
+        1763,
+        1766
+      ]
     },
     {
       "id": "PB-041",
@@ -1625,7 +1771,10 @@
       "capability": "Release-level rollback from meta.deployments and decision D1 enforced.",
       "evidence": [
         "meta/release.py",
-        "docs/scale-and-operations-plan.md D1"
+        "docs/scale-and-operations-plan.md D1",
+        "PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open",
+        "Roll back... on a Test or Prod release card restores a kept release and records it as a new release (meta/promote.py rollback, #508); D1 enforced by #707 on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Only releases that kept their files can be rolled back. Tables keep their rows until their next run. Not run on a tenant."
       ],
       "features": [
         "FEAT-META-09",
@@ -1656,9 +1805,11 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "prs": [
-        113
+        113,
+        508,
+        707
       ],
       "computed": {
         "benefit": 3.25,
@@ -1671,12 +1822,14 @@
       "id": "PB-043",
       "title": "Cancel a Fabric run from the app",
       "category": "Fabric Integration and Deployment",
-      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
+      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > KratosForge > Operations > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
       "capability": "A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.",
       "evidence": [
         "cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act",
         "app/ui/workloads.js offers cancel through workload actions",
-        "Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't"
+        "Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't",
+        "Cancel in Monitor > Runs and the tray (Preview id fabric-cancel), tested in test_cloud.py and fabric-cancel.test.cjs on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Preview. Not yet tried against a real Fabric run."
       ],
       "features": [
         "FEAT-FAB-07"
@@ -1698,14 +1851,21 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-043.md",
       "computed": {
         "benefit": 2.45,
         "cost": 1.0,
         "score": 2.45,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        875,
+        972
+      ],
+      "issues": [
+        850
+      ]
     },
     {
       "id": "PB-044",
@@ -1715,7 +1875,9 @@
       "capability": "Retention for finished jobs and an agent requeue command.",
       "evidence": [
         "jobqueue.py has no prune (inference from code reading)",
-        "agent CLI has no requeue"
+        "agent CLI has no requeue",
+        "PR #689: finished agent jobs are pruned and `agent requeue` revives a dead job",
+        "Implementation review docs/product/reviews/PB-044-689.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the package's manual requeue check and a live agent run are still to do"
       ],
       "features": [
         "FEAT-ORC-02"
@@ -1738,14 +1900,17 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "package": "docs/product/pr-ready/PB-044.md",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
         "score": 2.3,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        689
+      ]
     },
     {
       "id": "PB-045",
@@ -1755,7 +1920,9 @@
       "capability": "A worker registry and shared claims, as the Workload management program plans.",
       "evidence": [
         "jobqueue.py per machine",
-        "docs/agent.md"
+        "docs/agent.md",
+        "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The mechanism that makes it safe hasn't been tried on a tenant yet.",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Waits on the live check (your PB-002/PB-003 yes)."
       ],
       "features": [
         "FEAT-ORC-06"
@@ -1801,8 +1968,9 @@
       "problem": "The incident engine runs only in the agent; the app has six incident methods and no screen.",
       "capability": "Incident list and detail with acknowledge, assign, resolve, after a mockup.",
       "evidence": [
-        "incident_service.py RPCs have no caller in app/ui",
-        "PR #125 merged 2026-10-17; awaiting implementation review"
+        "incidents.js calls the incident RPCs (Monitor > KratosForge > Operations > Incidents)",
+        "PR #125 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Numbers, priority and SLAs exist in the engine but aren't shown in the list."
       ],
       "features": [
         "FEAT-OPS-02",
@@ -1829,7 +1997,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         125
       ],
@@ -1851,7 +2019,9 @@
       "capability": "Edit time and frequency, confirm removal, full time-zone list; PC schedules that run when the user is signed out.",
       "evidence": [
         "schedules.js",
-        "local_schedules.py"
+        "local_schedules.py",
+        "A schedule's time edits in place, Remove asks with a danger confirm, every Windows time zone (time_zones.py) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Editing a Fabric schedule in place hasn't been tried on a tenant."
       ],
       "features": [
         "FEAT-FAB-08",
@@ -1875,13 +2045,19 @@
       "owner": "Master product (unassigned)",
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.3,
         "cost": 2.0,
         "score": 1.84,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        881
+      ],
+      "issues": [
+        869
+      ]
     },
     {
       "id": "PB-049",
@@ -1891,7 +2067,11 @@
       "capability": "One live run per the live test, and the writer's identity recorded.",
       "evidence": [
         "mailbox.py tests use fakes",
-        "docs/enterprise-roadmap.md still calls it unbuilt"
+        "docs/enterprise-roadmap.md still calls it unbuilt",
+        "Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change",
+        "Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes)",
+        "One pipeline run vouches for one request (#1059, issue #969) on main at 02118fa4",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): changed criterion 2 (check the named run against Fabric's job history) approved (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); stays In progress for the live run"
       ],
       "features": [
         "FEAT-ORC-04"
@@ -1901,7 +2081,7 @@
       ],
       "acceptance": [
         "A Fabric pipeline request runs once on an agent and reports back on the maintainer's tenant",
-        "submitted_by comes from the token"
+        "The agent checks the pipeline run a request names against Fabric's job history and records whether it checked out"
       ],
       "scores": {
         "developer_value": 2,
@@ -1919,13 +2099,21 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.15,
         "cost": 2.5,
         "score": 2.21,
         "priority": "P2"
-      }
+      },
+      "issues": [
+        920,
+        969
+      ],
+      "prs": [
+        931,
+        1059
+      ]
     },
     {
       "id": "PB-050",
@@ -1935,7 +2123,8 @@
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-001).",
       "evidence": [
         "costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU",
-        "PR #117 merged 2026-10-17; awaiting implementation review"
+        "PR #117 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-ADM-01",
@@ -1963,7 +2152,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104)",
         "Monitor > Cost moves to Optimize > Cost and savings (Chris's unit testing, 2026-10-18, item 36; PB-104)"
@@ -1985,7 +2174,9 @@
       "problem": "The client retries only 429s; a 5xx or expired token fails the action, and long-running operations give up after 300 seconds.",
       "capability": "Bounded retries on safe 5xx for idempotent calls, one token refresh on 401, configurable LRO timeout.",
       "evidence": [
-        "fabric_api.py retry handles 429 only (code reading)"
+        "fabric_api.py retry handles 429 only (code reading)",
+        "send_with_retry retries safe methods on 5xx and 429; a 401 gets one new token and one resend (#923); LRO poll_timeout is a FabricClient setting on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-FAB-01"
@@ -2008,7 +2199,7 @@
       "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "mandatory_reason": "Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.",
       "external_dependencies": [
         "Overlaps HD-039 honour Retry-After; HD-051 shared HTTP retry; HD-035 bounded status polling (Prove) (Codebase audit and hardening backlog, PB-101)"
@@ -2022,7 +2213,17 @@
         "cost": 2.0,
         "score": 2.16,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        923,
+        937,
+        939,
+        944,
+        1055
+      ],
+      "issues": [
+        863
+      ]
     },
     {
       "id": "PB-052",
@@ -2032,7 +2233,12 @@
       "capability": "A live check of setup, join, key issue, requests and domain import on a non-production tenant before anyone moves real keys.",
       "evidence": [
         "docs/platform.md lists the unverified points",
-        "central/setup.py setup() and join() have no tests"
+        "central/setup.py setup() and join() have no tests",
+        "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
+        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d",
+        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant",
+        "UDF_Platform's connected data source names SqlDbNative too (#1754) on main at 9b7848eb",
+        "UDF_Platform: the SQL connection's type in artifactType as Fabric documents, and parameter names without underscores (#1813, #1819) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2060,7 +2266,7 @@
       "owner": "Master product (unassigned)",
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "mandatory_reason": "Central business keys are shared data; a defect would corrupt keys across every domain.",
       "external_dependencies": [
         "Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up"
@@ -2070,7 +2276,42 @@
         "cost": 3.0,
         "score": 1.8,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        919,
+        1036,
+        1038,
+        1041,
+        1045,
+        1166,
+        1200,
+        1205,
+        1213,
+        1239,
+        1241,
+        1243,
+        1244,
+        1255,
+        1259,
+        1265,
+        1267,
+        1308,
+        1309,
+        1322,
+        1328,
+        1335,
+        1348,
+        1351,
+        1353,
+        1354,
+        1716,
+        1754,
+        1813,
+        1819
+      ],
+      "issues": [
+        909
+      ]
     },
     {
       "id": "PB-053",
@@ -2079,7 +2320,9 @@
       "problem": "Broken shortcuts are found only when someone opens the page.",
       "capability": "A scheduled check (app or agent) that posts to Teams once per break.",
       "evidence": [
-        "docs/shortcuts.md lists it as not built"
+        "docs/shortcuts.md lists it as not built",
+        "[shortcut_health] in agent.toml runs the check on a schedule and posts each break once through platform_notify's ledger (#902) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Runs in the agent only, not the desktop app, and only on the agent's own environments. Preview, not run on a tenant."
       ],
       "features": [
         "FEAT-ONE-03"
@@ -2101,13 +2344,19 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.65,
         "cost": 2.0,
         "score": 2.12,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        902
+      ],
+      "issues": [
+        857
+      ]
     },
     {
       "id": "PB-054",
@@ -2116,7 +2365,9 @@
       "problem": "Platform admins can't revoke a grant or list sources from the app though the engine supports both.",
       "capability": "Revoke in Platform > Access and a sources list.",
       "evidence": [
-        "platform_revoke and platform_sources have no caller in app/ui"
+        "platform_revoke and platform_sources have no caller in app/ui",
+        "PR #694: a product's page takes a project's access away (Preview); the source list screen is not checked here",
+        "Implementation review docs/product/reviews/PB-054-694.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: the sources list isn't built and revoke hasn't run against a tenant's UDF_Platform"
       ],
       "features": [
         "FEAT-MESH-01"
@@ -2137,13 +2388,16 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.3,
         "cost": 1.5,
         "score": 2.07,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        694
+      ]
     },
     {
       "id": "PB-056",
@@ -2153,7 +2407,8 @@
       "capability": "Owned and specified by the Enterprise governance foundation thread (GOV-001).",
       "evidence": [
         "No policy registry in the repo",
-        "PR #119 merged 2026-10-17; awaiting implementation review"
+        "PR #119 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-GOV-05"
@@ -2177,7 +2432,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2198,7 +2453,9 @@
       "problem": "Policy checks need Fabric today or don't exist.",
       "capability": "Owned and specified by the Enterprise governance foundation thread (GOV-002; GOV-003..005 follow there).",
       "evidence": [
-        "No offline validator"
+        "No offline validator",
+        "GOV-002 built: hash-checked policy packages and offline Check (#882); GOV-003 enforcement is issue #903 on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Packages are hash-checked, not signed. An offline check can't read catalog text, product terms, endorsement or run logs, so those rules say unknown. No screen to pick a package."
       ],
       "features": [
         "FEAT-GOV-05"
@@ -2226,13 +2483,21 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 4.0,
         "cost": 2.5,
         "score": 2.8,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        882,
+        924
+      ],
+      "issues": [
+        855,
+        903
+      ]
     },
     {
       "id": "PB-059",
@@ -2242,7 +2507,8 @@
       "capability": "Request, approve and expire exceptions with history, aligned with the policy registry.",
       "evidence": [
         "meta/project.py exceptions.toml",
-        "PR #603 shows approved exceptions and warns before they end; #605 adds exception requests on the Governance tab"
+        "PR #603 shows approved exceptions and warns before they end; #605 adds exception requests on the Governance tab",
+        "Implementation review docs/product/reviews/PB-059-605.md: FD-129 narrowed to policy exceptions and Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitation: exceptions.toml entries have no request, approval or audit entry, and their approver is free text"
       ],
       "features": [
         "FEAT-GOV-03"
@@ -2269,7 +2535,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.45,
         "cost": 2.0,
@@ -2278,15 +2544,16 @@
       },
       "prs": [
         603,
-        605
+        605,
+        838
       ]
     },
     {
       "id": "PB-060",
-      "title": "Sensitive data classification that complements Purview",
+      "title": "Sensitive data classification that complements Fabric sensitivity labels",
       "category": "Data Governance and Quality",
       "problem": "Columns carry no classification; a UDF exists with no caller.",
-      "capability": "Classification captured in contracts and carried to products, reading and writing Purview labels rather than replacing them.",
+      "capability": "Classification captured in contracts and carried to products, reading and writing Fabric sensitivity labels rather than replacing them.",
       "evidence": [
         "central/udf.py set_classification has no caller"
       ],
@@ -2318,7 +2585,7 @@
       "confidence": "Low",
       "state": "Proposed",
       "external_dependencies": [
-        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features"
+        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with external catalogs such as Collibra rather than build catalog features"
       ],
       "computed": {
         "benefit": 3.0,
@@ -2335,7 +2602,8 @@
       "capability": "Implement or remove each documented key.",
       "evidence": [
         "app_settings.py key list",
-        "docs/enterprise-install.md"
+        "docs/enterprise-install.md",
+        "The three remaining allow_ switches fail closed, and a test keeps every allow_ key in RESTRICTED (#1150) on main at 0c96c9ce. The policy keys FD-105 lists (approved endpoints, execution location, updates, retention, telemetry) are still to decide"
       ],
       "features": [
         "FEAT-SHL-08"
@@ -2359,7 +2627,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps HD-010 policy fails closed; HD-057 ADMX policy (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2368,7 +2636,13 @@
         "cost": 2.0,
         "score": 1.96,
         "priority": "P2"
-      }
+      },
+      "issues": [
+        960
+      ],
+      "prs": [
+        1150
+      ]
     },
     {
       "id": "PB-062",
@@ -2378,7 +2652,8 @@
       "capability": "Settings > Help > Save support bundle with a contents preview, as FD-138 asks.",
       "evidence": [
         "support_bundle.py has no RPC or UI",
-        "Smoke: CLI wrote about.json and CONTENTS.txt"
+        "Smoke: CLI wrote about.json and CONTENTS.txt",
+        "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup"
       ],
       "features": [
         "FEAT-SHL-11"
@@ -2403,13 +2678,16 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
         "score": 2.3,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        1177
+      ]
     },
     {
       "id": "PB-063",
@@ -2418,7 +2696,12 @@
       "problem": "Accessibility is checked statically only; no screen-reader or contrast audit is recorded.",
       "capability": "A Narrator and keyboard audit on Windows with fixes.",
       "evidence": [
-        "app/tests/ui.test.cjs static checks"
+        "app/tests/ui.test.cjs static checks",
+        "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
+        "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
+        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet",
+        "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7",
+        "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2444,7 +2727,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "mandatory_reason": "Enterprise procurement often requires an accessibility conformance statement.",
       "external_dependencies": [
         "Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102)",
@@ -2455,7 +2738,25 @@
         "cost": 1.5,
         "score": 2.21,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        907,
+        926,
+        951,
+        1294,
+        1297,
+        1334,
+        1339,
+        1640,
+        1690,
+        1717
+      ],
+      "issues": [
+        880,
+        905,
+        945,
+        962
+      ]
     },
     {
       "id": "PB-064",
@@ -2465,7 +2766,8 @@
       "capability": "Keep each build's assets and let policy pin a version.",
       "evidence": [
         "ci.yml release job replaces assets",
-        "promote.yml"
+        "promote.yml",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: There's no policy setting to pin one build. IT turns off auto_update and installs the build it wants instead. The inventory's REL-01 limitations are out of date."
       ],
       "features": [
         "FEAT-REL-01",
@@ -2491,7 +2793,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "Enterprise update control needs rollback.",
       "external_dependencies": [
         "Overlaps HD-022 no downgrade, keep the previous exe; HD-028 per-build releases for pinning and rollback (Codebase audit and hardening backlog, PB-101)"
@@ -2513,7 +2815,9 @@
       "problem": "separate_promoter compares PC login names, not signed-in identities.",
       "capability": "Compare Entra object ids.",
       "evidence": [
-        "duties.py"
+        "duties.py",
+        "PR #721 (HD-030): the separate promoter compares Entra object ids",
+        "Implementation review docs/product/reviews/PB-065-721.md: Accepted with Documented Limitations (Chris 'I accept all 4', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpREfN9JPWyocAdUEQR2tzj9); limitations: not a security boundary, the switch is still in environments.toml, not tried with two PCs and one Entra account"
       ],
       "features": [
         "FEAT-GOV-04"
@@ -2537,7 +2841,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2546,7 +2850,10 @@
         "cost": 1.0,
         "score": 2.05,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        721
+      ]
     },
     {
       "id": "PB-066",
@@ -2555,7 +2862,8 @@
       "problem": "Settings, schedules, queue and receipts can't be backed up.",
       "capability": "Built in PR #91 (FD-126).",
       "evidence": [
-        "PR #91 merged; awaiting implementation review"
+        "PR #91 merged; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-ADM-03"
@@ -2579,7 +2887,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         91
       ],
@@ -2601,7 +2909,9 @@
       "capability": "A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.",
       "evidence": [
         "meta_preflight has no caller in app/ui",
-        "meta/batches.py"
+        "meta/batches.py",
+        "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open",
+        "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui"
       ],
       "features": [
         "FEAT-META-06"
@@ -2626,7 +2936,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)",
         "Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
@@ -2636,7 +2946,15 @@
         "cost": 2.5,
         "score": 2.52,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        687,
+        706,
+        950
+      ],
+      "issues": [
+        915
+      ]
     },
     {
       "id": "PB-068",
@@ -2645,7 +2963,8 @@
       "problem": "Every keyed run reads the whole key table, which grows with the business.",
       "capability": "Key lookups limited to the business keys in the batch.",
       "evidence": [
-        "meta/keys.py read_keys"
+        "meta/keys.py read_keys",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-META-05"
@@ -2669,17 +2988,23 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
-        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to one Fabric SQL database in a dedicated workspace shared by all environments (Chris, 2026-10-20: one for all)"
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant"
       ],
       "computed": {
         "benefit": 3.45,
         "cost": 2.5,
         "score": 2.42,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        913
+      ],
+      "issues": [
+        847
+      ]
     },
     {
       "id": "PB-069",
@@ -2688,7 +3013,9 @@
       "problem": "Environment compare reads whole tables.",
       "capability": "Batched or sampled compare.",
       "evidence": [
-        "meta/compare.py"
+        "meta/compare.py",
+        "Above 5,000,000 rows the compare streams counts, totals and a row checksum through DuckDB (#897) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Above 5,000,000 rows a compare says whether tables differ (counts, totals, a row checksum), not which rows."
       ],
       "features": [
         "FEAT-META-08"
@@ -2712,13 +3039,19 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.85,
         "cost": 2.5,
         "score": 1.99,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        897
+      ],
+      "issues": [
+        888
+      ]
     },
     {
       "id": "PB-070",
@@ -2727,7 +3060,9 @@
       "problem": "UI tests check parsing, names and a few behaviors; the editor and keyboard flows have none.",
       "capability": "Behavior tests for the editor, command mode and command bar.",
       "evidence": [
-        "app/tests/ui.test.cjs has 23 tests"
+        "app/tests/ui.test.cjs has 23 tests",
+        "command-bar.test.cjs adds Ctrl+K browser tests; editor and command mode tests already existed on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-NB-01",
@@ -2749,7 +3084,7 @@
       "owner": "Master product (unassigned)",
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps HD-052 browser tests in CI (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2758,7 +3093,13 @@
         "cost": 1.5,
         "score": 2.07,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        879
+      ],
+      "issues": [
+        860
+      ]
     },
     {
       "id": "PB-071",
@@ -2768,7 +3109,8 @@
       "capability": "A Windows cargo test job.",
       "evidence": [
         "ci.yml has cargo audit and cargo build, no cargo test",
-        "cargo test failed to build on Linux (gdk-3.0)"
+        "cargo test failed to build on Linux (gdk-3.0)",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-SHL-03",
@@ -2793,7 +3135,7 @@
       "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.",
       "external_dependencies": [
         "Overlaps HD-011 cargo test runs in CI (Codebase audit and hardening backlog, PB-101)"
@@ -2820,7 +3162,11 @@
       "capability": "Concurrent or cancellable long calls with time limits.",
       "evidence": [
         "main.rs rpc mutex",
-        "watchdog.rs QUICK list"
+        "watchdog.rs QUICK list",
+        "The engine runs quick calls in their own lane (server.py, test_server_lanes.py, #508), so a slow Fabric call doesn't block them on main at b19b7456; #898 bounds four more calls (open)",
+        "Acceptance changed 2026-10-28 from 'Every call has a limit': runs can take hours by design (watchdog.rs). Needs Chris's acceptance of the change",
+        "#898 bounds Monitor's status refresh (30 s), the drift card's read and the sign-in window (10 min) on main at 188d5a93. The changed acceptance (quick calls 60 s, long calls end with Stop) still needs Chris",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): changed criterion 2 (quick calls 60 s, long calls end with Stop) approved and Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-SHL-01",
@@ -2831,7 +3177,7 @@
       ],
       "acceptance": [
         "A slow Fabric call doesn't block a quick call (test)",
-        "Every call has a limit"
+        "Quick calls have a 60-second limit; long calls (runs, publishing, Fabric) have no limit and Stop ends them"
       ],
       "scores": {
         "developer_value": 4,
@@ -2846,7 +3192,7 @@
       "owner": "Master product (unassigned)",
       "effort": "L",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "mandatory_reason": "A frozen app with no way out is the most visible reliability failure.",
       "external_dependencies": [
         "Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102)",
@@ -2857,7 +3203,14 @@
         "cost": 3.5,
         "score": 1.48,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        508,
+        898
+      ],
+      "issues": [
+        862
+      ]
     },
     {
       "id": "PB-073",
@@ -2891,7 +3244,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2900,7 +3253,14 @@
         "cost": 3.0,
         "score": 1.86,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        996,
+        1084
+      ],
+      "issues": [
+        896
+      ]
     },
     {
       "id": "PB-074",
@@ -2911,7 +3271,9 @@
       "evidence": [
         "ci.yml",
         "docs.yml",
-        "codex-review.yml"
+        "codex-review.yml",
+        "Release needs the audit job, with dated exceptions in .github/audit-exceptions.txt (#867); actions are SHA-pinned on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-SEC-03"
@@ -2936,7 +3298,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "mandatory_reason": "Supply-chain controls are only as strong as the weakest workflow.",
       "external_dependencies": [
         "Overlaps HD-008 update checksums, no Stable-to-Preview fallback (P0); HD-024 pin actions; HD-025 agent installer constraints and ACL; HD-026 no bare python fallback (Codebase audit and hardening backlog, PB-101)"
@@ -2946,7 +3308,13 @@
         "cost": 1.0,
         "score": 2.2,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        867
+      ],
+      "issues": [
+        861
+      ]
     },
     {
       "id": "PB-076",
@@ -2995,7 +3363,9 @@
       "problem": "Several docs describe behavior the code doesn't have (Report a problem adds the tenant id; workload views read agent status; the mailbox is unbuilt; incidents are a Delta table; %%sql publish).",
       "capability": "Each mismatch fixed in the docs, with a doc-claims checklist added to the review template.",
       "evidence": [
-        "See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06"
+        "See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06",
+        "The package's mismatches corrected (#876) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-SHL-10",
@@ -3021,7 +3391,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102)",
         "Theme (Chris's unit testing, 2026-10-18, items 9, 14, 18, 28, 34): a docs page per area, linked from each page's in-app guidance"
@@ -3032,7 +3402,13 @@
         "cost": 1.0,
         "score": 2.45,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        876
+      ],
+      "issues": [
+        859
+      ]
     },
     {
       "id": "PB-078",
@@ -3043,7 +3419,9 @@
       "evidence": [
         "app/ui/features.js PREVIEW_FEATURES has 19 ids",
         "docs/metadata-guide.md Preview labels",
-        "Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left"
+        "Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left",
+        "Every docs Preview heading maps to a PREVIEW_FEATURES id or a stated reason, kept by a UI test (#874) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-SHL-05"
@@ -3065,7 +3443,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "mandatory_reason": "AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.",
       "external_dependencies": [
         "Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)"
@@ -3076,7 +3454,13 @@
         "cost": 1.0,
         "score": 2.45,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        874
+      ],
+      "issues": [
+        858
+      ]
     },
     {
       "id": "PB-079",
@@ -3085,7 +3469,8 @@
       "problem": "Job files run from the CLI only; the app labels their history as a notebook write and nothing in the UI creates them.",
       "capability": "A product decision: expose jobs in the app, or keep them a CLI and agent feature and document it so.",
       "evidence": [
-        "jobs.py, cli.py preview/run; no UI caller of preview_job or run_job"
+        "jobs.py, cli.py preview/run; no UI caller of preview_job or run_job",
+        "Labels made honest: Monitor and Optimize call a job file's run a Job run (#908). The decision isn't recorded in implementation-decisions.md yet on main at b19b7456"
       ],
       "features": [
         "FEAT-NB-11"
@@ -3107,7 +3492,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps FD-LDE-006 local transformations: the LDE thread builds parameterized SQL scripts; pipeline orchestration stays with the ORCH thread (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -3116,7 +3501,13 @@
         "cost": 1.0,
         "score": 1.85,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        908
+      ],
+      "issues": [
+        900
+      ]
     },
     {
       "id": "PB-081",
@@ -3125,8 +3516,9 @@
       "problem": "Column lineage is computed but no screen shows it.",
       "capability": "A lineage view after a mockup, as the staged roadmap plans.",
       "evidence": [
-        "meta_lineage has no caller in app/ui",
-        "PR #124 merged 2026-10-17; awaiting implementation review"
+        "dataops.js calls meta_lineage",
+        "PR #124 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Columns added by Python code can't be traced."
       ],
       "features": [
         "FEAT-META-17"
@@ -3150,7 +3542,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         124
       ],
@@ -3168,7 +3560,9 @@
       "problem": "Breaking changes are blocked, but consumers can't declare what they read or see deprecations.",
       "capability": "Consumer declarations and deprecation windows on product ports.",
       "evidence": [
-        "meta/mesh.py breaking-change check"
+        "meta/mesh.py breaking-change check",
+        "PR #701 (FD-127 8.2): port version history, accepted versions on links, deprecation dates with Teams notices, in the engine",
+        "Implementation review docs/product/reviews/PB-082-701.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Every finding is fixed (#817, #836)."
       ],
       "features": [
         "FEAT-MESH-05"
@@ -3192,13 +3586,17 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.4,
         "cost": 2.5,
         "score": 2.38,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        701,
+        836
+      ]
     },
     {
       "id": "PB-083",
@@ -3209,7 +3607,9 @@
       "evidence": [
         "service.py endorsements returns available:false",
         "docs/troubleshooting.md",
-        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing"
+        "Endorsement badges show on data products (#627); the catalog filter is still missing",
+        "The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
       "features": [
         "FEAT-ONE-02"
@@ -3230,13 +3630,19 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 1.9,
         "cost": 1.0,
         "score": 1.9,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        889
+      ],
+      "issues": [
+        856
+      ]
     },
     {
       "id": "PB-084",
@@ -3247,7 +3653,13 @@
       "evidence": [
         "docs/agent.md notes duplicates",
         "meta/freshness.py and workloads/incidents.py",
-        "PR #127 merged 2026-10-17; awaiting implementation review"
+        "PR #127 merged 2026-10-17; awaiting implementation review",
+        "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.",
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.",
+        "Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges",
+        "Fix (a) merged: only incidents post to Teams, once when a table goes late and once when it recovers, with Preview on or off (#1553) on main at 9367abf7",
+        "Implementation review docs/product/reviews/PB-084-1553.md (2026-11-02): criteria met; recommend Accept with Documented Limitations",
+        "Implementation review docs/product/reviews/PB-084-1553.md: Accepted with Documented Limitations (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); limitations: no Windows or live Teams run; with Preview off the incident list uses capacity for an environment in Fabric"
       ],
       "features": [
         "FEAT-GOV-01",
@@ -3272,9 +3684,10 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
-        127
+        127,
+        1553
       ],
       "computed": {
         "benefit": 2.05,
@@ -3328,7 +3741,8 @@
       "problem": "First-run failures (no capacity, no workspace access) appear as errors later.",
       "capability": "Built by the enterprise program as FD-136 (PR #94).",
       "evidence": [
-        "PR #94 merged; awaiting implementation review"
+        "PR #94 merged; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-ADM-04"
@@ -3352,7 +3766,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         94
       ],
@@ -3373,7 +3787,9 @@
       "problem": "File previews download whole into the app data folder and are never removed (inference).",
       "capability": "Size limit and cleanup on close.",
       "evidence": [
-        "preview_service.py (code reading)"
+        "preview_service.py (code reading)",
+        "Previews download to their own folder, removed once read; 200 MB cap; leftovers go at next start (#885) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: A file over 200 MB isn't previewed at all, rather than previewing its head."
       ],
       "features": [
         "FEAT-FAB-04"
@@ -3395,13 +3811,19 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 1.9,
         "cost": 1.0,
         "score": 1.9,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        885
+      ],
+      "issues": [
+        877
+      ]
     },
     {
       "id": "PB-088",
@@ -3411,7 +3833,8 @@
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-002).",
       "evidence": [
         "fabric_api.py lists capacities only",
-        "PR #123 merged 2026-10-17; awaiting implementation review"
+        "PR #123 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: none recorded; linked to FEAT-ADM-07 at the evening check"
       ],
       "depends_on": [
         "PB-050"
@@ -3435,7 +3858,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         123
       ],
@@ -3444,7 +3867,10 @@
         "cost": 2.5,
         "score": 2.52,
         "priority": "P2"
-      }
+      },
+      "features": [
+        "FEAT-ADM-07"
+      ]
     },
     {
       "id": "PB-089",
@@ -3453,7 +3879,8 @@
       "problem": "Estimates are never reconciled with what Fabric actually charged.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-003).",
       "evidence": [
-        "No Capacity Metrics import"
+        "No Capacity Metrics import",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Not yet tried with an export from your tenant."
       ],
       "depends_on": [
         "PB-050"
@@ -3477,7 +3904,7 @@
       ],
       "effort": "L",
       "confidence": "Low",
-      "state": "In review",
+      "state": "Accepted",
       "external_dependencies": [
         "Overlaps PR-OPT-004, whose measured CU savings need this import (Optimize central lakehouse, PB-104)"
       ],
@@ -3501,7 +3928,8 @@
       "problem": "People learn a run was expensive or too big after it runs.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-004).",
       "evidence": [
-        "meta/preflight.py estimates memory only"
+        "meta/preflight.py estimates memory only",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: The memory preflight (meta_preflight) has no screen of its own."
       ],
       "features": [
         "FEAT-META-06",
@@ -3529,7 +3957,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 4.35,
         "cost": 2.5,
@@ -3548,7 +3976,8 @@
       "capability": "Agent list, queue and availability view.",
       "evidence": [
         "agent_status.py; workloads/agents.py read only by incidents",
-        "PR #133 merged 2026-10-17; awaiting implementation review"
+        "PR #133 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-ORC-05"
@@ -3572,7 +4001,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         133
       ],
@@ -3630,7 +4059,8 @@
       "capability": "Decision D-C1, then build only what it allows.",
       "evidence": [
         "No telemetry code",
-        "PR #121 merged 2026-10-17; awaiting implementation review"
+        "PR #121 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-ADM-06"
@@ -3658,7 +4088,7 @@
       ],
       "effort": "M",
       "confidence": "Low",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         121
       ],
@@ -3676,7 +4106,9 @@
       "problem": "With the process kernel on, CPU and memory are measured from the engine process (inference), so scorecards can be wrong.",
       "capability": "Measure the child kernel's resources.",
       "evidence": [
-        "measure.py RunMeter"
+        "measure.py RunMeter",
+        "RunMeter reads the kernel process's CPU and memory (#895) on main at b19b7456",
+        "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Processes a cell starts aren't counted."
       ],
       "features": [
         "FEAT-PRV-05"
@@ -3700,13 +4132,19 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.75,
         "cost": 1.5,
         "score": 2.48,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        895
+      ],
+      "issues": [
+        846
+      ]
     },
     {
       "id": "PB-095",
@@ -3715,7 +4153,8 @@
       "problem": "External AI tools can't see or drive the app's capabilities.",
       "capability": "The bring-your-own-AI stack PR-AI-001..012, built and specified by its program.",
       "evidence": [
-        "PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review"
+        "PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -3740,7 +4179,7 @@
       ],
       "effort": "XL",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         99,
         100,
@@ -3772,7 +4211,9 @@
       "problem": "Only the MCP SDK client and plain HTTP were tested; named AI tools are marked Untested.",
       "capability": "Each client run through docs/product/ai-integration-client-checklist.md and recorded.",
       "evidence": [
-        "AI integration thread notes"
+        "AI integration thread notes",
+        "Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: Claude Code and curl ran without a Fabric sign-in on Linux; the sign-in steps, step 12 and a Windows run are still to do, and clients not run stay Untested"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -3799,13 +4240,16 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.75,
         "cost": 1.0,
         "score": 2.75,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1185
+      ]
     },
     {
       "id": "PB-097",
@@ -3854,7 +4298,8 @@
       "problem": "server.py METHODS and the capability registry can drift apart.",
       "capability": "METHODS generated from, or checked against, the capability registry.",
       "evidence": [
-        "server.py METHODS"
+        "server.py METHODS",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: criterion reworded to 'A test fails when lists meant to agree disagree'; METHODS and the registry differ by design"
       ],
       "features": [
         "FEAT-SHL-02"
@@ -3863,7 +4308,7 @@
         "PB-095"
       ],
       "acceptance": [
-        "A test fails when a method is in one list and not the other"
+        "A test fails when lists meant to agree disagree"
       ],
       "scores": {
         "developer_value": 2,
@@ -3881,13 +4326,16 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.6,
         "cost": 1.0,
         "score": 2.6,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1152
+      ]
     },
     {
       "id": "PB-099",
@@ -3897,7 +4345,12 @@
       "capability": "Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).",
       "evidence": [
         "DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py)",
-        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)"
+        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)",
+        "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223",
+        "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
+        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949",
+        "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f",
+        "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -3954,7 +4407,67 @@
         620,
         622,
         628,
-        631
+        631,
+        1210,
+        1254,
+        1268,
+        1274,
+        1291,
+        1293,
+        1304,
+        1326,
+        1327,
+        1338,
+        1342,
+        1343,
+        1344,
+        1345,
+        1346,
+        1349,
+        1355,
+        1356,
+        1357,
+        1363,
+        1401,
+        1490,
+        1498,
+        1502,
+        1512,
+        1572,
+        1573,
+        1576,
+        1578,
+        1582,
+        1583,
+        1585,
+        1586,
+        1588,
+        1591,
+        1598,
+        1599,
+        1600,
+        1602,
+        1608,
+        1610,
+        1611,
+        1612,
+        1613,
+        1615,
+        1616,
+        1618,
+        1619,
+        1620,
+        1621,
+        1623,
+        1628,
+        1629,
+        1631,
+        1639,
+        1654,
+        1686,
+        1711,
+        1712,
+        1755
       ]
     },
     {
@@ -3965,7 +4478,8 @@
       "capability": "Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.",
       "evidence": [
         "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)",
-        "PR #132 merged 2026-10-17; awaiting implementation review"
+        "PR #132 merged 2026-10-17; awaiting implementation review",
+        "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)"
       ],
       "features": [
         "FEAT-SHL-09"
@@ -3986,7 +4500,7 @@
       "owner": "Fuller What's new dialog",
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         132
       ],
@@ -4005,7 +4519,8 @@
       "capability": "Owned and specified by the Codebase audit and hardening thread (HD-001..057, backlog in docs/hardening/backlog.md on its branch); not restated here. Its P0s are HD-001..009; P1 HD-010..035; P2 HD-036..054; P3 HD-050, 055..057.",
       "evidence": [
         "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
-        "Backlog not yet pushed (push freeze)"
+        "Backlog not yet pushed (push freeze)",
+        "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -4051,7 +4566,165 @@
         624,
         626,
         659,
-        674
+        674,
+        676,
+        679,
+        689,
+        691,
+        698,
+        708,
+        715,
+        717,
+        721,
+        757,
+        768,
+        786,
+        799,
+        911,
+        916,
+        918,
+        930,
+        934,
+        938,
+        952,
+        984,
+        989,
+        992,
+        1003,
+        1011,
+        1026,
+        1030,
+        1032,
+        1048,
+        1050,
+        1055,
+        1089,
+        1122,
+        1153,
+        1156,
+        1208,
+        1209,
+        1211,
+        1212,
+        1214,
+        1215,
+        1231,
+        1245,
+        1359,
+        1377,
+        1378,
+        1379,
+        1381,
+        1382,
+        1383,
+        1385,
+        1387,
+        1392,
+        1399,
+        1402,
+        1406,
+        1411,
+        1416,
+        1429,
+        1430,
+        1431,
+        1433,
+        1434,
+        1451,
+        1454,
+        1471,
+        1499,
+        1501,
+        1504,
+        1508,
+        1509,
+        1511,
+        1513,
+        1516,
+        1519,
+        1521,
+        1522,
+        1523,
+        1524,
+        1534,
+        1538,
+        1539,
+        1540,
+        1541,
+        1542,
+        1543,
+        1545,
+        1546,
+        1547,
+        1548,
+        1549,
+        1555,
+        1556,
+        1559,
+        1560,
+        1561,
+        1567,
+        1569,
+        1570,
+        1571,
+        1574,
+        1575,
+        1577,
+        1581,
+        1584,
+        1589,
+        1593,
+        1597,
+        1606,
+        1617,
+        1624,
+        1627,
+        1630,
+        1634,
+        1636,
+        1637,
+        1638,
+        1644,
+        1655,
+        1662,
+        1683,
+        1685,
+        1688,
+        1689,
+        1691,
+        1692,
+        1693,
+        1694,
+        1695,
+        1696,
+        1698,
+        1699,
+        1703,
+        1704,
+        1705,
+        1719,
+        1724,
+        1729,
+        1730,
+        1743,
+        1757,
+        1758,
+        1764,
+        1767,
+        1789
+      ],
+      "issues": [
+        910,
+        916,
+        927,
+        935,
+        936,
+        963,
+        964,
+        965,
+        968,
+        1049,
+        1087
       ]
     },
     {
@@ -4100,7 +4773,51 @@
         "cost": 2.5,
         "score": 2.66,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        684,
+        699,
+        702,
+        703,
+        704,
+        705,
+        719,
+        747,
+        769,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806,
+        814,
+        825,
+        826,
+        827,
+        831,
+        842,
+        843,
+        865,
+        932,
+        943,
+        974,
+        987,
+        988,
+        990,
+        991,
+        998,
+        1088,
+        1131
+      ],
+      "issues": [
+        928,
+        929,
+        948,
+        955,
+        956,
+        961,
+        971
+      ]
     },
     {
       "id": "PB-103",
@@ -4110,7 +4827,9 @@
       "capability": "Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).",
       "evidence": [
         "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
-        "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here"
+        "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here",
+        "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
+        "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-NB-04",
@@ -4152,7 +4871,99 @@
       "prs": [
         585,
         616,
-        661
+        661,
+        680,
+        711,
+        733,
+        738,
+        766,
+        775,
+        778,
+        781,
+        784,
+        975,
+        981,
+        1012,
+        1018,
+        1021,
+        1024,
+        1025,
+        1029,
+        1075,
+        1086,
+        1093,
+        1095,
+        1097,
+        1107,
+        1154,
+        1155,
+        1164,
+        1230,
+        1234,
+        1240,
+        1246,
+        1258,
+        1290,
+        1298,
+        1299,
+        1302,
+        1332,
+        1336,
+        1364,
+        1384,
+        1389,
+        1390,
+        1394,
+        1395,
+        1403,
+        1405,
+        1410,
+        1414,
+        1418,
+        1421,
+        1432,
+        1435,
+        1436,
+        1441,
+        1443,
+        1444,
+        1446,
+        1449,
+        1452,
+        1457,
+        1458,
+        1461,
+        1463,
+        1464,
+        1467,
+        1468,
+        1472,
+        1474,
+        1477,
+        1478,
+        1479,
+        1480,
+        1481,
+        1487,
+        1492,
+        1493,
+        1500,
+        1514,
+        1515,
+        1520,
+        1529,
+        1533,
+        1535,
+        1536,
+        1537,
+        1544,
+        1565,
+        1697,
+        1731,
+        1732,
+        1745,
+        1787,
+        1792
       ]
     },
     {
@@ -4163,14 +4974,16 @@
       "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).",
       "evidence": [
         "Chris's Optimize brief, 2026-10-18 08:55Z",
-        "No code or plan merged yet"
+        "Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py",
+        "Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4",
+        "Plan merged (#1708): what's merged, what's left, the audit's four gaps, and no CU savings claim without a measured baseline; results wait on this PC when the lakehouse can't be reached (#1726, #1733) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-ADM-01"
       ],
       "acceptance": [
-        "As defined in PR-OPT-001..009 by its owning thread",
-        "Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized"
+        "As defined in PR-OPT-001..013 in docs/optimize/plan.md section 4",
+        "Savings follow the brief's rule: no CU savings without a measured Fabric baseline, and estimated savings are never labelled realized"
       ],
       "scores": {
         "developer_value": 3,
@@ -4184,7 +4997,7 @@
       "mandatory": "none",
       "owner": "Optimize central lakehouse",
       "source_refs": [
-        "PR-OPT-001..009"
+        "PR-OPT-001..013"
       ],
       "duplicates": [
         "Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item"
@@ -4203,7 +5016,12 @@
         "cost": 4.5,
         "score": 1.27,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1708,
+        1726,
+        1733
+      ]
     },
     {
       "id": "PB-105",
@@ -4213,7 +5031,9 @@
       "capability": "Owned and specified by the Simplified incident management thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off, either stored in a central lakehouse or handed to ServiceNow or Jira. Not restated here.",
       "evidence": [
         "Chris's unit testing, 2026-10-18, item 33",
-        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)"
+        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)",
+        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb",
+        "Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -4243,7 +5063,13 @@
         "cost": 3.5,
         "score": 1.43,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        1735,
+        1799,
+        1800,
+        1802
+      ]
     },
     {
       "id": "PB-106",
@@ -4299,7 +5125,28 @@
         641,
         645,
         660,
-        662
+        662,
+        723,
+        727,
+        728,
+        729,
+        730,
+        731,
+        743,
+        745,
+        747,
+        774,
+        783,
+        787,
+        808,
+        809,
+        823,
+        912,
+        949,
+        985,
+        1112,
+        1181,
+        1641
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4308,7 +5155,12 @@
         "cost": 3.0,
         "score": 2.52,
         "priority": "P2"
-      }
+      },
+      "issues": [
+        810,
+        946,
+        947
+      ]
     },
     {
       "id": "PB-107",
@@ -4319,7 +5171,8 @@
       "evidence": [
         "Chris's 'Go' 2026-10-24 18:16Z",
         "DF-1 engine merged as #640",
-        "Mockup waits on Chris"
+        "Mockup waits on Chris",
+        "Open in Fabric goes to the dataflow itself (#1798) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-FAB-10",
@@ -4362,7 +5215,25 @@
         666,
         667,
         668,
-        669
+        669,
+        700,
+        709,
+        714,
+        724,
+        732,
+        735,
+        736,
+        737,
+        739,
+        740,
+        741,
+        746,
+        1222,
+        1250,
+        1251,
+        1256,
+        1333,
+        1798
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -4382,7 +5253,7 @@
       "evidence": [
         "Chris 2026-10-24: 'more on governance and best practices. Allow for people to add their own templates'",
         "Draft PRs #560 (BPA engine), #643 (notebook rules), #648 (templates and Check now), #649 (SQL rules), #651 (RE2 naming checks)",
-        "Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26); limitations tracked in PB-111 and PB-112"
+        "Implementation review docs/product/reviews/PB-108-643.md: Accepted with Documented Limitations (Chris 'Go on all', 2026-10-26, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpVYtS9wxoAC4YeAMMvSdTtB); limitations tracked in PB-111 and PB-112"
       ],
       "features": [
         "FEAT-GOV-05",
@@ -4435,7 +5306,7 @@
       "category": "Data Governance and Quality",
       "mandatory": "none",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "depends_on": [
         "PB-108"
       ],
@@ -4445,7 +5316,9 @@
       "capability": "Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.",
       "evidence": [
         "PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md)",
-        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs"
+        "docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs",
+        "PR #798: Check now gives the SQL rules this PC's SQL scripts and runs NB004 and NB008 on notebooks with a PC schedule; a Fabric-only schedule isn't read yet",
+        "Implementation review docs/product/reviews/PB-111-798.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: A notebook run only by a Fabric schedule isn't checked. #844 now covers notebooks run by a pipeline scheduled on this PC (the review's finding 1)."
       ],
       "features": [
         "FEAT-GOV-09"
@@ -4473,13 +5346,16 @@
         "cost": 1.5,
         "score": 2.43,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        798
+      ]
     },
     {
       "category": "Data Governance and Quality",
       "mandatory": "none",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "Accepted",
       "depends_on": [
         "PB-108"
       ],
@@ -4489,7 +5365,9 @@
       "capability": "The BPA engine (#560) registers through governance_checks.register with runs_in=\"fabric\"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.",
       "evidence": [
         "PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md)",
-        "#560 is an open draft"
+        "PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run",
+        "PR #560 merged: the Fabric BPA run with semantic-link-labs (engine); not yet run live",
+        "Implementation review docs/product/reviews/PB-112-753.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: The Fabric half of the criterion (BPA rules that need VertiPaq statistics) isn't proven live."
       ],
       "features": [
         "FEAT-GOV-09",
@@ -4516,7 +5394,8 @@
       ],
       "effort": "M",
       "prs": [
-        560
+        560,
+        753
       ],
       "computed": {
         "benefit": 3.0,
@@ -4533,7 +5412,8 @@
       "capability": "Owned by the 'Bring VS Code developers to KratosForge' thread: phase 0 on-disk change guard (#650, merged), MCP in VS Code and an Add to VS Code button; later phases need Chris's go and three decisions.",
       "evidence": [
         "Proposal 2026-10-24",
-        "#650 merged: the app never saves over a file another program changed"
+        "#650 merged: the app never saves over a file another program changed",
+        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-EXT-01",
@@ -4568,7 +5448,14 @@
       "prs": [
         650,
         652,
-        670
+        670,
+        695,
+        710,
+        712,
+        742,
+        754,
+        795,
+        1707
       ],
       "mandatory": "none",
       "computed": {
@@ -4615,7 +5502,11 @@
       "confidence": "Medium",
       "state": "In progress",
       "prs": [
-        599
+        599,
+        681,
+        716,
+        758,
+        777
       ],
       "mandatory": "none",
       "computed": {
@@ -4623,6 +5514,1164 @@
         "cost": 3.0,
         "score": 1.65,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-113",
+      "title": "Action-first experience program",
+      "category": "Developer Experience and Productivity",
+      "problem": "Pages open on information and settings, so people hunt for the next thing to do.",
+      "capability": "Owned and specified by the action-first thread (AF-1..AF-5); not restated here. AF-1 adds a shared action framework, the action-first standard and a baseline.",
+      "evidence": [
+        "AF-1 merged as #722"
+      ],
+      "features": [
+        "FEAT-SHL-04"
+      ],
+      "depends_on": [
+        "PB-102"
+      ],
+      "acceptance": [
+        "As defined in AF-1..AF-5 by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "owner": "Action-first experience",
+      "source_refs": [
+        "AF-1..AF-5"
+      ],
+      "effort": "L",
+      "confidence": "Medium",
+      "prs": [
+        722,
+        760,
+        776,
+        865,
+        1147
+      ],
+      "mandatory": "none",
+      "state": "In progress",
+      "computed": {
+        "benefit": 3.55,
+        "cost": 2.5,
+        "score": 2.48,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-114",
+      "title": "Fabric SQL database connectivity",
+      "state": "Proposed",
+      "category": "SQL, Python, and Notebook Development",
+      "mandatory": "none",
+      "confidence": "Medium",
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 2,
+        "strategic_alignment": 4,
+        "complexity": 4,
+        "risk": 3
+      },
+      "owner": "Build full warehouse development experience",
+      "effort": "L",
+      "problem": "The Warehouse page and the engine reach warehouses and SQL analytics endpoints only; a Fabric SQL database can't be queried (PB-024 review, finding 1).",
+      "capability": "Resolve and connect to Fabric SQL database items the same way as warehouses, with the same read-only rule and write confirms.",
+      "evidence": [
+        "Split from PB-024 on Chris's acceptance of the 2026-10-28 batch",
+        "warehouse.resolve accepts warehouse and endpoint kinds and *.datawarehouse.fabric.microsoft.com hosts only (PB-024 review)"
+      ],
+      "features": [
+        "FEAT-FAB-11"
+      ],
+      "external_dependencies": [],
+      "acceptance": [
+        "A Fabric SQL database opens on the Warehouse page and runs a read-only query",
+        "Writes follow the same preview and confirm as warehouses"
+      ],
+      "source_refs": [
+        "docs/product/reviews/PB-024-581.md finding 1"
+      ],
+      "prs": [],
+      "depends_on": [
+        "PB-024"
+      ],
+      "computed": {
+        "benefit": 3.1,
+        "cost": 3.5,
+        "score": 1.55,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-115",
+      "title": "Run the Fabric Best Practice Analyzer live",
+      "state": "Proposed",
+      "category": "Data Governance and Quality",
+      "mandatory": "none",
+      "confidence": "Medium",
+      "owner": "Best Practice Analyzer",
+      "effort": "M",
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "problem": "The Fabric half of PB-112 (BPA rules that need VertiPaq statistics, run on the deployed model with a capacity warning) has not run live; #560's engine run failed on 2026-10-23.",
+      "capability": "Check now runs the Fabric BPA (#560) on a deployed model after the capacity warning and stores its findings.",
+      "evidence": [
+        "Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1)",
+        "PR #560 merged; not yet run live",
+        "The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-GOV-09",
+        "FEAT-META-13"
+      ],
+      "external_dependencies": [
+        "Chris pastes the BPA cell error from the live run"
+      ],
+      "acceptance": [
+        "A policy naming a VertiPaq-based BPA rule runs it in Fabric after the capacity warning and shows its findings"
+      ],
+      "source_refs": [
+        "docs/product/reviews/PB-112-753.md finding 1"
+      ],
+      "prs": [
+        560,
+        1818
+      ],
+      "depends_on": [
+        "PB-112"
+      ],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-116",
+      "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
+      "state": "Accepted",
+      "prs": [
+        891,
+        1133
+      ],
+      "category": "Fabric Integration and Deployment",
+      "effort": "M",
+      "issues": [
+        852
+      ],
+      "problem": "Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.",
+      "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
+      "evidence": [
+        "Story KF-FABRIC-SPARK in the orchestration plan (#864)",
+        "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)",
+        "Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)",
+        "Implementation review docs/product/reviews/PB-116-891.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: one recorded live run (2026-10-29); a policy-approved engine skips the per-session confirm; capacity use shows in Fabric's Capacity Metrics app"
+      ],
+      "features": [
+        "FEAT-EXT-05",
+        "FEAT-NB-07"
+      ],
+      "source_refs": [
+        "KF-FABRIC-SPARK"
+      ],
+      "acceptance": [
+        "Every remote session start goes through the remote compute confirmation and risk check",
+        "Tests with Fabric faked cover start, run, cancel and stop",
+        "Docs say it uses Fabric capacity and is Preview"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "owner": "Fabric and Databricks unified development",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-117",
+      "title": "Snowflake pillar: audit, ADRs and parity matrix",
+      "state": "Accepted",
+      "prs": [
+        993,
+        995,
+        1202,
+        1225,
+        1248,
+        1321
+      ],
+      "category": "Local Development and Execution",
+      "effort": "M",
+      "issues": [
+        853
+      ],
+      "problem": "Snowflake is one of the three target platforms and has no work at all.",
+      "capability": "An evidence-based plan: what Snowflake development can run on the PC, what needs a live account, and how it fits the engine registry and connection profiles.",
+      "evidence": [
+        "No Snowflake code or docs on main",
+        "Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4",
+        "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview",
+        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
+      ],
+      "features": [
+        "FEAT-EXT-05"
+      ],
+      "source_refs": [
+        "KF-SNOWFLAKE-RESEARCH"
+      ],
+      "external_dependencies": [
+        "No code and no Snowflake account spend before Chris's go"
+      ],
+      "acceptance": [
+        "A parity matrix like databricks/parity-matrix.md, with official sources for each row",
+        "ADRs for sign-in, the engine adapter and what never runs inside the engine process",
+        "A sliced plan of independently reviewable PRs"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 2,
+        "differentiation": 2,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "owner": "Fabric and Databricks unified development",
+      "computed": {
+        "benefit": 1.95,
+        "cost": 2.0,
+        "score": 1.56,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-118",
+      "title": "Databricks notebook conversion says what it could not carry over",
+      "state": "Accepted",
+      "category": "SQL, Python, and Notebook Development",
+      "effort": "S",
+      "issues": [
+        854
+      ],
+      "problem": "Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.",
+      "capability": "A loss report on every Databricks import and export, extending the existing converter.",
+      "evidence": [
+        "Story KF-DBX-LOSS-REPORT in the orchestration plan (#864)",
+        "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4",
+        "Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept",
+        "Implementation review docs/product/reviews/PB-118-1053.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
+      ],
+      "features": [
+        "FEAT-NB-26",
+        "FEAT-NB-12"
+      ],
+      "source_refs": [
+        "KF-DBX-LOSS-REPORT"
+      ],
+      "acceptance": [
+        "Each dropped or changed construct is listed with its cell",
+        "Round-trip tests cover widgets, %sh, %fs and dbutils",
+        "Docs list what converts and what doesn't"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 2,
+        "differentiation": 2,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "owner": "Fabric and Databricks unified development",
+      "external_dependencies": [],
+      "prs": [
+        1053,
+        1146,
+        1242,
+        1289
+      ],
+      "computed": {
+        "benefit": 2.2,
+        "cost": 2.0,
+        "score": 1.76,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-119",
+      "title": "Learn v1: lessons, labs and finding actions",
+      "state": "Accepted",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1063,
+        1076,
+        1083,
+        1137,
+        1138,
+        1139,
+        1140,
+        1158,
+        1159,
+        1160,
+        1552
+      ],
+      "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
+      "capability": "A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.",
+      "evidence": [
+        "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
+        "LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
+        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)",
+        "Lab time and memory limits now have tests (#1552) on main at 32cbd98f",
+        "Implementation review docs/product/reviews/PB-119-learn-v1.md (2026-11-02): all five criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-119-learn-v1.md: Accepted (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ)"
+      ],
+      "features": [
+        "FEAT-DEV-04",
+        "FEAT-GOV-09"
+      ],
+      "source_refs": [
+        "LX-01..09"
+      ],
+      "acceptance": [
+        "The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)",
+        "A lab runs on this PC with generated data, with no file or network access, and a run or check stops at 30 seconds with memory held at 1 GB (test_learn_labs, including test_a_run_and_a_check_are_stopped_at_the_time_limit and test_the_limits_are_30_seconds_and_1gb_and_an_answer_cant_raise_the_memory)",
+        "Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)",
+        "Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)",
+        "docs/learn.md and docs/learn/writing-lessons.md match the code"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-120",
+      "title": "Platform support levels and one engine contract",
+      "state": "In progress",
+      "owner": "Fabric and Databricks unified development",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "effort": "L",
+      "prs": [
+        1056,
+        1078,
+        1115,
+        1118,
+        1124,
+        1125,
+        1142,
+        1180,
+        1183,
+        1191,
+        1201,
+        1202,
+        1228,
+        1238,
+        1263,
+        1271,
+        1276,
+        1277,
+        1279,
+        1292,
+        1323,
+        1329,
+        1380,
+        1388,
+        1400,
+        1412,
+        1415,
+        1420,
+        1439,
+        1450,
+        1484,
+        1485,
+        1486,
+        1488,
+        1491,
+        1495,
+        1496,
+        1497,
+        1505,
+        1506,
+        1517,
+        1518,
+        1528,
+        1531,
+        1562,
+        1566,
+        1579,
+        1587,
+        1601,
+        1607,
+        1609,
+        1625,
+        1626,
+        1643,
+        1648,
+        1649,
+        1720,
+        1738,
+        1741,
+        1742,
+        1746,
+        1747,
+        1760,
+        1816
+      ],
+      "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
+      "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
+      "evidence": [
+        "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4",
+        "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb",
+        "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-EXT-05",
+        "FEAT-SQL-03"
+      ],
+      "source_refs": [
+        "KUDP-01..06"
+      ],
+      "acceptance": [
+        "Owned and specified by the unified platform program (KUDP)"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 2,
+        "enterprise_value": 4,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.75,
+        "cost": 2.5,
+        "score": 2.62,
+        "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-121",
+      "title": "Power BI embedding (Embed Studio)",
+      "state": "In progress",
+      "owner": "Power BI embedding (PBE)",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1126,
+        1134,
+        1135,
+        1642
+      ],
+      "problem": "Reports and semantic models can't be viewed or tested inside the app.",
+      "capability": "An isolated Power BI embed host frame with its own policy, tokens kept in memory, and no service principal secrets.",
+      "evidence": [
+        "PBE-02 design proposed (docs/architecture/power-bi-embedding.md); PBE-03 host frame and PBE-04 engine calls merged; no screen yet on main at 02118fa4"
+      ],
+      "features": [
+        "FEAT-FAB-05"
+      ],
+      "source_refs": [
+        "PBE-02..04"
+      ],
+      "acceptance": [
+        "Owned and specified by the Power BI embedding program (PBE)"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 3.0,
+        "score": 1.56,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-122",
+      "title": "Guided Development: levels, Try the fix and Compare",
+      "state": "In progress",
+      "owner": "Guided development (GD)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1161,
+        1162,
+        1175,
+        1182,
+        1184,
+        1186,
+        1216,
+        1233,
+        1713
+      ],
+      "problem": "Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.",
+      "capability": "Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and \"fixed and checked\" evidence in Profile.",
+      "evidence": [
+        "Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949",
+        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)",
+        "GD-09: a governance policy sets a team's default guidance level (#1713, Preview) on main at 5f8144f7; GD-07 still to build"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "GD-01..10"
+      ],
+      "acceptance": [
+        "The levels Expert, Professional (default) and Guided are preferences only, and policy always wins",
+        "Compare runs only on warehouse and SQL endpoint tabs and asks for confirmation every time; on a lakehouse tab, Try the fix previews and applies without Compare",
+        "Profile records \"fixed and checked\" only after a matching Compare",
+        "GD-07 and GD-09 are built or split out, and GD-10 has a lesson for every path it names",
+        "No built-in AI, no invented problems, and every number is labelled as measured or estimated"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-123",
+      "title": "Learn phase 2: rule batches, Profile v2 and comparison lessons",
+      "state": "In progress",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1722
+      ],
+      "problem": "Learn v1 covers the first rule catalog and paths only.",
+      "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",
+      "evidence": [
+        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built",
+        "2026-11-02: the platform comparison lessons (Databricks and Snowflake porting) moved to PB-126 (LM-26 to LM-29, LAB-08, LAB-09); rule batches and Profile v2 stay here",
+        "Profile v2 started: Impact tab, goals with a development roadmap and the report as PDF (#1722) on main at 9b7848eb"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "LX-11..16"
+      ],
+      "acceptance": [
+        "As the LX proposal sets them for each slice; each slice needs Chris's go before it is built"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-124",
+      "title": "Enterprise audit remediation (EA backlog)",
+      "category": "Security and Enterprise Readiness",
+      "problem": "The enterprise engineering audit (#1571) scored readiness 54/100 and found defects in data integrity, engine compatibility, release integrity and operations that a Fortune 100 rollout needs closed.",
+      "capability": "Each EA-nnn finding in docs/audits/REMEDIATION_BACKLOG.md fixed or recorded as an explicit refusal or limitation, with a test per fix, and the readiness scorecard re-scored.",
+      "evidence": [
+        "Audit baseline, scorecard and remediation backlog (#1571, docs/audits/) at b75dcf5; progress table updated in #1638",
+        "Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608)",
+        "Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
+        "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
+        "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps",
+        "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7",
+        "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7",
+        "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb",
+        "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-SHL-01"
+      ],
+      "acceptance": [
+        "Every EA item in docs/audits/REMEDIATION_BACKLOG.md is merged with a test, withdrawn with a reason, or accepted by the product owner as a documented limitation",
+        "The scorecard in docs/audits/ENTERPRISE_READINESS.md is re-scored after EA-001, EA-002 and EA-004 merge",
+        "Items that need Windows or the product owner (EA-009, EA-024, EA-030) are checked there or listed as limitations",
+        "Private security items stay out of public docs and are closed with the security owner"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 2,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "owner": "Enterprise readiness",
+      "source_refs": [
+        "EA-001..030"
+      ],
+      "duplicates": [
+        "Overlaps PB-101 (codebase audit and hardening): where an EA item repeats an earlier HD finding, REMEDIATION_BACKLOG.md cites it"
+      ],
+      "effort": "L",
+      "confidence": "Medium",
+      "state": "In progress",
+      "mandatory_reason": "EA-001 (appends quietly changed values in lakehouse tables) and EA-020 (engine packages and sources installed without hash checks) are data-integrity and release-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.",
+      "prs": [
+        1571,
+        1572,
+        1573,
+        1574,
+        1575,
+        1576,
+        1578,
+        1579,
+        1580,
+        1581,
+        1582,
+        1584,
+        1585,
+        1586,
+        1588,
+        1589,
+        1590,
+        1591,
+        1592,
+        1593,
+        1594,
+        1597,
+        1598,
+        1599,
+        1600,
+        1601,
+        1602,
+        1604,
+        1605,
+        1606,
+        1607,
+        1608,
+        1609,
+        1613,
+        1614,
+        1615,
+        1617,
+        1624,
+        1625,
+        1626,
+        1627,
+        1630,
+        1636,
+        1637,
+        1638,
+        1645,
+        1646,
+        1647,
+        1709,
+        1710,
+        1714,
+        1723,
+        1734,
+        1811
+      ],
+      "issues": [],
+      "computed": {
+        "benefit": 3.5,
+        "cost": 3.5,
+        "score": 1.75,
+        "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-125",
+      "title": "Learn ranks and profile pictures",
+      "state": "Accepted",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "M",
+      "prs": [
+        1657
+      ],
+      "problem": "Learn records what a person has done, but there is no earned rank to show progress, and Profile has no picture.",
+      "capability": "Earned ranks on the Profile page, themed on the Kratos Forge, wolves and Greek myth (no rank is \"Data God\"), each with a prompt people can use to generate a profile picture, and a profile picture people upload themselves.",
+      "evidence": [
+        "Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp",
+        "Nothing built. Builds as draft PRs once Chris approves the rank ladder",
+        "Thirteen ranks in three tiers (the Forge, the Pack, the Myth) earned from verified work on this PC, a Copy picture prompt per rank, and a profile picture kept as a 256 px PNG of at most 512 KB (#1657) on main at 9367abf7",
+        "Implementation review docs/product/reviews/PB-125-1657.md (2026-11-02): criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-125-1657.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "Learn curriculum design 2026-11-02"
+      ],
+      "acceptance": [
+        "A rank is earned only from the person's own verified evidence on this PC (Learn passes, clean Validate runs and checked fixes), never set by hand; Proof Forged is never required",
+        "Ranks follow the Developer progression switch (Settings > Developer progression)",
+        "Every rank name and picture prompt follows the approved ladder; no rank name contains god, deity or divine, and a test enforces it",
+        "A person can add, change and remove their own profile picture; it stays on this PC and is checked for type and size",
+        "The picture prompts are text only: the app generates no images and calls no AI service"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-126",
+      "title": "Learn curriculum content batches by path",
+      "state": "Accepted",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1658,
+        1659,
+        1660,
+        1677,
+        1684,
+        1687
+      ],
+      "problem": "Learn v1 has the first lessons and labs only, so no path is a full curriculum.",
+      "capability": "A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.",
+      "evidence": [
+        "From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09)",
+        "Nothing built. Each batch needs Chris's go before it is built",
+        "All six batches merged: Data Fundamentals and SQL (#1658), Python and Data Engineering (#1659), Microsoft Fabric (#1660), Databricks and Snowflake porting (#1677), Enterprise Architecture (#1684) and The Forge Trial capstone lab LAB-12 (#1687) on main at 9367abf7",
+        "Implementation review docs/product/reviews/PB-126-curriculum.md (2026-11-02): criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-126-curriculum.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "LM-13..35",
+        "LAB-05..12"
+      ],
+      "acceptance": [
+        "Every lesson names rule ids that resolve in the catalog (test_learn_content)",
+        "Every lab runs on this PC with generated data inside the lab limits (test_learn_labs)",
+        "docs/learn.md lists the paths and lessons as shipped"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-127",
+      "title": "Fabric App Studio",
+      "state": "In progress",
+      "owner": "Fabric App Studio (AS)",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1715,
+        1718,
+        1721,
+        1727,
+        1728,
+        1736
+      ],
+      "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
+      "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
+      "evidence": [
+        "AS-01 design and capability matrix (#1715), AS-02 to AS-04 specification, patches with undo and project folder (#1718), AS-05 model connections with key references, consent and spend limits (#1721), AS-09 sanitized semantic model metadata (#1728) and AS-12 the PBIR compiler (#1727) on main at 5f8144f7",
+        "Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03",
+        "First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one",
+        "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
+        "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)",
+        "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb"
+      ],
+      "features": [
+        "FEAT-FAB-05"
+      ],
+      "source_refs": [
+        "AS-01..20"
+      ],
+      "acceptance": [
+        "As defined for AS-01 to AS-20 in docs/architecture/app-studio.md",
+        "App Studio is off until a model connection is added, and every other page works without one",
+        "Only schema and sanitized metadata go to a model by default; sample rows need per-connection consent and are redacted",
+        "Model output is validated against the specification schema before anything is previewed or published"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 4,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.25,
+        "cost": 4.5,
+        "score": 0.97,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-128",
+      "title": "KratosForge Academy: certification preparation",
+      "state": "In progress",
+      "owner": "Academy",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1771,
+        1776,
+        1777,
+        1778,
+        1779,
+        1781,
+        1782,
+        1783,
+        1784,
+        1785,
+        1786,
+        1788,
+        1790,
+        1791,
+        1793,
+        1794,
+        1795,
+        1796,
+        1797,
+        1801,
+        1804,
+        1806,
+        1807,
+        1808,
+        1809,
+        1812,
+        1814,
+        1815,
+        1817,
+        1820,
+        1821,
+        1823,
+        1824,
+        1825
+      ],
+      "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
+      "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
+      "evidence": [
+        "Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z)",
+        "Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb",
+        "Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant",
+        "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)",
+        "PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38",
+        "Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it.",
+        "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a",
+        "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "ACD-001..020",
+        "DBA-001..016"
+      ],
+      "acceptance": [
+        "Every objective in a certification's registry has exercises or a recorded gap",
+        "An exercise is graded on what the learner made, read as untrusted input, in a limited process",
+        "Practice exams, diagnostics and drills run on one exam engine with original questions",
+        "Nothing in Academy writes to Fabric or spends capacity"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 3,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.95,
+        "cost": 3.5,
+        "score": 1.48,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-129",
+      "title": "Platform skins and experience parity",
+      "state": "In progress",
+      "owner": "Platform skins",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1756,
+        1759,
+        1770,
+        1772,
+        1773,
+        1816
+      ],
+      "problem": "Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.",
+      "capability": "One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.",
+      "evidence": [
+        "Go: Chris's Platform Skins and Experience Parity brief of 2026-11-03 13:41 UTC, set as P0 (Platform skins thread cmsg_018T4o2pQdpbLBNhHpgVNNGp2RXWZE4bjmFwbEhenXh44y)",
+        "Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb",
+        "A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration",
+        "Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)",
+        "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-EXT-05"
+      ],
+      "source_refs": [
+        "Chris's Platform Skins brief, 2026-11-03 13:41Z (P0)"
+      ],
+      "acceptance": [
+        "Appearance, workflow, platform and engine are independent settings",
+        "A skin is declarative configuration, validated on import, and can't change credentials, permissions, engine behaviour or project data",
+        "Switching skins keeps open work, connections and execution settings",
+        "Every skin keeps local-first, multi-engine, optimization, training and deployment features reachable",
+        "The end-to-end demonstration in the brief is recorded, with mocked parts named"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.65,
+        "cost": 3.5,
+        "score": 1.82,
+        "priority": "P0"
+      },
+      "mandatory_reason": "The product owner set platform skins and experience parity as P0 in the Platform Skins brief of 2026-11-03 13:41 UTC."
+    },
+    {
+      "id": "PB-130",
+      "title": "Data product promises, status and change windows",
+      "category": "Enterprise Shared Services",
+      "problem": "Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.",
+      "capability": "A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.",
+      "evidence": [
+        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb"
+      ],
+      "features": [
+        "FEAT-MESH-04",
+        "FEAT-GOV-01",
+        "FEAT-MESH-05"
+      ],
+      "depends_on": [
+        "PB-002"
+      ],
+      "acceptance": [
+        "A product's promise is shown to readers and its team sees Kept or Broken",
+        "A broken promise opens one incident",
+        "Status and change window views read the same records"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "owner": "Data mesh",
+      "effort": "M",
+      "confidence": "Medium",
+      "state": "In progress",
+      "external_dependencies": [],
+      "prs": [
+        1737,
+        1744,
+        1774,
+        1775,
+        1780
+      ],
+      "source_refs": [
+        "Data mesh Wave 2"
+      ],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-131",
+      "title": "Let people remove Academy's runtime access grants",
+      "category": "Security and Enterprise Readiness",
+      "problem": "The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.",
+      "capability": "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grants after a confirm, using revoke_runtime(); nothing is removed while an exercise runs. By Security's decision there is no uninstall step, because a grant on the app-owned engine is inert after uninstall.",
+      "evidence": [
+        "Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38",
+        "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grant after a confirm, with a Try again for paths Windows wouldn't change (#1820); enterprise-install.md says to run it before uninstalling, and Security (2026-11-04) chose no uninstall step because grants on the app-owned engine are inert after uninstall (#1821) on main at 03d2b53a",
+        "Windows CI on #1823: test_settings_shows_the_grants_and_removes_them shows grants > 0 after an AppContainer exercise and none after Remove, with no ACE left; test_nothing_is_removed_while_an_exercise_runs (#1823) on main",
+        "Implementation review docs/product/reviews/PB-131-1820.md: Accepted (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv)"
+      ],
+      "features": [
+        "FEAT-DEV-04",
+        "FEAT-SHL-09"
+      ],
+      "acceptance": [
+        "Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does",
+        "Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere",
+        "A test shows grants before and none after"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 1,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 2
+      },
+      "mandatory": "required",
+      "owner": "Academy",
+      "source_refs": [
+        "ACD-005b"
+      ],
+      "duplicates": [],
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "Accepted",
+      "mandatory_reason": "The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).",
+      "prs": [
+        1820,
+        1821,
+        1823
+      ],
+      "computed": {
+        "benefit": 2.3,
+        "cost": 2.0,
+        "score": 1.84,
+        "priority": "P1"
       }
     }
   ]

@@ -45,8 +45,9 @@ def test_sql_line_magic_returns_a_dataframe_inside_python():
 
 def test_sql_line_magic_refuses_in_place_changes_and_needs_a_query():
     k = Kernel()
-    out = k.run("x = %sql MERGE INTO a USING b ON a.id = b.id WHEN MATCHED THEN DELETE")
-    assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
+    for change in ("UPDATE LH_Keys.keys.a SET v = 1 WHERE id = 2", "MERGE INTO LH_Keys.keys.a USING b ON a.id = b.id WHEN MATCHED THEN DELETE"):
+        out = k.run(f"x = %sql {change}")
+        assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
     out = k.run("x = %sql")
     assert out["status"] == "error" and "needs a query" in out["outputs"][-1]["evalue"]
 
@@ -91,7 +92,7 @@ def test_environment_check_parses_cells_with_assigned_magics():
 
 def test_compute_check_and_proof_catch_sql_line_writes():
     cells = [{"type": "code", "source": "from fabric_desktop import lakehouse\n"
-                                        "x = %sql DELETE FROM dbo.sales WHERE id = 1"}]
+                                        "x = %sql DELETE FROM LH_Keys.dbo.sales WHERE id = 1"}]
     local = compute_check(cells, LH)["local"]
     assert not local["ok"] and "in place" in local["reasons"][0]["text"]
     assert local["reasons"][0]["code"].startswith("x = %sql DELETE")
@@ -163,7 +164,7 @@ def test_reading_tools_understand_databricks_headers():
 
 def test_compute_check_sees_databricks_scala_and_sql_writes():
     cells = [{"type": "code", "source": "%scala\nval x = 1"},
-             {"type": "code", "source": "%sql\nDELETE FROM dbo.sales WHERE id = 1"},
+             {"type": "code", "source": "%sql\nDELETE FROM LH_Keys.dbo.sales WHERE id = 1"},
              {"type": "code", "source": "%md # fine"}]
     reasons = compute_check(cells, LH)["local"]["reasons"]
     assert [(r["cell"], r["text"][:12]) for r in reasons] == [(1, "uses a Scala"), (2, "changes tabl")]
@@ -195,7 +196,6 @@ def test_python_notebook_publish_turns_databricks_sql_into_lakehouse_sql():
 
 import os
 import sys
-import threading
 import time
 
 import pytest
@@ -254,7 +254,9 @@ def test_cancel_ends_a_running_command():
         assert time.monotonic() < deadline
     started = time.monotonic()
     k.interrupt()
-    snap = k.poll(-1, wait=5)
+    # poll(-1) answers at once, so poll until the cancel lands: on a busy runner that takes a moment.
+    while (snap := k.poll(-1))["status"] == "running" and time.monotonic() - started < 6:
+        time.sleep(0.05)
     assert snap["status"] == "cancelled" and time.monotonic() - started < 6
 
 
@@ -370,7 +372,9 @@ def test_writefile_writes_appends_and_can_be_imported(tmp_path, monkeypatch):
     assert "needs a file name" in k.run("%%writefile\nx")["outputs"][0]["evalue"]
 
 
-def test_small_ipython_magics():
+def test_small_ipython_magics(monkeypatch):
+    for name in ("KF_TEST_VALUE", "KF_TEST_TOKEN"):  # %env sets them in this process; put them back after
+        monkeypatch.setenv(name, "")
     k = Kernel()
     assert "%%capture" in k.run("%lsmagic")["outputs"][0]["text"]
     assert k.run("%matplotlib inline")["status"] == "ok"

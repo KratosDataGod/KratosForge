@@ -1,4 +1,5 @@
-// OneLake writes (lakehouse.write_table): each notebook chooses under Runs on whether its table
+// OneLake writes (lakehouse.write_table): each notebook chooses under Engine (Runs on with Preview
+// features hidden) whether its table
 // writes are kept here and uploaded in the background or go straight to OneLake, and Settings >
 // Advanced holds the default for notebooks that don't choose, compression and skip unchanged.
 const { test, before, after } = require("node:test");
@@ -8,7 +9,7 @@ const { playwright, openApp } = require("./harness.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
-const ENGINE = ["app_settings", "save_app_settings"];
+const ENGINE = ["app_settings", "save_app_settings", "engine_catalog", "engine_state"];
 
 let app;
 const saved = [];
@@ -32,8 +33,8 @@ before(async () => {
 
 after(async () => { if (app) await app.close(); });
 
-test("Runs on offers the notebook's own OneLake writes choice", { skip }, async () => {
-  await page().getByRole("button", { name: /^Runs on/ }).click();
+test("Engine offers the notebook's own OneLake writes choice", { skip }, async () => {
+  await page().locator(".engine-btn").first().click();
   const menu = page().locator("#menu");
   await menu.getByText("Table writes to OneLake from this PC.").waitFor();
   assert.match(await menu.innerText(), /Same as Settings \(Write here, then upload\)/);

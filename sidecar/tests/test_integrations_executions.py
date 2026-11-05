@@ -166,9 +166,9 @@ def test_python_gets_only_an_allowlisted_environment(svc, monkeypatch):
     assert "FABRIC_DESKTOP_TEST_SECRET" not in names and "PATH" in names
     from fabric_desktop.kernel_proc import EXTERNAL_ENV_ALLOW, EXTERNAL_ENV_PREFIXES, EXTERNAL_ENV_SET
     allowed = {n.upper() for n in EXTERNAL_ENV_ALLOW} | set(EXTERNAL_ENV_SET)
-    # Set inside the kernel by its own imports (notebook.py's matplotlib backend, polars' allocator),
-    # in the engine too, so they show up on both sides without being passed down.
-    set_by_imports = {"MPLBACKEND", "_RJEM_MALLOC_CONF"}
+    # Set inside the kernel by its own imports (notebook.py's matplotlib backend, polars' allocator,
+    # onelake.py's upload limits), in the engine too, so they show up on both sides without being passed down.
+    set_by_imports = {"MPLBACKEND", "_RJEM_MALLOC_CONF", "DELTARS_MAX_CONCURRENCY_TASKS", "DELTARS_MAX_IN_FLIGHT_UPLOAD_BYTES"}
     from_parent = [n for n in names if n in os.environ and n not in set_by_imports]
     leaked = [n for n in from_parent if n.upper() not in allowed and not n.upper().startswith(EXTERNAL_ENV_PREFIXES)]
     assert leaked == []
@@ -252,6 +252,18 @@ def test_notebook_runs_cell_by_cell(svc):
     assert out["result"]["cells"][1]["outputs"][0]["text"].strip() == "42"
 
 
+def test_notebook_run_skips_the_run_on_fabric_cell_and_says_so(svc):
+    svc.notebooks.save("step", [{"type": "code", "source": "print('here')"},
+                                {"type": "code", "source": "1 / 0", "meta": {"fabric_step": True}}], LH)
+    out = call(svc, "fabric_desktop_run_notebook", name="step", workspace_id="ws1")
+    assert out["state"] == "succeeded" and out["result"]["cells_run"] == 1
+    assert out["result"]["skipped"].startswith("Cell 2 is marked Run on Fabric")
+    # A notebook whose only code is the step has nothing to run here, and says why.
+    svc.notebooks.save("only", [{"type": "code", "source": "1 / 0", "meta": {"fabric_step": True}}], LH)
+    with pytest.raises(ValueError, match="only has no code to run. Cell 1 is marked Run on Fabric"):
+        call(svc, "fabric_desktop_run_notebook", name="only", workspace_id="ws1")
+
+
 def test_notebook_stops_at_first_error(svc):
     out = call(svc, "fabric_desktop_run_notebook", name="broken", workspace_id="ws1")
     assert out["state"] == "failed" and out["result"]["cells_run"] == 1
@@ -303,6 +315,25 @@ def test_proof_lakehouse_changed_during_approval_starts_nothing(svc, monkeypatch
         cap.handler(svc, limited, name="nb")  # only invoke's bind supplies the hash
 
 
+def test_proof_approval_shows_the_bar_values_and_refuses_changed_ones(svc, monkeypatch):
+    # Both of a proof's runs use the Parameters bar's values, so the approval shows them and is bound to them.
+    started = []
+    monkeypatch.setattr(svc, "prove_start", lambda *a: started.append(a) or {"id": "p1"}, raising=False)
+    cap = reg().get("fabric_desktop_start_proof")
+    svc.notebooks.set_extra("nb", "inputs", {"parameters": {"x": "5"}})
+    bound = cap.bind(svc, {"name": "nb"})
+    assert bound["inputs"] == {"parameters": {"x": "5"}}
+    svc.notebooks.set_extra("nb", "inputs", {"parameters": {"x": "500"}})
+    with pytest.raises(IntegrationError, match="changed after it was approved"):
+        cap.handler(svc, ctx(), name="nb", **bound)
+    # Bound values that don't match their own hash are refused the same way.
+    fresh = cap.bind(svc, {"name": "nb"})
+    with pytest.raises(IntegrationError, match="changed after it was approved"):
+        cap.handler(svc, ctx(), name="nb", **(fresh | {"inputs": {"parameters": {"x": "5"}}}))
+    assert started == []
+    assert cap.handler(svc, ctx(), name="nb", **fresh)["id"] == "p1"
+
+
 def test_external_notebook_cant_run_other_notebooks(svc):
     # %run and notebookutils.notebook.run would run code the person wasn't shown.
     svc.notebooks.save("outer", [{"type": "code", "source": "%run nb"}], LH)
@@ -343,7 +374,7 @@ def test_timeout_interrupts_then_ends(svc):
 
 
 # Runs for days but streams, so it holds no memory. Reads a lakehouse table, so a view is registered too.
-ENDLESS_SQL = "SELECT count(*) AS n FROM range(1000000000000000) t(i) WHERE hash(i) = (SELECT count(*) FROM sales)"
+ENDLESS_SQL = "SELECT count(*) AS n FROM range(1000000000000000) t(i) WHERE (i * 3) % 1000000007 = (SELECT count(*) FROM sales) + 1000000007"
 
 
 def test_sql_timeout_interrupts_the_query_and_frees_the_engine(svc):
@@ -399,8 +430,8 @@ def test_sql_interrupt_just_before_the_statement_starts_is_repeated(svc, monkeyp
 def test_sandboxed_sql_has_memory_and_thread_limits_it_cant_change(svc):
     con, statement = sql.prepare_sandboxed("SELECT 1 AS a", memory_mb=512, threads=1)
     try:
-        assert con.execute("SELECT current_setting('threads')").fetchone()[0] == 1
-        memory = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+        assert con.execute("SELECT current_setting('threads')").fetchall()[0][0] == 1
+        memory = con.execute("SELECT current_setting('memory_limit')").fetchall()[0][0]
         assert memory.endswith("MiB") and float(memory.split()[0]) < 512, memory  # 512 MB is 488.2 MiB
         with pytest.raises(Exception, match="(?i)lock"):
             con.execute("SET memory_limit = '64GB'")

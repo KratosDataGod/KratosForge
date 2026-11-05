@@ -21,4 +21,22 @@ These files are generated from `sidecar/fabric_desktop/benchmark.py`. After chan
 
 [batched_loads.py](batched_loads.py) measures a full load of a lineitem-shaped source table (TPC-H's columns and row count per scale factor, generated with NumPy), once reading the whole source and once with `[load] batch_by`, and checks both end with the same rows. Run it from `sidecar/`: `python ../examples/benchmark/batched_loads.py --scale 1` (`--only batched` for a scale whose single read wouldn't fit in memory). Results: [Large tables](../../docs/metadata-guide.md#large-tables).
 
+## Start-up, notebook start and SQL
+
+[startup_and_sql.py](startup_and_sql.py) times the engine starting, a notebook starting and local SQL queries over a generated table, with median and p95 over several runs. Run it from `sidecar/`: `python ../examples/benchmark/startup_and_sql.py` (`--runs 10 --json bench.json` for more runs and a file). What it measures and the recorded baseline: [Performance benchmark](../../docs/performance.md).
+
+### In CI, and refreshing the baseline
+
+The **Performance** workflow runs this on GitHub's Windows runner and compares it with
+[baseline-windows.json](baseline-windows.json) using [compare.py](compare.py). The rules, and when the
+check becomes a gate, are in [Performance benchmark](../../docs/performance.md#in-ci).
+
+Refresh the baseline when a change makes things faster or slower on purpose, or when GitHub changes the
+Windows runner. Do it from a run on that runner, never from your own PC:
+
+1. Run the **Performance** workflow on main (Actions, then **Run workflow**), or open the latest run.
+2. Download its `benchmark-<commit>` artifact (`bench.json`), or copy the JSON from the **Show the result** step.
+3. From `sidecar/`: `python ../examples/benchmark/compare.py bench.json --write-baseline ../examples/benchmark/baseline-windows.json --runner "GitHub Actions windows-latest" --commit <commit>`
+4. Commit the new file in a pull request that says why the numbers moved.
+
 These runs follow TPC-H's data and queries but are not audited TPC-H results. TPC-H is a trademark of the Transaction Processing Performance Council.

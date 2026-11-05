@@ -17,9 +17,14 @@ import polars as pl
 from . import app_settings
 from .meta.project import ENVIRONMENTS
 from .optimize import setup
-from .workloads import model, sla
+from . import governance_notices as notices
+from .central import core
+from .workloads import impact, model, sla
 from .workloads.incident_history import FAMILY, Sent, event_rows, snapshot_rows
 from .workloads.incidents import ACTIVE, PRIORITIES, PRIORITY_LABELS, default_priority
+
+
+_TOLD = "Told downstream in Teams:"
 
 
 class IncidentDeskMixin:
@@ -56,6 +61,40 @@ class IncidentDeskMixin:
         out.update(counts=counts, sla={"targets": table, "source": source, "problems": problems})
         return out
 
+    def incidents_for_me(self) -> dict[str, Any]:
+        """The bell's For you list: active incidents assigned to the signed-in person, in every
+        environment. Waiting on you (open, not yet acknowledged) first, then by priority and SLA. Each
+        incident is one environment's file read, and nothing is written. An environment that can't be
+        read is named in ``unreadable``; one that isn't set up is left out."""
+        user = self._wl_user() or ""  # type: ignore[attr-defined]
+        out: dict[str, Any] = {"user": user, "incidents": [], "unreadable": []}
+        me = user.casefold()
+        if not me:
+            return out
+        table, _, _ = self._sla_targets()
+        now = dt.datetime.now(dt.UTC)
+        for env in ENVIRONMENTS:
+            try:
+                items = self._incident_log(env).active()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - one environment unreadable: say so, show the rest
+                state, message = model.classify_error(exc)
+                if state != "not_set_up":
+                    out["unreadable"].append({"env": env, "detail": message})
+                continue
+            for inc in items:
+                if (inc.get("owner") or "").casefold() != me:
+                    continue
+                priority = inc.get("priority") or default_priority(inc)
+                out["incidents"].append({
+                    "env": env, "id": inc["id"], "number": inc.get("number", ""), "title": inc.get("title", ""),
+                    "state": inc["state"], "kind": inc.get("kind", ""), "priority": priority,
+                    "sla": sla.status(inc | {"priority": priority}, table, now),
+                    "at": inc.get("last_seen_at") or inc.get("opened_at") or ""})
+        rank = {"breached": 0, "missed": 0, "at_risk": 1}  # missed: acknowledged late, still open
+        out["incidents"].sort(key=lambda i: (i["state"] != "open", PRIORITIES.index(i["priority"]) if i["priority"] in PRIORITIES
+                                             else len(PRIORITIES), rank.get(i["sla"]["state"], 2), i["at"]))
+        return out
+
     def incident_report(self, env: str, title: str, text: str = "", priority: str = "P3",
                         workload: str = "", name: str = "") -> dict[str, Any]:
         """Open an incident for a problem a person noticed. With a workload, its team, technical
@@ -68,6 +107,64 @@ class IncidentDeskMixin:
 
     def incident_set_priority(self, env: str, id: str, priority: str, note: str) -> dict[str, Any]:
         return self._incident_log(env).set_priority(id, priority, self._incident_user(), note)  # type: ignore[attr-defined]
+
+    # ---- who an incident reaches (workloads/impact.py)
+
+    def _incident(self, env: str, id: str) -> dict[str, Any]:
+        found = next((i for i in self._incident_log(env).list() if i["id"] == id), None)  # type: ignore[attr-defined]
+        if found is None:
+            raise LookupError("That incident isn't in the list any more.")
+        return found
+
+    def _followers(self, product_ids: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+        """Each product's followers, on a platform that keeps them, and the products whose followers
+        it wouldn't list to you: who follows what is personal data, so only a product's owners and
+        platform admins see it. Neither on a platform that doesn't keep followers."""
+        if "product_followers" not in core.OPERATIONS:
+            return {}, []
+        out: dict[str, list[str]] = {}
+        hidden: list[str] = []
+        for pid in product_ids:
+            try:
+                out[pid] = self._catalog().call("product_followers", product_id=pid)  # type: ignore[attr-defined]
+            except core.PlatformError:  # not this product's owner or a platform admin
+                hidden.append(pid)
+            except LookupError:  # an older UDF_Platform: owners and links still count
+                return {}, []
+        return out, hidden
+
+    def incident_impact(self, env: str, id: str) -> dict[str, Any]:
+        """The data products built on this incident's workload in its environment, the projects
+        that read them and the people to tell. Read only. ``available`` is false for an incident
+        that isn't about a metadata table, with the reason."""
+        inc = self._incident(env, id)
+        where = impact.workload_entity(inc.get("workload"))
+        if where is None:
+            return {"available": False, "reason": "This incident isn't about a table, so no data product is built on it."}
+        products = self._catalog().call("list_products")  # type: ignore[attr-defined]
+        first = impact.blast_radius(products, *where, env)
+        followers, hidden = self._followers([p["id"] for p in first["products"]])
+        out = impact.blast_radius(products, *where, env, followers, me=self._wl_user() or "")  # type: ignore[attr-defined]
+        told = [n for n in inc.get("notes") or [] if str(n.get("text", "")).startswith(_TOLD)]
+        return out | {"available": True, "told": told[-1] if told else None, "followers_hidden": hidden}
+
+    def incident_tell_impacted(self, env: str, id: str, people: list[str]) -> dict[str, Any]:
+        """Post one Teams notice naming the people this incident reaches, through the platform's
+        Teams routes, and note on the incident who was told. ``people`` are the UPNs the person
+        confirmed: if the mesh changed since, nothing is posted. Nothing else changes."""
+        inc = self._incident(env, id)
+        found = self.incident_impact(env, id)
+        if not found["available"] or not found["people"]:
+            raise ValueError("Nobody downstream to tell: no published data product is built on this table here.")
+        if sorted(str(p).lower() for p in people or []) != sorted(p["upn"] for p in found["people"]):
+            raise ValueError("Who's affected changed since you looked. Nothing was posted; check the list and tell them again.")
+        out = self.platform_notify([notices.incident_impact(inc, found)])  # type: ignore[attr-defined]
+        result = (out.get("events") or [{}])[0]
+        if result.get("result") == "skipped":
+            return {"told": False, "reason": result.get("reason") or out.get("skipped") or "", "people": found["people"]}
+        upns = [p["upn"] for p in found["people"]]
+        self._incident_log(env).note(id, f"{_TOLD} {', '.join(upns)}", self._incident_user())  # type: ignore[attr-defined]
+        return {"told": True, "result": result.get("result"), "routes": result.get("routes") or [], "people": found["people"]}
 
     # ---- history in the central lakehouse
 

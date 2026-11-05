@@ -10,9 +10,9 @@ import time
 from pathlib import Path
 
 import pytest
-from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, shared_version, svc, wait  # noqa: F401
+from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, run_cell, shared_version, svc, wait  # noqa: F401
 
-from fabric_desktop import app_settings, lakehouse
+from fabric_desktop import app_settings, kernel_proc, lakehouse
 from fabric_desktop.kernel_proc import STOPPED_TEXT, ProcessKernel
 from fabric_desktop.notebook import NotebookStore
 from fabric_desktop.server import handle
@@ -66,6 +66,67 @@ def test_the_persons_own_kernel_keeps_their_environment(monkeypatch):
     assert out["outputs"] == [{"type": "text", "text": "'theirs'"}]
 
 
+def test_a_process_that_ends_leaves_no_pipe_open(kernel):
+    """Popen leaves its pipes to the garbage collector; the app starts a process per restart, so
+    each one that ended kept two handles open until a collection happened to run."""
+    def closed(proc, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not (proc.stdin.closed and proc.stdout.closed) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return proc.stdin.closed and proc.stdout.closed
+
+    kernel.run("x = 1")
+    stopped = kernel._proc
+    assert kernel.stop() == {"stopped": True}
+    assert closed(stopped)
+    kernel.run("y = 1")  # a fresh process
+    crashed = kernel._proc
+    assert crashed is not stopped
+    kernel.start("import os\nos._exit(3)")
+    assert closed(crashed)
+    assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # and the next one still starts
+
+
+def test_a_write_stuck_holding_the_send_lock_doesnt_stop_the_process_being_marked_gone(kernel, monkeypatch):
+    """If a request's write never returns (something the process started holds the pipe open and
+    doesn't read), the reader still closes stdout and marks the process gone, leaving stdin."""
+    monkeypatch.setattr(kernel_proc, "CLOSE_WAIT_SECONDS", 0.2)
+    kernel.run("x = 1")
+    proc = kernel._proc
+    kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
+    assert kernel._send_lock(proc).acquire(timeout=5)  # as a _send stuck mid-write would hold it
+    try:
+        deadline = time.monotonic() + 10
+        while kernel._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert kernel._proc is not proc  # marked gone without the lock
+        assert proc.stdout.closed and not proc.stdin.closed
+    finally:
+        kernel._send_lock(proc).release()
+        proc.stdin.close()  # left to the garbage collector by the app; the test closes it
+    assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]
+
+
+def test_a_write_stuck_on_an_ended_process_doesnt_hold_up_the_next_one(kernel, monkeypatch):
+    """Each process has its own send lock: the next process's requests go through while a write to
+    the last one is still stuck."""
+    monkeypatch.setattr(kernel_proc, "CLOSE_WAIT_SECONDS", 0.2)
+    kernel.run("x = 1")
+    proc = kernel._proc
+    kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
+    stuck = kernel._send_lock(proc)
+    assert stuck.acquire(timeout=5)  # held for the whole test, as a write that never returns would
+    try:
+        deadline = time.monotonic() + 10
+        while kernel._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # a new process, not held up
+        assert kernel._proc is not proc and kernel._send_lock(kernel._proc) is not stuck
+    finally:
+        stuck.release()
+        proc.stdin.close()
+
+
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     kernel.run("kept = 1")
     kernel.start("import time\nwhile True:\n    time.sleep(0.05)")
@@ -97,7 +158,9 @@ def described(pid):
 
 
 def alive(pid):
-    """Whether process ``pid`` is still running (a zombie waiting to be reaped counts as ended)."""
+    """Whether process ``pid`` is still running. A zombie waiting to be reaped counts as ended, and so
+    does one being reaped ("X (dead)"), which comes after "Z": treating it as running let the check
+    see the process end and then come back."""
     if sys.platform == "win32":
         import ctypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -116,7 +179,9 @@ def alive(pid):
     if not Path("/proc").is_dir():
         return True  # macOS: the signal is all there is to go on
     try:
-        return "\tZ" not in Path(f"/proc/{pid}/status").read_text()
+        lines = Path(f"/proc/{pid}/status").read_text().splitlines()
+        state = next((line for line in lines if line.startswith("State:")), "State:\tX")
+        return state.split()[1] not in ("Z", "X")
     except (FileNotFoundError, ProcessLookupError):
         return False  # a zombie reaped between the signal and the read: it ended
 
@@ -192,19 +257,19 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     s = Service(root=tmp_path / "app")
-    assert call(s, "kernel_info") == {"process": False, "pid": os.getpid()}
+    assert s.kernel_info() == {"process": False, "pid": os.getpid()}
     assert call(s, "stop_kernel_process") == {"stopped": False, "in_engine": True}
     call(s, "save_app_settings", changes={"kernel_process": True})
     assert app_settings.value("kernel_process") is True
     try:
         call(s, "start_cell", code="import time\ntime.sleep(600)")
-        info = call(s, "kernel_info")
+        info = s.kernel_info()
         assert info["process"] is True and info["pid"] != os.getpid()
         out = handle(s, json.dumps({"id": 1, "method": "save_app_settings", "params": {"changes": {"kernel_process": False}}}))
         assert "running" in out["error"]["message"] if isinstance(out.get("error"), dict) else "running" in str(out.get("error"))
         assert call(s, "stop_kernel_process") == {"stopped": True}
         assert call(s, "poll_cell", version=-1)["status"] == "cancelled"
-        assert call(s, "run_cell", code="2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
+        assert run_cell(s, "2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
     finally:
         s.kernel.close()
 
@@ -225,6 +290,9 @@ def test_a_proof_runs_the_pc_side_in_the_kernel_process(svc):  # noqa: F811
         assert out["pc"]["cells"]["4"]["outputs"][0]["text"].strip() == "5"
         # The time zone was fixed in the kernel's process only; the engine's is as it was.
         assert os.environ.get("TZ") == tz_before
+        # PB-094: the PC side's CPU and memory are the kernel process's, not the engine's.
+        assert out["pc"]["measured"] == "the notebook's own kernel process on this PC"
+        assert "kernel process" in " ".join(out["scorecard"]["notes"])
     finally:
         kernel.close()
 
@@ -296,6 +364,34 @@ def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_li
     assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
 
 
+@pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")
+def test_the_memory_limit_counts_the_processes_a_cell_starts(kernel, quick_limits):
+    from fabric_desktop.kernel_proc import memory_used
+    kernel.run("kept = 1")
+    kernel.memory_limit = (memory_used(kernel.pid) or 0) + 200 * 1024 ** 2
+    child = "import time; block = b'x' * (400 * 1024 ** 2); time.sleep(60)"
+    kernel.start(f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+    assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
+
+
+def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, quick_limits, monkeypatch):
+    """From a Windows venv, Popen's pid is the venv launcher (a few MB) and the interpreter is its
+    child: the limit must read the pid the kernel reported, not proc.pid (#896's Windows trial)."""
+    from fabric_desktop import kernel_proc
+    kernel.run("kept = 1")
+    launcher = kernel._proc.pid
+    kernel.pid = interpreter = launcher + 100_000  # what a venv launcher's child would report
+    monkeypatch.setattr(kernel_proc, "memory_used", lambda pid: 10 * 1024 ** 3 if pid == interpreter else 5 * 1024 ** 2)
+    # The limit goes on once the cell is running: set before, the watcher could end the process before
+    # start, which would then run the cell in a fresh process under its real pid and never hit the limit.
+    kernel.start("import time\ntime.sleep(30)")
+    kernel.memory_limit = 1024 ** 3
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+
+
 def test_the_limits_come_from_settings_or_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
@@ -364,3 +460,71 @@ def test_stop_restart_and_close_delete_the_processs_output_files(kernel):
     kernel.run(big)
     kernel.close()
     assert not folder.exists() and kernel.output_dir is None
+
+
+def test_the_run_meter_measures_the_kernel_process_not_the_engine(kernel):
+    """PB-094: with notebooks in their own process, a run's CPU and memory are that process's."""
+    from fabric_desktop.measure import RunMeter, cpu_seconds
+    kernel.run("x = 1")  # started, so its start-up isn't part of this run
+    before = cpu_seconds(kernel.pid)
+    engine_before = time.process_time()
+    with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+        out = kernel.run("import time\nheld = bytearray(300 * 1024 * 1024)\n"
+                         "end = time.process_time() + 1.5\nwhile time.process_time() < end:\n    pass\nprint('ok')")
+    after = cpu_seconds(kernel.pid)
+    assert text(out).strip() == "ok"
+    result = meter.result()
+    # The kernel's own CPU time, as the process reports it, and none of the engine's.
+    assert result["cpu_seconds"] >= 1.4 and abs(result["cpu_seconds"] - (after - before)) < 0.2
+    assert time.process_time() - engine_before < 1.0
+    assert result["peak_memory_mb"] >= 300 and result["measured"] == "the notebook's own kernel process on this PC"
+
+
+def test_a_kernel_that_starts_during_the_run_counts_from_its_start(kernel):
+    from fabric_desktop.measure import RunMeter, cpu_seconds
+    kernel.restart()
+    with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+        kernel.run("end = __import__('time').process_time() + 0.5\nwhile __import__('time').process_time() < end:\n    pass")
+    assert meter.processes == 1 and meter.cpu >= 0.5 and meter.cpu <= cpu_seconds(kernel.pid) + 0.05
+
+
+def test_a_stopped_or_restarted_kernel_isnt_measured_before_its_next_start(kernel):
+    """The id of an ended process (which the OS may give another process) is never measured."""
+    from fabric_desktop.measure import RunMeter
+    kernel.run("x = 1")
+    pid = kernel.pid
+    assert kernel.live_pid == pid
+    for end in (kernel.stop, kernel.restart):
+        end()
+        assert kernel.live_pid is None and kernel.pid == pid  # the last id is still there, not measured
+        with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+            time.sleep(0.2)
+        assert meter.processes == 0 and meter.cpu == 0 and meter.result()["peak_memory_mb"] is None
+    kernel.run("x = 2")
+    assert kernel.live_pid == kernel.pid != pid
+
+
+def test_a_job_with_more_processes_than_the_list_holds_is_read_again_bigger(monkeypatch):
+    """QueryInformationJobObject fails with ERROR_MORE_DATA when the list is too small, but says how
+    many processes the job has: the list is read again that big rather than given up on."""
+    from fabric_desktop import kernel_proc
+    pids = list(range(1, kernel_proc.JOB_PIDS + 51))
+    calls = []
+
+    class Kernel32:
+        @staticmethod
+        def QueryInformationJobObject(job, kind, buffer, size, _returned):  # noqa: N802
+            listed = buffer._obj  # the JOBOBJECT_BASIC_PROCESS_ID_LIST passed by reference
+            room = len(listed.ProcessIdList)
+            calls.append(room)
+            listed.NumberOfAssignedProcesses = len(pids)
+            if room < len(pids):
+                return False  # ERROR_MORE_DATA
+            listed.NumberOfProcessIdsInList = len(pids)
+            for i, pid in enumerate(pids):
+                listed.ProcessIdList[i] = pid
+            return True
+
+    monkeypatch.setattr(kernel_proc, "_kernel32", lambda: Kernel32)
+    assert kernel_proc._job_pids(1) == pids
+    assert calls[0] == kernel_proc.JOB_PIDS and calls[1] >= len(pids)

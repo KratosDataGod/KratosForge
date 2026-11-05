@@ -40,7 +40,13 @@ async function nbfExport(format) {
   const nb = state.notebook;
   if (!nb) return;
   const out = await attempt(() => rpc("notebook_export", nbfExportPayload(nb, format)), "Could not export the notebook");
-  if (out) toast(`Saved ${nb.name} to ${out.path}`);
+  if (!out) return;
+  toast(`Saved ${nb.name} to ${out.path}`);
+  if ((out.notes || []).length) {
+    showDialog("What Databricks source doesn't hold", h("div", { class: "scroll" },
+      h("p", { class: "text" }, `The file is saved. ${nbfPlural(out.notes.length, "thing")} in this notebook didn't carry over as it is:`),
+      nbfNotesTable(out.notes)), [btn("OK", null, closeDialog, "tool primary")]);
+  }
 }
 
 // An ArrayBuffer as base64, a chunk at a time so a large archive doesn't overflow the call stack.
@@ -53,6 +59,25 @@ function nbfBase64(buffer) {
 
 function nbfPlural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// What a Databricks conversion dropped, changed, or carried over as written but won't run the same
+// (notebook_formats.py): one row per note, with its cell number ("Whole notebook" when it has none).
+const NBF_NOTE_KINDS = { dropped: "Not carried over", changed: "Changed", check: "Check before running", fabric: "Before running in Fabric" };
+
+function nbfNotesTable(notes) {
+  return h("table", { class: "list nbf-notes" }, h("thead", {}, h("tr", {}, h("th", {}, "Cell"), h("th", {}, ""), h("th", {}, "What"))),
+    h("tbody", {}, notes.map((n) => h("tr", {},
+      h("td", {}, n.cell == null ? "Whole notebook" : String(n.cell)),
+      h("td", { class: "muted-text" }, NBF_NOTE_KINDS[n.kind] || n.kind),
+      h("td", {}, n.what)))));
+}
+
+// The import preview's notes, one section per new notebook that has any.
+function nbfCheckNotes(check) {
+  return check.notebooks.filter((n) => (n.notes || []).length).map((n) => h("div", { class: "nbf-notes-block" },
+    h("p", { class: "text" }, `${n.name}: ${nbfPlural(n.notes.length, "thing")} to know about the conversion`),
+    nbfNotesTable(n.notes)));
 }
 
 // One line per notebook the import would create.
@@ -89,7 +114,7 @@ function nbfImportDialog() {
     if (!check) { fill(out); return; }
     fill(out, h("p", { class: "text" }, `${check.format}: ${nbfPlural(check.notebooks.length, "new notebook")} will be created.`),
       h("table", { class: "list" }, h("thead", {}, h("tr", {}, h("th", {}, "New notebook"), h("th", {}, "Folder in the file"),
-        h("th", {}, "Cells"), h("th", {}, "Languages"))), h("tbody", {}, nbfCheckRows(check))));
+        h("th", {}, "Cells"), h("th", {}, "Languages"))), h("tbody", {}, nbfCheckRows(check))), ...nbfCheckNotes(check));
     go.disabled = !check.notebooks.length;
   };
   const overlay = showDialog("Import Fabric or Databricks notebooks", h("div", { class: "scroll" },

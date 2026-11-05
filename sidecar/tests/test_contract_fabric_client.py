@@ -174,7 +174,8 @@ def test_lro_failed_surfaces_fabrics_error_and_is_not_reposted(status):
                       Reply(200, {"status": "Running"}), Reply(200, error)])
     with pytest.raises(FabricError) as exc:
         c.create_lakehouse(WS, "Sales")
-    assert "Operation failed" in str(exc.value)
+    assert "Fabric's operation" in str(exc.value) and "{" not in str(exc.value)  # Fabric's words, no raw body
+    assert exc.value.code == "ItemDisplayNameAlreadyInUse"
     assert "ItemDisplayNameAlreadyInUse" in str(exc.value) and "Sales is already in use" in str(exc.value)
     assert [r.method for r in t.sent] == ["POST", "GET", "GET"]
     assert not any(r.url.endswith("/result") for r in t.sent)
@@ -193,7 +194,8 @@ def test_lro_that_never_finishes_times_out_without_reposting(monkeypatch):
                      else Reply(200, {"status": "Running"}), poll_timeout=35)
     with pytest.raises(FabricError) as exc:
         c.create_lakehouse(WS, "Sales")
-    assert "timed out" in str(exc.value) and OP in str(exc.value)
+    assert "didn't finish within 35 seconds" in str(exc.value) and OP.rsplit("/", 1)[-1] in str(exc.value)
+    assert exc.value.code == "OperationTimedOut"
     assert [r.method for r in t.sent].count("POST") == 1
     assert 1 <= sum(r.url == OP for r in t.sent) <= 10
 

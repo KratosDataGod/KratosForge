@@ -1,4 +1,4 @@
-// Governance plan step 10: Platform > Requests' New request dialog for a workspace, workspace access,
+// Governance plan step 10: Data mesh > Requests' New request dialog for a workspace, workspace access,
 // a domain and a policy exception, their rows, and the confirmation before an approval makes
 // something in Fabric (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
@@ -46,7 +46,7 @@ before(async () => {
     governance_overview: () => ({ policies: [{ id: "no-pii-in-dev", name: "No PII in Dev", current_version: 1, status: "published" }],
       domains: [{ id: "sales", name: "Sales" }], projects: ["hr-analytics", "crm"], exceptions: [], problems: [] }),
   } });
-  await page().evaluate(() => { state.user = "ana@contoso.com"; goPlatform("requests"); });
+  await page().evaluate(() => { state.user = "ana@contoso.com"; meshRequests.show = "all"; goPlatform("requests"); });
   await page().waitForSelector('tr[data-request="r1"]');
 });
 after(async () => { if (app) await app.close(); });
@@ -117,7 +117,7 @@ test("New request picks the kind, tags the new ones Preview and keeps the older 
   await page().waitForSelector('[role=dialog] >> text="A new workspace"');
   const kinds = await page().$$eval(".req-kind", (bs) => bs.map((b) => b.textContent));
   assert.deepStrictEqual(kinds.map((k) => k.split(" Preview")[0].trim()),
-    ["A new workspace", "Access to a workspace", "A domain", "An exception to a policy"]);
+    ["A new workspace", "Access to a workspace", "A domain", "An exception to a policy", "Data from another team"]);
   assert.ok(kinds.every((k) => k.includes("Preview")));
   const also = await page().textContent(".req-dialog .row");
   for (const k of ["Key table", "Source", "Product access", "Shortcut"]) assert.ok(also.includes(k), k);

@@ -73,14 +73,17 @@ def _memory_cap() -> int:
 def fingerprint_part(table: pa.Table) -> tuple[int, int, int]:
     """(rows, sum, xor) of a hash of every row: in any order, and parts of a stream add up."""
     import duckdb
+
+    from .duckdb_rows import one_row
+
     if table.num_rows == 0:
         return 0, 0, 0
     con = duckdb.connect()
     try:
         con.register("t", table)
-        rows, total, xor = con.execute(
+        rows, total, xor = one_row(con.execute(
             "SELECT count(*), coalesce(sum(hash(r)::HUGEINT), 0), coalesce(bit_xor(hash(r)), 0) "
-            "FROM (SELECT t AS r FROM t)").fetchone()
+            "FROM (SELECT t AS r FROM t)"))
     finally:
         con.close()
     return int(rows), int(total), int(xor)
@@ -127,7 +130,10 @@ class Spill:
         self._sink.close()
 
     def reader(self) -> pa.RecordBatchReader:
+        """The spilled batches from the start (again, for a write that's tried again)."""
         import pyarrow as pa
+        if self._mapped is not None:
+            self._mapped.close()
         self._mapped = pa.memory_map(str(self.path))
         return pa.ipc.open_stream(self._mapped)
 
@@ -221,6 +227,7 @@ class Queue:
         self._running = 0
         self._ready: list[Callable[[], None]] = []
         self._threads: list[threading.Thread] = []
+        self.warnings: list[str] = []  # the last flush's writes that went in with a warning
 
     def submit(self, key: str, label: str, nbytes: int, work: Callable[[], Any]) -> Future:
         """Run ``work`` after the table's earlier writes; waits first while too much is held in memory."""
@@ -288,7 +295,9 @@ class Queue:
 
     def flush(self, cancel: bool = False) -> list[str]:
         """Wait for every write, then forget them: what failed, one line each (empty when all went in).
-        ``cancel`` drops the writes that haven't started (the cell was cancelled)."""
+        ``cancel`` drops the writes that haven't started (the cell was cancelled). A write that went in
+        with a warning (its lease lapsed after the commit, EA-006) leaves it in ``warnings`` for the cell."""
+        self.warnings = []
         with self._lock:
             pending, self._pending = self._pending, []
             self._last.clear()
@@ -303,6 +312,8 @@ class Queue:
             exc = f.exception()
             if exc is not None:
                 failed.append(f"{label}: {type(exc).__name__}: {exc}")
+            elif getattr(f.result(), "warning", None):
+                self.warnings.append(f.result().warning)
         return failed
 
     def busy(self) -> bool:

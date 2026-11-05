@@ -16,8 +16,8 @@ const skip = !playwright && "Playwright is not installed";
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_start", "sql_status", "sql_page", "sql_cancel",
-      "sql_export", "sql_export_status", "sql_export_cancel", "sql_executions", "app_settings", "save_app_settings"],
+    engine: ["sql_format", "sql_analyze", "sql_start", "sql_status", "sql_page", "sql_cancel",
+      "sql_export", "sql_export_status", "sql_export_cancel", "app_settings", "save_app_settings"],
     mocks: { list_tables: () => ({ dbo: ["sales"] }), table_columns: () => [] },
   });
   await app.page.evaluate((lh) => openSqlQuery(lh), LH);
@@ -100,8 +100,8 @@ test("Stop ends a running query and the page says it stopped", { skip }, async (
   await page().locator(".sql-band button:has-text('Stop')").click();
   await waitPill("Stopped");
   assert.match(await page().locator(".sql-grid .output.error").textContent(), /Stopped/);
-  const status = await page().evaluate(() => rpc("sql_executions"));
-  assert.strictEqual(status[0].state, "cancelled");
+  const status = await page().evaluate(() => rpc("sql_status", { execution: sqlPage.tabs[sqlPage.active].exec.id }));
+  assert.strictEqual(status.state, "cancelled");
   assert.ok(!JSON.stringify(status).includes("range(200000000)"), "run status never carries the SQL");
 });
 

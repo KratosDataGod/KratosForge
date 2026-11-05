@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core import CallContext, IntegrationError, redact_result, redact_secrets
+from .. import jsonfile, notebook_cells
 
 STATES = ("queued", "running", "succeeded", "failed", "cancelled", "timed_out")
 FINISHED = ("succeeded", "failed", "cancelled", "timed_out")
@@ -229,11 +230,8 @@ class ExecutionManager:
         return sorted(out, key=lambda r: r.get("created_at") or 0, reverse=True)[:limit]
 
     def _save(self, run: Execution) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
         body = run.view() | {"logs": run.logs}
-        tmp = self.folder / f"{run.id}.tmp"
-        tmp.write_text(json.dumps(body, default=str), encoding="utf-8")
-        tmp.replace(self.folder / f"{run.id}.json")
+        jsonfile.write_text(self.folder / f"{run.id}.json", json.dumps(body, default=str))
         old = sorted(self.folder.glob("ex_*.json"))[:-KEEP_RECORDS]
         for path in old:
             path.unlink(missing_ok=True)
@@ -366,8 +364,11 @@ class ExecutionManager:
         return IntegrationError("cancelled", "The query was cancelled.")
 
     def run_cells(self, run: Execution, cells: list[str], lakehouse_ref: dict[str, str] | None,
-                  notebook: str = "") -> dict[str, Any]:
-        """Run code cells in order in a fresh process kernel, then end it."""
+                  notebook: str = "", skipped: str = "") -> dict[str, Any]:
+        """Run code cells in order in a fresh process kernel, then end it. ``skipped`` says what
+        the run left out, in its log and result."""
+        if skipped:
+            run.log(skipped)
         kernel = self._kernel_factory()
         kernel.notebook_name = notebook
         where = getattr(self.service, "_resources_dir", None)  # builtin/ paths, as in the notebook
@@ -390,12 +391,7 @@ class ExecutionManager:
                 with self._attach_lock:
                     self.service._attach(lakehouse_ref)
                     snap = kernel.start(code)
-                version, outputs = -1, snap.get("outputs") or []
-                while snap["status"] == "running":
-                    snap = kernel.poll(version, 0.5)
-                    version = snap.get("version", version)
-                    if snap.get("outputs") is not None:
-                        outputs = snap["outputs"]
+                snap, outputs = notebook_cells.wait(kernel, snap)
                 done.append({"cell": n, "status": snap["status"], "seconds": snap.get("seconds"),
                              "outputs": shape_outputs(outputs, budget)})
                 if snap["status"] != "ok":
@@ -411,4 +407,4 @@ class ExecutionManager:
         if failed is not None:
             run.state = "failed"
             run.error = {"code": "failed", "message": f"Cell {failed['cell']} failed.", "retryable": False}
-        return {"cells": done, "cells_total": len(cells), "cells_run": len(done)}
+        return {"cells": done, "cells_total": len(cells), "cells_run": len(done)} | ({"skipped": skipped} if skipped else {})

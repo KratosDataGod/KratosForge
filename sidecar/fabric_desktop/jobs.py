@@ -28,6 +28,7 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
+from .duckdb_rows import keep_try_cast
 from .onelake import check_name
 
 ENGINES = ("duckdb", "polars")
@@ -91,7 +92,7 @@ def run_local(job: Job) -> pa.Table:
     """Run the job on this machine and return the result as Arrow."""
     with _cwd(job.base_dir):
         if job.engine == "duckdb":
-            with duckdb.connect() as con:
+            with keep_try_cast(duckdb.connect()) as con:
                 # UTC like Fabric, not this PC. SET (not connect's config) uses the built-in ICU;
                 # config makes DuckDB try to download it, which fails offline and on locked-down PCs.
                 con.execute("SET TimeZone = 'UTC'")

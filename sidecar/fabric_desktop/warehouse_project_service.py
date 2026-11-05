@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import uuid
@@ -33,7 +34,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.sax.saxutils import escape
 
-from . import warehouse_compare
+from . import jsonfile, warehouse_compare
+from .redact import describe as describe_error
 from .git.repo import Repository
 
 METHODS = {"wh_projects_list", "wh_project_files", "wh_project_read", "wh_project_save", "wh_project_write",
@@ -46,6 +48,10 @@ MAX_OBJECTS = 5000            # objects in one import
 MAX_DEPTH = 6                 # folders below the project folder
 FIND_DEPTH = 4                # folders below a repository's root where projects are looked for
 KINDS = ("schema", "table", "view", "procedure", "function")
+# Schemas Fabric makes and keeps itself in a warehouse: never the project's, so Import, Compare and
+# Deploy leave them out (#807). The page leaves them out too (WH_FABRIC_SCHEMAS in whproject.js).
+FABRIC_SCHEMAS = {"queryinsights", "_rsc", "sys", "information_schema"}
+FABRIC_OWN = "Fabric makes and keeps this schema itself, so it isn't part of the project."
 FOLDERS = {"table": "Tables", "view": "Views", "procedure": "StoredProcedures", "function": "Functions"}
 SKIP_DIRS = {"bin", "obj", "node_modules"}
 PLATFORM_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json"
@@ -128,6 +134,9 @@ def default_path(kind: str, schema: str, name: str) -> str:
 
 def _normal(text: str) -> str:
     return text.replace("\r\n", "\n").strip() + "\n"
+
+
+_log = logging.getLogger(__name__)
 
 
 class WarehouseProjectMixin:
@@ -299,7 +308,7 @@ class WarehouseProjectMixin:
         try:
             with open(tmp, "x", encoding="utf-8", newline="\n") as out:
                 out.write(text)
-            os.replace(tmp, f)
+            jsonfile.replace(tmp, f)
         except BaseException:
             tmp.unlink(missing_ok=True)  # a locked file (Windows) mustn't leave a .tmp for Git to show
             raise
@@ -375,6 +384,10 @@ class WarehouseProjectMixin:
                     where.setdefault(_key(obj["kind"], obj["schema"], obj["name"]), rel)
                     if obj["kind"] != "schema" and len(PurePosixPath(rel).parts) == 3:
                         folders.setdefault(obj["kind"], PurePosixPath(rel).parts[1])  # this project's own folder name
+        # Windows and macOS file names ignore letter case, but warehouse names don't (BIN2): dbo.Sales and
+        # dbo.sales would share one file there. Each path, in lower case, belongs to the first object to
+        # have it, and another object whose path differs only in case is skipped, never written over it.
+        taken = {rel.lower(): key for key, rel in where.items()}
         result: dict[str, list[dict[str, str]]] = {"added": [], "changed": [], "same": [], "skipped": []}
         for o in objects:
             kind, schema, name = str(o.get("kind") or ""), str(o.get("schema") or ""), str(o.get("name") or "")
@@ -384,6 +397,8 @@ class WarehouseProjectMixin:
             try:
                 if kind not in KINDS or not name or (kind != "schema" and not schema):
                     raise ValueError("It isn't a table, view, procedure, function or schema with a name.")
+                if (schema or name).lower() in FABRIC_SCHEMAS:
+                    raise ValueError(FABRIC_OWN)
                 if len(text.encode("utf-8")) > MAX_FILE:
                     raise ValueError(f"Its script is larger than {MAX_FILE // 1024} KB.")
                 rel = where.get(_key(kind, schema, name))
@@ -392,6 +407,13 @@ class WarehouseProjectMixin:
                     if kind in folders:
                         rel = f"{schema}/{folders[kind]}/{name}.sql"
                 row["path"] = rel
+                owner = taken.setdefault(rel.lower(), _key(kind, schema, name))
+                if owner != _key(kind, schema, name) and where.get(_key(kind, schema, name)) != rel:
+                    other = owner[2] if owner[0] == "schema" else f"{owner[1]}.{owner[2]}"
+                    if where.get(owner) == rel:
+                        raise ValueError(f"Its file would be {rel}, which already defines {other}.")
+                    raise ValueError(f"Its file would be {rel}, which is {other}'s file apart from letter case, and "
+                                     "Windows keeps only one of them. Rename one of the two objects.")
                 f = self._wh_file(project, rel) if project is not None else None
                 if f is None or not f.is_file():
                     if not dry_run:
@@ -434,6 +456,9 @@ class WarehouseProjectMixin:
             if not obj:
                 unread.append({"path": rel, "why": "It doesn't create a table, view, procedure, function or schema."})
                 continue
+            if obj["schema"].lower() in FABRIC_SCHEMAS:
+                unread.append({"path": rel, "why": FABRIC_OWN})
+                continue
             key = _key(obj["kind"], obj["schema"], obj["name"])
             if key in mine:
                 unread.append({"path": rel, "why": f"{obj['schema']}.{obj['name']} is also defined in {mine[key]['path']}."})
@@ -442,7 +467,7 @@ class WarehouseProjectMixin:
         theirs = {}
         for o in objects:
             kind, schema, name = str(o.get("kind") or ""), str(o.get("schema") or ""), str(o.get("name") or "")
-            if kind in KINDS and name and (schema or kind == "schema"):
+            if kind in KINDS and name and (schema or kind == "schema") and (schema or name).lower() not in FABRIC_SCHEMAS:
                 theirs[_key(kind, schema or name, name)] = {"kind": kind, "schema": schema or name, "name": name,
                                                             "text": str(o.get("text") or "")}
         rows = warehouse_compare.compare(mine, theirs)
@@ -457,12 +482,37 @@ class WarehouseProjectMixin:
 
     # ---- deploy (WH-13)
 
+    def _wh_workspace_env(self, workspace_id: str) -> str:
+        """The environment the open metadata project gives ``workspace_id``: the strictest one that
+        names it (Prod, then Test, then Dev; a Keys workspace counts as its environment's), or
+        "none" when none does, there's no project, or it can't be read."""
+        from .meta_service import NoMetadataProject, _env_workspaces
+        if not workspace_id:
+            return "none"
+        try:
+            envs = self._project().environments  # type: ignore[attr-defined]
+        except NoMetadataProject:
+            return "none"
+        except Exception as exc:  # noqa: BLE001 - an unreadable project gates the deploy, as no project does
+            _log.info("Couldn't read the metadata project's environments; the deploy is gated: %s", describe_error(exc))
+            return "none"
+        wanted = workspace_id.lower()
+        for env in ("prod", "test", "dev"):
+            cfg = envs.get(env) or {}
+            ids = _env_workspaces(cfg) | {cfg.get("keys_workspace_id") or ""}
+            if wanted in {i.lower() for i in ids if i}:
+                return env
+        return "none"
+
     def wh_project_deploy_plan(self, repo: str, folder: str, objects: list[dict[str, Any]],
-                               environment: str = "") -> dict[str, Any]:
+                               environment: str = "", workspace_id: str = "") -> dict[str, Any]:
         """What a deploy would run to make the warehouse match the project: the compare, turned into
         changes in the order they'd run (warehouse_compare.deploy_plan), and the project's Git state.
         Each change from a file says whether that file is committed (tracked, and the same as HEAD).
-        Outside Dev (``environment`` test, prod, none or not given) a deploy takes only what Git has:
+        Outside Dev a deploy takes only what Git has. The environment is the stricter of ``environment``
+        (what the page sent) and what the metadata project gives ``workspace_id`` (the warehouse's
+        workspace, as the page sends it; see _wh_workspace_env), so a page can't turn the rule off by sending "dev"; without a workspace,
+        or one no environment names, the deploy counts as Prod. There,
         a change whose file isn't committed isn't offered, and nothing is while the branch has commits
         that aren't pushed. Writes nothing and runs nothing: the page runs each ticked change as a
         confirmed warehouse change (sql_exec.py)."""
@@ -472,7 +522,10 @@ class WarehouseProjectMixin:
         git = self._wh_git(root, project)
         changes = warehouse_compare.deploy_plan(compared["objects"])
         committed = self._wh_committed(root, project, sorted({c["path"] for c in changes if c["path"]}))
-        gated = environment != "dev"
+        rank = {"dev": 0, "test": 1, "prod": 2}
+        env = max((environment if environment in rank else "none", self._wh_workspace_env(workspace_id)),
+                  key=lambda e: rank.get(e, 3))
+        gated = env != "dev"
         unpushed = not git["upstream"] or bool(git["ahead"])
         for c in changes:
             c["committed"] = committed.get(c["path"], True) if c["path"] else True
@@ -482,4 +535,4 @@ class WarehouseProjectMixin:
                          why=f"{c['why']}; held until it's committed and pushed")
         return {"repo": repo, "folder": folder, "changes": changes, "unread": compared["unread"],
                 "branch": git["branch"], "commit": git["commit"], "upstream": git["upstream"], "ahead": git["ahead"],
-                "gated": gated, "uncommitted": sorted({c["path"] for c in changes if not c["committed"]})}
+                "gated": gated, "environment": env, "uncommitted": sorted({c["path"] for c in changes if not c["committed"]})}

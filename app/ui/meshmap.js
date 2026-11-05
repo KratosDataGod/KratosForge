@@ -24,14 +24,14 @@ function drawMeshMap(m) {
   }
   if (!m.domains.length && !m.projects.length) {
     return emptyState({ title: "No domains yet",
-      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Platform > Set up > Domains.",
-      action: btn("Open Platform > Set up > Domains", "building", () => goPlatform("domains"), "tool outline small") });
+      text: "Start from the domains your organization already has in Fabric: a platform admin who is a Fabric administrator imports them on Data mesh > Domains.",
+      action: btn("Open Domains", "building", () => goMeta("domains"), "tool outline small") });
   }
   const products = (project) => m.products.filter((p) => p.project === project);
   const readers = (pid) => m.links.filter((l) => l.product === pid).length;
   const node = (p) => h("div", { class: `mesh-node${p.name === m.me ? " me" : ""}`, "data-project": p.name,
     title: p.team ? `${p.name} · ${p.team}` : p.name,
-    onclick: p.name === m.me ? () => goMeta("domains") : null },
+    onclick: p.name === m.me ? () => goMeta("workspaces") : null },
     h("div", { class: "row tight" }, icon("metadata", 16), h("b", {}, p.name), p.name === m.me ? h("span", { class: "badge" }, "This project") : null),
     p.team ? h("div", { class: "muted-text small" }, p.team) : null,
     products(p.name).map((x) => h("div", { class: `mesh-product ${x.access}`, "data-product": x.id,
@@ -92,6 +92,6 @@ function drawMeshMap(m) {
       h("span", { class: "mesh-product public" }, "Open to everyone"), h("span", { class: "mesh-product domain" }, "Its domain"),
       h("span", { class: "mesh-product private" }, "By request"),
       h("span", { class: "spacer" }),
-      btn("Data products", "cube", () => { catalogPage.tab = "products"; go("onelake"); }, "tool link small"),
-      btn("Domains", "building", () => goPlatform("domains"), "tool link small")));
+      btn("Data products", "cube", () => openProducts(), "tool link small"),
+      btn("Domains", "building", () => goMeta("domains"), "tool link small")));
 }

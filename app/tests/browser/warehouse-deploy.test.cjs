@@ -44,9 +44,9 @@ before(async () => {
   const runs = sqlRunMocks(catalog);
   const states = new Map();
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", "git_init", "wh_projects_list", "wh_project_files",
-      "wh_project_read", "wh_project_compare", "wh_project_diff", "wh_project_deploy_plan"],
-    mocks: { ...runs,
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", "git_init", "wh_projects_list", "wh_project_files",
+      "wh_project_read", "wh_project_compare", "wh_project_diff", "wh_project_deploy_plan", "meta_init", "meta_set_environment"],
+    mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }),
       sql_start: (p) => {
         if (p.dry_run) {
           return /BEGIN TRAN/i.test(p.query)
@@ -65,6 +65,13 @@ before(async () => {
       },
       sql_status: (p) => states.get(p.execution) || { ...runs.sql_status(p), target: "warehouse" } },
   });
+  // The engine works out a deploy's environment from its own metadata project (#810), as the page does.
+  const meta = path.join(app.engineHome, "meta");
+  await page().evaluate(async (p) => {
+    await rpc("meta_init", { path: p, preset: "3", sample: false });
+    await rpc("meta_set_environment", { env: "dev", workspace_id: "ws1", workspace_name: "Sales Dev" });
+    await rpc("meta_set_environment", { env: "prod", workspace_id: "ws9", workspace_name: "Sales Prod" });
+  }, meta);
   root = path.join(app.engineHome, "sales-platform");
   fs.mkdirSync(root);
   await page().evaluate((p) => rpc("git_init", { path: p }), root);
@@ -84,7 +91,7 @@ async function openDeploy() {
   const confirm = page().getByRole("dialog").getByRole("button", { name: "Run in Fabric" });
   if (await confirm.isVisible().catch(() => false)) await confirm.click();
   await page().locator(".wh-cmp").waitFor();
-  await page().getByRole("button", { name: "Deploy to WH_Gold..." }).click();
+  await page().getByRole("button", { name: "Deploy to WH_Gold…" }).click();
   const dialog = page().getByRole("dialog", { name: "Deploy WH_Gold.Warehouse" });
   await dialog.waitFor();
   return dialog;

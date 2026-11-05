@@ -60,6 +60,25 @@ function btn(label, iconName, onClick, cls = "tool", attrs = {}) {
   return h("button", { class: cls, onclick: onClick, ...attrs }, iconName ? icon(iconName, 16) : null, label);
 }
 
+// A folder box with Browse… beside it (#971): the Windows folder dialog (pick_folder in the shell)
+// fills the box, which stays editable for pasting. A box policy locks gets no button. `name` says
+// which folder, for a page with more than one box. The box needs its own aria-label: inside a
+// <label>, its name would otherwise take in the button's.
+function folderField(input, name = "a folder") {
+  if (input.readOnly || !window.__TAURI__?.core) return input;
+  const browse = btn("Browse…", "folderOpen", async () => {
+    browse.disabled = true; // one dialog at a time
+    const chosen = await invoke("pick_folder", { start: input.value.trim() || null })
+      .catch((e) => { toast(friendlyError(e).text, true); return null; })
+      .finally(() => { browse.disabled = false; });
+    if (!chosen) return;
+    input.value = chosen;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  }, "tool outline", { type: "button", "aria-label": `Browse for ${name}` });
+  return h("div", { class: "folder-field" }, input, browse);
+}
+
 function hydrateIcons(root = document) {
   root.querySelectorAll("[data-icon]").forEach((el) => {
     el.replaceWith(icon(el.dataset.icon, Number(el.dataset.size || 20)));
@@ -157,9 +176,11 @@ function closeDialog() {
 // outside would close, and focus goes back to whatever opened it.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+// lastOutside is a WeakRef: the last element focused may be on a page you've left since, and holding
+// it would keep that whole page in memory.
 const dialogFocus = { opener: null, lastOutside: null };
 document.addEventListener("focusin", (e) => {
-  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = e.target;
+  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = new WeakRef(e.target);
 });
 
 function trapFocus(e, root) {
@@ -185,7 +206,7 @@ new MutationObserver(() => {
   const root = document.getElementById("dialog-root");
   if (root.childElementCount) {
     // showDialog may already have focused a field, so remember where focus was before it.
-    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside;
+    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside?.deref() || null;
     // Start inside the dialog unless the code that opened it already chose a field.
     if (!root.contains(document.activeElement)) root.querySelector(FOCUSABLE)?.focus();
   } else {
@@ -206,6 +227,13 @@ function showDialog(title, body, actions = [], onClose = null) {
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  // A dialog's How this works says what its button changes, so it opens unfolded.
+  overlay.querySelectorAll(".how-it-works.folded").forEach((p) => {
+    p.classList.remove("folded");
+    const toggle = p.querySelector(":scope > .fold-head > .fold-toggle");
+    toggle?.setAttribute("aria-expanded", "true");
+    if (toggle) toggle.title = "Hide";
+  });
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
@@ -328,10 +356,23 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
   const label = tab.textContent;
+  const list = el.closest("[role=tablist]")?.getAttribute("aria-label");
   tab.click();
-  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
-  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
-  (now || (tab.isConnected ? tab : null))?.focus();
+  // Selecting a tab often re-renders the tab list, sometimes after an engine call: focus the new copy
+  // of the selected tab, in the same tablist when it's named (a count in the label may have changed),
+  // for up to a second, while focus is still nowhere else (#961).
+  const selected = () => (list
+    ? [...document.querySelectorAll("[role=tablist]")].find((l) => l.getAttribute("aria-label") === list)?.querySelector("[role=tab][aria-selected=true]")
+    : [...document.querySelectorAll("[role=tab]")].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true"));
+  const refocus = (tries) => {
+    const found = selected();
+    const now = found === el ? null : found;  // a page that redraws later still shows the old selection
+    const lost = [document.body, el, tab].includes(document.activeElement) || !document.activeElement?.isConnected;
+    if (now && lost) now.focus();
+    else if (!now && tab.isConnected && lost) tab.focus();
+    if (tries > 0 && (!now || document.activeElement !== now) && lost) setTimeout(() => refocus(tries - 1), 50);
+  };
+  refocus(20);
 });
 
 // ---------- account and data ----------
@@ -367,11 +408,13 @@ function lakehouseRef(ws, lh) {
 // The Warehouse page's ref (WH-01) for a Warehouse item, or for a SQL analytics endpoint: the engine
 // finds an endpoint through its lakehouse, which Fabric gives the same name in the same workspace.
 // null for other items, and for an endpoint whose lakehouse isn't in the list.
+// items: the workspace's items, or a Map of its lakehouses by name (built once for a whole list).
 function warehouseRefFor(ws, it, items) {
   const base = { workspace_id: ws.id, workspace_name: ws.displayName, name: it.displayName };
   if (it.type === "Warehouse") return { ...base, kind: "warehouse", item_id: it.id };
   if (it.type !== "SQLEndpoint") return null;
-  const lake = items.find((x) => x.type === "Lakehouse" && x.displayName === it.displayName);
+  const lake = items instanceof Map ? items.get(it.displayName)
+    : items.find((x) => x.type === "Lakehouse" && x.displayName === it.displayName);
   return lake ? { ...base, kind: "endpoint", item_id: lake.id } : null;
 }
 
@@ -528,8 +571,12 @@ function navKey(e) {
 function renderNavButtons() {
   const back = document.getElementById("nav-back");
   const fwd = document.getElementById("nav-forward");
-  if (back) back.disabled = !navCan(-1);
-  if (fwd) fwd.disabled = !navCan(1);
+  const canBack = navCan(-1), canFwd = navCan(1);
+  if (back) back.disabled = !canBack;
+  if (fwd) fwd.disabled = !canFwd;
+  // Hidden until there is somewhere to go: two faint arrows on a fresh start read as broken.
+  const wrap = back?.parentElement;
+  if (wrap) wrap.hidden = !canBack && !canFwd;
 }
 
 function go(view) {
@@ -547,12 +594,16 @@ function renderChrome() {
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
   const account = document.getElementById("account");
-  account.textContent = state.user ? state.user[0].toUpperCase() : "?";
+  // The profile picture when there is one (profile.js, PB-125), else the first letter.
+  const picture = state.user && state.avatar && typeof profilePicture === "function" ? profilePicture(state.avatar) : null;
+  if (picture) account.replaceChildren(picture);
+  else account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
 
-  document.getElementById("rail-main").replaceChildren(...railFeatures().map(railItem));
+  const railMain = railFeatures();  // skins.js adds the "KratosForge" label in a platform skin
+  document.getElementById("rail-main").replaceChildren(...(typeof skinRailChildren === "function" ? skinRailChildren(railMain, railItem) : railMain.map(railItem)));
   document.getElementById("rail-bottom").replaceChildren(...railFeatures(true).map(railItem));
   syncSearchBox();
   // Items opened recently, each with a close button.
@@ -624,10 +675,15 @@ function render() {
   navSync();
   renderChrome();
   if (state.view !== fabricView.owner) placeFabricView();
+  // The preview panel belongs to the page drawn last: let go of it, or a page you left (every row of
+  // a 5,000-item workspace) stays in memory. A page with the panel sets it again as it draws.
+  itemPreview.host = null;
+  itemPreview.onChange = null;
   (features.views[state.view] || renderHome)();
 }
 
 function setView(...children) {
+  document.body.classList.remove("fabric-full");  // only the Fabric portal tab fills the window
   const view = document.getElementById("view");
   view.replaceChildren(...children);
   viewTransition(view);  // motion.js: only when the page itself changed
@@ -669,7 +725,7 @@ function foldable(id, head, body, { cls = "card pad", always = null, start = fal
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {
-      folded = !folded;
+      folded = !box.classList.contains("folded");
       try { localStorage.setItem(`fd.fold.${id}`, folded ? "1" : "0"); } catch { /* this session only */ }
       box.classList.toggle("folded", folded);
       toggle.setAttribute("aria-expanded", String(!folded));
@@ -732,13 +788,30 @@ async function renderHome() {
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  // Continue opens the notebook changed last; it appears once the list is read and there is one.
+  const resume = h("span", { class: "home-continue" });
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume,
+    btn("New notebook", "notebook", newNotebook, "tool outline"),
+    btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
+    btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
+    btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
+  const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
+    btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
+  const ready = readinessCard();
+  const started = gettingStarted();
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
-    readinessCard(),
-    signInCallout(),
+    // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
+    // start something; then readiness, problems and what is running.
+    start,
+    started.el,
+    homePinnedCard(),
+    recent,
+    ready,
+    ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
     attention,
     h("div", { class: "home-attention", id: "home-fresh" }),
     yours,
@@ -747,13 +820,6 @@ async function renderHome() {
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), upcoming)),
     meshMapCard(),
     envSection,
-    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
-      btn("New notebook", "notebook", newNotebook, "tool outline"),
-      btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
-      btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
-      btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
-    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
-      btn("All notebooks", "notebook", () => go("notebooks"), "tool link small"))),
     xray);
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
@@ -771,14 +837,14 @@ async function renderHome() {
   const notebooksDone = rpc("list_notebooks").catch(() => null).then((notebooks) => {
     if (!onHome()) return;
     notebookCount = (notebooks || []).length;
+    const last = (notebooks || []).reduce((a, n) => (!a || n.modified > a.modified ? n : a), null);
+    if (last) resume.replaceWith(btn(`Continue: ${last.name}`, "notebook", () => openNotebook(last.name), "tool primary"));
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
-    list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
-      h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
-        h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
-        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
-        h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
+    // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
+    const recentList = shown.length ? homeRecentList(shown) : null;
+    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    return recentList?.done;
   });
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
@@ -799,7 +865,10 @@ async function renderHome() {
       const next = h("div", {}, items.length ? h("div", { class: "home-list" }, items.map((x) => h("div", { class: "home-item row" },
         h("span", { class: "grow" }, x.what, h("span", { class: "muted-text small" }, ` · ${x.where}`)), h("span", { class: "muted-text small" }, x.text))))
         : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Data mesh, on this PC or in Fabric."),
-        btn("All schedules", "history", () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small"));
+        // Opens the page with the schedules listed here: Fabric > Schedules when every one of them is in Fabric.
+        btn("All schedules", "history", () => {
+          monitorPage.panel = items.length && items.every((x) => x.where === "Fabric") ? "fabric_schedules" : "schedules"; go("monitor");
+        }, "tool link small"));
       upcoming.replaceWith(next);
       return next;
     };
@@ -818,12 +887,10 @@ async function renderHome() {
     if (!onHome()) return;
     if (project) state.meta.project = project;
     const hasProject = !!project?.path;
-    // Environments mean nothing before there's a metadata project: show the first steps instead.
-    if (!hasProject) {
-      await notebooksDone;
-      if (!onHome()) return;
-      envSection.replaceWith(getStarted(project, notebookCount) || "");
-    }
+    // Environments mean nothing before there's a metadata project; Getting started says where to begin.
+    if (!hasProject) envSection.remove();
+    // A notebook list that failed to draw (allSettled below) still ticks what it can, with no stray rejection.
+    notebooksDone.catch(() => {}).then(() => onHome() && started.mark(project, notebookCount));
 
     // The latest run of each table in each environment says how that table stands now.
     const latest = new Map();
@@ -845,9 +912,11 @@ async function renderHome() {
       const total = problems + late;
       summary.textContent = [
         total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          // Signed out, Fabric wasn't checked at all: say how to change that, not that all is well.
+          : !state.user ? "Sign in so KratosForge can check Fabric. Notebooks run on this PC either way"
           : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
-        unread.length ? `couldn't check ${unread.join(", ")}` : "",
+        unread.length && state.user ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();
@@ -898,18 +967,21 @@ function tile(iconName, title, desc, onClick) {
 
 function renderCreate() {
   setView(h("div", { class: "page" },
-    h("h1", {}, "Create"), h("p", { class: "sub" }, "Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
+    h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
       preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
-      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
+      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog))),
+    preview("appStudio", h("h2", {}, "Applications ")),
+    PREVIEW_FEATURES.appStudio && previewShown() ? h("div", { class: "tiles" },
+      tile("apps", "App Studio", "Describe an app, build it from a template and preview it on this PC, with every version kept", () => appStudioOpen())) : null));
 }
 
-// Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads",
+// Filters on Monitor, kept for the session.
+const monitorPage = { env: "all", where: "any", problemsFirst: true, panel: "runs", opsView: "workloads",
   refreshing: false };
 // Pop-out windows (Preview, popout.js). In a pop-out window, POP_OUT is the one section it shows ("runs"
 // or "fabric"); in the main window it is null and popOuts holds the sections open in windows of their own.
@@ -928,22 +1000,45 @@ const MONITOR_OPS = [
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
     text: "One record per problem, shared by everyone who can read the environment" },
 ];
-try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
+// Monitor's tabs are by source, the way Data mesh groups its pages: what KratosForge ran and schedules, and
+// Fabric's own Monitoring hub and schedules. Another source (Databricks, Snowflake) is a tab beside them.
+// Each tab's pages are on the view row's switcher; "fabric" is the hub's panel.
+const MONITOR_SOURCES = [["kratosforge", "KratosForge", "runs"], ["fabric", "Fabric", "fabric"]];
+const MONITOR_FABRIC_PANELS = ["fabric", "fabric_schedules"];
 
-// The sentence about a Monitor panel is its Learn more link's tooltip, so the controls fit on one row;
-// the link is described by it too, so keyboard and screen reader users get it.
+// The Databricks tab (dbx-monitor.js) is Preview.
+function monitorSources() {
+  return previewShown() ? [...MONITOR_SOURCES, ["databricks", "Databricks", "databricks"]] : MONITOR_SOURCES;
+}
+
+function monitorSource(panel) {
+  if (panel === "databricks") return "databricks";
+  return MONITOR_FABRIC_PANELS.includes(panel) ? "fabric" : "kratosforge";
+}
+
+// What each Monitor tab shows, as the line under the title with its Learn more link. Operations' views
+// say theirs in MONITOR_OPS.
+const MONITOR_ABOUT = {
+  runs: ["Everything this app ran or started, in every environment, on this PC and in Fabric", "monitor"],
+  schedules: ["Schedules Windows starts on this PC for KratosForge, even with the app closed, with how their last run went", "monitor"],
+  fabric_schedules: ["Schedules in Fabric's own job scheduler, on capacity, with how their last run went", "monitor"],
+  fabric: ["Fabric's own Monitoring hub, for everything in your workspaces", "monitor"],
+  databricks: ["Job runs and Lakeflow pipeline updates in your Databricks workspace, read without starting anything", "monitor"],
+};
+// The view row's places a tab fills: its own switcher (views) and status (tools), left of Refresh.
+const monitorSlots = {};
+
 function monitorAbout(text, anchor) {
-  const link = learnMore(anchor);
-  link.title = text;
-  link.setAttribute("aria-describedby", "monitor-about-text");
-  return h("span", { class: "monitor-about" }, link, h("span", { id: "monitor-about-text", class: "sr-only" }, text));
+  return h("span", { class: "monitor-about" }, text, ". ", learnMore(anchor));
 }
 
 async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
-  if (!previewShown()) monitorPage.panel = "runs";
+  if (!previewShown() && !["runs", "fabric"].includes(monitorPage.panel)) monitorPage.panel = "runs";
   if (POP_OUT === "fabric") { renderFabricPopOut(); return; }
+  // The runs window shows only what KratosForge ran.
+  if (POP_OUT === "runs" && monitorSource(monitorPage.panel) !== "kratosforge") monitorPage.panel = "runs";
   // A pop-out window's refresh keeps the list it has, and your place in it, until the new one is read.
   const kept = monitorPage.refreshing ? document.querySelector(".page.monitor .monitor-scroll") : null;
   const keptTop = kept?.scrollTop || 0;
@@ -951,63 +1046,72 @@ async function renderMonitor() {
   const local = kept || loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
-  const chip = (key, value, label) => h("button", { class: `chip${monitorPage[key] === value ? " on" : ""}`,
-    onclick: () => { monitorPage[key] = value; render(); } }, label);
-  const toggleFabric = () => {
-    monitorPage.showFabric = !monitorPage.showFabric;
-    try { localStorage.setItem("fd.monitor.fabric", monitorPage.showFabric ? "shown" : "hidden"); } catch { /* session only */ }
-    render();
-  };
-  const note = h("div", { class: "muted-text small" });
+  // One switcher per filter, like every page's view row: the pressed button is the one in force.
+  const seg = (key, label, options) => h("div", { class: "seg", role: "group", "aria-label": label }, options.map(([value, text]) =>
+    h("button", { class: monitorPage[key] === value ? "on" : null, "aria-pressed": String(monitorPage[key] === value),
+      onclick: () => { monitorPage[key] = value; render(); } }, text)));
+  const note = h("div", { class: "muted-text small monitor-note" });
   const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
   const op = ops.find((o) => o.panel === monitorPage.panel);
   if (op) monitorPage.opsView = op.panel;
-  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
   const show = (panel) => () => { monitorPage.panel = panel; render(); };
-  // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
-  // A section in a window of its own leaves a band here, and the other one gets the room.
+  // A section in a window of its own leaves a band here.
   const runsOut = popOuts.has("runs");
   const fabricOut = popOuts.has("fabric");
-  const wide = !runsOut && monitorPage.panel !== "runs";
-  const fabricHere = !POP_OUT && !wide;
-  const fabricShown = fabricHere && monitorPage.showFabric && !fabricOut;
-  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}${runsOut ? " runs-out" : ""}` },
-    runsOut ? poppedOutBand("runs", "From KratosForge", "monitor-local") : h("section", { class: "card monitor-local" },
-      h("div", { class: "monitor-band" },
-        h("h2", {}, "From KratosForge"),
-        h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          segment(monitorPage.panel === "runs", "Runs", show("runs")),
-          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
-          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
-            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
-        op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
-          onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
-        monitorAbout(op ? op.text : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", op ? op.anchor : "monitor"),
-        h("span", { class: "spacer" }),
-        op ? null : btn("Refresh", "sync", () => { monitorPage.fabricPipelinesRefresh = true; forgetFabricActivities(); render(); }, "tool outline"),
-        popOutButton("runs")),
-      monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
-        h("div", { class: "row", role: "group", "aria-label": "Environment" },
-          chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
-        h("div", { class: "row", role: "group", "aria-label": "Where it ran" },
-          chip("where", "any", "Anywhere"), chip("where", "local", "This PC"), chip("where", "fabric", "Fabric")),
-        h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
-          onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
-        note),
-      local),
-    !fabricHere ? null : fabricOut ? poppedOutBand("fabric", "In Fabric", "monitor-fabric") : h("section", { class: "card monitor-fabric" },
-      h("div", { class: "monitor-band" },
-        h("h2", {}, "In Fabric"),
-        h("span", { class: "muted-text" }, "Fabric's own Monitoring hub, for everything else in your workspaces"),
-        h("span", { class: "spacer" }),
-        monitorPage.showFabric ? [monitorHubButtons(), popOutButton("fabric")] : null,
-        btn(monitorPage.showFabric ? "Hide" : "Show", null, toggleFabric, "tool outline")),
-      monitorPage.showFabric ? slot : null)));
-  if (fabricShown) dockFabricView(slot, "monitor", "monitor");
+  const source = monitorSource(monitorPage.panel);
+  const hub = monitorPage.panel === "fabric";
+  const hubShown = hub && !POP_OUT && !fabricOut;
+  // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
+  // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
+  const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, monitorSources().map(([id, label, first]) =>
+    h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
+  // This source's pages: Operations opens the view it was last on.
+  const pages = source === "databricks" ? [] : source === "fabric"
+    ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
+    : [["runs", "Runs", monitorPage.panel === "runs"], previewShown() ? ["schedules", "Schedules", monitorPage.panel === "schedules"] : null,
+      ops.length ? [ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel,
+        ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null], !!op] : null];
+  const shown = pages.filter(Boolean);
+  const pageSeg = shown.length > 1 ? h("div", { class: "seg monitor-pages", role: "group", "aria-label": `${source === "fabric" ? "Fabric" : "KratosForge"} pages` },
+    shown.map(([panel, label, on]) => h("button", { class: on ? "on" : null, "aria-pressed": String(on), onclick: show(panel) }, label))) : null;
+  Object.assign(monitorSlots, { views: h("div", { class: "row tight mesh-views" }), tools: h("div", { class: "row tight mesh-tools" }) });
+  const refresh = () => {
+    monitorPage.fabricPipelinesRefresh = true;
+    schedulesPage.refresh = monitorPage.panel === "fabric_schedules";
+    forgetFabricActivities();
+    render();
+  };
+  const viewRow = h("div", { class: "row mesh-view-row monitor-view-row" }, pageSeg,
+    monitorPage.panel !== "runs" ? null : [
+      seg("env", "Environment", [["all", "All"], ...Object.entries(ENV_LABEL)]),
+      seg("where", "Where it ran", [["any", "Anywhere"], ["local", "This PC"], ["fabric", "Fabric"]]),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
+        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first")],
+    op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
+      onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
+    monitorSlots.views, h("span", { class: "spacer" }), monitorSlots.tools,
+    hubShown ? monitorHubButtons() : null,
+    op || hub ? null : btn("Refresh", "sync", refresh, "tool outline"));
+  // The page's button: the KratosForge tab's runs, or the Fabric hub, in a window of its own.
+  const popOutHere = source === "databricks" ? null
+    : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
+  // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
+  const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
+  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
+    POP_OUT ? null : h("div", { class: "page-head" },
+      h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
+      h("div", { class: "head-actions" }, popOutHere)),
+    tabs, runsBand ? null : viewRow,
+    hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
+      : h("section", { class: "card monitor-fabric" }, slot))
+      : runsBand ? poppedOutBand("runs", "From KratosForge", "monitor-local")
+        : [note, h("section", { class: "card monitor-local" }, local)]));
+  if (hubShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
-  if (runsOut) return;
-  if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
+  if (hub || runsBand) return;
+  if (monitorPage.panel === "databricks") { note.remove(); local.replaceWith(databricksRunsPanel()); return; }
+  if (monitorPage.panel === "schedules" || monitorPage.panel === "fabric_schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
@@ -1055,22 +1159,23 @@ async function renderMonitor() {
       open: () => showRun(r.run_id, r.env),
     })),
     ...(cloud || []).map((r) => ({
-      at: r.started_at, status: fabricStatus(r.status), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
+      at: r.started_at, status: fabricStatus(r.status), pill: fabricPill(r), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
       seconds: r.finished_at ? (new Date(r.finished_at) - new Date(r.started_at)) / 1000 : "", rows: "",
       note: r.workspace_name || "", reason: r.status === "Failed" ? r.message || "" : "",
       open: r.url ? () => openInFabric(r.url) : null,
+      cancel: cancelFabricRunShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
-      kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
+      kind: r.trigger === "home" ? "Run from Home" : r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
       rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
       reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
-      open: () => { monitorPage.panel = "schedules"; render(); },
+      open: r.trigger === "home" ? () => openNotebook(r.label) : () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...pipelineRunRows(pipelines.runs),
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
-      at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
+      at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
   ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
@@ -1091,7 +1196,11 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+        e.stopPropagation();
+        if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
+      }, "tool small outline danger") : null,
+      r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -1109,18 +1218,31 @@ function monitorHubButtons() {
     btn("Open in browser", "publish", () => action("browser"), "tool outline")];
 }
 
+// This PC's write history holds two kinds of record: a notebook's table writes (named "Notebook
+// write to <lakehouse>") and runs of a job file (`fabric-desktop run JOB`, named after the job).
+function historyKind(r) {
+  return String(r.job || "").startsWith("Notebook write to ") ? "Notebook write" : "Job run";
+}
+
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
   const why = r.envWhy || (r.where === "fabric"
     ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
-    : "Notebook writes and this PC's schedules aren't tied to an environment");
+    : "Notebook writes, job runs and this PC's schedules aren't tied to an environment");
   return h("span", { class: "muted-text", title: why }, "No environment");
 }
 
 // Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
+}
+
+// Runs > Status for a Fabric job: Cancelled and Cancelling say so; the rest use the shared pills.
+function fabricPill(r) {
+  if (r.status === "Cancelled") return h("span", { class: "pill-s neu" }, "Cancelled");
+  if (r.cancel_requested && !FABRIC_DONE.has(r.status)) return h("span", { class: "pill-s wrn" }, "Cancelling…");
+  return null;
 }
 
 // Fabric's own pages (Monitoring hub, OneLake catalog) are one second webview the shell lays
@@ -1164,7 +1286,9 @@ new MutationObserver(placeFabricView).observe(document.getElementById("dialog-ro
 // ---------- Workspaces, OneLake, lakehouse ----------
 
 // Favorites and pins are kept on this PC; pins sit at the top in the order they were pinned.
-const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {} };
+// drawn: how many item rows each open workspace has drawn so far (ITEM_ROWS_STEP more as you scroll).
+const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {}, drawn: {} };
+const ITEM_ROWS_STEP = 200;
 
 async function renderWorkspaces() {
   const wp = workspacesPage;
@@ -1173,7 +1297,7 @@ async function renderWorkspaces() {
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
   setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
-    h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
+    pageIntro("Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
       reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
@@ -1183,7 +1307,8 @@ async function renderWorkspaces() {
     }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
-    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
+    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] })),
+    PREVIEW_FEATURES.itemPins && previewShown() ? itemPinsLoaded() : null]);
   if (state.view !== "workspaces") return;
   wp.marks = marks;
   const here = () => state.view === "workspaces";
@@ -1212,24 +1337,49 @@ async function renderWorkspaces() {
     if (!items) return h("p", { class: "muted-text ws-items-note" }, "Loading items...");
     if (!items.length) return h("p", { class: "muted-text ws-items-note" }, "This workspace has no items yet.");
     const sorted = [...items].sort((a, b) => typeLabel(a.type).localeCompare(typeLabel(b.type)) || a.displayName.localeCompare(b.displayName));
-    return h("table", { class: "list ws-items" }, h("tbody", {}, sorted.map((it) => {
+    // A SQL endpoint's lakehouse by name, once: looking it up row by row is quadratic in a big workspace.
+    const lakes = new Map();
+    for (const x of items) if (x.type === "Lakehouse" && !lakes.has(x.displayName)) lakes.set(x.displayName, x);  // the first, as find() gave
+    const row = (it) => {
       const r = { workspace_id: ws.id, item_id: it.id, type: it.type, name: it.displayName };
       const lh = it.type === "Lakehouse" ? lakehouseRef(ws, it) : null;
-      const whRef = warehouseRefFor(ws, it, items);
+      const whRef = warehouseRefFor(ws, it, lakes);
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
-        title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
+        title: previewing ? `Preview ${it.displayName}` : null, "data-preview": previewing ? previewKey(target) : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+          whRef && whOpensHere()
+            ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
+            : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
+        PREVIEW_FEATURES.itemPins && previewShown() ? h("td", { class: "tick" }, itemPinButton({ kind: it.type, id: it.id,
+          name: it.displayName, workspace_id: ws.id, workspace_name: ws.displayName }, () => draw())) : null,
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
-          whRef ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
+          whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
-    })));
+    };
+    // A big workspace draws its first rows at once and the rest as you scroll near the end, so opening
+    // one with thousands of items doesn't build every row up front. A redraw keeps what was drawn.
+    let drawn = Math.min(sorted.length, Math.max(ITEM_ROWS_STEP, wp.drawn[ws.id] || 0));
+    const tbody = h("tbody", {}, sorted.slice(0, drawn).map(row));
+    if (drawn < sorted.length) {
+      const more = h("tr", { class: "ws-more", "aria-hidden": "true" }, h("td", { colspan: 4 }));
+      tbody.append(more);
+      const seen = new IntersectionObserver((entries) => {
+        if (!more.isConnected) { seen.disconnect(); return; }
+        if (!entries.some((e) => e.isIntersecting)) return;
+        more.before(...sorted.slice(drawn, drawn + ITEM_ROWS_STEP).map(row));
+        drawn = wp.drawn[ws.id] = Math.min(sorted.length, drawn + ITEM_ROWS_STEP);
+        if (drawn >= sorted.length) { seen.disconnect(); more.remove(); }
+        else { seen.unobserve(more); seen.observe(more); }  // still in view after the new rows: draw more
+      }, { rootMargin: "800px 0px" });
+      seen.observe(more);
+    }
+    return h("table", { class: "list ws-items" }, tbody);
   }
 
   function draw() {
@@ -1292,20 +1442,59 @@ function openInFabric(page) {
 // Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
 function workspacesTabs(active) {
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
-    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
-      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
-        onclick: () => go(view) }, label)));
+    // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace.
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"], previewShown() ? ["databricks_sync", "Databricks"] : null].filter(Boolean)
+      .map(([view, label]) =>
+        h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+          onclick: () => go(view) }, label, view === "databricks_sync" ? previewTag() : null)));
+}
+
+// Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
+// Fabric's own editor (wh_open_in). The Warehouse page is a Preview feature, so with preview features
+// hidden a name opens Fabric as before.
+const whOpensHere = () => previewShown() && (state.settings?.wh_open_in?.value || "kratosforge") === "kratosforge";
+const fabricFullScreen = () => state.settings?.fabric_full_screen?.value === true;
+
+// The warehouse or SQL analytics endpoint a Fabric portal address shows, as {workspace_id, item_id,
+// type}, or null for any other page.
+function fabricWarehouseOf(address) {
+  const m = /^https:\/\/app\.fabric\.microsoft\.com\/groups\/([0-9a-f-]{36})\/(datawarehouses|lakewarehouses)\/([0-9a-f-]{36})(?:[/?#]|$)/i
+    .exec(String(address || ""));
+  return m ? { workspace_id: m[1].toLowerCase(), type: m[2].toLowerCase() === "datawarehouses" ? "Warehouse" : "SQLEndpoint",
+    item_id: m[3].toLowerCase() } : null;
+}
+
+// Open in KratosForge: the warehouse the Fabric portal shows, on the Warehouse page.
+async function openFabricPageHere() {
+  const address = await invoke("fabric_view_url").catch(() => null);
+  const at = fabricWarehouseOf(address);
+  if (!at) { toast("Open a warehouse or SQL analytics endpoint in Fabric first, then this opens it here.", true); return; }
+  const workspaces = state.workspaces || await attempt(() => rpc("list_workspaces"), "Could not list workspaces");
+  const ws = (workspaces || []).find((w) => w.id.toLowerCase() === at.workspace_id);
+  const items = ws && await attempt(() => rpc("list_items", { workspace_id: ws.id }), `Could not list the items in ${ws.displayName}`);
+  const it = (items || []).find((x) => x.id.toLowerCase() === at.item_id && x.type === at.type);
+  const ref = it && warehouseRefFor(ws, it, items);
+  if (!ref) { toast("That warehouse isn't in a workspace you can open here.", true); return; }
+  openWarehouseQuery(ref);
+}
+
+async function setFabricFullScreen(on) {
+  if (await saveSettings({ fabric_full_screen: on })) renderFabric();
 }
 
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
+  const full = fabricFullScreen();
   setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
         h("span", { class: "spacer" }),
+        preview("warehouse", btn("Open in KratosForge", "database", openFabricPageHere, "tool outline",
+          { title: "Open the warehouse or SQL analytics endpoint Fabric shows on the Warehouse page" })),
+        btn(full ? "Exit full screen" : "Full screen", null, () => setFabricFullScreen(!full), "tool outline"),
         btn("Back", null, () => action("back"), "tool outline"),
         btn("Home", "home", () => openInFabric(FABRIC_HOME), "tool outline"),
         btn("OneLake catalog", "onelake", () => openInFabric("catalog"), "tool outline"),
@@ -1322,9 +1511,18 @@ function renderFabric() {
         + "account; delete fabric-view-signin.bin to make it forget.",
       anchor: "fabric",
     }))));
+  document.body.classList.toggle("fabric-full", full);
   dockFabricView(slot, "fabric", fabricPage.page);
   placeFabricView();
 }
+
+// Esc leaves full screen while the app has the keys; inside Fabric the bar's button does.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !document.body.classList.contains("fabric-full")) return;
+  if (document.getElementById("dialog-root")?.childElementCount) return;
+  e.preventDefault();
+  setFabricFullScreen(false);
+});
 
 function openWorkspace(ws) {
   state.openWorkspace = ws;
@@ -1335,7 +1533,7 @@ async function renderWorkspace() {
   const ws = state.openWorkspace;
   const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
-    h("p", { class: "sub" }, "This workspace's lakehouses. ", learnMore("workspaces")),
+    pageIntro("This workspace's lakehouses. ", learnMore("workspaces")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
       btn("New notebook", "add", newNotebook, "tool outline")),
@@ -1398,6 +1596,7 @@ const FABRIC_ITEM_PATHS = {
   DataPipeline: "pipelines", Dashboard: "dashboards", Datamart: "datamarts", Eventhouse: "eventhouses", KQLDatabase: "databases",
   KQLQueryset: "queryworkbenches", KQLDashboard: "kustodashboards", Eventstream: "eventstreams", MirroredDatabase: "mirroreddatabases",
   SQLDatabase: "sqldatabases", MLModel: "mlmodels", MLExperiment: "mlexperiments",
+  CopyJob: "copyjobs", Dataflow: "dataflows-gen2",  // both checked on a tenant (2026-10-30, 2026-11-03)
 };
 
 function fabricItemLink(r) {
@@ -1446,11 +1645,13 @@ const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) =
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
 function onelakeTabs() {
-  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`,
-    onclick: () => { catalogPage.tab = id; render(); } }, label);
-  return h("div", { class: "subtabs onelake-tabs" }, tab("catalog", "Catalog"),
-    preview("mesh", tab("products", "Data products")),
-    preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access")),
+  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
+  // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
+  // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
+    tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
+    preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
     h("span", { class: "spacer" }), learnMore("onelake"));
 }
 
@@ -1458,7 +1659,7 @@ async function renderOneLake() {
   if (!previewShown()) catalogPage.tab = "catalog";
   if (catalogPage.tab === "shortcuts") return renderShortcuts();
   if (catalogPage.tab === "access") return renderAccess();
-  if (catalogPage.tab === "products") return renderDataProducts();
+  if (catalogPage.tab === "products") { catalogPage.tab = "catalog"; return openProducts(productsPage.open); }  // an older link
   const cp = catalogPage;
   const nav = h("nav", { class: "catalog-nav" });
   const head = h("div", { class: "catalog-head" });
@@ -1585,13 +1786,18 @@ async function renderOneLake() {
   function drawGroups(groups, body, itemRow, depth = 0) {
     groups.forEach((g, i) => {
       const open = cp.groupOpen.has(g.key) ? cp.groupOpen.get(g.key) : depth > 0 || i === 0;
-      const toggle = () => { cp.groupOpen.set(g.key, !open); draw(); };
+      // The table is drawn afresh, so focus goes back to this header (a keyboard user stays put).
+      const toggle = () => {
+        cp.groupOpen.set(g.key, !open);
+        draw();
+        [...list.querySelectorAll(".group-head")].find((b) => b.dataset.group === g.key)?.focus();
+      };
       const wsCount = new Set(g.rows.map((r) => r.workspace_id)).size;
       const bits = [`${g.rows.length} item${g.rows.length === 1 ? "" : "s"}`];
       if (!g.env) bits.unshift(`${wsCount} workspace${wsCount === 1 ? "" : "s"}`);
       if (g.children && g.children.every((c) => c.env === "none")) bits.push("no environment");
       body.push(h("tr", { class: `group-row depth-${depth}` }, h("td", { colspan: 8 },
-        h("button", { class: "group-head", "aria-expanded": String(open), onclick: toggle },
+        h("button", { class: "group-head", "aria-expanded": String(open), "data-group": g.key, onclick: toggle },
           icon(open ? "chevronDown" : "chevronRight", 14),
           g.env ? envPill(g.env, true) : null,
           h("span", { class: "group-label" }, g.env && depth > 0 ? (g.workspaces || []).join(", ") : g.env ? "" : g.label),
@@ -1662,7 +1868,10 @@ async function renderOneLake() {
         h("td", {}, h("button", { class: `star${fav ? " on" : ""}`, title: fav ? "Remove from favorites" : "Add to favorites",
           "aria-label": fav ? "Remove from favorites" : "Add to favorites", onclick: (ev) => toggleFavorite(r, ev) }, fav ? "★" : "☆")),
         h("td", {}, h("span", { class: "item" }, itemIcon(r.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+          r.type === "Warehouse" && whOpensHere()
+            ? h("button", { class: "name-link", title: "Open on the Warehouse page",
+              onclick: () => openWarehouseQuery({ kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name }) }, r.name)
+            : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),
@@ -1824,6 +2033,7 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
+            "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
             title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
             onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
             ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
@@ -1852,10 +2062,11 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
+        "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
-      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
+      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, item.size ? sizeText(item.size) : "")));
     }
   }
   return rows;
@@ -1867,12 +2078,19 @@ function readSnippet(path) {
   return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
-function formatSize(bytes) {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB"];
+// File and data sizes, the same on every page (#929): 1024-based, with one decimal below 100
+// (17 B, 2.0 KB, 99.5 MB, 212 MB, 1.1 GB). Nothing for a missing or negative size.
+function sizeText(n) {
+  if (n == null || n === "") return "";
+  n = Number(n);
+  if (!Number.isFinite(n) || n < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
-  return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  if (!i) return `${Math.round(n)} B`;
+  let v = +n.toFixed(n >= 100 ? 0 : 1);
+  if (v >= 1024 && i < units.length - 1) { v = +(v / 1024).toFixed(1); i++; }  // 1023.97 KB reads 1.0 MB
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
 // ---------- Notebook files ----------
@@ -2229,15 +2447,26 @@ function computeNote(nb) {
   const check = nb.check;
   const here = check?.[where.fabric ? "fabric" : "local"];
   const other = check?.[where.fabric ? "local" : "fabric"];
-  if (here && !here.ok) {
+  const unknown = here?.unknown || [];
+  const place = where.fabric ? "in Fabric" : "on this PC";
+  const cells = (n) => `${n} cell${n === 1 ? "" : "s"}`;
+  if (here?.reasons?.length) {
     const switchTo = where.fabric ? "local" : "fabric";
     slot.append(h("div", { class: "problems" },
       h("div", { class: "row" }, icon("warning", 16),
         h("b", { class: "grow" }, where.fabric ? "This notebook can't run in Fabric yet" : "This notebook only runs in Fabric"),
         other?.ok ? btn(where.fabric ? "Run on this PC" : "Run in Fabric", where.fabric ? "desktop" : "cloud",
           () => setNotebookCompute(switchTo), "tool small") : null),
-      computeReasons(here.reasons)));
-  } else if (where.fabric) {
+      computeReasons(here.reasons),
+      unknown.length ? [h("p", { class: "compute-unknown-head" }, `The check also can't tell for ${cells(unknown.length)}:`), computeReasons(unknown)] : null));
+  } else if (unknown.length) {
+    slot.append(h("div", { class: "compute-unknown" },
+      h("div", { class: "row" }, icon("help", 16),
+        h("b", { class: "grow" }, `The check can't tell whether ${cells(unknown.length)} run${unknown.length === 1 ? "s" : ""} ${place}`)),
+      computeReasons(unknown),
+      h("p", { class: "muted-text" }, "Prove and the risk check count these cells as not checked. Run them to find out, or write the names they use in the code.")));
+  }
+  if (!here?.reasons?.length && where.fabric) {
     const run = nb.fabricRun;
     slot.append(h("div", { class: "callout compute-callout" }, icon("cloud", 18),
       h("span", { class: "grow" }, `Run all publishes this notebook and runs it on ${publishWorkspaceName(nb)}'s Fabric capacity. `,
@@ -2323,6 +2552,13 @@ const TIME_ZONES = {
   "Asia/Kolkata": "India Standard Time", "Asia/Singapore": "Singapore Standard Time",
   "Australia/Sydney": "AUS Eastern Standard Time",
 };
+// Every Windows time zone and this PC's, read once from the registry (PB-048). Off Windows, or when the
+// engine can't read them, the short list above stays; a failed read is tried again next time.
+let windowsTimeZones = null;
+function loadTimeZones() {
+  windowsTimeZones ||= rpc("time_zones").catch(() => { windowsTimeZones = null; return { zones: [], here: null }; });
+  return windowsTimeZones;
+}
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // The repeat, times, days and time zone fields of a Fabric schedule, shared by notebooks and metadata runs.
@@ -2333,12 +2569,40 @@ function scheduleForm() {
   const minutes = h("input", { type: "number", min: "1", value: "60" });
   const days = WEEKDAYS.map((d, i) => h("label", { class: "check" }, h("input", { type: "checkbox", value: d, checked: i < 5 ? true : null }), d.slice(0, 3)));
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = h("select", {}, Object.entries(TIME_ZONES).map(([iana, win]) =>
-    h("option", { value: win, selected: iana === here ? true : null }, `${win}${iana === "UTC" ? "" : ` (${iana})`}`)));
+  const zone = h("select", { size: 8, "aria-label": "Time zone" });
+  const search = h("input", { type: "search", placeholder: "Search time zones", "aria-label": "Search time zones" });
+  let chosen = null;  // a zone set by set() or picked; until then the PC's own zone
+  // Rebuild the options from [{id, name}], the PC's zone first, keeping the chosen zone even when the list lacks it.
+  const fill = (zones, pcZone) => {
+    const pick = chosen || pcZone || zone.value;
+    const label = (z) => (z.name === z.id ? z.id : `${z.name} · ${z.id}`);
+    const pc = zones.find((z) => z.id === pcZone);
+    const other = chosen && !zones.some((z) => z.id === chosen) ? [{ id: chosen, name: chosen }] : [];
+    zone.replaceChildren(
+      pc ? h("optgroup", { label: "On this PC" }, h("option", { value: pc.id }, label(pc))) : null,
+      h("optgroup", { label: "All time zones" }, [...other, ...zones.filter((z) => z !== pc)].map((z) => h("option", { value: z.id }, label(z)))));
+    zone.value = pick;
+    if (!zone.value && zone.options.length) zone.selectedIndex = 0;
+    filter();
+  };
+  // Show the zones matching every word typed; if the chosen one is filtered out, pick the first match.
+  const filter = () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const o of zone.options) o.hidden = !words.every((w) => o.textContent.toLowerCase().includes(w));
+    for (const g of zone.querySelectorAll("optgroup")) g.hidden = ![...g.children].some((o) => !o.hidden);
+    if (zone.selectedOptions[0]?.hidden) {
+      const first = [...zone.options].find((o) => !o.hidden);
+      if (first) { zone.value = first.value; chosen = first.value; zone.dispatchEvent(new Event("change", { bubbles: true })); }
+    }
+  };
+  search.addEventListener("input", filter);
+  zone.addEventListener("change", () => { chosen = zone.value; });
+  fill(Object.entries(TIME_ZONES).map(([iana, win]) => ({ id: win, name: iana === "UTC" ? win : `${win} (${iana})` })), TIME_ZONES[here]);
+  loadTimeZones().then((r) => { if (r?.zones?.length) fill(r.zones, r.here); });
   const timesField = h("label", { class: "field" }, "Times of day (24-hour, comma between)", times);
   const minutesField = h("label", { class: "field", hidden: true }, "Minutes between runs", minutes);
   const daysField = h("div", { class: "field", hidden: true }, "Days", h("div", { class: "row wrap" }, days));
-  const zoneField = h("label", { class: "field" }, "Time zone", zone);
+  const zoneField = h("div", { class: "field zone-field" }, h("span", {}, "Time zone"), search, zone);
   const sync = () => {
     minutesField.hidden = kind.value !== "cron";
     timesField.hidden = zoneField.hidden = kind.value === "cron";
@@ -2350,6 +2614,19 @@ function scheduleForm() {
     sync,
     value: () => ({ kind: kind.value, times: times.value.split(","), every_minutes: Number(minutes.value),
       weekdays: days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.value), time_zone: zone.value }),
+    // Fill the form with a stored schedule (scheduleValues), to edit it (PB-048).
+    set: (v) => {
+      kind.value = v.kind;
+      times.value = v.times.length ? v.times.join(", ") : "06:00";
+      minutes.value = String(v.every_minutes || 60);
+      days.forEach((l) => { l.firstChild.checked = v.weekdays.includes(l.firstChild.value); });
+      if (v.time_zone) {
+        chosen = v.time_zone;
+        if (![...zone.options].some((o) => o.value === v.time_zone)) zone.lastChild.prepend(h("option", { value: v.time_zone }, v.time_zone));
+        zone.value = v.time_zone;
+      }
+      sync();
+    },
   };
 }
 
@@ -2568,7 +2845,7 @@ function markdown(src) {
 // (meta.js, settings.js); features.js has the rules.
 registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
-  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun"] }, views: { create: renderCreate },
+  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun", "appStudio"] }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
     { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",
@@ -2577,8 +2854,9 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
-  views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync"] },
+  views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery,
+    databricks_sync: () => renderDatabricksSync() },
 });
 registerFeature({
   id: "onelake", rail: { label: "OneLake", icon: "onelake", order: 40 }, views: { onelake: renderOneLake },
@@ -2600,7 +2878,9 @@ registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
-    { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
+    { label: "KratosForge schedules", icon: "history", keywords: "monitor scheduled schedules this pc", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
+    { label: "Fabric schedules", icon: "history", keywords: "monitor scheduled schedules fabric", preview: true, run: () => { monitorPage.panel = "fabric_schedules"; go("monitor"); } },
+    { label: "Fabric Monitoring hub", icon: "monitor", keywords: "monitor fabric hub jobs capacity", run: () => { monitorPage.panel = "fabric"; go("monitor"); } },
     { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });
@@ -2711,7 +2991,7 @@ async function checkComponents(afterInstall = false) {
     report = await invoke("check_components");
   } catch (err) {
     set("app", "skip", "Needs Python");
-    set("python", "error", `${err} Install Python 3.11 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
+    set("python", "error", `${err} Install Python 3.12 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
     set("sidecar", "skip", "Needs Python");
     if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
     return closeDialog();
@@ -2725,7 +3005,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.12 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2746,9 +3026,15 @@ async function checkComponents(afterInstall = false) {
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.
     set("app", "busy", `Updating to build ${short(latest.commit)}…`);
+    let target = short(latest.commit);
     const unlisten = await listen((line) => {
+      const moved = REPLACED_BUILD.exec(line);
+      if (moved) {
+        target = moved[2];
+        set("app", "busy", `Installing build ${moved[2]}, which replaced ${moved[1]}…`);
+      }
       const m = /^progress (\d+)/.exec(line);
-      if (m) set("app", "busy", `Downloading build ${short(latest.commit)}… ${m[1]}%`);
+      if (m) set("app", "busy", `Downloading build ${target}… ${m[1]}%`);
     });
     try {
       await invoke("update_app", { commit: latest.commit });
@@ -2771,10 +3057,14 @@ async function checkComponents(afterInstall = false) {
     help.hidden = false;
   };
 
-  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.11 or later");
+  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.12 or later");
   else if (sidecar.editable || !app.commit) {
     const kind = sidecar.editable ? "developer install (not managed)" : "not checked in a local build";
-    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}`);
+    // A developer's own Python that lacks a package a newer engine needs (PyYAML, for the Ossie converter): say
+    // the command that installs what's missing rather than only the import error.
+    const missing = /^ModuleNotFoundError: No module named '[^'.]+'$/.exec(sidecar.error || "");
+    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}` + (missing
+      ? `. This Python (${report.python}) is missing a package the engine needs. In the sidecar folder, run: python -m pip install -e . -c constraints.txt` : ""));
     else if (sidecar.version) set("sidecar", "ok", `${sidecar.version}, ${kind}`);
     else set("sidecar", "error", "Not installed. In the sidecar folder, run: python -m pip install -e .");
   } else if (sidecar.commit === app.commit && !sidecar.error) {
@@ -2805,7 +3095,8 @@ async function checkComponents(afterInstall = false) {
       const result = await invoke("update_sidecar");
       if (result?.engine) {
         // Check again with the new engine: it may be a newer build than this exe, and
-        // it may be blocked from loading.
+        // it may be blocked from loading. Its first start is slow (Windows scans each new file).
+        set("sidecar", "busy", "Starting the new engine for the first time…");
         return checkComponents(true);
       }
       set("sidecar", "ok", `Updated to build ${short(app.commit)}`);
@@ -2853,6 +3144,7 @@ function startMain() {
       state.user = env.user;
       state.tenant = env.tenant;
       await loadSettings();
+      if (typeof profileLoadAvatar === "function") profileLoadAvatar();  // profile.js; the account button's picture
       if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
       showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
       // The environment pill needs the metadata project; there may not be one yet.

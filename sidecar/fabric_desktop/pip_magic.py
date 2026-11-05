@@ -128,5 +128,5 @@ def _visible(spec: str) -> bool:
 def read_text(path: str, resources_dir: str) -> str:
     """A requirements file: ``builtin/...`` in the notebook's resources, or a path on this PC."""
     from . import notebook_resources
-    resolved = notebook_resources.resolve(path, resources_dir) if resources_dir else None
+    resolved = notebook_resources.real_path(path, resources_dir) if resources_dir else None
     return Path(resolved or path).expanduser().read_text(encoding="utf-8-sig")  # Notepad may save a BOM

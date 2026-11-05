@@ -92,17 +92,43 @@ def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
     assert "motion_level must be between 0 and 3" in app_settings.policy_problems()
 
 
-def test_layout_choices_default_to_everything_showing_and_take_only_their_choices(dirs):
+def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(dirs):
     loaded = app_settings.load()
     assert [loaded[k] for k in ("ui_explanations", "ui_preview_marks", "ui_density")] == [
-        {"value": "beside", "source": "default"}, {"value": "tags", "source": "default"},
+        {"value": "on_request", "source": "default"}, {"value": "tags", "source": "default"},
         {"value": "comfortable", "source": "default"}]
-    saved = app_settings.save({"ui_explanations": "on_request", "ui_preview_marks": "dots", "ui_density": "compact"})
-    assert [saved[k]["value"] for k in ("ui_explanations", "ui_preview_marks", "ui_density")] == ["on_request", "dots", "compact"]
+    saved = app_settings.save({"ui_explanations": "beside", "ui_preview_marks": "dots", "ui_density": "compact"})
+    assert [saved[k]["value"] for k in ("ui_explanations", "ui_preview_marks", "ui_density")] == ["beside", "dots", "compact"]
     with pytest.raises(ValueError, match="beside, on_request"):
         app_settings.save({"ui_explanations": "hidden"})
     dirs.write_text(json.dumps({"ui_density": "tiny"}))
     assert "ui_density must be one of comfortable, compact" in app_settings.policy_problems()
+
+
+def test_learn_mode_defaults_to_professional_and_a_policy_can_set_it(dirs):
+    assert app_settings.load()["learn_mode"] == {"value": "professional", "source": "default"}
+    assert app_settings.save({"learn_mode": "guided"})["learn_mode"]["value"] == "guided"
+    with pytest.raises(ValueError, match="expert, professional, guided"):
+        app_settings.save({"learn_mode": "loud"})
+    dirs.write_text(json.dumps({"learn_mode": "expert"}))
+    assert app_settings.load()["learn_mode"] == {"value": "expert", "source": "policy"}
+
+
+@pytest.mark.parametrize("first, now", [("focus", "expert"), ("learning", "guided")])
+def test_the_first_learn_mode_names_still_read_as_their_new_level(dirs, first, now):
+    # Someone who chose Focus or Learning before the levels were renamed keeps their choice.
+    app_settings.user_path().parent.mkdir(parents=True, exist_ok=True)
+    app_settings.user_path().write_text(json.dumps({"learn_mode": first}), encoding="utf-8")
+    assert app_settings.load()["learn_mode"] == {"value": now, "source": "user"}
+    dirs.write_text(json.dumps({"learn_mode": first}))
+    assert app_settings.load()["learn_mode"] == {"value": now, "source": "policy"}
+    assert not [p for p in app_settings.policy_problems() if "learn_mode" in p]
+
+
+def test_skipping_learns_first_use_question_stores_professional_so_it_isnt_asked_again(dirs):
+    # learn.js asks only while the source is "default"; Skip saves the default value as the person's own.
+    assert app_settings.save({"learn_mode": "professional"})["learn_mode"] == {"value": "professional", "source": "user"}
+    assert app_settings.save({"learn_mode": None})["learn_mode"]["source"] == "default"
 
 
 def test_forge_animations_off_still_means_motion_off(dirs):
@@ -149,3 +175,15 @@ def test_save_refuses_a_client_id_the_environment_overrides(dirs, monkeypatch):
     assert app_settings.user_path().read_text(encoding="utf-8") == before
     assert app_settings.load()["client_id"] == {"value": APP, "source": "environment"}
     assert app_settings.save({"channel": "stable"})["channel"]["value"] == "stable"  # other settings still save
+
+
+def test_a_subject_level_defaults_to_same_and_a_policy_can_set_it(dirs):
+    """GD-08: SQL and notebook guidance follow learn_mode until set; a level is a preference, so it
+    can be set by the person or by policy like learn_mode."""
+    for key in ("learn_mode_sql", "learn_mode_notebooks"):
+        assert app_settings.load()[key] == {"value": "same", "source": "default"}
+        assert app_settings.save({key: "expert"})[key]["value"] == "expert"
+        with pytest.raises(ValueError):
+            app_settings.save({key: "focus"})
+    dirs.write_text(json.dumps({"learn_mode_sql": "guided"}))
+    assert app_settings.load()["learn_mode_sql"] == {"value": "guided", "source": "policy"}

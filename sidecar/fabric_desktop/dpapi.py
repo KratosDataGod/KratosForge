@@ -19,7 +19,7 @@ def available() -> bool:
     return sys.platform == "win32"
 
 
-def _call(name: str, data: bytes) -> bytes:
+def _call(name: str, data: bytes, purpose: bytes = ENTROPY) -> bytes:
     import ctypes
     from ctypes import wintypes
 
@@ -39,7 +39,7 @@ def _call(name: str, data: bytes) -> bytes:
     kernel32.LocalFree.argtypes = [ctypes.c_void_p]
     kernel32.LocalFree.restype = ctypes.c_void_p
     data_in, _keep = blob(data)
-    entropy, _keep_entropy = blob(ENTROPY)
+    entropy, _keep_entropy = blob(purpose)
     out = Blob()
     if not fn(ctypes.byref(data_in), None, ctypes.byref(entropy), None, None, _UI_FORBIDDEN, ctypes.byref(out)):
         raise OSError(ctypes.get_last_error(), f"{name} failed")
@@ -49,10 +49,11 @@ def _call(name: str, data: bytes) -> bytes:
         kernel32.LocalFree(ctypes.cast(out.pbData, ctypes.c_void_p))
 
 
-def protect(data: bytes) -> bytes:
-    return _call("CryptProtectData", data)
+def protect(data: bytes, purpose: bytes = ENTROPY) -> bytes:
+    return _call("CryptProtectData", data, purpose)
 
 
-def unprotect(data: bytes) -> bytes:
-    """Raises OSError when this account can't decrypt it (another account, another PC, damaged)."""
-    return _call("CryptUnprotectData", data)
+def unprotect(data: bytes, purpose: bytes = ENTROPY) -> bytes:
+    """Raises OSError when this account can't decrypt it (another account, another PC, damaged, or
+    another ``purpose``)."""
+    return _call("CryptUnprotectData", data, purpose)

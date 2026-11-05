@@ -72,13 +72,13 @@ def test_secrets_in_watches_are_hidden():
 
 def test_cancel_skips_the_rest_of_the_watches():
     k = Kernel()
-    k.start("x = 1", watches=["x", "__import__('time').sleep(30)", "x + 1"])
+    k.start("x = 1", watches=["x", "__import__('time').sleep(5)", "x + 1"])
     time.sleep(0.5)
     assert k.interrupt()["interrupted"] is True
     snap = finished(k)
     w = by_expr(snap)
     assert w["x"]["value"] == "1"
-    assert w["__import__('time').sleep(30)"]["skipped"] and w["x + 1"]["skipped"]
+    assert w["__import__('time').sleep(5)"]["skipped"] and w["x + 1"]["skipped"]
     assert k.run("x")["outputs"] == [{"type": "text", "text": "1"}]
 
 

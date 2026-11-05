@@ -13,7 +13,13 @@ card under the Direct Lake one. It shows only while Settings shows preview featu
 
 Pick a semantic model in the environment's workspace (Test or Prod). KratosForge reads its
 definition from Fabric as TMSL (`model.bim`, a read-only getDefinition call) and converts it
-on this PC. Nothing in Fabric changes. **Save to Git** writes
+on this PC. Nothing in Fabric changes.
+
+Models kept in Git are listed too, under **In Git, on this PC**: each
+`semantic/<model>.SemanticModel/` folder in the metadata project (the layout **Save TMDL to
+Git** writes, and the one Power BI projects use). KratosForge reads its TMDL, or its
+`model.bim`, with no Fabric call, so this works in Dev and with no one signed in. Anything the
+TMDL reader leaves out, such as translations, is listed in the report under Not converted. **Save to Git** writes
 `semantic/<model>.ossie.yaml` into the metadata project's folder, where it shows in
 Changes, ready to commit. **Copy** puts the YAML on the clipboard instead.
 
@@ -63,8 +69,20 @@ Files Fabric no longer returns are removed from that folder.
   files under `semantic/` in the metadata project's folder.
 - Converts on this PC with the Apache Ossie Microsoft converter (Apache License 2.0),
   vendored in `sidecar/fabric_desktop/_vendor/ossie_microsoft`. No AI is involved.
-- KratosForge doesn't ship Microsoft's Tabular Object Model libraries, so TMDL goes through
-  Fabric's own TMSL format rather than being converted offline.
+- KratosForge doesn't ship Microsoft's Tabular Object Model libraries. A model in Fabric is read
+  as TMSL; a model in Git is read by KratosForge's own TMDL reader (`sidecar/fabric_desktop/tmdl.py`),
+  which covers tables, columns, measures, hierarchies, partitions, relationships, expressions,
+  roles, perspectives, calculation groups, annotations and descriptions. It doesn't read cultures
+  and translations yet.
+
+## From an AI tool
+
+A connected AI tool ([Connect your AI tool](ai/README.md)) can list an environment's semantic
+models (`fabric_desktop_list_semantic_models`), export one as Ossie YAML
+(`fabric_desktop_export_semantic_model_ossie`) and preview what importing a document would change
+(`fabric_desktop_preview_ossie_import`). All three only read, and a tool limited to some workspaces
+reaches only environments in them. Importing writes the model, so it stays on this tab, where you
+see the preview and confirm.
 
 ## Engine methods
 
@@ -77,3 +95,5 @@ Files Fabric no longer returns are removed from that folder.
 | `meta_model_ossie_preview` | What an import changes, and what it can't carry | Nothing |
 | `meta_model_ossie_import` | Writes the import; without `confirmed` it only asks | The semantic model in Fabric |
 | `meta_model_tmdl_save` | The model's TMDL into `semantic/<model>.SemanticModel/` | Files |
+| `meta_model_ossie_folders` | Models kept under `semantic/` in the project's folder | Nothing |
+| `meta_model_ossie_export_folder` | A model kept in Git as Ossie YAML, read on this PC | Nothing |

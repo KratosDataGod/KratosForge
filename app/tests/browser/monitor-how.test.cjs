@@ -1,4 +1,4 @@
-// Testing feedback item 18: Monitor > Workloads and Agents say how they work beside their list
+// Testing feedback item 18: Monitor > KratosForge > Operations > Workloads and Agents say how they work beside their list
 // (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
@@ -18,6 +18,8 @@ before(async () => {
     agents_list: () => ({ agents: [], envs: [] }),
     readiness_check: () => [],
   } });
+  // These check the panel beside the page, the layout people get from Settings > Appearance > Explanations.
+  await app.page.evaluate(() => { state.settings = { ...(state.settings || {}), ui_explanations: { value: "beside" } }; applyAppearance(); });
 });
 after(async () => { if (app) await app.close(); });
 

@@ -131,6 +131,28 @@ def test_fabric_view_sign_in_hosts_is_a_setting_and_bad_entries_are_reported(fil
     assert "fabric_view_sign_in_hosts" not in app_settings.load()  # the shell applies it, not the engine
 
 
+def test_engine_download_url_is_a_setting_used_only_for_managed_updates(files, monkeypatch):
+    """An IT-hosted engine folder for networks that can't reach GitHub; the shell reads the key."""
+    files({"auto_update": False, "engine_download_url": "https://files.contoso.com/kratosforge/build-1/"})
+    assert app_settings.policy_problems() == []
+    assert "engine_download_url" not in app_settings.load()  # the shell applies it, not the engine
+    monkeypatch.setenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "someone other than SYSTEM and Administrators can change it")
+    assert app_settings.policy_problems() == [
+        "engine_download_url is ignored, so the engine comes from GitHub: someone other than SYSTEM and "
+        "Administrators can change it. Push policy.json as SYSTEM (Intune, Group Policy) or from an elevated "
+        "prompt, so only administrators can change it"]
+    monkeypatch.delenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED")
+    files({"engine_download_url": "https://files.contoso.com/kratosforge"})
+    assert app_settings.policy_problems() == ['engine_download_url is used only with "auto_update": false, '
+                                              "so the engine comes from GitHub"]
+    for bad in ["http://files.contoso.com/kf", "\\\\server\\share", "https://u:p@files.contoso.com/kf",
+                "https://files.contoso.com/kf?sig=x", "https://10.0.0.5/kf", "https://files.contoso.com:/kf",
+                "https://files.contoso.com/%2e%2e", 7]:
+        files({"auto_update": False, "engine_download_url": bad})
+        problems = app_settings.policy_problems()
+        assert len(problems) == 1 and problems[0].startswith("engine_download_url: "), bad
+
+
 @pytest.mark.parametrize("host,ok", [
     ("adfs.contoso.com", True), ("xn--bcher-kva.example", True), ("a.b-c.co.uk", True),
     ("*.okta.com", False), ("localhost", False), ("10.0.0.5", False), ("adfs.contoso.com.", False),
@@ -270,3 +292,25 @@ def test_register_link_scheme_is_a_setting_the_shell_reads(files):
     assert app_settings.policy_problems() == []
     files({"register_link_scheme": "false"})
     assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")
+
+
+GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_notebook_packages", "allow_pypi_packages")
+
+
+def test_a_file_that_cant_be_read_turns_off_every_gate(files):
+    files("{broken")
+    s = app_settings.load()
+    for key in GATES:
+        assert s[key] == {"value": False, "source": "policy"}, key
+
+
+@pytest.mark.parametrize("key", GATES)
+def test_a_wrongly_typed_gate_is_off(files, key):
+    files({key: "false"})
+    assert app_settings.load()[key] == {"value": False, "source": "policy"}
+    assert f"{key} should be bool, not str, so it takes its most restrictive value" in app_settings.policy_problems()
+
+
+def test_every_allow_key_fails_closed():
+    """A new allow_* switch is a restriction, so it needs a most restrictive value too."""
+    assert {k for k in app_settings.DEFAULTS if k.startswith("allow_")} <= set(app_settings.RESTRICTED)

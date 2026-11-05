@@ -119,7 +119,7 @@ class FakeService:
 
     def meta_project(self):
         return {"path": "C:/mesh", "project": {"name": "Mesh"}, "entities": [], "layers": [], "errors": [],
-                "environments": {"dev": {"workspace_id": self.meta_ws, "workspace_name": self.meta_ws.title()}}}
+                "environments": {env: {"workspace_id": self.meta_ws, "workspace_name": self.meta_ws.title()} for env in ("dev", "test")}}
 
     def prove_list(self, name=None, limit=20):
         return [proof_record("p-allowed"), proof_record("p-other")]
@@ -174,7 +174,7 @@ def arguments(cap: Capability, inside: bool) -> dict:
     values = {"workspace_id": ws, "lakehouse_id": "lh-" + ws, "item_id": "item-1", "table": "dbo.orders",
               "name": "nb_allowed" if inside else "nb_other", "id": RECEIPT_IN if inside else RECEIPT_OUT,
               "execution_id": EXEC_IN if inside else EXEC_OUT, "query": "select 1", "code": "x = 1",
-              "definition": "{}", "workload_id": "w-allowed" if inside else "w-other", "action": "run"}
+              "definition": "{}", "text": "name: m", "workload_id": "w-allowed" if inside else "w-other", "action": "run"}
     props = cap.input_schema.get("properties", {})
     out = {}
     optional = [k for k in ("workspace_id", "lakehouse_id") if k in props]  # a lakehouse to attach, say
@@ -390,4 +390,62 @@ def test_a_limited_tool_checks_risk_only_in_its_workspaces(store):
     args = {"workload_id": "w-allowed", "action": "run_item"}
     assert reg.invoke(FakeService(), "fabric_desktop_check_run_risk", args, ctx(client["id"]))["result"] == "pass"
     got = outcome(reg, FakeService(), "fabric_desktop_check_run_risk", client["id"], args | {"workload_id": "w-other"})
+    assert isinstance(got, IntegrationError) and got.code == "permission_denied"
+
+
+def test_an_environment_reaches_its_designation_workspaces_too(store):
+    """The Ossie tools read an environment's lakehouses, and a designation (finance, say) can keep its
+    lakehouses in another workspace: a tool limited to the environment's own workspace is refused."""
+    from fabric_desktop.integrations import scope
+    reg = registry(store)
+    client = limited_client(store)
+    svc = FakeService(meta_ws=IN)
+    envs = svc.meta_project()["environments"]
+    envs["test"]["workspaces"] = {"finance": {"id": OUT, "name": "Finance Test"}}
+    svc.meta_project = lambda: {"path": "C:/mesh", "environments": envs}
+    assert scope.environment(svc, {"env": "test"}, None) == {IN, OUT}
+    for cap_id, args in [("fabric_desktop_export_semantic_model_ossie", {"env": "test", "name": "m"}),
+                         ("fabric_desktop_preview_ossie_import", {"env": "test", "text": "name: m"}),
+                         ("fabric_desktop_list_semantic_models", {"env": "test"})]:
+        got = outcome(reg, svc, cap_id, client["id"], args)
+        assert isinstance(got, IntegrationError) and got.code == "permission_denied", cap_id
+    envs["test"]["workspaces"] = {"finance": {"name": "Finance Test"}}  # named without its id: can't be checked
+    assert scope.environment(svc, {"env": "test"}, None) is None
+    envs["test"]["workspaces"] = {"finance": {"id": IN}}
+    assert scope.environment(svc, {"env": "test"}, None) == {IN}
+
+
+class DesignatedService(FakeService):
+    """The metadata project's environment is in the allowed workspace, but one designation's lakehouses
+    (environments.<env>.workspaces.<d>) are in ``designation``."""
+
+    def __init__(self, designation):
+        super().__init__(meta_ws=IN)
+        self.designation = designation
+
+    def meta_project(self):
+        meta = super().meta_project()
+        for cfg in meta["environments"].values():
+            cfg["workspaces"] = {"ingest": self.designation}
+        return meta
+
+
+def test_a_designations_workspace_counts_for_the_metadata_project(store):
+    from fabric_desktop.integrations import scope
+    reg = registry(store)
+    client = limited_client(store)
+    other = DesignatedService({"id": OUT, "name": "Other"})
+    assert scope.metadata_of(other.meta_project()) == {IN, OUT}
+    entity = {"kind": "meta_entity", "deployments": [{"env": "dev", "location": {"kind": "this_pc"}, "actions": ["run"]}]}
+    assert scope.workload_of(other, entity, "run", "dev") == {IN, OUT}
+    got = outcome(reg, other, "fabric_desktop_get_project", client["id"], {"id": "metadata"})
+    assert isinstance(got, IntegrationError) and got.code == "permission_denied"
+    listed = reg.invoke(other, "fabric_desktop_list_projects", {}, ctx(client["id"]))["projects"]
+    assert [p["id"] for p in listed] == ["notebooks"]
+    inside = DesignatedService({"id": IN, "name": "Allowed"})
+    assert not isinstance(outcome(reg, inside, "fabric_desktop_get_project", client["id"], {"id": "metadata"}),
+                          IntegrationError)
+    unnamed = DesignatedService({"name": "Other"})  # a designation named without its workspace id
+    assert scope.metadata_of(unnamed.meta_project()) is None
+    got = outcome(reg, unnamed, "fabric_desktop_get_project", client["id"], {"id": "metadata"})
     assert isinstance(got, IntegrationError) and got.code == "permission_denied"

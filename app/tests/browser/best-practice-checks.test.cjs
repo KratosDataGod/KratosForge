@@ -16,12 +16,13 @@ let templates = [
   { id: "table-names", name: "Table names", category: "naming", description: "Gold tables are snake_case and start dim_ or fact_.", builtin: true, can_edit: false, definition: def("Table names", "naming", "naming.table_name") },
   { id: "product-owner", name: "Every product has an owner", category: "ownership", description: "A published product names an owner and a steward.", builtin: true, can_edit: false, definition: def("Every product has an owner", "ownership", "ownership.product_owner") },
   { id: "sensitive-columns-labelled", name: "Sensitive columns are labelled", category: "classification", description: "Columns marked PII or PHI carry a sensitivity label.", builtin: true, can_edit: false, definition: def("Sensitive columns are labelled", "classification", "classification.sensitive_columns") },
-  { id: "data-contract", name: "Data contract", category: "contract", description: "Fresh within N hours, row count checked, business terms linked.", builtin: true, can_edit: false, definition: def("Data contract", "contract", "contract.freshness") },
+  { id: "data-contract", name: "Data contract", category: "contract", description: "Fresh within N hours, row count checked.", builtin: true, can_edit: false, definition: def("Data contract", "contract", "contract.freshness") },
   { id: "no-pii-in-dev", name: "No PII in Dev", category: "classification", description: "", builtin: false, can_edit: true, created_by: "ana@contoso.com", definition: def("No PII in Dev", "classification", "") },
 ];
 let last = null;
 const result = () => ({ project: "Sales Forecasting", checked_at: new Date(Date.now() - 5 * 60e3).toISOString(), where: "this PC",
-  enforcement: "Warn only: nothing is blocked.", problems: [], inactive: [],
+  enforcement: "Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers.", problems: [], inactive: [], offline: true,
+  package_note: "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from the platform on this PC (platform-prod.sqlite): crm.json.",
   counts: { to_look_at: 2, unknown: 0, excepted: 0, passing: 1, policies: 3 },
   policies: [
     { id: "table-names", name: "Table names", enforcement: "warn", severity: "medium", status: "findings", checked: 3, passed: 2, unknown: [], not_run: [], missing: [], rules: ["naming.table_name"],
@@ -49,11 +50,10 @@ before(async () => {
     governance_check_now: () => { last = result(); return last; },
     mesh_save_about: () => ({}),
     platform_products: () => ({ project: null, products: [{ id: "crm/customer_360", project: "crm", name: "customer_360", description: "", owner: "me", access: "public", status: "published", version: "1", ports: [], consumers: [] }] }),
-    platform_product_trust: () => ({ product_id: "crm/customer_360", name: "customer_360", owner: "me", admin: false, can_edit_terms: false, items: [], terms: [] }),
+    platform_product_trust: () => ({ product_id: "crm/customer_360", name: "customer_360", owner: "me", admin: false, can_edit: false, items: [] }),
     governance_product_checklist: () => ({ product_id: "crm/customer_360", project: "crm", source: { template: "data-contract", name: "Data contract", builtin: true }, open_project: true, problems: [],
       rows: [{ rule_id: "ownership.product_owner", label: "Owner and steward", mark: "pass", detail: "Owner me, steward bo." },
         { rule_id: "contract.description", label: "Description", mark: "fail", detail: "Has no description." },
-        { rule_id: "contract.terms_linked", label: "Business terms linked", mark: "fail", detail: "Links no business term." },
         { rule_id: "contract.freshness", label: "Fresh within 24 h", mark: "pass", detail: "Last loaded 2026-10-24 08:00 UTC in Prod." },
         { rule_id: "contract.endorsed", label: "Endorsement", mark: "unknown", detail: "Unknown: needs a tenant scan." }] }),
   } });
@@ -80,7 +80,7 @@ test("Templates lists built-in and your own templates, each with Use", { skip },
 test("How this works names every write", { skip }, async () => {
   const how = await page().textContent(".how-it-works");
   for (const part of ["Template create, edit and delete write catalog.policy_template", "Use writes a policy draft",
-    "Check now writes only its last result, to governance_checks.json on this PC", "Label it writes the column's classification to catalog.enrichment"]) assert.ok(how.includes(part), part);
+    "Check now writes its last result, to governance_checks.json on this PC", "the project's policy package, to governance_packages/<project>.json on this PC", "Label it writes the column's classification to catalog.enrichment"]) assert.ok(how.includes(part), part);
 });
 
 test("Use makes a policy draft from the template and opens it", { skip }, async () => {
@@ -105,13 +105,14 @@ test("deleting your template asks first, drawn as a danger", { skip }, async () 
   assert.deepStrictEqual(callsOf("governance_template_delete"), [{ id: "no-pii-in-dev" }]);
 });
 
-test("Check now runs on this PC, says how many to look at and that nothing is blocked", { skip }, async () => {
+test("Check now runs on this PC, says how many to look at and what a promote stops on", { skip }, async () => {
   await openView("check", ".bp-check-head");
   assert.match(await page().textContent(".bp-summary"), /Sales Forecasting: not checked yet/);
   await page().click('.bp-check-head button:has-text("Check now")');
   await page().waitForSelector('.bp-summary:has-text("2 to look at")');
   assert.strictEqual((await page().textContent(".bp-summary")).trim(), "Sales Forecasting: 2 to look at");
-  assert.strictEqual((await page().textContent(".bp-when")).trim(), "Checked on this PC 5 min ago. Warn only: nothing is blocked.");
+  assert.strictEqual((await page().textContent(".bp-when")).trim(), "Checked on this PC 5 min ago. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers. "
+    + "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from the platform on this PC (platform-prod.sqlite): crm.json.");
   const names = await page().textContent('[data-policy="table-names"]');
   assert.match(names, /Table names/);
   assert.match(names, /gold\.customer_orders customer_orders doesn't match the naming pattern\./);
@@ -147,7 +148,7 @@ test("a data product's page shows its checklist from the contract template", { s
   await page().waitForSelector(".bp-checklist .bp-rows");
   assert.deepStrictEqual(callsOf("governance_product_checklist"), [{ product_id: "crm/customer_360" }]);
   const marks = await page().$$eval(".bp-checklist li", (lis) => lis.map((li) => [li.querySelector(".bp-mark").textContent, li.querySelector("b").textContent]));
-  assert.deepStrictEqual(marks, [["✓", "Owner and steward"], ["✗", "Description"], ["✗", "Business terms linked"], ["✓", "Fresh within 24 h"], ["!", "Endorsement"]]);
+  assert.deepStrictEqual(marks, [["✓", "Owner and steward"], ["✗", "Description"], ["✓", "Fresh within 24 h"], ["!", "Endorsement"]]);
   const text = await page().textContent(".bp-checklist");
   assert.match(text, /From the built-in Data contract template: no contract policy is in force for crm\./);
   assert.match(text, /Unknown: needs a tenant scan\./);

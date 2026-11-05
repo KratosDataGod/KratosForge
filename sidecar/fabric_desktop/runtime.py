@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import os
 import socket
-from pathlib import Path
 from typing import Any, Callable
 
 from .agent_config import AgentConfig
-from .auth import EXECUTE_SCOPES
+from .auth import EXECUTE_SCOPES, ONELAKE_SCOPES
 from .cloud_service import CloudMixin
 from .credentials import Credential, from_config
 from .dataops_service import DataOpsMixin
@@ -46,6 +45,14 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
     @property
     def fabric(self) -> FabricClient:
         return FabricClient(self.auth.fabric_token)
+
+    def onelake_token(self) -> str:
+        """A token for OneLake's Fabric APIs (listing shortcuts and data access roles)."""
+        return self.auth._token(ONELAKE_SCOPES)
+
+    def environment_config(self, env: str) -> dict[str, Any]:
+        """An environment's settings in the project (workspace ids and the rest); {} when it has none."""
+        return dict(self._project().environments.get(env, {}))
 
     @property
     def fabric_jobs(self) -> FabricClient:
@@ -85,6 +92,15 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
         store = self._store(project, env)
         meta_id = store.lakehouse_ids.get(META_LAKEHOUSE) if isinstance(store, OneLakeStore) else None
         return control_backend_for(store, meta_id, self.auth.storage_token)
+
+    def verify_pipeline_run(self, env: str, item_id: str, run_id: str) -> dict[str, Any]:
+        """Fabric's record of a pipeline run in ``env``'s workspace, for a request that names it (mailbox.py)."""
+        project = self._project()
+        self.check_allowed(project, env)
+        store = self._store(project, env)
+        if not isinstance(store, OneLakeStore):
+            raise LookupError(f"{env} runs on this machine, so there is no Fabric workspace to look the run up in")
+        return self.fabric.job_instance(store.workspace_id, item_id, run_id)
 
     def entity_names(self) -> set[str]:
         return set(self._project().entities)

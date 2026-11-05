@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = "KratosDataGod/KratosForge"
-MIN_PYTHON = (3, 11)
+MIN_PYTHON = (3, 12)
 # Each update channel is a GitHub release: "latest" is replaced by every green build of main,
 # "stable" only when someone promotes a build (the Promote to stable workflow).
 CHANNEL_TAGS = {"stable": "stable", "preview": "latest"}
@@ -69,18 +69,48 @@ def release_url(name: str = "") -> str:
     return f"https://github.com/{REPO}/releases/download/{CHANNEL_TAGS[name or channel()]}"
 
 
-def sidecar_url(commit: str) -> str:
-    return f"https://github.com/{REPO}/archive/{commit}.zip#subdirectory=sidecar"
+# CI's own copy of a build's sidecar/ folder, published with that build (build-<first 12 of its
+# commit>), whose version.json gives its SHA-256. GitHub's /archive zips have no published checksum.
+SOURCE_ASSET = "sidecar-source.zip"
+
+
+def build_release_url(commit: str) -> str:
+    return f"https://github.com/{REPO}/releases/download/build-{commit[:12].lower()}"
+
+
+def source_sha256(commit: str) -> str:
+    """The SHA-256 that a build's own release gives for its sidecar source, or "" when that release
+    names another build or gives none (a build from before it was published). ValueError, with the
+    reason, when the release can't be read."""
+    try:
+        with _get(f"{build_release_url(commit)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
+            info = json.load(resp)
+    except Exception as exc:  # noqa: BLE001 - shown to the person as the reason nothing was installed
+        raise ValueError(f"couldn't read build {commit[:7]}'s checksum from its release ({exc})") from exc
+    if not isinstance(info, dict) or str(info.get("commit") or "").lower() != commit.lower():
+        return ""
+    sha = str(info.get("sidecar_source_sha256") or "").lower()
+    return sha if re.fullmatch(r"[0-9a-f]{64}", sha) else ""
 
 
 def download_sidecar(commit: str, folder: str) -> Path:
-    """That commit's sidecar/ folder, downloaded once and unpacked into folder. Its constraints.txt
-    holds the exact package versions that commit was tested with (SH-9)."""
+    """That commit's sidecar/ folder, downloaded once from its build's release, checked against the
+    SHA-256 that release gives, and unpacked into folder. Its constraints.txt holds the exact package
+    versions that commit was tested with (SH-9)."""
     import zipfile
+    if not SHA.fullmatch(commit):  # it goes into the release's URL
+        raise ValueError(f"{commit!r} is not a build commit")
+    expected = source_sha256(commit)
+    if not expected:
+        raise ValueError(f"build {commit[:7]}'s release gives no checksum for its engine source, so it wasn't installed")
     archive = Path(folder) / "source.zip"
-    with _get(sidecar_url(commit).split("#", 1)[0], timeout=120) as resp, open(archive, "wb") as out:
+    digest = hashlib.sha256()
+    with _get(f"{build_release_url(commit)}/{SOURCE_ASSET}", timeout=120) as resp, open(archive, "wb") as out:
         while chunk := resp.read(1 << 20):
             out.write(chunk)
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        raise ValueError(f"the download doesn't match build {commit[:7]}'s checksum, so it wasn't installed")
     with zipfile.ZipFile(archive) as zf:
         # GitHub's archives hold one top folder, <repo>-<commit>/.
         members = [m for m in zf.namelist() if m.split("/")[1:2] == ["sidecar"]]
@@ -359,19 +389,36 @@ def install_sidecar(commit: str) -> int:
     return 0
 
 
-def release_sha256(tag: str, commit: str) -> str | None:
-    """The exe's SHA-256 that a release's version.json gives for this build; "" when it names this
-    build but gives no valid checksum, which is refused; None when it can't be read or names
-    another build (one is being published), so the download can't be checked yet."""
+def release_info(tag: str) -> dict | None:
+    """A release's version.json as it is now, or None when it can't be read."""
     try:
         with _get(f"{release_url(tag)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
             info = json.load(resp)
     except Exception:  # noqa: BLE001 - reported by the caller as "can't check yet"
         return None
-    if not isinstance(info, dict) or info.get("commit") != commit:
+    return info if isinstance(info, dict) else None
+
+
+def release_sha256(tag: str, commit: str) -> str | None:
+    """The exe's SHA-256 that a release's version.json gives for this build; "" when it names this
+    build but gives no valid checksum, which is refused; None when it can't be read or names
+    another build (one is being published), so the download can't be checked yet."""
+    info = release_info(tag)
+    if info is None or info.get("commit") != commit:
         return None
     sha = str(info.get("exe_sha256") or "").lower()
     return sha if re.fullmatch(r"[0-9a-f]{64}", sha) else ""
+
+
+# download-app's exit code when the release now names another build than the one asked for. The
+# shell checks the channel again and downloads the build it names (main.rs, update_app).
+MOVED = 3
+
+
+def _moved(tag: str, commit: str) -> str | None:
+    """The build a release names now, when it is a build other than commit."""
+    named = (release_info(tag) or {}).get("commit")
+    return named if isinstance(named, str) and SHA.fullmatch(named) and named != commit else None
 
 
 # The exe's release asset names, newest first. Releases publish both (exe_name.rs); a release
@@ -392,9 +439,14 @@ def _open_app(tag: str, nocache: bool):
 
 def download_app(dest: str, commit: str = "") -> int:
     """Download the latest exe. With a commit, check the file is that build, since each
-    exe carries its commit; a stale cached copy is fetched once more, then refused."""
+    exe carries its commit; a stale cached copy is fetched once more, then refused. When the
+    release names another build, before or after the download, prints "moved <commit>" and
+    returns MOVED: the channel was republished since the shell last checked it."""
     tags = release_channels()
     for attempt in range(2):
+        if commit and attempt == 0 and (named := _moved(tags[0], commit)):
+            print(f"moved {named}", flush=True)
+            return MOVED
         try:
             resp = _open_app(tags[0], bool(attempt))
         except urllib.error.HTTPError as exc:
@@ -421,6 +473,9 @@ def download_app(dest: str, commit: str = "") -> int:
         if not commit:
             return 0
         expected = release_sha256(tags[0], commit)
+        if expected is None and (named := _moved(tags[0], commit)):
+            print(f"moved {named}", flush=True)
+            return MOVED
         if expected is None:
             print(f"Could not read build {commit[:7]}'s checksum from its release; trying again", flush=True)
             continue
@@ -450,7 +505,11 @@ def main(argv: list[str]) -> int:
     if command == "install-sidecar":
         return install_sidecar(args[0])
     if command == "download-app":
-        return download_app(*args[:2])
+        try:
+            return download_app(*args[:2])
+        except (OSError, urllib.error.URLError) as exc:  # offline, or the release has no exe
+            print(f"The download failed: {exc}", flush=True)
+            return 1
     print(f"unknown command {command!r}", file=sys.stderr)
     return 2
 

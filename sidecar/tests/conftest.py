@@ -1,6 +1,7 @@
 """Shared test setup."""
 
 import faulthandler
+import json
 import os
 import sys
 import threading
@@ -18,6 +19,54 @@ def no_interactive_sign_in(monkeypatch):
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
 
 
+class _NoSignInService:
+    """MSAL's HTTP client for tests. Building a PublicClientApplication asks the sign-in service for its
+    settings (the authority's OpenID configuration), so every test that made an Authenticator needed the
+    internet. This answers that question, and the one about which host names are the same cloud, the way
+    login.microsoftonline.com does, and refuses anything else, so no test can reach Microsoft."""
+
+    def get(self, url, params=None, headers=None, **kwargs):
+        if url.endswith("/v2.0/.well-known/openid-configuration"):
+            base = url[: -len("/v2.0/.well-known/openid-configuration")]
+            body = {"issuer": "https://login.microsoftonline.com/{tenantid}/v2.0",
+                    "authorization_endpoint": f"{base}/oauth2/v2.0/authorize",
+                    "token_endpoint": f"{base}/oauth2/v2.0/token",
+                    "device_authorization_endpoint": f"{base}/oauth2/v2.0/devicecode"}
+            return _Reply(200, json.dumps(body))
+        if url.endswith("/common/discovery/instance"):  # which host names are one cloud (for cached accounts)
+            hosts = ["login.microsoftonline.com", "login.windows.net", "login.microsoft.com", "sts.windows.net"]
+            return _Reply(200, json.dumps({"metadata": [{"preferred_network": hosts[0], "preferred_cache": hosts[1],
+                                                         "aliases": hosts}]}))
+        raise AssertionError(f"a test reached the sign-in service: GET {url}")
+
+    def post(self, url, params=None, data=None, headers=None, **kwargs):
+        raise AssertionError(f"a test reached the sign-in service: POST {url}")
+
+    def close(self):
+        pass
+
+
+class _Reply:
+    def __init__(self, status_code, text):
+        self.status_code, self.text, self.headers = status_code, text, {}
+
+    def raise_for_status(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def no_sign_in_service(monkeypatch):
+    # The desktop's sign-in, and a service principal's (credentials.py) for agents.
+    for name in ("PublicClientApplication", "ConfidentialClientApplication"):
+        real = getattr(msal, name)
+
+        class Offline(real):
+            def __init__(self, *args, **kwargs):
+                kwargs.setdefault("http_client", _NoSignInService())
+                super().__init__(*args, **kwargs)
+        monkeypatch.setattr(msal, name, Offline)
+
+
 @pytest.fixture(autouse=True)
 def saved_policy_in_tmp(monkeypatch, tmp_path):
     """Reading a policy file keeps a copy of it (app_settings.saved_policy_path); keep it out of the
@@ -28,9 +77,20 @@ def saved_policy_in_tmp(monkeypatch, tmp_path):
     monkeypatch.setattr(app_settings, "user_can_change", lambda path: False)
 
 
+@pytest.fixture(autouse=True)
+def no_lakehouse_left_attached(monkeypatch):
+    """The attached lakehouse is the engine's one module global (lakehouse._attached). A test that
+    attaches one would otherwise leave it for every later test, so a notebook test passed or failed
+    depending on which file ran before it."""
+    from fabric_desktop import lakehouse
+    monkeypatch.setattr(lakehouse, "_attached", None)
+
+
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
+# another worker and the run still fails, with the stacks in the log.
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 

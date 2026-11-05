@@ -39,6 +39,7 @@ from typing import Any, Callable
 import sqlglot
 from sqlglot import exp
 
+from .. import jsonfile, sql_dialects
 from . import delta
 
 __all__ = ["Step", "Transforms"]
@@ -127,7 +128,7 @@ class Transforms:
         try:
             trees = [t for t in sqlglot.parse(step.sql, read=step.dialect) if t is not None]
         except sqlglot.errors.ParseError as exc:
-            raise ValueError(f"Could not read the query: {exc}") from None
+            raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
         if len(trees) != 1 or not isinstance(trees[0], exp.Query):
             raise ValueError("A step is one query (SELECT ..., WITH ... SELECT ...), with no other statements; "
                              "its rows become the step's table.")
@@ -360,6 +361,4 @@ def _now() -> str:
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    jsonfile.write_text(path, json.dumps(data, indent=2))

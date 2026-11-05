@@ -288,3 +288,11 @@ def test_items_are_ranked_by_fabric_cost_and_calibrated_avoidance_not_by_the_sce
                   fabric=[{"kind": "Notebook run", "name": "nb", "engine": "python", "workspace_id": "w", "item_id": "i",
                            "job_id": "j", "started_at": "2026-10-14T13:00:00Z", "finished_at": "2026-10-14T13:30:00Z"}])
     assert [i["name"] for i in out["by_item"]] == ["nb", "big"]
+
+
+def test_a_job_file_run_is_a_job_run_not_a_notebook_write():
+    # PB-079: publish.run_job writes the job's name to the same history as a notebook's table writes.
+    rows = costs.activities([], [], [{"job": "Notebook write to LH", "seconds": 3, "finished_at": "2026-10-14T13:00:00Z"},
+                                     {"job": "daily_sales", "table_uri": "abfss://x", "mode": "overwrite", "rows": 5,
+                                      "delta_version": 2, "seconds": 4, "finished_at": "2026-10-14T14:00:00Z"}], CFG)
+    assert [(r["kind"], r["name"]) for r in rows] == [("Notebook write", "Notebook write to LH"), ("Job run", "daily_sales")]

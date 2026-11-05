@@ -1,0 +1,44 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-01",
+  "kind": "module",
+  "title": "Your first query on this PC",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 10,
+  "objectives": [
+    "Choose the columns a question needs with SELECT",
+    "Keep only the rows that matter with WHERE",
+    "Put the answer in a useful order with ORDER BY"
+  ],
+  "prerequisites": [],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "north-big-orders",
+      "prompt": "List the North region's orders over 100, largest first. Show order_id, customer and amount.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter returns every column and every row. Which three columns does the question name?",
+        "WHERE region = 'North' AND amount > 100 keeps the right rows. Order 5 is exactly 100, so > leaves it out.",
+        "ORDER BY amount DESC puts the largest first."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}],
+      "expected": {
+        "columns": ["order_id", "customer", "amount"],
+        "rows": [[7, "Contoso", 420.0], [3, "Fabrikam", 250.0], [1, "Contoso", 120.5]]
+      }
+    }
+  ],
+  "rules": ["SQ002"],
+  "docs": ["sql-best-practices.md", "https://duckdb.org/docs/sql/query_syntax/select"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

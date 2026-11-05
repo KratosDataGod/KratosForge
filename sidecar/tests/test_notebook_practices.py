@@ -60,6 +60,32 @@ def test_writes_in_loops_counts_and_swallowed_errors():
     assert ids(["try:\n    go()\nexcept Exception:\n    pass"]) == ["NB012"]
 
 
+def test_python_udfs_but_not_pandas_udfs_or_user_data_functions():
+    assert ids(['@udf("string")\ndef up(s):\n    return s.upper()\n']) == ["NB018"]  # once, not again for the decorator
+    assert ids(["@udf\ndef up(s):\n    return s\n"]) == ["NB018"]
+    assert ids(["up = F.udf(lambda s: s.upper())", 'spark.udf.register("up", up)']) == ["NB018", "NB018"]
+    assert ids(['@pandas_udf("long")\ndef f(s):\n    return s',
+                "udf = fn.UserDataFunctions()\n@udf.function()\ndef hello(name: str) -> str:\n    return name",
+                'spark.udf.register("f")', "df = df.withColumn('n', F.upper('n'))"]) == []
+
+
+def test_spark_reading_a_web_address():
+    assert ids(['df = spark.read.parquet("https://example.com/a.parquet")',
+                'df = spark.read.format("parquet").load("HTTP://example.com/a")']) == ["NB019", "NB019"]
+    assert ids(['pdf = pd.read_csv("https://example.com/a.csv")', 'df = spark.read.parquet("Files/a")',
+                'df = spark.read.parquet("abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Files/a")']) == []
+
+
+def test_vacuum_with_short_retention():
+    short = ['spark.sql("VACUUM sales RETAIN 0 HOURS")', "%%sql\nSELECT 1;\nvacuum sales retain 24.5 hours",
+             'DeltaTable.forName(spark, "t").vacuum(0)', "dt.vacuum(retention_hours=1, enforce_retention_duration=False)"]
+    found = np_.check(short)["findings"]
+    assert [(f["rule_id"], f["cell"], f["line"]) for f in found] == [("NB020", 1, 1), ("NB020", 2, 3), ("NB020", 3, 1),
+                                                                     ("NB020", 4, 1)]
+    assert ids(['spark.sql("VACUUM sales RETAIN 168 HOURS")', "%%sql\nVACUUM sales", "dt.vacuum()",
+                "dt.vacuum(200)", "dt.vacuum(dry_run=True)", "dt.vacuum(True)"]) == []
+
+
 def test_magics_and_broken_cells_dont_stop_the_check():
     assert ids(["%run other\nrows = df.collect()"]) == ["NB003"]
     assert ids(["def broken(:\n", "rows = df.collect()"]) == ["NB003"]
@@ -77,7 +103,7 @@ def test_settings_turn_rules_off_and_change_severity():
 
 def test_rules_list_and_bad_input():
     listed = np_.rules()
-    assert len(listed) == 12 and len({r["id"] for r in listed}) == 12
+    assert len(listed) == 15 and len({r["id"] for r in listed}) == 15
     assert all(r["kind"] == "notebook" and r["severity"] in np_.SEVERITIES for r in listed)
     with pytest.raises(ValueError):
         np_.check("rows = df.collect()")  # type: ignore[arg-type]

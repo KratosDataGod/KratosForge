@@ -17,22 +17,25 @@ const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const file = (...p) => path.join(root, "WH_Gold.Warehouse", ...p);
 
-// The warehouse's catalog, as the explorer's and Import's catalog queries read it.
+// The warehouse's catalog, as the explorer's and Import's catalog queries read it, with Fabric's own
+// queryinsights and _rsc schemas, which Import leaves out (#807).
 function catalog({ query }) {
   const cols = (...names) => names.map((name) => ({ name, type: "nvarchar" }));
   if (/FROM sys\.sql_modules AS m\nJOIN/.test(query)) {
     return { columns: cols("schema_name", "object_name", "object_type", "definition"), rows: [
       ["dbo", "vw_Sales", "V", "CREATE VIEW dbo.vw_Sales AS SELECT 1 AS x"],
-      ["staging", "usp_Load", "P", "CREATE PROCEDURE staging.usp_Load AS SELECT 1"]] };
+      ["staging", "usp_Load", "P", "CREATE PROCEDURE staging.usp_Load AS SELECT 1"],
+      ["queryinsights", "exec_requests_history", "V", "CREATE VIEW queryinsights.exec_requests_history AS SELECT 1 AS x"]] };
   }
-  if (/FROM sys\.schemas AS s WHERE/.test(query)) return { columns: cols("name"), rows: [["staging"]] };
+  if (/FROM sys\.schemas AS s WHERE/.test(query)) return { columns: cols("name"), rows: [["_rsc"], ["queryinsights"], ["staging"]] };
   if (/FROM sys\.columns/.test(query)) {
     return { columns: cols("schema_name", "object_name", "column_name", "type_name", "max_length", "precision", "scale", "is_nullable"), rows: [
-      ["dbo", "DimCustomer", "CustomerKey", "int", 4, 10, 0, 0], ["dbo", "DimCustomer", "Segment", "varchar", 20, 0, 0, 1]] };
+      ["dbo", "DimCustomer", "CustomerKey", "int", 4, 10, 0, 0], ["dbo", "DimCustomer", "Segment", "varchar", 20, 0, 0, 1],
+      ["_rsc", "ResultSetCache", "Id", "int", 4, 10, 0, 0]] };
   }
   if (/FROM sys\.objects/.test(query)) {
     return { columns: cols("schema_name", "object_name", "object_type"), rows: [
-      ["dbo", "DimCustomer", "U"], ["dbo", "vw_Sales", "V"], ["staging", "usp_Load", "P"]] };
+      ["dbo", "DimCustomer", "U"], ["dbo", "vw_Sales", "V"], ["staging", "usp_Load", "P"], ["_rsc", "ResultSetCache", "U"]] };
   }
   return { columns: cols("x"), rows: [[1]] };
 }
@@ -41,8 +44,8 @@ before(async () => {
   if (skip) return;
   const runs = sqlRunMocks(catalog);
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
-    mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
+    mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }), sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
       sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse" }) },
   });
   root = path.join(app.engineHome, "sales-platform");
@@ -72,6 +75,9 @@ test("with no project yet, Import makes WH_Gold.Warehouse in Fabric's layout", {
   assert.ok(fs.existsSync(file("dbo", "Views", "vw_Sales.sql")));
   assert.ok(fs.existsSync(file("staging", "StoredProcedures", "usp_Load.sql")));
   assert.ok(fs.existsSync(file("Security", "staging.sql")));
+  for (const fabrics of ["queryinsights", "_rsc"]) {
+    assert.ok(!fs.existsSync(file(fabrics)) && !fs.existsSync(file("Security", `${fabrics}.sql`)), `Fabric's ${fabrics} schema isn't imported`);
+  }
   assert.ok(fs.existsSync(file("WH_Gold.sqlproj")) && fs.existsSync(file(".platform")));
   assert.match(await panel().textContent(), /WH_Gold\.Warehouse · sales-platform · main/);
   assert.strictEqual(await panel().locator(".wh-p-git.added").count(), 4, "each file is new to Git");
@@ -142,15 +148,15 @@ test("Compare lists each object's state, shows the difference and can take the w
   assert.strictEqual(await view.locator(".wh-cmp-line.changed").count(), 2, "one changed line, both sides");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "wh-12-compare.png") });
 
-  await view.getByRole("option", { name: /dbo\.vw_Targets/ }).click();
+  await view.getByRole("button", { name: /dbo\.vw_Targets/ }).click();
   await view.locator(".wh-cmp-diff").waitFor();
   assert.doesNotMatch(await view.locator(".wh-cmp-pane").textContent(), /null/, "no empty part shows as text");
-  await view.getByRole("option", { name: /dbo\.vw_Sales/ }).click();
+  await view.getByRole("button", { name: /dbo\.vw_Sales/ }).click();
   // A file that came in since the compare, at the place vw_Sales would go, is never overwritten without asking.
   const decoy = "CREATE VIEW dbo.vw_Other AS SELECT 9 AS z\n";
   fs.writeFileSync(file("dbo", "Views", "vw_Sales.sql"), decoy);
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
-  await page().waitForFunction(() => /already holds another script, so dbo\.vw_Sales wasn't written/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  await page().waitForFunction(() => /Could not write dbo\.vw_Sales: Its file would be dbo\/Views\/vw_Sales\.sql, which already defines dbo\.vw_Other\./.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
   assert.strictEqual(fs.readFileSync(file("dbo", "Views", "vw_Sales.sql"), "utf8"), decoy);
   fs.rmSync(file("dbo", "Views", "vw_Sales.sql"));
   await view.getByRole("button", { name: "Take the warehouse's version" }).dispatchEvent("click");  // under the error toast
@@ -159,18 +165,18 @@ test("Compare lists each object's state, shows the difference and can take the w
   await page().waitForFunction(() => /Only in warehouse 0.*Same 3/.test(document.querySelector(".wh-cmp-chips")?.textContent || ""));
 
   await view.getByRole("button", { name: "Same 3" }).click();
-  assert.strictEqual(await view.getByRole("option").count(), 3);
+  assert.strictEqual(await view.locator(".wh-cmp-item").count(), 3);
   await view.getByRole("button", { name: "Changed 1" }).click();
-  await view.getByRole("option", { name: /dbo\.DimCustomer/ }).click();
+  await view.getByRole("button", { name: /dbo\.DimCustomer/ }).click();
   await view.getByRole("button", { name: "Take the warehouse's version" }).click();
-  const replace = page().getByRole("dialog", { name: "Take the warehouse's version" });
+  const replace = page().getByRole("dialog", { name: "Replace dbo/Tables/DimCustomer.sql?" });
   assert.match(await replace.getByRole("button", { name: "Replace" }).getAttribute("class"), /danger/, "replacing a file is a danger confirm");
   await replace.getByRole("button", { name: "Cancel" }).click();
   await view.getByRole("button", { name: "Open file" }).click();
   await page().waitForFunction(() => !document.querySelector(".wh-cmp") && sqlPage.tabs[sqlPage.active].proj?.path === "dbo/Tables/DimCustomer.sql");
   await page().getByRole("tab", { name: "Compare" }).click();
   await view.waitFor();
-  await page().getByRole("button", { name: "Close Compare" }).click();
+  await page().getByRole("tab", { name: "Compare" }).press("Delete");  // the × is mouse-only; Delete closes the tab
   assert.strictEqual(await page().getByRole("tab", { name: "Compare" }).count(), 0);
 });
 
@@ -178,6 +184,34 @@ test("a SQL analytics endpoint has no Project tab", { skip }, async () => {
   await page().evaluate(() => openWarehouseQuery({ kind: "endpoint", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "lh1", name: "LH_Gold" }));
   await page().waitForSelector(".warehouse-page .sql-edit .cm-editor");
   assert.strictEqual(await projectTab().count(), 0);
+});
+
+test("Compare with its sign-in window closed shows no error; any other failure says what failed", { skip }, async () => {
+  const toasts = () => page().evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" "));
+  // The engine's answer to wh_project_compare, swapped for an error on its way to the page.
+  const failCompare = (message) => page().evaluate((m) => {
+    window.realCall ??= window.__fdCall;
+    window.compareAsked = 0;
+    window.__fdCall = async (method, params) => {
+      if (method !== "wh_project_compare") return window.realCall(method, params);
+      window.compareAsked++;
+      return { error: m };
+    };
+  }, message);
+  try {
+    await page().evaluate((wh) => openWarehouseQuery(wh), WH);
+    await projectTab().click();
+    await failCompare("SignInCancelled: closed");
+    await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+    await page().waitForFunction(() => window.compareAsked === 1);
+    await page().waitForTimeout(200);
+    assert.doesNotMatch(await toasts(), /Could not compare/);
+    await failCompare("The warehouse didn't answer.");
+    await panel().getByRole("button", { name: "Compare with WH_Gold" }).click();
+    await page().waitForFunction(() => /Could not compare: The warehouse didn't answer/.test([...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" ")));
+  } finally {
+    await page().evaluate(() => { if (window.realCall) window.__fdCall = window.realCall; });
+  }
 });
 
 test("nothing on the page threw", { skip }, async () => {

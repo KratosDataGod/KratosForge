@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.3.5",
+  "questions": [
+    {
+      "id": "2.3.5-q1",
+      "type": "single",
+      "stem": "A stream must report the event count for each separate, non-overlapping five-minute period. Which window type fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Tumbling"
+        },
+        {
+          "id": "b",
+          "text": "Sliding"
+        },
+        {
+          "id": "c",
+          "text": "Hopping"
+        },
+        {
+          "id": "d",
+          "text": "Session"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Tumbling windows are fixed-size, contiguous and don't overlap, so each event belongs to exactly one window.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.5-q2",
+      "type": "single",
+      "stem": "A stream must report, every five minutes, the average over the last ten minutes. Which window type fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Snapshot"
+        },
+        {
+          "id": "b",
+          "text": "Hopping"
+        },
+        {
+          "id": "c",
+          "text": "Session"
+        },
+        {
+          "id": "d",
+          "text": "Tumbling"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A hopping window has a size (ten minutes) and a hop (five minutes), so windows overlap and one event can fall into more than one.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.5-q3",
+      "type": "single",
+      "stem": "You need to group a user's clicks into visits, where a visit ends after 30 minutes with no clicks. Which window type fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Snapshot"
+        },
+        {
+          "id": "b",
+          "text": "Tumbling"
+        },
+        {
+          "id": "c",
+          "text": "Hopping"
+        },
+        {
+          "id": "d",
+          "text": "Session"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Session windows group events that arrive close together and close after a gap with no events, so their length varies with activity.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.5-q4",
+      "type": "single",
+      "stem": "Which T-SQL expression gives each customer's running total of Amount by OrderDate?",
+      "options": [
+        {
+          "id": "a",
+          "text": "RUNNING_SUM(Amount, CustomerID)"
+        },
+        {
+          "id": "b",
+          "text": "SUM(Amount) GROUP BY CustomerID, OrderDate"
+        },
+        {
+          "id": "c",
+          "text": "SUM(Amount) OVER (ORDER BY CustomerID)"
+        },
+        {
+          "id": "d",
+          "text": "SUM(Amount) OVER (PARTITION BY CustomerID ORDER BY OrderDate ROWS UNBOUNDED PRECEDING)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A window aggregate partitioned by customer and ordered by date, with a frame from the first row to the current row, gives a running total per customer.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-over-clause-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -123,14 +123,23 @@ def _next(lines: queue.Queue[str | None]) -> str | None:
             continue
 
 
-def end(proc: subprocess.Popen[str]) -> None:
-    """End a command and every process it started."""
+TASKKILL_SECONDS = 30
+
+
+def end(proc: subprocess.Popen[str]) -> bool:
+    """End a command and every process it started. Returns whether the command itself has ended."""
     if proc.poll() is not None:
-        return
+        return True
     if os.name == "nt":
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False)
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
+                           timeout=TASKKILL_SECONDS)
+        except subprocess.TimeoutExpired:  # a stuck taskkill mustn't hold the caller, or leave the command running
+            with contextlib.suppress(OSError):  # silent-ok: it ended meanwhile
+                proc.kill()
     else:
         with contextlib.suppress(ProcessLookupError, PermissionError):  # silent-ok: already gone
             os.killpg(proc.pid, signal.SIGKILL)
     with contextlib.suppress(subprocess.TimeoutExpired):
         proc.wait(timeout=5)
+    return proc.poll() is not None

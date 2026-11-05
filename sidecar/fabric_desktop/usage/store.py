@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from .. import jsonfile
 
 FOLDER = "usage_imports"
 SUMMARY = ("id", "provider", "provider_label", "layout", "layout_label", "file_name", "sha256", "imported_at", "options",
@@ -57,10 +58,7 @@ class Store:
         path = self._path(doc["id"])
         if path.exists():
             raise ValueError("This file is already imported.")
-        self.folder.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(doc, default=str), encoding="utf-8")
-        tmp.replace(path)
+        jsonfile.write_text(path, json.dumps(doc, default=str))
         return {k: (len(doc["rows"]) if k == "rows" else doc.get(k)) for k in SUMMARY}
 
     def delete(self, import_id: str) -> bool:

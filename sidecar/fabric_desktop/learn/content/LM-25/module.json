@@ -1,0 +1,83 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-25",
+  "kind": "module",
+  "title": "V-Order, OPTIMIZE and VACUUM",
+  "path": "microsoft-fabric",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Explain why many small files slow every reader",
+    "Say what OPTIMIZE and V-Order do to a Delta table's files",
+    "Work out which files VACUUM may delete, and why the retention period matters"
+  ],
+  "prerequisites": [
+    "LM-07"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric lakehouse",
+    "Fabric notebooks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "small-files",
+      "prompt": "delta_files lists a table's data files from its Delta log. How many current files (not removed) are under 32 MB? One column, small_files.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-small.sql",
+      "solution": "solution-small.sql",
+      "hints": [
+        "The starter counts removed files too. A removed file is still on disk until VACUUM, but readers skip it.",
+        "Count rows WHERE removed_on IS NULL AND size_mb < 32."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "small_files"
+        ],
+        "rows": [
+          [
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "id": "vacuum-deletes",
+      "prompt": "VACUUM runs on 2026-11-02 with the default 7-day (168-hour) retention. List the file_name of every file it would delete, in file_name order.",
+      "engine": "duckdb",
+      "starter": "starter-vacuum.sql",
+      "solution": "solution-vacuum.sql",
+      "hints": [
+        "VACUUM only deletes files the log has removed, and only once they were removed longer ago than the retention.",
+        "removed_on IS NOT NULL AND removed_on < DATE '2026-10-26'"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ]
+    }
+  ],
+  "rules": [
+    "NB020"
+  ],
+  "docs": [
+    "https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

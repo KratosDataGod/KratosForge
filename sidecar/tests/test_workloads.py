@@ -4,13 +4,13 @@ Local stores are real (a metadata project, notebooks, schedules, the management 
 Fabric is a fake. Nothing here talks to a tenant."""
 
 import datetime as dt
-import json
 import time
 import types
 
 import pytest
 
 from fabric_desktop import schedule_service, workload_service
+from fabric_desktop.errors import NotSetUp
 from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.local_schedules import LocalSchedules
 from fabric_desktop.service import Service
@@ -268,10 +268,10 @@ def test_a_notebook_keeps_its_fabric_item_by_recorded_id_after_a_rename(svc, mon
     scan(svc, monkeypatch)
     rows = by_name(everything(svc))
     load = svc.workload_detail(model.notebook_id("Load"))
-    assert load["link"]["how"] == "recorded" and load["link"]["item_id"] == "nb1"
+    assert load["link"]["how"] == "recorded" and load["link"]["item_id"] == "nb1" and load["link"]["kept"] is True
     assert "Renamed in Fabric" not in rows  # shown inside the notebook, not twice
     other = svc.workload_detail(model.notebook_id("Other"))
-    assert other["link"]["how"] == "name match"
+    assert other["link"]["how"] == "name match" and other["link"]["kept"] is False
     assert any(f["kind"] == "identity" for f in other["findings"])
     dup = svc.workload_detail(model.notebook_id("Dup"))
     assert dup["link"]["item_id"] == "nb3"  # its own workspace's item only
@@ -280,6 +280,20 @@ def test_a_notebook_keeps_its_fabric_item_by_recorded_id_after_a_rename(svc, mon
     assert svc.workload_detail(model.notebook_id("Load v2"))["link"]["item_id"] == "nb1"
     svc.workload_link("Other", "ws1", "nb2", "Sales Dev")
     assert svc.workload_detail(model.notebook_id("Other"))["link"]["how"] == "manual"
+
+
+def test_only_a_kept_link_is_kept_a_run_or_a_name_finds_the_item_again():
+    """Unlink forgets a link only from the link table, so only that one says kept (#1475 follow-up)."""
+    ws = {"workspace": {"workspace_id": "ws1"}}
+    kept = {"Load": {"workspace_id": "ws1", "workspace_name": "Sales Dev", "item_id": "nb1", "how": "manual"}}
+    runs = [{"kind": "Notebook run", "name": "Load", "item_id": "nb9", "workspace_id": "ws1", "started_at": "t"}]
+    items = [{"workspace_id": "ws1", "type": "Notebook", "displayName": "Load", "id": "nb7"}]
+    link = inventory.notebook_link("Load", ws, kept, runs, items)
+    assert (link["item_id"], link["how"], link["kept"]) == ("nb1", "manual", True)
+    link = inventory.notebook_link("Load", ws, {}, runs, items)
+    assert (link["item_id"], link["how"], link["kept"]) == ("nb9", "from a run", False)
+    link = inventory.notebook_link("Load", ws, {}, [], items)
+    assert (link["item_id"], link["how"], link["kept"]) == ("nb7", "name match", False)
 
 
 def test_publishing_records_the_item_id(svc, monkeypatch):
@@ -516,7 +530,9 @@ def test_an_ended_action_never_changes(tmp_path):
     (PermissionError("nope"), "unauthorized"),
     (FabricError("GET /x failed with 429: Too Many Requests"), "throttled"),
     (ConnectionError("Failed to establish a new connection"), "offline"),
-    (LookupError("Assign a workspace to Test first"), "not_set_up"),
+    (NotSetUp("Assign a workspace to Test first"), "not_set_up"),
+    (NotSetUp("LH_Meta doesn't exist in this environment's workspace yet; promote to it first"), "not_set_up"),
+    (NotSetUp("LH_Meta doesn't exist in the test workspace yet; promote to test first"), "not_set_up"),
     (RuntimeError("weird"), "error"),
 ])
 def test_read_failures_are_classified(exc, state):
@@ -553,9 +569,14 @@ def test_ten_thousand_workloads_filter_and_page_quickly():
     timings = []
     for kw in ({}, {"view": "attention"}, {"query": "pipeline_99 team"}, {"group": "owner", "offset": 5000},
                {"view": "unowned", "group": "environment"}):
-        t0 = time.perf_counter()
-        page = query.select(records, limit=100, **kw)
-        timings.append(time.perf_counter() - t0)
+        # The fastest of three: one run can be descheduled for a while when every core is busy (it took
+        # 1.05 s once beside 8 test workers, against 0.3 s alone); a slow select is slow on every run.
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            page = query.select(records, limit=100, **kw)
+            best = min(best, time.perf_counter() - t0)
+        timings.append(best)
         assert len(page["rows"]) <= 100
     page = query.select(records, view="attention", limit=100)
     assert page["total"] == len([i for i in range(0, 10_000, 2) if i % 17 == 0])
@@ -564,3 +585,17 @@ def test_ten_thousand_workloads_filter_and_page_quickly():
     assert len(last["rows"]) == 50 and last["total"] == 10_000
     print(f"\nbuild+assess 10k: {build * 1000:.0f} ms; select: " + ", ".join(f"{t * 1000:.0f} ms" for t in timings))
     assert max(timings) < 1.0 and build < 5.0  # generous for shared CI runners; measured numbers are printed
+
+
+def test_a_copy_job_opens_its_own_fabric_page():
+    # The path Fabric uses for a copy job, checked on a tenant (2026-10-30).
+    from fabric_desktop.workloads.inventory import fabric_url
+    assert fabric_url("ws1", "cj1", "CopyJob") == \
+        "https://app.fabric.microsoft.com/groups/ws1/copyjobs/cj1?experience=fabric-developer"
+
+
+def test_a_dataflow_opens_its_own_fabric_page():
+    # The path Fabric uses for a Dataflow Gen2, checked on a tenant (2026-11-03).
+    from fabric_desktop.workloads.inventory import fabric_url
+    assert fabric_url("ws1", "df1", "Dataflow") == \
+        "https://app.fabric.microsoft.com/groups/ws1/dataflows-gen2/df1?experience=fabric-developer"

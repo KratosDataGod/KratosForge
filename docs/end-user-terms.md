@@ -4,6 +4,8 @@
 
 ## Why these terms are needed
 
+The source code is under the [Apache License 2.0](https://github.com/KratosDataGod/KratosForge/blob/main/LICENSE), which already lets anyone use, change and share the code. These terms are for the app as KratosBI builds and distributes it, because that build includes Microsoft components that the Apache License can't cover. [Counsel: section 3 should not take away rights the Apache License gives in the code.]
+
 The engine includes Microsoft's SQL driver (`mssql-python`, MIT licence). It brings two Microsoft components that come under Microsoft's own licence terms, not open-source ones:
 
 - **Microsoft ODBC Driver 18 for SQL Server:** `msodbcsql18.dll`, `msodbcdiag18.dll` and `msodbcsqlr18.rll`, plus `mssql-auth.dll`, whose licence is still to be confirmed.

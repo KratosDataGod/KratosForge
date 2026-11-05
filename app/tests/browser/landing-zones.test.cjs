@@ -40,7 +40,8 @@ const open = async () => {
   await page().evaluate(() => { state.user = "chris@contoso.com"; goPlatform("landing"); });
   await page().waitForFunction(() => platformPage.me);
 };
-const headPicker = () => page().$('.page-head [aria-label="Environment"]');
+// The environment picker sits on the view row, under the tabs (docs/ui-guidelines.md, Page layout).
+const headPicker = () => page().$('.mesh-view-row [aria-label="Environment"]');
 const calls = (method) => app.calls.filter((c) => c.method === method);
 
 test("without one landing workspace the tab keeps its environment picker and offers the move", { skip }, async () => {
@@ -70,7 +71,7 @@ test("the move says what it creates and that files aren't copied, and asks befor
 test("with one landing workspace there's no environment picker, and zone cards and a Zone column show", { skip }, async () => {
   await open();
   await page().waitForSelector(".zone-card");
-  await page().waitForFunction(() => !document.querySelector('.page-head [aria-label="Environment"]'));
+  await page().waitForFunction(() => !document.querySelector('.mesh-view-row [aria-label="Environment"]'));
   assert.strictEqual(await headPicker(), null);
   const cards = await page().$$eval(".zone-card", (cs) => cs.map((c) => c.textContent));
   assert.strictEqual(cards.length, 3);

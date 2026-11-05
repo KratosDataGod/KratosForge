@@ -1,6 +1,6 @@
 // Day-to-day data engineering: compare a table across environments or versions (before a
 // promote), review schema drift, fix and replay quarantined rows, and freshness promises with
-// Teams alerts.
+// incident alerts (Teams, a Power Automate flow or email).
 // Loaded after meta.js. The entity page, the promote cards and Home call into this file;
 // everything else here is self-contained.
 
@@ -16,7 +16,7 @@ function compareSide(name, side, env) {
     verSel.replaceChildren(h("option", { value: "" }, "Now"));
     const list = await rpc("meta_versions", { name, env: envSel.value }).catch(() => []);
     for (const v of list.slice(1)) {
-      verSel.append(h("option", { value: v.version }, `Version ${v.version} · ${v.at ? new Date(v.at).toLocaleString() : ""}${v.operation ? ` · ${v.operation}` : ""}`));
+      verSel.append(h("option", { value: v.version }, `Version ${v.version} · ${dateTimeText(v.at)}${v.operation ? ` · ${v.operation}` : ""}`));
     }
   };
   envSel.addEventListener("change", loadVersions);
@@ -62,8 +62,9 @@ function compareResult(res) {
     ...cols.only_right.map((c) => `${c} only in ${R}`),
     ...cols.type_changed.map((c) => `${c.column}: ${c.left} in ${L}, ${c.right} in ${R}`),
   ];
-  const same = res.compared_on_keys && !res.changed.count && !res.only_left.count && !res.only_right.count && !colNotes.length
-    && res.rows.left === res.rows.right;
+  const hashed = res.method === "hashed";
+  const same = (hashed ? res.checksum?.match : res.compared_on_keys && !res.changed.count && !res.only_left.count && !res.only_right.count)
+    && !colNotes.length && res.rows.left === res.rows.right;
   const fmt = (v) => (v === null || v === undefined ? "null" : String(v));
   const parts = [
     h("div", { class: "cmp-stats" },
@@ -71,7 +72,9 @@ function compareResult(res) {
       res.compared_on_keys ? stat(`keys only in ${L}`, n(res.only_left.count), res.only_left.count > 0) : null,
       res.compared_on_keys ? stat(`keys only in ${R}`, n(res.only_right.count), res.only_right.count > 0) : null,
       res.compared_on_keys ? stat("rows with changed values", n(res.changed.count), res.changed.count > 0) : null),
-    same ? h("div", { class: "pass-box" }, icon("ok", 16), `Identical: the same keys and the same values in ${L} and ${R}.`) : null,
+    h("p", { class: "muted-text small" }, hashed ? "Compared: counts, totals and a checksum" : "Compared: every row by key"),
+    same ? h("div", { class: "pass-box" }, icon("ok", 16), hashed ? `Identical: the same rows in ${L} and ${R}, by checksum.`
+      : `Identical: the same keys and the same values in ${L} and ${R}.`) : null,
     res.note ? h("p", { class: "muted-text" }, res.note) : null,
     colNotes.length ? h("div", { class: "problems" }, h("b", {}, "Columns differ"), h("ul", {}, colNotes.map((t) => h("li", {}, t)))) : null,
   ];
@@ -156,7 +159,7 @@ function lastRelease(env, onChange = null) {
       row("Code", releaseCommitText(r)),
       r.engine_version ? row("Engine", `KratosForge ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
       row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
-        h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
+        when(r.at)),
       row("Record", record)));
   }).catch(() => box.remove());
   return box;
@@ -336,8 +339,18 @@ function driftPanel(e, d) {
         : h("p", { class: "muted-text small" }, `${d.source || "The source"} in ${ENV_LABEL[d.env]} matches the contract.`),
     droppedRows, addedRows, retypedRows,
     h("label", { class: "field" }, "When the source adds columns", policy),
-    d.history?.length ? h("div", { class: "muted-text small" }, `Kept before: ${d.history.slice(0, 3).map((x) => x.columns).join("; ")}`) : null,
+    schemaChanges(d.history),
     h("div", { class: "row" }, h("span", { class: "spacer" }), applyBtn));
+}
+
+// The table's latest schema changes from meta.schema_history, newest first. Rows from before
+// PB-031 have only the columns a drift policy kept; a table's first schema isn't a change.
+function schemaChanges(history) {
+  const rows = (history || []).filter((x) => x.change !== "created").slice(0, 3);
+  if (!rows.length) return null;
+  const text = rows.map((x) => (x.detail ? `${x.change} ${x.detail}` : `kept ${x.columns}`)
+    + (x.delta_version != null ? ` (Delta version ${x.delta_version})` : ""));
+  return h("div", { class: "muted-text small" }, `Schema changes: ${text.join("; ")}`);
 }
 
 // ---------- quarantine ----------
@@ -430,7 +443,7 @@ function quarantinePanel(e, q) {
 
 // ---------- freshness ----------
 
-const fresh = { items: null, alerts: false, timer: null };
+const fresh = { items: null, alerts: false, alertsUnreadable: false, timer: null };
 
 function promiseText(f) {
   if (!f) return "";
@@ -489,43 +502,68 @@ function freshnessDialog(e) {
     btn("Cancel", null, closeDialog, "tool outline"), btn("Save", "save", () => save(false), "tool primary")].filter(Boolean));
 }
 
+// Shown when the saved Teams address is encrypted for another Windows account or PC (sealed_settings.py).
+const ALERTS_UNREADABLE = "The saved alert address can't be read on this PC or account. Enter it again.";
+
 function alertsLine() {
+  if (fresh.alertsUnreadable) {
+    return h("div", { class: "row wrap wrn-text small" }, icon("alert", 14), ALERTS_UNREADABLE,
+      btn("Set up alerts", null, alertsDialog, "tool link small"));
+  }
   return h("div", { class: "row wrap muted-text small" }, icon("alert", 14),
-    fresh.alerts ? "New incidents are also posted to your Teams channel, unless an agent already checks that environment." : "New incidents can also be posted to a Teams channel.",
-    btn(fresh.alerts ? "Change" : "Set up Teams alerts", null, alertsDialog, "tool link small"));
+    fresh.alerts ? "New incidents are also sent to your Teams channel, flow or email, unless an agent already checks that environment." : "New incidents can also go to a Teams channel, a Power Automate flow or email.",
+    btn(fresh.alerts ? "Change" : "Set up alerts", null, alertsDialog, "tool link small"));
 }
 
 async function alertsDialog() {
-  const cur = await rpc("meta_alerts", {}).catch(() => ({ teams_webhook: "" }));
-  const url = h("input", { value: cur.teams_webhook || "", placeholder: "https://...", spellcheck: "false" });
-  const save = async (test) => {
-    const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: url.value.trim(), test }), test ? "Test message not sent" : "Not saved");
+  // The saved address never comes back (it works like a password): only whether one is set, its kind
+  // and a label (the host, or how many people). Typing a new one replaces it.
+  const cur = await rpc("meta_alerts", {}).catch(() => ({ set: false, failed: true }));
+  const url = h("input", { value: "", placeholder: "https://... or flow:https://... or mailto:oncall@contoso.com", spellcheck: "false" });
+  const where = (kind) => ({ flow: "the flow", email: "email" }[kind] || "Teams");
+  const save = async (test, off = false) => {
+    const typed = url.value.trim();
+    if (!off && !typed) { incRequired(url, cur.set ? "Type the new address, or use Turn off." : "Type where alerts go."); return; }
+    // The saved address can't be shown again, so turning off asks first.
+    if (off && !(await confirmDialog("Turn off incident alerts?",
+      "The saved address is removed from this PC. To turn alerts back on, paste the address again.", "Turn off", { danger: true }))) return;
+    const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: off ? "" : typed, test }), test ? "Test message not sent" : "Not saved");
     if (!res) return;
-    fresh.alerts = !!res.teams_webhook;
+    fresh.alerts = !!res.set;
+    fresh.alertsUnreadable = !!res.unreadable;
     closeDialog();
-    toast(res.teams_webhook ? (test ? "Sent a test message to Teams and saved" : "Teams alerts are on") : "Teams alerts are off");
+    toast(res.set ? (test ? `Sent a test message to ${where(res.kind)} and saved` : `Alerts to ${where(res.kind)} are on`) : "Alerts are off");
   };
-  showDialog("Teams alerts", h("div", { class: "dataops" },
-    h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each new incident (a failed or late table, a missed objective, an agent that stopped) is posted once, and again when it recovers. Environments that a running agent checks are left to the agent."),
-    h("label", { class: "field" }, "Webhook address", url),
-    h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message Teams doesn't take is sent with the next check.")),
-  [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")]);
+  showDialog("Incident alerts", h("div", { class: "dataops" },
+    h("p", { class: "text" }, "Each new incident (a failed or late table, a missed objective, an agent that stopped) is sent once, and again when it recovers. Environments that a running agent checks are left to the agent."),
+    h("ul", { class: "text" },
+      h("li", {}, "Teams: in the channel, add the Workflows template \"Post to a channel when a webhook request is received\" and paste its address."),
+      h("li", {}, "A Power Automate flow: flow: and then the flow's HTTP trigger address. The flow gets the title and lines and sends them on."),
+      h("li", {}, "Email: mailto: and then up to 20 addresses separated by ;. Sent through the company mail server set in Settings > Notifications.")),
+    cur.unreadable ? h("p", { class: "wrn-text small" }, ALERTS_UNREADABLE) : null,
+    cur.failed ? h("p", { class: "wrn-text small" }, "Couldn't read whether alerts are set. Saving a new address replaces any saved one.") : null,
+    cur.set ? h("p", { class: "muted-text small" }, `Now: ${where(cur.kind)}${cur.label ? `, ${cur.label}` : ""}. The address stays hidden; type a new one to replace it.`) : null,
+    h("label", { class: "field" }, cur.set ? "New address" : "Where alerts go", url),
+    h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message that doesn't go through is sent with the next check.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), cur.set ? btn("Turn off", null, () => save(false, true), "tool outline") : null,
+    btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")].filter(Boolean));
 }
 
 // Checked at startup and every 10 minutes. Late tables show on Home; problems become incidents
 // (incident_service.incidents_watch): an environment a running agent checks is only read, any other
-// is checked here, and its new incidents go to the bell and, once each, to this PC's Teams webhook.
+// is checked here, and its new incidents go, once each, to this PC's Teams webhook, which hears
+// about a table only from its incident. With Preview features on they go to the bell as well.
 async function checkFreshness() {
   clearTimeout(fresh.timer);
   fresh.timer = setTimeout(checkFreshness, 600000);
   const [res, watch] = await Promise.all([
-    // With preview features hidden, Teams gets the old per-table alerts instead of incidents.
-    rpc("meta_freshness", { notify: !previewShown() }).catch(() => null),
-    previewShown() ? rpc("incidents_watch", { notify: true }).catch(() => null) : null,
+    rpc("meta_freshness", {}).catch(() => null),
+    rpc("incidents_watch", { notify: true }).catch(() => null),
   ]);
   if (res) {
     fresh.items = res.items;
     fresh.alerts = res.alerts;
+    fresh.alertsUnreadable = !!res.alerts_unreadable;
     for (const x of previewShown() ? [] : res.items) {
       const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
       if (x.status === "late" && !activity.items.some((i) => i.id === id)) {
@@ -533,10 +571,9 @@ async function checkFreshness() {
       }
     }
     if (res.project_error) logActivity({ id: "fresh:project-error", status: "error", title: "Freshness not checked", text: "The metadata project couldn't be read, so late tables can't be found.", details: res.project_error });
-    if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
   }
   for (const e of watch?.envs || []) {
-    for (const i of e.incidents) {
+    for (const i of previewShown() ? e.incidents : []) {
       const id = `inc:${i.id}`;
       if (i.state !== "open" || activity.items.some((x) => x.id === id)) continue;
       logActivity({ id, status: "failed", title: i.title, text: [i.text, e.mode === "agent" ? `Raised in ${ENV_LABEL[e.env]}'s incident list.` : ""].filter(Boolean).join(" ") });

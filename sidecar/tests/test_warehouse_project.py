@@ -23,6 +23,19 @@ def svc(tmp_path, monkeypatch):
     return Service(client_id="x", root=tmp_path / "app")
 
 
+DEV_WS = "11111111-1111-1111-1111-111111111111"
+PROD_WS = "99999999-9999-9999-9999-999999999999"
+
+
+@pytest.fixture
+def dev_ws(svc, tmp_path):
+    """A metadata project whose Dev is DEV_WS and Prod PROD_WS: the engine works out a deploy's environment from it."""
+    svc.meta_init(str(tmp_path / "meta"), "3", sample=False)
+    svc.meta_set_environment("dev", DEV_WS, "Sales Dev")
+    svc.meta_set_environment("prod", PROD_WS, "Sales Prod")
+    return DEV_WS
+
+
 @pytest.fixture
 def repo(svc, tmp_path):
     if not shutil.which("git"):
@@ -34,7 +47,7 @@ def repo(svc, tmp_path):
 
 
 def objs(*items):
-    return [dict(zip(("kind", "schema", "name", "text"), i)) for i in items]
+    return [dict(zip(("kind", "schema", "name", "text"), i, strict=True)) for i in items]
 
 
 def test_a_file_says_which_object_it_defines():
@@ -100,6 +113,20 @@ def test_an_object_goes_to_the_file_that_already_defines_it(svc, repo):
                                folder="WH_Gold.Warehouse", replace=True)
     assert [r["path"] for r in out["changed"]] == ["dbo/Stored Procedures/Load.sql"]
     assert [r["path"] for r in out["added"]] == ["dbo/Stored Procedures/usp_New.sql"], "the project's own folder name"
+
+
+def test_objects_whose_names_differ_only_in_case_never_share_a_file(svc, repo):
+    # Fabric's BIN2 collation keeps dbo.Sales and dbo.sales apart; Windows file names don't.
+    sales = "CREATE TABLE dbo.Sales (a int NULL);"
+    out = svc.wh_project_write(str(repo), objs(("table", "dbo", "Sales", sales), ("table", "dbo", "sales", "CREATE TABLE dbo.sales (b int NULL);")),
+                               create="WH_Gold")
+    assert [r["path"] for r in out["added"]] == ["dbo/Tables/Sales.sql"]
+    assert [r["name"] for r in out["skipped"]] == ["dbo.sales"] and "apart from letter case" in out["skipped"][0]["why"]
+    again = svc.wh_project_write(str(repo), objs(("table", "dbo", "sales", "CREATE TABLE dbo.sales (b int NULL);")),
+                                 folder="WH_Gold.Warehouse", replace=True)
+    assert again["counts"]["skipped"] == 1, "a later import doesn't write over dbo.Sales's file either"
+    assert (repo / "WH_Gold.Warehouse" / "dbo" / "Tables" / "Sales.sql").read_text(encoding="utf-8").startswith(sales)
+    assert svc.wh_project_write(str(repo), objs(("table", "dbo", "Sales", sales)), folder="WH_Gold.Warehouse")["counts"]["same"] == 1
 
 
 def test_save_reads_back_and_refuses_a_file_changed_since_it_was_opened(svc, repo):
@@ -244,6 +271,27 @@ def test_compare_lists_every_object_on_either_side(svc, repo):
     assert not audit.audited("wh_project_compare") and not audit.audited("wh_project_diff")
 
 
+def test_fabrics_own_schemas_are_never_imported_compared_or_deployed(svc, repo):
+    insights = "CREATE VIEW [queryinsights].[exec_requests_history] AS SELECT 1 AS x;\nGO\n"
+    out = svc.wh_project_write(str(repo), objs(("schema", "queryinsights", "queryinsights", "CREATE SCHEMA [queryinsights];"),
+                                               ("schema", "_rsc", "_rsc", "CREATE SCHEMA [_rsc];"),
+                                               ("view", "queryinsights", "exec_requests_history", insights),
+                                               ("table", "dbo", "DimCustomer", TABLE)), create="WH_Gold")
+    assert out["counts"] == {"added": 1, "changed": 0, "same": 0, "skipped": 3}
+    assert {r["why"] for r in out["skipped"]} == {wp.FABRIC_OWN}
+    project = repo / "WH_Gold.Warehouse"
+    assert not (project / "queryinsights").exists() and not (project / "Security").exists()
+    # A project imported before this fix keeps its file, but Compare and Deploy leave it out.
+    (project / "queryinsights" / "Views").mkdir(parents=True)
+    (project / "queryinsights" / "Views" / "exec_requests_history.sql").write_text(insights, encoding="utf-8")
+    warehouse = objs(("table", "dbo", "DimCustomer", TABLE), ("view", "QueryInsights", "exec_requests_history", insights),
+                     ("schema", "_rsc", "_rsc", "CREATE SCHEMA [_rsc];"))
+    cmp = svc.wh_project_compare(str(repo), "WH_Gold.Warehouse", warehouse)
+    assert [(r["name"], r["state"]) for r in cmp["objects"]] == [("DimCustomer", "same")]
+    assert cmp["unread"] == [{"path": "queryinsights/Views/exec_requests_history.sql", "why": wp.FABRIC_OWN}]
+    assert svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", warehouse, environment="dev")["changes"] == []
+
+
 # ---- deploy (WH-13)
 
 
@@ -310,14 +358,37 @@ def _git(repo, *args):
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=repo, check=True, capture_output=True)
 
 
-def test_the_deploy_plan_says_which_files_arent_committed(svc, repo):
+def test_the_deploy_plan_says_which_files_arent_committed(svc, repo, dev_ws):
     svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
     out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(("view", "dbo", "vw_Old", "CREATE VIEW dbo.vw_Old AS SELECT 1 AS y;")),
-                                     environment="dev")
+                                     environment="dev", workspace_id=dev_ws)
+    assert out["environment"] == "dev"
     assert [(c["action"], c["name"], c["git"], c["offered"]) for c in out["changes"]] == [
         ("create", "vw_Sales", "A", True), ("drop", "vw_Old", "", True)], "Dev deploys files as they are"
     assert out["uncommitted"] == ["dbo/Views/vw_Sales.sql"] and out["branch"] == "main" and not out["gated"]
     assert not audit.audited("wh_project_deploy_plan")
+
+
+@pytest.mark.parametrize("workspace, why", [(PROD_WS, "Prod in the project"), ("", "no workspace"),
+                                             ("22222222-2222-2222-2222-222222222222", "no environment names it")])
+def test_a_page_that_says_dev_cant_turn_the_git_rule_off(svc, repo, dev_ws, workspace, why):
+    # #810: the engine works out the environment itself and takes the stricter of its own and the page's.
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(), environment="dev", workspace_id=workspace)
+    assert out["gated"] and out["environment"] == ("prod" if workspace == PROD_WS else "none"), why
+    assert [(c["name"], c["offered"], c["held"]) for c in out["changes"]] == [("vw_Sales", False, True)]
+
+
+def test_without_a_metadata_project_every_deploy_is_gated(svc, repo):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    out = svc.wh_project_deploy_plan(str(repo), "WH_Gold.Warehouse", objs(), environment="dev", workspace_id=DEV_WS)
+    assert out["gated"] and out["environment"] == "none" and not out["changes"][0]["offered"]
+
+
+def test_the_strictest_environment_wins_and_keys_workspaces_count(svc, dev_ws):
+    svc.meta_set_keys_workspace("test", dev_ws, "Shared keys")  # Dev's workspace also holds Test's keys
+    assert svc._wh_workspace_env(dev_ws.upper()) == "test"
+    assert svc._wh_workspace_env(PROD_WS) == "prod" and svc._wh_workspace_env("") == "none"
 
 
 @pytest.mark.parametrize("environment", ["prod", "test", "none", ""])

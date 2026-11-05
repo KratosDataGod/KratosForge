@@ -1,4 +1,4 @@
-"""Monitor > Agents: what the app reads from the status records agents write."""
+"""Monitor > KratosForge > Operations > Agents: what the app reads from the status records agents write."""
 
 import datetime as dt
 import json

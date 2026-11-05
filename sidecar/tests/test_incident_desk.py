@@ -217,6 +217,43 @@ def test_the_board_adds_priority_sla_and_counts(svc, policy):
     assert {i["title"]: i["priority"] for i in svc.incidents_board("dev")["incidents"]}["Slow page"] == "P4"
 
 
+def test_the_bell_lists_what_is_assigned_to_me_waiting_on_me_first(svc, policy):
+    svc._write_environments(svc._project(), {e: {"target": "local"} for e in ("dev", "test", "prod")})
+    svc.workload_store.assign("meta:sales:gold.revenue", {"technical_owner": "Chris@Contoso.com", "team": "Sales data"})
+    low = svc.incident_report("dev", "Typo in a label", priority="P4", workload="meta:sales:gold.revenue")
+    high = svc.incident_report("test", "Revenue looks doubled", priority="P2", workload="meta:sales:gold.revenue")
+    svc.incident_report("dev", "Not mine", priority="P1")
+    taken = svc.incident_report("prod", "Being looked at", priority="P1", workload="meta:sales:gold.revenue")
+    svc.incident_acknowledge("prod", taken["id"], "on it")
+    done = svc.incident_report("dev", "Fixed already", priority="P1", workload="meta:sales:gold.revenue")
+    svc.incident_resolve("dev", done["id"], "fixed")
+    out = svc.incidents_for_me()
+    assert out["user"] == "chris@contoso.com" and out["unreadable"] == []
+    assert [(i["env"], i["title"], i["state"]) for i in out["incidents"]] == [
+        ("test", "Revenue looks doubled", "open"), ("dev", "Typo in a label", "open"), ("prod", "Being looked at", "acknowledged")]
+    first = out["incidents"][0]
+    assert first["id"] == high["id"] and first["number"] == "INC-TEST-0001" and first["priority"] == "P2"
+    assert first["sla"]["acknowledge"]["state"] in ("due", "at_risk") and low["id"] in {i["id"] for i in out["incidents"]}
+    assert set(first) == {"env", "id", "number", "title", "state", "kind", "priority", "sla", "at"}  # no notes or text
+
+
+def test_the_bell_says_which_environment_it_could_not_read(svc, monkeypatch):
+    real = svc._incident_log
+
+    def log(env):
+        if env == "test":
+            raise PermissionError("no")
+        return real(env)
+    monkeypatch.setattr(svc, "_incident_log", log)
+    out = svc.incidents_for_me()
+    assert [u["env"] for u in out["unreadable"]] == ["test"] and "access" in out["unreadable"][0]["detail"]
+
+
+def test_the_bell_is_empty_when_nobody_is_signed_in(svc):
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: None)
+    assert svc.incidents_for_me() == {"user": "", "incidents": [], "unreadable": []}
+
+
 def test_the_sla_policy_call_says_where_targets_come_from(svc, policy):
     out = svc.incident_sla_policy()
     assert out["source"] == "default" and out["targets"] == sla.DEFAULT_TARGETS and len(out["priorities"]) == 4
@@ -308,3 +345,89 @@ def test_an_open_incident_acknowledged_late_counts_as_breached(svc, policy):
     [inc] = board["incidents"]
     assert inc["sla"]["acknowledge"]["state"] == "missed" and inc["sla"]["resolve"]["state"] == "due"
     assert board["counts"]["breached"] == 1
+
+
+# ---------------------------------------------------------------------------- who an incident reaches
+
+
+def _product(pid, ports, consumers=(), owner="olu@contoso.com", status="published"):
+    project, _, name = pid.partition("/")
+    return {"id": pid, "project": project, "name": name, "owner": owner, "status": status, "domain_id": "sales",
+            "ports": [{"port": p, "entity": e, "env": env} for p, e, env in ports],
+            "consumers": [{"consumer_project": c, "alias": c, "port": port, "updated_by": by} for c, port, by in consumers]}
+
+
+def test_blast_radius_follows_ports_of_the_table_in_its_environment_to_linked_projects():
+    from fabric_desktop.workloads import impact
+    products = [
+        _product("sales/orders", [("daily", "silver.orders", "prod"), ("other", "silver.lines", "prod")],
+                 [("finance", "daily", "Ana@Contoso.com"), ("hr", "other", "hr@contoso.com"), ("sales", "daily", "me@contoso.com")]),
+        _product("sales/dev-only", [("daily", "silver.orders", "dev")]),
+        _product("sales/draft", [("daily", "silver.orders", "prod")], status="draft"),
+        _product("ops/orders", [("daily", "silver.orders", "prod")]),  # another project's table of the same name
+        _product("sales/team", [("daily", "silver.orders", "prod")], owner="Sales team"),
+    ]
+    assert impact.workload_entity("meta:sales:silver.orders") == ("sales", "silver.orders")
+    assert impact.workload_entity("agent:a1") is None and impact.workload_entity("meta:sales") is None
+    out = impact.blast_radius(products, "sales", "silver.orders", "prod", {"sales/orders": ["bo@contoso.com"]},
+                              me="me@contoso.com")
+    assert [p["id"] for p in out["products"]] == ["sales/orders", "sales/team"]
+    assert out["products"][0]["ports"] == ["daily"] and out["products"][0]["consumers"] == ["finance"]
+    assert [(c["project"], c["linked_by"]) for c in out["consumers"]] == [("finance", "ana@contoso.com")]
+    assert {p["upn"]: p["why"] for p in out["people"]} == {
+        "ana@contoso.com": ["linked finance to sales/orders"], "bo@contoso.com": ["follows sales/orders"],
+        "olu@contoso.com": ["owns sales/orders"]}
+    assert out["unreachable"] == ["sales team"]
+    assert impact.blast_radius(products, "sales", "silver.orders", "test")["products"] == []
+
+
+def test_who_s_affected_names_followers_only_to_owners_and_admins_and_says_who_was_left_out(svc):
+    who = {"u": "chris@contoso.com"}
+    svc._auth.signed_in_user = lambda: who["u"]
+    cat = svc._catalog()
+    cat.call("register_product", product={"project": "sales", "name": "orders", "owner": "olu@contoso.com",
+                                          "access": "public", "status": "published", "domain": "sales"},
+             ports=[{"port": "daily", "entity": "silver.orders"}], env="dev")
+    who["u"] = "bo@contoso.com"
+    cat.call("follow_product", product_id="sales/orders")
+    who["u"] = "dee@contoso.com"  # works the incident; neither the product's owner nor an admin
+    inc = svc.incident_report("dev", "Orders late", workload="meta:sales:silver.orders")
+    out = svc.incident_impact("dev", inc["id"])
+    assert [p["upn"] for p in out["people"]] == ["olu@contoso.com"] and out["followers_hidden"] == ["sales/orders"]
+    who["u"] = "olu@contoso.com"
+    out = svc.incident_impact("dev", inc["id"])
+    assert [p["upn"] for p in out["people"]] == ["bo@contoso.com"] and out["followers_hidden"] == []
+
+
+def test_incident_impact_reads_the_catalog_and_tell_them_posts_once_and_notes_it(svc, monkeypatch):
+    from fabric_desktop import platform_notify_service as pns
+    posts = []
+    monkeypatch.setattr(pns, "post_teams", lambda url, title, lines: posts.append((title, lines)))
+    cat = svc._catalog()
+    cat.call("register_product", product={"project": "sales", "name": "orders", "owner": "olu@contoso.com",
+                                          "access": "public", "status": "published", "domain": "sales"},
+             ports=[{"port": "daily", "entity": "silver.orders"}], env="dev")
+    cat.call("register_link", consumer="finance", alias="orders", product_id="sales/orders", port="daily", reads={})
+    inc = svc.incident_report("dev", "Orders late", workload="meta:sales:silver.orders")
+    other = svc.incident_report("dev", "Slow page")
+    assert svc.incident_impact("dev", other["id"])["available"] is False
+    out = svc.incident_impact("dev", inc["id"])
+    assert out["available"] and [p["id"] for p in out["products"]] == ["sales/orders"] and out["told"] is None
+    assert [p["upn"] for p in out["people"]] == ["olu@contoso.com"]  # the link was made as chris, who is asking
+    assert out["consumers"][0]["project"] == "finance"
+    with pytest.raises(ValueError, match="changed since you looked"):
+        svc.incident_tell_impacted("dev", inc["id"], ["someone@contoso.com"])
+    skipped = svc.incident_tell_impacted("dev", inc["id"], ["Olu@contoso.com"])
+    assert skipped["told"] is False and "route" in skipped["reason"] and not posts
+    svc.platform_notify_save([{"name": "default", "url": "https://contoso.webhook.office.com/x"}])
+    told = svc.incident_tell_impacted("dev", inc["id"], ["olu@contoso.com"])
+    assert told["told"] and told["result"] == "sent" and len(posts) == 1
+    title, lines = posts[0]
+    assert title == "Incident upstream of your data: Orders late"
+    assert "For olu@contoso.com." in lines and "Data products affected: orders." in lines
+    assert lines[-1] == "Open it in KratosForge: Monitor > KratosForge > Operations > Incidents."
+    assert svc.incident_impact("dev", inc["id"])["told"]["text"].endswith("olu@contoso.com")
+    again = svc.incident_tell_impacted("dev", inc["id"], ["olu@contoso.com"])
+    assert again == {"told": False, "reason": "already posted", "people": out["people"]} and len(posts) == 1
+    with pytest.raises(ValueError, match="Nobody downstream"):
+        svc.incident_tell_impacted("dev", other["id"], [])

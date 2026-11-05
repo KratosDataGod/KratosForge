@@ -34,7 +34,7 @@ async function sessionsDialog() {
     h("td", {}, h("span", { class: `dot ${r.status === "running" ? "busy" : r.status === "stopped" ? "stopped" : "idle"}` }), " ",
       { running: "Running", idle: "Idle", stopped: "Stopped", ready: "Starts with the first cell" }[r.status]),
     h("td", {}, r.process ? (r.pid ? `Process ${r.pid}` : "No process") : "Inside the engine"),
-    h("td", {}, r.memory_bytes ? formatBytes(r.memory_bytes) : ""),
+    h("td", {}, r.memory_bytes ? sizeText(r.memory_bytes) : ""),
     h("td", {}, String(r.cells_run || 0)),
     h("td", {}, when(iso(r.last_used))),
     h("td", {}, r.process && r.notebook ? h("div", { class: "session-actions" },

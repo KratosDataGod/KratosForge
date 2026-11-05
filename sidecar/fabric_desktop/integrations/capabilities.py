@@ -26,7 +26,8 @@ FABRIC_LIMIT = ("Reads Fabric with your own account, so you see exactly what you
 WORKSPACE = schema({"id": STR, "name": STR, "type": STR, "capacity_id": {"type": ["string", "null"]}}, extra=True)
 ARTIFACT = schema({"id": STR, "name": STR, "type": STR, "description": STR}, extra=True)
 NOTEBOOK_ROW = schema({"name": STR, "modified": {"type": "number"}}, extra=True)
-CHECK = schema({"ok": {"type": "boolean"}, "reasons": {"type": "array"}}, extra=True)
+CHECK = schema({"ok": {"type": "boolean"}, "status": {"enum": ["ok", "blocked", "unknown"]}, "reasons": {"type": "array"},
+                "unknown": {"type": "array"}}, extra=True)
 
 
 def register_core(reg: Registry) -> None:
@@ -140,7 +141,8 @@ def register_core(reg: Registry) -> None:
             "fabric_desktop_validate_notebook", "Validate notebook",
             "Whether a notebook can run on this PC and in Fabric and which cells stop it, what a proof would refuse, "
             "how its cells depend on each other, and Validate's findings (errors, warnings and info, each with its cell "
-            "and a fix): the checks the notebook screen runs. Runs no code.",
+            "and a fix): the checks the notebook screen runs. Runs no code. ok is false when nothing stops it but some "
+            "cells can't be read (status unknown).",
             schema({"name": NAME}, ["name"]),
             schema({"ok": {"type": "boolean"}, "this_pc": CHECK, "fabric": CHECK, "proof": {"type": "object"},
                     "dependencies": {"type": "object"}}, ["ok", "this_pc", "fabric"], extra=True),
@@ -173,7 +175,7 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.get_placement_advice, workspaces=scope.notebook, status="preview",
             artifact_types=("Notebook",), timeout=60),
     ]
-    caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions()
+    caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
     for cap in caps:
         reg.register(cap)
 
@@ -246,6 +248,60 @@ def _pipelines() -> list[Capability]:
                    ["registry_version"], extra=True),
             "READ_METADATA", services.get_activity_registry, workspaces=scope.NONE, artifact_types=("DataPipeline",), status="preview",
             limitations=COMPAT_LIMIT, timeout=30),
+    ]
+
+
+OSSIE_LIMIT = FABRIC_LIMIT + (
+    ("Reads the semantic models of an environment of the open metadata project (test or prod): Fabric's "
+     "getDefinition, read only. Apache Ossie's spec (0.2.0.dev0) is a draft and may change."),
+    ("Importing writes the model, so it is left to KratosForge's Semantic model tab, where the person sees the "
+     "preview and confirms."))
+ENV = {"enum": ["test", "prod", "dev"], "default": "test",
+       "description": "The metadata project's environment whose workspace holds the model."}
+
+
+def _semantic_models() -> list[Capability]:
+    """Semantic models and Apache Ossie (docs/semantic-model-ossie.md), read-only: list, export, and
+    preview an import. The import itself stays in the app, behind its confirm."""
+    from ..model_ossie import MAX_CHARS
+    return [
+        Capability(
+            "fabric_desktop_list_semantic_models", "List semantic models",
+            "The semantic models in the workspace of one environment of the open metadata project.",
+            schema({"env": ENV}), schema({"env": STR, "workspace_name": STR, "models": {"type": "array"}}, ["models"],
+                                         extra=True),
+            "READ_METADATA", services.list_semantic_models, workspaces=scope.environment, locations=("fabric",),
+            artifact_types=("SemanticModel",), status="preview", limitations=OSSIE_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_export_semantic_model_ossie", "Export a semantic model to Apache Ossie",
+            "A semantic model as Apache Ossie YAML, the open semantic model format, converted on this PC. Simple "
+            "measures (one aggregate over one column) also come as SQL; everything only Power BI understands "
+            "(other DAX, roles, hierarchies) is kept in the file's Power BI section. The report lists what is kept "
+            "and anything not converted. Writes no file.",
+            schema({"env": ENV, "name": NAME,
+                    "translate_dax": {"type": "boolean", "default": True,
+                                      "description": "Also write simple measures as portable SQL."}}, ["env", "name"]),
+            schema({"yaml": STR, "name": STR, "version": STR, "counts": {"type": "object"}, "report": {"type": "array"}},
+                   ["yaml", "counts", "report"], extra=True),
+            "READ_METADATA", services.export_semantic_model_ossie, workspaces=scope.environment, locations=("fabric",),
+            artifact_types=("SemanticModel",), status="preview", limitations=OSSIE_LIMIT, timeout=120),
+        Capability(
+            "fabric_desktop_preview_ossie_import", "Preview an Apache Ossie import",
+            "What importing an Apache Ossie document into a semantic model would change: every table, column, "
+            "measure and relationship added, changed or removed, measures that would need DAX, and what can't be "
+            "carried over. update keeps what the file doesn't mention unless named in remove (from removable); "
+            "replace makes the model exactly the file; new creates it. Writes nothing.",
+            schema({"env": ENV, "text": {"type": "string", "minLength": 1, "maxLength": MAX_CHARS,
+                                         "description": "The Ossie document, YAML or JSON."},
+                    "name": {"type": "string", "maxLength": 200, "default": "",
+                             "description": "The model; empty for the name in the file."},
+                    "mode": {"enum": ["update", "replace", "new"], "default": "update"},
+                    "remove": {"type": "array", "items": {"type": "string", "maxLength": 400}, "maxItems": 10_000,
+                               "default": []}}, ["env", "text"]),
+            schema({"name": STR, "mode": STR, "exists": {"type": "boolean"}, "changes": {"type": "array"},
+                    "removable": {"type": "array"}, "report": {"type": "array"}}, ["changes", "report"], extra=True),
+            "READ_METADATA", services.preview_ossie_import, workspaces=scope.environment, locations=("fabric",),
+            artifact_types=("SemanticModel",), status="preview", limitations=OSSIE_LIMIT, timeout=120),
     ]
 
 

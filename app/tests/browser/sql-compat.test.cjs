@@ -15,7 +15,7 @@ const skip = !playwright && "Playwright is not installed";
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_compat_profiles"],
+    engine: ["sql_format", "sql_analyze"],
     storage: { "fabric-desktop.sql.lh1": JSON.stringify([{ name: "Board pack", sql: "SELECT 1", dialect: "warehouse" }]) },
     mocks: {
       list_tables: () => ({ dbo: ["sales", "customers"] }),

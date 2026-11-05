@@ -9,17 +9,27 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from . import access
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 MAX_TABLES = 500          # a first look, not an inventory: the biggest estates are read in part
 STALE_DAYS = 30
 BIG_SMALL_FILES = 200     # this many small files is slow for every reader
 VACUUM_VERSIONS = 30      # this many versions since the last VACUUM (or ever) is worth one
 SEVERITY = {"high": 0, "medium": 1, "low": 2}
+# Dataflow Gen2 stages its data in a lakehouse it creates itself, named for when it was created.
+# A workspace can end up with several; dataflows stage in one, and the rest are left over.
+STAGING = re.compile(r"StagingLakehouseForDataflows_(\d{14})")
+LEGACY_STAGING = "DataflowsStagingLakehouse"  # the older single one: never offered for removal
+STAGING_QUIET_DAYS = 30   # a leftover has had nothing written to it for at least this long
 
 
 def _days_since(iso: str | None, now: dt.datetime) -> int | None:
@@ -110,8 +120,62 @@ def cost_findings(report: dict[str, Any], local_notebooks: set[str]) -> list[dic
     return sorted(out, key=lambda f: -f["cost"])[:5]
 
 
+def is_staging(name: str) -> bool:
+    """A lakehouse Dataflow Gen2 made for staging. Its tables are Fabric's, not yours: the scan
+    neither reads them nor suggests fixing them."""
+    return bool(STAGING.fullmatch(name or "")) or name == LEGACY_STAGING
+
+
+def staging_created(name: str) -> dt.datetime | None:
+    """When a staging lakehouse was made, from the timestamp in its name (taken as UTC)."""
+    m = STAGING.fullmatch(name or "")
+    if not m:
+        return None
+    try:
+        return dt.datetime.strptime(m.group(1), "%Y%m%d%H%M%S").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+def staging_split(lakehouses: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """One workspace's staging lakehouses as (the newest, the older ones). The newest is the one
+    dataflows stage in, so it is always kept, even when it looks unused. A name dated more than a
+    day ahead is neither: it can't be real, so it is never offered and doesn't decide the newest."""
+    soon = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    dated = sorted(((t, lh) for lh in lakehouses
+                    if (t := staging_created(lh["lakehouse_name"])) and t <= soon), key=lambda p: p[0])
+    if not dated:
+        return None, []
+    return dated[-1][1], [lh for _, lh in dated[:-1]]
+
+
+def staging_findings(lakehouses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Older Dataflow Gen2 staging lakehouses, in a workspace that has a newer one. Whether one is
+    really unused (nothing written for STAGING_QUIET_DAYS) is checked again before it is removed."""
+    by_ws: dict[str, list[dict[str, Any]]] = {}
+    for lh in lakehouses:
+        by_ws.setdefault(lh["workspace_id"], []).append(lh)
+    out = []
+    for group in by_ws.values():
+        newest, older = staging_split(group)
+        if newest is None:
+            continue
+        for lh in older:
+            made = staging_created(lh["lakehouse_name"])
+            if made is None:  # staging_split keeps only dated names
+                continue
+            out.append({k: lh[k] for k in ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name")} | {
+                "kind": "staging", "severity": "low", "title": f"{lh['lakehouse_name']} looks left over",
+                "detail": f"Dataflow Gen2 made it on {made:%d %b %Y} to stage data, then made "
+                          f"{newest['lakehouse_name']}, which is newer and is kept. Remove checks that nothing "
+                          f"has been written to it for {STAGING_QUIET_DAYS} days before it deletes anything.",
+                "action": "remove_staging", "kept": newest["lakehouse_name"], "kept_id": newest["lakehouse_id"],
+                "created": made.isoformat(timespec="seconds")})
+    return out
+
+
 def rank(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    weight = {"small_files": 0, "unidentified": 1, "access": 2, "cost": 3, "stale": 4, "vacuum": 5, "empty": 6, "adopt": 7}
+    weight = {"small_files": 0, "unidentified": 1, "access": 2, "cost": 3, "stale": 4, "vacuum": 5, "staging": 6, "empty": 7, "adopt": 8}
     return sorted(findings, key=lambda f: (SEVERITY[f["severity"]], weight.get(f["kind"], 9), -f.get("files", 0),
                                            f["title"].lower()))
 
@@ -146,7 +210,8 @@ class Scanner:
             out += [base | {"schema": top["name"], "table": e["name"]} for e in inner if e["is_dir"]]
         try:
             has_files = bool(self.files(lh["workspace_id"], lh["lakehouse_id"], "Files"))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - unknown: assume it has files, so no "no files" finding is made up
+            _log.warning("Couldn't list Files in %s / %s: %s", lh.get("workspace_name"), lh.get("lakehouse_name"), describe(exc))
             has_files = True
         return out, has_files
 
@@ -165,14 +230,17 @@ class Scanner:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], "lakehouse_id": lh["id"],
                          "lakehouse_name": lh["displayName"]} for lh in self.fabric.list_lakehouses(ws["id"])]
-            except Exception:
-                skipped.append(ws["name"])  # a paused capacity, or no access
+            except Exception as exc:  # noqa: BLE001 - a paused capacity, or no access: listed as skipped
+                _log.warning("X-ray skipped workspace %s: %s", ws["name"], describe(exc))
+                skipped.append(ws["name"])
                 return []
 
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             lhs = [lh for chunk in pool.map(lakehouses, workspaces) for lh in chunk]
-            self.progress({"phase": "Listing tables", "done": 0, "total": len(lhs)})
-            listed = list(pool.map(lambda lh: self._safe_tables(lh, skipped), lhs))
+            staging = [lh for lh in lhs if is_staging(lh["lakehouse_name"])]
+            walked = [lh for lh in lhs if not is_staging(lh["lakehouse_name"])]
+            self.progress({"phase": "Listing tables", "done": 0, "total": len(walked)})
+            listed = list(pool.map(lambda lh: self._safe_tables(lh, skipped), walked))
             tables = [t for ts, _ in listed for t in ts]
             partial = len(tables) > MAX_TABLES
             tables = tables[:MAX_TABLES]
@@ -203,12 +271,13 @@ class Scanner:
             row["bytes"] += h.get("bytes") or 0
             row["files"] += h.get("files") or 0
             row["issues"] += len(found)
-        for lh, (ts, has_files) in zip(lhs, listed):
+        for lh, (ts, has_files) in zip(walked, listed, strict=True):
             if not ts and not has_files:
                 findings.append({k: lh[k] for k in ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name")} | {
                     "kind": "empty", "severity": "low", "title": f"{lh['lakehouse_name']} is empty",
                     "detail": f"No tables and no files in {lh['workspace_name']}. Delete it if nothing will use it.",
                     "action": "open"})
+        findings += staging_findings(staging)
         findings += access_findings(workspaces)
         return {"scanned": now.isoformat(timespec="seconds"), "workspaces": len(workspaces), "lakehouses": len(lhs),
                 "tables": len(tables), "partial": partial, "skipped": sorted(set(skipped)),
@@ -220,7 +289,8 @@ class Scanner:
         self.gate.wait()
         try:
             return self._tables(lh)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the scan goes on; the report lists it as skipped
+            _log.warning("X-ray skipped %s / %s: %s", lh["workspace_name"], lh["lakehouse_name"], describe(exc))
             skipped.append(f"{lh['workspace_name']} / {lh['lakehouse_name']}")
             return [], True
 
@@ -230,6 +300,16 @@ def counts(findings: list[dict[str, Any]]) -> dict[str, int]:
     for f in findings:
         out[f["kind"]] = out.get(f["kind"], 0) + 1
     return out
+
+
+# What a finding's fix asks of the person, from the fix itself, never from the data: "Low" is one
+# button that asks first and then runs in Fabric (Optimize, Vacuum, Remove staging); "Medium" is steps they take
+# themselves (open the lakehouse, review access, move a notebook to this PC). No fix is "High" yet.
+EFFORT = {"optimize": "Low", "vacuum": "Low", "remove_staging": "Low"}
+
+
+def effort_of(action: str | None) -> str:
+    return EFFORT.get(action or "", "Medium")
 
 
 RULE_SET = "xray-1"
@@ -255,7 +335,8 @@ def optimize_records(result: dict[str, Any]) -> dict[str, Any]:
                                  "detail": f.get("detail"), "evidence": json.dumps(evidence) if evidence else None})
         if f.get("action") in _FIXES:
             kind, reason = _FIXES[f["action"]]
-            recommendations.append(where | {"kind": kind, "reason": reason, "confidence": "high"})
+            recommendations.append(where | {"kind": kind, "reason": reason, "confidence": "high",
+                                            "effort": effort_of(f["action"])})
     artifacts = [{"workspace_id": r["workspace_id"], "item_id": r["lakehouse_id"], "item_type": "Lakehouse",
                   "display_name": r["lakehouse_name"]} for r in lakehouses.values()]
     run = {"run_id": f"xray-{result['scanned']}", "finished_at": result["scanned"],

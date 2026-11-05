@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Container
 from typing import Any
 
 import sqlglot
@@ -70,7 +71,7 @@ def split_batches(sql: str) -> list[str]:
 
 
 def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
-              known: set[str] | None = None) -> tuple[list[str], list[str]]:
+              known: Container[str] | None = None) -> tuple[list[str], list[str]]:
     """Each statement of the T-SQL script ``sql`` as DuckDB SQL, and notes on what may differ.
 
     ``columns`` is {schema: {table: {column: DuckDB type}}} for the tables the script may read; it
@@ -790,7 +791,7 @@ def _str(args: list[exp.Expression]) -> exp.Expression:
                     default=exp.Literal.string("*" * length))
 
 
-def _unknown_functions(tree: exp.Expression, known: set[str]) -> None:
+def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
     """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
     for call in tree.find_all(exp.Anonymous):
         name = call.name.upper()

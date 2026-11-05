@@ -16,7 +16,6 @@ from typing import Any
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.compute  # noqa: F401 - pa.compute
 
 from . import http_session, retrying
 from .meta import Engine, impact
@@ -41,7 +40,9 @@ def _rows_in(table: Any) -> int:
     """Rows in a Delta table from its log's file statistics, or by counting the files when a writer left them out."""
     actions = pa.table(table.get_add_actions(flatten=True))
     if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
-        return int(pa.compute.sum(actions.column("num_records")).as_py() or 0)
+        import pyarrow.compute as pc  # here, not at the top: it adds about 30 ms to every engine start
+
+        return int(pc.sum(actions.column("num_records")).as_py() or 0)
     return table.to_pyarrow_dataset().count_rows()
 
 

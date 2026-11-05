@@ -258,6 +258,11 @@ def xxhash64(*cols: Any) -> Column:
     return _call(f"xxhash64({', '.join('{%d}' % i for i in range(len(cols)))})", *cols)
 
 
+def _spark_hash(*cols: Any) -> Column:
+    """F.hash: Spark's hash (named apart here so this module keeps Python's own hash)."""
+    return _call(f"hash({', '.join('{%d}' % i for i in range(len(cols)))})", *cols)
+
+
 def uuid() -> Column:
     return _sql("CAST(uuid() AS VARCHAR)")
 
@@ -417,7 +422,7 @@ def count(col: Any) -> Column:
 FUNCTIONS = {name: obj for name, obj in list(globals().items())
              if callable(obj) and not name.startswith("_") and getattr(obj, "__module__", "") == __name__
              and name not in ("spark_expr", "install")}
-FUNCTIONS |= {"countDistinct": count_distinct, "sumDistinct": sum_distinct, "count": count}
+FUNCTIONS |= {"countDistinct": count_distinct, "sumDistinct": sum_distinct, "count": count, "hash": _spark_hash}
 
 
 # ---- windows

@@ -1262,7 +1262,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync"\]/);  // Databricks sync is a Workspaces tab too
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"\]/);  // Databricks sync and Power BI are Workspaces tabs too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -1750,6 +1750,8 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
+    "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
   const found = [];
   const walk = (dir) => {
@@ -5045,7 +5047,7 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
   assert.deepStrictEqual(cap.windows, ["main"]);
   assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
-  assert.deepStrictEqual(cap.permissions, ["core:default"]);
+  assert.deepStrictEqual(cap.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
@@ -5638,6 +5640,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
+    embedStudio: ["Embed Studio"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5869,7 +5872,7 @@ test("a developer Python missing a package says the command that installs it", (
 // mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
 // when a change moves more of them onto tokens.
 test("styles.css writes no more colors outside its tokens than it did", () => {
-  const LITERAL_COLORS = 157;
+  const LITERAL_COLORS = 106;
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;

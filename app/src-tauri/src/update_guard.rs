@@ -158,6 +158,68 @@ pub fn remember(path: &Path, tag: &str, accepted: Option<&Seen>) -> Result<(), S
     write_state(path, &state)
 }
 
+/// Builds that this PC rolled back because they never finished starting (EA-024), newest last.
+pub fn failed_builds(path: &Path) -> Vec<String> {
+    read_state(path)["failed"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|c| c.as_str().filter(|c| is_commit(c)).map(str::to_ascii_lowercase)).collect())
+        .unwrap_or_default()
+}
+
+/// Remembers that `commit` was rolled back, so this PC doesn't install it again. Keeps the last ten.
+pub fn record_failed(path: &Path, commit: &str) -> Result<(), String> {
+    let mut state = read_state(path);
+    let mut failed = failed_builds(path);
+    let commit = commit.to_ascii_lowercase();
+    failed.retain(|c| *c != commit);
+    failed.push(commit);
+    let keep = failed.len().saturating_sub(10);
+    state["failed"] = json!(failed[keep..]);
+    write_state(path, &state)
+}
+
+/// Why an accepted release isn't installed after all: its build was rolled back on this PC before.
+pub fn refused_as_failed(commit: &str, failed: &[String]) -> Option<String> {
+    failed.iter().any(|c| c.eq_ignore_ascii_case(commit)).then(|| {
+        format!(
+            "Build {} didn't finish starting on this PC, so the previous build was put back and it won't be \
+             installed again. A newer build will be.",
+            &commit[..7.min(commit.len())]
+        )
+    })
+}
+
+/// The time a new build has used of its limit to confirm its start. Time while the engine is being
+/// downloaded or installed doesn't count, so a slow connection can't roll a good build back, until
+/// INSTALL_GRACE has passed in all: an install that hangs or starts over can't hold the rollback off.
+#[derive(Debug, Default)]
+pub struct StartClock {
+    used: Duration,
+    since_start: Duration,
+}
+
+/// How long engine installs can pause a new build's start limit, all told.
+pub const INSTALL_GRACE: Duration = Duration::from_secs(2 * 60 * 60);
+
+impl StartClock {
+    /// Adds `elapsed` unless an engine install was running (within INSTALL_GRACE); says whether
+    /// `limit` is now used up.
+    pub fn tick(&mut self, elapsed: Duration, installing: bool, limit: Duration) -> bool {
+        self.since_start += elapsed;
+        if !installing || self.since_start > INSTALL_GRACE {
+            self.used += elapsed;
+        }
+        self.used >= limit
+    }
+}
+
+/// Whether a new build that hasn't confirmed its start (its engine never answered) puts the previous
+/// build back. Only a start that an update made (`--updated-to` this build), and only once per build:
+/// if a build from before EA-024 installs it again, it stays, so the two can't hand over forever.
+pub fn rolls_back(updated_to: Option<&str>, build: &str, confirmed: bool, failed_before: bool) -> bool {
+    !confirmed && !failed_before && is_commit(build) && updated_to.is_some_and(|to| to.eq_ignore_ascii_case(build))
+}
+
 /// The build the last accepted check offered, the only one update_app installs.
 pub fn offered(path: &Path) -> Option<String> {
     read_state(path)["offered"].as_str().filter(|c| is_commit(c)).map(str::to_owned)
@@ -214,24 +276,36 @@ pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
 /// Puts the previous exe (`old`) back in place of a new one that didn't start. Retries for a
 /// few seconds while Windows still holds the ended process's file.
 pub fn restore_previous(exe: &Path, old: &Path) -> Result<(), String> {
+    restore_with(exe, old, |from, to| std::fs::rename(from, to), Duration::from_millis(250))
+}
+
+/// restore_previous with the rename and the pause between attempts given, so tests can make a move fail.
+fn restore_with(
+    exe: &Path,
+    old: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    pause: Duration,
+) -> Result<(), String> {
     if !old.exists() {
         return Err(format!("The previous version ({}) is missing, so it could not be put back.", old.display()));
     }
     let failed = exe.with_extension("exe.failed");
+    // Only a copy left by an earlier update: once the new exe is moved there, it is the only copy of
+    // that build, and the fallback below puts it back if the previous one can't be.
+    let _ = std::fs::remove_file(&failed);
     let mut last = String::new();
     for attempt in 0..20 {
         if attempt > 0 {
-            std::thread::sleep(Duration::from_millis(250));
+            std::thread::sleep(pause);
         }
-        let _ = std::fs::remove_file(&failed);
         // Move the new exe aside first (it may still be held open), then the old one back.
         if exe.exists() {
-            if let Err(e) = std::fs::rename(exe, &failed) {
+            if let Err(e) = rename(exe, &failed) {
                 last = e.to_string();
                 continue;
             }
         }
-        match std::fs::rename(old, exe) {
+        match rename(old, exe) {
             Ok(()) => {
                 let _ = std::fs::remove_file(&failed);
                 return Ok(());
@@ -241,7 +315,7 @@ pub fn restore_previous(exe: &Path, old: &Path) -> Result<(), String> {
     }
     // Never leave no exe at all: put the new one back where it was.
     if !exe.exists() {
-        let _ = std::fs::rename(&failed, exe);
+        let _ = rename(&failed, exe);
     }
     Err(format!("Could not put the previous version back in place of {}: {last}", exe.display()))
 }
@@ -342,6 +416,63 @@ pub fn hand_over(h: &mut impl Handover) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_build_rolls_back_only_after_its_own_update_and_only_once() {
+        assert!(rolls_back(Some(A), A, false, false));
+        assert!(!rolls_back(Some(A), A, true, false), "its engine answered");
+        assert!(!rolls_back(Some(A), A, false, true), "rolled back once already: it stays");
+        assert!(!rolls_back(None, A, false, false), "an ordinary start never rolls back");
+        assert!(!rolls_back(Some(B), A, false, false), "the wrong build: the exe that started it handles that");
+        assert!(!rolls_back(Some(""), "", false, false), "a local build");
+    }
+
+    #[test]
+    fn an_engine_install_doesnt_count_toward_the_start_limit() {
+        let (sec, limit) = (Duration::from_secs(1), Duration::from_secs(3));
+        let mut clock = StartClock::default();
+        assert!(!clock.tick(sec, false, limit));
+        for _ in 0..100 {
+            assert!(!clock.tick(sec, true, limit), "a long download");
+        }
+        assert!(!clock.tick(sec, false, limit));
+        assert!(clock.tick(sec, false, limit), "three seconds outside the download");
+    }
+
+    #[test]
+    fn an_install_that_never_ends_stops_pausing_the_limit_after_the_grace() {
+        let (min, limit) = (Duration::from_secs(60), Duration::from_secs(20 * 60));
+        let mut clock = StartClock::default();
+        let grace = INSTALL_GRACE.as_secs() / 60;
+        for i in 0..grace {
+            assert!(!clock.tick(min, true, limit), "minute {i} of a hung download is paused");
+        }
+        for i in 0..19 {
+            assert!(!clock.tick(min, true, limit), "minute {i} past the grace counts, short of the limit");
+        }
+        assert!(clock.tick(min, true, limit), "twenty minutes past the grace: it rolls back");
+    }
+
+    #[test]
+    fn a_rolled_back_build_is_refused_and_remembered() {
+        let dir = std::env::temp_dir().join(format!("kf-failed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("update-state.json");
+        remember(&path, "latest", Some(&Seen { commit: B.into(), published: Some(NOW) })).unwrap();
+        assert!(failed_builds(&path).is_empty());
+        record_failed(&path, &A.to_ascii_uppercase()).unwrap();
+        record_failed(&path, A).unwrap();
+        assert_eq!(failed_builds(&path), [A]);
+        assert_eq!(load_seen(&path, "latest").unwrap().commit, B, "what the channel showed is kept");
+        assert!(refused_as_failed(A, &failed_builds(&path)).unwrap().contains("won't be installed again"));
+        assert!(refused_as_failed(B, &failed_builds(&path)).is_none());
+        for i in 0..12 {
+            record_failed(&path, &format!("{i:040x}")).unwrap();
+        }
+        assert_eq!(failed_builds(&path).len(), 10);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     const A: &str = "13cd5dfa54ee4be7c066919bd3828eda3e5c1326";
     const B: &str = "2c9d1f23eee5857a79a72be77d4c8f4f913febcd";
@@ -499,6 +630,29 @@ mod tests {
         assert!(swap_in(&exe, &new, &old).is_err(), "no download to put in place");
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
         assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_restore_that_cant_move_the_previous_exe_back_keeps_the_new_one() {
+        let dir = scratch("restorefail");
+        let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "next").unwrap();
+        std::fs::write(&old, "previous").unwrap();
+        std::fs::write(exe.with_extension("exe.failed"), "stale").unwrap();
+        // A virus scanner holds exe.old, so every move of it fails; other moves work.
+        let held = old.clone();
+        let rename = |from: &Path, to: &Path| {
+            if from == held {
+                Err(std::io::Error::other("in use"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        };
+        assert!(restore_with(&exe, &old, rename, Duration::ZERO).unwrap_err().contains("in use"));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next", "the new build is still there to start");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        assert!(!exe.with_extension("exe.failed").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -32,7 +32,6 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
 _AS_MODELS = "App Studio model connections (AS-06): engine first, the connection screen comes with AS-10 after its mockup (docs/architecture/app-studio.md)"
 _AS_PUBLISH = "App Studio publish (AS-13): engine first, the Publish dialog's button turns on after its mockup (docs/architecture/app-studio.md)"
-_EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (PBE-06, docs/architecture/power-bi-embedding.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
@@ -71,8 +70,6 @@ NO_UI_CALLER: dict[str, str] = {
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
-    "pbi_embed_token": _EMBED,
-    "pbi_embed_content": _EMBED,
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
     "appstudio_connections": _AS_MODELS,

@@ -19,9 +19,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 356 |
+| Runs | 357 |
 | Differs | 0 |
-| Refused | 29 |
+| Refused | 28 |
 | Fails | 3 |
 | Not checked | 50 |
 | **All** | **438** |
@@ -542,7 +542,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `parse_url` | Refused | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: PARSE_URL is not supported in DuckDB Run it in Fabric, or rewrite that part. |
+| `parse_url` | Runs | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` |  |
 | `url_decode` | Runs | `SELECT url_decode('https%3A%2F%2Fspark.apache.org')` |  |
 | `url_encode` | Runs | `SELECT url_encode('https://spark.apache.org')` |  |
 

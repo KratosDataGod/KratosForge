@@ -26,6 +26,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: estate.js:historyDialog, git.js:gitShowVersion, meta.js:showRunResults
+// axe covers dialogs: meta.js:watchMetaFabricRun, pipelines.js:pipelineRunDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";

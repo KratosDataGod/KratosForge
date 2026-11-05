@@ -457,6 +457,8 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                                                [_uncast(n.this), n.args["zone"]])),
         ("FromTimeZone", lambda n, a: _with_args("TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP)))",
                                                  [_uncast(n.this), n.args["zone"]])),
+        ("ParseUrl", _parse_url),
+        ("Extract", _extract),
         ("Hour", _template(f"HOUR({_TS})", 1)),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
@@ -500,12 +502,135 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
 
 
+# parse_url as Spark 3.5 answers it: Spark reads the text with java.net.URI (RFC 2396) and gives NULL
+# when URI refuses it. These are URI's character sets: "other" is any character above US-ASCII
+# that isn't a control or a space, which URI allows outside the scheme, host and port.
+_URL_OTHER = r"[^\x00-\x{9F}\p{Z}]"
+_URL_ESC = "%[0-9A-Fa-f]{2}"
+_URL_UNRESERVED = r"A-Za-z0-9\-_.!~*'()"
+_URL_PATH = f"^(?:[{_URL_UNRESERVED}:@&=+$,;/]|{_URL_ESC}|{_URL_OTHER})*$"
+_URL_URIC = f"^(?:[{_URL_UNRESERVED};/?:@&=+$,\\[\\]]|{_URL_ESC}|{_URL_OTHER})*$"
+_URL_REGISTRY = f"^(?:[{_URL_UNRESERVED}$,;:@&=+]|{_URL_ESC}|{_URL_OTHER})+$"
+_URL_USERINFO = f"(?:[{_URL_UNRESERVED};:&=+$,]|{_URL_ESC}|{_URL_OTHER})*"
+_URL_HOSTNAME = r"(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)*[A-Za-z](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.?"
+_URL_BYTE = "(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])"
+_URL_IPV4 = f"(?:{_URL_BYTE}\\.){{3}}{_URL_BYTE}"
+_URL_SERVER = f"^(?:({_URL_USERINFO})@)?({_URL_HOSTNAME}|{_URL_IPV4})(?::[0-9]*)?$"
+_URL_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]*"
+_URL_PARTS = f"^(?:({_URL_SCHEME}):)?(?://([^/?#]*))?([^?#]*)(?:\\?([^#]*))?(?:#(.*))?$"
+
+
+def _q(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _parse_url(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """parse_url(url, part[, key]). A URL whose host is in brackets (IPv6) is refused by name, and so
+    is a key Spark would read as a pattern: there the answer here could differ."""
+    part, key = node.args.get("part_to_extract"), node.args.get("key")
+    if part is None:
+        return None
+    refuse = ("ERROR('parse_url() can''t run on this PC the way it runs in Fabric, so nothing ran: {}. "
+              "Run the cell in Fabric.')")
+    keyed = key is not None
+    # kf_a: the text; kf_b: its pieces as URI splits them; kf_c: whether URI reads it, and the server.
+    pieces = (f"{{'m': REGEXP_EXTRACT(kf_a.u, {_q(_URL_PARTS)}, ['s', 'a', 'p', 'q', 'f']), "
+              f"'hs': REGEXP_MATCHES(kf_a.u, {_q('^' + _URL_SCHEME + ':')}), "
+              f"'ha': REGEXP_MATCHES(kf_a.u, {_q('^(?:' + _URL_SCHEME + ':)?//')}), "
+              "'hq': REGEXP_MATCHES(kf_a.u, '^[^#]*\\?'), 'hf': STRPOS(kf_a.u, '#') > 0}")
+    opaque = "(kf_b.hs AND NOT STARTS_WITH(kf_b.m.a || kf_b.m.p, '/') AND NOT kf_b.ha)"
+    ssp = f"REGEXP_EXTRACT(kf_a.u, {_q('^' + _URL_SCHEME + ':([^#]*)')}, 1)"
+    valid = (f"CASE WHEN {opaque} THEN {ssp} <> '' AND REGEXP_MATCHES({ssp}, {_q(_URL_URIC)}) "
+             f"AND (NOT kf_b.hf OR REGEXP_MATCHES(kf_b.m.f, {_q(_URL_URIC)})) "
+             f"ELSE (kf_b.hs OR kf_b.ha OR NOT REGEXP_MATCHES(kf_b.m.p, '^[^/]*:')) "
+             f"AND REGEXP_MATCHES(kf_b.m.p, {_q(_URL_PATH)}) "
+             f"AND (NOT kf_b.hq OR REGEXP_MATCHES(kf_b.m.q, {_q(_URL_URIC)})) "
+             f"AND (NOT kf_b.hf OR REGEXP_MATCHES(kf_b.m.f, {_q(_URL_URIC)})) "
+             f"AND (NOT kf_b.ha OR (kf_b.m.a = '' AND (kf_b.m.p <> '' OR kf_b.hq OR kf_b.hf)) "
+             f"OR REGEXP_MATCHES(kf_b.m.a, {_q(_URL_SERVER)}) OR REGEXP_MATCHES(kf_b.m.a, {_q(_URL_REGISTRY)})) END")
+    server = (f"CASE WHEN kf_b.ha AND REGEXP_MATCHES(kf_b.m.a, {_q(_URL_SERVER)}) "
+              f"THEN REGEXP_EXTRACT(kf_b.m.a, {_q(_URL_SERVER)}, ['ui', 'h']) END")
+    at = "STRPOS(kf_b.m.a, '@') > 0"
+    query = "CASE WHEN kf_b.hq THEN kf_b.m.q END"
+    if keyed:
+        query = (f"CASE WHEN NOT REGEXP_MATCHES(kf_a.key, '^[A-Za-z0-9_\\-.]*$') THEN "
+                 f"{refuse.format('Spark reads this key as a pattern')} "
+                 f"WHEN kf_b.hq AND REGEXP_MATCHES(kf_b.m.q, '(?:&|^)' || kf_a.key || '=') "
+                 f"THEN REGEXP_EXTRACT(kf_b.m.q, '(?:&|^)' || kf_a.key || '=([^&]*)', 1) END")
+    answer = (f"CASE WHEN STRPOS(kf_b.m.a, '[') > 0 AND kf_b.ha THEN {refuse.format('its host is in brackets (IPv6)')} "
+              f"WHEN NOT kf_c.ok THEN NULL "
+              f"WHEN kf_a.k = 'QUERY' THEN {query} "
+              + ("ELSE NULL END" if keyed else
+                 f"WHEN kf_a.k = 'PROTOCOL' THEN CASE WHEN kf_b.hs THEN kf_b.m.s END "
+                 f"WHEN kf_a.k = 'REF' THEN CASE WHEN kf_b.hf THEN kf_b.m.f END "
+                 f"WHEN {opaque} THEN NULL "
+                 f"WHEN kf_a.k = 'HOST' THEN kf_c.sv.h "
+                 f"WHEN kf_a.k = 'PATH' THEN kf_b.m.p "
+                 f"WHEN kf_a.k = 'FILE' THEN kf_b.m.p || CASE WHEN kf_b.hq THEN '?' || kf_b.m.q ELSE '' END "
+                 f"WHEN kf_a.k = 'AUTHORITY' THEN CASE WHEN kf_b.ha AND kf_b.m.a <> '' THEN kf_b.m.a END "
+                 f"WHEN kf_a.k = 'USERINFO' THEN CASE WHEN {at} THEN kf_c.sv.ui END "
+                 "ELSE NULL END"))
+    if keyed:
+        answer = answer.replace(f"WHEN kf_a.k = 'QUERY' THEN {query} ", f"WHEN kf_a.k = 'QUERY' AND NOT {opaque} THEN {query} ")
+    else:
+        answer = answer.replace(f"WHEN kf_a.k = 'QUERY' THEN {query} ", f"WHEN kf_a.k = 'QUERY' AND NOT {opaque} THEN {query} ")
+    inputs = "{'u': CAST(fj_arg0 AS VARCHAR), 'k': CAST(fj_arg1 AS VARCHAR)" + (", 'key': CAST(fj_arg2 AS VARCHAR)}" if keyed else "}")
+    nulls = "fj_arg0 IS NULL OR fj_arg1 IS NULL" + (" OR fj_arg2 IS NULL" if keyed else "")
+    template = (f"CASE WHEN {nulls} THEN NULL ELSE LIST_TRANSFORM([{inputs}], kf_a -> "
+                f"LIST_TRANSFORM([{pieces}], kf_b -> LIST_TRANSFORM([{{'ok': {valid}, 'sv': {server}}}], "
+                f"kf_c -> {answer})[1])[1])[1] END")
+    return _with_args(template, [node.this, part] + ([key] if keyed else []))
+
+
+# Spark's EXTRACT / date_part fields whose value DuckDB's EXTRACT gives differently: the day of the
+# week counts from Sunday = 1 (DuckDB's from 0), and seconds keep their fraction as decimal(8,6).
+_SPARK_DOW = {"DOW", "DAYOFWEEK"}
+_SPARK_DOW_ISO = {"DOW_ISO", "DAYOFWEEK_ISO"}
+_SPARK_SECOND = {"S", "SEC", "SECS", "SECOND", "SECONDS"}
+
+
+def _extract(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """EXTRACT(field FROM value) as Spark answers it. Spark's TIMESTAMP is read as TIMESTAMPTZ, which
+    sqlglot won't extract from; the session's zone here is UTC, as in Fabric (spark_api), so the same
+    instant as a plain UTC timestamp gives the same field."""
+    value, part = node.expression, node.this.name.upper()
+    if not isinstance(value, exp.Expression):
+        return None
+    ts = "TRY_CAST(fj_arg0 AS TIMESTAMP)"
+    if part in _SPARK_DOW:
+        return _with_args(f"CAST(DAYOFWEEK({ts}) + 1 AS INTEGER)", [value])
+    if part in _SPARK_DOW_ISO:
+        return _with_args(f"CAST(ISODOW({ts}) AS INTEGER)", [value])
+    if part in _SPARK_SECOND:
+        return _with_args(f"CAST(CAST(MICROSECOND({ts}) AS DECIMAL(14, 6)) / 1000000 AS DECIMAL(8, 6))", [value])
+    out = node.copy()
+    if (isinstance(value, exp.Literal) and value.is_string) or value.is_type(*exp.DataType.TEXT_TYPES):
+        out.set("expression", _with_args(ts, [value]))  # text is read as a timestamp, as Spark casts it
+    elif value.is_type(exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ):
+        if isinstance(value, (exp.Cast, exp.TryCast)):
+            plain = value.copy()
+            plain.set("to", exp.DataType.build("TIMESTAMP"))
+            plain.type = exp.DataType.build("TIMESTAMP")
+        else:
+            plain = exp.cast(value.copy(), exp.DataType.Type.TIMESTAMP)
+        out.set("expression", plain)
+    return exp.cast(out, exp.DataType.Type.INT)  # Spark's fields are int; DuckDB's are bigint
+
+
+def _date_part(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """date_part('field', value) and datepart: Spark's EXTRACT with the field as text."""
+    if len(args) != 2 or not (isinstance(args[0], exp.Literal) and args[0].is_string):
+        return None
+    return _extract(exp.Extract(this=exp.var(args[0].name.upper()), expression=args[1].copy()), [])
+
+
 def _uncast(node: exp.Expression) -> exp.Expression:
     """from_utc_timestamp's argument without the cast sqlglot puts round it (it is cast here)."""
     return node.this if isinstance(node, (exp.Cast, exp.TryCast)) else node
 
 
 _TYPED = _typed()
+_ANON["DATE_PART"] = _ANON["DATEPART"] = _date_part
 _RANKS = tuple(c for c in (getattr(exp, n, None) for n in ("Rank", "DenseRank", "PercentRank")) if c is not None)
 
 
@@ -562,11 +687,24 @@ def _candidates(statement: exp.Expression) -> list[exp.Expression]:
                                    *_RANKS, *(c for c, _ in _TYPED)))
 
 
+def _raw_unix_formats(statement: exp.Expression) -> None:
+    """sqlglot reads to_unix_timestamp's format as written ('yyyy-MM-dd'), where unix_timestamp's
+    is read into %-codes; give it the same reading, so both take the same path."""
+    from sqlglot.dialects.spark import Spark
+    for node in statement.find_all(exp.StrToUnix):
+        fmt = node.args.get("format")
+        if isinstance(fmt, exp.Literal) and fmt.is_string and "%" not in fmt.name:
+            read = Spark.format_time(fmt)
+            if read is not None:
+                node.set("format", read)
+
+
 def mark(statement: exp.Expression) -> exp.Expression:
     """Mark the calls the person wrote, before sql.spark_fixes' other rewrites run. Only marked nodes
     are rewritten by ``rewrite``, so DuckDB SQL another rewrite wrote (its FORMAT, its QUANTILE) is
     never read as a Spark call."""
     _named_tuples(statement)
+    _raw_unix_formats(statement)
     for node in _candidates(statement):
         if isinstance(node, exp.Anonymous) and str(node.this).upper() not in _ANON:
             continue

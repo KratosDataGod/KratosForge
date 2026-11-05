@@ -43,11 +43,11 @@ Install with `-c constraints.txt` so you test what users get.
 
 ## Release criteria
 
-| Gate | Criterion | State at `b75dcf5` |
+| Gate | Criterion | State at `b75dcf5`, R3 updated at `1ca71e3` (2026-11-05) |
 | --- | --- | --- |
 | R1 Green CI | Every job above passes on the release commit | Met on `aed09ee2` |
 | R2 No open P0 | No P0 in the [backlog](REMEDIATION_BACKLOG.md) or the private security list | Met |
-| R3 No open P1 data-integrity defect | EA-001, EA-002 and EA-004 closed | **Not met** |
+| R3 No open P1 data-integrity defect | EA-001, EA-002 and EA-004 closed | Met on 2026-11-05 (#1572, #1576, #1600, #1645, #1646, #1647) |
 | R4 Signed builds | The exe and engine are Authenticode-signed, and CI fails an unsigned main build | **Blocked** (Trusted Signing identity check) |
 | R5 Live verification | The FD-101 harness passes on the non-production test workspace, with the result recorded | **Not run** |
 | R6 Stable promotion | A build tried on Preview, then promoted with the maintainer's approval in the `stable` environment | In place (`promote.yml`) |

@@ -100,7 +100,7 @@ What's wrong today: when the lakehouse can't be reached, a finished X-ray scan k
 - Disconnecting a lakehouse keeps its pending rows until it's connected again. Discarding them (with a confirm) comes with the OPT-007 Settings work.
 
 ### OPT-010: Effort column and Dismiss for this PC's findings
-Optimize > Opportunities already shows Effort and Dismiss for shared recommendations. The table of this PC's X-ray findings (AF-5, #865) has Improvement, Impact and State only. Add the Effort column and a Dismiss with a reason, as in the action-first mockup Chris approved on 2026-10-26. A dismissal is kept on this PC with its reason and can be undone; once the PC is connected, it becomes the shared recommendation's Dismissed event, so the two lists agree.
+Optimize > Opportunities already shows Effort and Dismiss for shared recommendations. The table of this PC's X-ray findings (AF-5, #865) has Improvement, Impact and State only. Add the Effort column and a Dismiss with a reason, as in the action-first mockup Chris approved on 2026-10-26. A dismissal is kept on this PC with its reason (`xray_dismiss`, secrets removed) and can be undone; a later scan finds it still dismissed. Effort comes from the fix, never the data: Low is one button that asks first and runs in Fabric (Optimize, Vacuum), Medium is steps the person takes. Shared recommendations already have their own Dismiss; carrying a PC's dismissal into the shared lakehouse is left for later.
 
 ### OPT-011: An action for every X-ray finding
 Chris's unit testing (2026-10-18, items 9 and 10): every finding gets an in-app action that follows best practice and is documented. Today an empty lakehouse only offers Open in Fabric and "Delete it if nothing will use it".

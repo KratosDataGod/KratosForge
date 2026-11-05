@@ -19,9 +19,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 354 |
+| Runs | 357 |
 | Differs | 0 |
-| Refused | 31 |
+| Refused | 28 |
 | Fails | 3 |
 | Not checked | 50 |
 | **All** | **438** |
@@ -209,7 +209,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `dayofmonth` | Runs | `SELECT dayofmonth('2009-07-30')` |  |
 | `dayofweek` | Runs | `SELECT dayofweek('2009-07-30')` |  |
 | `dayofyear` | Runs | `SELECT dayofyear('2016-04-09')` |  |
-| `extract` | Refused | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: EXTRACT from TIMESTAMPTZ / TIMESTAMPLTZ may produce different results due to  |
+| `extract` | Runs | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` |  |
 | `from_unixtime` | Runs | `SELECT from_unixtime(0, 'yyyy-MM-dd HH:mm:ss')` |  |
 | `from_utc_timestamp` | Runs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `hour` | Runs | `SELECT hour('2009-07-30 12:58:59')` |  |
@@ -237,7 +237,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `to_timestamp` | Runs | `SELECT to_timestamp('2016-12-31 00:12:00')` |  |
 | `to_timestamp_ltz` | Runs | `SELECT to_timestamp_ltz('2016-12-31 00:12:00')` |  |
 | `to_timestamp_ntz` | Runs | `SELECT to_timestamp_ntz('2016-12-31 00:12:00')` |  |
-| `to_unix_timestamp` | Refused | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` | unix_timestamp can't read part of its format (yyyy-MM-dd) on this PC. Use pattern letters such as yyyy, MM, dd, HH, mm, ss and SSS. |
+| `to_unix_timestamp` | Runs | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` |  |
 | `to_utc_timestamp` | Runs | `SELECT to_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `trunc` | Runs | `SELECT trunc('2019-08-04', 'week')` |  |
 | `try_to_timestamp` | Runs | `SELECT try_to_timestamp('2016-12-31 00:12:00')` |  |
@@ -542,7 +542,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `parse_url` | Refused | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: PARSE_URL is not supported in DuckDB Run it in Fabric, or rewrite that part. |
+| `parse_url` | Runs | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` |  |
 | `url_decode` | Runs | `SELECT url_decode('https%3A%2F%2Fspark.apache.org')` |  |
 | `url_encode` | Runs | `SELECT url_encode('https://spark.apache.org')` |  |
 

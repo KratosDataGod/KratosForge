@@ -29,6 +29,7 @@ SOURCES: dict[str, Path] = {
     "spark_builtins_sql.py": _ENGINE / "spark_builtins_sql.py",
     "sql_dialects.py": _ENGINE / "sql_dialects.py",
     "spark_decimals.py": _ENGINE / "spark_decimals.py",
+    "spark_hash.py": _ENGINE / "spark_hash.py",
     "spark_number_format.py": _ENGINE / "spark_number_format.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",
 }

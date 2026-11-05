@@ -19,9 +19,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 365 |
+| Runs | 367 |
 | Differs | 0 |
-| Refused | 23 |
+| Refused | 21 |
 | Fails | 0 |
 | Not checked | 50 |
 | **All** | **438** |
@@ -269,12 +269,12 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `crc32` | Runs | `SELECT crc32('Spark')` |  |
-| `hash` | Refused | `SELECT hash('Spark', array(123), 2)` | hash() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's hash gives a different number from the hash this PC has. Run it in Fabric, or use |
+| `hash` | Runs | `SELECT hash('Spark', array(123), 2)` |  |
 | `md5` | Runs | `SELECT md5('Spark')` |  |
 | `sha` | Runs | `SELECT sha('Spark')` |  |
 | `sha1` | Runs | `SELECT sha1('Spark')` |  |
 | `sha2` | Runs | `SELECT sha2('Spark', 256)` |  |
-| `xxhash64` | Refused | `SELECT xxhash64('Spark', array(123), 2)` | xxhash64() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's xxhash64 gives a different number from the hash this PC has. Run it in Fabric |
+| `xxhash64` | Runs | `SELECT xxhash64('Spark', array(123), 2)` |  |
 
 ## JSON
 

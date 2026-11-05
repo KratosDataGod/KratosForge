@@ -84,6 +84,10 @@ def _layer_workspaces(project: Any) -> list[tuple[str, Any]]:
             out += [(w, layer) for w in {ws, cfg.get("workspace_id")} if w]
     return out
 
+DISMISS_ID_MAX = 1024  # characters in a dismissed finding's id
+DISMISS_MAX = 5000  # dismissed findings kept on this PC
+
+
 class XRayMixin:
     _xray_state: dict[str, Any] | None = None
     _xray_lock = threading.Lock()
@@ -223,6 +227,8 @@ class XRayMixin:
         finding_id = str(finding_id or "").strip()
         if not finding_id:
             raise ValueError("Which finding? It needs its id.")
+        if len(finding_id) > DISMISS_ID_MAX:
+            raise ValueError("That finding id is too long to be one of X-ray's.")
         dismissed = dict(self._settings().get("xray_dismissed") or {})  # type: ignore[attr-defined]
         if reopen:
             dismissed.pop(finding_id, None)
@@ -230,6 +236,9 @@ class XRayMixin:
             reason = redact.secrets(str(reason or "").strip())[:500]
             dismissed[finding_id] = {"reason": reason,
                                      "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+            # Bounded: past the cap the oldest dismissals go, so settings can't grow without limit.
+            for old in sorted(dismissed, key=lambda k: str(dismissed[k].get("at") or ""))[:-DISMISS_MAX]:
+                dismissed.pop(old)
         self._save_settings(xray_dismissed=dismissed)  # type: ignore[attr-defined]
         return {"id": finding_id, "dismissed": dismissed.get(finding_id)}
 

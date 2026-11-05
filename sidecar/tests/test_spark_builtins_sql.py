@@ -360,3 +360,11 @@ def test_to_char_of_a_double_is_refused_by_name():
 
 def test_to_char_is_named_as_spark_names_it():
     assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, '999')"]
+
+
+def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():
+    # Spark joins adjacent literals, so '9''9' is the format '99' (Apache Spark 3.5.3).
+    assert one("SELECT try_to_number('12', '9''9')") == Decimal("12")
+    assert one("SELECT to_char(12, '9''9')") == "12"
+    with pytest.raises(ValueError, match="number format 'a9' isn't valid"):
+        sql.run("SELECT try_to_number('1', 'a''9')")

@@ -498,6 +498,15 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
 
 
+def _format_text(node: exp.Expression) -> str | None:
+    """A number format written as text: one literal, or literals Spark joins ('9' '9', also written '9''9')."""
+    if isinstance(node, exp.Literal) and node.is_string:
+        return node.name
+    if isinstance(node, exp.Concat) and all(isinstance(e, exp.Literal) and e.is_string for e in node.expressions):
+        return "".join(e.name for e in node.expressions)
+    return None
+
+
 def _to_number(try_: bool) -> Callable[..., exp.Expression | None]:
     """to_number(text, format) and try_to_number: Spark's number format patterns (spark_number_format).
     A format that isn't a constant text is refused, as Spark refuses it."""
@@ -507,13 +516,13 @@ def _to_number(try_: bool) -> Callable[..., exp.Expression | None]:
         from . import spark_number_format
         if len(args) != 2:
             return None
-        fmt = args[1]
-        if not (isinstance(fmt, exp.Literal) and fmt.is_string):
+        fmt = _format_text(args[1])
+        if fmt is None:
             raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
-        shown = fmt.name.replace("'", "''''")   # inside the SQL text of ERROR's argument
+        shown = fmt.replace("'", "''''")   # inside the SQL text of ERROR's argument
         fail = "NULL" if try_ else (f"ERROR('{name}(): the input ''' || kf_s || ''' doesn''t match the format "
                                     f"''{shown}'', as in Fabric.')")
-        text, _, _ = spark_number_format.parse_sql(fmt.name, fail)
+        text, _, _ = spark_number_format.parse_sql(fmt, fail)
         return _with_args(text, [args[0]])
     return build
 
@@ -524,10 +533,10 @@ def _to_char(name: str) -> Callable[..., exp.Expression | None]:
         from . import spark_number_format
         if len(args) != 2:
             return None
-        fmt = args[1]
-        if not (isinstance(fmt, exp.Literal) and fmt.is_string):
+        fmt = _format_text(args[1])
+        if fmt is None:
             raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
-        return _with_args(spark_number_format.format_sql(fmt.name), [args[0]])
+        return _with_args(spark_number_format.format_sql(fmt), [args[0]])
     return build
 
 

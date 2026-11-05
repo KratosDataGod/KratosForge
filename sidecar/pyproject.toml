@@ -84,15 +84,15 @@ extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its author
 # cells are formatted.
 [tool.ruff.lint]
 select = ["E9", "F", "B"]
-# Bugbear rules still to roll out, a few at a time, each with its findings fixed or marked:
-# B023 (a closure using a loop variable: most hits are reviewed false positives, called inside the
-# loop). Blind excepts (BLE) stay off: tests/test_silent_except.py already requires every broad handler
-# to log, narrow or say why it is silent.
-ignore = ["B023"]
+# Every bugbear rule is on. A closure using a loop variable (B023) that is only called within that
+# iteration is marked `noqa: B023` with the reason. Blind excepts (BLE) stay off:
+# tests/test_silent_except.py already requires every broad handler to log, narrow or say why it is silent.
 
 [tool.ruff.lint.per-file-ignores]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.
 "tests/**" = ["F811"]
+# The policy resolver defines its small helpers inside each policy's iteration and calls them there.
+"fabric_desktop/central/policy.py" = ["B023"]
 
 # CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
 # in mypy-baseline.json, and only new ones fail.

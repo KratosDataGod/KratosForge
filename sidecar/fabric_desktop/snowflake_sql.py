@@ -16,6 +16,7 @@ DuckDB) and tests/test_snowflake_sql.py keeps one test per probe row.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -24,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.10.6"
+RULES_VERSION = "2026.11.1"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -111,8 +112,7 @@ SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value "
             "is lost.", "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
 SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
-             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. Dividing by "
-             "zero gives infinity or NULL here, where Snowflake stops with an error.",
+             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules.",
              "Round or cast the result where scale matters; use DIV0 where a zero divisor is expected.",
              f"{_DOCS}/operators-arithmetic")
 SFD_LTZ = _n("SFD-004", "Local time zone is this PC's",
@@ -133,9 +133,9 @@ SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
               f"{_DOCS}/functions/date_trunc")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
                 "TYPEOF gives Snowflake's type names here (SFX-009), with two exceptions. A JSON number with a "
-                "fraction or an exponent that wasn't parsed in the same call (a column, a path such as v:a) "
-                "comes back as 'DECIMAL or DOUBLE': Snowflake tells them apart by how the number was written "
-                "(1.912e2 is DOUBLE, 191.2 is DECIMAL) and DuckDB doesn't keep that. A type with no single "
+                "fraction or an exponent that isn't read from PARSE_JSON of text written in the query (a "
+                "column, or a path into one such as v:a) comes back as 'DECIMAL or DOUBLE': Snowflake tells "
+                "them apart by how the number was written (1.912e2 is DOUBLE, 191.2 is DECIMAL) and DuckDB doesn't keep that. A type with no single "
                 "Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or "
                 "TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't "
                 "known here: a column, a path or a computed value.",
@@ -517,10 +517,71 @@ def _typeof_value(node: exp.Typeof) -> exp.Expression:
     return value
 
 
+class _JsonNumber(str):
+    """A JSON number as written in the text, so its TYPEOF goes by how it was written."""
+
+
+_NOT_KNOWN = object()
+
+
+def _json_type_name(value: Any) -> str:
+    """SFX-009's name for a value json.loads read with numbers kept as _JsonNumber."""
+    if value is None:
+        return "NULL_VALUE"
+    if isinstance(value, bool):
+        return "BOOLEAN"
+    if isinstance(value, _JsonNumber):
+        if "e" in value.lower():
+            return "DOUBLE"
+        whole, _, frac = value.lstrip("-").partition(".")
+        if len(whole.lstrip("0")) + len(frac) > 38 or len(frac) > 37:
+            return "DOUBLE"
+        return "DECIMAL" if "." in value else "INTEGER"
+    return {str: "VARCHAR", list: "ARRAY", dict: "OBJECT"}[type(value)]
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    if len({k for k, _ in pairs}) != len(pairs):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
+def _typeof_of_literal_path(value: exp.Expression) -> Any:
+    """TYPEOF of a path into PARSE_JSON of text written in the query (PARSE_JSON('{"a": 1.5e2}'):a), worked
+    out here from the text as written: None for SQL NULL (no such key or element), or _NOT_KNOWN."""
+    if not (isinstance(value, exp.JSONExtract) and isinstance(value.this, exp.ParseJSON)
+            and isinstance(value.this.this, exp.Literal) and value.this.this.is_string
+            and isinstance(value.expression, exp.JSONPath)):
+        return _NOT_KNOWN
+    try:
+        doc = json.loads(value.this.this.name, parse_float=_JsonNumber, parse_int=_JsonNumber,
+                         object_pairs_hook=_no_duplicate_keys)
+    except ValueError:  # silent-ok: Snowflake's own error comes from the query, as without this rule
+        return _NOT_KNOWN
+    for part in value.expression.expressions:
+        if isinstance(part, exp.JSONPathRoot):
+            continue
+        if isinstance(part, exp.JSONPathKey) and isinstance(part.this, str):
+            found = isinstance(doc, dict) and part.this in doc
+            key: Any = part.this
+        elif isinstance(part, exp.JSONPathSubscript) and isinstance(part.this, int):
+            found = isinstance(doc, list) and 0 <= part.this < len(doc)
+            key = part.this
+        else:
+            return _NOT_KNOWN
+        if not found:
+            return None  # no such key or element: SQL NULL, as in Snowflake
+        doc = doc[key]
+    return _json_type_name(doc)
+
+
 def _typeof_known(node: exp.Typeof) -> bool:
     """True when SFX-009 names the argument's type exactly whatever its value: PARSE_JSON in the same
-    call, a literal, or a cast to a type Snowflake names one way."""
+    call or a path into PARSE_JSON of text in the query, a literal, or a cast to a type Snowflake names
+    one way."""
     value = _typeof_value(node)
+    if _typeof_of_literal_path(value) is not _NOT_KNOWN:
+        return True
     if isinstance(value, (exp.ParseJSON, exp.Literal, exp.Boolean, exp.Null)):
         return True
     return isinstance(value, (exp.Cast, exp.TryCast)) and value.to.this in _TYPEOF_KNOWN_CASTS
@@ -539,6 +600,10 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
     one with no single Snowflake name keeps DuckDB's name."""
     for node in list(statement.find_all(exp.Typeof)):
         value = _typeof_value(node)
+        known = _typeof_of_literal_path(value)
+        if known is not _NOT_KNOWN:
+            node.replace(exp.Literal.string(known) if known else exp.cast(exp.Null(), "VARCHAR"))
+            continue
         if isinstance(value, exp.ParseJSON):
             # Snowflake's rule on the text as written: DuckDB's JSON() writes doubles again.
             text = "trim(CAST(_kf_t AS VARCHAR))"
@@ -569,6 +634,29 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
             elif col.name == "_kf_t":
                 col.replace(value.this.copy())
         node.replace(case)
+
+
+def _div0_branch(node: exp.Div) -> bool:
+    """True for the division inside DIV0 and DIV0NULL as sqlglot reads them (IF(b = 0 ..., 0, a / b)),
+    which never runs with a zero divisor."""
+    parent = node.parent
+    return isinstance(parent, exp.If) and parent.args.get("false") is node and any(
+        eq.this == node.expression or eq.expression == node.expression for eq in parent.this.find_all(exp.EQ))
+
+
+def _rewrite_division(statement: exp.Expression) -> None:
+    """SFX-010: a / b stops with Snowflake's "Division by zero" error when b is 0, where DuckDB gives
+    infinity or NULL. A divisor written as a non-zero number is left as it is."""
+    for node in list(statement.find_all(exp.Div)):
+        divisor = node.expression
+        if _div0_branch(node) or (isinstance(divisor, exp.Literal) and not divisor.is_string
+                                  and divisor.name.replace(".", "").strip("0") != ""):
+            continue
+        check = exp.Case(ifs=[exp.If(this=exp.EQ(this=divisor.copy(), expression=exp.Literal.number(0)),
+                                     true=exp.Anonymous(this="ERROR",
+                                                        expressions=[exp.Literal.string("Division by zero")]))],
+                         default=divisor.copy())
+        divisor.replace(check)
 
 
 # ---------------------------------------------------------------- known differences (SFD-*)
@@ -649,6 +737,9 @@ CATALOG = (
                 "SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. "
                 "Where the name can't be known, SFD-007 applies. The argument is worked out more than once, "
                 "which matters only when it isn't deterministic."),
+    ("SFX-010", "Rewritten", "a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
+                "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
+                "worked out twice, which matters only when it isn't deterministic."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -703,6 +794,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_ratio_to_report(tree)
         _rewrite_haversine(tree)
         _rewrite_typeof(tree)
+        _rewrite_division(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

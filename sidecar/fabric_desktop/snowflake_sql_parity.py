@@ -36,6 +36,12 @@ def _values(*rows: Any) -> str:
 
 
 @dataclass(frozen=True)
+class Raises:
+    """A documented error: the case is "same" when DuckDB stops with a message containing ``text``."""
+    text: str
+
+
+@dataclass(frozen=True)
 class Case:
     function: str
     group: str
@@ -128,8 +134,8 @@ CASES: tuple[Case, ...] = (
     _c("POWER", "Numeric", "SELECT power(2, 3)", 8),
     _c("SIGN", "Numeric", "SELECT sign(-5)", -1),
     _c("BITAND", "Numeric", "SELECT bitand(12, 10)", 8),
-    _c("/ (by zero)", "Numeric", "SELECT 1/0", "Division by zero error", "differs",
-       "Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0.",
+    _c("/ (by zero)", "Numeric", "SELECT 1/0", Raises("Division by zero"), page="div0"),
+    _c("/ (by a zero column)", "Numeric", f"SELECT 1 / x FROM {_values(1, 0)}", Raises("Division by zero"),
        page="div0"),
     _c("TO_NUMBER (scale 0)", "Conversion", "SELECT to_number('12.3456')", 12, page="to_decimal"),
     _c("TRY_TO_NUMBER", "Conversion", "SELECT try_to_number('12x')", None, page="try_to_decimal"),
@@ -186,8 +192,14 @@ CASES: tuple[Case, ...] = (
     _c("TYPEOF (TIMESTAMP cast to VARIANT)", "Semi-structured",
        "SELECT typeof('2024-01-17 19:00:00.000'::timestamp::variant)", "TIMESTAMP_NTZ", page="typeof"),
     _c("TYPEOF (path to an exponent)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": 1.912e2}'):a)", "DOUBLE",
-       "differs", "A JSON number with a fraction or exponent read from a path or a column is 'DECIMAL or DOUBLE' "
-       "here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF(PARSE_JSON(...)) is exact.", page="typeof"),
+       page="typeof"),
+    _c("TYPEOF (path to a fraction)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": [1, 191.2]}'):a[1])",
+       "DECIMAL", page="typeof"),
+    _c("TYPEOF (stored value with an exponent)", "Semi-structured",
+       "SELECT typeof(v:a) FROM (SELECT parse_json('{\"a\": 1.912e2}') AS v)", "DOUBLE", "differs",
+       "A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' "
+       "here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into "
+       "PARSE_JSON of text in the query, is exact.", page="typeof"),
     _c("LISTAGG", "Aggregate", f"SELECT listagg(x, ',') WITHIN GROUP (ORDER BY x) FROM {_values(repr('b'), repr('a'))}",
        "a,b"),
     _c("ARRAY_AGG", "Aggregate", f"SELECT array_agg(x) WITHIN GROUP (ORDER BY x) FROM {_values(2, 1)}", [1, 2]),
@@ -228,6 +240,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
     try:
         row = first_row(con.execute(translation.duckdb_sql))
     except duckdb.Error as exc:
+        if isinstance(case.expected, Raises) and case.expected.text in str(exc):
+            return "same", case.expected
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None
     return ("same" if same(value, case.expected) else "differs"), value

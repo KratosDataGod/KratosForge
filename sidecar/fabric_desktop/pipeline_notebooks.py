@@ -215,20 +215,17 @@ class LocalNotebooks:
 
     def _cell(self, kernel: Any, source: str, cancelled: Callable[[], bool], deadline: float | None,
               name: str, n: int) -> list[dict[str, Any]]:
-        snap = kernel.start(source)
-        version, outputs = -1, snap.get("outputs") or []
-        while snap["status"] == "running":
-            if cancelled() or (deadline is not None and time.monotonic() > deadline):
-                if kernel.alive():
-                    kernel.stop()
-                if cancelled():
-                    raise ActivityFailed("Cancelled.", "LocalCancelled")
-                raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
-            snap = kernel.poll(version, 0.5)
-            version = snap.get("version", version)
-            if snap.get("outputs") is not None:
-                outputs = snap["outputs"]
-        outputs = snap.get("outputs") or outputs
+        why = [""]  # why the wait stopped the cell, if it did
+
+        def stop() -> bool:
+            why[0] = "cancelled" if cancelled() else (
+                "timeout" if deadline is not None and time.monotonic() > deadline else "")
+            return bool(why[0])
+        snap, outputs = notebook_cells.wait(kernel, kernel.start(source), stop)
+        if why[0] == "cancelled":
+            raise ActivityFailed("Cancelled.", "LocalCancelled")
+        if why[0] == "timeout":
+            raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
         if snap["status"] != "ok":
             err = next((o for o in reversed(outputs) if o.get("type") == "error"), None) or {}
             why = f"{err.get('ename') or snap['status']}: {err.get('evalue') or ''}".strip().rstrip(":")

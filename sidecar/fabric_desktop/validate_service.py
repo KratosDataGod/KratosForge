@@ -233,26 +233,17 @@ class ValidateMixin:
                 record["cell"] = n
                 row = {"cell": n, "cell_id": c.get("cell_id"), "status": "running", "seconds": 0}
                 record["cells"].append(row)
-                snap = kernel.start(c["source"])
-                version, outputs = -1, snap.get("outputs") or []
-                while snap["status"] == "running":
-                    if record["_cancel"]:
-                        # Cancel may come while the process is still starting, before there is one to stop.
-                        if kernel.alive():
-                            kernel.stop()
-                        snap = {"status": "cancelled", "seconds": row["seconds"]}
-                        break
-                    snap = kernel.poll(version, 0.5)
-                    version = snap.get("version", version)
-                    row["seconds"] = snap.get("seconds", row["seconds"])
-                    if snap.get("outputs") is not None:
-                        outputs = snap["outputs"]
+                snap, outputs = notebook_cells.wait(
+                    kernel, kernel.start(c["source"]), lambda: record["_cancel"],
+                    lambda s, row=row: row.update(seconds=s.get("seconds", row["seconds"])))
+                if snap["status"] == "cancelled" and snap.get("seconds") is None:
+                    snap["seconds"] = row["seconds"]
                 row.update(status=snap["status"], seconds=snap.get("seconds"))
                 if snap["status"] != "ok":
                     status = "cancelled" if record["_cancel"] else "failed"
                     if status == "failed":
                         run["failed_cell"] = n
-                        run["error"] = _error(snap.get("outputs") or outputs)
+                        run["error"] = _error(outputs)
                         if kernel.limit_hit:
                             run["stopped_by"] = LIMIT_NAMES.get(kernel.limit_hit, f"the {kernel.limit_hit} limit")
                     break

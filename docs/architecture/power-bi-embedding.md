@@ -27,7 +27,7 @@ bookmarks, events, timings or code to take away. Embed Studio adds that with Mic
 | Piece | Where | What it does |
 | --- | --- | --- |
 | Token and discovery calls | Engine (`sidecar`) | A Power BI token from the existing sign-in, with its expiry; embed URLs, pages and tiles from the REST API. |
-| Embed Studio screen | Main window (`app/ui`) | Holds the token in memory, sends it to the host frame, refreshes it when Power BI reports `tokenExpired`. |
+| Embed Studio screen | Main window (`app/ui`) | Holds the token in memory, sends it to the host frame, fetches a fresh one before it expires (at least 10 minutes are left on each one the engine hands out) rather than keeping one. |
 | Embed host frame | New local scheme `pbiembed` (`app/src-tauri`) | One page plus the vendored SDK, with its own Content Security Policy. Takes a fixed list of commands from the main window and returns events with tokens removed. |
 | Power BI frame | `app.powerbi.com` | Microsoft's renderer. KratosForge only talks to it through the SDK. |
 

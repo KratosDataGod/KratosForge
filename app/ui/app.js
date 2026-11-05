@@ -442,6 +442,7 @@ const NAV_FIELDS = {
   lakehouse: () => [[state, "lakehouseView"], [state, "openWorkspace"]],
   entity: () => [[state.meta, "entity"]],
   workload: () => [[wlPage, "id"]],
+  embedstudio: () => [[pbiStudio, "item"]],
   incident: () => [[incPage, "id"], [incPage, "env_of"]],
   agent: () => [[agPage, "name"]],
 };
@@ -1351,7 +1352,9 @@ async function renderWorkspaces() {
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
-            : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+            : pbiEmbeddable(it.type)
+              ? h("button", { class: "name-link", title: "Open in Embed Studio", onclick: stop(() => openEmbedStudio(target.item)) }, it.displayName)
+              : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         PREVIEW_FEATURES.itemPins && previewShown() ? h("td", { class: "tick" }, itemPinButton({ kind: it.type, id: it.id,
           name: it.displayName, workspace_id: ws.id, workspace_name: ws.displayName }, () => draw())) : null,
@@ -1360,6 +1363,7 @@ async function renderWorkspaces() {
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
           whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
+          pbiEmbeddable(it.type) ? btn("Open in Embed Studio", null, stop(() => openEmbedStudio(target.item)), "tool small link") : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     };
     // A big workspace draws its first rows at once and the rest as you scroll near the end, so opening
@@ -1439,14 +1443,16 @@ function openInFabric(page) {
   }
 }
 
-// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal; with preview features shown,
+// a third lists Power BI content for Embed Studio (powerbi.js).
 function workspacesTabs(active) {
+  const tabs = [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]];
+  if (previewShown()) tabs.push(["powerbi", "Power BI"]);
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
     // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace.
-    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"], previewShown() ? ["databricks_sync", "Databricks"] : null].filter(Boolean)
-      .map(([view, label]) =>
-        h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
-          onclick: () => go(view) }, label, view === "databricks_sync" ? previewTag() : null)));
+    (previewShown() ? [...tabs, ["databricks_sync", "Databricks"]] : tabs).map(([view, label]) =>
+      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+        onclick: () => go(view) }, label, view === "databricks_sync" || view === "powerbi" ? previewTag() : null)));
 }
 
 // Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
@@ -1871,7 +1877,9 @@ async function renderOneLake() {
           r.type === "Warehouse" && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page",
               onclick: () => openWarehouseQuery({ kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name }) }, r.name)
-            : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+            : pbiEmbeddable(r.type)
+              ? h("button", { class: "name-link", title: "Open in Embed Studio", onclick: () => openEmbedStudio(r) }, r.name)
+              : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),
@@ -1879,6 +1887,7 @@ async function renderOneLake() {
         h("td", {}, e ? h("span", { class: `pill-s ${e === "Certified" ? "pass" : "info"}` }, e) : ""),
         h("td", {}, (isLh && cp.layers[r.name]) || ""),
         h("td", { class: "actions" },
+          pbiEmbeddable(r.type) ? btn("Open in Embed Studio", null, () => openEmbedStudio(r), "tool small link") : null,
           btn("Show in Fabric", null, () => openInFabric(fabricItemLink(r)), "tool small link"),
           isLh ? btn("SQL query", null, () => openSqlQuery(r), "tool small link") : null,
           isLh ? btn("Open in notebook", null, () => newNotebook(r), "tool small link") : null)));
@@ -2854,7 +2863,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery,
     databricks_sync: () => renderDatabricksSync() },
 });

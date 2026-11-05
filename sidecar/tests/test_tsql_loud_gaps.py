@@ -61,10 +61,13 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("STR with places", "SELECT STR(123.45, 6, 1)", " 123.5"),
     ("STR gives up places that don't fit", "SELECT STR(123.45, 5, 2)", "123.5"),
     ("STR too long for the length", "SELECT STR(-1234.5, 4)", "****"),
+    ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
+    ("FORMAT long date", "SELECT FORMAT(CAST('2024-03-05' AS DATE), 'D')", "Tuesday, March 5, 2024"),
+    ("FORMAT abbreviated day and AM/PM", "SELECT FORMAT(CAST('2024-03-05 14:07' AS DATETIME2), 'ddd hh:mm tt')",
+     "Tue 02:07 PM"),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
-    ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
     ("ISNUMERIC of a number", "SELECT ISNUMERIC('12.5')", 1),
     ("ISNUMERIC of text", "SELECT ISNUMERIC('x')", 0),
 ]
@@ -131,6 +134,8 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT QUOTENAME('a', '(')",
     "SELECT STR(1.5, 10, 20)",
     "SELECT STR(1.5, boxes) FROM dbo.orders",
+    "SELECT FORMAT(1e0, 'N2')",
+    "SELECT FORMAT(boxes, '#,##0')  FROM dbo.orders",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -171,13 +176,14 @@ def test_the_refused_list_in_the_docs_names_every_refused_function():
     import pathlib
     import re
 
-    from fabric_desktop.localdata import tsql
+    from fabric_desktop.localdata import tsql, tsql_format
     docs = (pathlib.Path(__file__).resolve().parents[2] / "docs" / "local-data.md").read_text(encoding="utf-8")
     refused = docs.split("**Refused, not half-translated:**", 1)[1].split("\n\n", 1)[0]
     section = docs.split("## T-SQL", 1)[1].split("\n## ", 1)[0]
     source = inspect.getsource(tsql)
     named = set(re.findall(r'_NOT_YET \+ "([A-Z_]{4,})[ \']', source))
-    assert named >= {"ISNUMERIC", "POWER", "DATALENGTH", "STRING_SPLIT", "ROUND"}
+    named |= set(re.findall(r'NOT_YET \+ f?"([A-Z_]{4,})[ \']', inspect.getsource(tsql_format)))
+    assert named >= {"ISNUMERIC", "POWER", "DATALENGTH", "STRING_SPLIT", "ROUND", "FORMAT"}
     for name in named:
         assert f"`{name}" in section, f"{name} is refused in tsql.py but not in docs/local-data.md's T-SQL section"
     for whole in ("ISNUMERIC", "POWER"):  # refused outright, or for a whole kind of argument

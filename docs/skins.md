@@ -15,7 +15,7 @@ a few milliseconds, so a skin switches at once, without reloading, and open work
 
 | Group | Tokens | Used for |
 | --- | --- | --- |
-| Brand and accent | `--accent`, `--accent-dark`, `--accent-soft`, `--accent-soft-2`, `--brand-orange`, `--brand-orange-soft`, `--on-accent` | Primary buttons, selection, the active rail item, text on accent fills |
+| Brand and accent | `--accent`, `--accent-dark`, `--accent-soft`, `--accent-soft-2`, `--brand-orange`, `--brand-orange-soft`, `--rail-active`, `--on-accent` | Primary buttons, selection, the active rail item's stripe (`--rail-active`), text on accent fills |
 | Text | `--text`, `--text-2`, `--muted`, `--muted-2` | Body text, secondary text, hints |
 | Surfaces | `--surface`, `--surface-2`, `--surface-3`, `--surface-3b`, `--canvas`, `--hover`, `--neutral-mark` | Cards, panels, table stripes, the page background, hover |
 | Lines | `--border`, `--border-soft`, `--border-input` | Borders and separators |

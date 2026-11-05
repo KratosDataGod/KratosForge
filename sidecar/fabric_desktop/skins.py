@@ -40,7 +40,7 @@ DENSITIES = ("comfortable", "compact")
 # The tokens on styles.css's :root a skin may set (test_skins.py keeps this list inside that file's).
 TOKENS = (
     "--accent", "--accent-dark", "--accent-soft", "--accent-soft-2", "--brand-orange", "--brand-orange-soft",
-    "--on-accent",
+    "--rail-active", "--on-accent",
     "--text", "--text-2", "--muted", "--muted-2",
     "--surface", "--surface-2", "--surface-3", "--surface-3b", "--canvas", "--hover", "--neutral-mark",
     "--border", "--border-soft", "--border-input",
@@ -240,7 +240,7 @@ KRATOSFORGE: dict[str, Any] = {
     "targets": [{"platform": "kratosforge", "reviewed": "2026-11-03"}],
     "appearance": {"color_mode": "light", "density": "comfortable", "tokens": {"light": {
         "--accent": "#1b3664", "--accent-dark": "#12264a", "--accent-soft": "#e9eef7", "--accent-soft-2": "#e8edf5",
-        "--brand-orange": "#f8991c", "--brand-orange-soft": "#ffb347", "--on-accent": "#fff",
+        "--brand-orange": "#f8991c", "--brand-orange-soft": "#ffb347", "--rail-active": "#f8991c", "--on-accent": "#fff",
         "--text": "#242424", "--text-2": "#424242", "--muted": "#616161", "--muted-2": "#8a8a8a",
         "--surface": "#ffffff", "--surface-2": "#fafafa", "--surface-3": "#f5f5f5", "--surface-3b": "#f7f7f7",
         "--canvas": "#f3f2f1", "--hover": "#f0f0f0", "--neutral-mark": "#8a8886",

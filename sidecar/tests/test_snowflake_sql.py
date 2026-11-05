@@ -508,7 +508,15 @@ def test_typeof_of_a_path_into_json_written_in_the_query_is_exact(code, want):
     assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
 
 
-@pytest.mark.parametrize("code", ["select 1/0", "select 1/0.0", "select a / b from (select 1 as a, 0 as b)",
+def test_typeof_of_json_snowflake_wont_parse_falls_back_instead_of_crashing():
+    for code in ("""select typeof(parse_json('{"a": NaN}'):a)""", """select typeof(parse_json('[Infinity]')[0])""",
+                 """select typeof(parse_json('{"a": 1, "a": 2}'):a)"""):
+        (report,) = sf.translate(code).statements
+        assert report.verdict != "not_translatable" and "SFD-007" in [n.id for n in report.notes]
+
+
+@pytest.mark.parametrize("code", ["select 1/0", "select 1/0.0", "select 1/0e5",
+                                  "select iff(b = 0 and c, 0, a / b) from (select 1 as a, 0 as b, false as c)", "select a / b from (select 1 as a, 0 as b)",
                                   "select 1 / (a - 1) from (select 1 as a)"])
 def test_dividing_by_zero_stops_as_in_snowflake(code):
     with pytest.raises(duckdb.Error, match="Division by zero"):

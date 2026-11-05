@@ -537,7 +537,13 @@ def _json_type_name(value: Any) -> str:
         if len(whole.lstrip("0")) + len(frac) > 38 or len(frac) > 37:
             return "DOUBLE"
         return "DECIMAL" if "." in value else "INTEGER"
-    return {str: "VARCHAR", list: "ARRAY", dict: "OBJECT"}[type(value)]
+    if isinstance(value, str):
+        return "VARCHAR"
+    return "ARRAY" if isinstance(value, list) else "OBJECT"
+
+
+def _not_json(text: str) -> Any:
+    raise ValueError(f"{text} isn't JSON")  # json.loads takes NaN and Infinity; Snowflake's PARSE_JSON doesn't
 
 
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -555,7 +561,7 @@ def _typeof_of_literal_path(value: exp.Expression) -> Any:
         return _NOT_KNOWN
     try:
         doc = json.loads(value.this.this.name, parse_float=_JsonNumber, parse_int=_JsonNumber,
-                         object_pairs_hook=_no_duplicate_keys)
+                         parse_constant=_not_json, object_pairs_hook=_no_duplicate_keys)
     except ValueError:  # silent-ok: Snowflake's own error comes from the query, as without this rule
         return _NOT_KNOWN
     for part in value.expression.expressions:
@@ -639,9 +645,31 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
 def _div0_branch(node: exp.Div) -> bool:
     """True for the division inside DIV0 and DIV0NULL as sqlglot reads them (IF(b = 0 ..., 0, a / b)),
     which never runs with a zero divisor."""
-    parent = node.parent
-    return isinstance(parent, exp.If) and parent.args.get("false") is node and any(
-        eq.this == node.expression or eq.expression == node.expression for eq in parent.this.find_all(exp.EQ))
+    parent, b = node.parent, node.expression
+    if not (isinstance(parent, exp.If) and parent.args.get("false") is node):
+        return False
+    cond = parent.this
+
+    def zero(e: exp.Expression) -> bool:
+        return isinstance(e, exp.EQ) and e.this == b and e.expression == exp.Literal.number(0)
+
+    if zero(cond):
+        return True
+    if isinstance(cond, exp.And):  # DIV0: b = 0 AND NOT a IS NULL
+        return zero(cond.this) and isinstance(cond.expression, exp.Not) and cond.expression.this == exp.Is(
+            this=node.this, expression=exp.Null())
+    if isinstance(cond, exp.Or):  # DIV0NULL: b = 0 OR b IS NULL
+        return zero(cond.this) and cond.expression == exp.Is(this=b, expression=exp.Null())
+    return False
+
+
+def _nonzero_number(e: exp.Expression) -> bool:
+    if not (isinstance(e, exp.Literal) and not e.is_string):
+        return False
+    try:
+        return float(e.name) != 0
+    except ValueError:  # silent-ok: not a plain number, so the divisor gets the check
+        return False
 
 
 def _rewrite_division(statement: exp.Expression) -> None:
@@ -649,8 +677,7 @@ def _rewrite_division(statement: exp.Expression) -> None:
     infinity or NULL. A divisor written as a non-zero number is left as it is."""
     for node in list(statement.find_all(exp.Div)):
         divisor = node.expression
-        if _div0_branch(node) or (isinstance(divisor, exp.Literal) and not divisor.is_string
-                                  and divisor.name.replace(".", "").strip("0") != ""):
+        if _div0_branch(node) or _nonzero_number(divisor):
             continue
         check = exp.Case(ifs=[exp.If(this=exp.EQ(this=divisor.copy(), expression=exp.Literal.number(0)),
                                      true=exp.Anonymous(this="ERROR",

@@ -1,0 +1,271 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.3.4",
+  "questions": [
+    {
+      "id": "2.3.4-q1",
+      "type": "single",
+      "stem": "Each record ingested into a raw KQL table must be parsed and written to a clean table automatically, as it arrives. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline that runs every hour"
+        },
+        {
+          "id": "b",
+          "text": "An update policy on the clean table"
+        },
+        {
+          "id": "c",
+          "text": "A materialized view"
+        },
+        {
+          "id": "d",
+          "text": "A Power BI dataflow"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "An update policy runs a query over newly ingested data in the source table and writes the result to the target table as part of ingestion.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q2",
+      "type": "single",
+      "stem": "Dashboards repeatedly query the latest reading per device from a fast-growing table. What keeps that result precomputed and current?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A materialized view using arg_max by device"
+        },
+        {
+          "id": "b",
+          "text": "A function that runs a full scan on every call"
+        },
+        {
+          "id": "c",
+          "text": "Exporting the table to CSV each hour"
+        },
+        {
+          "id": "d",
+          "text": "A shortcut to the table"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A materialized view keeps an aggregation such as arg_max up to date as data arrives, so queries read the precomputed result.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q3",
+      "type": "single",
+      "stem": "A KQL table has a Payload column holding JSON text. How do you get its temperature value as a number?",
+      "options": [
+        {
+          "id": "a",
+          "text": "project Payload.temperature AS FLOAT"
+        },
+        {
+          "id": "b",
+          "text": "summarize Temperature = Payload"
+        },
+        {
+          "id": "c",
+          "text": "extend d = parse_json(Payload) | extend Temperature = toreal(d.temperature)"
+        },
+        {
+          "id": "d",
+          "text": "where Payload contains temperature"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "parse_json turns JSON text into a dynamic value whose properties can be read, and toreal converts the property to a number.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/parse-json-function",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q4",
+      "type": "single",
+      "stem": "Readings land in a KQL table with a TempC column. A dashboard needs the same rows with an extra TempF column in Fahrenheit. Which query?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Readings | project TempF = TempC * 9.0 / 5.0 + 32"
+        },
+        {
+          "id": "b",
+          "text": "Readings | extend TempF = TempC * 9.0 / 5.0 + 32"
+        },
+        {
+          "id": "c",
+          "text": "Readings | summarize TempF = avg(TempC) * 9.0 / 5.0 + 32"
+        },
+        {
+          "id": "d",
+          "text": "Readings | where TempF = TempC * 9.0 / 5.0 + 32"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "extend adds a calculated column and keeps every existing column and row. project would keep only TempF, summarize collapses the rows, and where filters rather than adds a column.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/extend-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q5",
+      "type": "order",
+      "stem": "Put the parts of a KQL query that finds the three devices with the most alarms in the last hour in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "| where Timestamp > ago(1h)"
+        },
+        {
+          "id": "b",
+          "text": "| where Kind == \"alarm\""
+        },
+        {
+          "id": "c",
+          "text": "| summarize Alarms = count() by DeviceId"
+        },
+        {
+          "id": "d",
+          "text": "| top 3 by Alarms"
+        },
+        {
+          "id": "e",
+          "text": "DeviceEvents"
+        }
+      ],
+      "answer": [
+        "e",
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "explanation": "Start from the table and filter early so less data reaches the aggregation, then count per device, then keep the top three. The two filters can run in either order with the same result, so both orders are accepted.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/top-operator",
+      "also_accept": [
+        [
+          "e",
+          "b",
+          "a",
+          "c",
+          "d"
+        ]
+      ],
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q6",
+      "type": "single",
+      "stem": "A chart of readings per minute shows gaps where a device sent nothing, and the business wants zeros there. What should the query use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "summarize count() by bin(Timestamp, 1m)"
+        },
+        {
+          "id": "b",
+          "text": "extend Minute = bin(Timestamp, 1m)"
+        },
+        {
+          "id": "c",
+          "text": "make-series count() default=0 on Timestamp step 1m by DeviceId"
+        },
+        {
+          "id": "d",
+          "text": "render timechart"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "make-series produces a value for every step in the range and fills missing steps with the default. summarize returns only the bins that have rows.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/make-series-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q7",
+      "type": "single",
+      "stem": "A gateway resends some events with the same EventId. Every dashboard must count each event once. What is the most maintainable fix in the eventhouse?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add distinct * to every dashboard query"
+        },
+        {
+          "id": "b",
+          "text": "A materialized view that keeps one row per EventId, such as take_any(*) by EventId"
+        },
+        {
+          "id": "c",
+          "text": "Increase the table's retention"
+        },
+        {
+          "id": "d",
+          "text": "Delete duplicates with a scheduled .purge command"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A deduplicating materialized view is computed once and kept current, so every query can read it. Repeating distinct in each query repeats the work, and purge is a costly removal meant for compliance.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q8",
+      "type": "single",
+      "stem": "A dashboard shows device temperatures, but from 12:00 half the devices show nothing: TempC is empty for them and a new column TempDc (tenths of a degree) appeared. What is the smallest correct fix to the query?",
+      "options": [
+        {
+          "id": "a",
+          "text": "| project-away TempDc"
+        },
+        {
+          "id": "b",
+          "text": "| where isnotnull(TempC)"
+        },
+        {
+          "id": "c",
+          "text": "| extend Temp = coalesce(TempC, todouble(TempDc) / 10.0)"
+        },
+        {
+          "id": "d",
+          "text": "| extend Temp = TempDc"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "coalesce takes the first non-empty value, and the new column is converted back to degrees. Filtering hides the devices, and using TempDc as-is shows ten times the temperature.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/coalesce-function",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -58,7 +58,9 @@ test("Optimize sits in the rail where Fabric was, and Fabric's portal is a Works
   assert.ok(!rail.includes("Fabric"), rail.join(", "));
   assert.ok(rail.length <= 8);
   await page().evaluate(() => go("workspaces"));
-  assert.deepStrictEqual(await page().locator(".subtabs .tab").allTextContents(), ["Your workspaces", "Fabric portal"]);
+  // Databricks (Preview, dbx-sync.js) is a third tab while Preview features show.
+  assert.deepStrictEqual((await page().locator(".subtabs .tab").allTextContents()).map((t) => t.replace("Preview", "")),
+    ["Your workspaces", "Fabric portal", "Databricks"]);
 });
 
 test("before a lakehouse is connected, setup doesn't block Cost and savings", { skip }, async () => {
@@ -109,6 +111,30 @@ test("a read-only lakehouse shows results but offers no changes", { skip }, asyn
   await page().waitForSelector(".optimize-body table.list");
   assert.match(await page().locator(".optimize-band").textContent(), /Read only/);
   assert.strictEqual(await page().locator(".optimize-body button", { hasText: /Accept|Dismiss|Mark applied/ }).count(), 0);
+});
+
+test("the sync line says what waits on this PC, what was dropped, or that everything was sent (PR-OPT-006)", { skip }, async () => {
+  const line = async (outbox) => {
+    status = { ...status, active: { ...CONN, access: "write" }, connections: [CONN], outbox };
+    await page().evaluate(() => { optimizePage.tab = "overview"; go("optimize"); });
+    await page().waitForSelector(".optimize-band b");
+    return page().$eval(".optimize-sync", (el) => (el.hidden ? null : el.textContent));
+  };
+  const empty = { pending: 0, pending_rows: 0, oldest: null, last_sync: null, last_error: null, last_error_at: null, dropped: 0 };
+  assert.strictEqual(await line(empty), null, "nothing ever sent and nothing waiting: no line");
+  assert.match(await line({ ...empty, last_sync: "2026-11-03T01:42:00+00:00" }), /Everything from this PC is in the lakehouse · last sent/);
+  const waiting = await line({ ...empty, pending: 2, pending_rows: 148, oldest: "2026-11-03T01:10:00+00:00",
+    last_error: "ConnectionError: network down" });
+  assert.match(waiting, /Waiting on this PC 2 results \(148 rows\) couldn't reach the lakehouse: ConnectionError: network down\. They go with the next scan, or when you connect again\./);
+  await shot("optimize-sync-waiting");
+  await page().locator(".optimize-sync a", { hasText: "Details" }).click();
+  const dialog = await page().locator(".dialog").textContent();
+  assert.match(dialog, /2 results, 148 rows, oldest/);
+  assert.match(dialog, /Nothing sends in the background/);
+  await page().evaluate(() => closeDialog());
+  assert.match(await line({ ...empty, dropped: 3 }), /3 dropped Older than 30 days or over the 200-item limit/);
+  status = { ...status, outbox: undefined };
+  assert.ok(!app.calls.some((c) => /^optimize_(sync|flush)/.test(c.method)), "the line never sends");
 });
 
 test("Settings lists the lakehouse on one line, and Disconnect asks first", { skip }, async () => {

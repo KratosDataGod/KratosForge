@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -422,6 +422,34 @@ fn python() -> Result<String, String> {
     choose_python(env_override.as_deref(), engine_python(), cfg!(debug_assertions))
 }
 
+/// `--run-schedule <id>`, how Task Scheduler starts a schedule that also runs while you're signed
+/// out of Windows (PB-048). That task keeps the password Windows asked for, and changing it would
+/// ask again, so it runs this exe, whose path an update doesn't change, rather than an engine
+/// folder, which it does. The id is a schedule id (hex) and nothing else.
+fn run_schedule_arg(args: &[String]) -> Option<&str> {
+    match args {
+        [_, flag, id] if flag == "--run-schedule" && (1..=32).contains(&id.len())
+            && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) => Some(id.as_str()),
+        _ => None,
+    }
+}
+
+/// Runs the current engine's `run-schedule`, windowless, in the task's working folder, and returns
+/// its exit code for Task Scheduler's "last result". No window and no single-instance claim: an
+/// open copy of the app isn't involved.
+fn run_schedule(id: &str) -> i32 {
+    let Ok(python) = python() else { return 2 };
+    let pythonw = PathBuf::from(&python).with_file_name("pythonw.exe");
+    let mut cmd = Command::new(if pythonw.exists() { pythonw.into_os_string() } else { python.into() });
+    cmd.args(["-m", "fabric_desktop.cli", "run-schedule", id])
+        .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_window(&mut cmd);
+    cmd.status().ok().and_then(|s| s.code()).unwrap_or(1)
+}
+
 fn hide_window(cmd: &mut Command) {
     #[cfg(windows)]
     {
@@ -554,16 +582,69 @@ fn read_replies(stdout: ChildStdout, pending: Arc<Mutex<replies::Pending<String>
     }
 }
 
+/// Opens a fresh engine log, first keeping the last run's as `sidecar.prev.log`, so
+/// the log of an engine that crashed survives the restart that follows. If the old log
+/// can't be moved (an engine from the last run still holds it, say), it is appended to
+/// rather than emptied: nothing it holds is lost either way. The log is opened to append,
+/// so every write lands at its end even after [`trim_sidecar_log`] has shortened it.
+fn open_sidecar_log(log: &Path) -> std::io::Result<std::fs::File> {
+    let _ = std::fs::rename(log, log.with_file_name("sidecar.prev.log"));
+    std::fs::OpenOptions::new().append(true).create(true).open(log)
+}
+
+/// The engine's log may grow to this while it runs; past it, only its newest half is kept.
+const SIDECAR_LOG_CAP: u64 = 20 * 1024 * 1024;
+const SIDECAR_LOG_TRIMMED: &str = "(earlier lines of this log were dropped to keep it under 20 MB)\n";
+
+/// Cuts a log past `cap` down to its newest `cap / 2` bytes, from a line start, under a note
+/// that lines were dropped: the end is what explains a crash. Returns whether it cut.
+fn trim_sidecar_log(log: &Path, cap: u64) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(log)?;
+    let len = file.metadata()?.len();
+    if len <= cap {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::Start(len - cap / 2))?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail)?;
+    let start = tail.iter().position(|&b| b == b'\n').map_or(tail.len(), |i| i + 1);
+    let mut kept = SIDECAR_LOG_TRIMMED.as_bytes().to_vec();
+    kept.extend_from_slice(&tail[start..]);
+    file.set_len(0)?;
+    // Written in one append, like the engine's own writes, so a line the engine writes just after
+    // the cut lands before or after it, never under it.
+    std::fs::OpenOptions::new().append(true).open(log)?.write_all(&kept)?;
+    Ok(true)
+}
+
+/// Every half minute while the engine runs, keeps its log under [`SIDECAR_LOG_CAP`].
+fn watch_sidecar_log(log: PathBuf, child: std::sync::Weak<Mutex<Child>>) {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        let Some(child) = child.upgrade() else { return };
+        let running = child.lock().map(|mut c| matches!(c.try_wait(), Ok(None))).unwrap_or(false);
+        if !running {
+            return;
+        }
+        if let Err(e) = trim_sidecar_log(&log, SIDECAR_LOG_CAP) {
+            eprintln!("could not shorten the engine's log: {e}");
+        }
+    }
+}
+
 impl Sidecar {
     fn start() -> std::io::Result<Self> {
         // A windowed exe has no stderr to hand down, and Python started without one
         // exits at once. Send it to a log file instead, so crashes can be explained.
         let log = data_dir().join("sidecar.log");
-        let stderr = std::fs::File::create(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+        let stderr = open_sidecar_log(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
         let python = python().map_err(std::io::Error::other)?;
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // So a schedule that also runs while signed out can run this exe (run_schedule_arg).
+            .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
             .current_dir(data_dir())
@@ -577,7 +658,10 @@ impl Sidecar {
         let pending = Arc::new(Mutex::new(replies::Pending::default()));
         let reader = pending.clone();
         std::thread::Builder::new().name("engine-replies".into()).spawn(move || read_replies(stdout, reader))?;
-        Ok(Self { child: Arc::new(Mutex::new(child)), stdin, pending, next_id: AtomicU64::new(1), log })
+        let child = Arc::new(Mutex::new(child));
+        let (watched, weak) = (log.clone(), Arc::downgrade(&child));
+        std::thread::Builder::new().name("engine-log".into()).spawn(move || watch_sidecar_log(watched, weak))?;
+        Ok(Self { child, stdin, pending, next_id: AtomicU64::new(1), log })
     }
 
     fn forget(&self, id: u64) {
@@ -1969,6 +2053,7 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
     let builder = tauri::WebviewWindowBuilder::new(&app, &label, url)
         .title(format!("KratosForge · {title}"))
         .min_inner_size(360.0, 260.0)
+        .zoom_hotkeys_enabled(true)  // Ctrl+= / Ctrl+- / Ctrl+0, as in the main window (tauri.conf.json)
         .always_on_top(on_top.unwrap_or(false))
         .on_navigation(app_page);
     let screens: Vec<_> = app.available_monitors().unwrap_or_default().iter()
@@ -2072,6 +2157,9 @@ fn open_with_handler(link: &str, what: &str) -> Result<(), String> {
 /// knows, so a page can't open anything else.
 #[tauri::command]
 fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
+    if !vscode_link::may_look_at(&path) {
+        return Err(format!("Not a notebook or folder on this PC: {path}"));
+    }
     let p = PathBuf::from(&path);
     let notebook = p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
     if !(notebook || p.is_dir()) || !p.is_absolute() {
@@ -2275,6 +2363,9 @@ fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std
 }
 
 fn main() {
+    if let Some(id) = run_schedule_arg(&std::env::args().collect::<Vec<_>>()) {
+        std::process::exit(run_schedule(id));
+    }
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
     // An organization that turned links off (register_link_scheme: false) gets none: no listener on
@@ -2331,6 +2422,17 @@ mod python_choice_tests {
 
     fn absolute() -> &'static str {
         if cfg!(windows) { r"C:\Python312\python.exe" } else { "/usr/bin/python3" }
+    }
+
+    #[test]
+    fn run_schedule_takes_only_a_schedule_id() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(run_schedule_arg(&args(&["kf.exe", "--run-schedule", "0a1b2c3d4e5f"])), Some("0a1b2c3d4e5f"));
+        for bad in [&["kf.exe", "--run-schedule"][..], &["kf.exe", "--run-schedule", ""], &["kf.exe", "--run-schedule", "../x"],
+                    &["kf.exe", "--run-schedule", "ABC"], &["kf.exe", "--run-schedule", "a b"], &["kf.exe", "--run-schedule", "ab", "more"],
+                    &["kf.exe", "kratosforge://open"], &["kf.exe", "--run-schedule", &"a".repeat(33)]] {
+            assert_eq!(run_schedule_arg(&args(bad)), None, "{bad:?}");
+        }
     }
 
     #[test]
@@ -2711,5 +2813,56 @@ mod embed_host_tests {
         assert!(frames.split_whitespace().any(|s| s == "http://pbiembed.localhost"));
         assert!(!frames.contains("powerbi.com"), "{frames}");
         assert!(!frames.contains("https://*") && !frames.split_whitespace().any(|s| s == "https:" || s == "*"));
+    }
+}
+
+#[cfg(test)]
+mod sidecar_log_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn a_restart_keeps_the_last_runs_log() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let prev = dir.join("sidecar.prev.log");
+
+        writeln!(open_sidecar_log(&log).unwrap(), "first run crashed").unwrap();
+        assert!(!prev.exists());
+        writeln!(open_sidecar_log(&log).unwrap(), "second run").unwrap();
+        assert_eq!(std::fs::read_to_string(&prev).unwrap(), "first run crashed\n");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "second run\n");
+
+        // A third start replaces the older copy with the second run's log.
+        open_sidecar_log(&log).unwrap();
+        assert_eq!(std::fs::read_to_string(&prev).unwrap(), "second run\n");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_past_its_cap_keeps_its_newest_lines_and_the_engine_keeps_writing_at_its_end() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let mut engine = open_sidecar_log(&log).unwrap(); // the handle the engine writes through
+        for i in 0..100 {
+            writeln!(engine, "line {i:03}").unwrap(); // 9 bytes a line
+        }
+        assert!(!trim_sidecar_log(&log, 2000).unwrap()); // 900 bytes: under the cap, left alone
+        assert!(trim_sidecar_log(&log, 400).unwrap());
+        writeln!(engine, "after the trim").unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.starts_with(SIDECAR_LOG_TRIMMED), "{text}");
+        let lines: Vec<&str> = text.lines().skip(1).collect();
+        assert_eq!(lines.last(), Some(&"after the trim"));
+        assert_eq!(lines[lines.len() - 2], "line 099");
+        assert!(lines[..lines.len() - 1].iter().all(|l| l.len() == 8 && l.starts_with("line ")), "{text}");
+        assert!(text.len() <= SIDECAR_LOG_TRIMMED.len() + 200 + 15);
+        assert!(!text.contains('\0'));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -33,6 +33,7 @@ import tempfile
 import threading
 import time
 import traceback
+import weakref
 import types
 import uuid
 import warnings
@@ -42,7 +43,7 @@ from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
-from . import chart_output, notebook_cells
+from . import chart_output, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -185,7 +186,7 @@ def display(value: Any) -> dict[str, Any]:
         shown = table.slice(0, PREVIEW_ROWS)
         # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
         columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
-        rows = [list(row) for row in zip(*columns)] if columns else \
+        rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
             [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
         return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
@@ -625,6 +626,7 @@ class Kernel:
         self._widget_lock = threading.Lock()
         self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
+        self._duckdb_connections: weakref.WeakSet[Any] = weakref.WeakSet()  # opened by this kernel's cells (EA-016)
         self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
@@ -961,7 +963,9 @@ class Kernel:
         return run.snapshot(known_version)
 
     def interrupt(self) -> dict[str, Any]:
-        """Stop the running cell, keeping the namespace. Native code (a DuckDB query) is asked to stop too."""
+        """Stop the running cell, keeping the namespace. Native code is asked to stop too: a query on
+        ``spark``, on DuckDB's default connection, or on a connection the notebook's cells opened with
+        duckdb.connect (EA-016). Other native code (a Polars query) finishes before the cell stops."""
         run = self._current
         if run is None or run.done.is_set() or run.thread is None or run.guest != getattr(self._local, "guest", None):
             return {"interrupted": False}
@@ -971,7 +975,7 @@ class Kernel:
             return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
-            spark_local.interrupt()
+            spark_local.interrupt(self._duckdb_connections)
         # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
         # thread's start-up, or before the handlers) would end the thread without finishing the run.
         # Such a cell stops itself as soon as it gets there.
@@ -1007,6 +1011,9 @@ class Kernel:
         out, err = _routers()
         ident = threading.get_ident()
         out.targets[ident] = err.targets[ident] = run
+        with contextlib.suppress(Exception):
+            from . import spark_local
+            spark_local.watch_connections(ident, self._duckdb_connections)
         self._local.run = run
         self._local.guest = run.guest  # this thread is the cell's: its namespace is its notebook's
         status = "error"
@@ -1057,6 +1064,9 @@ class Kernel:
             write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
+            with contextlib.suppress(Exception):
+                from . import spark_local
+                spark_local.watch_connections(ident, None)
             self._local.run = None
             if restart and run.guest:
                 self._guests.pop(run.guest, None)  # a guest restarts only its own variables
@@ -1086,6 +1096,8 @@ class Kernel:
         except KeyboardInterrupt:
             failed = writes.flush(cancel=True)
             cancelled = True
+        for warning in getattr(writes, "warnings", []):
+            run.add({"type": "text", "text": f"Warning: {warning}\n"})
         if not failed:
             return "cancelled" if cancelled else status
         if not cancelled:
@@ -2475,7 +2487,7 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
              compute: str = "default", workspace: dict[str, Any] | None = None) -> dict[str, Any]:
     nb_cells = []
     ids = assign_cell_ids([dict(c) for c in cells], _derived_id)
-    for c, cid in zip(cells, ids):
+    for c, cid in zip(cells, ids, strict=True):
         cell = {"cell_type": "markdown" if c.get("type") == "markdown" else "code", "id": cid,
                 "metadata": _cell_metadata(c.get("meta") or {}), "source": c.get("source", "").splitlines(keepends=True)}
         if cell["cell_type"] == "code":
@@ -2538,19 +2550,15 @@ def _write_atomic(path: Path, text: str) -> None:
 
     Saves of one notebook take turns: Windows refuses a second os.replace onto a file
     another replace is still finishing, and briefly while a reader (or a virus scanner)
-    has it open, so a refused replace is tried a few more times before giving up."""
+    has it open, so a refused replace is waited out by the shared jsonfile.replace."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook
         with _path_write_lock(path):
-            for attempt in range(6):
-                try:
-                    os.replace(tmp, path)
-                    break
-                except PermissionError:
-                    if attempt == 5:
-                        raise
-                    time.sleep(0.05 * (attempt + 1))
+            jsonfile.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 

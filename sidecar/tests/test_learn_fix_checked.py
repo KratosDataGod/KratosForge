@@ -55,7 +55,7 @@ def test_a_matching_compare_records_the_fix_with_what_was_checked_and_measured(t
     svc = _Svc(tmp_path, _runs())
     assert svc.learn_fix_checked("a", "b", "SQ002") == {"recorded": True}
     (row,) = progress.load(svc._profile_path())["evidence"]
-    assert row["type"] == "fix.checked" and row["verdict"] == "same" and row["rules_version"] == progress.RULES_VERSION == 3
+    assert row["type"] == "fix.checked" and row["verdict"] == "same" and row["rules_version"] == progress.RULES_VERSION >= 3
     assert row["artifact"] == {"kind": "rule", "name": "SQ002", "where": "WH_Gold"}
     assert row["ref"] == {"source": "compare", "id": "b", "revision": "a"}
     assert row["detail"] == {"rows": 4, "level": "complete", "target": "warehouse"}

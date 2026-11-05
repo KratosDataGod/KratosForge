@@ -293,7 +293,7 @@ def test_interactive_refuses_what_cant_be_a_control_and_shows_a_failing_function
     with pytest.raises(ValueError, match="can't be turned into a control for x"):
         w.interactive(lambda x: x, None, x=object())
 
-    def f(x=3, y=w.fixed(1)):
+    def f(x=3, y=w.fixed(1)):  # noqa: B008 (fixed() as a default is how ipywidgets is used)
         raise RuntimeError(f"bad {x}")
 
     box = w.interactive(f, None)

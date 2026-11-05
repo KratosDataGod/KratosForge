@@ -176,7 +176,7 @@ def _merge(tree: exp.Merge) -> Change:
             values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
             if not columns or len(columns) != len(values):
                 raise ValueError("INSERT (columns) VALUES (values) needs as many values as columns.")
-            whens.append(When(match, "insert", condition, [(c.name, v) for c, v in zip(columns, values)]))
+            whens.append(When(match, "insert", condition, [(c.name, v) for c, v in zip(columns, values, strict=True)]))
         else:
             raise ValueError(f"WHEN ... THEN {then.sql() if then else ''} isn't supported in MERGE.")
     if not whens:

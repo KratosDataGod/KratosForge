@@ -1,0 +1,136 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.4.2",
+  "questions": [
+    {
+      "id": "1.4.2-q1",
+      "type": "single",
+      "stem": "A pipeline must start whenever a new file lands in a storage folder. What do you set up?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A deployment rule"
+        },
+        {
+          "id": "b",
+          "text": "A schedule every minute"
+        },
+        {
+          "id": "c",
+          "text": "A storage event trigger for the pipeline"
+        },
+        {
+          "id": "d",
+          "text": "A Git webhook"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Event-based triggers start a pipeline when events such as a file being created occur, so it runs as soon as the file arrives instead of polling.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.2-q2",
+      "type": "single",
+      "stem": "The event trigger from the previous design must fire only for .csv files in one folder. What do you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nothing; triggers can't filter"
+        },
+        {
+          "id": "b",
+          "text": "An event filter on the Subject field that matches the folder name and the .csv file type"
+        },
+        {
+          "id": "c",
+          "text": "A ForEach activity that ignores other files"
+        },
+        {
+          "id": "d",
+          "text": "A second pipeline to delete other files"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Event triggers can filter events by folder name, file name, file type and container through the Subject field, so only matching files start the pipeline.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.2-q3",
+      "type": "single",
+      "stem": "Where do you set a pipeline to run every day at 02:00?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the Git panel"
+        },
+        {
+          "id": "b",
+          "text": "In the pipeline's schedule settings"
+        },
+        {
+          "id": "c",
+          "text": "In the lakehouse settings"
+        },
+        {
+          "id": "d",
+          "text": "In the capacity settings"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each pipeline has a schedule with a frequency, start time and time zone.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.2-q4",
+      "type": "multiple",
+      "stem": "Which three can start a pipeline run? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Opening the lakehouse it writes to"
+        },
+        {
+          "id": "b",
+          "text": "Running it on demand"
+        },
+        {
+          "id": "c",
+          "text": "Adding a sensitivity label"
+        },
+        {
+          "id": "d",
+          "text": "A schedule"
+        },
+        {
+          "id": "e",
+          "text": "An event trigger, such as a file arriving in storage"
+        }
+      ],
+      "answer": [
+        "b",
+        "d",
+        "e"
+      ],
+      "explanation": "A pipeline runs on demand, on a schedule, or when an event trigger fires. Labels and opening items don't start runs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

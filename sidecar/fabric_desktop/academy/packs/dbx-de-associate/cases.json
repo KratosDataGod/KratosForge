@@ -1,0 +1,10 @@
+{
+  "fernhill-health": {
+    "title": "Fernhill Clinics: running and securing a nightly pipeline",
+    "text": "Fernhill Clinics runs a Lakeflow job each night that ingests appointment files, builds silver tables and refreshes a gold summary. Files land in a Unity Catalog volume at uneven times. The job code lives in a Git repository and is deployed to dev and prod workspaces. Patient tables hold names and phone numbers that only the care team may see, and each regional analyst may only see rows for their own region."
+  },
+  "quarry-retail": {
+    "title": "Quarry Lane Goods: moving reporting to a Databricks lakehouse",
+    "text": "Quarry Lane Goods lands daily CSV and JSON order files from its stores in a cloud storage bucket, and a Salesforce instance holds its customers. The data team builds bronze, silver and gold tables in Unity Catalog. New store files arrive every few minutes during the day, some JSON files gain new fields without warning, and analysts query the gold tables from a SQL warehouse for dashboards."
+  }
+}

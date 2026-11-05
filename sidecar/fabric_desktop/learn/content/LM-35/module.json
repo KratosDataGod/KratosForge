@@ -1,0 +1,76 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-35",
+  "kind": "module",
+  "title": "Monitoring and incidents",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 15,
+  "objectives": [
+    "Alert on what users notice: failed and stale data",
+    "Find each job's latest run and last success",
+    "Respond to an incident in a set order"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "alerts",
+      "prompt": "It's 12:00 on 2 November 2026. Alert on each job whose latest run failed ('failed') or whose last success is more than 24 hours old ('stale'). Return job and reason, in job order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter lists jobs that ever failed. load_stock failed last; build_gold never failed but hasn't succeeded since yesterday morning.",
+        "Find each job's latest run with row_number() OVER (PARTITION BY job ORDER BY started_at DESC), and its last success with max(started_at) WHERE status = 'succeeded'.",
+        "Latest failed is 'failed'; otherwise a last success before 2026-11-01 12:00 is 'stale'."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "job",
+          "reason"
+        ],
+        "rows": [
+          [
+            "build_gold",
+            "stale"
+          ],
+          [
+            "load_stock",
+            "failed"
+          ],
+          [
+            "refresh_model",
+            "failed"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/admin/monitoring-hub"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

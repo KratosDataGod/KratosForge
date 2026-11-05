@@ -1,0 +1,74 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-06",
+  "kind": "lab",
+  "title": "Bronze to Silver that survives a rerun",
+  "path": "python-data-engineering",
+  "level": "intermediate",
+  "minutes": 30,
+  "objectives": [
+    "Type raw text columns and drop rows that can't be read",
+    "Keep the newest version of each order",
+    "Build the table so running it again gives the same table"
+  ],
+  "prerequisites": [
+    "LM-02",
+    "LM-21"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Python (DuckDB or Polars)",
+    "Fabric notebooks",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "build-silver",
+      "prompt": "Build silver_orders from bronze_orders: order_id INTEGER, order_date DATE and amount DECIMAL(12, 2), one row per order (the most recently ingested), without rows whose order_date isn't a date. It must give the same table if run twice. End with SELECT order_id, order_date, amount FROM silver_orders ORDER BY order_id.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter copies Bronze as it is: text columns, a bad date, and orders 2 and 4 twice.",
+        "TRY_CAST(order_date AS DATE) IS NOT NULL drops the bad row. row_number() OVER (PARTITION BY order_id ORDER BY ingested_at DESC) = 1 keeps the newest version.",
+        "CREATE OR REPLACE TABLE silver_orders AS SELECT ... rebuilds the table from Bronze each time, so a rerun can't double anything."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "table_shape",
+          "table": "silver_orders",
+          "columns": {
+            "order_id": "INTEGER",
+            "order_date": "DATE",
+            "amount": "DECIMAL"
+          },
+          "unique": [
+            "order_id"
+          ],
+          "not_null": [
+            "order_id",
+            "order_date",
+            "amount"
+          ]
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/onelake/onelake-medallion-lakehouse-architecture"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

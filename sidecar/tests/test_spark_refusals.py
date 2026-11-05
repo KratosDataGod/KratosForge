@@ -50,6 +50,7 @@ BLOCKED = {
                    "DeltaTable.vacuum"),
     "withSchemaEvolution": ("t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
                             "withSchemaEvolution"),
+    "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
 }
 
 
@@ -74,6 +75,8 @@ def test_code_this_pcs_spark_refuses_is_blocked_on_this_pc(site):
     "df = spark.read.load('Files/x.parquet')",
     "df = spark.read.format('delta').load('Tables/dbo/t')",
     "df = spark.read.schema(my_schema).csv('Files/x.csv')",
+    "df = spark.read.csv('Files/x.csv', header=True, inferSchema=True, nullValue='NA', multiLine=True)",
+    "df = spark.read.schema(my_schema).option('mode', 'DROPMALFORMED').csv('Files/x.csv')",
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')",
     "spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')",  # no MERGE in the notebook
     "from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Tables/dbo/t')\nt.toDF().show()",
@@ -144,3 +147,11 @@ def test_a_refused_option_on_a_writer_held_in_a_variable_is_blocked():
                    "w = df.write.mode('overwrite')\nw = w.option('partitionOverwriteMode', 'dynamic')\nw.saveAsTable('dbo.t')"):
         local = check(source)["local"]
         assert local["status"] == "blocked" and "write option" in local["reasons"][0]["text"], source
+
+
+def test_a_path_option_is_blocked_on_a_table_write_and_fine_on_save():
+    local = check("df.write.option('path', 'Files/out').saveAsTable('dbo.t')")["local"]
+    assert local["status"] == "blocked" and "external table" in local["reasons"][0]["text"]
+    for source in ("df.write.format('parquet').option('path', 'C:/out/x.parquet').save()",
+                   "df = spark.read.format('parquet').option('path', 'Files/x.parquet').load()"):
+        assert check(source)["local"]["status"] != "blocked", source

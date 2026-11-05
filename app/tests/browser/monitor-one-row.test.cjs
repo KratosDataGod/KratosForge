@@ -73,7 +73,8 @@ test("Monitor's tabs are by source and stay with Preview features hidden; each t
   await page().locator(".monitor-pages").waitFor();
   const tabs = () => page().locator(".monitor-tabs .tab").allTextContents();
   const pages = () => page().locator(".monitor-view-row .monitor-pages button").allTextContents();
-  assert.deepStrictEqual(await tabs(), ["KratosForge", "Fabric"]);
+  // Databricks (Preview, dbx-monitor.js) is a third source while Preview features show.
+  assert.deepStrictEqual((await tabs()).map((t) => t.replace("Preview", "")), ["KratosForge", "Fabric", "Databricks"]);
   assert.deepStrictEqual((await pages()).map((t) => t.replace("Preview", "")), ["Runs", "Schedules", "Operations"]);
   await page().locator(".monitor-tabs .tab", { hasText: "Fabric" }).click();
   await page().waitForFunction(() => monitorPage.panel === "fabric");

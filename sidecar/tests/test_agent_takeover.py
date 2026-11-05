@@ -278,3 +278,24 @@ def test_a_paused_copy_carries_on_when_its_agent_gets_the_request_back(tmp_path,
     s = status(project, "r1")
     assert s["agent"] == "etl-01" and s["job_id"] == job["id"] and s["state"] == "running"
     assert a.mailbox.taken_over(job) == ""
+
+
+@pytest.mark.parametrize("pc_clock_off, written_ago, taken_over", [
+    (+600, 30, False),   # this PC's clock runs 10 minutes fast: an agent OneLake heard from 30 s ago is live
+    (-600, 600, True),   # this PC's clock runs 10 minutes slow: an agent silent for 10 minutes is lost
+])
+def test_in_onelake_an_agent_is_judged_lost_on_onelakes_clock(tmp_path, project, monkeypatch, pc_clock_off,
+                                                               written_ago, taken_over):
+    from fabric_desktop.leases import Stored
+    b = make(tmp_path, project, "etl-02")
+    t = 1_800_000_000.0  # OneLake's clock when it answers; the lost agent's clock agreed with it
+    body = json.dumps({"kind": "agent_status", "agent": "etl-01", "heartbeat_at": iso(t - written_ago),
+                       "stale_after": iso(t - written_ago + 180)}).encode()
+
+    class OneLakeLike:
+        def read(self, key):
+            return Stored(body, "e1", t - written_ago, store_now=t)
+
+    monkeypatch.setattr(b.mailbox, "control", lambda env: OneLakeLike())
+    monkeypatch.setattr(b, "clock", lambda: t + pc_clock_off)
+    assert b.mailbox._past_stale("dev", "etl-01") is taken_over

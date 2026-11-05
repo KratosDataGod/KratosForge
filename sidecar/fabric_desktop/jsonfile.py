@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -25,19 +26,37 @@ _log = logging.getLogger(__name__)
 # (auth.SharedTokenCache) use the same.
 REPLACE_ATTEMPTS = 6
 REPLACE_BACKOFF = 0.05
+# Set-aside copies kept per file: the newest ones, so a file damaged again and again can't fill the disk.
+KEEP_SET_ASIDE = 5
 
 
 def write_json(path: Path, data: Any, indent: int = 2) -> None:
     write_text(path, json.dumps(data, indent=indent))
 
 
-def write_text(path: Path, text: str) -> None:
-    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it."""
+def write_text(path: Path, text: str, newline: str | None = None) -> None:
+    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it.
+    ``newline`` is open()'s: None writes this OS's line endings, "\n" keeps them as LF."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def write_bytes(path: Path, data: bytes) -> None:
+    """``write_text`` for bytes (a profile picture): the old file or the new one, never half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
             f.flush()
             os.fsync(f.fileno())
         replace(tmp, path)
@@ -71,7 +90,22 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
     else:
         os.replace(path, dest)
     _log.warning("%s could not be read and was %s to %s; %s.", path, "copied" if keep else "moved", dest.name, then)
+    _prune_set_aside(path, dest)
     return dest
+
+
+def _prune_set_aside(path: Path, dest: Path) -> None:
+    """Remove all but the KEEP_SET_ASIDE newest ``<name>.corrupt-<timestamp>`` copies of ``path``, each
+    with its -wal and -shm. ``dest``, the copy just made, is always kept, even if the clock stepped back
+    and its stamp sorts first; a copy renamed by hand doesn't match the pattern and is never removed."""
+    own = re.compile(re.escape(path.name) + r"\.corrupt-\d{8}T\d{12}Z")
+    copies = sorted(p for p in path.parent.glob(f"{path.name}.corrupt-*") if own.fullmatch(p.name) and p != dest)
+    for old in copies[:-(KEEP_SET_ASIDE - 1) or None]:
+        for victim in (old, old.with_name(old.name + "-wal"), old.with_name(old.name + "-shm")):
+            try:
+                victim.unlink(missing_ok=True)
+            except OSError as exc:  # in use or read-only: it stays, and the next set-aside tries again
+                _log.info("Couldn't remove the old set-aside copy %s: %s", victim, exc)
 
 
 def read_text(path: Path) -> str:

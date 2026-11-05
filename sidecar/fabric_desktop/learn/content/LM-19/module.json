@@ -1,0 +1,81 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-19",
+  "kind": "module",
+  "title": "Lazy pipelines: filter and choose columns early",
+  "path": "python-data-engineering",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Say why loading everything and filtering in Python is slow",
+    "Push filters and column choices into the engine",
+    "Recognise the same idea in Polars lazy frames, DuckDB and Spark"
+  ],
+  "prerequisites": [
+    "LM-12"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Python (DuckDB or Polars)",
+    "Fabric notebooks",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "north-2026",
+      "prompt": "Return North's 2026 revenue by product: product and revenue, in product order. Let the engine do the filtering and adding up.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter brings back every row and column, as df = pd.read_parquet(...) would, for Python to sift.",
+        "Keep only region = 'North' and 2026 dates in WHERE, with a date range so the engine can skip data.",
+        "SELECT product, sum(amount) AS revenue FROM sales WHERE region = 'North' AND sold_on >= DATE '2026-01-01' AND sold_on < DATE '2027-01-01' GROUP BY product ORDER BY product"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ002"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "product",
+          "revenue"
+        ],
+        "rows": [
+          [
+            "Anvil",
+            150.0
+          ],
+          [
+            "Hammer",
+            40.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ002"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq002",
+    "https://docs.pola.rs/user-guide/lazy/"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

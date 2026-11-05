@@ -56,6 +56,10 @@ ONELAKE_SCOPES = ["https://api.fabric.microsoft.com/OneLake.ReadWrite.All"]
 # out only with at least this long left (HD-034): one that has less is refreshed first.
 STORAGE_MIN_SECONDS = 30 * 60
 CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
+# Which items changed in a workspace and in its Git branch, and their conflicts (Get Status), asked
+# for the first time item status opens. Microsoft has no read-only scope for it: this one also lets
+# Update from Git run, which the app does only behind a preview, a fresh status check and a confirm.
+GIT_STATUS_SCOPES = ["https://api.fabric.microsoft.com/Workspace.GitUpdate.All"]
 # Gateway names on the Data Factory Connections tab (Preview), asked for the first time it opens.
 GATEWAY_SCOPES = ["https://api.fabric.microsoft.com/Gateway.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
@@ -73,6 +77,9 @@ TENANT_WRITE_SCOPES = ["https://api.fabric.microsoft.com/Tenant.ReadWrite.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
 # as Workspace.ReadWrite.All above), so no directory permission is needed for it.
 POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]
+# Listing a workspace's older dataflows (Gen1 and Dataflow Gen2 without CI/CD), which Fabric's items
+# API leaves out, before the Estate X-ray removes a staging lakehouse (Power BI's API; on first use).
+POWERBI_DATAFLOW_SCOPES = ["https://analysis.windows.net/powerbi/api/Dataflow.Read.All"]
 # Reading endorsement with Power BI's admin tenant scan (api.powerbi.com, the same Power BI Service
 # Tenant.Read.All as above, asked for Power BI's address). Only a Fabric administrator can use it, and
 # only they are asked for it, when they choose Scan now on a data product (Preview).
@@ -167,11 +174,17 @@ def write_cache(path: Path, text: str) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     # Refresh tokens: this user only, from the moment the file exists (POSIX; Windows ignores the mode).
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    if os.name != "nt":
-        tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
-    jsonfile.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())  # on disk before the swap, so a power cut can't leave an empty cache in place
+        if os.name != "nt":
+            tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
+        jsonfile.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # an encrypted copy of the cache isn't left lying next to it
+        raise
 
 
 _UNREAD = object()

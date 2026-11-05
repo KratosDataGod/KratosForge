@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.4.1",
+  "questions": [
+    {
+      "id": "1.4.1-q1",
+      "type": "single",
+      "stem": "Each night a process must copy data, then run a notebook, then send an email if anything failed, with retries and a schedule. What should run the process?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL queryset"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline"
+        },
+        {
+          "id": "c",
+          "text": "A notebook only"
+        },
+        {
+          "id": "d",
+          "text": "A Dataflow Gen2 only"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Pipelines orchestrate activities with dependencies, retries, failure paths and schedules, and can run notebooks as steps.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.1-q2",
+      "type": "single",
+      "stem": "A step must apply complex logic in Python, with unit-tested functions, over a large dataset. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Set variable activity"
+        },
+        {
+          "id": "b",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "c",
+          "text": "A notebook"
+        },
+        {
+          "id": "d",
+          "text": "A pipeline Copy activity"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Notebooks run code on Spark and suit complex, code-based transformations. Pipelines orchestrate and copy.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.1-q3",
+      "type": "single",
+      "stem": "You must land 200 tables from a SQL database in a lakehouse without changing them. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2 per table, run by hand"
+        },
+        {
+          "id": "b",
+          "text": "A KQL update policy"
+        },
+        {
+          "id": "c",
+          "text": "200 notebooks"
+        },
+        {
+          "id": "d",
+          "text": "A pipeline with a Copy activity driven by a list of tables"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Copying data unchanged at scale is what the pipeline Copy activity is for; a ForEach over a table list avoids building 200 of anything.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.1-q4",
+      "type": "multiple",
+      "stem": "Which two are strengths of a pipeline compared with a notebook? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Interactive data exploration"
+        },
+        {
+          "id": "b",
+          "text": "Built-in connectors for copying data from many sources"
+        },
+        {
+          "id": "c",
+          "text": "Control flow such as dependencies, conditions and failure paths between activities"
+        },
+        {
+          "id": "d",
+          "text": "Running any Python library"
+        },
+        {
+          "id": "e",
+          "text": "Writing unit tests for transformation functions"
+        }
+      ],
+      "answer": [
+        "c",
+        "b"
+      ],
+      "explanation": "Pipelines are for orchestration and data movement. Python libraries, unit-tested code and exploration are where notebooks are stronger.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

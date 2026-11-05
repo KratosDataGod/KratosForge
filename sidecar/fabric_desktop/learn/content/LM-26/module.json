@@ -1,0 +1,73 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-26",
+  "kind": "module",
+  "title": "Three-part names: Unity Catalog and Fabric",
+  "path": "databricks",
+  "level": "intermediate",
+  "minutes": 12,
+  "objectives": [
+    "Read a catalog.schema.table name",
+    "Map Unity Catalog names to Fabric workspaces, lakehouses and schemas",
+    "Name the schema so a query never picks up a stray copy"
+  ],
+  "prerequisites": [
+    "LM-06"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Databricks",
+    "Fabric lakehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "sales-orders",
+      "prompt": "The sales schema's orders table is the real one; an old copy named orders sits in the default schema. Return the total amount of the real one, as total.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter's orders has no schema, so it finds the default schema's old copy.",
+        "Write sales.orders. In Databricks the full name would be catalog.sales.orders."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ005"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "total"
+        ],
+        "rows": [
+          [
+            60
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ005"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq005",
+    "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

@@ -165,7 +165,7 @@ CASES: tuple[Case, ...] = (
     Case('bool_or', 'Aggregate', 'SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)', True, 'same'),
     Case('median', 'Aggregate', 'SELECT median(col) FROM VALUES (0), (10) AS tab(col)', 5, 'same'),
     Case('percentile', 'Aggregate', 'SELECT percentile(col, 0.3) FROM VALUES (0), (10) AS tab(col)', 3, 'same'),
-    Case('percentile_approx', 'Aggregate', 'SELECT percentile_approx(col, 0.5) FROM VALUES (0), (1), (2), (10) AS tab(col)', 1, 'differs', 'Approximate on both, but the estimates differ.'),
+    Case('percentile_approx', 'Aggregate', 'SELECT percentile_approx(col, 0.5) FROM VALUES (0), (1), (2), (10) AS tab(col)', 1, 'same'),
     Case('approx_count_distinct', 'Aggregate', 'SELECT approx_count_distinct(col) FROM VALUES (1), (1), (2), (2), (3) AS tab(col)', 3, 'same'),
     Case('stddev', 'Aggregate', 'SELECT stddev(col) FROM VALUES (1), (2), (3) AS tab(col)', 1.0, 'same'),
     Case('variance', 'Aggregate', 'SELECT variance(col) FROM VALUES (1), (2), (3) AS tab(col)', 1.0, 'same'),
@@ -233,8 +233,8 @@ CASES: tuple[Case, ...] = (
     Case('from_json (name case)', 'JSON', 'SELECT from_json(\'{"a":1}\', \'A INT\')', {'A': None}, 'same'),
     Case('to_json (array of structs)', 'JSON', "SELECT to_json(array(named_struct('a', 1, 'b', 2)))", '[{"a":1,"b":2}]', 'same'),
     Case('to_json (map)', 'JSON', "SELECT to_json(map('a', named_struct('b', 1)))", '{"a":{"b":1}}', 'same'),
-    Case('json_tuple', 'JSON', 'SELECT j.*, \'Spark SQL\' FROM json_tuple(\'{"a":1, "b":2}\', \'a\', \'b\') AS j', '1', 'error', 'DuckDB has no json_tuple. Use get_json_object for each field.'),
-    Case('json_tuple (in the select list)', 'JSON', 'SELECT json_tuple(\'{"a":1, "b":2}\', \'a\', \'c\'), \'Spark SQL\'', '1', 'error', 'DuckDB has no json_tuple. Use get_json_object for each field.'),
+    Case('json_tuple', 'JSON', 'SELECT j.*, \'Spark SQL\' FROM json_tuple(\'{"a":1, "b":2}\', \'a\', \'b\') AS j', '1', 'error', 'json_tuple runs in the select list here, not in FROM. Write SELECT json_tuple(...) or use get_json_object for each field.'),
+    Case('json_tuple (in the select list)', 'JSON', 'SELECT json_tuple(\'{"a":1, "b":2}\', \'a\', \'c\'), \'Spark SQL\'', '1', 'same'),
     Case('schema_of_json', 'JSON', 'SELECT schema_of_json(\'[{"col":0}]\')', 'ARRAY<STRUCT<`col`: BIGINT>>', 'same'),
     Case('lag', 'Window', "SELECT lag(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 1, 'same'),
     Case('lag (default)', 'Window', "SELECT lag(b, 1, 0) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a DESC LIMIT 1", 0, 'same'),  # by hand: no row before, so the default
@@ -276,7 +276,7 @@ def same(got: Any, want: Any) -> bool:
     """Equal as Databricks would show it: numbers by value (3 == 3.0 == DECIMAL 3), dates and
     timestamps by value, lists item by item."""
     if isinstance(want, (list, tuple)):
-        return isinstance(got, (list, tuple)) and len(got) == len(want) and all(same(g, w) for g, w in zip(got, want))
+        return isinstance(got, (list, tuple)) and len(got) == len(want) and all(same(g, w) for g, w in zip(got, want, strict=True))
     if isinstance(want, bool) or isinstance(got, bool):
         return type(got) is type(want) and got == want
     if isinstance(want, (int, float, Decimal)) and isinstance(got, (int, float, Decimal)):

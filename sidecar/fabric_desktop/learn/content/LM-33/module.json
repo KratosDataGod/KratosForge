@@ -1,0 +1,86 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-33",
+  "kind": "module",
+  "title": "Capacity and cost",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 15,
+  "objectives": [
+    "Say what a capacity unit (CU) measures",
+    "Find what used most of the capacity in a period",
+    "Show each item's share so the biggest win is obvious"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "top-cu",
+      "prompt": "From cu_usage, return the three items that used the most CU-seconds from 26 October to 1 November 2026 (inclusive): item, cu_seconds, and share_pct, their percent of that week's total rounded to 1 decimal place, largest first.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter adds up every day ever recorded and has no share.",
+        "Filter day >= DATE '2026-10-26' AND day < DATE '2026-11-02' before adding up.",
+        "Work out the week's total per item in a CTE, then round(100.0 * cu_seconds / (SELECT sum(cu_seconds) FROM week), 1)."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ002"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "item",
+          "cu_seconds",
+          "share_pct"
+        ],
+        "rows": [
+          [
+            "nb_sales",
+            5000,
+            50.0
+          ],
+          [
+            "pipeline_load",
+            2500,
+            25.0
+          ],
+          [
+            "model_refresh",
+            1500,
+            15.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ002"
+  ],
+  "docs": [
+    "https://learn.microsoft.com/fabric/enterprise/metrics-app"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

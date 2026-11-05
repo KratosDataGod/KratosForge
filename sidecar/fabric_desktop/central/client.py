@@ -15,8 +15,8 @@ from typing import Any, Callable
 
 import requests
 
-from . import core
-from .. import http_session, redact
+from . import core, udf
+from .. import http_session, redact, sqlitefile
 from ..retrying import send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -36,7 +36,17 @@ class LocalPlatform:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._user = user or (lambda: "")
         self._lock = threading.Lock()
+        # A file SQLite can't read is refused, not replaced: it holds the keys this platform issued
+        # and its rules, which starting again empty would not give back. The person restores it or
+        # moves it away, as the message says.
+        sqlitefile.open_store(self.path, self._first_open, refuse=(
+            "The platform file on this PC ({path}) can't be read: {reason}. It holds the keys and rules "
+            "this platform issued, so the app doesn't replace it. Restore it from a backup, or move it "
+            "away to start a new local platform."))
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db.conn)
             core.ensure_schema(db)
             # A platform on someone's own PC is theirs: they're its first admin.
             if not core.list_admins(db) and self._user():
@@ -98,10 +108,13 @@ class FabricPlatform:
         if op not in core.OPERATIONS:
             raise ValueError(f"the platform has no operation {op!r}")
         kwargs.pop("by", None)
+        # The functions' parameters are named without underscores (udf.fabric_name); call_once's args
+        # go on to the operation as they are.
+        params = {udf.fabric_name(k): v for k, v in kwargs.items()}
         if op in core.READ_OPERATIONS or op in core.REPEATABLE_OPERATIONS:
-            return self._answer(op, self._send(op, kwargs, safe=True))
+            return self._answer(op, self._send(op, params, safe=True))
         if self._once is not False:
-            payload = {"call_id": uuid.uuid4().hex, "operation": op, "args": kwargs}
+            payload = {"callId": uuid.uuid4().hex, "operation": op, "args": kwargs}
             resp = self._send("call_once", payload, safe=True)
             if resp.status_code != 404:
                 self._once = True
@@ -109,7 +122,7 @@ class FabricPlatform:
             if self._once:  # it was there a moment ago: the 404 is the item's, not an older app's
                 return self._answer(op, resp)
         try:
-            out = self._answer(op, self._send(op, kwargs, safe=False))
+            out = self._answer(op, self._send(op, params, safe=False))
         except (requests.ConnectionError, requests.Timeout) as exc:
             raise requests.ConnectionError(
                 f"UDF_Platform didn't answer, so this {op.replace('_', ' ')} may or may not have been made. "

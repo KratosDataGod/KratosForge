@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.1.2",
+  "questions": [
+    {
+      "id": "3.1.2-q1",
+      "type": "single",
+      "stem": "A Spark notebook run was slow. Where do you see its jobs, stages and logs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The OneLake file explorer"
+        },
+        {
+          "id": "b",
+          "text": "The workspace's role list"
+        },
+        {
+          "id": "c",
+          "text": "The semantic model settings"
+        },
+        {
+          "id": "d",
+          "text": "The Spark application's detail page, opened from the Monitoring hub or the notebook"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The Spark application detail page shows the application's jobs, stages, resources and logs, and links to the Spark UI.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-detail-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.2-q2",
+      "type": "single",
+      "stem": "Where do you check whether each run of a Dataflow Gen2 succeeded and which of its queries failed?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The workspace's Git panel"
+        },
+        {
+          "id": "b",
+          "text": "The lakehouse's Files folder"
+        },
+        {
+          "id": "c",
+          "text": "The capacity settings"
+        },
+        {
+          "id": "d",
+          "text": "The dataflow's refresh history"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Refresh history lists each run with its status and duration, and the details show each table or activity in it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.2-q3",
+      "type": "single",
+      "stem": "You need a list of the slowest T-SQL queries run on a warehouse over the past week. Where do you look?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Git history"
+        },
+        {
+          "id": "b",
+          "text": "The pipeline's output"
+        },
+        {
+          "id": "c",
+          "text": "The queryinsights views in the warehouse, such as exec_requests_history"
+        },
+        {
+          "id": "d",
+          "text": "The Spark UI"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Query insights keeps history of completed queries, with durations, so you can find long-running ones.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.2-q4",
+      "type": "multiple",
+      "stem": "Which two filters can you use in the Monitoring hub to find a failed notebook run from yesterday? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Git branch"
+        },
+        {
+          "id": "b",
+          "text": "Time range"
+        },
+        {
+          "id": "c",
+          "text": "Capacity SKU"
+        },
+        {
+          "id": "d",
+          "text": "Sensitivity label"
+        },
+        {
+          "id": "e",
+          "text": "Status"
+        }
+      ],
+      "answer": [
+        "e",
+        "b"
+      ],
+      "explanation": "The Monitor hub's job runs filter by time range, item type, status and workspace.",
+      "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -10,7 +10,7 @@ import shutil
 
 import pytest
 
-from fabric_desktop.academy import exercises, lab, registry
+from fabric_desktop.academy import appcontainer, exercises, lab, registry, sandbox
 from fabric_desktop.academy.workspace import Refused
 from fabric_desktop.academy_service import AcademyMixin
 
@@ -82,7 +82,7 @@ def test_run_shows_output_and_keeps_what_it_wrote_until_reset(svc):
     svc.academy_start(PACK, EID)
     got = svc.academy_run(PACK, EID, SOLUTION)
     assert got["status"] == "ok" and "wrote 2" in got["stdout"], got
-    assert got["runs_as"].startswith("you on this PC, without your sign-in")
+    assert got["runs_as"] in (sandbox.RUNS_AS, appcontainer.RUNS_AS)   # the AppContainer where it can be used
     folder = lab.workspace(svc.root, PACK, EID)
     assert (folder / "run" / "out" / "orders.parquet").is_file()
     svc.academy_reset(PACK, EID)

@@ -47,7 +47,7 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 - [ ] Point people at [Troubleshooting](troubleshooting.md#still-stuck).
 - [ ] The engine's log is `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. The audit trail is `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` ([where things are kept](install.md#where-things-are-kept-on-your-pc), [audit trail](user-guide.md#audit-trail)).
-- [ ] When support asks for logs, ask for a support bundle instead of the raw log. `fabric-desktop support-bundle --out <folder>` saves a zip with tokens, email addresses, user names and ids taken out. `--preview` shows what it would hold.
+- [ ] When support asks for logs, ask for a support bundle instead of the raw log. `fabric-desktop support-bundle --out <folder>` saves a zip with tokens, email addresses, user names and ids taken out. `--preview` shows what it would hold. Its about.json has the policy file's SHA-256, so you can check from the bundle alone that the PC has the file you shipped.
 
 ## Not ready yet
 

@@ -500,11 +500,13 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
 
 
 def _format_text(node: exp.Expression) -> str | None:
-    """A number format written as text: one literal, or literals Spark joins ('9' '9', also written '9''9')."""
+    """A number format written as text: one literal, or literals Spark joins ('9' '9', also written '9''9'),
+    in upper case as Spark reads it ('99d9' is '99D9')."""
+    from .spark_number_format import spark_format
     if isinstance(node, exp.Literal) and node.is_string:
-        return node.name
+        return spark_format(node.name)
     if isinstance(node, exp.Concat) and all(isinstance(e, exp.Literal) and e.is_string for e in node.expressions):
-        return "".join(e.name for e in node.expressions)
+        return spark_format("".join(e.name for e in node.expressions))
     return None
 
 

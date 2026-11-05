@@ -27,12 +27,14 @@ DESCRIPTION_LIMIT = 300
 EXPRESSION_LIMIT = 2000
 
 
-def _text(value: Any, limit: int) -> str:
+def _text(value: Any, limit: int, support: bool = False) -> str:
+    """Bounded, redacted text. ``support``: also leave out emails, tenant and site names, user names in paths
+    and ids (redact.for_support), for descriptions people write freely."""
     if isinstance(value, list):  # TMSL keeps multi-line text as a list of lines
         value = "\n".join(str(v) for v in value)
     if not isinstance(value, str):
         return ""
-    clean = redact.secrets(value).strip()
+    clean = (redact.for_support(value) if support else redact.secrets(value)).strip()
     return clean if len(clean) <= limit else clean[:limit - 1] + "…"
 
 
@@ -66,7 +68,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
             if c.get("isHidden"):
                 col["hidden"] = True
             if c.get("description"):
-                col["description"] = _text(c["description"], DESCRIPTION_LIMIT)
+                col["description"] = _text(c["description"], DESCRIPTION_LIMIT, support=True)
             columns.append(col)
         measures = []
         for m in t.get("measures") or []:
@@ -80,7 +82,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
             if m.get("isHidden"):
                 meas["hidden"] = True
             if m.get("description"):
-                meas["description"] = _text(m["description"], DESCRIPTION_LIMIT)
+                meas["description"] = _text(m["description"], DESCRIPTION_LIMIT, support=True)
             if m.get("formatString"):
                 meas["format"] = _name(m["formatString"])
             if include_expressions and m.get("expression"):
@@ -90,7 +92,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
         if t.get("isHidden"):
             table["hidden"] = True
         if t.get("description"):
-            table["description"] = _text(t["description"], DESCRIPTION_LIMIT)
+            table["description"] = _text(t["description"], DESCRIPTION_LIMIT, support=True)
         tables.append(table)
     relationships: list[dict[str, Any]] = []
     for r in model.get("relationships") or []:

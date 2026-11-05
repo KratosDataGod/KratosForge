@@ -85,6 +85,23 @@ test("the chosen skin is kept for the next start", { skip }, async () => {
   assert.strictEqual(await accent(), "#0f6c5c");
 });
 
+test("a platform skin groups KratosForge's own pages under a label, and keeps where code runs on the toolbar", { skip }, async () => {
+  const rail = await page().evaluate(() => [...document.getElementById("rail-main").children]
+    .map((el) => el.classList.contains("rail-group-label") ? `label:${el.textContent}` : el.textContent.trim()));
+  const at = rail.indexOf("label:KratosForge");
+  assert.ok(at > 0, rail.join(", "));
+  assert.deepStrictEqual(rail.slice(at + 1), ["Platform", "Optimize", "Data mesh"]);
+  const size = await page().$eval(".rail-group-label", (el) => parseFloat(getComputedStyle(el).fontSize));
+  assert.ok(size >= 11, `the label is at least 11px (${size})`);  // UX, mockup v7
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#rail-main"), []);
+  // The skin never hides or changes where code runs: the same chip as in the KratosForge skin.
+  await page().evaluate(() => { loadIntoState({ name: "Where", cells: [{ type: "code", cell_id: "c1", source: "1", meta: {} }] }); go("notebook"); });
+  await page().locator(".engine-where").first().waitFor();
+  assert.strictEqual(await page().locator(".engine-where").first().textContent(), "This PC · no Fabric job");
+  assert.ok(await page().locator(".engine-where").first().isVisible());
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "skin-fabric-notebook.png") });
+});
+
 test("switching back to KratosForge removes the skin's colors and restores the rail", { skip }, async () => {
   await page().evaluate(() => go("settings"));
   await chooser().getByRole("radio", { name: "KratosForge" }).check();
@@ -92,5 +109,6 @@ test("switching back to KratosForge removes the skin's colors and restores the r
   assert.strictEqual(await page().evaluate(() => document.documentElement.style.getPropertyValue("--accent")), "");
   assert.strictEqual(await accent(), "#1b3664");
   assert.deepStrictEqual((await railIds()).slice(0, 3), ["home", "create", "workspaces"]);
+  assert.strictEqual(await page().locator(".rail-group-label").count(), 0);  // the KratosForge skin needs no label
   assert.deepStrictEqual(app.errors, []);
 });

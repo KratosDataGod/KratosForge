@@ -35,7 +35,7 @@ CLASSIFICATIONS = {
 }
 # How a run is paid for, in the words the app shows. Never converted into each other (ADR-006).
 BILLING_TEXT = {
-    "none": "no cloud cost",
+    "none": "no Fabric job",  # OneLake reads and writes from this PC still use Fabric capacity
     "fabric_capacity": "Fabric capacity",
     "databricks_dbu": "Databricks DBUs",
     "snowflake_credits": "Snowflake credits",
@@ -83,7 +83,7 @@ def classify(engine: EngineDescriptor, support: Support) -> str:
 
 
 def where_it_runs(engine: EngineDescriptor) -> str:
-    """The words every skin shows on a run control, such as "This PC · no cloud cost"."""
+    """The words every skin shows on a run control, such as "This PC · no Fabric job"."""
     return f"{PLATFORM_TEXT[engine.platform] if engine.remote else PLATFORM_TEXT['local']} · {BILLING_TEXT[engine.billing]}"
 
 

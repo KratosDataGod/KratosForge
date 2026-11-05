@@ -14,7 +14,8 @@ developer does, it lists every engine that can do it and how, in one of five cla
 
 The skin you pick never changes any of this: the Fabric-familiar skin can run SQL on DuckDB on this PC,
 and the KratosForge skin can run a cell on Fabric Spark. "Where" is the line every run control shows, so
-you always know where code will run and what pays for it.
+you always know where code will run and what pays for it. "No Fabric job" means the run starts nothing in
+the cloud; reading or writing OneLake from this PC still uses Fabric capacity.
 
 Nothing here is claimed by this page itself. Each row comes from the engine's own description
 (`sidecar/fabric_desktop/engines/capabilities.py`), which refuses a claim without tests behind it. Engines
@@ -25,17 +26,17 @@ level by level, is in [Platform experience parity](parity.md).
 <!-- BEGIN GENERATED: capabilities -->
 | Capability | Engine | How it runs | Where |
 | --- | --- | --- | --- |
-| Run SQL on this PC | DuckDB (this PC) | Native local execution | This PC · no cloud cost |
-| Run Spark SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no cloud cost |
+| Run SQL on this PC | DuckDB (this PC) | Native local execution | This PC · no Fabric job |
+| Run Spark SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no Fabric job |
 | Run Spark SQL | Fabric Spark (remote) | Remote cloud execution (Preview) | Fabric · Fabric capacity |
 | Run Spark SQL | Databricks SQL warehouse (remote) | Remote cloud execution (Preview) | Databricks · Databricks DBUs |
-| Run Databricks SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no cloud cost |
+| Run Databricks SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no Fabric job |
 | Run Databricks SQL | Databricks SQL warehouse (remote) | Remote cloud execution (Preview) | Databricks · Databricks DBUs |
-| Run Snowflake SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no cloud cost |
-| Run a Python cell | Python (this PC) | Native local execution | This PC · no cloud cost |
+| Run Snowflake SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no Fabric job |
+| Run a Python cell | Python (this PC) | Native local execution | This PC · no Fabric job |
 | Run a Python cell | Fabric Spark (remote) | Remote cloud execution (Preview) | Fabric · Fabric capacity |
 | Run a Python cell | Databricks Connect (remote) | Remote cloud execution (Preview) | Databricks · Databricks DBUs |
-| Run a PySpark cell | Python (this PC) | Local simulation or validation | This PC · no cloud cost |
+| Run a PySpark cell | Python (this PC) | Local simulation or validation | This PC · no Fabric job |
 | Run a PySpark cell | Fabric Spark (remote) | Remote cloud execution (Preview) | Fabric · Fabric capacity |
 | Run a PySpark cell | Databricks Connect (remote) | Remote cloud execution (Preview) | Databricks · Databricks DBUs |
 | Run a Scala cell | Fabric Spark (remote) | Remote cloud execution (Preview) | Fabric · Fabric capacity |

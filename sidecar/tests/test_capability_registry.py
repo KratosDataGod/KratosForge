@@ -49,7 +49,7 @@ def test_no_local_run_costs_cloud_money_and_no_cloud_run_is_called_local():
             if engine.remote:
                 assert e["classification"] == "remote" and e["billing"] != "none" and e["asks_before_running"]
             else:
-                assert e["classification"] != "remote" and e["where"] == "This PC · no cloud cost"
+                assert e["classification"] != "remote" and e["where"] == "This PC · no Fabric job"
                 assert not e["asks_before_running"]
 
 

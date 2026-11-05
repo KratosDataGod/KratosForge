@@ -142,7 +142,7 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
 def test_plus_with_a_number_adds_as_numbers(engine):
     r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[2, 14, "Ann  !"]]
-    with pytest.raises(duckdb.ConversionException):
+    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
@@ -426,6 +426,41 @@ def test_convert_styles_on_numbers(engine):
             tsql(engine, f"SELECT CONVERT(VARCHAR(30), d, {style}) AS d FROM dbo.f")
 
 
+def test_concat_writes_a_float_in_style_0(engine):
+    # CONCAT converts a float as CAST to text does in T-SQL; DuckDB wrote '1234567.0' and '0.3333333333333333'.
+    engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1234567 AS DOUBLE), CAST(0.5 AS REAL), 'a'), "
+                   "(2, NULL, NULL, 'b')) v(id, d, r, s)")
+    r = tsql(engine, "SELECT CONCAT(d, 'x') AS a, CONCAT_WS('-', d, r, s) AS b, CONCAT(1e0 / 3, '') AS c "
+                     "FROM dbo.f ORDER BY id")
+    assert r["rows"] == [["1.23457e+006x", "1.23457e+006-0.5-a", "0.333333"], ["x", "b", "0.333333"]]
+    # Integers and decimals are written as before.
+    assert tsql(engine, "SELECT CONCAT(qty, '/', price) AS a FROM dbo.orders ORDER BY id")["rows"] == [["7/2.5"],
+                                                                                                    ["-7/4.0"]]
+
+
+def test_concat_of_a_column_whose_type_cant_be_told_says_so():
+    texts, notes = translate("SELECT CONCAT(x, 'a') FROM dbo.nowhere", {"dbo": {"t": {"d": "DOUBLE"}}})
+    assert texts == ["SELECT CONCAT(x, 'a') FROM dbo.nowhere"]
+    assert any("Couldn't tell the type of x in CONCAT(x, 'a')" in n and "6 significant digits" in n for n in notes)
+
+
+def test_text_added_to_a_number_follows_tsql(engine):
+    # The text becomes the number's type. '' is 0 for an integer or a float, where DuckDB refused it, and text
+    # for an integer has to be a whole number: DuckDB rounded '1.5' to 2, T-SQL stops.
+    engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1.5 AS DOUBLE), ''), (2, NULL, ' 2 ')) v(id, d, s)")
+    assert tsql(engine, "SELECT d + '' AS a, '' + 7 AS b, s + 1 AS c, s + d AS e FROM dbo.f ORDER BY id")["rows"] == [
+        [1.5, 7, 1, 1.5], [None, 7, 3, None]]
+    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
+        tsql(engine, "SELECT '1.5' + 1 AS a")
+
+
+@pytest.mark.parametrize("sql", ["SELECT CONVERT(VARCHAR(20), CAST(1234.5 AS MONEY), 1) AS x",
+                                 "SELECT CAST(qty AS SMALLMONEY) AS x FROM dbo.orders"])
+def test_money_is_refused_by_name(engine, sql):
+    with pytest.raises(ValueError, match="on the local engine: MONEY and SMALLMONEY aren't carried yet"):
+        tsql(engine, sql)
+
+
 def test_format_of_a_date_follows_dotnets_formats(engine):
     # Expected text: .NET's en-US formats, as FORMAT uses them (UNVERIFIED on a Fabric Warehouse).
     at = "CAST('2024-03-05 14:07:09.123456' AS DATETIME2)"
@@ -460,7 +495,7 @@ def test_format_of_a_number_rounds_half_away_from_zero(engine):
 
 @pytest.mark.parametrize("sql, says", [
     ("SELECT FORMAT(1e0, 'N2')", "FORMAT of a FLOAT value"),
-    ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "FORMAT of a MONEY value"),
+    ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "MONEY and SMALLMONEY aren't carried yet"),
     ("SELECT FORMAT(CAST('10:00' AS TIME), 'hh')", "FORMAT of a TIME value"),
     ("SELECT FORMAT('2024-01-01', 'yyyy')", "FORMAT of text"),
     ("SELECT FORMAT(5, '0000')", "number format '0000'"),

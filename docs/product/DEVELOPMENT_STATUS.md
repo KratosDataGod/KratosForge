@@ -3,10 +3,18 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-05 11:42 UTC, main 7c7ed9e2.** Covers the PRs merged from #135 to #1828.
+**Product check of 2026-11-05 23:42 UTC, main a7631920.** Covers the PRs merged from #135 to #1900.
 
 ## Summary
 
+- Evening check, 2026-11-05: 78 PRs merged after 7c7ed9e2. 1 was a product data PR; the other 77 were linked.
+  App Studio can plan an app from a description, apply asked-for changes as one undoable step and publish a
+  Power BI report behind a check and a typed confirm (PB-127). The Databricks-familiar and Snowflake-familiar skins
+  landed (PB-129, Preview). Embed Studio's Power BI page is in Workspaces (PB-121, Preview). Academy runs exercise
+  scripts in the AppContainer by default on Windows, with more DP-700 exercises (PB-128). Local T-SQL, Spark SQL and
+  Snowflake answer as those platforms do in more places, and local T-SQL is about 3x faster. Audit remediation
+  (PB-124, score 64): one transaction helper, narrower Tauri permissions, the previous build kept until the new
+  engine answers (#1596). Axe covers the most-opened dialogs, with a guard for new ones (PB-063).
 - Morning check, 2026-11-05: 6 PRs merged after 03d2b53a. 2 were product data PRs; #1828 (a data product's page
   no longer has a Business terms card) updated its own rows, and the other 3 hardened Academy's AppContainer (PB-128).
 - Acceptance, 2026-11-05: the product owner accepted PB-131, now titled "Let people remove Academy's runtime

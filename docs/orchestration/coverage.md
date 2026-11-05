@@ -44,7 +44,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 
 ## Expression functions
 
-88 functions: 66 runs, 0 differs, 1 fails, 10 not checked, 11 refused.
+88 functions: 67 runs, 0 differs, 0 fails, 10 not checked, 11 refused.
 
 - **runs:** it gives the reference's value for the reference's own example.
 - **differs:** it runs but gives another value for that example, so check results that use it in Fabric.
@@ -143,7 +143,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `mul` | runs | `mul(1, 2)` | 2 |  |
 | `rand` | refused |  |  |  |
 | `range` | runs | `range(1, 4)` | [1, 2, 3, 4] |  |
-| `sub` | fails | `sub(10.3, .3)` | 10 | "error: unexpected '.'" |
+| `sub` | runs | `sub(10.3, .3)` | 10 |  |
 
 ### Date
 

@@ -12,6 +12,8 @@ const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
 const { playwright, openApp, startupReads, axeSource, axeFindings, animationsDone } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: git.js:gitFabricLinkDialog, git.js:gitFabricUpdateDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";

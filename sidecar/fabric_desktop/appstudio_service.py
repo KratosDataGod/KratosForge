@@ -6,27 +6,45 @@ reach a folder outside that one. Changes from Design are patch operations saved 
 Redo, versions, Save As, Clone, Export and Import are the project file's own. The preview uses sample
 numbers made here (appstudio/sample.py).
 
-Nothing here calls a model, reads OneLake or writes to Fabric: model connections and publishing come in
-later App Studio updates, behind an IT policy and a typed approval.
+Model connections (AS-05/06) are the person's own AI model and key reference, kept in
+``<data>/appstudio/connections.json`` with no secrets. The organization's policy (appstudio/policy.py) is
+checked on every save, test and use: it can turn connections off, limit the providers and the hosts a
+chosen address may reach, and refuse sample rows. Testing a connection lists the models its key can see
+(no tokens are spent); nothing here sends application context to a model yet.
+
+Nothing here reads OneLake or writes to Fabric; publishing comes in a later update, behind a typed approval.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import re
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from . import sql_exec
+from . import http_session, sql_exec
 from .jsonfile import write_bytes
+from .appstudio import discovery, generate
+from .appstudio import policy as as_policy
 from .appstudio import project, sample, templates
+from .appstudio import providers as prov
 from .appstudio import spec as specs
 
 METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_change", "appstudio_undo",
            "appstudio_redo", "appstudio_history", "appstudio_versions", "appstudio_save_version",
            "appstudio_restore_version", "appstudio_save_as", "appstudio_export", "appstudio_import",
-           "appstudio_preview"}
+           "appstudio_preview", "appstudio_connections", "appstudio_connection_save", "appstudio_connection_delete",
+           "appstudio_connection_test", "appstudio_plan", "appstudio_create_from_plan"}
 SOURCES_FROM_UI = {"visual", "manual"}  # an AI change arrives through its own method, after its checks
+MAX_DESCRIPTION = 4000
+MAX_PLANS = 20  # plans waiting for approval, kept in memory only
+PLAN_MINUTES = 60
+_PLANS_LOCK = threading.Lock()  # guards every service's plan store, made once
+_GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
 
 
 class AppStudioMixin:
@@ -152,3 +170,125 @@ class AppStudioMixin:
         if not got["valid"]:
             raise specs.SpecError(got["problems"])
         return sample.preview(got["spec"], str(page), selection)
+
+    # ---------------------------------------------------------------- model connections (AS-05/06)
+
+    def _appstudio_store(self) -> prov.ConnectionStore:
+        return prov.ConnectionStore(Path(self.root) / "appstudio")  # type: ignore[attr-defined]
+
+    def _appstudio_model(self, conn_id: str = "") -> dict[str, Any]:
+        """A saved connection the organization's policy allows now; the default when no id is given.
+        Every use of a model goes through here, so a policy change applies at once."""
+        conn = self._appstudio_store().get(str(conn_id))
+        as_policy.check(conn)
+        return conn
+
+    def appstudio_connections(self) -> dict[str, Any]:
+        """The organization's policy, the providers it allows, and every saved connection with this month's
+        usage and why the policy stops it, if it does. Key references only: no key is read."""
+        pol = as_policy.current()
+        store = self._appstudio_store()
+        listed = store.list()
+        conns = [{**c, "usage": store.usage(c["id"]), "refused": as_policy.refusals(c, pol)} for c in listed["connections"]]
+        catalog = [{"id": k, "label": v["label"], "endpoint": v["endpoint"], "key": v["key"],
+                    "capabilities": dict(v["capabilities"]),
+                    "allowed": pol["enabled"] and (pol["providers"] is None or k in pol["providers"])}
+                   for k, v in prov.PROVIDERS.items()]
+        return {"policy": {k: pol[k] for k in ("enabled", "providers", "hosts", "sample_rows", "problems")},
+                "providers": catalog, "connections": conns, "default": listed["default"], "key_ref_help": prov.KEY_REF_HELP}
+
+    def appstudio_connection_save(self, connection: dict[str, Any], make_default: bool = False) -> dict[str, Any]:
+        """Add or change a connection. Refused when it has problems or the policy doesn't allow it."""
+        clean = prov.normalize({k: v for k, v in connection.items() if k not in ("capabilities", "usage", "refused")})
+        as_policy.check(clean)
+        saved = self._appstudio_store().save(clean, make_default=make_default)
+        return {**saved, "capabilities": prov.capabilities(saved)}
+
+    def appstudio_connection_delete(self, conn_id: str) -> dict[str, Any]:
+        """Remove a connection from this PC. Its key stays where it is (Credential Manager or the variable)."""
+        store = self._appstudio_store()
+        store.get(str(conn_id))  # a connection that isn't there says so
+        store.delete(str(conn_id))
+        return {"deleted": str(conn_id)}
+
+    def appstudio_connection_test(self, conn_id: str = "") -> dict[str, Any]:
+        """Check a connection works: read its key and list the models the key can see. Spends no tokens and
+        sends no application context."""
+        return prov.validate(self._appstudio_model(conn_id), http_session.session())
+
+    # ---------------------------------------------------------------- generation (AS-10)
+
+    def _appstudio_plan_store(self) -> dict[str, dict[str, Any]]:
+        with _PLANS_LOCK:
+            if getattr(self, "_appstudio_plans", None) is None:
+                self._appstudio_plans: dict[str, dict[str, Any]] = {}
+            return self._appstudio_plans
+
+    def _appstudio_metadata(self, source: dict[str, Any] | None, include_expressions: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+        """(metadata, spec source) for a plan: a semantic model's sanitized metadata, or the sample fields."""
+        if not source:
+            return generate.sample_metadata(), {"kind": "sample", "name": "Sample data"}
+        ws, item = str(source.get("workspace_id", "")), str(source.get("item_id", ""))
+        if not (_GUID.fullmatch(ws) and _GUID.fullmatch(item)):
+            raise ValueError("Choose a semantic model: its workspace id and item id.")
+        name = redact_name(source.get("name")) or "Semantic model"
+        bim = self._model_bim(ws, {"id": item, "displayName": name})  # type: ignore[attr-defined]
+        meta = discovery.from_bim(bim, include_expressions=include_expressions)
+        return meta, {"kind": "semantic-model", "name": name, "workspace_id": ws, "item_id": item}
+
+    def appstudio_plan(self, description: str, target: str = "powerbi-report", source: dict[str, Any] | None = None,
+                       conn_id: str = "", include_expressions: bool = False) -> dict[str, Any]:
+        """Ask the person's model for a plan. Sends the description and sanitized metadata only (no rows); measure
+        formulas only with ``include_expressions``. The plan is checked against the metadata and kept here,
+        in memory, until it is approved (appstudio_create_from_plan) or an hour passes. Nothing is saved."""
+        text = " ".join(str(description).split())
+        if not text:
+            raise ValueError("Describe the application first.")
+        if len(text) > MAX_DESCRIPTION:
+            raise ValueError(f"Keep the description under {MAX_DESCRIPTION} characters.")
+        if target not in specs.TARGETS:
+            raise ValueError(f"target must be one of: {', '.join(sorted(specs.TARGETS))}.")
+        conn = self._appstudio_model(conn_id)  # the organization's policy, every time
+        if not conn["consent"]["context"]:  # before the semantic model is even read
+            raise prov.ConsentError("Agree to send application context to this model first (App Studio > Model connections).")
+        meta, spec_source = self._appstudio_metadata(source, bool(include_expressions))
+        got = prov.complete(conn, self._appstudio_store(), http_session.session(), generate.instruction(target), text,
+                            generate.PLAN_SCHEMA, generate.context(meta))
+        checked = generate.check_plan(got["result"], meta, target)
+        plans = self._appstudio_plan_store()
+        plan_id = str(uuid.uuid4())
+        now = time.monotonic()
+        with _PLANS_LOCK:
+            for k in [k for k, v in plans.items() if now - v["at"] > PLAN_MINUTES * 60]:
+                del plans[k]
+            while len(plans) >= MAX_PLANS:
+                del plans[min(plans, key=lambda k: plans[k]["at"])]
+            plans[plan_id] = {"metadata": meta, "target": target, "source": spec_source, "at": now}
+        return {"plan_id": plan_id, "plan": checked["plan"], "left_out": checked["left_out"],
+                "sent": {**generate.summary(meta), "description_chars": len(text)},
+                "connection": {"name": conn["name"], "provider": conn["provider"], "model": conn["model"]},
+                "usage": got["usage"], "warning": got["warning"]}
+
+    def appstudio_create_from_plan(self, plan_id: str, plan: dict[str, Any], name: str = "") -> dict[str, Any]:
+        """Approve a plan: check it again against the same metadata (the person may have edited it), make the
+        specification here and save it as a new project. The plan can be used once."""
+        plans = self._appstudio_plan_store()
+        with _PLANS_LOCK:  # taken out at once, so two approvals of the same plan can't both use it
+            kept = plans.pop(str(plan_id), None)
+        if kept is None or time.monotonic() - kept["at"] > PLAN_MINUTES * 60:
+            raise ValueError("That plan has expired. Ask for a new one.")
+        try:
+            checked = generate.check_plan(plan, kept["metadata"], kept["target"])
+            doc = generate.to_spec(checked["plan"], kept["metadata"], kept["target"], kept["source"],
+                                   " ".join(str(name).split())[:120])
+            folder = project.create(self._appstudio_root(), doc["name"], doc)
+        except Exception:
+            with _PLANS_LOCK:  # nothing was made: the plan can be fixed and approved again
+                plans.setdefault(str(plan_id), kept)
+            raise
+        return {**self._appstudio_opened(folder), "left_out": checked["left_out"]}
+
+
+def redact_name(value: Any) -> str:
+    from .redact import one_line
+    return one_line(value, 120) if isinstance(value, str) else ""

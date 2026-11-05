@@ -5855,3 +5855,44 @@ test("styles.css writes no more colors outside its tokens than it did", () => {
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
   assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
 });
+
+// #1673: every dialog has an axe case. A dialog is a top-level function in app/ui that calls showDialog
+// (file.js:function). A browser test that runs axe while a dialog is open names it on a line of its own:
+//   // axe covers dialogs: settings.js:reportProblem, meta.js:confirmDialog
+// The dialogs that had no case when this guard came in are listed in a11y-dialog-baseline.json. That
+// list only shrinks: a new dialog needs a case, and a dialog that gets one leaves the list.
+function dialogOpeners() {
+  const found = new Set();
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    let fn = null;
+    for (const line of fs.readFileSync(path.join(ui, name), "utf8").split("\n")) {
+      const m = line.match(/^(?:async\s+)?function\s*\*?\s*(\w+)/) ||
+        line.match(/^(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|function|\w+\s*=>)/);
+      if (m) fn = m[1];
+      else if (/^\S/.test(line) && !/^[}\])]/.test(line) && !line.startsWith("//")) fn = null;
+      if (/\bshowDialog\(/.test(line) && !/function showDialog\b/.test(line)) found.add(`${name}:${fn || "(top level)"}`);
+    }
+  }
+  return found;
+}
+
+test("every dialog has an axe case, or is in the baseline that only shrinks", () => {
+  const openers = dialogOpeners();
+  const browser = path.join(__dirname, "browser");
+  const covered = new Map();
+  for (const name of fs.readdirSync(browser).filter((f) => f.endsWith(".cjs"))) {
+    for (const m of fs.readFileSync(path.join(browser, name), "utf8").matchAll(/^\s*\/\/ axe covers dialogs: (.+)$/gm)) {
+      for (const key of m[1].split(",").map((s) => s.trim()).filter(Boolean)) covered.set(key, name);
+    }
+  }
+  const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "a11y-dialog-baseline.json"), "utf8"));
+  const problems = [
+    ...[...openers].filter((k) => k.endsWith(":(top level)")).map((k) => `${k}: showDialog outside a function, so the guard can't name it`),
+    ...[...covered].filter(([k]) => !openers.has(k)).map(([k, f]) => `${f} names ${k}, which doesn't open a dialog (renamed or removed?)`),
+    ...[...openers].filter((k) => !covered.has(k) && !baseline.includes(k)).map((k) => `${k} opens a dialog that no browser test runs axe on`),
+    ...baseline.filter((k) => covered.has(k)).map((k) => `${k} has an axe case now (${covered.get(k)}): take it out of a11y-dialog-baseline.json`),
+    ...baseline.filter((k) => !openers.has(k)).map((k) => `${k} no longer opens a dialog: take it out of a11y-dialog-baseline.json`),
+  ];
+  assert.deepStrictEqual(problems, []);
+  assert.deepStrictEqual(baseline, [...baseline].sort(), "keep a11y-dialog-baseline.json sorted");
+});

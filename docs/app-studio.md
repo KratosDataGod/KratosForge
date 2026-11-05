@@ -22,7 +22,10 @@ Projects are folders under this PC's KratosForge data (`appstudio/projects/<name
 
 ## What comes next
 
-- **Ask for a change** will send your request, with your consent, to an AI model you connect yourself, and show its plan before anything changes. It needs your organization's model policy first.
+- **Describe an app** (the engine is ready; its screen comes after the mockup): your model gets your description and the semantic model's names, types and descriptions, never rows. Emails, tenant and site names and ids are taken out of descriptions first. Measure formulas (DAX) are sent only if you ask, because a formula can hold literal business values such as a customer name or a price. The model answers with a plan (pages and what each shows). KratosForge keeps only what the data and the target support, lists what it left out, and makes the app from the plan you approve. The model never writes the app itself.
+- **Ask for a change** will send your request the same way, and show its plan before anything changes.
+
+A model connection holds a reference to your key (`credman:KratosForge/<name>` in Windows Credential Manager, or an environment variable such as `env:KRATOSFORGE_<NAME>`), never the key itself. Nothing is sent until you agree to send app context to that model. Your organization can turn connections off, limit the providers and the addresses they reach, and stop sample rows being sent (the `appstudio_*` keys in the [policy file](azure-setup.md)).
 - **Publish…** shows what publishing would create today, and what is missing. Publishing a Power BI report comes in a later update, and asks for your approval before its first write to Fabric.
 
-Nothing in App Studio reads OneLake, calls a model or writes to Fabric yet.
+App Studio writes nothing to Fabric yet. Testing a model connection only lists the models its key can see.

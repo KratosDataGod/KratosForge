@@ -59,6 +59,29 @@ On that machine the T-SQL query's p95 was about 2.6 times its median, and the ot
 within about a third of their median. Treat a change smaller than that spread as noise, and re-run
 with more `--runs` before reading anything into it.
 
+## In CI
+
+The **Performance** workflow (`.github/workflows/perf.yml`) runs this benchmark on GitHub's Windows
+runner (`windows-latest`) with the defaults above, after every merge to main, on demand, and on a pull
+request that changes the benchmark. `examples/benchmark/compare.py` then compares each median with the
+Windows baseline in `examples/benchmark/baseline-windows.json`, which records the runner, commit and
+settings it came from. The job summary shows each median next to the baseline, and the result file is
+kept as an artifact.
+
+The Windows baseline was recorded on 2026-11-05 from the workflow's first run (Windows Server 2025, Python
+3.12, 4 CPUs, the defaults above). Medians in milliseconds: startup 979.6, notebook first cell 753.5, notebook
+first spark cell 754.4, SQL first query on a new project 1.5, count 1.5, group by 6.9, filter 4.6, t-sql top
+28.3.
+
+A measurement counts as a regression when its median is more than 1.5 times the baseline's **and**
+more than 25 ms slower. The second rule keeps a 1 ms query that takes 3 ms on a busy runner from
+counting. The SQL lines are compared only when the run used the baseline's table size.
+
+**The check is advisory until 2026-11-19.** Until then a regression is a warning on the run and in the
+summary, and the job doesn't fail. From then, if main's runs have stayed within range, the compare
+step gets `--gate` and a regression fails the job. Until it is a gate, read the warnings, not the
+job's colour. How to record a new baseline: [examples/benchmark/README.md](https://github.com/KratosDataGod/KratosForge/blob/main/examples/benchmark/README.md#in-ci-and-refreshing-the-baseline).
+
 ## The app window
 
 `app/tests/browser/ui-benchmark.cjs` times the window itself in headless Chromium, with every engine call

@@ -126,6 +126,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .rail-item:hover { background: var(--hover); }
 .rail-item.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand-orange); }
 .rail-divider { width: 40px; height: 1px; margin: 6px 0; background: var(--border); }
+/* A platform skin's label over KratosForge's own pages (skins.js skinRailChildren). */
+.rail-group-label { width: 68px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px;
+  font-weight: 600; line-height: 1.2; color: var(--muted); text-align: center; }
 #rail-open { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rail-open-item { position: relative; }
 .rail-close {
@@ -1273,7 +1276,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .lakehouse-tree { max-width: 520px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
 .preview-layout > .lakehouse-tree { max-width: 360px; flex: 0 1 360px; }
 .tree-hint { margin: 8px 6px 2px; font-size: 12px; }
-@media (max-width: 900px) { .preview-layout { flex-direction: column; } .preview-panel.open { position: static; width: 100%; } }
+@media (max-width: 900px) { .preview-layout { flex-direction: column; align-items: stretch; } .preview-panel.open { position: static; width: 100%; } }
 
 /* OneLake catalog grouping (catalog-groups.js). */
 .catalog-envs { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 8px 6px; }
@@ -2989,3 +2992,32 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-pair .mono { overflow-wrap: anywhere; }
 .dbx-add { display: flex; flex-direction: column; gap: 8px; }
 .dbx-sync-table tr.dbx-conflict td, .dbx-sync-table tr.dbx-blocked td { background: var(--danger-soft); }
+
+/* Zoomed to 200% the tabs of a page wrap to a second row rather than scroll, so none is out of sight (story 1681). */
+@media (max-width: 860px) {
+  .subtabs { flex-wrap: wrap; overflow-x: visible; }
+  .subtabs .tab { flex: 0 1 auto; max-width: 100%; white-space: normal; }
+  .subtabs .tab-group { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+}
+/* Reflow (story 1681, WCAG 1.4.10): at 320 px wide, or 1280 px zoomed to 400%, every page reads top to bottom
+   with no sideways scroll of the page. Rows of tabs, buttons and choices wrap; side-by-side panes stack;
+   a data table still scrolls inside its own box, which reflow allows. */
+@media (max-width: 480px) {
+  .topbar { gap: 6px; padding: 0 6px; }
+  .rail { width: 56px; }
+  .rail-item { width: 52px; font-size: 10px; }
+  .page { padding: 16px 12px 32px; }
+  .seg, .segs { flex-wrap: wrap; max-width: 100%; }
+  .tiles, .home-envs, .home-two, .env-cards, .get-started .gs-grid { grid-template-columns: minmax(0, 1fr); }
+  .list { display: block; overflow-x: auto; }
+  .tile { max-width: 100%; min-width: 0; }
+  .tool { white-space: normal; max-width: 100%; text-align: left; }
+  .learn-more { white-space: normal; }
+  .page-head > div:first-child { flex-basis: 100%; }
+  .catalog-top { flex-wrap: wrap; }
+  .catalog-search { width: 100%; }
+  .catalog-body { flex-direction: column; overflow: auto; }
+  .catalog-nav { width: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--border); }
+  .catalog-detail { width: auto; border-left: 0; border-top: 1px solid var(--border); }
+  .catalog-head { flex-wrap: wrap; }
+}

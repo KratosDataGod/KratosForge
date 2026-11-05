@@ -20,6 +20,11 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: settings.js:showMotionGallery, meta.js:newKeyTableDialog, meta.js:useKeyTableDialog, meta.js:pickEnvWorkspace
 // axe covers dialogs: mesh.js:linkDialog, mesh.js:domainDialog, governance.js:assignDialog, platform.js:keyTableDialog
 // axe covers dialogs: platform.js:sourceDialog, governance-checks.js:labelDialog, platform-notices.js:mailServerDialog, estate.js:measureDialog
+// axe covers dialogs: vscode.js:pairingDialog, vscode.js:writeDialog, vscode.js:vscodeSetupDialog, integrations.js:capabilitiesDialog
+// axe covers dialogs: integrations.js:setupDialog, entra-groups.js:entraLinkDialog, entra-groups.js:entraNamingDialog
+// axe covers dialogs: governance-checks.js:useTemplateDialog, governance-checks.js:saveAsTemplateDialog, mesh.js:addMemberDialog
+// axe covers dialogs: access-cache.js:protectAccessCache, platform.js:landingZoneDialog, platform.js:sourceRequestDialog
+// axe covers dialogs: platform-notices.js:platformRouteDialog, estate.js:costSettingsDialog
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -40,6 +45,9 @@ before(async () => {
   app = await openApp({
     engine: ["app_settings", "profile_get"],  // the profile as a new person's engine makes it
     mocks: {
+      git_vscode_plan: () => ({ files: [{ path: ".vscode/settings.json", state: "new", label: "Settings", why: "Points VS Code at KratosForge" },
+        { path: "AGENTS.md", state: "exists", label: "Agent notes", why: "Tells AI tools about the repo", text: "Use KratosForge." }] }),
+      platform_domains: () => [{ id: "d1", name: "Sales", parent_id: null }, { id: "d2", name: "EMEA", parent_id: "d1" }],
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
       list_lakehouses: () => [{ id: "l1", displayName: "LH_Bronze" }],
@@ -158,6 +166,31 @@ const CASES = [
   ["platform-notices.js:mailServerDialog", "Company mail server", () => { mailServerDialog({ host: "smtp.contoso.com", port: 587, security: "starttls", sender: "kf@contoso.com" }, () => {}); }],
   ["estate.js:measureDialog", "Capacity use this month", () => {
     measureDialog("Capacity use this month", { classification: "measured", value: 12.5, unit: "cu_hours", metric: "cu_hours", methods: ["Sum of CU-seconds"], sources: ["Capacity metrics"] }, "USD"); }],
+  // Batch 4: VS Code, tools, Entra groups, governance templates, members, landing and notices.
+  ["vscode.js:pairingDialog", "Let VS Code run notebooks on this PC?", () => {
+    pairingDialog({ id: "pr1", client: "KratosForge for VS Code", window: "sales-repo", code: "482 913" }); }],
+  ["vscode.js:writeDialog", "VS Code wants to write to OneLake", () => {
+    writeDialog({ id: "a1", notebook: "Daily sales", window: "sales-repo", target: "silver.orders" }); }],
+  ["vscode.js:vscodeSetupDialog", "Set up sales for VS Code", () => { vscodeSetupDialog("C:/repos/sales", "sales", () => {}); }],
+  ["integrations.js:capabilitiesDialog", "What tools can do", () => {
+    capabilitiesDialog({ permissions: [{ id: "READ_METADATA", offered: true, allowed: true }, { id: "READ_DATA", offered: false, allowed: false }],
+      capabilities: [{ title: "List lakehouses", description: "Names and tables", permission: "READ_METADATA", approval: "never" },
+        { title: "Read rows", description: "Sample rows", permission: "READ_DATA", approval: "ask" }] }); }],
+  ["integrations.js:setupDialog", "Connect Copilot", () => {
+    setupDialog({ id: "copilot", name: "Copilot", grants: ["READ_METADATA"], config: { vscode: { where: "In .vscode/mcp.json", text: "{}" } } }, "tok-123", "vscode"); }],
+  ["entra-groups.js:entraLinkDialog", "Link a group to Sales readers", () => {
+    entraLinkDialog({ label: "Sales readers", domain: "Sales", domain_id: "d1", role: "reader", env: "dev", suggested: "SALES-DEV-READERS" }, () => {}); }],
+  ["entra-groups.js:entraNamingDialog", "Group naming", () => {
+    entraNamingDialog({ pattern: "{prefix}-{domain}-{env}-{role}", prefix: "KF", case: "upper", domain_part: "id", words: {}, roles_off: [] }, true, () => {}); }],
+  ["governance-checks.js:useTemplateDialog", "Use Table names", () => { useTemplateDialog({ id: "table-names", name: "Table names" }, null); }],
+  ["governance-checks.js:saveAsTemplateDialog", "Save Table names as a template", () => {
+    saveAsTemplateDialog({ id: "table-names", name: "Table names", current_version: 2 }); }],
+  ["mesh.js:addMemberDialog", "Add member", () => { addMemberDialog(() => {}); }],
+  ["access-cache.js:protectAccessCache", "Who may read the access cache", () => { protectAccessCache({ workspace_id: "w1" }); }],
+  ["platform.js:landingZoneDialog", "New landing zone", () => { landingZoneDialog({ where: "the Landing workspace" }, () => {}); }],
+  ["platform.js:sourceRequestDialog", "Request a source", () => { sourceRequestDialog("erp", () => {}); }],
+  ["platform-notices.js:platformRouteDialog", "Add a route", () => { platformRouteDialog({ mail_server: null }, null, () => {}); }],
+  ["estate.js:costSettingsDialog", "Cost estimate", () => { costSettingsDialog({ price_per_cu_hour: 0.18, currency: "USD", python_cu: 2, spark_cu: 8 }); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

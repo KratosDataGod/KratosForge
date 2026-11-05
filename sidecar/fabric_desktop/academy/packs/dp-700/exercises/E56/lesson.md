@@ -24,5 +24,5 @@ Your answer is a Python script. It runs on this PC with delta-rs (the `deltalake
 
 ## What it doesn't prove
 
-- Read speed in Fabric: this checks file counts in the Delta log, not query timings. V-Order, OPTIMIZE ZORDER BY and table maintenance in a Fabric lakehouse are separate features.
+- Read speed in Fabric: this checks file counts in the Delta log, not query timings. V-Order and the lakehouse's table maintenance (OPTIMIZE and VACUUM) in Fabric are separate features.
 - Statistics and their effect on the SQL analytics endpoint.

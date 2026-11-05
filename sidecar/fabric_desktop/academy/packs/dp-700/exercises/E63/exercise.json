@@ -86,7 +86,7 @@
     "Partitioning by sale_date makes one folder per day; by sale_id, one per sale. Both make many tiny files.",
     "Add sale_month with pl.col('sale_date').dt.strftime('%Y-%m'), then write_deltalake(TABLE, ..., partition_by=['sale_month'])."
   ],
-  "explanation": "Partitioning writes each value of a column to its own folder, so a query filtering on that column reads only the matching folders. It helps only when queries filter on the column and each partition holds plenty of data: a high-cardinality column (a date at day level for a small table, or an id) produces many tiny files and slows everything down. A month column suits monthly reporting. For finer pruning inside partitions, Delta also uses file statistics, and Fabric adds V-Order and Z-order options.",
+  "explanation": "Partitioning writes each value of a column to its own folder, so a query filtering on that column reads only the matching folders. It helps only when queries filter on the column and each partition holds plenty of data: a high-cardinality column (a date at day level for a small table, or an id) produces many tiny files and slows everything down. A month column suits monthly reporting. For finer pruning inside partitions, Delta also keeps per-file statistics, and Fabric can apply V-Order when it writes or optimizes.",
   "remediation": [
     "LM-27",
     "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"

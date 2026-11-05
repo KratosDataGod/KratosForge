@@ -26,7 +26,7 @@
     "Your script ran on this PC and left a Delta table with at most 2 data files, an OPTIMIZE in its history after the writes, and all 1,000 events once each."
   ],
   "does_not_verify": [
-    "Read speed in Fabric: this checks file counts in the Delta log, not query timings. V-Order, OPTIMIZE ZORDER BY and table maintenance in a Fabric lakehouse are separate features.",
+    "Read speed in Fabric: this checks file counts in the Delta log, not query timings. V-Order and the lakehouse's table maintenance (OPTIMIZE and VACUUM) in Fabric are separate features.",
     "Statistics and their effect on the SQL analytics endpoint."
   ],
   "datasets": [],

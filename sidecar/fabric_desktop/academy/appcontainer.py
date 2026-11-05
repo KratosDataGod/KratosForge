@@ -49,6 +49,7 @@ MAX_COPY_BYTES = 1024 * 1024 * 1024
 RUNS_AS = "an AppContainer on this PC: no network and no access to your own files, with time and memory limits"
 
 _lock = threading.Lock()
+_open_boxes = 0   # runs in an AppContainer now (Box made and not yet closed); guarded by _lock
 _granted: dict[str, bool] = {}
 _denied: set[str] = set()
 _why_not = ""
@@ -360,8 +361,11 @@ def revoke_runtime(data_root: Path) -> dict[str, Any]:
     listed = had.get("paths") if isinstance(had, dict) and isinstance(had.get("paths"), list) else []
     paths = {p for p in listed if _plain_path(p)} | {str(p) for p, _ in runtime_paths()}
     removed, failed = 0, []
-    # Under the setup lock, so a run starting now grants after this, not half-way through it.
+    # Under the setup lock, so a run starting now grants after this, not half-way through it. A run
+    # already going would lose its imports, so nothing is removed while one is.
     with _lock:
+        if _open_boxes:
+            return {"removed": 0, "failed": [], "why": "An exercise is running. Try again when it has finished."}
         for p in sorted(paths):
             if not os.path.exists(p):
                 continue
@@ -599,6 +603,10 @@ class Box:
         except BaseException:
             self.profile.close()
             raise
+        global _open_boxes
+        with _lock:
+            _open_boxes += 1
+        self._counted = True
 
     def share(self, job: Any) -> int:
         """An inheritable QUERY-only handle to the run's job, for the bootstrap's own check (an
@@ -620,5 +628,10 @@ class Box:
             self._shared = 0
 
     def close(self) -> None:
+        global _open_boxes
         self._unshare()
         self.profile.close()
+        if getattr(self, "_counted", False):
+            self._counted = False
+            with _lock:
+                _open_boxes -= 1

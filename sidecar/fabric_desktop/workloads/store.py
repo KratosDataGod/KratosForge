@@ -66,14 +66,8 @@ class ManagementStore:
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        with self._lock:
-            db = sqlite3.connect(self.path, timeout=30)
-            db.row_factory = sqlite3.Row
-            try:
-                yield db
-                db.commit()
-            finally:
-                db.close()
+        with self._lock, sqlitefile.transaction(self.path, rows=True) as db:
+            yield db
 
     # ---- assignments
 

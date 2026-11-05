@@ -15,7 +15,8 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
 - runs ``BIT`` as a boolean, and ``CHOOSE``, ``ROUND(x, n, 1)``, ``DATALENGTH``, ``STRING_SPLIT`` and
   ``TOP n WITH TIES``, which DuckDB doesn't have (``ISNUMERIC`` is refused for now);
-- runs ``QUOTENAME`` and ``STR``, and refuses by name a function DuckDB doesn't have;
+- runs ``QUOTENAME``, ``STR`` and ``FORMAT`` (dates, and ``N``, ``F`` and ``D`` for integers and
+  decimals, in en-US; see tsql_format), and refuses by name a function DuckDB doesn't have;
 - gives ``POWER`` its first argument's type (an integer base gives an integer; a decimal base is refused);
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - compares text without trailing spaces (``'a' = 'a  '``) when both sides are known to be text;
@@ -41,6 +42,7 @@ from sqlglot.errors import SqlglotError
 from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
+from . import tsql_format
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
@@ -114,6 +116,10 @@ class KfTSQL(TSQL):
 
     # In T-SQL, W is weekday (as DW), not week: DATEPART(w, d) is 1 to 7.
     DATE_PART_MAPPING = {**TSQL.DATE_PART_MAPPING, "W": "DAYOFWEEK"}
+
+    class Parser(TSQL.Parser):  # type: ignore[misc,valid-type]  # as Tokenizer above
+        # FORMAT is kept as written until its value's type is known (tsql_format).
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build}
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -211,7 +217,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow)
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
+             tsql_format.TsqlFormat)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     if not here and not compared:
@@ -254,6 +261,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
+        elif isinstance(node, tsql_format.TsqlFormat):
+            tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
             if _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
@@ -334,6 +343,17 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
+_FLOATS = {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+
+
+def _float_text(value: exp.Expression) -> exp.Expr:
+    """A float as text in T-SQL's style 0: at most 6 significant digits, in scientific notation
+    from 1e+006 up and below 0.0001, with a three-digit exponent (``0.333333``, ``1.23457e+006``). That is C's
+    ``%g`` with the exponent padded; DuckDB writes the shortest exact form instead."""
+    printed = exp.func("PRINTF", exp.Literal.string("%g"), value)  # a float always converts
+    return exp.func("REGEXP_REPLACE", printed, exp.Literal.string(r"e([+-])(\d\d)$"), exp.Literal.string(r"e\10\2"))
+
+
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 _PADDED = {exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 
@@ -354,9 +374,10 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if isinstance(node, exp.TryCast):
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
     if _is(source, _NUMBERS):
-        too_long = exp.GT(this=exp.func("LENGTH", text.copy()), expression=exp.Literal.number(n))
+        shown = _float_text(node.this) if _is(source, _FLOATS) else text
+        too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=text)
+        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:
@@ -675,6 +696,9 @@ def _gaps(tree: exp.Expression) -> None:
         if mode.name not in ("0", "0.0"):  # ROUND(x, n, 1): cut, not round
             rounded.replace(exp.Anonymous(this="TRUNC", expressions=[rounded.this, rounded.args.get("decimals")
                                                                   or exp.Literal.number(0)]))
+    if any(True for _ in tree.find_all(tsql_format.TsqlFormat)):  # _types couldn't tell the value's type
+        raise ValueError(_NOT_YET + "FORMAT needs to know its value's type, and here it can't be told. "
+                         "CAST the value to DATETIME2, DATE or DECIMAL.")
     for limit in list(tree.find_all(exp.Limit)):
         options = limit.args.get("limit_options")
         if options is not None and options.args.get("with_ties"):
@@ -804,6 +828,19 @@ def _whole(node: exp.Expression | None, low: int) -> bool:
     return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
 
 
+def _number(node: exp.Expression | None) -> float | None:
+    """The value of a number literal such as ``2``, ``-1`` or ``-0.5``; None for anything else."""
+    sign = 1.0
+    if isinstance(node, exp.Neg):
+        node, sign = node.this, -1.0
+    if isinstance(node, exp.Literal) and not node.is_string:
+        try:
+            return sign * float(node.name)
+        except ValueError:
+            return None
+    return None
+
+
 def _string_edges(tree: exp.Expression) -> None:
     """Where DuckDB's string functions answer differently from T-SQL's at the edges, as T-SQL does:
 
@@ -813,10 +850,43 @@ def _string_edges(tree: exp.Expression) -> None:
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
     - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
+    - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
+      characters of ``a`` that have no partner in ``b``).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat)):
-        if isinstance(node, exp.Substring):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate)):
+        if isinstance(node, (exp.Left, exp.Right)):
+            name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
+            length = node.expression
+            message = f"Invalid length parameter passed to the {name} function."
+            value = _number(length)
+            if value is not None:
+                # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
+                if int(value) < 0:
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same "
+                                     "error.")
+                if value != int(value):
+                    node.set("expression", exp.Literal.number(int(value)))  # DuckDB would round it
+            elif not _whole(length, 0):
+                whole = exp.cast(exp.Trunc(this=length.copy()), "BIGINT")
+                negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+                node.set("expression", whole)
+                node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))],
+                                      default=node.copy()))
+        elif isinstance(node, exp.Translate):
+            source, target = node.args["from_"], node.args["to"]
+            message = ("The second and third arguments of the TRANSLATE function must contain an equal number "
+                       "of characters.")
+            if all(isinstance(x, exp.Literal) and x.is_string for x in (source, target)):
+                if len(source.name) != len(target.name):
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the "
+                                     "same error.")
+                continue
+            differ = exp.NEQ(this=exp.func("LENGTH", source.copy()), expression=exp.func("LENGTH", target.copy()))
+            node.replace(exp.Case(ifs=[exp.If(this=differ, true=exp.func("ERROR", exp.Literal.string(message)))],
+                                  default=node.copy()))
+        elif isinstance(node, exp.Substring):
             start, length = node.args.get("start"), node.args.get("length")
             if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
                 continue
@@ -832,8 +902,8 @@ def _string_edges(tree: exp.Expression) -> None:
                                default=exp.Substring(this=node.this, start=first, length=count))
             if not _whole(length, 0):
                 negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
-                message = exp.Literal.string("Invalid length parameter passed to the SUBSTRING function.")
-                cut = exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", message))], default=cut)
+                error = exp.func("ERROR", exp.Literal.string("Invalid length parameter passed to the SUBSTRING function."))
+                cut = exp.Case(ifs=[exp.If(this=negative, true=error)], default=cut)
             node.replace(cut)
         elif isinstance(node, exp.Stuff):
             start, length = node.args["start"], node.args["length"]

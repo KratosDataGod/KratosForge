@@ -9,14 +9,15 @@ import shutil
 import duckdb
 import pytest
 
-from fabric_desktop.academy import exercises, registry
+from fabric_desktop.academy import exercises, pipelab, registry
 
 PACK = "dp-700"
 
 
 def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
-    assert exercises.ids(PACK) == ["E21", "E23", "E24", "E25", "E33", "E35", "E36", "E37", "E38", "E39", "E43"]
+    assert exercises.ids(PACK) == ["E19", "E21", "E23", "E24", "E25", "E33", "E35", "E36", "E37", "E38", "E39",
+                                   "E43", "E48", "E49", "E57", "E58", "E59"]
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))
@@ -29,9 +30,16 @@ def test_reference_passes_and_every_wrong_answer_fails(eid):
         assert all(c["detail"] for c in r["results"])
 
 
-def test_the_starter_does_not_pass_yet():
+def test_the_starter_does_not_pass_yet(tmp_path):
     for eid in exercises.ids(PACK):
         ex = exercises.get(PACK, eid)
+        if ex["adapter"] == pipelab.ADAPTER:   # the starter pipeline, run as the learner's answer
+            folder = registry.ROOT / PACK / "exercises" / eid
+            work = tmp_path / eid
+            work.mkdir()
+            shutil.copy(folder / ex["starter"], work / ex["starter"])
+            assert not pipelab.grade(work, ex, folder)["passed"], eid
+            continue
         ref = exercises.reference(PACK, eid)
         assert not exercises.grade(ref["setup"], ex["validation"], ref["starter"], ref["solution"])["passed"], eid
 

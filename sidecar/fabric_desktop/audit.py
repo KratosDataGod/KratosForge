@@ -90,7 +90,7 @@ learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_ru
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
 pbi_embed_token pbi_embed_content
-appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview
+appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview appstudio_connections
 academy_exam_home academy_exam_heartbeat academy_exam_review
 """.split())
 

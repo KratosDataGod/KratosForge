@@ -13,16 +13,18 @@ def test_notebook_pins_semantic_link_labs_and_saves_to_lh_meta():
     nb = model_bpa.bpa_ipynb("ws1", "meta1")
     deps = nb["metadata"]["dependencies"]["lakehouse"]
     assert (deps["default_lakehouse"], deps["default_lakehouse_workspace_id"]) == ("meta1", "ws1")
-    params, install, check = nb["cells"][1:]
+    params, check = nb["cells"][1:]  # one check cell, so its error is saved: a failed cell cancels the rest
     assert params["metadata"]["tags"] == ["parameters"]
-    assert "".join(install["source"]) == f"%pip install -q semantic-link-labs=={model_bpa.VERSION}\n"
+    assert 'lakehouse = ""' in "".join(params["source"])
     code = "".join(check["source"])
+    assert f'"-m", "pip", "install", "-q", "semantic-link-labs=={model_bpa.VERSION}"' in code
     assert "run_model_bpa(dataset=dataset, workspace=workspace, extended=True, return_dataframe=True)" in code
-    assert "/lakehouse/default/Files/_fabric_desktop/results" in code
+    assert 'pathlib.Path("/lakehouse/default") / name' in code and 'name = f"Files/_fabric_desktop/results/{request_id}.json"' in code
     compile(code, "check", "exec")  # the cell is valid Python
     assert model_bpa.notebook_hash(nb) == model_bpa.notebook_hash(model_bpa.bpa_ipynb("ws1", "meta1"))
-    params = model_bpa.run_parameters("m1", "ws1", "r1")["parameters"]
+    params = model_bpa.run_parameters("m1", "ws1", "r1", "meta1")["parameters"]
     assert params["dataset"] == {"value": "m1", "type": "string"}
+    assert params["lakehouse"] == {"value": "meta1", "type": "string"}
     assert params["_inlineInstallationEnabled"] == {"value": True, "type": "bool"}  # else a job run skips %pip
 
 
@@ -187,6 +189,77 @@ def test_a_result_file_that_cant_be_read_says_so_and_status_still_answers(svc, b
     status = svc.model_bpa_status("test")
     assert status["last"] is None and status["failed"]["status"] == "Completed"
     assert status["failed"]["message"].startswith("The check finished, but the findings it saved in LH_Meta couldn't be read")
+
+
+def _run_cell(tmp_path, monkeypatch, pip_code=0, bpa=None):
+    """Run the check cell here, with pip, sempy_labs and the lakehouse mount stood in for."""
+    import subprocess
+    import sys
+    import types
+    code = "".join(model_bpa.bpa_ipynb("ws1", "meta1")["cells"][2]["source"]).replace("/lakehouse/default", tmp_path.as_posix())  # a Windows path has backslashes
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=pip_code, stdout="pip says hi\n", stderr=""))
+    labs = types.ModuleType("sempy_labs")
+    labs.run_model_bpa = bpa or (lambda **k: None)
+    monkeypatch.setitem(sys.modules, "sempy_labs", labs)
+    scope = {"dataset": "m1", "workspace": "ws1", "lakehouse": "meta1", "request_id": "r1"}
+    compiled = compile(code, "check", "exec")  # outside the try: a cell that doesn't compile fails the test
+    try:
+        exec(compiled, scope)
+    except Exception as exc:  # the cell fails the run after saving
+        raised = exc
+    else:
+        raised = None
+    return raised, json.loads((tmp_path / "Files/_fabric_desktop/results/r1.json").read_text(encoding="utf-8"))
+
+
+def test_the_check_cell_saves_its_error_before_failing_the_run(tmp_path, monkeypatch):
+    def boom(**k):
+        raise ValueError("XMLA endpoint is read-only")
+    raised, record = _run_cell(tmp_path, monkeypatch, bpa=boom)
+    assert isinstance(raised, ValueError)
+    err = model_bpa.error(record)
+    assert (err["type"], err["message"], err["pip"]) == ("ValueError", "XMLA endpoint is read-only", "pip says hi\n")
+    assert "Traceback" in err["traceback"]
+
+
+def test_the_check_cell_scrubs_secrets_from_the_error_it_saves(tmp_path, monkeypatch):
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"
+    def boom(**k):
+        raise ValueError(f"Authorization: Bearer abc.def-123 {jwt} https://x.blob/f?sv=1&sig=SECRETSIG https://bob:hunter2@host/p")
+    _, record = _run_cell(tmp_path, monkeypatch, bpa=boom)
+    saved = json.dumps(record["error"])
+    for secret in ("abc.def-123", jwt, "SECRETSIG", "hunter2"):
+        assert secret not in saved
+
+
+def test_a_saved_error_is_redacted_and_capped_again_when_read():
+    err = model_bpa.error({"error": {"type": "E", "message": "x" * 5000 + " Bearer abc.def-123",
+                                     "traceback": "t" * 20000, "pip": "p" * 9000}})
+    assert len(err["message"]) <= 2000 and "abc.def-123" not in err["message"]
+    assert (len(err["traceback"]), len(err["pip"])) == (8000, 4000)
+
+
+def test_the_check_cell_saves_a_failed_install_with_pips_output(tmp_path, monkeypatch):
+    raised, record = _run_cell(tmp_path, monkeypatch, pip_code=1)
+    assert isinstance(raised, RuntimeError)
+    assert model_bpa.error(record)["message"].startswith("pip install semantic-link-labs==")
+
+
+def test_the_check_cell_saves_findings_when_it_works(tmp_path, monkeypatch):
+    import importlib.metadata
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: model_bpa.VERSION)
+    raised, record = _run_cell(tmp_path, monkeypatch)
+    assert raised is None and model_bpa.error(record) is None
+    assert (record["version"], record["tables"], record["rows"]) == (model_bpa.VERSION, False, [])
+
+
+def test_a_check_that_saved_its_error_shows_it(svc):
+    err = {"type": "ValueError", "message": "XMLA endpoint is read-only", "traceback": "Traceback ...", "pip": "ok"}
+    _finish(svc, "Failed", json.dumps({"error": err}).encode())
+    failed = svc.model_bpa_status("test")["failed"]
+    assert failed["message"] == "The check failed in Fabric: ValueError: XMLA endpoint is read-only"
+    assert (failed["traceback"], failed["pip"]) == ("Traceback ...", "ok")
+    assert svc.model_bpa_status("test")["last"] is None
 
 
 def test_a_completed_check_that_saved_nothing_says_so(svc):

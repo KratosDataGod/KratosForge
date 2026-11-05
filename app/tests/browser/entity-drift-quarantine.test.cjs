@@ -4,7 +4,7 @@
 // card lists the held rows and why; Replay sends exactly the rows picked or fixed, with exactly the
 // fixed values; Discard asks first in a danger confirm, and Cancel sends nothing. The freshness card
 // shows each environment's promise as Fresh, Late or Never loaded, its dialog saves the promise as
-// entered, and the Teams alerts dialog sends the address and test choice picked. Home lists late
+// entered, and the incident alerts dialog sends the address and test choice picked. Home lists late
 // tables, or says every promise is kept. An engine error shows a plain message and the card stays as
 // it was. Opening the page and Home sends no write, and axe finds nothing serious on the cards and
 // dialogs.
@@ -99,8 +99,11 @@ before(async () => {
       db.entities[name].freshness = within_hours || by ? { within_hours, by, envs: envs || ["test", "prod"] } : null;
       return structuredClone(db.entities[name]);
     }),
-    meta_alerts: () => ({ teams_webhook: db.alerts }),
-    meta_set_alerts: failing("meta_set_alerts", ({ teams_webhook }) => { db.alerts = teams_webhook; return { teams_webhook }; }),
+    meta_alerts: () => ({ set: !!db.alerts, kind: db.alerts ? "teams" : "", label: db.alerts ? new URL(db.alerts).hostname : "" }),
+    meta_set_alerts: failing("meta_set_alerts", ({ teams_webhook }) => {
+      db.alerts = teams_webhook;
+      return { set: !!teams_webhook, kind: teams_webhook ? "teams" : "", label: teams_webhook ? new URL(teams_webhook).hostname : "" };
+    }),
   } });
   await startupReads(app);
   for (const end = Date.now() + 15000; !app.calls.some((c) => c.method === "meta_freshness"); await new Promise((r) => setTimeout(r, 50))) {
@@ -268,33 +271,40 @@ test("the freshness dialog saves the promise as entered", { skip }, async () => 
     params: { name: "silver.customers", within_hours: 24, by: null, envs: ["test", "prod"] } }]);
 });
 
-test("the Teams alerts dialog sends the address and choice picked; Cancel sends nothing", { skip }, async () => {
+test("the incident alerts dialog sends the address and choice picked; Cancel sends nothing", { skip }, async () => {
   await openPage("silver.orders");
   const openAlerts = async () => {
     await freshCard().getByRole("button", { name: "Change" }).click();
-    await dialog().getByRole("button", { name: /Set up Teams alerts|Change/ }).click();
-    await page().locator('#dialog-root .dialog[aria-label="Teams alerts"]').waitFor();
+    await dialog().getByRole("button", { name: /Set up alerts|Change/ }).click();
+    await page().locator('#dialog-root .dialog[aria-label="Incident alerts"]').waitFor();
   };
   await openAlerts();
   const from = app.calls.length;
-  await dialog().getByLabel("Webhook address").fill(WEBHOOK);
+  await dialog().getByLabel("Where alerts go").fill(WEBHOOK);
   await dialog().getByRole("button", { name: "Cancel" }).click();
   await dialog().waitFor({ state: "detached" });
   assert.deepStrictEqual(writes(from), [], "Cancel sends nothing");
 
   await openAlerts();
-  assert.strictEqual(await dialog().getByLabel("Webhook address").inputValue(), "");
-  await dialog().getByLabel("Webhook address").fill(`  ${WEBHOOK} `);
+  assert.strictEqual(await dialog().getByLabel("Where alerts go").inputValue(), "");
+  await dialog().getByLabel("Where alerts go").fill(`  ${WEBHOOK} `);
   await dialog().getByRole("button", { name: "Send a test and save" }).click();
   await toast().filter({ hasText: "Sent a test message to Teams and saved" }).waitFor();
   assert.deepStrictEqual(writes(from), [{ method: "meta_set_alerts", params: { teams_webhook: WEBHOOK, test: true } }]);
 
   await openAlerts();
-  assert.strictEqual(await dialog().getByLabel("Webhook address").inputValue(), WEBHOOK, "the saved address is shown");
+  assert.strictEqual(await dialog().getByLabel("New address").inputValue(), "", "the saved address never comes back to the page");
+  const shown = await dialog().textContent();
+  assert.ok(shown.includes(`Now: Teams, ${new URL(WEBHOOK).hostname}`) && !shown.includes(WEBHOOK));
   const from2 = app.calls.length;
-  await dialog().getByLabel("Webhook address").fill("");
   await dialog().getByRole("button", { name: "Save", exact: true }).click();
-  await toast().filter({ hasText: "Teams alerts are off" }).waitFor();
+  await dialog().getByText("Type the new address, or use Turn off.").waitFor();
+  assert.deepStrictEqual(writes(from2), [], "an empty Save sends nothing");
+  await dialog().getByRole("button", { name: "Turn off" }).click();
+  await page().locator('#dialog-root .dialog[aria-label="Turn off incident alerts?"]').waitFor();
+  assert.deepStrictEqual(writes(from2), [], "Turn off asks first");
+  await dialog().getByRole("button", { name: "Turn off" }).click();
+  await toast().filter({ hasText: "Alerts are off" }).waitFor();
   assert.deepStrictEqual(writes(from2), [{ method: "meta_set_alerts", params: { teams_webhook: "", test: false } }]);
 });
 
@@ -370,8 +380,8 @@ test("axe finds nothing serious on the cards and dialogs", { skip: skip || (!axe
   await freshCard().getByRole("button", { name: "Change" }).click();
   await dialog().waitFor();
   await check("freshness dialog", "#dialog-root .dialog");
-  await dialog().getByRole("button", { name: "Set up Teams alerts" }).click();
-  await page().locator('#dialog-root .dialog[aria-label="Teams alerts"]').waitFor();
+  await dialog().getByRole("button", { name: "Set up alerts" }).click();
+  await page().locator('#dialog-root .dialog[aria-label="Incident alerts"]').waitFor();
   await check("alerts dialog", "#dialog-root .dialog");
   await page().evaluate(() => closeDialog());
   await quarantine().getByLabel("Select row q-0003").check();

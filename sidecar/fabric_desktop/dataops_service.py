@@ -31,6 +31,7 @@ from .meta_service import NoMetadataProject
 from . import sealed_settings
 from .redact import describe, one_line
 from .retrying import send_with_retry
+from .workloads import deliver
 from .workloads.notify import LINE_MAX
 
 _log = logging.getLogger(__name__)
@@ -324,16 +325,22 @@ class DataOpsMixin:
         return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
 
     def meta_alerts(self) -> dict[str, Any]:
+        """Whether incident alerts are set, their kind and what the UI may show (deliver.label: a host,
+        or how many people). Never the address: a webhook or flow URL works like a password."""
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
+        out: dict[str, Any] = {"set": bool(url), "kind": deliver.kind(url) if url else "",
+                               "label": deliver.label(url, self._mail_server()) if url else ""}  # type: ignore[attr-defined]
+        return out | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
-        url = (teams_webhook or "").strip()
-        if url and not url.startswith("https://"):
-            raise ValueError("The Teams webhook address starts with https://")
+        """Where this PC's incident alerts go: a Teams webhook, a Power Automate flow (flow:https://...)
+        or email (mailto:a@x;b@y, through the company mail server). workloads/deliver.py checks it."""
+        url = deliver.check(teams_webhook or "")
+        if url and deliver.kind(url) == "email" and self._mail_server() is None:  # type: ignore[attr-defined]
+            raise ValueError("Set the company mail server first (Settings > Notifications), then email alerts can go out")
         if url and test:
-            post_teams(url, "KratosForge alerts are on",
-                       ["Late or failed tables will be posted here, once each."])
+            self._notice_post()(url, "KratosForge alerts are on",  # type: ignore[attr-defined]
+                                ["Late or failed tables will be sent here, once each."])
         self._save_settings(teams_webhook=url)  # type: ignore[attr-defined]
         return self.meta_alerts()
 

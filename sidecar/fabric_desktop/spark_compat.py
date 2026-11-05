@@ -10,6 +10,7 @@ Nothing here writes anywhere; it only builds queries. ``install()`` is called by
 
 from __future__ import annotations
 
+import builtins
 import itertools
 import re
 import sys
@@ -23,6 +24,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
+from . import spark_builtins_sql
 from . import sql as spark_sql
 
 _ids = itertools.count()
@@ -43,8 +45,9 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_sql.spark_substring(
-        spark_sql.spark_integer_casts(sqlglot.parse_one(text, read="spark")))))
+    tree = spark_builtins_sql.mark(sqlglot.parse_one(text, read="spark"))
+    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
+        spark_sql.spark_integer_casts(tree)))))
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -433,7 +436,7 @@ class WindowSpec:
         if self._partition:
             parts.append("PARTITION BY " + ", ".join(_col_sql(c) for c in self._partition))
         if self._order:
-            parts.append("ORDER BY " + ", ".join(f"{_col_sql(c)} {getattr(c, '_fd_order', 'ASC NULLS FIRST')}"
+            parts.append("ORDER BY " + ", ".join(f"{_col_sql(c)} {_order_of(c)}"
                                                  for c in self._order))
         if self._frame:
             parts.append(self._frame)
@@ -480,6 +483,39 @@ def _bound(n: int) -> str:
 # ORDER BY reads it from here.
 _ORDERS = {"asc": "ASC NULLS FIRST", "desc": "DESC NULLS LAST", "asc_nulls_first": "ASC NULLS FIRST",
            "asc_nulls_last": "ASC NULLS LAST", "desc_nulls_first": "DESC NULLS FIRST", "desc_nulls_last": "DESC NULLS LAST"}
+
+
+def _order_of(c: Any) -> str:
+    """The sort order ``.asc()``/``.desc()`` set on ``c``. Read from the instance itself: DuckDB's
+    ``Column.__getattr__`` answers any other name with a struct-field column, so getattr's default
+    would never be used."""
+    return vars(c).get("_fd_order", "ASC NULLS FIRST") if isinstance(c, Column) else "ASC NULLS FIRST"
+
+
+def _get_item(self: Column, key: Any) -> Column:
+    """``col.getItem(key)`` and ``col[key]``: a whole number is an array's 0-based position (NULL
+    outside the array, as Spark gives without ANSI mode); text is a map's key or a struct's field."""
+    if isinstance(key, Column):
+        raise NotImplementedError("getItem with a column doesn't run on this PC yet: "
+                                  "use F.element_at(col, position + 1) for an array, or a map's key as text")
+    if isinstance(key, bool) or not isinstance(key, (int, str)):
+        raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
+    if isinstance(key, int):
+        return _sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]")
+    return _sql(f"({_col_sql(self)})[{_lit(key)}]")
+
+
+def _getitem(original: Any) -> Any:
+    def getitem(self: Column, key: Any) -> Column:
+        return original(self, key) if isinstance(key, builtins.slice) else _get_item(self, key)
+    return getitem
+
+
+def _get_field(self: Column, name: str) -> Column:
+    """``col.getField(name)``: a struct's field."""
+    if not isinstance(name, str):
+        raise TypeError(f"getField takes a field name, not {type(name).__name__}")
+    return _sql(f"({_col_sql(self)})[{_lit(name)}]")
 
 
 def _ordered(name: str, fn: Any) -> Any:
@@ -1081,6 +1117,9 @@ def install() -> None:
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.getItem = _get_item  # type: ignore[attr-defined]
+    Column.getField = _get_field  # type: ignore[attr-defined]
+    Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
     Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
     Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
     # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.

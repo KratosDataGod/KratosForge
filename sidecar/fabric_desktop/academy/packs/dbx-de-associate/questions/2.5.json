@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.5",
+  "questions": [
+    {
+      "id": "2.5-q1",
+      "type": "single",
+      "stem": "Which PySpark code reads a table from a database over JDBC?",
+      "options": [
+        {
+          "id": "a",
+          "text": "spark.read.format(\"jdbc\").option(\"url\", url).option(\"dbtable\", \"orders\").load()"
+        },
+        {
+          "id": "b",
+          "text": "spark.read.csv(\"jdbc://orders\")"
+        },
+        {
+          "id": "c",
+          "text": "spark.readStream.format(\"cloudFiles\").load(url)"
+        },
+        {
+          "id": "d",
+          "text": "COPY INTO orders FROM url"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The jdbc source with url and dbtable options reads from a database; dbtable can also hold a subquery.",
+      "source": "https://docs.databricks.com/aws/en/connect/external-systems/jdbc",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.5-q2",
+      "type": "single",
+      "stem": "Where should the password for a JDBC connection come from in a notebook?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The table's column names"
+        },
+        {
+          "id": "b",
+          "text": "A comment in the code"
+        },
+        {
+          "id": "c",
+          "text": "A Databricks secret, read with dbutils.secrets.get"
+        },
+        {
+          "id": "d",
+          "text": "A string typed into the notebook"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Secrets keep credentials out of notebook code and results.",
+      "source": "https://docs.databricks.com/aws/en/connect/external-systems/jdbc",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.5-q3",
+      "type": "single",
+      "stem": "A notebook calls a REST API each hour and writes the results to a table. How should it be scheduled?",
+      "options": [
+        {
+          "id": "a",
+          "text": "By attaching the notebook to an all-purpose cluster with auto termination turned off"
+        },
+        {
+          "id": "b",
+          "text": "As a task in a Lakeflow Job with a schedule"
+        },
+        {
+          "id": "c",
+          "text": "With a dashboard refresh schedule"
+        },
+        {
+          "id": "d",
+          "text": "With a while loop that sleeps for an hour forever"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Lakeflow Jobs run notebooks on schedules, with monitoring of each run.",
+      "source": "https://docs.databricks.com/aws/en/jobs/",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.5-q4",
+      "type": "single",
+      "stem": "A JDBC read of a large table is slow because one task reads everything. Which options let Spark read in parallel?",
+      "options": [
+        {
+          "id": "a",
+          "text": "mergeSchema"
+        },
+        {
+          "id": "b",
+          "text": "header and inferSchema"
+        },
+        {
+          "id": "c",
+          "text": "partitionColumn, lowerBound, upperBound and numPartitions"
+        },
+        {
+          "id": "d",
+          "text": "checkpointLocation"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "With a partition column, bounds and a number of partitions, Spark splits the read into parallel queries.",
+      "source": "https://docs.databricks.com/aws/en/connect/external-systems/jdbc",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.5-q5",
+      "type": "single",
+      "stem": "Data pulled from an API in a notebook should land first as raw files before tables are built. Where can the notebook write them under Unity Catalog governance?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The driver's /tmp folder"
+        },
+        {
+          "id": "b",
+          "text": "A widget"
+        },
+        {
+          "id": "c",
+          "text": "The notebook's output"
+        },
+        {
+          "id": "d",
+          "text": "A Unity Catalog volume"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Volumes are Unity Catalog objects that govern non-tabular data, including landing areas for raw data from external systems.",
+      "source": "https://docs.databricks.com/aws/en/volumes/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

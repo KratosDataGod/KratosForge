@@ -39,7 +39,7 @@ GENESIS = audit_chain.GENESIS
 # Calls that only read or watch. Everything else is recorded, so a new call is audited unless it
 # is added here on purpose.
 READ_ONLY = frozenset("""
-access_cache access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules cached_schemas app_settings
+skins_list access_cache access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules cached_schemas app_settings
 editor_pending editor_status telemetry_status benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
 governance_applicability governance_overview governance_policy governance_resolve history
 governance_templates governance_last_check governance_practice_settings governance_product_checklist
@@ -61,16 +61,16 @@ shortcut_center shortcut_changes shortcut_check shortcut_connections shortcut_fi
 shortcut_request_envs
 shortcut_rules side_by_side_list side_by_side_status table_columns wizard_preview wizard_templates
 workload_capacity_use workload_detail workload_preflight workloads_list workspace_marks item_pins notebook_details notebook_batch xray xray_adopt_plan
-xray_optimize_check xray_vacuum_preview
+xray_optimize_check xray_vacuum_preview xray_staging_preview
 sql_analyze sql_practices sql_practice_rules sql_export_status sql_format sql_page sql_status
 sql_templates_list sql_queries_list wh_projects_list wh_project_files wh_project_read wh_project_compare wh_project_diff wh_project_deploy_plan wh_monitoring_status
-fabric_item_support fabric_git_links fabric_git_check fabric_git_overview git_branches git_capacity_diff git_commit_detail git_locations git_compare git_diff git_file_at git_info git_log git_notebook_info git_op_status git_platform_diff git_settings git_status git_vscode_plan side_by_side_writes side_by_side_cores
+fabric_item_support fabric_git_links fabric_git_check fabric_git_overview fabric_git_status git_branches git_capacity_diff git_commit_detail git_locations git_compare git_diff git_file_at git_info git_log git_notebook_info git_op_status git_platform_diff git_settings git_status git_vscode_plan side_by_side_writes side_by_side_cores
 local_delta_history local_explain local_query_status local_transform_plan local_transform_runs
 pipeline_compatibility pipeline_export pipeline_import
 usage_preview
 risk_check meta_risk_gate risk_settings
 model_bpa_status model_bpa_risk
-incidents_board incident_sla_policy incidents_history incident_impact
+incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
 optimize_discover optimize_findings optimize_recommendations optimize_status
 tenant_settings_history
 platform_notify_settings platform_notify_open
@@ -85,17 +85,19 @@ notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing n
 notebook_formats_import_check
 profile_get profile_report profile_avatar
 notebook_comments_list
-engine_catalog engine_connections engine_prepare engine_state engine_poll_cell
+engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns
+academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
 pbi_embed_token pbi_embed_content
 appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview
+academy_exam_home academy_exam_heartbeat academy_exam_review
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.
 _CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
                       "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes",
-                      "report_summary", "identity"})
+                      "report_summary", "identity", "teams_webhook"})
 _MAX = 200
 
 

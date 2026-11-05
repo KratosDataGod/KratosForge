@@ -298,6 +298,18 @@ class Client:
         """Terminate the cluster, keeping its definition (Clusters API ``delete``). Only the live test calls it."""
         self._call("POST", "/api/2.1/clusters/delete", json={"cluster_id": _checked_id(cluster_id, "cluster")})
 
+    # Workspace API writes: only workspace sync (databricks_workspace_sync.py) calls them, after its checks.
+    def workspace_import(self, body: dict[str, Any]) -> None:
+        """Write one notebook or file (Workspace API ``import``). Not repeated on a 5xx: it may have landed."""
+        self._call("POST", "/api/2.0/workspace/import", repeatable=False, json=body)
+
+    def workspace_mkdirs(self, path: str) -> None:
+        self._call("POST", "/api/2.0/workspace/mkdirs", repeatable=True, json={"path": path})
+
+    def workspace_delete(self, path: str) -> None:
+        """Delete one notebook or file, never a folder's contents (``recursive`` false)."""
+        self._call("POST", "/api/2.0/workspace/delete", repeatable=False, json={"path": path, "recursive": False})
+
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/api/2.0/sql/statements", json=body)
 

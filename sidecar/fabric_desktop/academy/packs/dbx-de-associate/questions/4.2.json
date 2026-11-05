@@ -1,0 +1,168 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "4.2",
+  "questions": [
+    {
+      "id": "4.2-q1",
+      "type": "single",
+      "stem": "In a Lakeflow job, how does one task wait for another?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It polls the other task's output table in a loop"
+        },
+        {
+          "id": "b",
+          "text": "Tasks run in the order they appear in the job's task list"
+        },
+        {
+          "id": "c",
+          "text": "It lists the other task in its Depends on setting"
+        },
+        {
+          "id": "d",
+          "text": "It must be placed in a separate job"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Depends on sets a task's upstream tasks; by default it runs when they have all succeeded.",
+      "source": "https://docs.databricks.com/aws/en/jobs/run-if",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.2-q2",
+      "type": "single",
+      "stem": "A notebook task computes a file count that a later task needs. What is the supported way to pass it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write it to a global Python variable"
+        },
+        {
+          "id": "b",
+          "text": "Set a task value in the first task and read it in the later task"
+        },
+        {
+          "id": "c",
+          "text": "Store it in the cluster's environment variables"
+        },
+        {
+          "id": "d",
+          "text": "Print it and parse the job log"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Task values let a task set a small value that downstream tasks in the same run can read.",
+      "source": "https://docs.databricks.com/aws/en/jobs/task-values",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.2-q3",
+      "type": "multiple",
+      "stem": "Which of these are task types a Lakeflow job can run? Choose three.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Pipeline"
+        },
+        {
+          "id": "b",
+          "text": "Cluster policy"
+        },
+        {
+          "id": "c",
+          "text": "Notebook"
+        },
+        {
+          "id": "d",
+          "text": "SQL"
+        }
+      ],
+      "answer": [
+        "c",
+        "d",
+        "a"
+      ],
+      "explanation": "Jobs run notebooks, SQL, pipelines and more; a cluster policy limits how compute can be configured, and isn't a task type.",
+      "source": "https://docs.databricks.com/aws/en/jobs/configure-task",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.2-q4",
+      "type": "order",
+      "stem": "Arrange the tasks of a medallion job in a valid dependency order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Ingest raw files to bronze"
+        },
+        {
+          "id": "b",
+          "text": "Aggregate into gold"
+        },
+        {
+          "id": "c",
+          "text": "Clean and join into silver"
+        },
+        {
+          "id": "d",
+          "text": "Refresh the dashboard"
+        }
+      ],
+      "answer": [
+        "a",
+        "c",
+        "b",
+        "d"
+      ],
+      "explanation": "Each layer depends on the one before it, so the tasks form a chain from bronze to the dashboard.",
+      "source": "https://docs.databricks.com/aws/en/jobs/",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.2-q5",
+      "type": "single",
+      "stem": "What do the tasks in a Fernhill job and their dependencies form?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A loop that repeats until a task fails"
+        },
+        {
+          "id": "b",
+          "text": "A directed acyclic graph (DAG)"
+        },
+        {
+          "id": "c",
+          "text": "A single notebook"
+        },
+        {
+          "id": "d",
+          "text": "A Unity Catalog schema"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A job's tasks and their dependencies form a directed acyclic graph.",
+      "source": "https://docs.databricks.com/aws/en/jobs/",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.5",
+  "questions": [
+    {
+      "id": "2.2.5-q1",
+      "type": "single",
+      "stem": "You need to move files from Amazon S3 into a lakehouse each night without changing them. Which pipeline activity does the work?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Copy data"
+        },
+        {
+          "id": "b",
+          "text": "Dataflow"
+        },
+        {
+          "id": "c",
+          "text": "Set variable"
+        },
+        {
+          "id": "d",
+          "text": "Notebook"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The Copy activity moves data between a source and a destination and is the usual way to land data unchanged. Notebooks and dataflows are for transforming it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.5-q2",
+      "type": "single",
+      "stem": "A pipeline must copy data from a SQL Server on the company's own network into a lakehouse. What does the connection need?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "b",
+          "text": "A OneLake shortcut to the SQL Server"
+        },
+        {
+          "id": "c",
+          "text": "An on-premises data gateway"
+        },
+        {
+          "id": "d",
+          "text": "Nothing: Fabric reaches private networks directly"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Fabric reaches data on a private network through an on-premises data gateway installed on that network.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/how-to-access-on-premises-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.5-q3",
+      "type": "order",
+      "stem": "A pipeline copies a list of tables whose names are stored in a control table. Put its activities in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Copy activity inside the ForEach copies one table, using the current item for its names"
+        },
+        {
+          "id": "b",
+          "text": "A ForEach activity iterates over the Lookup's output"
+        },
+        {
+          "id": "c",
+          "text": "A Lookup activity reads the list of table names"
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "a"
+      ],
+      "explanation": "The Lookup returns the list, the ForEach loops over it, and the Copy inside the loop uses @item() to parameterize the source and destination for each table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.5-q4",
+      "type": "single",
+      "stem": "You want to copy data incrementally from a database into a lakehouse with the simplest setup, without designing a pipeline. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL update policy"
+        },
+        {
+          "id": "b",
+          "text": "A copy job"
+        },
+        {
+          "id": "c",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "d",
+          "text": "An eventstream"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A copy job moves data from source to destination, including incremental copies, with a guided setup and no pipeline to design.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

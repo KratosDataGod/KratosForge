@@ -292,6 +292,10 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
     assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
     assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    # The shape Fabric's own getDefinition returns: schema 1.1.0 and a libraries block (probe, 2026-11-03)
+    body = json.loads(parts["definition.json"])
+    assert body["$schema"].endswith("/definition/1.1.0/schema.json")
+    assert body["libraries"] == {"public": [], "private": []}
     key_table = next(f for f in described if f["name"] == "ensure_key_table")
     assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
         ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
@@ -299,7 +303,7 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     # Fabric refuses a connection binding without an item type it knows (live run 3, 2026-11-03)
     assert key_table["bindings"][1]["itemType"] == "SqlDbNative"
     assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
-        {"dataType": "str", "name": n} for n in ("name", "business_key", "description", "domain_id")]
+        {"dataType": "str", "name": n} for n in ("name", "businessKey", "description", "domainId")]
     assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
 
 
@@ -1545,6 +1549,18 @@ def test_the_refusing_fake_refuses_a_udf_with_no_functions():
     assert err.value.code == "NullOrEmptyArgument" and UDF_NO_FUNCTIONS in str(err.value)
 
 
+def test_a_parameter_with_an_underscore_is_refused_as_fabric_did():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    code = files["function_app.py"].replace("businessKeys: list", "business_keys: list")
+    with pytest.raises(FabricError, match=r"Function 'issue_keys' \(line \d+\): input parameter 'business_keys' "
+                       r"cannot contain an underscore") as err:
+        check_item("UserDataFunction", {**files, "function_app.py": code})
+    assert err.value.code == "MetadataValidationError"
+
+
 def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
     from tests.fabric_refusals import UDF_NO_ARTIFACT_TYPE, check_item
     files = udf.definition("ws", "sql")
@@ -1563,9 +1579,11 @@ def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
 def test_a_data_source_fabric_doesnt_name_is_refused_as_fabric_did():
     from tests.fabric_refusals import check_item
     files = udf.definition("ws", "sql")
-    assert json.loads(files["definition.json"])["connectedDataSources"][0]["sourceType"] == "SqlDbNative"
+    [source] = json.loads(files["definition.json"])["connectedDataSources"]
+    assert source["artifactType"] == "SqlDbNative" and "sourceType" not in source
     body = json.loads(files["definition.json"])
-    body["connectedDataSources"][0]["sourceType"] = "SqlDatabase"  # what live run 4 sent
+    body["connectedDataSources"][0] = {k: v for k, v in source.items() if k != "artifactType"}
+    body["connectedDataSources"][0]["sourceType"] = "SqlDbNative"  # what live run 5 sent
     files["definition.json"] = json.dumps(body)
     with pytest.raises(Exception, match="artifactType"):
         check_item("UserDataFunction", files)

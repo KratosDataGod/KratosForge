@@ -447,6 +447,7 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Sec", _template("1 / COS(CAST(fj_arg0 AS DOUBLE))", 1)),
         ("DateFromUnixDate", _template("CAST(DATE '1970-01-01' + CAST(fj_arg0 AS INTEGER) AS DATE)", 1)),
         ("Elt", _elt),
+        ("TsOrDsToDate", _to_date_with_format),
         ("ArraysZip", _arrays_zip),
         ("BitmapConstructAgg", _template(_BITMAP_CONSTRUCT_AGG, 1)),
         ("FirstValue", lambda n, a: None if n.find_ancestor(exp.Window) else _with_args("FIRST(fj_arg0)", [n.this])),
@@ -486,6 +487,17 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                                                                 n.args["num_buckets"]])),
     ]
     return [(cls, build) for name, build in table if (cls := getattr(exp, name, None)) is not None]
+
+
+def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """to_date(text, format) reads the text with the format, also when the format is sqlglot's
+    default ('yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd'), which sqlglot otherwise writes as a plain cast
+    that ignores it: Spark gives NULL for '2026-03-02' with 'yyyy-MM-dd HH:mm:ss'."""
+    fmt = node.args.get("format")
+    if fmt is None or not fmt.is_string:
+        return None
+    parsed = exp.StrToTime(this=node.this.copy(), format=fmt.copy(), safe=True)
+    return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
 
 
 def _uncast(node: exp.Expression) -> exp.Expression:

@@ -141,7 +141,8 @@ class JobQueue:
                                   (dedupe_key,)).fetchone()
                 if same:
                     return self._row(same) | {"deduplicated": True}  # type: ignore[operator]
-            job_id = f"job-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{uuid.uuid4().hex[:6]}"
+            # 48 random bits: ids made in the same second must never meet (6 hex digits did, ~1 in 800 for 200 jobs).
+            job_id = f"job-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{uuid.uuid4().hex[:12]}"
             db.execute("insert into jobs (id, kind, payload, state, source, dedupe_key, max_attempts, next_at, created_at)"
                        " values (?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
                        (job_id, kind, json.dumps(payload), source, dedupe_key, max(1, int(max_attempts)), now + delay, now))

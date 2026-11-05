@@ -72,7 +72,80 @@ async function platformGovernanceTab(body) {
             p.draft_version && p.current_version ? [" ", h("span", { class: "pill-s neu" }, `draft v${p.draft_version}`)] : null),
           h("td", {}, govPill(GOV_STATUS, p.status)),
           h("td", {}, p.assignments ? `${p.assignments} place${p.assignments === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "not assigned"))))))
-        : h("p", { class: "muted-text" }, g.query || g.category || g.status ? "No policy matches." : "No policies yet."))].filter(Boolean));
+        : h("p", { class: "muted-text" }, g.query || g.category || g.status ? "No policy matches." : "No policies yet.")),
+    previewShown() ? changeWindowCard(govCan(o).admin) : null].filter(Boolean));
+}
+
+// ---------- the change window (data mesh P6) ----------
+// When the platform agrees changes to Prod happen. A promote outside it, that changes products other
+// projects read, gets a warning naming them. It never blocks (central/core.checked_change_window).
+
+const CW_DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+
+function changeWindowText(w) {
+  const idx = w.days.map((d) => CW_DAYS.findIndex(([k]) => k === d)).filter((i) => i >= 0);
+  const run = idx.length > 2 && idx.every((v, i) => i === 0 || v === idx[i - 1] + 1);
+  const days = run ? `${CW_DAYS[idx[0]][1]} to ${CW_DAYS[idx[idx.length - 1]][1]}` : idx.map((i) => CW_DAYS[i][1]).join(", ");
+  const envs = (w.envs || ["prod"]).map((e) => ({ test: "Test", prod: "Prod" }[e] || e)).join(" and ");
+  return `${days}, ${w.start} to ${w.end} (${w.time_zone}), for ${envs}`;
+}
+
+function changeWindowCard(admin) {
+  const card = h("div", { class: "card pad change-window" }, h("b", {}, "Change window"), loading());
+  const draw = async () => {
+    let res;
+    try { res = await rpc("platform_change_window", {}); } catch (err) {
+      if (card.isConnected) card.replaceChildren(h("b", {}, "Change window"), errorPanel(err, { label: "Couldn't read the change window", retry: draw }));
+      return;
+    }
+    if (!card.isConnected) return;
+    const w = res.window;
+    card.replaceChildren(h("div", { class: "row tight" }, h("b", { class: "grow" }, "Change window"), previewTag(),
+      admin && res.available !== false ? btn(w ? "Change" : "Set a change window", null, () => changeWindowDialog(w, draw), "tool outline small") : null),
+      res.available === false ? h("p", { class: "wrn-text small" }, res.problem || "The platform can't keep a change window yet.")
+        : h("p", { class: "cw-now" }, w ? changeWindowText(w) : h("span", { class: "muted-text" }, "None set: promotes get no change window warning.")),
+      h("p", { class: "muted-text small" }, "A promote outside the window that changes products other projects read gets a warning naming them. It never blocks. Only platform admins set it."));
+  };
+  draw();
+  return card;
+}
+
+function changeWindowDialog(w, done) {
+  const cur = w || { days: ["mon", "tue", "wed", "thu"], start: "08:00", end: "16:00", envs: ["prod"],
+    time_zone: (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") };
+  const boxes = CW_DAYS.map(([k, label]) => ({ k, box: h("input", { type: "checkbox", checked: cur.days.includes(k) ? true : null }), label }));
+  const problem = h("p", { class: "error-text small cw-problem", role: "alert" });
+  const start = h("input", { type: "time", value: cur.start });
+  const end = h("input", { type: "time", value: cur.end });
+  const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const zone = h("input", { value: cur.time_zone, list: "cw-zones", placeholder: "Like Europe/London" });
+  // Offer the window's own envs too (the platform takes any of test and prod), so saving keeps them.
+  const curEnvs = ["test", "prod"].filter((e) => (cur.envs?.length ? cur.envs : ["prod"]).includes(e)).join(",") || "prod";
+  const envChoices = [["prod", "Prod"], ["test,prod", "Test and Prod"]];
+  if (!envChoices.some(([v]) => v === curEnvs)) envChoices.push([curEnvs, curEnvs.split(",").map((e) => ({ test: "Test", prod: "Prod" }[e])).join(" and ")]);
+  const envs = h("select", {}, envChoices.map(([v, t]) => h("option", { value: v, selected: curEnvs === v ? true : null }, t)));
+  const save = async (window) => {
+    if (window) {
+      const wrong = !window.days.length ? "Tick at least one day." : !window.start || !window.end || window.end <= window.start
+        ? "Until must be later than From, on the same day." : !window.time_zone ? "Give a time zone, like Europe/London." : "";
+      problem.textContent = wrong;
+      if (wrong) return;
+    }
+    if (await metaCall("platform_save_change_window", { window }, "Not saved")) { closeDialog(); toast(window ? "Change window saved" : "Change window cleared"); done(); }
+  };
+  showDialog(w ? "Edit the change window" : "Set a change window", h("div", { class: "scroll" },
+    h("fieldset", { class: "cw-days-set" }, h("legend", {}, "Days"), h("div", { class: "row tight cw-days" }, boxes.map((b) => h("label", { class: "check" }, b.box, b.label)))),
+    h("div", { class: "form-grid" }, h("label", { class: "field" }, "From", start), h("label", { class: "field" }, "Until", end),
+      h("label", { class: "field" }, "Time zone", zone), h("label", { class: "field" }, "Applies to", envs)),
+    h("datalist", { id: "cw-zones" }, zones.map((z) => h("option", { value: z }))),
+    h("p", { class: "muted-text small" }, "From and Until are on the same day, and Until must be later. The window uses its own time zone, so every PC agrees."),
+    problem), [
+    w ? btn("Clear", null, async () => {
+      if (await confirmDialog("Clear the change window?", "Promotes get no change window warning until an admin sets one again.", "Clear", { danger: true })) save(null);
+    }, "tool outline") : null,
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Save", "save", () => save({ days: boxes.filter((b) => b.box.checked).map((b) => b.k), start: start.value.slice(0, 5),
+      end: end.value.slice(0, 5), time_zone: zone.value.trim(), envs: envs.value.split(",") }), "tool primary")].filter(Boolean));
 }
 
 // ---------- one policy ----------

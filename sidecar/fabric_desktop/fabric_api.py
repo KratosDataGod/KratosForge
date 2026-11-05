@@ -353,7 +353,8 @@ class FabricClient:
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
-        harness calls this, for lakehouses it created itself."""
+        harness (for lakehouses it created itself) and X-ray's Remove (for a leftover Dataflow Gen2
+        staging lakehouse, after xray_service._staging_check) call this."""
         self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
 
     def delete_item(self, workspace_id: str, item_id: str) -> None:
@@ -646,6 +647,21 @@ class FabricClient:
         """The workspace's own Git connection (provider, repository, branch, folder, last synced
         commit). A read: Workspace.ReadWrite.All covers it, and it changes nothing."""
         return self._request("GET", f"/workspaces/{workspace_id}/git/connection").json()
+
+    def git_status(self, workspace_id: str) -> dict[str, Any]:
+        """Which items differ between the workspace and its Git branch, and their conflicts. A
+        long-running read (Workspace.GitUpdate.All or Workspace.GitCommit.All); changes nothing."""
+        return self._wait(self._request("GET", f"/workspaces/{workspace_id}/git/status"))
+
+    def git_update_from_git(self, workspace_id: str, remote_commit: str, workspace_head: str,
+                            policy: str | None, allow_override: bool) -> dict[str, Any]:
+        """Bring the workspace up to ``remote_commit`` (Update From Git, long-running). Fabric itself
+        refuses when the workspace head moved (WorkspaceHeadMismatch). Workspace.GitUpdate.All."""
+        body: dict[str, Any] = {"remoteCommitHash": remote_commit, "workspaceHead": workspace_head or None,
+                                "options": {"allowOverrideItems": bool(allow_override)}}
+        if policy:
+            body["conflictResolution"] = {"conflictResolutionType": "Workspace", "conflictResolutionPolicy": policy}
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/git/updateFromGit", json=body))
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}").json()

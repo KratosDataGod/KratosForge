@@ -1028,7 +1028,24 @@ class PlatformMixin:
         groups = self._product_groups(self._catalog())  # type: ignore[attr-defined]
         for p in products:
             p["items"] = [g for g in groups or [] if g["product_id"] == p["id"]]
-        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None}
+        # How each product is doing now, per environment, as its team last reported it (Preview).
+        health = self._product_health()
+        for p in products:
+            p["health"] = {r["env"]: {k: r.get(k) or "" for k in ("status", "why", "latest", "latest_at", "checked_at")}
+                           for r in health or [] if r["product_id"] == p["id"]}
+        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None,
+                "can_status": health is not None}
+
+    def _product_health(self) -> list[dict[str, Any]] | None:
+        """Every product's reported status; None when the platform is older than the Status view."""
+        try:
+            return self._catalog().call("list_product_status")
+        except LookupError:
+            return None
+        except core.PlatformError as exc:
+            if "list_product_status" in str(exc):
+                return None
+            raise
 
     def _my_follows(self) -> list[str] | None:
         """The products the signed-in person follows; None when the platform is older than following."""

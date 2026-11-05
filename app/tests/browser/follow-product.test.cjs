@@ -18,7 +18,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({ mocks: {
     platform_products: () => ({ project: null, products: products(), can_follow: !older }),
-    platform_product_trust: () => ({ product_id: "crm/c360", name: "c360", owner: "", admin: false, can_edit_terms: false, items: [], terms: [] }),
+    platform_product_trust: () => ({ product_id: "crm/c360", name: "c360", owner: "", admin: false, can_edit: false, items: [] }),
     platform_follow: ({ product_id, follow }) => {
       follows = follow ? [...new Set([...follows, product_id])] : follows.filter((x) => x !== product_id);
       return { following: follows };

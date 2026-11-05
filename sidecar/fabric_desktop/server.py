@@ -24,7 +24,7 @@ from . import audit, net_trust, rpc_params
 from .redact import secrets
 from .service import Service
 
-METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
+METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
            "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
@@ -37,7 +37,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_owner_coverage", "platform_note_seen", "platform_access_reviews", "platform_confirm_access", "platform_overview", "platform_products",
-           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
+           "platform_product_trust", "platform_scan_endorsement", "platform_follow",
            "platform_product_items", "platform_add_product_item", "platform_remove_product_item",
            "platform_entra_groups", "platform_entra_script", "platform_entra_save", "platform_entra_link", "platform_entra_unlink",
            "platform_entra_naming_save", "platform_entra_find", "platform_entra_check",
@@ -75,14 +75,15 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "update_pc_schedule", "set_pc_schedule_signed_out", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "update_fabric_schedule", "time_zones", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
+           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_staging_preview", "xray_remove_staging",
+           "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
            "workload_preflight", "workload_act", "workload_capacity_use",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
-           "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incidents_board", "incidents_for_me", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
            "incident_impact", "incident_tell_impacted",
            "receipt_get", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
@@ -93,7 +94,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_sessions", "stop_kernel_process", "kernel_session_share", "kernel_session_leave", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
            "notebook_dependencies", "side_by_side_writes", "side_by_side_cores", "side_by_side_cores_set",
            "fabric_item_support", "fabric_git_links", "fabric_git_check", "fabric_git_link",
-           "fabric_git_unlink", "fabric_git_overview",
+           "fabric_git_unlink", "fabric_git_overview", "fabric_git_status",
+           "fabric_git_update",
            "git_info", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_status", "git_diff", "git_stage",
            "git_stage_all", "git_unstage", "git_discard", "git_commit", "git_log", "git_commit_detail",
@@ -152,6 +154,16 @@ METHODS |= ACCESS_CACHE_METHODS
 from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
 
 METHODS |= LEARN_METHODS
+
+# Academy (Preview): certification packs, exercises and readiness on this PC (academy_service.py).
+from .academy_service import METHODS as ACADEMY_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_METHODS
+
+# Academy > Assessments (Preview): practice exams, diagnostics and drills on this PC (academy_exam_service.py).
+from .academy_exam_service import METHODS as ACADEMY_EXAM_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_EXAM_METHODS
 
 # Fabric App Studio (Preview): projects, Design changes and the local preview (appstudio_service.py).
 from .appstudio_service import METHODS as APPSTUDIO_METHODS  # noqa: E402

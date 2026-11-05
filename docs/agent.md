@@ -167,7 +167,7 @@ fabric-desktop agent status                          # queue counts, next schedu
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
 fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # rebuild it and everything downstream
-fabric-desktop agent requeue job-20261025-020000-ab12cd  # run a dead or failed job again, attempts reset
+fabric-desktop agent requeue job-20261025-020000-ab12cd34ef56  # run a dead or failed job again, attempts reset
 fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 
@@ -229,7 +229,7 @@ A failed run's incident carries a **likely category** matched from the error tex
 
 With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert waits the same way, in `job_alerts.sqlite3`: it goes before the next such alert, or with the next status update (`status_seconds`), marked **Delayed**, and is dropped after three days.
 
-Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped.
+Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped. The variable can hold a Teams webhook address or a Power Automate flow as `flow:https://...` (the flow gets JSON with `title`, `lines`, `text` and `source`). An agent has no company mail server, so a `mailto:` address is logged and skipped: send email from an agent through a flow, or from the app ([incidents](incidents.md#teams-a-flow-or-email)).
 
 ```toml
 [incidents]

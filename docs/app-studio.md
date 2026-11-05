@@ -26,6 +26,10 @@ Projects are folders under this PC's KratosForge data (`appstudio/projects/<name
 - **Ask for a change** (engine ready, screen after its mockup): your model sees the app's pages and components (ids, types, titles, measure names and fields) and the same metadata, and answers with named changes such as "show this as a column chart" or "add a card". KratosForge turns them into changes it checks against the data and the target, shows the result before anything is saved, and saves your approval as one step that Undo takes back. Anything the request didn't name stays exactly as it was.
 
 A model connection holds a reference to your key (`credman:KratosForge/<name>` in Windows Credential Manager, or an environment variable such as `env:KRATOSFORGE_<NAME>`), never the key itself. Nothing is sent until you agree to send app context to that model. Your organization can turn connections off, limit the providers and the addresses they reach, and stop sample rows being sent (the `appstudio_*` keys in the [policy file](azure-setup.md)).
-- **Publish…** shows what publishing would create today, and what is missing. Publishing a Power BI report comes in a later update, and asks for your approval before its first write to Fabric.
+- **Publish…** shows what publishing would create today, and what is missing. Publishing a Power BI report is ready in the engine; its button turns on after the dialog's mockup. When it does:
+  - The check reads the app's semantic model, the workspace's name and the reports in it, and writes nothing. It stops on anything the model doesn't have (a measure or a column), and on an app that still reads sample data.
+  - Publishing makes one report, bound to that semantic model, in the workspace you choose (the model's own by default). You type the workspace's name to confirm. If a report with the same name is already there, you are told whether this project published it, and it is replaced only if you say so.
+  - If the app, the workspace or the report there changed after the check, you are asked to check again.
+  - Each attempt goes in the project's history with the workspace and report ids, never the definition or a token. If a publish fails part way, the history says so, and the report it left behind (if any) is found and offered for replacing on the next try.
 
-App Studio writes nothing to Fabric yet. Testing a model connection only lists the models its key can see.
+App Studio writes nothing to Fabric until you publish. Testing a model connection only lists the models its key can see.

@@ -356,3 +356,37 @@ def test_parse_url_of_a_column_and_nulls():
 def test_parse_url_refuses_what_could_differ_by_name(query):
     with pytest.raises(duckdb.Error, match="parse_url.*this PC"):
         sql.run(query)
+
+
+# EXTRACT and date_part as Spark 3.5 answers them: 2019-08-12 is a Monday, the day of the week counts
+# from Sunday = 1 (ISO from Monday = 1), seconds keep their fraction as decimal(8,6), the other fields
+# are int, and Spark's TIMESTAMP (read as TIMESTAMPTZ) is read in the session's zone, UTC.
+@pytest.mark.parametrize("query, want, kind", [
+    ("SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')", 2019, "int"),
+    ("SELECT extract(HOUR FROM CAST('2019-08-12 23:00:00' AS TIMESTAMP))", 23, "int"),
+    ("SELECT extract(DOW FROM DATE '2019-08-12')", 2, "int"),
+    ("SELECT extract(DAYOFWEEK FROM TIMESTAMP '2019-08-18 10:00:00')", 1, "int"),
+    ("SELECT extract(DOW_ISO FROM DATE '2019-08-18')", 7, "int"),
+    ("SELECT extract(SECONDS FROM TIMESTAMP '2019-10-01 00:00:01.000001')", Decimal("1.000001"), "decimal(8,6)"),
+    ("SELECT extract(S FROM TIMESTAMP '2019-10-01 00:00:59.999999')", Decimal("59.999999"), "decimal(8,6)"),
+    ("SELECT extract(SECOND FROM DATE '2019-10-01')", Decimal("0"), "decimal(8,6)"),
+    ("SELECT extract(WEEK FROM DATE '2019-08-12')", 33, "int"),
+    ("SELECT extract(YEAR FROM '2019-08-12')", 2019, "int"),
+    ("SELECT extract(YEAR FROM 'not a date')", None, "int"),
+    ("SELECT date_part('DOW', DATE '2019-08-12')", 2, "int"),
+    ("SELECT datepart('SECONDS', TIMESTAMP '2019-10-01 00:00:01.000001')", Decimal("1.000001"), "decimal(8,6)"),
+    ("SELECT date_part('YEAR', TIMESTAMP '2019-10-01 00:00:01')", 2019, "int"),
+])
+def test_extract_and_date_part_give_sparks_value_and_type(query, want, kind):
+    assert one(query) == want
+    assert one(f"SELECT typeof(x) FROM ({query}) AS t(x)") == kind  # Spark's typeof
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')", 1460073600),
+    ("SELECT to_unix_timestamp('04/08/2016 01:02:03', 'MM/dd/yyyy HH:mm:ss')", 1460077323),
+    ("SELECT to_unix_timestamp('2016-04-08 10:11:12')", 1460110272),
+    ("SELECT to_unix_timestamp('2016/04/08', 'yyyy-MM-dd')", None),
+])
+def test_to_unix_timestamp_reads_its_format_as_unix_timestamp_does(query, want):
+    assert one(query) == want

@@ -3025,9 +3025,15 @@ async function checkComponents(afterInstall = false) {
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.
     set("app", "busy", `Updating to build ${short(latest.commit)}…`);
+    let target = short(latest.commit);
     const unlisten = await listen((line) => {
+      const moved = REPLACED_BUILD.exec(line);
+      if (moved) {
+        target = moved[2];
+        set("app", "busy", `Installing build ${moved[2]}, which replaced ${moved[1]}…`);
+      }
       const m = /^progress (\d+)/.exec(line);
-      if (m) set("app", "busy", `Downloading build ${short(latest.commit)}… ${m[1]}%`);
+      if (m) set("app", "busy", `Downloading build ${target}… ${m[1]}%`);
     });
     try {
       await invoke("update_app", { commit: latest.commit });

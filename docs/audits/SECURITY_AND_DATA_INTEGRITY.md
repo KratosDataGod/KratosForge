@@ -45,18 +45,18 @@ Each control below was checked on current code. Most have a regression test, nam
 
 | Id | Pri | Summary | State |
 | --- | --- | --- | --- |
-| EA-001 | P1 | Appends quietly convert values to the table's column types | Open, routed |
-| EA-002 | P1 | Notebook Parquet and CSV file writes ignored the save mode, so append replaced the file | Fix in review |
-| EA-004 | P1 | `sum` and decimal arithmetic write different Delta types than Spark | Open, routed |
-| EA-005 | P2 | An overwrite keeps rows a concurrent external writer appended | Open, routed |
-| EA-006 | P2 | A lease lost after the commit is reported as a failure, and a rerun duplicates the append | Open, routed |
-| EA-007 | P2 | A failed file upload empties the file being replaced | Open, routed |
-| EA-025 | P3 | Lease expiry depends on clocks agreeing across PCs | Open |
+| EA-001 | P1 | Appends quietly convert values to the table's column types | Fixed (#1576, #1600) |
+| EA-002 | P1 | Notebook Parquet and CSV file writes ignored the save mode, so append replaced the file | Fixed (#1572) |
+| EA-004 | P1 | `sum` and decimal arithmetic write different Delta types than Spark | Fixed (#1645, #1646, #1647) |
+| EA-005 | P2 | An overwrite keeps rows a concurrent external writer appended | Fixed (#1582) |
+| EA-006 | P2 | A lease lost after the commit is reported as a failure, and a rerun duplicates the append | Fixed (#1585, #1605) |
+| EA-007 | P2 | A failed file upload empties the file being replaced | Fixed (#1594, #1604) |
+| EA-025 | P3 | Lease expiry depends on clocks agreeing across PCs | Fixed (#1613, #1614, #1615) |
 
 ### Verification still missing
 
 - **Live OneLake behaviour (UNVERIFIED).** Nothing here has run against a tenant: create-truncate semantics, lease files on OneLake, and SQL endpoint and Direct Lake reading tables written on this PC. This needs the harness run (EA-009) on the non-production test workspace.
-- **Failure injection.** It exists for failures after the commit, for leases and for upload retries. Still to add, each with its fix:
+- **Failure injection.** It exists for failures after the commit, for leases and for upload retries. At the baseline these were still to add, each with its fix. All four were added with their fixes by 2026-11-05:
   - an external writer during an overwrite (EA-005);
   - a lease lost after the commit (EA-006);
   - a failed upload over an existing file (EA-007);
@@ -68,5 +68,5 @@ None of these may be waived for an enterprise-ready rating:
 
 1. Builds are signed, and a signed build accepts updates only from its own signer.
 2. The live harness passes on a non-production workspace, with the result recorded.
-3. No open P0 or P1 data-integrity defect. Today EA-001 and EA-004 are open, and EA-002 is in review.
+3. No open P0 or P1 data-integrity defect. Met on 2026-11-05: EA-001, EA-002 and EA-004 are fixed.
 4. A crash or failure never reports success, and never leaves data replaced without the user asking for it.

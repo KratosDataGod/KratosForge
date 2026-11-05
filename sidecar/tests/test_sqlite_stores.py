@@ -155,3 +155,33 @@ def test_a_healthy_outbox_and_ledger_keep_their_rows(tmp_path):
     again = Outbox(box)
     assert again.set_aside is None and [r["title"] for r in again.pending()] == ["New: orders failed"]
     assert Ledger(box).set_aside is None
+
+
+def test_a_local_platform_call_that_fails_part_way_leaves_nothing_and_closes(tmp_path, monkeypatch):
+    from fabric_desktop.central import core
+    from fabric_desktop.central.client import LocalPlatform
+    platform = LocalPlatform(tmp_path / "platform.sqlite", user=lambda: "me@contoso.com")
+    opened = []
+    real = sqlite3.connect
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: opened.append(real(*a, **k)) or opened[-1])
+
+    def half_done(db, by=""):
+        db.run(f"INSERT INTO {db.t('catalog', 'admin')} (user_name, added_at, added_by) VALUES (?, ?, ?)",
+               ("someone@contoso.com", "2026-11-05", "someone@contoso.com"))  # written, then the call fails
+        raise RuntimeError("boom")
+
+    monkeypatch.setitem(core.OPERATIONS, "half_done", half_done)
+    with pytest.raises(RuntimeError):
+        platform.call("half_done")
+    with platform._db() as db:
+        assert [a["user_name"] for a in core.list_admins(db)] == ["me@contoso.com"]
+    assert opened and all(_closed(db) for db in opened)
+    assert not platform._lock.locked()
+
+
+def _closed(db: sqlite3.Connection) -> bool:
+    try:
+        db.execute("select 1")
+    except sqlite3.ProgrammingError:
+        return True
+    return False

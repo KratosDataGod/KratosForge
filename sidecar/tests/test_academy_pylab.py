@@ -107,8 +107,23 @@ def test_delta_lab_checks_the_table_log(tmp_path):
     check = {"kind": "delta_table", "path": "tables/orders", "versions_min": 2, "columns": ["order_id", "amount"]}
     res = pylab.grade(work, "answer.py", [{"kind": "notebook_ran"}, check], data_root)
     assert res["passed"], res
+    assert res["run"]["runs_as"] == sandbox.RUNS_AS   # Delta always runs in the v1 process
     res = pylab.grade(work, "answer.py", [{**check, "versions_min": 5}], data_root)
     assert not res["passed"]
+
+
+def test_a_delta_check_always_runs_in_the_v1_process(tmp_path, monkeypatch):
+    # Whatever the caller passes: delta-rs can't run in the AppContainer.
+    seen = []
+    def fake_run(*a, **kw):
+        seen.append(kw.get("appcontainer_ok", True))
+        return {"status": "ok", "exit_code": 1, "seconds": 0.0, "limits": {}, "runs_as": "", "stdout": "", "stderr": ""}
+    monkeypatch.setattr(sandbox, "run", fake_run)
+    delta = {"kind": "delta_table", "path": "tables/orders"}
+    pylab.grade(tmp_path, "answer.py", [delta], tmp_path)
+    pylab.grade(tmp_path, "answer.py", [delta], tmp_path, appcontainer_ok=True)
+    pylab.grade(tmp_path, "answer.py", [{"kind": "notebook_ran"}], tmp_path)
+    assert seen == [False, False, True]
 
 
 @pytest.mark.parametrize(("check", "message"), [

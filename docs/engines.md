@@ -71,6 +71,12 @@ The Python engine uses the notebook's own session (the same process **Stop** end
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
 
+## T-SQL on this PC
+
+Warehouse T-SQL runs on this PC's DuckDB engine after translation. What it refuses, by name, is the
+"Refused, not half-translated" list in [Local data: T-SQL](local-data.md#t-sql); a test runs a query
+for each item in that list and fails when the list and the code differ (#1666).
+
 ## Snowflake SQL on this PC (Preview)
 
 The DuckDB engine runs Snowflake SQL translated, so Snowflake queries can be tried on this PC without
@@ -94,7 +100,9 @@ shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
 and DuckDB versions, and from 136 function checks against Snowflake's documented values (below);
-each is a test.
+each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
 Rules 2026.10.6.

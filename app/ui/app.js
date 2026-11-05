@@ -602,7 +602,8 @@ function renderChrome() {
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
 
-  document.getElementById("rail-main").replaceChildren(...railFeatures().map(railItem));
+  const railMain = railFeatures();  // skins.js adds the "KratosForge" label in a platform skin
+  document.getElementById("rail-main").replaceChildren(...(typeof skinRailChildren === "function" ? skinRailChildren(railMain, railItem) : railMain.map(railItem)));
   document.getElementById("rail-bottom").replaceChildren(...railFeatures(true).map(railItem));
   syncSearchBox();
   // Items opened recently, each with a close button.
@@ -3025,9 +3026,15 @@ async function checkComponents(afterInstall = false) {
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.
     set("app", "busy", `Updating to build ${short(latest.commit)}…`);
+    let target = short(latest.commit);
     const unlisten = await listen((line) => {
+      const moved = REPLACED_BUILD.exec(line);
+      if (moved) {
+        target = moved[2];
+        set("app", "busy", `Installing build ${moved[2]}, which replaced ${moved[1]}…`);
+      }
       const m = /^progress (\d+)/.exec(line);
-      if (m) set("app", "busy", `Downloading build ${short(latest.commit)}… ${m[1]}%`);
+      if (m) set("app", "busy", `Downloading build ${target}… ${m[1]}%`);
     });
     try {
       await invoke("update_app", { commit: latest.commit });

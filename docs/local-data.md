@@ -112,6 +112,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)` | `'a'`, `NULL`, `NULL`: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` of a negative count are `NULL`, and a negative `SUBSTRING` length is an error |
+| `LEFT(s, -1)`, `RIGHT(s, -1)`, `TRANSLATE('abc', 'ab', 'x')` | An error, as in T-SQL: a negative length, or `TRANSLATE` lists of different lengths. With literal values the query is refused before it runs |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
 | `DATEDIFF(week, a, b)` | The number of Sundays from `a` to `b`, whatever the time of day: Saturday to Sunday is `1` |
@@ -119,6 +120,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `DATEADD(day, 1, d)`, `DATETRUNC(month, d)` on a `DATE` | A `DATE`, not a timestamp. A time part (`hour` and smaller) on a date is an error, as in T-SQL |
 | `y`, `w`, `m`, `n` and the other short date parts | T-SQL's meaning: `y` is day of year, `w` weekday, `m` month, `n` minute. `DATEPART(ms, t)` and `DATEPART(mcs, t)` count within the second. A part a function doesn't take is an error, and `nanosecond` in `DATEADD`, `DATEDIFF` or `DATETRUNC` is refused, since times are kept to the microsecond here |
 | `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself, the `ESCAPE` character works inside the brackets too, and a range written backwards such as `[z-a]` matches nothing). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
+| `name = 'Ann'`, `<>`, `<`, `IN (...)` on text | Trailing spaces don't count, as in T-SQL: `'Ann  ' = 'Ann'` is true. Leading spaces and case still count. An equality between a column and a value still lets a Parquet or Delta file skip row groups |
 | `name + '!'` on text columns | The two strings joined |
 | `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
@@ -133,6 +135,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `STRING_SPLIT(tags, ',')` in `FROM` or `CROSS APPLY` | One row per part, in a `value` column. The separator is one character, as in T-SQL (`enable_ordinal` isn't run here yet) |
 | `POWER(2, -1)`, `POWER(qty, 2)` on an integer column | `0`, an integer: an integer base gives an integer, cut toward zero, and one too big for its type is an error. A `FLOAT` base (`POWER(2e0, -1)`) gives `0.5` |
 | `QUOTENAME('a]b')`, `QUOTENAME(s, '"')`, `STR(123.45, 6, 1)` | `'[a]]b]'` (the closing character doubled, `NULL` over 128 characters; `[`, `]`, `"` and `'` are taken), `' 123.5'` (right-aligned to the length, 10 by default, with fewer places when they don't fit and asterisks when the whole number doesn't; length and places written in the query) |
+| `FORMAT(day, 'D')`, `FORMAT(at, 'hh:mm tt')`, `FORMAT(1234.5, 'N2')` | `'Sunday, October 18, 2026'`, `'02:07 PM'`, `'1,234.50'`: .NET's date formats (standard and custom) on a date or date-and-time, and `N`, `F` and `D` on an integer or decimal, rounded half away from zero, in `en-US` (a warehouse's default). The format has to be written in the query. A float, `money` or `time` value, another culture, a custom number format such as `'#,##0'`, and the date letters `F`, `g`, `K` and `z` are refused, each by name |
 | `TOP 5 WITH TIES ... ORDER BY total` | The first 5 rows and every row tied with the fifth (not with `PERCENT` or `DISTINCT`) |
 | `DATEPART(quarter, '2024-03-05')` | The text read as a date, as T-SQL does |
 | `#t` | A temporary table kept apart from an ordinary table `t` |
@@ -143,7 +146,7 @@ The column types come from the project, so the integer rules hold for its tables
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
 
-**Differences that stay.** Dividing by zero gives `NULL` here and an error in T-SQL. Strings compare by code point, as with a warehouse's default `Latin1_General_100_BIN2_UTF8` collation, not case-insensitively as in a Fabric SQL database. `CREATE TABLE` and `SELECT ... INTO` make a database table, not a Delta table; write a Delta table with `CREATE TABLE ... USING DELTA AS` in DuckDB or Spark SQL, or add rows to one with `INSERT INTO` in T-SQL.
+**Differences that stay.** Dividing by zero gives `NULL` here and an error in T-SQL. `GROUP BY`, `DISTINCT`, `UNION` and `JOIN ... USING` keep `'a'` and `'a '` apart, where T-SQL treats them as one value; and a comparison whose types can't be told counts trailing spaces, which `translation.notes` says. `SUM` over an integer column widens instead of failing on overflow. `1.0 / 3` is a double (`0.3333333333333333`), where T-SQL gives a decimal with 6 places (`0.333333`). `CAST(a_datetime AS VARCHAR)` gives `2024-03-05 13:04:00`, not T-SQL's default `Mar  5 2024  1:04PM`; give `CONVERT` a style for a fixed format. `ISNULL` gives the second value whole, where T-SQL cuts it to the first value's type (`ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'` there). Strings compare by code point, as with a warehouse's default `Latin1_General_100_BIN2_UTF8` collation, not case-insensitively as in a Fabric SQL database. `CREATE TABLE` and `SELECT ... INTO` make a database table, not a Delta table; write a Delta table with `CREATE TABLE ... USING DELTA AS` in DuckDB or Spark SQL, or add rows to one with `INSERT INTO` in T-SQL.
 
 ## Why is a query slow
 

@@ -65,7 +65,7 @@ def about() -> dict[str, Any]:
             value = sorted(value) if isinstance(value, dict) else []
         elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
-        elif key == "sql_temp_dir" and isinstance(value, str) and value[:2] in ("\\\\", "//"):
+        elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and value[:2] in ("\\\\", "//"):
             value = "a network folder"  # a share's server name is the organization's
         summary[key] = {"value": value, "source": entry["source"]}
     engine = app_settings._read_engine_info()

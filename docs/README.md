@@ -115,7 +115,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [ai/README.md](ai/README.md) | Everyone | Connecting your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client): setup for each, [workflows](ai/workflows.md), [instructions to paste](ai/agent-instructions.md), [use with Microsoft's Fabric skills](ai/microsoft-fabric-skills.md) |
 | [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md), [AI tool test checklist](product/ai-integration-client-checklist.md)) |
 | [architecture/power-bi-embedding.md](architecture/power-bi-embedding.md) | Contributors | Proposed, not built: Embed Studio for Power BI embedded analytics, the isolated embed host, tokens and what each content type supports |
-| [architecture/app-studio.md](architecture/app-studio.md) | Contributors | Proposed: Fabric App Studio, bring-your-own-model app building: reuse inventory, Microsoft capability matrix, targets, stories |
+| [architecture/app-studio.md](architecture/app-studio.md) | Contributors | Fabric App Studio (In progress, page in Preview), bring-your-own-model app building: reuse inventory, Microsoft capability matrix, targets, stories |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
 | [design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) | Contributors, designers, agents | The visual identity, Forged Heroism: the canonical storyboard, palette, the wolf, the forge language, animation standards, consistency checks, image generation ([assets](design/assets.md), [wolf sheet](design/wolf-character-sheet.md), [event catalog](design/animation-events.md), [examples](design/examples.md)) |
 | [animation-style-guide.md](animation-style-guide.md) | Contributors, designers | The four animation tiers (Ember, Spark, Forge, Titan), brand fire and winter colours, motifs, timing and reduced-motion rules |
@@ -164,6 +164,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
 | Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
 | Notebook engine picker | Notebook ribbon: Engine beside Run all, which replaces Runs on ([engines.md](engines.md#engine-picker-preview)) |
+| Skins | Settings > Appearance > Skin: the KratosForge and Fabric-familiar skins ([skins.md](skins.md#choosing-a-skin-preview)) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
@@ -206,7 +207,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Data mesh | Data mesh > Domains, Data mesh > Products, Home, entity page (domains from Fabric, products, links, glossary, About, the map on Home, data products for everyone, following a product) |
 | Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
 | Workspace, domain and exception requests | Data mesh > Requests > New request: a new workspace, access to a workspace, a domain, an exception to a policy, data from another team; Data mesh > Products > Ask for data ([platform.md](platform.md#requests)) |
-| Endorsement and business terms | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan, and business terms linked to Purview ([data-mesh.md](data-mesh.md#endorsement-and-business-terms)) |
+| Endorsement | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan ([data-mesh.md](data-mesh.md#endorsement)) |
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
@@ -236,7 +237,9 @@ KratosForge is new, and it's honest about what has been proven.
 | Quarantine replay | Entity page, quarantined rows (always shown) |
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
-| Learn | Learn at the bottom of the left rail: lessons, practice labs on this PC and the best-practice rules ([learn.md](learn.md)) |
+| Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
+| Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |
+| App Studio | Create > Applications: build an app from a template, preview it on sample data on this PC, and keep every version ([app-studio.md](app-studio.md)) |
 
 Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
 

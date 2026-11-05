@@ -233,11 +233,20 @@ def test_freshness_is_checked_by_the_save_gate_and_saved_from_the_app(svc):
     assert any("freshness by" in e for e in bad["errors"]) and any("freshness envs" in e for e in bad["errors"])
 
 
+@pytest.mark.parametrize("spec, said", [
+    ({"within_hours": float("nan")}, "within_hours must be a number"),
+    ({"within_hours": float("inf")}, "within_hours must be a number"),
+    ({"by": "07:00\n"}, 'by must be a time like "07:00"'),
+])
+def test_freshness_refuses_nan_infinity_and_a_time_with_more_after_it(spec, said):
+    assert any(said in e for e in freshness.problems("a", {"freshness": spec}, ("dev", "test", "prod")))
+
+
 def _teams_posts(svc, monkeypatch, url="https://example.webhook.office.com/x"):
     posts = []
     post = lambda url, title, lines: posts.append((title, lines))  # noqa: E731
     monkeypatch.setattr(dataops_service, "post_teams", post)
-    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", post)
+    monkeypatch.setattr("fabric_desktop.platform_notify_service.post_teams", post)
     svc.meta_set_alerts(url)
     return posts
 
@@ -284,7 +293,7 @@ def test_a_late_table_an_older_app_already_posted_is_not_posted_again(svc, monke
 def test_a_failed_teams_post_keeps_the_webhook_signature_out(svc, monkeypatch):
     def down(url, title, lines):
         raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
-    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", down)
+    monkeypatch.setattr("fabric_desktop.platform_notify_service.post_teams", down)
     svc.meta_set_alerts("https://example.webhook.office.com/workflows/x/invoke?sv=1.0&sig=SECRET123")
     svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
     time.sleep(0.5)

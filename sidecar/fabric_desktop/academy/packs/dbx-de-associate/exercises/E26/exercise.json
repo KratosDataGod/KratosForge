@@ -1,0 +1,61 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E26",
+  "version": 1,
+  "status": "draft",
+  "title": "MERGE an upsert with deletes into silver so a rerun changes nothing",
+  "objectives": ["3.1", "2.1"],
+  "objective_text": "Apply a batch of inserts, updates and deletes to a silver table with MERGE INTO, keeping one change per key, so that rerunning the batch changes nothing.",
+  "scenario": "The CRM sends every change to a customer as a row in bronze.customer_changes: inserts, updates and deletes, sometimes several for one customer in a day. Support reads silver.customers and keeps finding customers who were deleted, and some addresses that were changed twice are an older one. Apply the batch so silver.customers matches the CRM, and so a retried job can't break it.",
+  "difficulty": 2,
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "dbsql_lab",
+  "engine_label": "Databricks SQL translated to DuckDB on this PC",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "lesson": "lesson.md",
+  "datasets": [
+    {"name": "silver.customers", "rows": 4, "size": "small", "seeded": "fixed values in setup.sql"},
+    {"name": "bronze.customer_changes", "rows": 7, "size": "small", "seeded": "fixed values in setup.sql"}
+  ],
+  "starting_environment": "A table silver.customers (4 customers), today's batch in bronze.customer_changes (7 changes) and a starter answer.sql.",
+  "required": [
+    "Use only each customer's latest change in the batch (by change_ts).",
+    "A D deletes the customer from silver.customers; a delete for a customer silver doesn't have does nothing.",
+    "An I or U for an existing customer updates name, city and updated_at (the change_ts); for a new one it inserts them.",
+    "Running the same SQL again leaves silver.customers unchanged."
+  ],
+  "expected": {"description": "silver.customers has customers 1, 2 (now in Hull), 4 and 5. Customers 3 and 6 were deleted, and 7 never existed."},
+  "verifies": [
+    "Your MERGE applies inserts, updates and deletes with one change per key, on the exercise data and on rows you haven't seen, after translation to DuckDB on this PC.",
+    "Running it twice leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Delta in a Databricks workspace, so it doesn't show the MERGE's commit, its operation metrics in the table history, or the error Databricks raises when several source rows match one target row."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.customers", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.customers", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.customers", "unique": ["customer_id"], "not_null": ["customer_id", "name"],
+     "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.customers", "weight": 1, "required": true,
+     "fail": "Running your SQL twice changed silver.customers. A MERGE that updates and deletes by key can be run again safely; an INSERT can't."}
+  ],
+  "hints": [
+    "Customer 2 changed twice today. Start with a query that keeps only each customer's latest change: QUALIFY row_number() OVER (PARTITION BY customer_id ORDER BY change_ts DESC) = 1.",
+    "Use that query as the MERGE source: MERGE INTO silver.customers AS t USING (...) AS s ON t.customer_id = s.customer_id.",
+    "WHEN MATCHED clauses are tried in order: put WHEN MATCHED AND s.op = 'D' THEN DELETE before WHEN MATCHED THEN UPDATE.",
+    "Customer 7's delete matches nothing. WHEN NOT MATCHED AND s.op <> 'D' keeps it from being inserted."
+  ],
+  "explanation": "The MERGE source keeps each customer's latest change with QUALIFY row_number() OVER (PARTITION BY customer_id ORDER BY change_ts DESC) = 1, because several source rows for one key make Databricks refuse the MERGE (and an older change could win). The conditional DELETE comes before the UPDATE, since matched clauses are tried in order, and the insert clause skips deletes so a delete for an unknown customer adds nothing. Because every clause acts by key, applying the same batch again changes nothing, which an INSERT can't promise.",
+  "troubleshooting": [
+    "A deleted customer is still there with an empty name: the DELETE clause is missing or comes after the UPDATE.",
+    "A customer is in an older city: more than one change per key reached the MERGE, or the latest change was picked by the wrong order.",
+    "A customer with no name appears: a delete for an unknown customer went through the insert clause."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/sql/language-manual/delta-merge-into"],
+  "reset": "Reset rebuilds silver.customers and bronze.customer_changes from setup.sql and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

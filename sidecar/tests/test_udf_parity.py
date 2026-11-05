@@ -11,14 +11,17 @@ The rules:
   `ctx`, never from what the caller says. So the function takes `ctx` exactly when the operation
   takes `by`, and then also carries `@udf.context(argName="ctx")`. Without `ctx` a change would be
   recorded as made by nobody.
-- Every other parameter matches by name, both ways.
+- Every other parameter matches by name, both ways, as udf.fabric_name writes it: Fabric refuses an
+  input parameter with an underscore in its name, so the operation's business_key is the function's
+  businessKey (live run 6, 2026-11-04).
 - Where the operation has a default, the function has the same one. Equivalent: a `None` default
   for an operation default of `None`, `{}` or `[]`, when the function passes `name or {}` (or
   `name or []`) on to `_run`, or passes `None` to an operation whose default is `None`. Fabric
   can't take a mutable default, which is why it writes `None` there. A default on the function where
   the operation has none is a mismatch too: Fabric would accept a call the platform refuses.
 - The function calls `_run(sqlDB, "<its own name>", [ctx,] ...)`, and the keywords it passes are
-  exactly its own parameters (other than `sqlDB` and `ctx`), each passed as itself (or `or {}`/`[]`).
+  exactly the operation's names for its own parameters (other than `sqlDB` and `ctx`), each passed
+  as that parameter (or `or {}`/`[]`): `business_key=businessKey`.
 
 Deliberate differences go in DELIBERATE with their reason.
 """
@@ -112,11 +115,15 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
 
         op_rest = [n for n in op_names if n not in ("db", "by")]
         w_rest = [n for n in names if n not in ("sqlDB", "ctx")]
+        op_of = {udf.fabric_name(n): n for n in op_rest}  # the function's name -> the operation's
+        for n in names:
+            if "_" in n:
+                found.append(f"parameter {n} has an underscore, which Fabric refuses")
         for n in op_rest:
-            if n not in w_rest:
+            if udf.fabric_name(n) not in w_rest:
                 found.append(f"missing parameter {n}")
         for n in w_rest:
-            if n not in sig:
+            if n not in op_of:
                 found.append(f"extra parameter {n}")
 
         # How each parameter reaches _run, for the default rule and the keyword rule.
@@ -136,16 +143,16 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
                     found.append("passes **kwargs to _run")
                     continue
                 passed[k.arg] = _passed(k.value)
-            if set(passed) != set(w_rest):
+            if set(passed) != {op_of.get(n, n) for n in w_rest}:
                 found.append(f"_run gets {sorted(passed)} but the function takes {sorted(w_rest)}")
             for kw, (src, _fill) in passed.items():
-                if src != kw:
+                if src != udf.fabric_name(kw):
                     found.append(f"_run's {kw}= is {src!r}, not the parameter itself")
 
         for n in w_rest:
-            if n not in sig:
+            if n not in op_of:
                 continue
-            op_default, w_node = sig[n].default, w_defaults.get(n)
+            op_default, w_node = sig[op_of[n]].default, w_defaults.get(n)
             if op_default is _EMPTY:
                 if w_node is not None:
                     found.append(f"{n} has a default in Fabric but is required by the operation")
@@ -156,7 +163,7 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
             w_default = _literal(w_node)
             if w_default == op_default and type(w_default) is type(op_default):
                 continue
-            fill = passed.get(n, (None, None))[1]
+            fill = passed.get(op_of[n], (None, None))[1]
             if w_default is None and fill is not None and fill == op_default and type(fill) is type(op_default):
                 continue  # None in Fabric, filled with `or {}`/`or []` to the operation's own default.
             found.append(f"{n} defaults to {ast.unparse(w_node)} in Fabric but {op_default!r} in the operation")
@@ -268,3 +275,30 @@ def test_drift_check_catches_a_drifted_real_operation():
     ops["issue_keys"] = ns["issue_keys"]
     problems = parity_problems(udf.function_app(), ops)
     assert problems.get("issue_keys") == ["missing parameter env"]
+
+
+def test_drift_check_catches_a_parameter_with_an_underscore():
+    source = _SOURCE.replace("name: str) -> dict:", "name: str, env_name: str) -> dict:")
+    source = source.replace('"read_it", name=name)', '"read_it", name=name, env_name=env_name)')
+    problems = parity_problems(source, _ops(**{**_GOOD, "read_it": "db, name, env_name"}))
+    assert problems == {"read_it": ["parameter env_name has an underscore, which Fabric refuses",
+                                    "missing parameter env_name", "extra parameter env_name",
+                                    "_run's env_name= is 'env_name', not the parameter itself"]}
+
+
+def test_drift_check_takes_a_camel_case_parameter_for_its_operations_name():
+    source = _SOURCE.replace("name: str) -> dict:", "name: str, envName: str) -> dict:")
+    source = source.replace('"read_it", name=name)', '"read_it", name=name, env_name=envName)')
+    assert parity_problems(source, _ops(**{**_GOOD, "read_it": "db, name, env_name"})) == {}
+
+
+def test_no_function_takes_a_parameter_with_an_underscore():
+    """Fabric's Python code validation refuses it, which refused the whole item in live run 6."""
+    for f in udf._functions():
+        names = [p["name"] for p in f["fabricProperties"]["fabricFunctionParameters"]]
+        assert not [n for n in names if "_" in n], f["name"]
+
+
+def test_fabric_names():
+    assert [udf.fabric_name(n) for n in ("name", "business_keys", "call_id", "product_id")] == [
+        "name", "businessKeys", "callId", "productId"]

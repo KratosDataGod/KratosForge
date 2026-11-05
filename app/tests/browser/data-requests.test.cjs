@@ -30,7 +30,7 @@ before(async () => {
     platform_decide: (p) => { decided.push(p); return { ...requests.find((r) => r.id === p.id), status: "approved" }; },
     platform_domains: () => [{ id: "sales", name: "Sales" }, { id: "emea", name: "EMEA", parent_id: "sales" }],
     platform_products: () => ({ project: null, products: [product, { ...product, id: "crm/draft", name: "draft", status: "draft" }] }),
-    platform_product_trust: () => ({ product_id: product.id, name: "c360", owner: "", admin: false, can_edit_terms: false, items: [], terms: [] }),
+    platform_product_trust: () => ({ product_id: product.id, name: "c360", owner: "", admin: false, can_edit: false, items: [] }),
   } });
 });
 after(async () => { if (app) await app.close(); });

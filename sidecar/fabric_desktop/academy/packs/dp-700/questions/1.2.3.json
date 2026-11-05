@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.2.3",
+  "questions": [
+    {
+      "id": "1.2.3-q1",
+      "type": "single",
+      "stem": "How many stages can a Fabric deployment pipeline have?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Exactly 2"
+        },
+        {
+          "id": "b",
+          "text": "Exactly 3"
+        },
+        {
+          "id": "c",
+          "text": "Any number from 1 to 100"
+        },
+        {
+          "id": "d",
+          "text": "From 2 to 10"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A pipeline has three stages by default (Development, Test, Production), and you can set from two to ten when you create it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.3-q2",
+      "type": "single",
+      "stem": "The Test and Production stages must read from different lakehouses than Development. What do you set up?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A separate deployment pipeline for each lakehouse"
+        },
+        {
+          "id": "b",
+          "text": "A shortcut from Production to Development"
+        },
+        {
+          "id": "c",
+          "text": "Deployment rules on the stages, or parameters the rules change per stage"
+        },
+        {
+          "id": "d",
+          "text": "Manual edits in Production after each deployment"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Deployment rules change item settings such as data sources or parameter values when content is deployed to a stage, so each stage points at its own data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.3-q3",
+      "type": "single",
+      "stem": "How are deployment pipeline stages related to workspaces?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Stages don't use workspaces"
+        },
+        {
+          "id": "b",
+          "text": "Each stage is assigned one workspace"
+        },
+        {
+          "id": "c",
+          "text": "A stage can hold several workspaces"
+        },
+        {
+          "id": "d",
+          "text": "All stages share one workspace"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each stage of a deployment pipeline is backed by one workspace, and deploying copies content from one stage's workspace to the next.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.3-q4",
+      "type": "single",
+      "stem": "At Harbor Health, a lakehouse is deployed from Test to Production. What arrives in Production?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only the data, not the item"
+        },
+        {
+          "id": "b",
+          "text": "The lakehouse item, without the Test lakehouse's table data"
+        },
+        {
+          "id": "c",
+          "text": "A shortcut to the Test lakehouse"
+        },
+        {
+          "id": "d",
+          "text": "The lakehouse with a full copy of Test's data"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Deployment pipelines copy item definitions and metadata, not lakehouse data. Production's lakehouse is loaded by its own pipelines.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-git-deployment-pipelines",
+      "case": "harbor-analytics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -363,7 +363,8 @@ function gitHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
-    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES });`, ctx);
+    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES,
+    fabricGitBoxes, fabricGitSummary, fgSupportText, FABRIC_GIT_STATES });`, ctx);
   return ctx;
 }
 
@@ -379,6 +380,40 @@ test("the branch pill shows the branch and what's ahead or behind", () => {
   assert.strictEqual(gitPillText(null), "");
   assert.strictEqual(gitPillText(gitStatus({ changed: 3 })), "main · 3 unsaved changes", "changes are said in words");
   assert.strictEqual(gitPillText(gitStatus({ changed: 1, ahead: 2 })), "main ↑2 · 1 unsaved change");
+});
+
+test("the Fabric workspace tab lines up this PC, the remote and the workspace in words", () => {
+  const { fabricGitBoxes } = gitHelpers();
+  const a = { local: { branch: "feature/x", commit: "4be19a2aaaa", ahead_of_remote: 2, behind_remote: 0, uncommitted: 3 },
+    remote: { name: "origin", branch: "main", commit: "91c07deaaaa", ahead_of_workspace: 1, behind_workspace: 0 },
+    workspace: { commit: "7d2e410aaaa", last_sync: "2026-11-03T09:00:00Z", known_here: true, folder: "/fabric" }, notes: [] };
+  const [l, r, w] = fabricGitBoxes(a);
+  assert.deepStrictEqual([l.title, l.commit, l.line], ["feature/x", "4be19a2", "2 commits not pushed · 3 files not committed"]);
+  assert.deepStrictEqual([r.title, r.line], ["origin/main", "1 commit the workspace doesn't have"]);
+  assert.deepStrictEqual([w.title, w.line], ["Synced to 7d2e410", "Folder /fabric · last sync 2026-11-03T09:00:00Z"]);
+  assert.strictEqual(fabricGitBoxes({ ...a, remote: { ...a.remote, ahead_of_workspace: 0 } })[1].line, "Same commit as the workspace");
+  assert.strictEqual(fabricGitBoxes({ ...a, remote: { name: "origin", branch: "main", commit: null } })[1].line, "Not fetched on this PC yet");
+  assert.strictEqual(fabricGitBoxes({ local: { branch: "main", commit: "a" }, remote: null, workspace: null, notes: [] }).length, 1,
+    "a workspace not connected to Git shows only this PC");
+  assert.strictEqual(fabricGitBoxes(null).length, 0);
+});
+
+test("the Fabric items heading says what differs, conflicts first", () => {
+  const { fabricGitSummary, FABRIC_GIT_STATES } = gitHelpers();
+  assert.strictEqual(fabricGitSummary({ aligned: true, counts: {} }), "The workspace and Git match: nothing to update or commit.");
+  assert.strictEqual(fabricGitSummary({ aligned: false, counts: { conflict: 1, incoming: 2, outgoing: 1 } }),
+    "1 conflict · 2 newer in Git · 1 newer in the workspace");
+  for (const s of ["conflict", "both_changed", "incoming", "outgoing", "same_change", "unchanged"]) assert.ok(FABRIC_GIT_STATES[s], s);
+  assert.strictEqual(FABRIC_GIT_STATES.conflict[1], "fail");
+});
+
+test("Fabric workspace support says definition only when the item's data never goes through Git", () => {
+  const { fgSupportText } = gitHelpers();
+  const stays = ["Tables and files never go through Git or deployment pipelines; only the definition does"];
+  assert.strictEqual(fgSupportText({ git_support: "yes", limits: stays }), "Full, definition only");
+  assert.strictEqual(fgSupportText({ git_support: "yes", limits: [] }), "Full");
+  assert.strictEqual(fgSupportText({ git_support: "preview", limits: ["Preview in Fabric Git"] }), "Preview in Fabric");
+  assert.strictEqual(fgSupportText({ git_support: "no", limits: stays }), "Not supported by Fabric Git");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {
@@ -737,6 +772,23 @@ test("Run as is a Preview Monitor segment that only reads who runs what", () => 
   const soon = new Date(Date.now() + 25.5 * 86400000).toISOString();
   assert.strictEqual(ctx.pill({ state: "expiring", expires_at: soon }).text, "Expires in 25 days");
   assert.strictEqual(ctx.pill({ state: "failed" }).attrs.class, "pill-s fail");
+});
+
+// Incidents stage 2: every kind the engine opens has its "What to do", and the SLA cell names the clock that matters now.
+test("every incident kind has its guidance, and the SLA cell names the clock that matters", () => {
+  const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  const engine = fs.readFileSync(path.join(ui, "..", "..", "sidecar", "fabric_desktop", "workloads", "incidents.py"), "utf8");
+  const kinds = /^KINDS = \(([^)]*)\)/m.exec(engine)[1].match(/"([a-z_]+)"/g).map((k) => k.slice(1, -1));
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const INC_GUIDE = \{[\s\S]*?\n\};\n/)[0]}
+${src.match(/function incMinutes\([\s\S]*?\n}\n/)[0]}${src.match(/function incSlaText\([\s\S]*?\n}\n/)[0]}
+this.guide = INC_GUIDE; this.sla = incSlaText;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.guide).sort(), [...kinds].sort(), "INC_GUIDE and the engine's KINDS must match exactly");
+  assert.strictEqual(ctx.sla({ state: "breached", acknowledge: { state: "breached", over_minutes: 90 }, resolve: { state: "due", left_minutes: 300 } }).text,
+    "Acknowledge overdue 1 h 30 min");
+  assert.strictEqual(ctx.sla({ state: "at_risk", acknowledge: { state: "met" }, resolve: { state: "at_risk", left_minutes: 20 } }).text, "Resolve due in 20 min");
+  assert.strictEqual(ctx.sla({ state: "none", acknowledge: { state: "none" }, resolve: { state: "none" } }).text, "No SLA");
+  assert.strictEqual(ctx.sla({ state: "missed", acknowledge: { state: "missed" }, resolve: { state: "met" } }).text, "Missed");
 });
 
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
@@ -1190,7 +1242,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync"\]/);  // Databricks sync is a Workspaces tab too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -1452,12 +1504,15 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
 // UX-018: a confirm that deletes, discards, replaces or removes something draws its button red
 // and focuses Cancel, so Enter doesn't lose data.
 test("confirms that delete or overwrite something pass danger", () => {
+  // Confirms that start with one of those words but change nothing the person can't get back, each
+  // with why. PB-131: the next exercise run grants the permission again (mockup, 2026-11-04).
+  const notDestructive = new Set(["Remove exercise permissions?"]);
   const missing = [];
   for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const lines = fs.readFileSync(path.join(ui, name), "utf8").split("\n");
     lines.forEach((line, i) => {
       const m = line.match(/confirmDialog\(\s*[`"](Delete|Discard|Replace|Remove|Revoke|Undo the pull|Repoint)\b/);
-      if (!m) return;
+      if (!m || notDestructive.has(line.match(/confirmDialog\(\s*[`"]([^`"]*)/)[1])) return;
       let end = i;
       while (end < lines.length - 1 && !lines[end].trimEnd().endsWith(";")) end++;
       if (!lines.slice(i, end + 1).join("\n").includes("danger: true")) missing.push(`${name}:${i + 1}`);
@@ -2417,7 +2472,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
@@ -2947,7 +3002,10 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
   const rows = section.split("\n").filter((l) => l.startsWith("| **"));
-  assert.strictEqual(rows.length, appWide.length);
+  // ...and one for zoom, which WebView2 handles itself: listed in the dialog's Window group (PB-063).
+  assert.strictEqual(rows.length, appWide.length + 1);
+  assert.ok(rows.some((r) => r.startsWith("| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** |")), "the guide lists zoom");
+  assert.match(features, /registerShortcuts\("Window", \[\s*\{ keys: \["Ctrl\+=", "Ctrl\+-", "Ctrl\+0"\]/);
   assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
 });
 
@@ -3683,7 +3741,8 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
   assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
-  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove"]) {
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove",
+    "profile_report_pdf", "profile_goal_add", "profile_goal_remove", "profile_goal_done"]) {
     assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
@@ -5532,7 +5591,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5548,13 +5607,17 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
-      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests"],
-    trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
+      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
+      "Promises to readers"],
+    trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
-    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"],
-    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
+    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
+    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
+      "Databricks workspace discovery", "Connection profiles in Settings",
+      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5564,7 +5627,6 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
-    "Databricks workspace discovery": ["docs/engines.md", /Discovery is a command, with no screen in the app yet/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
@@ -5781,4 +5843,15 @@ test("a developer Python missing a package says the command that installs it", (
   assert.ok(app.includes(re.source));
   assert.ok(re.test("ModuleNotFoundError: No module named 'yaml'"));
   assert.ok(!re.test("ModuleNotFoundError: No module named 'fabric_desktop.meta'"));
+});
+
+// Platform skins (docs/skins.md): every color is meant to come from a token on :root, so a skin or dark
+// mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
+// when a change moves more of them onto tokens.
+test("styles.css writes no more colors outside its tokens than it did", () => {
+  const LITERAL_COLORS = 157;
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
+  const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
+  assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
 });

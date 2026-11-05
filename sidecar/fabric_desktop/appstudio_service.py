@@ -6,8 +6,13 @@ reach a folder outside that one. Changes from Design are patch operations saved 
 Redo, versions, Save As, Clone, Export and Import are the project file's own. The preview uses sample
 numbers made here (appstudio/sample.py).
 
-Nothing here calls a model, reads OneLake or writes to Fabric: model connections and publishing come in
-later App Studio updates, behind an IT policy and a typed approval.
+Model connections (AS-05/06) are the person's own AI model and key reference, kept in
+``<data>/appstudio/connections.json`` with no secrets. The organization's policy (appstudio/policy.py) is
+checked on every save, test and use: it can turn connections off, limit the providers and the hosts a
+chosen address may reach, and refuse sample rows. Testing a connection lists the models its key can see
+(no tokens are spent); nothing here sends application context to a model yet.
+
+Nothing here reads OneLake or writes to Fabric; publishing comes in a later update, behind a typed approval.
 """
 
 from __future__ import annotations
@@ -17,15 +22,18 @@ import binascii
 from pathlib import Path
 from typing import Any
 
-from . import sql_exec
+from . import http_session, sql_exec
 from .jsonfile import write_bytes
+from .appstudio import policy as as_policy
 from .appstudio import project, sample, templates
+from .appstudio import providers as prov
 from .appstudio import spec as specs
 
 METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_change", "appstudio_undo",
            "appstudio_redo", "appstudio_history", "appstudio_versions", "appstudio_save_version",
            "appstudio_restore_version", "appstudio_save_as", "appstudio_export", "appstudio_import",
-           "appstudio_preview"}
+           "appstudio_preview", "appstudio_connections", "appstudio_connection_save", "appstudio_connection_delete",
+           "appstudio_connection_test"}
 SOURCES_FROM_UI = {"visual", "manual"}  # an AI change arrives through its own method, after its checks
 
 
@@ -152,3 +160,48 @@ class AppStudioMixin:
         if not got["valid"]:
             raise specs.SpecError(got["problems"])
         return sample.preview(got["spec"], str(page), selection)
+
+    # ---------------------------------------------------------------- model connections (AS-05/06)
+
+    def _appstudio_store(self) -> prov.ConnectionStore:
+        return prov.ConnectionStore(Path(self.root) / "appstudio")  # type: ignore[attr-defined]
+
+    def _appstudio_model(self, conn_id: str = "") -> dict[str, Any]:
+        """A saved connection the organization's policy allows now; the default when no id is given.
+        Every use of a model goes through here, so a policy change applies at once."""
+        conn = self._appstudio_store().get(str(conn_id))
+        as_policy.check(conn)
+        return conn
+
+    def appstudio_connections(self) -> dict[str, Any]:
+        """The organization's policy, the providers it allows, and every saved connection with this month's
+        usage and why the policy stops it, if it does. Key references only: no key is read."""
+        pol = as_policy.current()
+        store = self._appstudio_store()
+        listed = store.list()
+        conns = [{**c, "usage": store.usage(c["id"]), "refused": as_policy.refusals(c, pol)} for c in listed["connections"]]
+        catalog = [{"id": k, "label": v["label"], "endpoint": v["endpoint"], "key": v["key"],
+                    "capabilities": dict(v["capabilities"]),
+                    "allowed": pol["enabled"] and (pol["providers"] is None or k in pol["providers"])}
+                   for k, v in prov.PROVIDERS.items()]
+        return {"policy": {k: pol[k] for k in ("enabled", "providers", "hosts", "sample_rows", "problems")},
+                "providers": catalog, "connections": conns, "default": listed["default"], "key_ref_help": prov.KEY_REF_HELP}
+
+    def appstudio_connection_save(self, connection: dict[str, Any], make_default: bool = False) -> dict[str, Any]:
+        """Add or change a connection. Refused when it has problems or the policy doesn't allow it."""
+        clean = prov.normalize({k: v for k, v in connection.items() if k not in ("capabilities", "usage", "refused")})
+        as_policy.check(clean)
+        saved = self._appstudio_store().save(clean, make_default=make_default)
+        return {**saved, "capabilities": prov.capabilities(saved)}
+
+    def appstudio_connection_delete(self, conn_id: str) -> dict[str, Any]:
+        """Remove a connection from this PC. Its key stays where it is (Credential Manager or the variable)."""
+        store = self._appstudio_store()
+        store.get(str(conn_id))  # a connection that isn't there says so
+        store.delete(str(conn_id))
+        return {"deleted": str(conn_id)}
+
+    def appstudio_connection_test(self, conn_id: str = "") -> dict[str, Any]:
+        """Check a connection works: read its key and list the models the key can see. Spends no tokens and
+        sends no application context."""
+        return prov.validate(self._appstudio_model(conn_id), http_session.session())

@@ -22,7 +22,7 @@ Projects are folders under this PC's KratosForge data (`appstudio/projects/<name
 
 ## What comes next
 
-- **Ask for a change** will send your request, with your consent, to an AI model you connect yourself, and show its plan before anything changes. It needs your organization's model policy first.
+- **Ask for a change** will send your request, with your consent, to an AI model you connect yourself, and show its plan before anything changes. A model connection holds a reference to your key (`credman:KratosForge/<name>` in Windows Credential Manager, or an environment variable such as `env:KRATOSFORGE_<NAME>`), never the key itself. Your organization can turn connections off, limit the providers and the addresses they reach, and stop sample rows being sent (the `appstudio_*` keys in the [policy file](azure-setup.md)).
 - **Publish…** shows what publishing would create today, and what is missing. Publishing a Power BI report comes in a later update, and asks for your approval before its first write to Fabric.
 
-Nothing in App Studio reads OneLake, calls a model or writes to Fabric yet.
+Nothing in App Studio reads OneLake, sends your app to a model or writes to Fabric yet. Testing a model connection only lists the models its key can see.

@@ -373,3 +373,38 @@ def test_substring_stuff_and_replicate_at_the_edges(engine):
     assert r["rows"] == [[None, None, None, None]]
     with pytest.raises(Exception, match="Invalid length parameter passed to the SUBSTRING function"):
         tsql(engine, "SELECT SUBSTRING(name, 1, qty) AS s FROM dbo.orders")
+
+
+@pytest.mark.parametrize("sql, want", [
+    ("SELECT CASE WHEN 'a' = 'a  ' THEN 1 ELSE 0 END", 1),
+    ("SELECT CASE WHEN 'a' <> 'a  ' THEN 1 ELSE 0 END", 0),
+    ("SELECT CASE WHEN 'a ' < 'a' THEN 1 ELSE 0 END", 0),
+    ("SELECT CASE WHEN 'a' IN ('b', 'a  ') THEN 1 ELSE 0 END", 1),
+    ("SELECT CASE WHEN ' a' = 'a' THEN 1 ELSE 0 END", 0),  # only trailing spaces
+    ("SELECT CASE WHEN 'a' = 'A' THEN 1 ELSE 0 END", 0),  # still case-sensitive
+])
+def test_text_compares_without_trailing_spaces(engine, sql, want):
+    assert tsql(engine, sql)["rows"] == [[want]]
+
+
+def test_a_text_column_compares_without_trailing_spaces(engine):
+    # 'Ann  ' is stored with two trailing spaces.
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE name = 'Ann'")["rows"] == [[1]]
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE 'Ann ' = name")["rows"] == [[1]]
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE name <> 'Ann' ORDER BY id")["rows"] == [[2]]
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE name IN ('Ann', 'Cy') ORDER BY id")["rows"] == [[1]]
+    assert tsql(engine, "SELECT COUNT(*) FROM dbo.orders a JOIN dbo.orders b ON a.name = RTRIM(b.name)")["rows"] == [[2]]
+
+
+def test_an_equality_on_a_text_column_keeps_a_range_for_skipping_row_groups():
+    texts, _ = translate("SELECT id FROM dbo.orders WHERE name = 'Ann '", {"dbo": {"orders": {"id": "INTEGER", "name": "VARCHAR"}}})
+    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name) = 'Ann')"]
+
+
+def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
+    texts, notes = translate("SELECT 1 FROM q WHERE n = 3 AND m < 2.5")
+    assert texts == ["SELECT 1 FROM q WHERE n = 3 AND m < 2.5"] and notes == []
+    texts, notes = translate("SELECT 1 FROM q WHERE a = 'x' OR b = 'y'")
+    assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
+    assert notes == ["Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
+                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count."]

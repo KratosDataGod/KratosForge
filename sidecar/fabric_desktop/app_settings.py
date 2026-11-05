@@ -128,7 +128,9 @@ Keys:
                      links for the Windows user, and removes a registration it made (default true)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
-reads them through read_policy() here, so both read the file by the same rules.
+reads them through read_policy() here, so both read the file by the same rules. The appstudio_* keys
+(appstudio_models, appstudio_providers, appstudio_hosts, appstudio_sample_rows) are read the same way
+by appstudio/policy.py.
 
 Restrictions fail closed. A policy file that exists but can't be read is replaced by the last copy
 that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
@@ -266,7 +268,9 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
 SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
-POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
+# Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
+APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
+POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -437,8 +441,8 @@ def policy_problems() -> list[str]:
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
-        elif key in INTEGRATION_KEYS:
-            continue  # integrations/policy.py checks these, below
+        elif key in INTEGRATION_KEYS or key in APPSTUDIO_KEYS:
+            continue  # integrations/policy.py and appstudio/policy.py check these, below
         elif key == "fabric_view_sign_in_hosts":
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
@@ -485,6 +489,9 @@ def policy_problems() -> list[str]:
     if any(key in data for key in INTEGRATION_KEYS):
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
+    if any(key in data for key in APPSTUDIO_KEYS):
+        from .appstudio import policy as appstudio_policy
+        problems += appstudio_policy.current()["problems"]
     return problems
 
 

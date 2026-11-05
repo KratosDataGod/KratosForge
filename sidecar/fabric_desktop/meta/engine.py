@@ -23,6 +23,7 @@ import polars as pl
 if TYPE_CHECKING:
     import pyarrow as pa  # annotations only; loads import it where they need it
 
+from .. import retrying
 from . import batches as batches_mod
 from . import drift as drift_mod
 from . import keys as keys_mod
@@ -485,20 +486,22 @@ class Engine:
             since = self.store.version(*where)
         except Exception:  # noqa: BLE001  unknown: the check below then reads the whole history
             since = None
-        for attempt in range(1, AFTER_COMMIT_ATTEMPTS + 1):
-            try:
-                if attempt > 1 and self.store.has_commit(*where, APPEND_KEY, token, since):
-                    return True  # the last attempt committed before it failed
-                write({APPEND_KEY: token})
-                return True
-            except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
-                if attempt == AFTER_COMMIT_ATTEMPTS:
-                    note = f"couldn't save {what} ({type(exc).__name__}: {exc})"
-                    res.steps.append(Step("record", 0, 0.0, note))
-                    res.message = f"{res.message}; {note}" if res.message else note
-                    return False
-                time.sleep(0.2 * attempt)
-        return False
+        tried = [0]
+
+        def once() -> None:
+            tried[0] += 1
+            if tried[0] > 1 and self.store.has_commit(*where, APPEND_KEY, token, since):
+                return  # the last attempt committed before it failed
+            write({APPEND_KEY: token})
+
+        try:
+            retrying.retry_call(once, lambda exc: True, AFTER_COMMIT_ATTEMPTS, lambda n: 0.2 * n, time.sleep)
+            return True
+        except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
+            note = f"couldn't save {what} ({type(exc).__name__}: {exc})"
+            res.steps.append(Step("record", 0, 0.0, note))
+            res.message = f"{res.message}; {note}" if res.message else note
+            return False
 
     def _flush_quarantine(self, res: RunResult) -> None:
         pending, self._pending_quarantine = self._pending_quarantine, []
@@ -1277,16 +1280,11 @@ class Engine:
     def _write(self, e: Entity, df: pl.DataFrame, res: RunResult, backfill: str | None) -> None:
         from deltalake.exceptions import CommitFailedError
 
-        for attempt in range(1, WRITE_ATTEMPTS + 1):
-            try:
-                committed = self._write_once(e, df, res, backfill)
-                break
-            except CommitFailedError:
-                # Another writer committed first: merge again against the table as it is now. Only the
-                # table commit is retried here; what follows it (below) can't make the rows go in twice.
-                if attempt == WRITE_ATTEMPTS:
-                    raise
-                time.sleep(0.5 * attempt)
+        # Another writer committed first: merge again against the table as it is now. Only the table
+        # commit is retried here; what follows it (below) can't make the rows go in twice.
+        committed = retrying.retry_call(lambda: self._write_once(e, df, res, backfill),
+                                        lambda exc: isinstance(exc, CommitFailedError), WRITE_ATTEMPTS,
+                                        lambda n: 0.5 * n, time.sleep)
         if committed:
             self._advance_watermark(e, df, backfill, res)
 

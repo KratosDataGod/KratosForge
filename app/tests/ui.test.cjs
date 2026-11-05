@@ -271,6 +271,26 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+test("Save support bundle sits after Report a problem and lists every file, missing logs included (PB-062)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const help = src.slice(src.indexOf('h("h2", {}, "Help and about")'));
+  assert.ok(help.indexOf('"Report a problem"') < help.indexOf('"Save support bundle", "save", saveSupportBundle'));
+  assert.ok(help.indexOf('"Save support bundle"') < help.indexOf('"Guide for IT admins"'));
+  const ctx = { sizeText: (b) => `${b} B` };
+  vm.runInNewContext(`${src.match(/const BUNDLE_FILES = [\s\S]*?\n};\n/)[0]}${src.match(/const BUNDLE_MISSING = [\s\S]*?\n};\n/)[0]}` +
+    `${src.match(/function bundleRows\([\s\S]*?\n}\n/)[0]}; this.bundleRows = bundleRows;`, ctx);
+  const rows = ctx.bundleRows({ files: [{ name: "about.json", bytes: 3 }, { name: "CONTENTS.txt", bytes: 7 }], missing: ["sidecar.log"] });
+  assert.deepStrictEqual([...rows.map((r) => r.name)], ["about.json", "sidecar.log", "CONTENTS.txt"]);
+  assert.strictEqual(rows[1].missing, true);
+  assert.strictEqual(rows[1].size, "–");
+  assert.match(rows[1].what, /hasn't written a log yet/);
+  const dialog = src.slice(src.indexOf("async function saveSupportBundle"), src.indexOf("// ---------- Check for updates"));
+  assert.match(dialog, /Nothing is sent from KratosForge/);
+  assert.match(dialog, /rpc\("support_bundle_save", \{ folder: folder\.value \}\)/);
+  assert.match(dialog, /rpc\("support_bundle_reveal", \{ path: res\.path \}\)/);
+  assert.match(dialog, /"aria-expanded": "false"/);
+});
+
 test("Help and about shows the policy file's SHA-256 and whether its last change came the way IT pushes it (#1670)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = { h: (tag, attrs, ...kids) => ({ tag, text: kids.flat().join("") }), dateTimeText: () => "2 Nov 2026, 17:00" };

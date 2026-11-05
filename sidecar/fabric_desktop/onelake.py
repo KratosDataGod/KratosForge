@@ -323,8 +323,8 @@ class FileStore:
                     continue  # an empty file needs no append
                 # Throttling (429) is waited out: OneLake did nothing. Anything else is sent once, since
                 # the step may have happened; a failed append is never flushed, so no half file is seen.
-                resp = send_with_retry(lambda: self._http.request(method, at, params=params, data=body,
-                                                                  headers={**self._headers(), **extra}, timeout=300),
+                resp = send_with_retry(lambda: self._http.request(method, at, params=params, data=body,  # noqa: B023 - called before the loop moves on
+                                                                  headers={**self._headers(), **extra}, timeout=300),  # noqa: B023
                                        method, sleep=self._sleep, safe=False)
                 if resp.status_code >= 400:
                     raise _onelake_error(resp, f"{step} {path}")

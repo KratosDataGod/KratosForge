@@ -85,6 +85,6 @@ services, Learn), at most 8 main pages in the rail, and Settings at the bottom. 
 pages (Platform, Optimize and Data mesh) sit together under a "KratosForge" label in the rail, so you can
 see what the app adds to the platform you know. Every skin also keeps the same "where it runs" chip
 beside the notebook's engine, such as "This PC · no cloud cost", and a skin can't hide or change it.
-([Where each capability runs](capabilities.md)). Dark versions of the
+Dark versions of the
 skins come once the rest of the app's colors are on tokens. Databricks-familiar and
 Snowflake-familiar skins follow.

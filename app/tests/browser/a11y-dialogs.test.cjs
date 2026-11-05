@@ -25,6 +25,10 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: governance-checks.js:useTemplateDialog, governance-checks.js:saveAsTemplateDialog, mesh.js:addMemberDialog
 // axe covers dialogs: access-cache.js:protectAccessCache, platform.js:landingZoneDialog, platform.js:sourceRequestDialog
 // axe covers dialogs: platform-notices.js:platformRouteDialog, estate.js:costSettingsDialog
+// axe covers dialogs: appstudio.js:appStudioImport, appstudio.js:appStudioPublishDialog, fabricstep.js:stepConfirm, git.js:gitSecretsDialog
+// axe covers dialogs: meta.js:dictionaryImportDialog, estate.js:restoreDialog, integrations.js:editTool, platform.js:confirmShortcutEnvs
+// axe covers dialogs: sqlchanges.js:whChangeConfirm, meta.js:createEnvWorkspace, whproject.js:whProjectNewObject
+// axe covers dialogs: meta.js:pickKeysWorkspace, mesh.js:pickDesignationWorkspace, mesh.js:keysSetupDialog
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -45,6 +49,7 @@ before(async () => {
   app = await openApp({
     engine: ["app_settings", "profile_get"],  // the profile as a new person's engine makes it
     mocks: {
+      list_capacities: () => [{ id: "c1", display: "F64 Sales", sku: "F64", state: "Active" }],
       git_vscode_plan: () => ({ files: [{ path: ".vscode/settings.json", state: "new", label: "Settings", why: "Points VS Code at KratosForge" },
         { path: "AGENTS.md", state: "exists", label: "Agent notes", why: "Tells AI tools about the repo", text: "Use KratosForge." }] }),
       platform_domains: () => [{ id: "d1", name: "Sales", parent_id: null }, { id: "d2", name: "EMEA", parent_id: "d1" }],
@@ -191,6 +196,32 @@ const CASES = [
   ["platform.js:sourceRequestDialog", "Request a source", () => { sourceRequestDialog("erp", () => {}); }],
   ["platform-notices.js:platformRouteDialog", "Add a route", () => { platformRouteDialog({ mail_server: null }, null, () => {}); }],
   ["estate.js:costSettingsDialog", "Cost estimate", () => { costSettingsDialog({ price_per_cu_hour: 0.18, currency: "USD", python_cu: 2, spark_cu: 8 }); }],
+  // Batch 5: App Studio, Fabric step, secrets, dictionary, restore, tools, approvals and warehouse changes.
+  ["appstudio.js:appStudioImport", "Import an app", () => { appStudioImport(); }],
+  ["appstudio.js:appStudioPublishDialog", "Publish", () => {
+    appStudioPublishDialog({ valid: true, spec: { pages: [{ components: [{}, {}] }], sources: [{ kind: "sample" }] } }); }],
+  ["fabricstep.js:stepConfirm", "Run the last cell of Daily sales on Fabric?", () => {
+    stepConfirm({ name: "Daily sales" }, { tables: ["silver.orders"], workspace_name: "Sales Dev", workspace_id: "w1", lakehouse: "LH_Silver", item_name: "Daily sales (step)" }); }],
+  ["git.js:gitSecretsDialog", "These files look like they hold a secret", () => {
+    gitSecretsDialog([{ path: "config/settings.json", line: 4, kind: "Storage key", match: "AccountKey=abc***" }]); }],
+  ["meta.js:dictionaryImportDialog", "Import descriptions", () => { dictionaryImportDialog({ layer: "silver" }, () => {}); }],
+  ["estate.js:restoreDialog", "Restore silver.orders to version 3?", () => {
+    restoreDialog("silver.orders", "dev", { version: 3, at: "2026-11-04T08:00:00Z" }, { incremental: true, downstream: ["gold.sales"] }); }],
+  ["integrations.js:editTool", "Edit Copilot", () => {
+    editTool({ permissions: [{ id: "READ_METADATA", offered: true, allowed: true }, { id: "READ_DATA", offered: true, allowed: true }] },
+      { id: "copilot", name: "Copilot", grants: ["READ_METADATA"], auto: [], workspaces: [], config: {}, kind: "vscode", transport: "stdio" }, () => {}); }],
+  ["platform.js:confirmShortcutEnvs", "Approve shortcut sales_orders?", () => {
+    confirmShortcutEnvs({ id: "r1", target: "sales_orders", detail: { name: "sales_orders", workspace_name: "Sales Dev", lakehouse_name: "LH_Bronze" } }); }],
+  ["sqlchanges.js:whChangeConfirm", "Change WH_Sales?", () => {
+    whChangeConfirm({ name: "WH_Sales", kind: "warehouse", workspace_id: "w1" },
+      { statements: [{ statement: "UPDATE dbo.orders SET x = 1", permission: "warehouse_write", reason: "Changes rows" }, { statement: "SELECT 1", permission: "warehouse_read" }] }); }],
+  ["meta.js:createEnvWorkspace", "New workspace for Dev", () => { createEnvWorkspace("dev", state.meta.project); }],
+  ["whproject.js:whProjectNewObject", "New object", () => {
+    whProjectNewObject({ name: "WH_Sales", kind: "warehouse" }, { repo: "C:/repos/wh", folder: "WH_Sales" }, {}, () => {}); }],
+  ["meta.js:pickKeysWorkspace", "Keys workspace for Dev", () => { pickKeysWorkspace("dev"); }, "#dialog-root .dialog .choice"],
+  ["mesh.js:pickDesignationWorkspace", "Landing workspace for Dev", () => {
+    pickDesignationWorkspace("dev", { id: "landing", label: "Landing" }, () => {}); }, "#dialog-root .dialog .choice"],
+  ["mesh.js:keysSetupDialog", "Create the Keys workspace", () => { keysSetupDialog({ keys: { default_name: "KratosForge Keys" } }); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

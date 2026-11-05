@@ -18,7 +18,7 @@ Then make the backup:
 & $py -m fabric_desktop.cli backup --out "$env:USERPROFILE\OneDrive\Backups"
 ```
 
-It saves `fabric-desktop-backup-<date>-<time>.zip` and says which files had something left out. You can run it while the app is open.
+It saves `fabric-desktop-backup-<date>-<time>.zip` and says which files had something left out. You can run it while the app is open. A database SQLite can't read goes into the zip as it is, for support, and doesn't stop the backup; a restore replaces it.
 
 For a [headless agent](agent.md), add `--agent-home <its FABRIC_DESKTOP_HOME>` to include its job queue and alert history.
 

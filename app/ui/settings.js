@@ -917,7 +917,7 @@ function exerciseSandboxSection() {
   const folders = (n) => `${n.toLocaleString()} folder${n === 1 ? "" : "s"}`;
   const load = () => rpc("academy_sandbox_status").then((st) => {
     const on = st.enabled && st.available;
-    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC while the AppContainer is in Preview." : "");
+    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC." : "");
     side.replaceChildren(...[
       h("div", { class: on ? "sandbox-on" : "" }, on ? [icon("ok", 16), " On: exercises run in an AppContainer"]
         : "Off: exercises run in a limited process on this PC"),

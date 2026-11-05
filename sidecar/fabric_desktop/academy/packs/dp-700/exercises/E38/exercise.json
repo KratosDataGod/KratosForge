@@ -1,0 +1,98 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E38",
+  "version": 1,
+  "status": "draft",
+  "title": "Missing data: defaults, quarantine and the Unknown member",
+  "objectives": [
+    "2.2.9"
+  ],
+  "objective_text": "Decide, column by column, whether a missing value gets a default, points at the Unknown member, or sends the row to quarantine, and load both tables so no row is lost.",
+  "scenario": "The orders feed has gaps: some orders have no channel, some no quantity, some no customer, and one has no amount. The business has agreed rules for each, and audit wants every row that couldn't be loaded kept with its reason.",
+  "prerequisites": [
+    "LM-13",
+    "E23"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your SQL ran on this PC with DuckDB; every staged order is either in silver_orders or in quarantine_orders with its reason, and never both."
+  ],
+  "does_not_verify": [
+    "That the SQL runs unchanged in Spark SQL or a Fabric Warehouse.",
+    "Dataflow Gen2 or pipeline features that do the same job, such as a Copy activity's fault tolerance settings."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "silver_orders": {
+        "columns": [
+          "order_id",
+          "customer_key",
+          "qty",
+          "amount",
+          "channel"
+        ],
+        "unique": [
+          "order_id"
+        ]
+      },
+      "quarantine_orders": {
+        "columns": [
+          "order_id",
+          "reason"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over both tables, ordered by order_id."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Every order landed in the right place.",
+      "fail": "Go through the rules one at a time against each staged order."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver_orders",
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "customer_key",
+        "qty",
+        "amount",
+        "channel"
+      ],
+      "pass": "silver_orders has no blanks.",
+      "fail": "silver_orders still has a blank value or an order twice."
+    },
+    {
+      "kind": "integrity",
+      "child": "silver_orders",
+      "column": "customer_key",
+      "parent": "dim_customer",
+      "pass": "Every customer_key exists.",
+      "fail": "A customer_key isn't in dim_customer."
+    }
+  ],
+  "hints": [
+    "Only one rule sends a row away: a missing amount. Everything else is fixed in place.",
+    "LEFT JOIN dim_customer on customer_id, then coalesce(d.customer_key, 0): that covers a NULL customer_id and one dim_customer doesn't know.",
+    "coalesce(qty, 1) and coalesce(channel, 'web') are the defaults; WHERE amount IS NULL picks the quarantine rows."
+  ],
+  "explanation": "Missing data needs a rule per column, agreed with the business: a safe default where one exists (quantity 1, channel web), the Unknown member where a key is missing or unmatched (so the fact still counts), and quarantine where no value would be honest (an amount). Quarantining keeps the row and the reason, so nothing disappears silently and the row can be repaired and reloaded. Filtering NULLs out loses data; defaulting an amount to 0 hides it.",
+  "remediation": [
+    "LM-13",
+    "https://learn.microsoft.com/fabric/data-engineering/tutorial-lakehouse-data-preparation"
+  ],
+  "reset": "Reset restores stg_orders and dim_customer and drops silver_orders and quarantine_orders.",
+  "parity": null
+}

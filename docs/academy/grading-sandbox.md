@@ -182,9 +182,10 @@ Also:
 ## The AppContainer (ACD-005b)
 
 `academy/appcontainer.py`. On Windows, `sandbox.run` can start the learner process in an
-AppContainer, on top of everything above (the Job Object, the audit hook, the wrappers). It is **off
-by default** (`KRATOSFORGE_ACADEMY_APPCONTAINER=1` turns it on) until the open points below are
-settled; the UI keeps the v1 wording.
+AppContainer, on top of everything above (the Job Object, the audit hook, the wrappers). It is **on by
+default** since 2026-11-05, once the five points below were settled (`KRATOSFORGE_ACADEMY_APPCONTAINER=0`
+turns it off). Delta and PySpark exercises always use the v1 learner process, and a setup that
+fails falls back to it.
 
 What Windows CI showed on the first run (2026-11-04):
 

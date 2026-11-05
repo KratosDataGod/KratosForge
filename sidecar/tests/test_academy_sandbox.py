@@ -18,6 +18,12 @@ from fabric_desktop.academy import sandbox
 from fabric_desktop.academy import workspace as ws
 
 
+@pytest.fixture(autouse=True)
+def _v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These test the v1 learner process; test_academy_appcontainer tests the AppContainer on top.
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", False)
+
+
 @pytest.fixture
 def lab(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "data"

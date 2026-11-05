@@ -277,7 +277,7 @@ DATABRICKS: dict[str, Any] = {
     "targets": [{"platform": "databricks", "reviewed": "2026-11-05",
                  "basis": "Azure Databricks documentation (workspace browser, Catalog Explorer, Jobs and pipelines), November 2026"}],
     "appearance": {"color_mode": "light", "tokens": {
-        "light": {"--accent": "#2f569c", "--accent-dark": "#223f73", "--accent-soft": "#e8eef8",
+        "light": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#e8eef8",
                   "--accent-soft-2": "#eef2f9", "--canvas": "#f4f5f7", "--border": "#dde1e6"},
         "dark": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#2b3038",
                  "--accent-soft-2": "#262b32", "--on-accent": "#ffffff",

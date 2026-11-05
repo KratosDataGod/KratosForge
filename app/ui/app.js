@@ -602,7 +602,8 @@ function renderChrome() {
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
 
-  document.getElementById("rail-main").replaceChildren(...railFeatures().map(railItem));
+  const railMain = railFeatures();  // skins.js adds the "KratosForge" label in a platform skin
+  document.getElementById("rail-main").replaceChildren(...(typeof skinRailChildren === "function" ? skinRailChildren(railMain, railItem) : railMain.map(railItem)));
   document.getElementById("rail-bottom").replaceChildren(...railFeatures(true).map(railItem));
   syncSearchBox();
   // Items opened recently, each with a close button.

@@ -43,7 +43,7 @@ function engineToolbar(nb) {
   icon(remote ? "cloud" : "desktop", 16), h("span", { class: "engine-key" }, "Engine"), label,
   !onKernel && st.remote ? previewTag() : null, icon("chevronDown", 14));
   const badge = h("span", { class: `engine-where ${remote ? "remote" : "local"}` },
-    remote ? `Remote · ${onKernel ? "uses Fabric capacity" : st.bills}` : "This PC");
+    remote ? `Remote · ${onKernel ? "uses Fabric capacity" : st.bills}` : "This PC · no cloud cost");
   const conn = String(st.engine).startsWith("databricks-") ? nb.engineConnection : null;  // only beside a Databricks engine
   const connBtn = conn ? h("button", { class: "tool outline", "aria-haspopup": "menu", title: "The Databricks connection",
     onclick: (e) => pickEngineConnection(nb, e.currentTarget) }, h("span", { class: "engine-key" }, "Connection"), conn.label,

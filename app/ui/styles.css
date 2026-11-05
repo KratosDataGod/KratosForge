@@ -126,6 +126,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .rail-item:hover { background: var(--hover); }
 .rail-item.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand-orange); }
 .rail-divider { width: 40px; height: 1px; margin: 6px 0; background: var(--border); }
+/* A platform skin's label over KratosForge's own pages (skins.js skinRailChildren). */
+.rail-group-label { width: 68px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px;
+  font-weight: 600; line-height: 1.2; color: var(--muted); text-align: center; }
 #rail-open { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rail-open-item { position: relative; }
 .rail-close {

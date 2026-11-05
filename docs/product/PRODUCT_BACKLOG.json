@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-04",
+  "updated": "2026-11-05",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -6620,14 +6620,15 @@
     },
     {
       "id": "PB-131",
-      "title": "Remove Academy's runtime access grants on uninstall",
+      "title": "Let people remove Academy's runtime access grants",
       "category": "Security and Enterprise Readiness",
       "problem": "The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.",
-      "capability": "The grants are removed on uninstall, or by a confirmed Diagnostics action, using the existing revoke_runtime().",
+      "capability": "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grants after a confirm, using revoke_runtime(); nothing is removed while an exercise runs. By Security's decision there is no uninstall step, because a grant on the app-owned engine is inert after uninstall.",
       "evidence": [
         "Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38",
         "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grant after a confirm, with a Try again for paths Windows wouldn't change (#1820); enterprise-install.md says to run it before uninstalling, and Security (2026-11-04) chose no uninstall step because grants on the app-owned engine are inert after uninstall (#1821) on main at 03d2b53a",
-        "Not done: a developer's own Python (FABRIC_DESKTOP_PYTHON) keeps the grant unless they run the action; the next exercise run adds it back"
+        "Windows CI on #1823: test_settings_shows_the_grants_and_removes_them shows grants > 0 after an AppContainer exercise and none after Remove, with no ACE left; test_nothing_is_removed_while_an_exercise_runs (#1823) on main",
+        "Implementation review docs/product/reviews/PB-131-1820.md: Accepted (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv)"
       ],
       "features": [
         "FEAT-DEV-04",
@@ -6655,11 +6656,12 @@
       "duplicates": [],
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).",
       "prs": [
         1820,
-        1821
+        1821,
+        1823
       ],
       "computed": {
         "benefit": 2.3,

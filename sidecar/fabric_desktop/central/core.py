@@ -39,8 +39,6 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.shortcut_risk   risks a platform admin accepted on a shortcut (Dev reading Prod), and why
     catalog.endorsement  each data product item's endorsement (Certified, Promoted, Master data) as Fabric's
                          admin tenant scan last read it, so everyone sees it (Preview)
-    catalog.product_term business terms on a data product: a name and a link to the term in Microsoft
-                         Purview, typed by the product's owner; nothing reads Purview (Preview)
     catalog.product_item a data product's semantic models and reports: the Fabric item's id, type, workspace id
                          and display name, picked by the product's owner; nothing in Fabric changes (Preview)
     catalog.call         each change the app sent with a call id (call_once) and its answer, kept 7 days, so a
@@ -52,11 +50,11 @@ Who may change what (the caller is always who Fabric says it is, see udf.py):
     shortcut inventory   anyone records a new or a broken shortcut; a removal, a repoint or a healthy mark
                          comes from a platform admin or a member of a project with a product in that lakehouse
     platform admins      domains, key tables, copying keys in, source systems, landing zones, glossary, admins,
-                         shortcut rules, accepted shortcut risks, policy exceptions, endorsement scans, every product's
-                         business terms, and every request
+                         shortcut rules, accepted shortcut risks, policy exceptions, endorsement scans, and every
+                         request
     domain owners        glossary terms of their domain, certifying catalog entries of their domain's projects
-    product owners       access requests to their product, their product's business terms, and the semantic
-                         models and reports grouped under it
+    product owners       access requests to their product, and the semantic models and reports grouped
+                         under it
     project members      their project's catalog text (descriptions, tags, terms, steward)
     everyone             reading, issuing keys from existing key tables, products, links, requests
 """
@@ -65,11 +63,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import re
 import time
 import uuid
 from typing import Any, Callable, cast
-from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
 UNKNOWN_KEY = -1
@@ -145,7 +143,7 @@ class Db:
     def rows(self, sql: str, params: tuple | list = ()) -> list[dict[str, Any]]:
         cur = self.run(sql, params)
         names = [d[0] for d in cur.description]
-        return [dict(zip(names, r)) for r in cur.fetchall()]
+        return [dict(zip(names, r, strict=True)) for r in cur.fetchall()]
 
     def exists(self, schema: str, table: str) -> bool:
         if self.tsql:
@@ -170,7 +168,7 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                 ("description", "long"), ("updated_at", "text"), ("updated_by", "text")],
     "product": [("id", "key"), ("project", "text"), ("name", "text"), ("domain_id", "text"), ("description", "long"),
                 ("owner", "text"), ("access", "text"), ("version", "text"), ("status", "text"),
-                ("deprecated_on", "text"), ("updated_at", "text"), ("updated_by", "text")],
+                ("deprecated_on", "text"), ("updated_at", "text"), ("updated_by", "text"), ("promise", "long")],
     "port": [("id", "key"), ("product_id", "text"), ("port", "text"), ("entity", "text"), ("env", "text"),
              ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"),
              ("schema_name", "text"), ("table_name", "text"), ("columns", "long"), ("updated_at", "text")],
@@ -213,8 +211,6 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                       ("target", "long"), ("accepted_by", "text"), ("accepted_at", "text")],
     "endorsement": [("item_id", "key"), ("workspace_id", "text"), ("item_type", "text"), ("item_name", "text"),
                     ("endorsement", "text"), ("certified_by", "text"), ("scanned_at", "text"), ("scanned_by", "text")],
-    "product_term": [("id", "key"), ("product_id", "text"), ("term", "text"), ("url", "long"), ("added_by", "text"),
-                     ("added_at", "text")],
     # When someone last used the platform from the app, to tell an owner who has gone quiet.
     "person": [("user_name", "key"), ("last_seen", "text")],
 
@@ -229,6 +225,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     # What each environment last published of a product, so a promote's changes are told once per environment.
     "product_env": [("id", "key"), ("product_id", "text"), ("env", "text"), ("version", "text"), ("status", "text"),
                     ("deprecated_on", "text"), ("published_at", "text")],
+    # How each product is doing now in each environment, as its own team's incident check last reported it
+    # (data mesh P5): green, amber (late or a broken promise) or red (an open incident stops its load).
+    "product_status": [("id", "key"), ("product_id", "text"), ("env", "text"), ("status", "text"), ("why", "long"),
+                       ("latest", "long"), ("latest_at", "text"), ("checked_at", "text"), ("checked_by", "text")],
     # An Entra ID group someone already has, linked to one of a domain's roles in one environment ("" for roles
     # that span them), so the role uses it instead of the group the platform suggests (entra.py).
     "entra_group": [("id", "key"), ("domain_id", "text"), ("role", "text"), ("env", "text"), ("group_id", "text"),
@@ -777,6 +777,8 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     if product.get("status", "draft") not in STATUS:
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
     ensure_contracts(db)
+    ensure_promises(db)
+    promise = _promise(product.get("promise"))
     pid = f"{project}/{name}"
     require_member(db, project, by, "publish its products")
     _may_publish(db, pid, _row(db, "product", "id", pid), product, by)
@@ -790,6 +792,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
            "access": product.get("access", "private"), "version": str(product.get("version") or "1"),
            "status": product.get("status", "draft"), "deprecated_on": product.get("deprecated_on") or None,
            "updated_at": _now(), "updated_by": by}
+    row["promise"] = json.dumps(promise) if promise else None
     _upsert(db, "catalog", "product", "id", row)
     changed = []
     for p in ports:
@@ -808,7 +811,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports], "history": changed,
                                             **({"changes": changes} if changes else {})})
     db.commit()
-    out = dict(row, changes=changes, history=changed)
+    out = dict(row, promise=promise, changes=changes, history=changed)
     if changes:
         out["followers"] = _followers(db, pid)
     return out
@@ -946,6 +949,71 @@ def product_followers(db: Db, product_id: str, by: str = "") -> list[str]:
     return _followers(db, product_id)
 
 
+# ---------- how each product is doing now (data mesh P5) ----------
+# Incidents live in each team's own control area, which readers can't see. So the team's incident check
+# reports one line per product per environment here, and every reader sees it on Data mesh > Products.
+
+PRODUCT_STATUSES = ("green", "amber", "red")
+_STATUS_ENVS = ("dev", "test", "prod")
+_STATUS_TEXT = 300  # characters kept of why and latest
+
+
+def ensure_product_status(db: Db) -> list[str]:
+    """catalog.product_status, added with the Status view: additive, safe to run again; reporting calls it."""
+    if db.exists("catalog", "product_status"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'product_status')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['product_status'])})")
+    db.commit()
+    return ["catalog.product_status"]
+
+
+SCHEMA_HOOKS.append(ensure_product_status)
+
+
+def report_product_status(db: Db, project: str, env: str, statuses: list[dict[str, Any]], by: str = "") -> list[dict[str, Any]]:
+    """Replace what a project's products show in one environment: one {product, status, why, latest,
+    latest_at} per product. A product left out shows nothing (not checked), and one the catalog doesn't
+    have yet is skipped. Only the project's own members or a platform admin may report, so nobody marks
+    another team's products."""
+    if env not in _STATUS_ENVS:
+        raise PlatformError(f"env is one of {', '.join(_STATUS_ENVS)}")
+    if not isinstance(statuses, list) or len(statuses) > 500:
+        raise PlatformError("statuses is a list of at most 500 products")
+    ours = {r["name"]: r["id"] for r in db.rows(f"SELECT id, name FROM {db.t('catalog', 'product')} WHERE project = ?", (project,))}
+    if not ours:
+        return []  # nothing published yet: nothing to show, and no first owner made by a status report
+    require_member(db, project, by, "report how its products are doing")
+    rows, seen = [], set()
+    for s in statuses:
+        name = s.get("product") if isinstance(s, dict) else None
+        if not isinstance(name, str) or name in seen:
+            raise PlatformError("Each status names one product, once")
+        seen.add(name)
+        if name not in ours:
+            continue  # published on this PC but not yet in the catalog: nobody reads it here
+        if s.get("status") not in PRODUCT_STATUSES:
+            raise PlatformError(f"A product's status is one of {', '.join(PRODUCT_STATUSES)}")
+        rows.append({"id": f"{ours[name]}:{env}", "product_id": ours[name], "env": env, "status": s["status"],
+                     "why": str(s.get("why") or "")[:_STATUS_TEXT], "latest": str(s.get("latest") or "")[:_STATUS_TEXT],
+                     "latest_at": str(s.get("latest_at") or "")[:40], "checked_at": _now(), "checked_by": _who(by)})
+    ensure_product_status(db)
+    table = db.t("catalog", "product_status")
+    db.run(f"DELETE FROM {table} WHERE env = ? AND product_id IN (SELECT id FROM {db.t('catalog', 'product')} WHERE project = ?)",
+           (env, project))
+    for row in rows:
+        _upsert(db, "catalog", "product_status", "id", row)
+    db.commit()
+    return rows
+
+
+def list_product_status(db: Db) -> list[dict[str, Any]]:
+    """Every product's status in every environment it was reported for. A read: a platform made before the
+    Status view has none, and reading creates nothing."""
+    if not db.exists("catalog", "product_status"):
+        return []
+    return db.rows(f"SELECT * FROM {db.t('catalog', 'product_status')}")
+
+
 def _followers(db: Db, product_id: str) -> list[str]:
     people = ({r["user_name"] for r in db.rows(f"SELECT user_name FROM {db.t('catalog', 'follow')} WHERE product_id = ?",
                                                (product_id,))}
@@ -1042,6 +1110,66 @@ def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dic
     return out
 
 
+# --------------------------------------------------------------------------- the change window
+# When the platform agrees changes to Prod should happen. A promote outside it gets a warning, never a block.
+
+_WINDOW_SETTING = "change_window"
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_ZONE = re.compile(r"^(UTC|[A-Za-z_]+(?:/[A-Za-z0-9_+-]+){1,2})$")
+
+
+def checked_change_window(window: Any) -> dict[str, Any] | None:
+    """A change window as the platform keeps it: {days, start, end, time_zone, envs}; None for no window.
+    Days are mon..sun, times "HH:MM" with start before end on the same day, the time zone an IANA name
+    such as "Europe/London" or "UTC", envs some of test and prod (Prod when left out). Raises PlatformError."""
+    if window in (None, "", {}):
+        return None
+    if not isinstance(window, dict):
+        raise PlatformError("The change window is days, start, end and time_zone")
+    unknown = set(window) - {"days", "start", "end", "time_zone", "envs"}
+    if unknown:
+        raise PlatformError(f"The change window doesn't know {', '.join(sorted(unknown))}")
+    days = window.get("days")
+    if not isinstance(days, list) or not days or any(d not in WEEKDAYS for d in days):
+        raise PlatformError(f"The change window's days are some of {', '.join(WEEKDAYS)}")
+    start, end = str(window.get("start") or ""), str(window.get("end") or "")
+    if not _HHMM.fullmatch(start) or not _HHMM.fullmatch(end) or start >= end:
+        raise PlatformError('The change window\'s start and end are times like "08:00" and "16:00", start first')
+    zone = str(window.get("time_zone") or "UTC")
+    if not _ZONE.fullmatch(zone):
+        raise PlatformError('The change window\'s time_zone is a name like "Europe/London" or "UTC"')
+    envs = window.get("envs") or ["prod"]
+    if not isinstance(envs, list) or any(e not in ("test", "prod") for e in envs):
+        raise PlatformError("The change window's envs are some of test, prod")
+    return {"days": sorted(set(days), key=WEEKDAYS.index), "start": start, "end": end, "time_zone": zone,
+            "envs": sorted(set(envs), key=("test", "prod").index)}
+
+
+def change_window(db: Db) -> dict[str, Any]:
+    """{"window": the platform's change window, or None when it has none}. What is stored is checked again
+    on every read; a value that fails the checks reads as none."""
+    if not db.exists("config", "setting"):
+        return {"window": None}
+    saved = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (_WINDOW_SETTING,))
+    if not saved or not saved[0].get("value"):
+        return {"window": None}
+    try:
+        return {"window": checked_change_window(json.loads(saved[0]["value"]))}
+    except (PlatformError, ValueError, TypeError):
+        return {"window": None}
+
+
+def save_change_window(db: Db, window: dict[str, Any] | None = None, by: str = "") -> dict[str, Any]:
+    """Set the change window, or clear it with none. Platform admins only. Answers {"window": ...}."""
+    require_admin(db, by, "change the change window")
+    out = checked_change_window(window)
+    _upsert(db, "config", "setting", "name", {"name": _WINDOW_SETTING, "value": json.dumps(out) if out else ""})
+    _audit(db, by, "save change window", _WINDOW_SETTING, out or {"cleared": True})
+    db.commit()
+    return {"window": out}
+
+
 def ensure_entra_groups(db: Db) -> list[str]:
     """catalog.entra_group, added after the mesh: additive, safe to run again; linking calls it."""
     if db.exists("catalog", "entra_group"):
@@ -1127,6 +1255,8 @@ def list_products(db: Db) -> list[dict[str, Any]]:
     links = db.rows(f"SELECT * FROM {db.t('catalog', 'link')}")
     grants = db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}")
     for p in products:
+        # A catalog made before product promises has no promise column: read as none.
+        p["promise"] = json.loads(p.get("promise") or "null")
         p["granted"] = sorted(g["project"] for g in grants if g["product_id"] == p["id"])
         p["ports"] = [dict(x, columns=json.loads(x["columns"] or "{}")) for x in ports if x["product_id"] == p["id"]]
         # A catalog made before versioned contracts has no accepts or columns on its links: read as none.
@@ -1221,6 +1351,50 @@ def ensure_contracts(db: Db) -> list[str]:
 
 
 SCHEMA_HOOKS.append(ensure_contracts)
+
+
+def ensure_promises(db: Db) -> list[str]:
+    """Give a platform made before product promises catalog.product's promise. Additive only, and safe
+    to run again; publishing a product calls it, so a platform in Fabric gets it on first use."""
+    if "promise" in _columns(db, "product"):
+        return []
+    db.run(f"ALTER TABLE {db.t('catalog', 'product')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'promise', 'long')}")
+    db.commit()
+    return ["catalog.product.promise"]
+
+
+SCHEMA_HOOKS.append(ensure_promises)
+
+
+def _promise(value: Any) -> dict[str, Any] | None:
+    """A product's promise to readers as the catalog keeps it: only the known keys, numbers as numbers,
+    times as "HH:MM". Anything else is refused, so readers never see a promise nobody can check."""
+    if value in (None, "", {}):
+        return None
+    if not isinstance(value, dict):
+        raise PlatformError("A product's promise is a table: within_hours, by, max_rejected_pct, envs")
+    out: dict[str, Any] = {}
+    for key in ("within_hours", "max_rejected_pct"):
+        v = value.get(key)
+        if v in (None, ""):
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 \
+                or (key == "within_hours" and v == 0) \
+                or (key == "max_rejected_pct" and v >= 100):
+            raise PlatformError(f"The promise's {key} isn't a usable number")
+        out[key] = float(v)
+    by = value.get("by")
+    if by not in (None, ""):
+        if not (isinstance(by, str) and re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", by)):
+            raise PlatformError('The promise\'s by is a time like "06:00"')
+        out["by"] = by
+    if not out:
+        return None
+    envs = value.get("envs") or ["prod"]
+    if not isinstance(envs, list) or any(e not in ("dev", "test", "prod") for e in envs):
+        raise PlatformError("The promise's envs list some of dev, test, prod")
+    out["envs"] = sorted(set(envs), key=("dev", "test", "prod").index)
+    return out
 
 
 def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -> dict[str, Any]:
@@ -2881,19 +3055,14 @@ def withdraw_shortcut_risk(db: Db, shortcut_id: str, kind: str, by: str = "") ->
 # read it, through Power BI's admin tenant scan. A platform admin who is also a Fabric administrator
 # scans (central/trust_service.py); what the scan read is kept here, so everyone sees the last scan's
 # badge. Nothing here sets endorsement in Fabric, and an item no scan has read stays unknown.
-# Business terms are typed by a product's owner with a link to the term in Microsoft Purview; nothing
-# here reads Purview.
 
-PURVIEW_HOSTS = ("purview.microsoft.com", "web.purview.azure.com")
-MAX_TERM = 200
-MAX_URL = 2000
 _ENDORSEMENT_LABELS = {"certified": "Certified", "promoted": "Promoted", "masterdata": "Master data", "none": "None"}
-_TRUST_TABLES = ("endorsement", "product_term")
+_TRUST_TABLES = ("endorsement",)
 _SPACES = re.compile(r"\s+")
 
 
 def ensure_trust_badges(db: Db) -> list[str]:
-    """Give a platform made before trust badges catalog.endorsement and catalog.product_term.
+    """Give a platform made before trust badges catalog.endorsement.
     Additive only, and safe to run again; the operations that use them call it, so a platform in
     Fabric gets them on first use."""
     added = []
@@ -2935,27 +3104,6 @@ def product_items(product: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(items.values(), key=lambda i: (i["item_name"], i["item_id"]))
 
 
-def purview_url(value: Any) -> str:
-    """A link to a term in Microsoft Purview: https on purview.microsoft.com or web.purview.azure.com
-    (or a host under them), with no sign-in name or other port in it. Anything else is refused."""
-    text = str(value or "").strip()
-    problem = PlatformError("Paste the term's address from Purview: an https link on purview.microsoft.com "
-                            "or web.purview.azure.com")
-    if not text or len(text) > MAX_URL or "\\" in text or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in text):
-        raise problem
-    try:
-        parts = urlsplit(text)
-        port = parts.port
-    except ValueError:
-        raise problem from None
-    host = (parts.hostname or "").lower()
-    if parts.scheme.lower() != "https" or "@" in parts.netloc or port not in (None, 443):
-        raise problem
-    if not any(host == h or host.endswith(f".{h}") for h in PURVIEW_HOSTS):
-        raise problem
-    return text
-
-
 def _product(db: Db, product_id: str) -> dict[str, Any]:
     product = _row(db, "product", "id", str(product_id or ""))
     if product is None:
@@ -2963,24 +3111,13 @@ def _product(db: Db, product_id: str) -> dict[str, Any]:
     return product
 
 
-def _can_edit_terms(db: Db, product: dict[str, Any], by: str) -> bool:
+def _can_edit_product(db: Db, product: dict[str, Any], by: str) -> bool:
     return is_admin(db, by) or _who(by) in _product_owners(product)
-
-
-def _term_key(product_id: str, term: Any) -> str:
-    return f"{product_id}|{_SPACES.sub(' ', str(term or '')).strip().lower()}"
-
-
-def list_product_terms(db: Db, product_id: str) -> list[dict[str, Any]]:
-    ensure_trust_badges(db)
-    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'product_term')} WHERE product_id = ?", (str(product_id),))
-    return sorted(({"term": r["term"], "url": r["url"], "added_by": r.get("added_by") or "",
-                    "added_at": r.get("added_at") or ""} for r in rows), key=lambda t: t["term"].lower())
 
 
 def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
     """A product's trust badges: each Fabric item behind it with the endorsement the last tenant scan
-    read (None when no scan has read it: unknown, never guessed), and its business terms."""
+    read (None when no scan has read it: unknown, never guessed)."""
     ensure_trust_badges(db)
     product = _product(db, product_id)
     ports = db.rows(f"SELECT * FROM {db.t('catalog', 'port')} WHERE product_id = ?", (product["id"],))
@@ -2990,8 +3127,7 @@ def product_trust(db: Db, product_id: str, by: str = "") -> dict[str, Any]:
         items.append(item | {"endorsement": seen.get("endorsement") or None, "certified_by": seen.get("certified_by") or "",
                              "scanned_at": seen.get("scanned_at") or "", "scanned_by": seen.get("scanned_by") or ""})
     return {"product_id": product["id"], "name": product.get("name") or "", "owner": product.get("owner") or "",
-            "items": items, "terms": list_product_terms(db, product["id"]), "admin": is_admin(db, by),
-            "can_edit_terms": _can_edit_terms(db, product, by)}
+            "items": items, "admin": is_admin(db, by), "can_edit": _can_edit_product(db, product, by)}
 
 
 def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
@@ -3024,40 +3160,6 @@ def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
            {"items": sum(counts.values()), "endorsement": counts, "cleared": gone})
     db.commit()
     return {"recorded": sum(counts.values()), "cleared": gone, "scanned_at": at}
-
-
-def add_product_term(db: Db, product_id: str, term: str, url: str, by: str = "") -> list[dict[str, Any]]:
-    """Put a business term on a product, with a link to the term in Microsoft Purview. The product's
-    owner or a platform admin. The same term again changes its link."""
-    ensure_trust_badges(db)
-    product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
-        raise PlatformError("Only the product's owner or a platform admin can add business terms")
-    name = _SPACES.sub(" ", str(term or "")).strip()
-    if not name or len(name) > MAX_TERM:
-        raise PlatformError(f"A business term needs a name of up to {MAX_TERM} characters")
-    link = purview_url(url)
-    row = {"id": _term_key(product["id"], name), "product_id": product["id"], "term": name, "url": link,
-           "added_by": _who(by), "added_at": _now()}
-    _upsert(db, "catalog", "product_term", "id", row)
-    _audit(db, by, "add product term", product["id"], {"term": name, "url": link})
-    db.commit()
-    return list_product_terms(db, product["id"])
-
-
-def remove_product_term(db: Db, product_id: str, term: str, by: str = "") -> list[dict[str, Any]]:
-    """Take a business term off a product; the term stays in Purview. The product's owner or a platform admin."""
-    ensure_trust_badges(db)
-    product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
-        raise PlatformError("Only the product's owner or a platform admin can remove business terms")
-    key = _term_key(product["id"], term)
-    if _row(db, "product_term", "id", key) is None:
-        raise PlatformError(f"{term} isn't a business term on {product['id']}")
-    db.run(f"DELETE FROM {db.t('catalog', 'product_term')} WHERE id = ?", (key,))
-    _audit(db, by, "remove product term", product["id"], {"term": _SPACES.sub(" ", str(term or "")).strip()})
-    db.commit()
-    return list_product_terms(db, product["id"])
 
 
 # --------------------------------------------------------------------------- product groups (Preview)
@@ -3112,7 +3214,7 @@ def add_product_item(db: Db, product_id: str, item: dict[str, Any], by: str = ""
     same item again updates its name."""
     ensure_product_items(db)
     product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
+    if not _can_edit_product(db, product, by):
         raise PlatformError("Only the product's owner or a platform admin can add semantic models and reports")
     item = dict(item or {})
     kind = str(item.get("item_type") or "").strip()
@@ -3136,7 +3238,7 @@ def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> 
     """Take a semantic model or report off a product; the item stays in Fabric. The product's owner or a platform admin."""
     ensure_product_items(db)
     product = _product(db, product_id)
-    if not _can_edit_terms(db, product, by):
+    if not _can_edit_product(db, product, by):
         raise PlatformError("Only the product's owner or a platform admin can remove semantic models and reports")
     iid = str(item_id or "").strip().lower()
     found = _row(db, "product_item", "id", f"{product['id']}|{iid}")
@@ -3154,10 +3256,10 @@ def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> 
 # Operations that only read. The app sends them again after a timeout, a dropped connection or a busy
 # platform as they are (tests/test_central_roles.py checks each one changes nothing).
 READ_OPERATIONS = frozenset({
-    "access_reviews", "audit", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
+    "access_reviews", "audit", "change_window", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
     "keys_state", "list_admins", "list_assignments", "list_domains", "list_entra_groups", "list_follows",
     "list_glossary", "list_grants", "list_key_tables", "list_landing_zones", "list_policies",
-    "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_products",
+    "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_product_status", "list_products",
     "list_project_members", "list_projects", "list_requests", "list_seen_shortcuts", "list_shortcut_risks",
     "list_sources", "lookup_key", "owner_coverage", "policies_ready", "policy_applicability", "policy_history",
     "policy_options", "policy_snapshot", "policy_version", "product_followers", "product_history",
@@ -3254,13 +3356,14 @@ OPERATIONS = {
     "list_shortcut_risks": list_shortcut_risks, "accept_shortcut_risk": accept_shortcut_risk,
     "withdraw_shortcut_risk": withdraw_shortcut_risk,
     "product_trust": product_trust, "record_endorsements": record_endorsements,
-    "add_product_term": add_product_term, "remove_product_term": remove_product_term,
     "note_seen": note_seen, "owner_coverage": owner_coverage,
     "access_reviews": access_reviews, "confirm_access": confirm_access,
     "list_project_members": list_project_members, "set_project_member": set_project_member,
     "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
     "product_followers": product_followers,
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
+    "change_window": change_window, "save_change_window": save_change_window,
+    "report_product_status": report_product_status, "list_product_status": list_product_status,
     "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
     "list_product_items": list_product_items, "add_product_item": add_product_item, "remove_product_item": remove_product_item,
     "call_once": call_once,

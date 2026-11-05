@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.3.5",
+  "questions": [
+    {
+      "id": "1.3.5-q1",
+      "type": "single",
+      "stem": "Where do the sensitivity labels you apply to Fabric items come from?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Git repository"
+        },
+        {
+          "id": "b",
+          "text": "The capacity settings"
+        },
+        {
+          "id": "c",
+          "text": "Each workspace's own label list"
+        },
+        {
+          "id": "d",
+          "text": "Labels your organization publishes centrally for the whole tenant"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Fabric uses the sensitivity labels an organization publishes for its tenant.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.5-q2",
+      "type": "single",
+      "stem": "At Harbor Health, a lakehouse carries the Confidential label. A semantic model and report are built on it. What can happen to their labels?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Labels never move from one item to another"
+        },
+        {
+          "id": "b",
+          "text": "Downstream inheritance can apply the label to items built from the labeled item"
+        },
+        {
+          "id": "c",
+          "text": "The report is deleted"
+        },
+        {
+          "id": "d",
+          "text": "The lakehouse loses its label"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With downstream inheritance, items created from a labeled item can receive its label, so protection follows the data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
+      "case": "harbor-analytics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.5-q3",
+      "type": "single",
+      "stem": "A user exports data from a labeled Power BI report to Excel. What happens to the label?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The label is applied to the exported file, where the export format supports it"
+        },
+        {
+          "id": "b",
+          "text": "The label is shown as text in cell A1"
+        },
+        {
+          "id": "c",
+          "text": "The label is dropped on export"
+        },
+        {
+          "id": "d",
+          "text": "Export is always blocked"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Labels persist on supported exports such as Excel, PowerPoint and PDF, so the file stays protected outside Fabric.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.5-q4",
+      "type": "single",
+      "stem": "Users can't see any sensitivity labels to apply in Fabric. What must be in place?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Git connection on the workspace"
+        },
+        {
+          "id": "b",
+          "text": "A custom Spark pool"
+        },
+        {
+          "id": "c",
+          "text": "Published sensitivity labels and the Fabric admin setting that lets users apply them"
+        },
+        {
+          "id": "d",
+          "text": "A deployment pipeline"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Labels must be defined and published for the organization, and a Fabric admin must turn on the tenant setting that allows users to apply them.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

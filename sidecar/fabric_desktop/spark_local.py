@@ -34,18 +34,81 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
+from .spark_decimals import spark_decimal_types
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
-    rel = df.relation
+    rel = _spark_types(df.relation)
     return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
 
 
+_WIDE_INTS = ("HUGEINT", "UHUGEINT")
+_NESTED = ("struct", "list", "array", "map", "union")
+
+
+def _long_type(kind: Any) -> str | None:
+    """DuckDB SQL for nested type ``kind`` with each 128-bit integer in it as BIGINT, or None when it
+    holds none. Built from the type's parts, since its text doesn't quote field names."""
+    def write(t: Any) -> tuple[str, bool]:
+        if t.id in ("hugeint", "uhugeint"):
+            return "BIGINT", True
+        if t.id not in _NESTED:
+            return str(t), False
+        # An array lists its size as a child, and a union its tag (with an empty name): neither is a member.
+        children = [(name, child) for name, child in t.children
+                    if not (t.id == "array" and name == "size") and not (t.id == "union" and name == "")]
+        parts = [(name, *write(child)) for name, child in children]
+        wide = any(p[2] for p in parts)
+        if t.id == "list":
+            return f"{parts[0][1]}[]", wide
+        if t.id == "array":
+            return f"{parts[0][1]}[{dict(t.children)['size']}]", wide
+        if t.id == "map":
+            return f"MAP({parts[0][1]}, {parts[1][1]})", wide
+        fields = ", ".join('"' + str(name).replace('"', '""') + f'" {sql}' for name, sql, _ in parts)
+        return f"{t.id.upper()}({fields})", wide
+    text, wide = write(kind)
+    return text if wide else None
+
+
+def _spark_types(rel: Any) -> Any:
+    """``rel`` with DuckDB's 128-bit integers as BIGINT, Spark's long (EA-004). DuckDB's sum of INT or
+    BIGINT is a HUGEINT, which Arrow and Delta would take as decimal(38,0) where Spark writes bigint; Spark
+    has no 128-bit integer, so any HUGEINT column is one of these. A value too big for BIGINT stops the
+    write with a message instead of being cut."""
+    types = [str(t) for t in rel.types]
+    nested = [_long_type(t) if t.id in _NESTED else None for t in rel.types]
+    if not any(t in _WIDE_INTS for t in types) and not any(nested):
+        return rel
+    columns = []
+    for name, kind, target in zip(rel.columns, types, nested, strict=True):
+        quoted = '"' + name.replace('"', '""') + '"'
+        if target:
+            # A sum inside a struct, list or map (struct(sum(x)), collect_list over sums): the same
+            # type with each 128-bit integer as BIGINT. A value that doesn't come through unchanged
+            # stops the write, as at the top level.
+            literal = "'" + name.replace("'", "''") + "'"
+            columns.append(f"CASE WHEN {quoted} IS NULL OR TRY_CAST({quoted} AS {target}) IS NOT DISTINCT FROM {quoted} "
+                           f"THEN CAST({quoted} AS {target}) ELSE ERROR('The column ' || {literal} || ' holds a value "
+                           "too big for a long (BIGINT), the type Spark gives it, so nothing was written.') END AS "
+                           f"{quoted}")
+        elif kind in _WIDE_INTS:
+            literal = "'" + name.replace("'", "''") + "'"
+            columns.append(f"CASE WHEN {quoted} BETWEEN -9223372036854775808 AND 9223372036854775807 OR {quoted} IS NULL "
+                           f"THEN CAST({quoted} AS BIGINT) ELSE ERROR('The column ' || {literal} || ' has a value too "
+                           "big for a long (BIGINT), the type Spark gives it, so nothing was written.') END AS "
+                           f"{quoted}")
+        else:
+            columns.append(quoted)
+    return rel.project(", ".join(columns))
+
+
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
-# option that changes what gets written (replaceWhere, partitionOverwriteMode, path) can never be
-# dropped and turn into a full overwrite.
+# option that changes what gets written (replaceWhere, partitionOverwriteMode) can never be
+# dropped and turn into a full overwrite. A path option is save()'s path, as in Spark; a table write
+# refuses it (_TABLE_PATH).
 _SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
 # Options that only change how files are laid out, not which rows end up in the table.
 _LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
@@ -54,8 +117,8 @@ _REFUSED = {
                     "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
     "partitionoverwritemode": "partitionOverwriteMode isn't supported on this PC, and ignoring it would replace the "
                               "whole table. Run the cell in Fabric.",
-    "path": "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option.",
 }
+_TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option."
 
 
 _OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
@@ -113,6 +176,8 @@ class LakehouseWriter:
 
     def _check_options(self, allowed: tuple[str, ...], what: str) -> None:
         for name in self._options:
+            if name == "path":  # save() takes its path first, so here it's a table write's
+                raise NotImplementedError(_TABLE_PATH)
             if name in _LAYOUT_OPTIONS:
                 print(f"Note: the {name} option only changes file layout and is ignored on this PC.")
             elif name not in allowed:
@@ -129,6 +194,29 @@ class LakehouseWriter:
             if exists:
                 raise ValueError(f"Table {table} already exists. Use .mode(\"overwrite\") or .mode(\"append\").")
             return "overwrite"
+        raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
+
+    def _file_mode(self, path: str, kind: str) -> bool:
+        """Whether to write the file at ``path``, following the save mode as Spark does. Error (the
+        default) refuses a path that is already there and ignore leaves it as it is; overwrite
+        replaces it. This PC writes one file, which can't take more rows, so append is refused
+        rather than replacing what the file holds."""
+        exists = os.path.exists(path)
+        if self._mode == "overwrite":
+            return True
+        if self._mode == "append":
+            raise ValueError(f"Appending to a {kind} file isn't supported on this PC: it writes one file, and "
+                             f"appending would replace {path}. Write to a new path, use .mode(\"overwrite\") to "
+                             "replace it, or append to a lakehouse table with saveAsTable.")
+        if self._mode == "ignore":
+            if exists:
+                print(f"Note: {path} already exists, so nothing was written (mode ignore).")
+            return not exists
+        if self._mode in ("error", "errorifexists", "default"):
+            if exists:
+                raise ValueError(f"{path} already exists. Use .mode(\"overwrite\") to replace it, "
+                                 "or write to a new path.")
+            return True
         raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
 
     def _schema_mode(self, how: str) -> str | None:
@@ -183,7 +271,8 @@ class LakehouseWriter:
         if len(current) != data.num_columns:
             raise ValueError(f"insertInto matches columns by position: the data has {data.num_columns} columns "
                              f"and table {tableName} has {len(current)}.")
-        self._write(data.rename_columns(current), tableName, "overwrite" if overwrite else "append", None)
+        self._write(_store_assign(data.rename_columns(current), tableName), tableName,
+                    "overwrite" if overwrite else "append", None)
 
     def save(self, path: str | None = None, format: str | None = None, mode: str | None = None,  # noqa: A002
              partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -192,6 +281,10 @@ class LakehouseWriter:
         if partitionBy:
             self.partitionBy(partitionBy)
         self.options(**options)
+        given = self._options.pop("path", None)  # .option("path", p).save(), as in Spark
+        if given is not None and path is not None:  # Spark refuses both too, rather than pick one
+            raise ValueError("There's a path option and a path given to save(). Give the path once.")
+        path = given if path is None else path
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -200,12 +293,18 @@ class LakehouseWriter:
         if rel is not None:
             raise ValueError(f"On this PC, write lakehouse tables with saveAsTable or a Tables/ path. "
                              f"Writing files to {rel} runs in Fabric.")
+        if path is None:
+            raise ValueError("Give save a path, or write a lakehouse table with saveAsTable.")
         if fmt == "parquet":
             self._check_options((), "a Parquet file")
-            return self._df.relation.write_parquet(path)
+            if self._file_mode(path, "Parquet"):
+                self._df.relation.write_parquet(path)
+            return None
         if fmt == "csv":
             self._check_options(("header",), "a CSV file")
-            return self._df.relation.write_csv(path, header=_true(self._options.get("header", True)))
+            if self._file_mode(path, "CSV"):
+                self._df.relation.write_csv(path, header=_true(self._options.get("header", True)))
+            return None
         raise ValueError(f"Can't write format {fmt!r} to {path} on this PC.")
 
     def parquet(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -299,6 +398,9 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
+    "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
+                 "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
+                 "(read_option_refusal)"),
 }
 
 _IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
@@ -337,6 +439,8 @@ def writer_option_refusal(name: str, terminal: str | None) -> str | None:
         first = _REFUSED[key].split(". ")[0]
         return f"uses the {name} write option: {first[0].lower()}{first[1:].rstrip('.')}"
     takes = WRITE_TAKES.get(terminal or "")
+    if takes is not None and key == "path":
+        return f"uses the {name} write option on {terminal}: writing a table to its own path (an external table) runs in Fabric"
     if takes is not None and key not in takes:
         return f"uses the {name} write option, which {terminal} doesn't take on this PC"
     return None
@@ -419,6 +523,63 @@ def _preview_on(what: str) -> None:
                                   "or by your organization's policy. Run the cell in Fabric.")
 
 
+def _store_assign(data: pa.Table, table: str) -> pa.Table:
+    """INSERT and insertInto cast their values to the table's column types where Spark's ANSI store
+    assignment does (a number into another number, anything into text, a date into a timestamp: the
+    literal 1.0 is a decimal, and goes into a double column), and only when every value comes through
+    the cast as it was. Any other column is left as it is, for write_table to refuse (EA-001): '5'
+    into a whole-number column, true into one, 2.75 into one, 1.1 into a float column."""
+    target = {f.name.lower(): f for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
+    columns = []
+    for name, column in zip(data.column_names, data.columns, strict=True):
+        field = target.get(name.lower())
+        if field is None or column.type.equals(field.type) or not _store_assigns(column.type, field.type):
+            columns.append(column)
+            continue
+        try:
+            cast = column.cast(field.type, safe=True)
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:
+            raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
+                             f"({field.type}): {exc}. Nothing was written. Cast the column first.") from None
+        if not _same_values(column, cast):
+            raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
+                             f"({field.type}). Nothing was written. Cast the column first.")
+        columns.append(cast)
+    return pa.table(columns, names=data.column_names)
+
+
+def _numeric_type(t: pa.DataType) -> bool:
+    return pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t)
+
+
+def _store_assigns(src: pa.DataType, dst: pa.DataType) -> bool:
+    """The casts Spark's ANSI store assignment makes (Cast.canANSIStoreAssign), for top-level columns."""
+    if pa.types.is_null(src):
+        return False  # write_table gives an all-NULL column the table's type
+    if _numeric_type(src) and _numeric_type(dst):
+        return True
+    if pa.types.is_string(dst) or pa.types.is_large_string(dst):
+        return True
+    return pa.types.is_date(src) and pa.types.is_timestamp(dst)
+
+
+def _same_values(before: Any, after: Any) -> bool:
+    """Whether a cast kept every value. A safe cast refuses an overflow and a truncated fraction,
+    but still rounds a number into a float (1.1 into a float, 2**53 + 1 into a double) and a float
+    into a decimal, so those go back to the source type and are compared."""
+    if not (pa.types.is_floating(after.type) or (pa.types.is_floating(before.type) and pa.types.is_decimal(after.type))):
+        return True
+    import pyarrow.compute as pc
+    try:
+        back = after.cast(before.type, safe=False)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+        return False
+    same = pc.equal(back, before)
+    if pa.types.is_floating(before.type):  # NaN is NaN after the cast, though it equals nothing
+        same = pc.or_(same, pc.and_(pc.is_nan(back), pc.is_nan(before)))
+    return pc.all(pc.or_kleene(same, pc.is_null(before))).as_py() is not False
+
+
 def _columns(table: str) -> list[str] | None:
     """The table's column names, or None when it doesn't exist."""
     from deltalake.exceptions import TableNotFoundError
@@ -428,6 +589,64 @@ def _columns(table: str) -> list[str] | None:
         return None
 
 
+# Spark's CSV read options this PC honours (LakehouseReader.csv), by lower-case name. multiLine: a quoted
+# value may span lines, which DuckDB always reads. Options of other
+# readers and of time travel (_READ_OPTIONS) are let through, since one reader may be reused.
+_CSV_OPTION_NAMES = ("header", "sep", "delimiter", "inferSchema", "nullValue", "quote", "escape", "comment",
+                     "encoding", "charset", "mode", "multiLine")
+_CSV_OPTIONS = {n.lower() for n in _CSV_OPTION_NAMES}
+_READ_OPTIONS = {"versionasof", "timestampasof"}
+_WHOLE_TYPES = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT")
+
+
+# Spark's JSON and Parquet read options this PC honours (LakehouseReader.json and .parquet), by lower-case
+# name (#1669). JSON: multiLine picks JSON Lines (false) or one document per file (true); mode PERMISSIVE
+# reads a malformed line as a row of nulls and FAILFAST stops the read, as in Spark. Parquet: mergeSchema
+# reads every file's columns by name; the rebase modes are taken only as CORRECTED, which is how this PC
+# reads old dates.
+_JSON_OPTION_NAMES = ("multiLine", "mode", "encoding", "charset")
+_PARQUET_OPTION_NAMES = ("mergeSchema", "datetimeRebaseMode", "int96RebaseMode")
+_TAKES = {"csv": _CSV_OPTION_NAMES, "json": _JSON_OPTION_NAMES, "parquet": _PARQUET_OPTION_NAMES}
+
+
+def _utf8(value: Any) -> bool:
+    return str(value).lower().replace("-", "").replace("_", "") == "utf8"
+
+
+def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bool = False) -> str | None:
+    """Why this PC's ``fmt`` reader (csv, json or parquet) refuses ``options`` (name, value; None when the
+    value isn't known before the run), as a phrase after "This PC's Spark", or None when it takes them
+    all. Each option is honoured as Spark does or refused here, never dropped (EA-013, #1669). The
+    reader and the check behind Runs on (fabric_run) both use it."""
+    takes = _TAKES[fmt]
+    known = {n.lower() for n in takes}
+    label = {"csv": "CSV", "json": "JSON", "parquet": "Parquet"}[fmt]
+    for name, value in options:
+        key = str(name).lower()
+        if key not in known and key not in _READ_OPTIONS and key != "path":  # load() takes the path option
+            return f"doesn't take the {label} option {name!r} (it takes {', '.join(takes)})"
+        if key in ("encoding", "charset") and value is not None and not _utf8(value):
+            return f"reads {label} files as UTF-8 only, not {value} (save the file as UTF-8 first)"
+        if key == "mode" and value is not None:
+            mode = str(value).upper()
+            if mode not in ("PERMISSIVE", "FAILFAST", "DROPMALFORMED"):
+                return f"has no {label} mode {value!r} (Spark's are PERMISSIVE, DROPMALFORMED and FAILFAST)"
+            if fmt == "csv" and mode != "PERMISSIVE" and not has_schema:
+                return f"needs read.schema() for CSV mode {mode}, to say what a malformed value is"
+            if fmt == "json" and mode == "DROPMALFORMED":
+                return ("can't tell a malformed JSON line from a line of nulls, so it doesn't take mode DROPMALFORMED "
+                        "(use PERMISSIVE, where a malformed line is a row of nulls, or FAILFAST)")
+        if key in ("datetimerebasemode", "int96rebasemode") and value is not None and str(value).upper() != "CORRECTED":
+            return (f"reads Parquet dates and times as they are written (CORRECTED), so it doesn't take {name} "
+                    f"{value!r}")
+    if fmt == "json":
+        given = {str(n).lower(): v for n, v in options}
+        if str(given.get("mode") or "").upper() == "PERMISSIVE" and _true(given.get("multiline", False)):
+            return ("reads a multiLine JSON file that is malformed by stopping, so it doesn't take mode PERMISSIVE "
+                    "with multiLine (use FAILFAST, or leave mode out)")
+    return None
+
+
 class LakehouseReader:
     """``spark.read``: tables and files of the attached lakehouse, or files on this PC."""
 
@@ -435,6 +654,7 @@ class LakehouseReader:
         self._session = session
         self._format: str | None = None
         self._options: dict[str, Any] = {}
+        self._names: dict[str, str] = {}  # each option's name as the notebook wrote it, for messages
 
     def format(self, fmt: str) -> LakehouseReader:
         self._format = fmt.lower()
@@ -442,7 +662,15 @@ class LakehouseReader:
 
     def option(self, key: str, value: Any) -> LakehouseReader:
         self._options[str(key).lower()] = value
+        self._names[str(key).lower()] = str(key)
         return self
+
+    def _refusal(self, fmt: str) -> None:
+        """Raise when the ``fmt`` reader refuses one of the options given (read_option_refusal)."""
+        named = [(self._names.get(k, k), v) for k, v in self._options.items()]
+        refused = read_option_refusal(fmt, named, getattr(self, "_schema", None) is not None)
+        if refused:
+            raise NotImplementedError(f"This PC's Spark {refused}, so the file wasn't read.")
 
     def options(self, **opts: Any) -> LakehouseReader:
         for k, v in opts.items():
@@ -458,7 +686,7 @@ class LakehouseReader:
         self._schema = schema
         return self
 
-    def _apply(self, df: DataFrame, by_position: bool) -> DataFrame:
+    def _apply(self, df: DataFrame, by_position: bool, mode: str = "PERMISSIVE") -> DataFrame:
         schema = getattr(self, "_schema", None)
         if schema is None:
             return df
@@ -469,11 +697,25 @@ class LakehouseReader:
         if by_position and len(have) != len(schema.fields):
             raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
         lower = {c.lower(): c for c in have}
-        cols = []
+        text_cols = {c for c, t in zip(have, rel.types, strict=True) if str(t) == "VARCHAR"}
+        cols, fits = [], []
         for i, f in enumerate(schema.fields):
             src = have[i] if by_position else lower.get(f.name.lower())
             value = "NULL" if src is None else '"' + src.replace('"', '""') + '"'
-            cols.append(f'TRY_CAST({value} AS {f.dataType.duckdb_type}) AS "' + f.name.replace('"', '""') + '"')
+            target = str(f.dataType.duckdb_type)
+            read = value
+            if src in text_cols and target in _WHOLE_TYPES:  # text that isn't a whole number doesn't fit
+                read = f"CASE WHEN regexp_matches({value}, '^[+-]?[0-9]+$') THEN {value} END"  # (DuckDB rounds 3.5)
+            cast = f"TRY_CAST({read} AS {target})"
+            fit = f"({value} IS NULL OR {cast} IS NOT NULL)"
+            fits.append(fit)
+            if mode == "FAILFAST":  # a value that doesn't fit stops the read, as Spark's FAILFAST does
+                cast = (f"CASE WHEN {fit} THEN {cast} ELSE ERROR('Malformed CSV value ' || left(CAST({value} AS "
+                        f"VARCHAR), 100) || ' for column {f.name.replace(chr(39), chr(39) * 2)} ({target}), and "
+                        "mode is FAILFAST.') END")
+            cols.append(f'{cast} AS "' + f.name.replace('"', '""') + '"')
+        if mode == "DROPMALFORMED":  # rows with a value that doesn't fit are left out
+            rel = rel.filter(" AND ".join(fits))
         return DataFrame(rel.project(", ".join(cols)), self._session)
 
     def _no_schema(self, what: str) -> None:
@@ -499,6 +741,12 @@ class LakehouseReader:
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
+        given = self._options.pop("path", None)  # .option("path", p).load(), as in Spark
+        if given is not None and path is not None:  # Spark refuses both too, rather than pick one
+            raise ValueError("There's a path option and a path given to load(). Give the path once.")
+        path = given if path is None else path
+        if path is None:
+            raise ValueError("Give load a path: a Tables/ or Files/ path, or a file or folder on this PC.")
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta":
             self._no_schema("a Delta table")
@@ -520,21 +768,70 @@ class LakehouseReader:
             return self.text(path)
         raise ValueError(f"Format {fmt!r} isn't supported on this PC. Use csv, json, parquet, text or delta.")
 
-    def csv(self, path: str, header: Any = None, sep: str | None = None, inferSchema: Any = None, **opts: Any) -> DataFrame:
-        self.options(**opts)
-        header = self._options.get("header", header)
-        sep = self._options.get("sep", self._options.get("delimiter", sep))
-        conn = self._session.conn
-        rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"),
-                            **({"sep": sep} if sep else {}), **({"all_varchar": True} if getattr(self, "_schema", None) else {}))
-        return self._apply(DataFrame(rel, self._session), by_position=True)
+    def csv(self, path: str, header: Any = None, sep: str | None = None, inferSchema: Any = None,  # noqa: N803
+            **opts: Any) -> DataFrame:
+        """Spark's CSV options (EA-013): each is honoured, or refused with a message, never dropped.
+        As in Spark, every column is a string unless inferSchema is true or a schema is given."""
+        if header is not None:
+            opts.setdefault("header", header)
+        if sep is not None:
+            opts.setdefault("sep", sep)
+        if inferSchema is not None:
+            opts.setdefault("inferSchema", inferSchema)
+        if opts.get("schema") is not None:  # csv(path, schema=s) is read.schema(s), as in Spark
+            self.schema(opts["schema"])
+        opts.pop("schema", None)
+        self.options(**{k: v for k, v in opts.items() if v is not None})
+        given = self._options
+        self._refusal("csv")
+        extra: dict[str, Any] = {}
+        if given.get("sep", given.get("delimiter")):
+            extra["sep"] = str(given.get("sep", given.get("delimiter")))
+        if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
+            extra["all_varchar"] = True
+        if given.get("nullvalue") not in (None, ""):
+            extra["na_values"] = [str(given["nullvalue"]), ""]
+        for name, arg in (("quote", "quotechar"), ("escape", "escapechar"), ("comment", "comment")):
+            if given.get(name) not in (None, ""):
+                extra[arg] = str(given[name])
+        mode = str(given.get("mode", "PERMISSIVE")).upper()
+        rel = self._session.conn.read_csv(self._local(path), header=_true(given.get("header", False)), **extra)
+        return self._apply(DataFrame(rel, self._session), by_position=True, mode=mode)
 
-    def parquet(self, *paths: str, **_opts: Any) -> DataFrame:
+    def _given(self, fmt: str, opts: dict[str, Any]) -> dict[str, Any]:
+        """The reader's options with ``opts`` (keyword arguments to json or parquet) added, refused as
+        read_option_refusal says. A ``schema`` keyword is read.schema(), as in Spark."""
+        if opts.get("schema") is not None:
+            self.schema(opts.pop("schema"))
+        opts.pop("schema", None)
+        self.options(**{k: v for k, v in opts.items() if v is not None})
+        self._refusal(fmt)
+        return self._options
+
+    def parquet(self, *paths: str, **opts: Any) -> DataFrame:
+        """Spark's Parquet options (#1669): each is honoured, or refused with a message, never dropped."""
+        given = self._given("parquet", opts)
         files = [self._local(p) for p in paths]
-        return self._apply(DataFrame(self._session.conn.read_parquet(files if len(files) > 1 else files[0]), self._session), False)
+        if not files:
+            raise ValueError("Give parquet a path: a Tables/ or Files/ path, or a file or folder on this PC.")
+        rel = self._session.conn.read_parquet(files if len(files) > 1 else files[0],
+                                              union_by_name=_true(given.get("mergeschema", False)))
+        return self._apply(DataFrame(rel, self._session), False)
 
-    def json(self, path: str, **_opts: Any) -> DataFrame:
-        return self._apply(DataFrame(self._session.conn.read_json(self._local(path)), self._session), False)
+    def json(self, path: str, **opts: Any) -> DataFrame:
+        """Spark's JSON options (#1669): each is honoured, or refused with a message, never dropped.
+        Without multiLine this PC reads JSON Lines and also a file that is one document, which Spark
+        reads only with multiLine true."""
+        given = self._given("json", opts)
+        extra: dict[str, Any] = {}
+        if "multiline" in given:
+            extra["format"] = "auto" if _true(given["multiline"]) else "newline_delimited"
+        if str(given.get("mode") or "").upper() == "PERMISSIVE":
+            # A malformed line is a row of nulls, as in Spark (which also has no _corrupt_record column
+            # unless the schema asks for one, and this PC refuses that option).
+            extra.update(format="newline_delimited", ignore_errors=True)
+        rel = self._session.conn.read_json(self._local(path), **extra)
+        return self._apply(DataFrame(rel, self._session), False)
 
     def text(self, path: str, **_opts: Any) -> DataFrame:
         self._no_schema("text files")
@@ -555,15 +852,16 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
         self._views: dict[str, str] = {}
-        self._snapshot = None
+        self._snapshot: lakehouse.Attached | None = None
         self._frames: weakref.WeakSet[DataFrame] = weakref.WeakSet()  # this session's DataFrames still in use
-        self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
+        self._conf = spark_api.LocalRuntimeConfig(self)  # type: ignore[assignment]  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
-        catalog.tableExists = lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName)  # noqa: N803
+        vars(catalog).update(  # DuckDB's Catalog has no tableExists
+            tableExists=lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName))  # noqa: N803
 
     @property
-    def sparkContext(self) -> spark_api.LocalSparkContext:  # noqa: N802
+    def sparkContext(self) -> spark_api.LocalSparkContext:  # type: ignore[override]  # noqa: N802
         return self._local_context
 
     @property
@@ -621,7 +919,7 @@ class LocalSparkSession(SparkSession):
         return DataFrame(self.conn.from_arrow(data), self)
 
     @property
-    def read(self) -> LakehouseReader:
+    def read(self) -> LakehouseReader:  # type: ignore[override]  # this PC's reader, not DuckDB's
         return LakehouseReader(self)
 
     def table(self, tableName: str) -> DataFrame:  # noqa: N803
@@ -686,7 +984,7 @@ class LocalSparkSession(SparkSession):
                 name = f"{target.db}.{target.name}" if target.db else target.name
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(query))
+                data = self.conn.sql(_sql.duckdb_sql(spark_decimal_types(query, self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -712,11 +1010,12 @@ class LocalSparkSession(SparkSession):
                     if len(current) != arrow.num_columns:
                         raise ValueError(f"INSERT matches columns by position: the query has {arrow.num_columns} "
                                          f"columns and table {name} has {len(current)}.")
-                    print(_write_table(arrow.rename_columns(current), name, mode, None))
+                    print(_write_table(_store_assign(arrow.rename_columns(current), name), name, mode, None))
                 else:
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
+        statement = spark_decimal_types(statement, self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)
@@ -751,7 +1050,7 @@ class LocalSparkSession(SparkSession):
         cased = {n.lower(): n for n in target}
         safe = local_delta.fabric_schema(source.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
-        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)]))
+        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
         self._one_match_each(change, source)
         result = lakehouse.change_table(change, source)
         affected = result.rows_inserted + result.rows_updated + result.rows_deleted
@@ -836,7 +1135,7 @@ class LocalSparkSession(SparkSession):
         so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
         rel = df.relation
         exprs, changed = [], False
-        for name, kind in zip(rel.columns, rel.types):
+        for name, kind in zip(rel.columns, rel.types, strict=True):
             text = str(kind)
             wanted = re.sub(r"\bINTEGER\b", "BIGINT", text)
             quoted = '"' + name.replace('"', '""') + '"'
@@ -1181,8 +1480,8 @@ def _alias_pyspark() -> None:
                         "pyspark.sql.window": spark_compat.window_module})
     spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
-    spark_sql.SparkSession = LocalSparkSession  # type: ignore[attr-defined]
-    LocalSparkSession.builder = _Builder()  # type: ignore[attr-defined]
+    spark_sql.SparkSession = LocalSparkSession  # type: ignore[misc,assignment]
+    LocalSparkSession.builder = _Builder()  # type: ignore[assignment]
 
 
 class _Builder:
@@ -1338,10 +1637,47 @@ def _read_profile(root: dict[str, Any]) -> dict[str, Any]:
             "steps": listed, "more_steps": len(steps) - len(listed)}
 
 
-def interrupt() -> None:
-    """Stop a running DuckDB query, for Cancel."""
-    for conn in ([_session.conn] if _session else []) + [duckdb.default_connection()]:
-        try:
-            conn.interrupt()
-        except Exception:  # noqa: BLE001  # silent-ok: best-effort Cancel; a connection with nothing running may refuse
-            pass
+# Connections a notebook's cells open with duckdb.connect, by the thread of the cell running now, so
+# Cancel reaches them (EA-016). Only a cell's thread records: the app's own connections, when the
+# kernel runs inside the engine, are never interrupted by a notebook's Cancel.
+# Connections the app opens itself (a module of fabric_desktop calling duckdb.connect, even from a
+# cell's thread) are never recorded. _connections_lock guards the recorded sets.
+_cell_connections: dict[int, Any] = {}
+_connections_lock = threading.Lock()
+_duckdb_connect = duckdb.connect
+
+
+def _connect(*args: Any, **kwargs: Any) -> Any:
+    conn = _duckdb_connect(*args, **kwargs)
+    watched = _cell_connections.get(threading.get_ident())
+    caller = str(sys._getframe(1).f_globals.get("__name__", ""))
+    if watched is not None and not caller.startswith("fabric_desktop"):
+        with _connections_lock:
+            watched.add(conn)
+    return conn
+
+
+def watch_connections(ident: int, connections: Any) -> None:
+    """While the cell on thread ``ident`` runs, record the DuckDB connections it opens in ``connections``
+    (a WeakSet), or stop recording with None."""
+    if connections is None:
+        _cell_connections.pop(ident, None)
+        return
+    if duckdb.connect is not _connect:
+        duckdb.connect = _connect  # type: ignore[assignment]
+    _cell_connections[ident] = connections
+
+
+def interrupt(connections: Any = ()) -> None:
+    """Stop a running DuckDB query, for Cancel: on ``spark``, DuckDB's default connection and
+    ``connections`` (those the notebook opened)."""
+    def stop(conns: list[Any]) -> None:
+        for conn in conns:
+            try:
+                conn.interrupt()
+            except Exception:  # noqa: BLE001  # silent-ok: best-effort Cancel; a connection with nothing running may refuse
+                pass
+    stop(([_session.conn] if _session else []) + [duckdb.default_connection()])
+    with _connections_lock:  # a snapshot: a cell's thread may be adding to the set
+        opened = list(connections)
+    stop(opened)

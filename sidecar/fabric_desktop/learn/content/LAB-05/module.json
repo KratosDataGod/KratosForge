@@ -1,0 +1,69 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-05",
+  "kind": "lab",
+  "title": "Build a type 2 slowly changing dimension",
+  "path": "sql-development",
+  "level": "intermediate",
+  "minutes": 30,
+  "objectives": [
+    "Keep history when a customer's attributes change",
+    "Close the current row and add a new one, in one answer",
+    "Leave unchanged and new customers right, with unique keys"
+  ],
+  "prerequisites": [
+    "LM-05",
+    "LM-17"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "apply-changes",
+      "prompt": "Apply customer_changes to dim_customer as type 2: close each changed customer's current row on changed_on, add a new current row for each change and each new customer (new keys go up from the highest key, in customer_id order), and leave unchanged customers alone. End with SELECT * FROM dim_customer ORDER BY customer_id, valid_from.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter overwrites the city: Seattle is gone. Type 2 keeps the old row and closes it.",
+        "Step 1: UPDATE the current row of each customer whose city changed, setting valid_to = changed_on and is_current = false. Customer 103 didn't really change.",
+        "Step 2: INSERT a row for every change that now has no current row (the ones you closed, and customer 104), with customer_key = the highest key + row_number() OVER (ORDER BY customer_id)."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "table_shape",
+          "table": "dim_customer",
+          "unique": [
+            "customer_key"
+          ],
+          "not_null": [
+            "customer_key",
+            "customer_id",
+            "valid_from",
+            "is_current"
+          ]
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-dimension-tables"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

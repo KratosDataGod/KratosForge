@@ -53,6 +53,7 @@ from .incident_desk import IncidentDeskMixin
 from .platform_notify_service import PlatformNotifyMixin
 from .access_cache_service import AccessCacheMixin
 from .git_service import GitMixin
+from .fabric_git_service import FabricGitMixin
 from .pipeline_service import PipelineMixin, PipelineRunMixin
 from .fabric_pipeline_runs_service import FabricPipelineRunsMixin
 from .workspace_pipelines_service import WorkspacePipelinesMixin
@@ -87,6 +88,9 @@ from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
 from .learn_service import LearnMixin
+from .academy_service import AcademyMixin
+from .appstudio_service import AppStudioMixin
+from .academy_exam_service import AcademyExamMixin
 from .comments_service import CommentsMixin
 from .engines_service import EnginesMixin
 from .kernel_proc import ProcessKernel
@@ -123,7 +127,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -329,9 +333,25 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """``notebook`` leaves its shared session; its next cell starts a session of its own."""
         return self.sessions.leave(notebook)
 
+    def skins_list(self) -> dict[str, Any]:
+        """The platform skins Settings offers (skins.py). Appearance only: reading them changes nothing."""
+        from . import skins
+        return skins.listing()
+
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
-                "policy_problems": app_settings.policy_problems()}
+                "policy_problems": app_settings.policy_problems(), "policy_record": self.policy_record()}
+
+    def policy_record(self) -> dict[str, Any] | None:
+        """The policy file's hash and its last change, recording a change in the audit trail (policy_watch.py).
+        app_settings stays READ_ONLY in audit.py: opening Settings isn't audited, but a policy file that
+        changed since the last look is, as its own policy_file_changed entry."""
+        from . import policy_watch
+        try:
+            return policy_watch.check(self.root, self.audit)
+        except Exception:  # noqa: BLE001 - a record that can't be made never stops Settings or the engine
+            _log.exception("Couldn't record the policy file's state")
+            return None
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):
@@ -960,7 +980,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         result, row_count = sql.head(query, dialect, sandbox=sandbox, limit=limit)  # only the first rows are kept
         columns = [c.to_pylist() for c in result.columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-                "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+                "rows": [[_json_value(v) for v in row] for row in zip(*columns, strict=True)],
                 "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
@@ -1194,7 +1214,7 @@ def sql_result(result: pa.Table, limit: int, started: float) -> dict[str, Any]:
     (time.monotonic)."""
     columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-            "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+            "rows": [[_json_value(v) for v in row] for row in zip(*columns, strict=True)],
             "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
 

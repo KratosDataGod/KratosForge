@@ -434,6 +434,30 @@ def test_a_stream_can_be_stopped(local):
     assert e.execute("SELECT 1")["rows"] == [[1]]
 
 
+@pytest.mark.parametrize("stream", [False, True], ids=["whole result", "stream"])
+def test_a_time_limit_that_runs_out_before_the_query_starts_still_stops_it(local, monkeypatch, stream):
+    """DuckDB drops an interrupt that comes before a statement starts. A limit that ran out while
+    the query was still being read and checked (a slow PC, a big script) stops it all the same."""
+    e = local.engine(local.create("Limit early")["id"])
+    e.execute("SELECT 1")  # opens the connection
+    read = type(e)._statements
+
+    def slow_read(self, *args, **kwargs):
+        out = read(self, *args, **kwargs)
+        time.sleep(0.5)  # the 0.2 s limit runs out here, before DuckDB starts
+        return out
+
+    monkeypatch.setattr(type(e), "_statements", slow_read)
+    with pytest.raises(TimeoutError, match="longer than 0.2 seconds"):
+        if stream:
+            for _ in e.execute_reader("SELECT 1 AS n", timeout=0.2):
+                pass
+        else:
+            e.execute("SELECT 1 AS n", timeout=0.2)
+    monkeypatch.undo()
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
 def test_a_stream_past_its_time_limit_says_so(local):
     e = local.engine(local.create("Stream limit")["id"])
     reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", timeout=0.5, batch_size=1000)
@@ -451,13 +475,26 @@ def test_a_query_duckdb_stops_by_itself_is_not_called_cancelled(local, stream):
     not that it was cancelled (a whole result) or "INTERRUPT Error" (a stream, through pyarrow)."""
     e = local.engine(local.create("Stopped alone")["id"])
     e.execute("SELECT 1")  # opens the connection
-    threading.Timer(0.3, e._con.interrupt).start()  # as DuckDB stops itself: no cancel, no time limit
-    with pytest.raises(RuntimeError, match="part of the query failed") as caught:
-        if stream:
-            for _ in e.execute_reader("SELECT range AS n FROM range(10000000000)", batch_size=1000):
-                pass
-        else:
-            e.execute("SELECT count(*) FROM range(10000000000) a")
+    # As DuckDB stops itself: no cancel, no time limit. An interrupt that lands before the query
+    # starts does nothing, so it is sent again until the query stops; the query can't end first.
+    done = threading.Event()
+
+    def stop_it() -> None:
+        while not done.wait(0.05):
+            e._con.interrupt()
+
+    stopper = threading.Thread(target=stop_it, daemon=True)
+    stopper.start()
+    try:
+        with pytest.raises(RuntimeError, match="part of the query failed") as caught:
+            if stream:
+                for _ in e.execute_reader("SELECT range AS n FROM range(1000000000000)", batch_size=1000):
+                    pass
+            else:
+                e.execute("SELECT count(*) FROM range(1000000000000) a")
+    finally:
+        done.set()
+        stopper.join()
     assert not isinstance(caught.value, QueryCancelled)
     assert e.execute("SELECT 1")["rows"] == [[1]]
 

@@ -1,0 +1,80 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-18",
+  "kind": "module",
+  "title": "Reading a query plan",
+  "path": "sql-development",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Show a query's plan with EXPLAIN and EXPLAIN ANALYZE",
+    "Read a plan from the scans up to the result",
+    "Spot a cross product and the row counts that give it away"
+  ],
+  "prerequisites": [
+    "LM-03"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "store-revenue",
+      "prompt": "EXPLAIN the starter and find its CROSS_PRODUCT. Then return each store's name and revenue (the sum of its sales' amounts), in name order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "Run EXPLAIN followed by the starter. Read from the bottom: two scans meet in a CROSS_PRODUCT. How many rows does it make?",
+        "CROSS JOIN pairs every sale with every store, so every sale is counted for every store.",
+        "FROM stores AS s JOIN sales AS x ON x.store_id = s.store_id"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ006"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "name",
+          "revenue"
+        ],
+        "rows": [
+          [
+            "North",
+            30.0
+          ],
+          [
+            "South",
+            5.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ006"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq006",
+    "https://duckdb.org/docs/guides/meta/explain_analyze"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

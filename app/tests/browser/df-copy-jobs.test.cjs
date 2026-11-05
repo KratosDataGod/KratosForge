@@ -117,12 +117,13 @@ test("an incremental SQL job lists its keys and says why it runs in Fabric only"
   assert.match(await page().locator(".df-copy-table tbody").textContent(), /UpsertKeys: customer_idSnapshotPlusIncrementalOn id/);
 });
 
-test("a copy job Fabric won't give says why; Open in Fabric goes to its workspace; nothing runs", { skip }, async () => {
+test("a copy job Fabric won't give says why; Open in Fabric goes to the copy job; nothing runs", { skip }, async () => {
   await page().locator(".df-flow-row", { hasText: "cj_broken" }).click();
   await page().locator(".df-detail .error-text", { hasText: "Could not read cj_broken" }).waitFor();
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
-  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
+  // The copy job's own page, as Fabric names it (/groups/<workspace>/copyjobs/<id>), not the workspace list.
+  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/copyjobs/[^/?]+\\?experience=fabric-developer$`));
   assert.ok(!app.calls.some((c) => /workload_act|run_item|job_start/.test(c.method)), "nothing runs");
   // Its run history still shows, as on the Dataflows tab.
   await page().locator('[role="tab"]', { hasText: "Run history" }).click();

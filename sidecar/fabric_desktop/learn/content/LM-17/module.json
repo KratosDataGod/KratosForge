@@ -1,0 +1,89 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-17",
+  "kind": "module",
+  "title": "Anti-joins and safe de-duplication",
+  "path": "sql-development",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Find rows with no match using NOT EXISTS",
+    "Avoid the NOT IN trap when the list holds an empty value",
+    "Keep the latest row per key instead of DISTINCT on everything"
+  ],
+  "prerequisites": [
+    "LM-03",
+    "LM-13"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "no-orders",
+      "prompt": "List the customers who have never ordered: customer_id and name, in customer_id order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-no-orders.sql",
+      "solution": "solution-no-orders.sql",
+      "hints": [
+        "The starter returns nothing. One order has an empty customer_id. What is 2 NOT IN (1, 3, NULL)?",
+        "NOT EXISTS asks whether any matching order exists, and an empty customer_id never matches.",
+        "WHERE NOT EXISTS (SELECT 1 FROM orders AS o WHERE o.customer_id = c.customer_id)"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "customer_id",
+          "name"
+        ],
+        "rows": [
+          [
+            2,
+            "Fabrikam"
+          ],
+          [
+            4,
+            "Northwind"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "latest-email",
+      "prompt": "customer_updates has several rows per customer. Keep only each customer's latest row: customer_id and email, in customer_id order.",
+      "engine": "duckdb",
+      "starter": "starter-latest.sql",
+      "solution": "solution-latest.sql",
+      "hints": [
+        "DISTINCT removes rows that are identical in every column. Customer 1's two emails aren't identical.",
+        "Number each customer's rows newest first with row_number() OVER (PARTITION BY customer_id ORDER BY updated_at DESC), then keep number 1."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://duckdb.org/docs/sql/query_syntax/where"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

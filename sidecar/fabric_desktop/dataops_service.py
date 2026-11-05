@@ -18,7 +18,7 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.compute  # noqa: F401 - pa.compute
 
-from . import http_session, jsonfile
+from . import http_session
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -31,7 +31,8 @@ from .meta_service import NoMetadataProject
 from . import sealed_settings
 from .redact import describe, one_line
 from .retrying import send_with_retry
-from .workloads.notify import LINE_MAX, failure
+from .workloads import deliver
+from .workloads.notify import LINE_MAX
 
 _log = logging.getLogger(__name__)
 
@@ -300,9 +301,10 @@ class DataOpsMixin:
         new = freshness_mod.set_promise(text, within_hours or None, by or None, envs or None)
         return self.meta_save_entity(name, new)  # type: ignore[attr-defined]
 
-    def meta_freshness(self, notify: bool = False) -> dict[str, Any]:
-        """Every freshness promise in every environment that has runs, late ones first. With
-        ``notify``, newly late or failed tables are posted to the Teams channel, once each."""
+    def meta_freshness(self) -> dict[str, Any]:
+        """Every freshness promise in every environment that has runs, late ones first. Teams
+        hears about a late or failed table from its incident (incident_service.incidents_watch),
+        so this only reports."""
         alerts = bool(self._settings().get("teams_webhook"))  # type: ignore[attr-defined]
         unreadable = self._alerts_unreadable()
         try:
@@ -316,64 +318,29 @@ class DataOpsMixin:
         data = self.meta_runs_all(limit=100000)  # type: ignore[attr-defined]
         envs = [env for env in ENVIRONMENTS if any(r["env"] == env for r in data["runs"])]
         items = freshness_mod.report({n: e.spec for n, e in project.entities.items()}, data["runs"], envs)
-        out: dict[str, Any] = {"items": items, "unavailable": data["unavailable"],
-                               "alerts": bool(self._settings().get("teams_webhook")),  # type: ignore[attr-defined]
-                               "alerts_unreadable": unreadable}
-        if notify:
-            out["alerted"], out["alert_error"] = self._freshness_alerts(items)
-        return out
-
-    def _alert_state(self) -> dict[str, str]:
-        try:
-            return json.loads((self.root / "freshness_alerts.json").read_text(encoding="utf-8"))  # type: ignore[attr-defined]
-        except (FileNotFoundError, ValueError):
-            return {}
-
-    def _freshness_alerts(self, items: list[dict[str, Any]]) -> tuple[int, str | None]:
-        url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
-        if not url:
-            return 0, None
-        sent = self._alert_state()
-        lines, keys = [], []
-        for x in items:
-            env = x["env"].title()
-            if x["status"] == "late":
-                key = f"late:{x['env']}:{x['entity']}:{x['last_ok']}"
-                text = f"**{x['entity']}** in {env} is late: {'; '.join(x['reasons'])}."
-            elif x.get("failed_run"):
-                key = f"failed:{x['env']}:{x['entity']}:{x['failed_run']}"
-                text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in KratosForge'}."
-            else:
-                continue
-            if key not in sent:
-                lines.append(text)
-                keys.append(key)
-        if not lines:
-            return 0, None
-        try:
-            post_teams(url, f"{len(lines)} table{'s' if len(lines) != 1 else ''} need attention", lines)
-        except Exception as exc:  # the app still shows them; try again on the next check
-            return 0, failure(exc)
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
-        sent.update({k: now for k in keys})
-        jsonfile.write_text(self.root / "freshness_alerts.json", json.dumps(sent, indent=1))  # type: ignore[attr-defined]
-        return len(lines), None
+        return {"items": items, "unavailable": data["unavailable"], "alerts": alerts, "alerts_unreadable": unreadable}
 
     def _alerts_unreadable(self) -> bool:
         """The Teams address is saved but this Windows account can't decrypt it (sealed_settings.py)."""
         return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
 
     def meta_alerts(self) -> dict[str, Any]:
+        """Whether incident alerts are set, their kind and what the UI may show (deliver.label: a host,
+        or how many people). Never the address: a webhook or flow URL works like a password."""
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
+        out: dict[str, Any] = {"set": bool(url), "kind": deliver.kind(url) if url else "",
+                               "label": deliver.label(url, self._mail_server()) if url else ""}  # type: ignore[attr-defined]
+        return out | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
-        url = (teams_webhook or "").strip()
-        if url and not url.startswith("https://"):
-            raise ValueError("The Teams webhook address starts with https://")
+        """Where this PC's incident alerts go: a Teams webhook, a Power Automate flow (flow:https://...)
+        or email (mailto:a@x;b@y, through the company mail server). workloads/deliver.py checks it."""
+        url = deliver.check(teams_webhook or "")
+        if url and deliver.kind(url) == "email" and self._mail_server() is None:  # type: ignore[attr-defined]
+            raise ValueError("Set the company mail server first (Settings > Notifications), then email alerts can go out")
         if url and test:
-            post_teams(url, "KratosForge alerts are on",
-                       ["Late or failed tables will be posted here, once each."])
+            self._notice_post()(url, "KratosForge alerts are on",  # type: ignore[attr-defined]
+                                ["Late or failed tables will be sent here, once each."])
         self._save_settings(teams_webhook=url)  # type: ignore[attr-defined]
         return self.meta_alerts()
 

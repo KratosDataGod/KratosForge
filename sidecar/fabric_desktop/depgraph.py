@@ -290,7 +290,7 @@ def graph(cells: list[dict[str, Any]]) -> dict[str, Any]:
         for name in info["defines"]:
             later_defs.setdefault(name, []).append(n)
     ids = {c.get("cell_id"): n for n, c in enumerate(cells, 1)}
-    for c, info in zip(cells, infos):
+    for c, info in zip(cells, infos, strict=True):
         if info is None:
             continue
         edges: dict[tuple[Any, str], dict[str, Any]] = {}

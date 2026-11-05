@@ -227,6 +227,7 @@ class Queue:
         self._running = 0
         self._ready: list[Callable[[], None]] = []
         self._threads: list[threading.Thread] = []
+        self.warnings: list[str] = []  # the last flush's writes that went in with a warning
 
     def submit(self, key: str, label: str, nbytes: int, work: Callable[[], Any]) -> Future:
         """Run ``work`` after the table's earlier writes; waits first while too much is held in memory."""
@@ -294,7 +295,9 @@ class Queue:
 
     def flush(self, cancel: bool = False) -> list[str]:
         """Wait for every write, then forget them: what failed, one line each (empty when all went in).
-        ``cancel`` drops the writes that haven't started (the cell was cancelled)."""
+        ``cancel`` drops the writes that haven't started (the cell was cancelled). A write that went in
+        with a warning (its lease lapsed after the commit, EA-006) leaves it in ``warnings`` for the cell."""
+        self.warnings = []
         with self._lock:
             pending, self._pending = self._pending, []
             self._last.clear()
@@ -309,6 +312,8 @@ class Queue:
             exc = f.exception()
             if exc is not None:
                 failed.append(f"{label}: {type(exc).__name__}: {exc}")
+            elif getattr(f.result(), "warning", None):
+                self.warnings.append(f.result().warning)
         return failed
 
     def busy(self) -> bool:

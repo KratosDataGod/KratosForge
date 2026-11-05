@@ -60,7 +60,7 @@ def test_practice_settings_come_from_the_policies_in_force(tmp_path):
 
     svc = Service(root=tmp_path / "app")
     svc.meta_init(str(tmp_path / "crm"), "3")
-    assert svc.governance_practice_settings("notebook") == {"settings": {}, "policies": [], "note": ""}
+    assert svc.governance_practice_settings("notebook") == {"settings": {}, "policies": [], "guidance": None, "note": ""}
     for pid, rule, sev, params in (("strict", "NB003, SQ005", "high", {}), ("lax", "NB003", "low", {}),
                                    ("off", "NB009", "medium", {"enabled": {"value": False}})):
         svc.governance_create({"id": pid, "name": pid, "category": "quality", "rule": rule, "severity": sev, "params": params})

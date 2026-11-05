@@ -135,7 +135,7 @@ def side_by_side(left: str, right: str) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
         if op == "equal":
-            rows += [{"op": "same", "left": a[i], "right": b[j]} for i, j in zip(range(i1, i2), range(j1, j2))]
+            rows += [{"op": "same", "left": a[i], "right": b[j]} for i, j in zip(range(i1, i2), range(j1, j2), strict=True)]
         elif op == "delete":
             rows += [{"op": "removed", "left": a[i], "right": None} for i in range(i1, i2)]
         elif op == "insert":

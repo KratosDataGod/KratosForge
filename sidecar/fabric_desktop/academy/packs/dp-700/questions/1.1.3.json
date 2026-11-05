@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.1.3",
+  "questions": [
+    {
+      "id": "1.1.3-q1",
+      "type": "single",
+      "stem": "A lakehouse reads data from Amazon S3 through shortcuts, and the cloud provider charges for every read out of S3. Which workspace setting can reduce those charges?",
+      "options": [
+        {
+          "id": "a",
+          "text": "High concurrency mode"
+        },
+        {
+          "id": "b",
+          "text": "Shortcut caching for the workspace"
+        },
+        {
+          "id": "c",
+          "text": "V-Order"
+        },
+        {
+          "id": "d",
+          "text": "The workspace's default environment"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With shortcut caching on (a OneLake setting in the workspace settings), files read through Amazon S3, S3-compatible, Google Cloud Storage and on-premises gateway shortcuts are kept in OneLake for a retention period of 1 to 28 days, so repeat reads don't go back to the source.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.3-q2",
+      "type": "single",
+      "stem": "A shortcut cache is turned on for a workspace. What happens to a cached file that nobody reads for longer than the retention period you set?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It is deleted from the source as well"
+        },
+        {
+          "id": "b",
+          "text": "It is removed from the cache, and the next read fetches it from the source again"
+        },
+        {
+          "id": "c",
+          "text": "The shortcut stops working"
+        },
+        {
+          "id": "d",
+          "text": "It stays in the cache forever"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each access resets the retention period. A file not read within it is purged from the cache, and the next read goes to the source and caches it again. The source is never changed.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.3-q3",
+      "type": "single",
+      "stem": "A tool outside Fabric needs to read a lakehouse's files through the ADLS Gen2 API. Which address form does OneLake use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`sql://<workspace>.onelake/<item>`"
+        },
+        {
+          "id": "b",
+          "text": "`abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<item>.Lakehouse/Files/...`"
+        },
+        {
+          "id": "c",
+          "text": "`file://onelake/<workspace>/<item>`"
+        },
+        {
+          "id": "d",
+          "text": "`https://<workspace>.blob.core.windows.net/<item>`"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "OneLake supports the ADLS Gen2 APIs, with the workspace as the container and the item, with its type, as the top folder.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.3-q4",
+      "type": "single",
+      "stem": "A user deletes a file from a lakehouse by mistake. What does OneLake offer to get it back?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nothing: deletes in OneLake are immediate and final"
+        },
+        {
+          "id": "b",
+          "text": "Soft delete: deleted files are kept for a period and can be restored"
+        },
+        {
+          "id": "c",
+          "text": "The file can be restored only through Git"
+        },
+        {
+          "id": "d",
+          "text": "A nightly backup that only Microsoft Support can restore"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "OneLake keeps deleted files for a retention period under soft delete, and they can be restored with the storage APIs or tools such as Azure Storage Explorer.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-disaster-recovery",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

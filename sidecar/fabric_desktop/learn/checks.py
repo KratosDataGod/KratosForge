@@ -100,9 +100,12 @@ def result_matches(con: duckdb.DuckDBPyConnection, sql: str, reference: str | No
 
 def table_shape(con: duckdb.DuckDBPyConnection, table: str, columns: dict[str, str] | None = None,
                 unique: list[str] | None = None, not_null: list[str] | None = None) -> dict[str, Any]:
+    """``table`` may name its schema (``silver.orders``); without one, a table of that name in any schema."""
     kind = "table_shape"
+    schema, _, bare = table.rpartition(".")
     have = {r[0].lower(): r[1].upper() for r in con.execute(
-        "SELECT column_name, data_type FROM information_schema.columns WHERE lower(table_name) = lower(?)", [table]).fetchall()}
+        "SELECT column_name, data_type FROM information_schema.columns WHERE lower(table_name) = lower(?) "
+        "AND (? = '' OR lower(table_schema) = lower(?))", [bare, schema, schema]).fetchall()}
     if not have:
         return _no(kind, f"There's no table {table} yet.")
     for name, typ in (columns or {}).items():
@@ -110,7 +113,7 @@ def table_shape(con: duckdb.DuckDBPyConnection, table: str, columns: dict[str, s
             return _no(kind, f"{table} has no column {name}.")
         if typ and not have[name.lower()].startswith(typ.upper()):
             return _no(kind, f"{table}.{name} is {have[name.lower()]}; it should be {typ.upper()}.")
-    ident = '"' + table.replace('"', '""') + '"'
+    ident = ".".join('"' + part.replace('"', '""') + '"' for part in ([schema] if schema else []) + [bare])
     for col in not_null or []:
         n = one_row(con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL'))[0]  # type: ignore[index]
         if n:

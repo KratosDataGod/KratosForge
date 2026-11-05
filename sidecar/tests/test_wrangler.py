@@ -83,7 +83,7 @@ def test_the_generated_cell_does_what_the_preview_showed():
         shown = []
         scope = {"orders": value, "display": shown.append}
         exec(out["code"], scope)  # noqa: S102 - the code under test
-        assert scope["orders_clean"].to_dicts() == [dict(zip(out["columns"], r)) for r in out["rows"]]
+        assert scope["orders_clean"].to_dicts() == [dict(zip(out["columns"], r, strict=True)) for r in out["rows"]]
     assert "clean_data(orders)\n" in preview(steps, pl.from_arrow(TABLE))["code"]
 
 

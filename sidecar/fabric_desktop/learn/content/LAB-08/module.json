@@ -1,0 +1,108 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-08",
+  "kind": "lab",
+  "title": "Port a Databricks notebook to Fabric",
+  "path": "databricks",
+  "level": "intermediate",
+  "minutes": 25,
+  "objectives": [
+    "Replace Databricks table names with Fabric lakehouse names",
+    "Swap Databricks-only functions for standard SQL",
+    "Rewrite INSERT OVERWRITE for a Fabric Warehouse"
+  ],
+  "prerequisites": [
+    "LM-11",
+    "LM-26"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Databricks",
+    "Fabric lakehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "port-query",
+      "prompt": "Port the notebook's query: each customer's net amount (amount minus discount, with no discount counting as 0) from the silver schema's orders, as customer_id and net, in customer_id order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-query.sql",
+      "solution": "solution-query.sql",
+      "hints": [
+        "spark_catalog.default.orders is Databricks' name. Here the table is silver.orders.",
+        "nvl() is Databricks SQL; coalesce(discount, 0) works on every platform."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ005"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "customer_id",
+          "net"
+        ],
+        "rows": [
+          [
+            1,
+            140.0
+          ],
+          [
+            2,
+            80.0
+          ],
+          [
+            3,
+            35.0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "port-write",
+      "prompt": "Port the notebook's write for a Fabric Warehouse, which has no INSERT OVERWRITE: replace everything in silver.customer_net with the query's rows, naming the columns. End with SELECT customer_id, net FROM silver.customer_net ORDER BY customer_id.",
+      "engine": "duckdb",
+      "starter": "starter-write.sql",
+      "solution": "solution-write.sql",
+      "hints": [
+        "INSERT OVERWRITE replaces the table's rows. Do the same with two statements.",
+        "DELETE FROM silver.customer_net; then INSERT INTO silver.customer_net (customer_id, net) SELECT ... with the ported query."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ005",
+            "SQ010"
+          ]
+        }
+      ]
+    }
+  ],
+  "rules": [
+    "SQ005",
+    "SQ010"
+  ],
+  "docs": [
+    "https://learn.microsoft.com/fabric/data-engineering/migrate-synapse-overview"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

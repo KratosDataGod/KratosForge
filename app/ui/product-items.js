@@ -104,7 +104,11 @@ function productOfferCard(p, onItems = () => {}) {
   };
   (async () => {
     // The server's rule (an owner or a platform admin) decides; adding and removing check the same one.
-    try { view.canEdit = !!(await rpc("platform_product_trust", { product_id: p.id })).can_edit_terms; } catch { view.canEdit = false; }
+    // A platform not yet repaired after an update still names it can_edit_terms.
+    try {
+      const t = await rpc("platform_product_trust", { product_id: p.id });
+      view.canEdit = !!(t.can_edit ?? t.can_edit_terms);
+    } catch { view.canEdit = false; }
     try {
       done(await rpc("platform_product_items", { product_id: p.id }));
     } catch (err) {

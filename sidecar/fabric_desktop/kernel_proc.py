@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -144,7 +145,9 @@ class ProcessKernel:
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
-        self._send_lock = threading.Lock()
+        # One send lock per process: a write stuck on an ended process's stdin can't hold up the next one's.
+        self._send_locks: weakref.WeakKeyDictionary[subprocess.Popen[str], threading.Lock] = weakref.WeakKeyDictionary()
+        self._send_locks_guard = threading.Lock()  # held only to look up or add one
         self._waiting: dict[str, dict[str, Any]] = {}
         self._ids = itertools.count(1)
         self._attached: Any = object()  # what the child has attached; nothing yet
@@ -214,6 +217,7 @@ class ProcessKernel:
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
             self._tree = _Tree(proc)
+            self._send_lock(proc)
             ready = threading.Event()
             self._waiting["ready"] = {"done": ready}
             threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
@@ -263,13 +267,14 @@ class ProcessKernel:
         if proc.stdout is not None:
             with contextlib.suppress(OSError):
                 proc.stdout.close()
-        if proc.stdin is None or not self._send_lock.acquire(timeout=CLOSE_WAIT_SECONDS):
+        lock = self._send_lock(proc)
+        if proc.stdin is None or not lock.acquire(timeout=CLOSE_WAIT_SECONDS):
             return
         try:
             with contextlib.suppress(OSError):  # flushing stdin to a process that's gone
                 proc.stdin.close()
         finally:
-            self._send_lock.release()
+            lock.release()
 
     def _memory(self, proc: subprocess.Popen[str], pid: int) -> int:
         """Bytes the kernel uses with every process below it, so a cell can't get past the limit by
@@ -352,9 +357,15 @@ class ProcessKernel:
             reply = {"id": message["id"], "error": {"type": type(exc).__name__, "message": str(exc)}}
         self._send(proc, reply)
 
+    def _send_lock(self, proc: subprocess.Popen[str]) -> threading.Lock:
+        """The lock that keeps one write at a time on ``proc``'s stdin. _ensure makes it with the
+        process; this makes one for a process it didn't start."""
+        with self._send_locks_guard:
+            return self._send_locks.setdefault(proc, threading.Lock())
+
     def _send(self, proc: subprocess.Popen[str], message: dict[str, Any]) -> None:
         assert proc.stdin is not None
-        with self._send_lock:
+        with self._send_lock(proc):
             try:
                 proc.stdin.write(json.dumps(message, default=str) + "\n")
                 proc.stdin.flush()

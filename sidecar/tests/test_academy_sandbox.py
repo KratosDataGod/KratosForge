@@ -541,3 +541,26 @@ def test_app_package_aces_read_sids_from_sddl_whatever_the_path_or_language(tmp_
     monkeypatch.setattr(appcontainer, "_icacls", fake)
     assert appcontainer.app_package_aces(tmp_path, tree=True) == [
         ("pkg", "D", "OICI"), ("pkg", "D", "OICI"), ("pkg\\Program Data\\a b.py", "A", ""), ("pkg\\Program Data\\a b.py", "A", "ID")]
+
+
+def test_the_engines_sealed_files_sit_directly_in_the_folders_the_appcontainer_checks(tmp_path):
+    """The DPAPI rule's folder checks cover the data folder and the sign-in cache's folder, and an
+    inherited grant below them is allowed. So every sealed file must sit directly in one of those two
+    folders, never in a subfolder: a new place that seals with DPAPI fails here until it's reviewed."""
+    import ast
+
+    from fabric_desktop import auth, meta_service
+    pkg = Path(auth.__file__).parent
+    sealers = set()
+    for f in pkg.rglob("*.py"):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                owner = getattr(node.func.value, "id", "")
+                if (owner, node.func.attr) in (("dpapi", "protect"), ("sealed_settings", "seal")):
+                    sealers.add(f.relative_to(pkg).as_posix())
+    assert sealers == {"auth.py", "sealed_settings.py", "meta_service.py"}, sealers
+    assert auth.default_cache_path().parent.name == "FabricDesktop"   # msal_cache.bin, in the cache folder itself
+
+    class Meta(meta_service.MetaMixin):
+        root = tmp_path
+    assert Meta().settings_file == tmp_path / "settings.json"        # sealed settings, in the data folder itself

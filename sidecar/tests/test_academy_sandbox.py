@@ -473,3 +473,71 @@ def test_a_self_test_asks_for_the_appcontainer_as_run_and_check_do(tmp_path, mon
         asked.clear()
         pylab.self_test(tmp_path, grading, ex)
         assert asked == [want, want], ex["adapter"]
+
+
+# ---- DPAPI, a standing rule (gate 2) -------------------------------------------------------------
+
+def test_a_sealed_file_is_recognised_wherever_the_blob_is(tmp_path, monkeypatch):
+    from fabric_desktop.academy import appcontainer
+    raw = bytes.fromhex("01000000d08c9ddf0115d1118c7a00c04fc297eb") + b"\x00" * 40
+    cases = {"raw.bin": raw, "cache.bin": b"KFDPAPI1\n" + raw,
+             "settings.json": b'{"teams_webhook": "dpapi:AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAA"}',
+             "plain.csv": b"id,name\n1,dpapi\n"}
+    for name, data in cases.items():
+        (tmp_path / name).write_bytes(data)
+    assert {n for n in cases if appcontainer.sealed(tmp_path / n)} == {"raw.bin", "cache.bin", "settings.json"}
+    # A blob that straddles two reads is still found.
+    monkeypatch.setattr(appcontainer, "_SCAN_CHUNK", 7)
+    (tmp_path / "split.bin").write_bytes(b"x" * 5 + raw)
+    assert appcontainer.sealed(tmp_path / "split.bin")
+
+
+def test_a_sealed_file_never_goes_into_the_appcontainers_copy(tmp_path):
+    from fabric_desktop.academy import appcontainer
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (src / "msal_cache.bin").write_bytes(b"KFDPAPI1\n" + b"\x01" * 30)
+    with pytest.raises(ws.Refused, match="sealed Windows secret"):
+        appcontainer.copy_tree(src, dst, refuse_sealed=True)
+    other = tmp_path / "home"
+    other.mkdir()
+    appcontainer.copy_tree(src, other)   # copying home doesn't look
+    assert (other / "msal_cache.bin").exists()
+
+
+def test_the_runtime_is_never_granted_on_the_data_folder_or_a_sealed_file(tmp_path, monkeypatch):
+    from fabric_desktop import auth
+    from fabric_desktop.academy import appcontainer
+    home = tmp_path / "FabricDesktop"
+    data = home / "data"
+    engine = home / "engine" / "abc"
+    engine.mkdir(parents=True)
+    data.mkdir()
+    monkeypatch.setattr(auth, "default_cache_path", lambda: home / "msal_cache.bin")
+    appcontainer.check_grants_keep_out([(engine, True), (home, False)], data)   # the engine below is fine
+    for refused in (data, home, tmp_path):
+        with pytest.raises(OSError, match="data folder"):
+            appcontainer.check_grants_keep_out([(refused, True)], data)
+    secret = engine / "python312._pth"
+    secret.write_bytes(b"AQAAANCMnd8BFdERjHoAwE/Cl+s")
+    with pytest.raises(OSError, match="sealed Windows secret"):
+        appcontainer.check_grants_keep_out([(secret, False)], data)
+
+
+def test_app_package_aces_read_sids_from_sddl_whatever_the_path_or_language(tmp_path, monkeypatch):
+    from fabric_desktop.academy import appcontainer
+    saved = ("pkg\r\nD:PAI(D;OICI;0x1200a9;;;AC)(D;OICI;0x1200a9;;;S-1-15-2-2)(A;OICI;FA;;;SY)\r\n"
+             "pkg\\Program Data\\a b.py\r\nD:AI(A;;0x1200a9;;;AC)(A;ID;0x1200a9;;;S-1-15-2-2)(A;ID;FA;;;BA)\r\n")
+
+    class Done:
+        returncode = 0
+
+    def fake(*args):
+        Path(args[args.index("/save") + 1]).write_bytes("﻿".encode("utf-16-le") + saved.encode("utf-16-le"))
+        return Done()
+
+    monkeypatch.setattr(appcontainer, "_icacls", fake)
+    assert appcontainer.app_package_aces(tmp_path, tree=True) == [
+        ("pkg", "D", "OICI"), ("pkg", "D", "OICI"), ("pkg\\Program Data\\a b.py", "A", ""), ("pkg\\Program Data\\a b.py", "A", "ID")]

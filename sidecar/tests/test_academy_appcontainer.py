@@ -561,25 +561,28 @@ def test_nothing_in_the_engine_package_explicitly_lets_appcontainers_in(tmp_path
     work = tmp_path / "w"
     work.mkdir()
     appcontainer.Box(work, sandbox.BOOTSTRAP).close()   # puts the deny on, as before any run
-    got = appcontainer._icacls(str(appcontainer.ENGINE_PACKAGE), "/T")
-    assert got.returncode == 0, got.stderr
-    text = got.stdout.decode("utf-8", "replace")
-    root = str(appcontainer.ENGINE_PACKAGE)
-    current, explicit, denies = root, [], 0
-    for line in text.splitlines():
-        if not line.strip() or line.startswith("Successfully processed"):
-            continue
-        if not line[:1].isspace():   # a new item: "<path> <first ACE>"
-            current = line.split(" ", 1)[0] if line.startswith(root) else current
-        if "APPLICATION PACKAGES:" not in line:
-            continue
-        rights = line.rsplit(":", 1)[1]
-        if "(DENY)" in rights:
-            denies += 1
-        elif "(I)" not in rights:
-            explicit.append(f"{current}: {line.strip()}")
-    assert denies >= 2, text[:2000]   # the check read the ACLs at all
+    # Read as SDDL (icacls /save), so paths with spaces and a Windows in another language read the same.
+    aces = appcontainer.app_package_aces(appcontainer.ENGINE_PACKAGE, tree=True)
+    denies = sum(1 for _item, kind, _flags in aces if kind == "D")
+    explicit = [f"{item}: {kind};{flags}" for item, kind, flags in aces if kind == "A" and "ID" not in flags]
+    assert denies >= 2, aces[:20]   # the check read the ACLs at all
     assert not explicit, "explicit AppContainer allows in the engine package:\n" + "\n".join(explicit)
+
+
+def test_a_data_folder_every_appcontainer_could_read_means_no_appcontainer(tmp_path, monkeypatch):
+    """DPAPI rule (gate 2): the engine's sealed files live in the data folder, so if every AppContainer
+    may read it, exercises run the v1 way instead."""
+    data = tmp_path / "data"
+    data.mkdir()
+    monkeypatch.setattr(appcontainer, "_sealed_folders_ok", set())
+    assert appcontainer._icacls(str(data), "/grant", "*S-1-15-2-1:(OI)(CI)(RX)").returncode == 0
+    work = tmp_path / "w"
+    work.mkdir()
+    with pytest.raises(appcontainer.SetupFailed, match="sealed secrets"):
+        appcontainer.Box(work, sandbox.BOOTSTRAP, data_root=data)
+    assert appcontainer._open_boxes == 0
+    got = sandbox.run(_script(tmp_path / "again"), "main.py", data, time_limit=60)
+    assert got["status"] == "ok" and got["runs_as"] == sandbox.RUNS_AS, got["stderr"]
 
 
 def test_a_delta_exercise_runs_the_v1_way_and_says_so(tmp_path):

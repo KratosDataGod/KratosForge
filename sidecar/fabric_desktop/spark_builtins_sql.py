@@ -423,10 +423,6 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "SCHEMA_OF_CSV": _refuse("schema_of_csv", "this PC doesn't infer a CSV schema from one line the way Spark does.",
                              "write the schema out for from_csv"),
     "SENTENCES": _refuse("sentences", "it splits text by Java's locale rules, which this PC doesn't have."),
-    "TO_VARCHAR": _refuse("to_varchar", "number format patterns ('999', '$99.99') aren't read here.",
-                          "use format_number or cast"),
-    "TRY_TO_NUMBER": _refuse("try_to_number", "number format patterns ('999', '$99.99') aren't read here.",
-                             "use try_cast"),
     **{name: _refuse(name.lower(), _XPATH) for name in ("XPATH", "XPATH_BOOLEAN", "XPATH_DOUBLE", "XPATH_FLOAT",
                                                        "XPATH_INT", "XPATH_LONG", "XPATH_NUMBER", "XPATH_SHORT",
                                                        "XPATH_STRING")},
@@ -457,6 +453,8 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                                                [_uncast(n.this), n.args["zone"]])),
         ("FromTimeZone", lambda n, a: _with_args("TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP)))",
                                                  [_uncast(n.this), n.args["zone"]])),
+        ("ToNumber", lambda n, a: _to_number(False)(n, [n.this, n.args["format"]] if n.args.get("format") else [n.this])),
+        ("ToChar", lambda n, a: _to_char("to_char")(n, [n.this, n.args["format"]]) if n.args.get("format") else None),
         ("Hour", _template(f"HOUR({_TS})", 1)),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
@@ -500,12 +498,47 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
 
 
+def _to_number(try_: bool) -> Callable[..., exp.Expression | None]:
+    """to_number(text, format) and try_to_number: Spark's number format patterns (spark_number_format).
+    A format that isn't a constant text is refused, as Spark refuses it."""
+    name = "try_to_number" if try_ else "to_number"
+
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        from . import spark_number_format
+        if len(args) != 2:
+            return None
+        fmt = args[1]
+        if not (isinstance(fmt, exp.Literal) and fmt.is_string):
+            raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
+        shown = fmt.name.replace("'", "''''")   # inside the SQL text of ERROR's argument
+        fail = "NULL" if try_ else (f"ERROR('{name}(): the input ''' || kf_s || ''' doesn''t match the format "
+                                    f"''{shown}'', as in Fabric.')")
+        text, _, _ = spark_number_format.parse_sql(fmt.name, fail)
+        return _with_args(text, [args[0]])
+    return build
+
+
+def _to_char(name: str) -> Callable[..., exp.Expression | None]:
+    """to_char(number, format) and to_varchar: a number written with Spark's number format patterns."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        from . import spark_number_format
+        if len(args) != 2:
+            return None
+        fmt = args[1]
+        if not (isinstance(fmt, exp.Literal) and fmt.is_string):
+            raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
+        return _with_args(spark_number_format.format_sql(fmt.name), [args[0]])
+    return build
+
+
 def _uncast(node: exp.Expression) -> exp.Expression:
     """from_utc_timestamp's argument without the cast sqlglot puts round it (it is cast here)."""
     return node.this if isinstance(node, (exp.Cast, exp.TryCast)) else node
 
 
 _TYPED = _typed()
+_ANON["TRY_TO_NUMBER"] = _to_number(True)
+_ANON["TO_VARCHAR"] = _to_char("to_varchar")
 _RANKS = tuple(c for c in (getattr(exp, n, None) for n in ("Rank", "DenseRank", "PercentRank")) if c is not None)
 
 

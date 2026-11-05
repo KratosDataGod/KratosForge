@@ -4,6 +4,7 @@ can't run, and that a refused or failing cell leaves the session usable. Nothing
 from __future__ import annotations
 
 import pytest
+import duckdb
 
 from fabric_desktop.engines import registry
 from fabric_desktop.engines.contract import CellRequest, SessionClosed, SessionConfig, Unsupported
@@ -84,7 +85,7 @@ def test_duckdb_cells_cant_read_files_on_this_pc_in_any_dialect(opened, dialect,
 
 
 def test_duckdb_plans_refuse_files_too(opened):
-    with pytest.raises(Exception):   # DuckDB's own wording; what matters is that no plan comes back
+    with pytest.raises(duckdb.PermissionException):   # DuckDB's own wording; what matters is that no plan comes back
         opened("local-duckdb").plan("SELECT * FROM read_parquet('/etc/x.parquet')", "spark")
 
 

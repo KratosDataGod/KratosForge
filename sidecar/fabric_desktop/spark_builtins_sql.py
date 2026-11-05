@@ -532,6 +532,7 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                                                [_uncast(n.this), n.args["zone"]])),
         ("FromTimeZone", lambda n, a: _with_args("TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP)))",
                                                  [_uncast(n.this), n.args["zone"]])),
+        ("ParseUrl", _parse_url),
         ("Extract", _extract),
         ("Hour", _template(f"HOUR({_TS})", 1)),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
@@ -574,6 +575,86 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
         return None
     parsed = exp.StrToTime(this=node.this.copy(), format=fmt.copy(), safe=True)
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
+
+
+# parse_url as Spark 3.5 answers it: Spark reads the text with java.net.URI (RFC 2396) and gives NULL
+# when URI refuses it. These are URI's character sets: "other" is any character above US-ASCII
+# that isn't a control or a space, which URI allows outside the scheme, host and port.
+_URL_OTHER = r"[^\x00-\x{9F}\p{Z}]"
+_URL_ESC = "%[0-9A-Fa-f]{2}"
+_URL_UNRESERVED = r"A-Za-z0-9\-_.!~*'()"
+_URL_PATH = f"^(?:[{_URL_UNRESERVED}:@&=+$,;/]|{_URL_ESC}|{_URL_OTHER})*$"
+_URL_URIC = f"^(?:[{_URL_UNRESERVED};/?:@&=+$,\\[\\]]|{_URL_ESC}|{_URL_OTHER})*$"
+_URL_REGISTRY = f"^(?:[{_URL_UNRESERVED}$,;:@&=+]|{_URL_ESC}|{_URL_OTHER})+$"
+_URL_USERINFO = f"(?:[{_URL_UNRESERVED};:&=+$,]|{_URL_ESC}|{_URL_OTHER})*"
+_URL_HOSTNAME = r"(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)*[A-Za-z](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.?"
+_URL_BYTE = "(?:25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])"
+_URL_IPV4 = f"(?:{_URL_BYTE}\\.){{3}}{_URL_BYTE}"
+_URL_SERVER = f"^(?:({_URL_USERINFO})@)?({_URL_HOSTNAME}|{_URL_IPV4})(?::[0-9]*)?$"
+_URL_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]*"
+_URL_PARTS = f"^(?:({_URL_SCHEME}):)?(?://([^/?#]*))?([^?#]*)(?:\\?([^#]*))?(?:#(.*))?$"
+
+
+def _q(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _parse_url(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """parse_url(url, part[, key]). A URL whose host is in brackets (IPv6) is refused by name, and so
+    is a key Spark would read as a pattern: there the answer here could differ."""
+    part, key = node.args.get("part_to_extract"), node.args.get("key")
+    if part is None:
+        return None
+    refuse = ("ERROR('parse_url() can''t run on this PC the way it runs in Fabric, so nothing ran: {}. "
+              "Run the cell in Fabric.')")
+    keyed = key is not None
+    # kf_a: the text; kf_b: its pieces as URI splits them; kf_c: whether URI reads it, and the server.
+    pieces = (f"{{'m': REGEXP_EXTRACT(kf_a.u, {_q(_URL_PARTS)}, ['s', 'a', 'p', 'q', 'f']), "
+              f"'hs': REGEXP_MATCHES(kf_a.u, {_q('^' + _URL_SCHEME + ':')}), "
+              f"'ha': REGEXP_MATCHES(kf_a.u, {_q('^(?:' + _URL_SCHEME + ':)?//')}), "
+              "'hq': REGEXP_MATCHES(kf_a.u, '^[^#]*\\?'), 'hf': STRPOS(kf_a.u, '#') > 0}")
+    opaque = "(kf_b.hs AND NOT STARTS_WITH(kf_b.m.a || kf_b.m.p, '/') AND NOT kf_b.ha)"
+    ssp = f"REGEXP_EXTRACT(kf_a.u, {_q('^' + _URL_SCHEME + ':([^#]*)')}, 1)"
+    valid = (f"CASE WHEN {opaque} THEN {ssp} <> '' AND REGEXP_MATCHES({ssp}, {_q(_URL_URIC)}) "
+             f"AND (NOT kf_b.hf OR REGEXP_MATCHES(kf_b.m.f, {_q(_URL_URIC)})) "
+             f"ELSE (kf_b.hs OR kf_b.ha OR NOT REGEXP_MATCHES(kf_b.m.p, '^[^/]*:')) "
+             f"AND REGEXP_MATCHES(kf_b.m.p, {_q(_URL_PATH)}) "
+             f"AND (NOT kf_b.hq OR REGEXP_MATCHES(kf_b.m.q, {_q(_URL_URIC)})) "
+             f"AND (NOT kf_b.hf OR REGEXP_MATCHES(kf_b.m.f, {_q(_URL_URIC)})) "
+             f"AND (NOT kf_b.ha OR (kf_b.m.a = '' AND (kf_b.m.p <> '' OR kf_b.hq OR kf_b.hf)) "
+             f"OR REGEXP_MATCHES(kf_b.m.a, {_q(_URL_SERVER)}) OR REGEXP_MATCHES(kf_b.m.a, {_q(_URL_REGISTRY)})) END")
+    server = (f"CASE WHEN kf_b.ha AND REGEXP_MATCHES(kf_b.m.a, {_q(_URL_SERVER)}) "
+              f"THEN REGEXP_EXTRACT(kf_b.m.a, {_q(_URL_SERVER)}, ['ui', 'h']) END")
+    at = "STRPOS(kf_b.m.a, '@') > 0"
+    query = "CASE WHEN kf_b.hq THEN kf_b.m.q END"
+    if keyed:
+        query = (f"CASE WHEN NOT REGEXP_MATCHES(kf_a.key, '^[A-Za-z0-9_\\-.]*$') THEN "
+                 f"{refuse.format('Spark reads this key as a pattern')} "
+                 f"WHEN kf_b.hq AND REGEXP_MATCHES(kf_b.m.q, '(?:&|^)' || kf_a.key || '=') "
+                 f"THEN REGEXP_EXTRACT(kf_b.m.q, '(?:&|^)' || kf_a.key || '=([^&]*)', 1) END")
+    answer = (f"CASE WHEN STRPOS(kf_b.m.a, '[') > 0 AND kf_b.ha THEN {refuse.format('its host is in brackets (IPv6)')} "
+              f"WHEN NOT kf_c.ok THEN NULL "
+              f"WHEN kf_a.k = 'QUERY' THEN {query} "
+              + ("ELSE NULL END" if keyed else
+                 f"WHEN kf_a.k = 'PROTOCOL' THEN CASE WHEN kf_b.hs THEN kf_b.m.s END "
+                 f"WHEN kf_a.k = 'REF' THEN CASE WHEN kf_b.hf THEN kf_b.m.f END "
+                 f"WHEN {opaque} THEN NULL "
+                 f"WHEN kf_a.k = 'HOST' THEN kf_c.sv.h "
+                 f"WHEN kf_a.k = 'PATH' THEN kf_b.m.p "
+                 f"WHEN kf_a.k = 'FILE' THEN kf_b.m.p || CASE WHEN kf_b.hq THEN '?' || kf_b.m.q ELSE '' END "
+                 f"WHEN kf_a.k = 'AUTHORITY' THEN CASE WHEN kf_b.ha AND kf_b.m.a <> '' THEN kf_b.m.a END "
+                 f"WHEN kf_a.k = 'USERINFO' THEN CASE WHEN {at} THEN kf_c.sv.ui END "
+                 "ELSE NULL END"))
+    if keyed:
+        answer = answer.replace(f"WHEN kf_a.k = 'QUERY' THEN {query} ", f"WHEN kf_a.k = 'QUERY' AND NOT {opaque} THEN {query} ")
+    else:
+        answer = answer.replace(f"WHEN kf_a.k = 'QUERY' THEN {query} ", f"WHEN kf_a.k = 'QUERY' AND NOT {opaque} THEN {query} ")
+    inputs = "{'u': CAST(fj_arg0 AS VARCHAR), 'k': CAST(fj_arg1 AS VARCHAR)" + (", 'key': CAST(fj_arg2 AS VARCHAR)}" if keyed else "}")
+    nulls = "fj_arg0 IS NULL OR fj_arg1 IS NULL" + (" OR fj_arg2 IS NULL" if keyed else "")
+    template = (f"CASE WHEN {nulls} THEN NULL ELSE LIST_TRANSFORM([{inputs}], kf_a -> "
+                f"LIST_TRANSFORM([{pieces}], kf_b -> LIST_TRANSFORM([{{'ok': {valid}, 'sv': {server}}}], "
+                f"kf_c -> {answer})[1])[1])[1] END")
+    return _with_args(template, [node.this, part] + ([key] if keyed else []))
 
 
 # Spark's EXTRACT / date_part fields whose value DuckDB's EXTRACT gives differently: the day of the

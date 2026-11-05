@@ -68,6 +68,11 @@ Windows baseline in `examples/benchmark/baseline-windows.json`, which records th
 settings it came from. The job summary shows each median next to the baseline, and the result file is
 kept as an artifact.
 
+The Windows baseline was recorded on 2026-11-05 from the workflow's first run (Windows Server 2025, Python
+3.12, 4 CPUs, the defaults above). Medians in milliseconds: startup 979.6, notebook first cell 753.5, notebook
+first spark cell 754.4, SQL first query on a new project 1.5, count 1.5, group by 6.9, filter 4.6, t-sql top
+28.3.
+
 A measurement counts as a regression when its median is more than 1.5 times the baseline's **and**
 more than 25 ms slower. The second rule keeps a 1 ms query that takes 3 ms on a busy runner from
 counting. The SQL lines are compared only when the run used the baseline's table size.

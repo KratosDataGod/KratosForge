@@ -33,7 +33,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pyarrow as pa
-import pyarrow.dataset as pads
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 
 from . import jsonfile, lakehouse
@@ -82,6 +81,8 @@ class _Source:
         if last is not None and last >= now:
             return None, state, f"no new commits after version {last}"
         new = _files(dt) if last is None else self._appended(last, now)
+        import pyarrow.dataset as pads  # here, not at the top: it and the pandas it loads cost 0.2 s of notebook start
+
         dataset = dt.to_pyarrow_dataset()
         # By path, so a file appended and then compacted away before this run still gives its rows.
         fragments = [dataset.format.make_fragment(path, dataset.filesystem, partition_expression=_partition(values))

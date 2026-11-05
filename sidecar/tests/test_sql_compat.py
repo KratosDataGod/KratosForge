@@ -149,7 +149,7 @@ def test_the_page_can_check_list_and_export(tmp_path, monkeypatch):
     reply = server.handle(service, json.dumps({"id": 1, "method": "sql_analyze",
                                                "params": {"query": "SELECT * FROM t LIMIT 1", "target": "warehouse"}}))
     assert reply["result"]["outcome"]["status"] == "known_problems"
-    listed = server.handle(service, '{"id": 2, "method": "sql_compat_profiles"}')["result"]
+    listed = service.sql_compat_profiles()
     assert listed["rule_version"] == RULE_VERSION and len(listed["rules"]) == len(RULES)
     params = {"query": "SELECT 1 AS x", "target": "spark", "name": "Sales/../q"}
     first = server.handle(service, json.dumps({"id": 3, "method": "sql_compat_export", "params": params}))["result"]
@@ -165,7 +165,7 @@ def test_the_page_can_check_list_and_export(tmp_path, monkeypatch):
 
 def test_checking_isnt_audited_and_an_export_is_audited_without_the_sql():
     from fabric_desktop import audit
-    assert not audit.audited("sql_analyze") and not audit.audited("sql_compat_profiles")
+    assert not audit.audited("sql_analyze")
     assert audit.audited("sql_compat_export")
     assert audit.target({"query": "SELECT secret FROM t", "target": "spark", "name": "Q"}) == {
         "query": "(given)", "target": "spark", "name": "Q"}

@@ -724,8 +724,11 @@ async function watchMetaFabricRun(run, label) {
   render();
   for (let wait = 10; ; wait = Math.min(wait * 1.5, 60)) {
     await new Promise((r) => setTimeout(r, wait * 1000));
-    const res = await attempt(() => rpc("meta_fabric_result", { request_id: run.request_id }));
-    if (!res) return;
+    const res = await attempt(() => rpc("meta_fabric_result", { request_id: run.request_id }), "Couldn't follow the Fabric run");
+    if (!res) {  // the bell would otherwise show it running for good; how it ended isn't known, so not "failed"
+      logActivity({ id, status: "info", text: "The app stopped following this run. Monitor shows how it ended." });
+      return;
+    }
     if (!["Completed", "Failed", "Cancelled", "Deduped"].includes(res.status)) continue;
     const here = state.view === "metadata" || state.view === "entity";
     if (res.results) {
@@ -1743,6 +1746,11 @@ function ossieCard(plan) {
       h("optgroup", { label: fab.workspace_name ? `In Fabric (${fab.workspace_name})` : "In Fabric" }, inFabric),
       git.folders.length ? h("optgroup", { label: "In Git, on this PC" }, git.folders.map((f) => opt(`git:${f.path}`, `${f.name} (${f.path})`))) : null);
     if (!model.value) model.value = git.folders.length ? `git:${git.folders[0].path}` : "";
+    // The engine lacks a package the converter needs (PyYAML): only this card is off, with the reason.
+    if (git.unavailable) {
+      importBtn.disabled = exportBtn.disabled = true;
+      fill(result, h("div", { class: "warn-box" }, icon("warning", 16), git.unavailable));
+    }
   });
   const exportModel = async () => {
     if (!model.value) { toast("Pick a model to export", true); return; }
@@ -1756,10 +1764,11 @@ function ossieCard(plan) {
     if (!out) { fill(result); return; }
     fill(result, ossieExportResult(out));
   };
+  const importBtn = btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small");
+  const exportBtn = btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small");
   return h("div", { class: "card pad ossie-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
-      btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small"),
-      btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small")),
+      importBtn, exportBtn),
     h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric, or its TMDL kept in Git, and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
     h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
       h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),

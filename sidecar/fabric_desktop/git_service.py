@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .git import cli
-from . import vscode_setup
+from . import jsonfile, vscode_setup
 from .git.cli import GitError
 from .git import capacity_files, platform_files, scopes
 from .git.ops import Operations
@@ -73,7 +73,7 @@ class GitMixin:
 
     def _git_saved(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.git_repos_file.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.git_repos_file, None)
             if isinstance(data, dict) and isinstance(data.get("repos"), list):
                 return data
         except (OSError, ValueError):
@@ -81,10 +81,7 @@ class GitMixin:
         return {"repos": [], "current": None}
 
     def _git_save(self, data: dict[str, Any]) -> None:
-        self.git_repos_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.git_repos_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.replace(tmp, self.git_repos_file)
+        jsonfile.write_text(self.git_repos_file, json.dumps(data, indent=2))
 
     def _git_remember(self, repo: Repository) -> None:
         with self._git_lock():

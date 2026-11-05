@@ -45,7 +45,8 @@ The last five are final: the agent never changes a final status again.
 
 Takeover (``[pipeline] take_over = true``, Preview): a request that is ``accepted`` or ``running``
 belongs to the agent its status names. Once that agent's own status record (``agents/<name>.json``)
-is past its ``stale_after``, plus ``TAKEOVER_GRACE`` for clock differences, another agent may take
+is past its ``stale_after``, plus ``TAKEOVER_GRACE`` for clock differences (in OneLake, judged on
+OneLake's clock: the record's age against its ``stale_after`` less ``heartbeat_at``), another agent may take
 the request over by replacing the status with ``If-Match`` on the etag it read, so exactly one
 agent does. The status then names the new agent, ``taken_over_from`` and ``taken_over_at``, and
 ``agents`` lists every agent that has held it. A request that ``max_attempts`` agents have held
@@ -75,7 +76,7 @@ from . import jsonfile
 from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
-from .onelake import DFS_HOST
+from .onelake import DFS_HOST, _onelake_error, item_url
 from .paging import Pages
 from .redact import describe
 from .retrying import send_with_retry
@@ -115,7 +116,7 @@ class OneLakeControl(OneLakeBackend):
     """Control files in ``LH_Meta``'s Files area, changed with the same conditional requests as leases."""
 
     def _url(self, key: str) -> str:
-        return f"https://{DFS_HOST}/{self.workspace_id}/{self.lakehouse_id}/{CONTROL_DIR}/{key}"
+        return item_url(self.workspace_id, self.lakehouse_id, f"{CONTROL_DIR}/{key}")
 
     def list(self, folder: str) -> list[str]:
         url = f"https://{DFS_HOST}/{self.workspace_id}"
@@ -128,7 +129,8 @@ class OneLakeControl(OneLakeBackend):
                                                           timeout=60), "GET", sleep=self._sleep)
             if resp.status_code == 404:
                 return []  # no request has been written yet
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise _onelake_error(resp, f"list the {folder} mailbox folder")
             names += [p["name"].rsplit("/", 1)[-1] for p in resp.json().get("paths", [])
                       if str(p.get("isDirectory", "")).lower() != "true"]
             token = resp.headers.get("x-ms-continuation")
@@ -309,7 +311,7 @@ class Mailbox:
         if stored is None:
             return  # deleted since the listing
         request, reason = self._parse(env, rid, stored.data)
-        if not request and now - stored.modified < WRITING_GRACE:
+        if not request and _age(stored, now) < WRITING_GRACE:
             return  # empty or half-written: its writer may still be at it, so look again next time
         base = {"contract": CONTRACT, "request_id": rid, "agent": self.agent.config.name, "host": socket.gethostname(),
                 "env": env, "received_at": _iso(now), "updated_at": _iso(now), "agents": [self.agent.config.name]}
@@ -318,7 +320,7 @@ class Mailbox:
         if request.get("pipeline_run") and not reason:
             base["pipeline_run"] = self._check_run(env, request["pipeline_run"], now)
             if self.require_run and not base["pipeline_run"]["verified"]:
-                if base["pipeline_run"].get("transient") and now - stored.modified < RUN_LOOKUP_GRACE:
+                if base["pipeline_run"].get("transient") and _age(stored, now) < RUN_LOOKUP_GRACE:
                     return  # Fabric couldn't answer just then; ask again next poll
                 reason = f"its pipeline run didn't check out: {base['pipeline_run']['detail']} (pipeline.require_run in agent.toml)"
             elif self.require_run:
@@ -533,7 +535,16 @@ class Mailbox:
             return False
         try:
             record = json.loads(stored.data)
-            return record.get("kind") == "agent_status" and self.clock() > _epoch(str(record["stale_after"])) + TAKEOVER_GRACE
+            if record.get("kind") != "agent_status":
+                return False
+            stale_after = _epoch(str(record["stale_after"]))
+            if stored.store_now is not None and record.get("heartbeat_at"):
+                # On OneLake's clock: how long the record has gone unwritten, against how long its
+                # writer said it stays fresh (both its writer's clock, so the difference holds). A PC
+                # whose clock ran fast would take over requests from an agent that is still running.
+                fresh_for = max(0.0, stale_after - _epoch(str(record["heartbeat_at"])))  # a record out of order never shortens the grace
+                return _age(stored, self.clock()) > fresh_for + TAKEOVER_GRACE
+            return self.clock() > stale_after + TAKEOVER_GRACE
         except (ValueError, KeyError, TypeError, AttributeError):
             return False
 
@@ -593,3 +604,10 @@ def control_backend_for(store: Any, meta_lakehouse_id: str | None, token: Callab
     if isinstance(store, LocalStore):
         return LocalControl(Path(store.root) / "_control")
     raise TypeError(f"no control files for {type(store).__name__}")
+
+
+def _age(stored: Stored, now: float) -> float:
+    """How long ago the file was last written. In OneLake that's its reply's Date less its
+    Last-Modified, both OneLake's clock: this PC's clock may be minutes off, which would end a grace
+    period at once or stretch it out (EA-025). A folder on this PC has one clock."""
+    return (stored.store_now if stored.store_now is not None else now) - stored.modified

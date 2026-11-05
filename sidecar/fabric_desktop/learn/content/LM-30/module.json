@@ -1,0 +1,73 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-30",
+  "kind": "module",
+  "title": "Data contracts",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 15,
+  "objectives": [
+    "Write down what a table promises: its columns, types and keys",
+    "Check a delivery against its contract before loading it",
+    "Decide who changes a contract, and how consumers hear about it"
+  ],
+  "prerequisites": [
+    "LM-02",
+    "LM-05"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "check-contract",
+      "prompt": "contract lists the columns delivered_orders promises, with their types. Return each column that breaks it: column_name, and problem as 'missing' or 'wrong type', in column_name order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter finds missing columns only. Compare the types too.",
+        "information_schema.columns has each column's data_type. LEFT JOIN it to contract on the column name, for table_name = 'delivered_orders'.",
+        "No match means 'missing'; a match with a different data_type means 'wrong type'."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "column_name",
+          "problem"
+        ],
+        "rows": [
+          [
+            "currency",
+            "missing"
+          ],
+          [
+            "order_date",
+            "wrong type"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/governance/onelake-catalog-overview"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

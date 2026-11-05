@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .. import app_settings
+from .. import app_settings, jsonfile
 from .. import governance_notices as notices
 from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES, TENANT_WRITE_SCOPES
 from ..fabric_api import FabricClient, FabricError
@@ -73,7 +73,8 @@ class PlatformMixin:
                                   cfg["workspace_id"], cfg["functions_id"])
         cached = getattr(self, "_local_platforms", None)
         if cached is None:
-            cached = self._local_platforms = {}
+            self._local_platforms: dict[str, LocalPlatform] = {}
+            cached = self._local_platforms
         if env not in cached:
             cached[env] = LocalPlatform(self.root / "platform" / f"platform-{env}.sqlite", self._user)
         return cached[env]
@@ -424,7 +425,8 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         domains = self._catalog().call("list_domains")
         linked = {d["fabric_domain"]: d for d in domains if d.get("fabric_domain")}
-        rows, seen = [], set()
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for env in ENVIRONMENTS:
             cfg = project.environments.get(env, {})
             spaces = [("", cfg.get("workspace_id"), cfg.get("workspace_name", ""))]
@@ -515,6 +517,18 @@ class PlatformMixin:
         except LookupError as exc:
             return {"available": False, "problem": str(exc), "gaps": [], "checked": 0, "covered": 0, "no_owner": 0,
                     "quiet_days": core.QUIET_DAYS}
+
+    def platform_change_window(self) -> dict[str, Any]:
+        """The platform's change window ({"window": ..., "available": ...}). Only reads. An older UDF_Platform
+        has none: available is false and problem says to run Finish or repair."""
+        try:
+            return {"available": True} | call_or_repair(self._catalog(), "change_window", "keep a change window")
+        except LookupError as exc:
+            return {"available": False, "problem": str(exc), "window": None}
+
+    def platform_save_change_window(self, window: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set the change window (days, start, end, time_zone, envs), or clear it with none. Platform admins only."""
+        return call_or_repair(self._catalog(), "save_change_window", "keep a change window", window=window or None)
 
     def platform_admins(self) -> list[dict[str, Any]]:
         return self._catalog().call("list_admins")
@@ -884,7 +898,7 @@ class PlatformMixin:
         """The central team's home: counts, what needs a decision, the landing zone and each
         environment's platform."""
         catalog = self._catalog()
-        problems = []
+        problems: list[str] = []
         me = self.platform_whoami()
         domains = catalog.call("list_domains")
         projects = catalog.call("list_projects")
@@ -1006,7 +1020,7 @@ class PlatformMixin:
             else:
                 p["can_link"] = False
                 p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
-            p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
+            p["linked"] = any(c["consumer_project"] == me["name"] for c in p.get("consumers", [])) if me else False
         follows = self._my_follows()
         for p in products:
             p["following"] = p["id"] in (follows or [])
@@ -1014,7 +1028,24 @@ class PlatformMixin:
         groups = self._product_groups(self._catalog())  # type: ignore[attr-defined]
         for p in products:
             p["items"] = [g for g in groups or [] if g["product_id"] == p["id"]]
-        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None}
+        # How each product is doing now, per environment, as its team last reported it (Preview).
+        health = self._product_health()
+        for p in products:
+            p["health"] = {r["env"]: {k: r.get(k) or "" for k in ("status", "why", "latest", "latest_at", "checked_at")}
+                           for r in health or [] if r["product_id"] == p["id"]}
+        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None,
+                "can_status": health is not None}
+
+    def _product_health(self) -> list[dict[str, Any]] | None:
+        """Every product's reported status; None when the platform is older than the Status view."""
+        try:
+            return self._catalog().call("list_product_status")
+        except LookupError:
+            return None
+        except core.PlatformError as exc:
+            if "list_product_status" in str(exc):
+                return None
+            raise
 
     def _my_follows(self) -> list[str] | None:
         """The products the signed-in person follows; None when the platform is older than following."""
@@ -1119,7 +1150,7 @@ class PlatformMixin:
             if old is None:
                 new_path.unlink()
             else:
-                new_path.write_text(old, encoding="utf-8")
+                jsonfile.write_text(new_path, old)
             raise GateError("save", problems)
         if original and original != product.get("name"):
             (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)
@@ -1154,7 +1185,10 @@ class PlatformMixin:
             raise GateError("promote", problems)
         name = mesh.project_name(project)
         before = self._published_before(catalog, project)
-        done, problems, events, tell = [], [], [], []
+        done: list[str] = []
+        problems = []
+        events: list[dict[str, Any]] = []
+        tell: list[dict[str, Any]] = []
         old_function = False
         try:
             for p in project.products.values():

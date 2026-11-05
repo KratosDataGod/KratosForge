@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.7",
+  "questions": [
+    {
+      "id": "3.7-q1",
+      "type": "single",
+      "stem": "In a Lakeflow Declarative Pipeline, how do you declare that rows must have a non-null order_id?",
+      "options": [
+        {
+          "id": "a",
+          "text": "CHECK order_id"
+        },
+        {
+          "id": "b",
+          "text": "VALIDATE NOT NULL order_id"
+        },
+        {
+          "id": "c",
+          "text": "ASSERT order_id"
+        },
+        {
+          "id": "d",
+          "text": "CONSTRAINT valid_id EXPECT (order_id IS NOT NULL)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Expectations are declared with CONSTRAINT name EXPECT (condition).",
+      "source": "https://docs.databricks.com/aws/en/ldp/expectations",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.7-q2",
+      "type": "single",
+      "stem": "Which expectation action drops rows that fail the condition but keeps the pipeline running?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ON VIOLATION DROP ROW"
+        },
+        {
+          "id": "b",
+          "text": "ON VIOLATION RETRY"
+        },
+        {
+          "id": "c",
+          "text": "No action (the default)"
+        },
+        {
+          "id": "d",
+          "text": "ON VIOLATION FAIL UPDATE"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "DROP ROW removes failing rows; FAIL UPDATE stops the update; with no action, failing rows are kept and counted.",
+      "source": "https://docs.databricks.com/aws/en/ldp/expectations",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.7-q3",
+      "type": "single",
+      "stem": "Bad rows must stop the pipeline so nothing reaches gold. Which action?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ON VIOLATION FAIL UPDATE"
+        },
+        {
+          "id": "b",
+          "text": "No action"
+        },
+        {
+          "id": "c",
+          "text": "ON VIOLATION DROP ROW"
+        },
+        {
+          "id": "d",
+          "text": "ON VIOLATION WARN"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "FAIL UPDATE fails the update when any row violates the expectation.",
+      "source": "https://docs.databricks.com/aws/en/ldp/expectations",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.7-q4",
+      "type": "single",
+      "stem": "With an expectation that has no ON VIOLATION action, what happens to failing rows?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They're moved to bronze"
+        },
+        {
+          "id": "b",
+          "text": "They're written to the target, and the violations are recorded in the metrics"
+        },
+        {
+          "id": "c",
+          "text": "The pipeline fails"
+        },
+        {
+          "id": "d",
+          "text": "They're dropped"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The default keeps invalid rows and reports how many failed.",
+      "source": "https://docs.databricks.com/aws/en/ldp/expectations",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.7-q5",
+      "type": "multiple",
+      "stem": "Which two are good data quality rules for a silver orders table? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "order_id is not null"
+        },
+        {
+          "id": "b",
+          "text": "amount is zero or more"
+        },
+        {
+          "id": "c",
+          "text": "the dashboard theme is dark"
+        },
+        {
+          "id": "d",
+          "text": "the cluster has 8 nodes"
+        },
+        {
+          "id": "e",
+          "text": "the notebook has comments"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Quality rules check the data itself, such as required keys and valid ranges.",
+      "source": "https://docs.databricks.com/aws/en/ldp/expectations",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

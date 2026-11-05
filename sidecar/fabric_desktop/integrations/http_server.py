@@ -39,7 +39,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import __version__
+from .. import __version__, jsonfile
 from . import peer
 from .core import CallContext, Caller, IntegrationError, error_from
 from .registry import Registry
@@ -417,7 +417,7 @@ def serve(port: int, parent_pid: int = 0) -> int:
         while not server.started and not server.should_exit:
             time.sleep(0.05)
         if server.started:
-            state.write_text(json.dumps({"pid": os.getpid(), "port": port, "started_at": time.time()}), encoding="utf-8")
+            jsonfile.write_text(state, json.dumps({"pid": os.getpid(), "port": port, "started_at": time.time()}))
         while not server.should_exit:
             if not _parent_alive(parent_pid):
                 server.should_exit = True

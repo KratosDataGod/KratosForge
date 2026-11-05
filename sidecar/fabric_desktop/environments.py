@@ -12,10 +12,16 @@ Which notebook uses which environment is kept in ``environments.json``. Several 
 share one, as with a Fabric Environment. Installing downloads from PyPI, or from the index the
 PC's pip is set up for (pip.ini, PIP_INDEX_URL), with nothing from the person's sign-in.
 Organizations can turn installs off (``allow_notebook_packages`` in the policy file).
+
+Where packages come from (Preview): with ``notebook_package_folder`` set in the policy file, pip
+installs from that folder of approved wheels first and reaches no index at all. Only when a package
+isn't there, and ``allow_pypi_packages`` isn't false, does it try again with PyPI (the folder still
+offered, and every package it has pinned to the folder's version, so PyPI only adds what's missing). A folder that's set but can't be reached stops the install; it never falls back to PyPI.
 """
 
 from __future__ import annotations
 
+import builtins
 import importlib.metadata
 import re
 import shutil
@@ -28,6 +34,9 @@ from pathlib import Path
 from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import (InvalidSdistFilename, InvalidWheelFilename, canonicalize_name, parse_sdist_filename,
+                             parse_wheel_filename)
+from packaging.version import Version
 
 from . import jsonfile
 
@@ -74,6 +83,50 @@ def check_packages(specs: list[str]) -> list[str]:
     if not out:
         raise ValueError("Name at least one package.")
     return out
+
+
+# What pip says when no source it was given has a package (or a version of it that fits).
+_NOT_FOUND = ("No matching distribution found", "Could not find a version that satisfies")
+
+
+def folder_pins(folder: Path, engine: list[str]) -> list[str]:
+    """``name==version`` for every package the approved folder has (its highest version),
+    so the PyPI try can't take a different version of it: pip picks the highest version across the
+    folder and the index, so without these a public package of the same name (a squatted internal
+    name, or simply a newer release) would replace the approved wheel. Packages the engine pins are
+    left to the engine's constraint, which already fixes their version."""
+    pinned = {canonicalize_name(p.split("==")[0]) for p in engine}
+    best: dict[str, Version] = {}
+    for item in folder.iterdir():
+        try:  # wheels, and the source archives --find-links also reads
+            if item.name.endswith(".whl"):
+                name, version, _, _ = parse_wheel_filename(item.name)
+            elif item.name.endswith((".tar.gz", ".zip")):
+                name, version = parse_sdist_filename(item.name)
+            else:
+                continue
+        except (InvalidWheelFilename, InvalidSdistFilename):
+            continue
+        if name not in pinned and (name not in best or version > best[name]):
+            best[name] = version
+    return [f"{name}=={version}" for name, version in sorted(best.items())]
+
+
+def install_commands(python: str, target: Path, pins: Path, specs: list[str],
+                     folder: str = "", pypi: bool = True, approved: Path | None = None) -> list[list[str]]:
+    """The pip commands an install tries, in order: the approved folder alone, then (if allowed)
+    the index with the folder still offered and ``approved`` (folder_pins) as constraints, so a
+    package the folder has can only be the folder's version. With no folder, the index alone."""
+    base = [python, "-m", "pip", "install", "--target", str(target), "--upgrade", "--no-input",
+            "--disable-pip-version-check", "-c", str(pins)]
+    if not folder:
+        return [base + specs]
+    first = base + ["--no-index", "--find-links", folder, *specs]
+    if not pypi:
+        return [first]
+    if approved is None:
+        raise ValueError("The PyPI try needs the folder's versions as constraints (folder_pins).")
+    return [first, base + ["-c", str(approved), "--find-links", folder, *specs]]
 
 
 def engine_pins() -> list[str]:
@@ -198,8 +251,10 @@ class Environments:
     def _busy(self, name: str) -> bool:
         return any(j["environment"] == name and j["state"] == "running" for j in self.jobs.values())
 
-    def start(self, name: str, specs: list[str], remove: bool = False) -> dict[str, Any]:
-        """Install (or, with ``remove``, uninstall) packages in the background; ``job`` follows it."""
+    def start(self, name: str, specs: builtins.list[str], remove: bool = False, folder: str = "",
+              pypi: bool = True) -> dict[str, Any]:
+        """Install (or, with ``remove``, uninstall) packages in the background; ``job`` follows it.
+        ``folder`` and ``pypi`` are the policy's package source (install_commands)."""
         name = check_name(name)
         specs = check_packages(specs)
         with self._lock:  # with the check, so a delete can't land between them and the install bring it back
@@ -209,7 +264,8 @@ class Environments:
                 raise RuntimeError(f"{name} is already installing packages. Wait for it to finish.")
             jid = uuid.uuid4().hex[:12]
             job = self.jobs[jid] = {"id": jid, "environment": name, "packages": specs, "remove": remove,
-                                    "state": "running", "log": "", "started": time.time(), "finished": None}
+                                    "state": "running", "log": "", "started": time.time(), "finished": None,
+                                    "folder": folder, "pypi": pypi}
         threading.Thread(target=self._run, args=(job,), daemon=True, name=f"env-{jid}").start()
         return dict(job)
 
@@ -230,13 +286,7 @@ class Environments:
             else:
                 pins = target.parent / "engine-constraints.txt"
                 pins.write_text("\n".join(engine_pins()) + "\n", encoding="utf-8")
-                cmd = [self.python, "-m", "pip", "install", "--target", str(target), "--upgrade", "--no-input",
-                       "--disable-pip-version-check", "-c", str(pins), *specs]
-                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                done = subprocess.run(cmd, capture_output=True, text=True, timeout=INSTALL_SECONDS,
-                                      creationflags=flags, check=False)
-                job["log"] = (done.stdout + done.stderr)[-20000:]
-                ok = done.returncode == 0
+                ok = self._install(job, target, pins, specs)
             if ok:
                 with self._lock:
                     data = self._read()
@@ -252,6 +302,40 @@ class Environments:
         except Exception as exc:  # noqa: BLE001 - the job reports why it failed
             job["state"], job["log"] = "failed", f"{type(exc).__name__}: {exc}"
         job["finished"] = time.time()
+
+    def _install(self, job: dict[str, Any], target: Path, pins: Path, specs: builtins.list[str]) -> bool:
+        folder, pypi = job.get("folder") or "", job.get("pypi", True)
+        if not folder and not pypi:  # the service refuses this first; never reach an index regardless
+            job["log"] = "Your organization doesn't allow PyPI and names no package folder, so nothing was installed."
+            return False
+        if folder and not Path(folder).is_dir():
+            job["log"] = (f"Your organization's package folder ({folder}) can't be reached from this PC, so nothing "
+                          "was installed. Check you're on the network, or ask IT.")
+            return False
+        approved = None
+        if folder and pypi:
+            approved = target.parent / "folder-constraints.txt"
+            approved.write_text("\n".join(folder_pins(Path(folder), engine_pins())) + "\n", encoding="utf-8")
+        commands = install_commands(self.python, target, pins, specs, folder, pypi, approved)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        log, missing = [], False
+        for i, cmd in enumerate(commands):
+            source = ("your organization's package folder" if "--no-index" in cmd
+                      else "PyPI, after your organization's package folder" if folder else "PyPI")
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=INSTALL_SECONDS,
+                                  creationflags=flags, check=False)
+            log.append(f"From {source}:\n" + done.stdout + done.stderr)
+            if done.returncode == 0:
+                job["log"] = "\n".join(log)[-20000:]
+                return True
+            missing = any(text in done.stdout + done.stderr for text in _NOT_FOUND)
+            if not missing or i == len(commands) - 1:
+                break
+        if folder and not pypi and missing:
+            log.append("A package isn't in your organization's package folder, and your organization doesn't allow "
+                       "installing from PyPI. Ask IT to add it to the folder.")
+        job["log"] = "\n".join(log)[-20000:]
+        return False
 
     @staticmethod
     def _remove(target: Path, package: str) -> bool:

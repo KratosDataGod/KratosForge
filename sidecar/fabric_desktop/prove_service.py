@@ -30,7 +30,7 @@ from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, TableRef, check_name, storage_options
+from .onelake import DFS_HOST, FileStore, TableRef, check_name, read_storage_options, storage_options
 from .proof_runtime import PROOF_ROOT
 from .redact import describe
 from .side_by_side import machine
@@ -57,6 +57,12 @@ def _parse(at: Any) -> dt.datetime | None:
         return None
     return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
+
+
+SAMPLE_SIGNED_OUT = ("Sign in to read the sample from OneLake, or save the replay bundle without a sample. "
+                     "Nothing was saved.")
+SAMPLE_UNREACHABLE = ("Couldn't reach OneLake to read the sample. Save the replay bundle without a sample, or try "
+                      "again when you're online. Nothing was saved.")
 
 class _Cancelled(Exception):
     pass
@@ -91,7 +97,7 @@ class ProveMixin:
             if version:
                 seen[m] = {"version": version, "seen_at": _now(), "python": env.get("python")}
         self.root.mkdir(parents=True, exist_ok=True)
-        self._observed_file.write_text(json.dumps(seen, indent=1, sort_keys=True), encoding="utf-8")
+        jsonfile.write_text(self._observed_file, json.dumps(seen, indent=1, sort_keys=True))
 
     def notebook_environment(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                              compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
@@ -189,13 +195,31 @@ class ProveMixin:
         raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
 
     def _replay_sample(self, row: dict[str, Any]) -> Any:
-        """Up to replay.SAMPLE_ROWS rows of a table the cells read, at the version they read."""
+        """Up to replay.SAMPLE_ROWS rows of a table the cells read, at the version they read.
+
+        Save runs in the ordered lane, so everything after it waits for it (#1303): it needs a
+        sign-in already there (never a prompt), and reads with short limits, so on a PC that's
+        offline it fails within about a minute with a plain error instead of retrying for 30."""
+        import requests
         from deltalake import DeltaTable
+
+        from .auth import STORAGE_SCOPES
+        if not self.auth.signed_in_user():  # type: ignore[attr-defined]
+            raise PermissionError(SAMPLE_SIGNED_OUT)
+        try:
+            token = self.auth.silent_token(STORAGE_SCOPES)  # type: ignore[attr-defined]
+        except requests.RequestException as exc:  # refreshing the sign-in needs the network
+            raise ConnectionError(SAMPLE_UNREACHABLE) from exc
+        if not token:
+            raise PermissionError(SAMPLE_SIGNED_OUT)
         schema, table = row["table"].split(".", 1)
         flat = not self._schemas_enabled(row["workspace_id"], row["lakehouse_id"])  # type: ignore[attr-defined]
         uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
-        opened = DeltaTable(uri, version=row["version"], storage_options=storage_options(self.auth.storage_token()))  # type: ignore[attr-defined]
-        return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+        try:
+            opened = DeltaTable(uri, version=row["version"], storage_options=read_storage_options(token))
+            return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+        except OSError as exc:  # delta-rs raises OSError when OneLake doesn't answer
+            raise ConnectionError(SAMPLE_UNREACHABLE) from exc
 
     # ---- opening a bundle and replaying it: the bundle's cells in a notebook of their own, run in
     # the kernel's own process with the proof runtime bound (tables at the bundle's versions, writes
@@ -325,9 +349,13 @@ class ProveMixin:
         schema, table = t["table"].split(".", 1)
         uri = f"{root}/Tables/{table}" if flat else f"{root}/Tables/{schema}/{table}"
         row: dict[str, Any] = {"table": t["table"], "version": t["version"], "readable": True, "latest": None, "why": ""}
+
+        def opts() -> dict[str, str]:  # two small reads on the ordered lane: OneLake's short read limits (#1303)
+            o = options()
+            return read_storage_options(o["bearer_token"]) if "bearer_token" in o else o
         try:
-            row["latest"] = DeltaTable(uri, storage_options=options()).version()
-            DeltaTable(uri, version=t["version"], storage_options=options()).to_pyarrow_dataset().head(1)
+            row["latest"] = DeltaTable(uri, storage_options=opts()).version()
+            DeltaTable(uri, version=t["version"], storage_options=opts()).to_pyarrow_dataset().head(1)
         except Exception as exc:  # noqa: BLE001 - said on the banner
             row["readable"] = False
             row["why"] = (f"Version {t['version']} can't be read any more (vacuumed or its log was cleaned up)"
@@ -564,7 +592,7 @@ class ProveMixin:
         ``location_ref`` is the notebook repository's lakehouse for the current environment, used
         when the notebook has none of its own (as a run of its cells does)."""
         lakehouse_ref = lakehouse_ref or location_ref
-        check = proof.check(cells, lakehouse_ref)
+        check = proof.check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         env = envprofile.check(cells, self._fabric_observed())
         ws = None
         try:
@@ -597,7 +625,7 @@ class ProveMixin:
             raise RuntimeError("A replay is using the kernel. End it first.")
         if any(r["state"] in ("local", "fabric", "checking") for r in self._sbs_state().values()):  # type: ignore[attr-defined]
             raise RuntimeError("A side-by-side run is going. Wait for it, or cancel it.")
-        check = proof.check(cells, lakehouse_ref)
+        check = proof.check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         if not check["ok"]:
             b = check["blockers"][0]
             where = f"Cell {b['cell']} " if b.get("cell") else ""
@@ -609,7 +637,7 @@ class ProveMixin:
         suffixes = self._bar_suffixes(name, cells)  # type: ignore[attr-defined]
         assert lakehouse_ref is not None
         saved = self.notebooks.save(name, cells, saved_ref, compute, workspace)  # type: ignore[attr-defined]
-        cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])]
+        cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"], strict=True)]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front
         self.auth.fabric_token()  # type: ignore[attr-defined]
@@ -622,7 +650,7 @@ class ProveMixin:
             "check": check, "rules": rules,
             "parameters": parameters, "code": receipts.code_revision(cells),
             "pc": {"status": "pending", "cell": None, "cells_total": len(code), "cells": {}},
-            "fabric": {"status": "pending", "engine": "python"},
+            "fabric": {"status": "pending", "engine": check.get("engine", "python")},
             "inputs": {}, "shared": {}, "tables": [], "verdict": None, "scorecard": None, "receipt_id": None,
             "_cancel": False, "_suffixes": suffixes}
         self._proof_state()[record["id"]] = record
@@ -802,10 +830,14 @@ class ProveMixin:
         """Publish the proof copy (its own item), run it on the workspace's capacity, read its log."""
         f = record["fabric"]
         f["status"] = "publishing"
-        first, last = proof.fabric_cells(config, modules)
-        started = time.monotonic()
         schemas = not config["flat"]
-        ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas)).encode()
+        spark = proof.runs_spark(cells)
+        first, last = proof.fabric_cells(config, modules, {
+            "workspace_id": lakehouse_ref["workspace_id"], "lakehouse_id": lakehouse_ref["lakehouse_id"],
+            "name": lakehouse_ref.get("name", ""), "schemas": schemas} if spark else None)
+        f["engine"] = "spark" if spark else "python"
+        started = time.monotonic()
+        ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas, sql_calls=spark)).encode()
         item_name = f"{leaf_name(record['name'])}{PROOF_SUFFIX}"  # Fabric names have no folders
         item = self.fabric.save_notebook(ws["workspace_id"], item_name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):
@@ -819,7 +851,7 @@ class ProveMixin:
         f.update(status="running", job_id=job_id, item_id=item["id"], item_name=item_name,
                  workspace_id=ws["workspace_id"], url=url, submitted_at=_now())
         self._log_fabric_run({"kind": "Notebook run", "name": item_name, "workspace_id": ws["workspace_id"],  # type: ignore[attr-defined]
-                              "workspace_name": ws["workspace_name"], "engine": "python", "item_id": item["id"],
+                              "workspace_name": ws["workspace_name"], "engine": f["engine"], "item_id": item["id"],
                               "job_id": job_id, "url": url, "proof": record["id"]})
         job: dict[str, Any] = {}
         while time.monotonic() - started < MAX_FABRIC_SECONDS:

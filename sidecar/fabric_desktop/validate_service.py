@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import cleanup, envprofile, lakehouse, notebook_cells, receipts, redact, validate
+from . import cleanup, envprofile, jsonfile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
 
@@ -87,10 +87,7 @@ class ValidateMixin:
     def _validation_keep(self, record: dict[str, Any]) -> None:
         rows = [r for r in self._validations_saved() if r.get("id") != record["id"]] + [_public(record)]
         path = self._validations_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(rows[-MAX_KEPT:], indent=1), encoding="utf-8")
-        tmp.replace(path)
+        jsonfile.write_text(path, json.dumps(rows[-MAX_KEPT:], indent=1))
 
     def _validate_running(self) -> dict[str, Any] | None:
         return next((r for r in self._validations().values() if r["state"] == "running"), None)
@@ -100,7 +97,8 @@ class ValidateMixin:
     def notebook_validate_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                                 runs_on: str | None = None) -> dict[str, Any]:
         """The code checks, without running anything. ``runs_on``: "pc" (or "local"), "fabric", or None when not known."""
-        out = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed())  # type: ignore[attr-defined]
+        out = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed(),  # type: ignore[attr-defined]
+                             **self._checks(name))  # type: ignore[attr-defined]
         return {"name": name, "code": receipts.code_revision(cells), "verdict": validate.verdict(out["findings"], None)} | out
 
     def notebook_cleanup_plan(self, cells: list[dict[str, Any]]) -> dict[str, Any]:
@@ -127,7 +125,8 @@ class ValidateMixin:
             if plan["uncontained"] and not allow_uncontained:
                 u = plan["uncontained"][0]
                 raise PermissionError(f"Confirm to continue. Cell {u['cell']}: {u['text']}")
-            static = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed())  # type: ignore[attr-defined]
+            static = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed(),  # type: ignore[attr-defined]
+                                    **self._checks(name))  # type: ignore[attr-defined]
             code = [(n, c) for n, c in enumerate(cells, 1) if notebook_cells.runs(c, skip_fabric_step=True)]
             rid = "validate-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
             record: dict[str, Any] = {
@@ -234,26 +233,17 @@ class ValidateMixin:
                 record["cell"] = n
                 row = {"cell": n, "cell_id": c.get("cell_id"), "status": "running", "seconds": 0}
                 record["cells"].append(row)
-                snap = kernel.start(c["source"])
-                version, outputs = -1, snap.get("outputs") or []
-                while snap["status"] == "running":
-                    if record["_cancel"]:
-                        # Cancel may come while the process is still starting, before there is one to stop.
-                        if kernel.alive():
-                            kernel.stop()
-                        snap = {"status": "cancelled", "seconds": row["seconds"]}
-                        break
-                    snap = kernel.poll(version, 0.5)
-                    version = snap.get("version", version)
-                    row["seconds"] = snap.get("seconds", row["seconds"])
-                    if snap.get("outputs") is not None:
-                        outputs = snap["outputs"]
+                def progress(s: dict[str, Any], row: dict[str, Any] = row) -> None:
+                    row["seconds"] = s.get("seconds", row["seconds"])
+                snap, outputs = notebook_cells.wait(kernel, kernel.start(c["source"]), lambda: record["_cancel"], progress)
+                if snap["status"] == "cancelled" and snap.get("seconds") is None:
+                    snap["seconds"] = row["seconds"]
                 row.update(status=snap["status"], seconds=snap.get("seconds"))
                 if snap["status"] != "ok":
                     status = "cancelled" if record["_cancel"] else "failed"
                     if status == "failed":
                         run["failed_cell"] = n
-                        run["error"] = _error(snap.get("outputs") or outputs)
+                        run["error"] = _error(outputs)
                         if kernel.limit_hit:
                             run["stopped_by"] = LIMIT_NAMES.get(kernel.limit_hit, f"the {kernel.limit_hit} limit")
                     break

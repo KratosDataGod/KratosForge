@@ -218,6 +218,16 @@ def test_probe_results_mean_what_they_say():
     assert center.health_from_probe(one, 200, 403)["health"] == "unreachable"
     assert center.health_from_probe({"target_type": "ADLS Gen2"}, 200, 403)["health"] == "broken"
     assert center.health_from_probe(one, 200, None, "timeout")["health"] == "not_checked"
+    for busy in (429, 500, 503, 504):  # OneLake busy after the probe's retries: not the shortcut's fault
+        assert center.health_from_probe(one, 200, busy, "ServerBusy") == {
+            "health": "not_checked",
+            "detail": f"OneLake was busy (it answered {busy}), so this wasn't checked. It's checked again next time"}
+    for busy in (429, 503):  # busy whatever the target
+        assert center.health_from_probe({"target_type": "ADLS Gen2"}, 200, busy)["health"] == "not_checked"
+    for failed in (500, 502, 504):  # an external target's storage failing can be a real break
+        assert center.health_from_probe({"target_type": "ADLS Gen2"}, 200, failed, "BadGateway")["health"] == "broken"
+    assert center.health_from_probe(one, 200, 404)["health"] == "broken"
+    assert center.health_from_probe(one, 200, 409)["health"] == "broken"
 
 
 def test_risks_find_crossed_environments_and_duplicates():
@@ -272,3 +282,44 @@ def test_undo_runs_only_for_a_change_its_author_could_make(svc):
     with pytest.raises(RuntimeError, match="can be undone"):
         svc.shortcut_undo(added["id"])
     assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == GOLD
+
+
+def test_readers_gap_counts_readers_the_target_leaves_out():
+    """#1423: Access lists a shortcut whose readers see it empty, so its gap is how many they are."""
+    here = [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]
+    out = center.readers_gap(here, [{"id": "u1"}], "identity")
+    assert (out["gap"], out["target"], [m["id"] for m in out["missing"]]) == (2, 1, ["u2", "u3"])
+    assert out["text"] == "2 of 3 see it empty: they have no access to the target"
+    assert center.readers_gap(here, here, "identity")["gap"] == 0
+
+
+def test_export_writes_the_listed_shortcuts_to_a_new_csv_in_downloads(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr(shortcut_service.Path, "home", lambda: tmp_path)
+    rows = center_of(svc)["rows"]
+    ids = [r["id"] for r in rows if r["name"] == "events"]
+    out = svc.shortcut_export([LH], ids)
+    assert out["rows"] == 1 and out["path"].endswith("KratosForge shortcuts.csv")
+    raw = (tmp_path / "Downloads" / "KratosForge shortcuts.csv").read_bytes()
+    assert b"\r\r\n" not in raw and raw.count(b"\r\n") == 2  # one CRLF a row, on Windows too
+    text = raw.decode("utf-8-sig").splitlines()
+    assert text[0].startswith("Shortcut,Path,Workspace,Lakehouse,Environment,Points at,Target")
+    assert len(text) == 2 and text[1].startswith("events,Files/raw,Sales Dev,LH_Silver,Dev,")
+    again = svc.shortcut_export([LH])  # never replaces a file; None means every shortcut
+    assert again["rows"] == 2 and again["path"].endswith("KratosForge shortcuts (2).csv")
+
+
+def test_csv_cells_never_run_as_formulas_and_leave_secrets_out():
+    row = {"name": "=HYPERLINK(\"x\")", "path": "Files/raw", "workspace_name": "+ws", "lakehouse_name": "@lh",
+           "host_env": "dev", "target_type": "Amazon S3", "target": "https://b.s3.amazonaws.com/x?sig=abcdefabcdefabcdef1234",
+           "health": "broken", "health_detail": "-1 refused", "risks": [{"kind": "duplicate", "text": "Same target"},
+                                                                       {"kind": "cross_env", "text": "x", "accepted": {"by": "a"}}],
+           "used_by": [{"entity": "orders"}], "last_change": {"kind": "added", "at": "2026-11-03", "how": "scan"}}
+    lines = center.to_csv([row]).splitlines()
+    cells = next(iter(__import__("csv").reader([lines[1]])))
+    head = center.CSV_HEADER
+    assert cells[head.index("Shortcut")] == "'=HYPERLINK(\"x\")"
+    assert cells[head.index("Workspace")] == "'+ws" and cells[head.index("Lakehouse")] == "'@lh"
+    assert cells[head.index("Health detail")] == "'-1 refused" and cells[head.index("Health")] == "Broken"
+    assert "abcdefabcdef" not in cells[head.index("Target")]
+    assert cells[head.index("Worth a look")] == "Same target"  # an accepted risk isn't listed
+    assert cells[head.index("Last change by")] == "Seen at scan" and cells[head.index("Used by")] == "orders"

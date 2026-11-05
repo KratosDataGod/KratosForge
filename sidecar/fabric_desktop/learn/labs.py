@@ -12,7 +12,13 @@ lab's folder (only ever a folder under ``<data>/learn``) and starts it again.
 
 from __future__ import annotations
 
+import datetime as dt
+import decimal
 import shutil
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +29,8 @@ from . import checks, content, datasets
 
 LAB_FILE = "lab.json"
 DB_FILE = "lab.duckdb"
+TIME_LIMIT = 30          # seconds one run or check may take before it's stopped
+MEMORY_LIMIT = "1GB"     # a lab answer can't take the PC's memory
 
 
 def lab_dir(root: Path, module_id: str) -> Path:
@@ -40,8 +48,35 @@ def _connect(folder: Path) -> duckdb.DuckDBPyConnection:
     """The lab's database, with no way to read or write files or the network, and settings locked."""
     con = duckdb.connect(str(folder / DB_FILE))
     con.execute("SET enable_external_access = false")
+    con.execute(f"SET memory_limit = '{MEMORY_LIMIT}'")
     con.execute("SET lock_configuration = true")
     return con
+
+
+class _Limit:
+    fired = False
+
+
+@contextmanager
+def _time_limit(con: duckdb.DuckDBPyConnection) -> Iterator[_Limit]:
+    """Stop what runs on ``con`` after TIME_LIMIT seconds (DuckDB's interrupt)."""
+    limit = _Limit()
+
+    def stop() -> None:
+        limit.fired = True
+        con.interrupt()
+
+    timer = threading.Timer(TIME_LIMIT, stop)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield limit
+    finally:
+        timer.cancel()
+
+
+def _stopped() -> str:
+    return f"Stopped after {TIME_LIMIT} seconds. A lab answer runs in a few seconds; look for a join with no ON or a huge range."
 
 
 def _exercise(module: dict[str, Any], exercise_id: str) -> dict[str, Any]:
@@ -113,6 +148,46 @@ def hint(module_id: str, exercise_id: str, level: int) -> dict[str, Any]:
     return {"level": level, "of": len(hints), "text": hints[level - 1]}
 
 
+def _cell(v: Any) -> Any:
+    """A value the UI can show as it is: numbers, text, true/false and None pass; the rest become text."""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, decimal.Decimal):
+        return float(v)
+    if isinstance(v, (dt.date, dt.datetime, dt.time)):
+        return v.isoformat()
+    return str(v)
+
+
+def run(root: Path, module_id: str, sql: str, limit: int = 200) -> dict[str, Any]:
+    """Run the learner's SQL in the lab and return the first ``limit`` rows. Like a check, it runs in a
+    transaction that is rolled back, on a connection with no file or network access."""
+    folder = lab_dir(root, module_id)
+    if not (folder / LAB_FILE).is_file():
+        raise ValueError(f"Start {module_id} first")
+    limit = min(max(1, int(limit)), 1000)
+    con = _connect(folder)
+    try:
+        checks.guard(con, sql)
+        con.begin()
+        started = time.perf_counter()
+        try:
+            with _time_limit(con):
+                try:
+                    cur = con.execute(sql)
+                    cols = [d[0] for d in cur.description or []]
+                    rows = cur.fetchmany(limit + 1) if cols else []
+                except duckdb.InterruptException as exc:
+                    raise ValueError(_stopped()) from exc
+        finally:
+            con.rollback()
+        ms = round((time.perf_counter() - started) * 1000)
+    finally:
+        con.close()
+    return {"columns": cols, "rows": [[_cell(v) for v in r] for r in rows[:limit]], "more": len(rows) > limit,
+            "ms": ms}
+
+
 def check(root: Path, module_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
     """Run the exercise's checks on the learner's answer (the saved one when ``answer`` is None)."""
     module = content.get(module_id)
@@ -129,7 +204,9 @@ def check(root: Path, module_id: str, exercise_id: str, answer: str | None = Non
     con = _connect(folder)
     try:
         for c in ex["checks"]:
-            results.append(_run(con, c, answer, reference, ex, module_id, defects))
+            with _time_limit(con) as stop:
+                result = _run(con, c, answer, reference, ex, module_id, defects)
+            results.append({**result, "passed": False, "detail": _stopped()} if stop.fired else result)
     finally:
         con.close()
     return {"module": module_id, "exercise": exercise_id, "version": module["version"],

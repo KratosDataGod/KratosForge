@@ -10,6 +10,7 @@ run here. No tenant calls."""
 import json
 import re
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -30,10 +31,10 @@ def _shape(conn):
 
 
 def _today():
-    conn = sqlite3.connect(":memory:")
-    core.ensure_schema(core.Db(conn, "sqlite"))
-    typed = {n: sorted((c[1], c[2]) for c in conn.execute(f"PRAGMA table_info('{n}')")) for n in _shape(conn)}
-    return _shape(conn), typed
+    with closing(sqlite3.connect(":memory:")) as conn:  # at import: left open, 3.13 warns wherever gc runs
+        core.ensure_schema(core.Db(conn, "sqlite"))
+        typed = {n: sorted((c[1], c[2]) for c in conn.execute(f"PRAGMA table_info('{n}')")) for n in _shape(conn)}
+        return _shape(conn), typed
 
 
 TODAY, TODAY_TYPED = _today()
@@ -151,4 +152,11 @@ def test_a_repair_stopped_at_any_statement_finishes_when_run_again(tmp_path, mon
         _repair(path)
         _check(path, rows)
     assert done, "a repair has 500 or more schema statements: raise the limit"
-    assert shape is SHAPES["shapes"][-1] or stops > 0  # every older shape has statements to stop at
+    # Every older shape has statements to stop at, unless it already holds all of today's tables and
+    # columns (a later release only stopped making a table, which a repair leaves in place).
+    assert shape is SHAPES["shapes"][-1] or stops > 0 or _holds_today(shape)
+
+
+def _holds_today(shape):
+    held = {SHAPES["tables"][i][0]: {c[0] for c in SHAPES["tables"][i][1]} for i in shape["tables"]}
+    return all(set(cols) <= held.get(t, set()) for t, cols in TODAY.items())

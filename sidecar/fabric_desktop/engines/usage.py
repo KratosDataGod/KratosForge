@@ -19,6 +19,7 @@ tables when one is set up; a local-only or Databricks-only profile needs no sink
 from __future__ import annotations
 
 import datetime as dt
+import math
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Protocol
 
@@ -50,6 +51,8 @@ class UsageRecord:
             raise ValueError(f"Unknown unit {self.unit!r}. Units: {', '.join(UNITS)}.")
         if self.kind not in KINDS:
             raise ValueError(f"Unknown kind {self.kind!r}. Kinds: {', '.join(KINDS)}.")
+        if isinstance(self.amount, bool) or not isinstance(self.amount, (int, float)) or not math.isfinite(self.amount):
+            raise ValueError("Usage is a finite number.")
         if self.amount < 0:
             raise ValueError("Usage can't be negative.")
         if self.kind == "estimated" and not self.assumptions:

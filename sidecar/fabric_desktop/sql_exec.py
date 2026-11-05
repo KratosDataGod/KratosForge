@@ -72,7 +72,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, sql, sql_policy, warehouse
+from . import app_settings, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -684,12 +684,28 @@ class SqlExecutions:
                 while need > 0 and i < reader.num_record_batches:
                     batch = reader.get_batch(i).slice(skip, need)
                     columns = [c.to_pylist() for c in batch.columns]  # by position: names can repeat
-                    rows.extend([list(r) for r in zip(*columns)])
+                    rows.extend([list(r) for r in zip(*columns, strict=True)])
                     need -= batch.num_rows
                     skip, i = 0, i + 1
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
                 "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
                 "has_next": offset + len(rows) < run.rows}
+
+    def query_of(self, run_id: str) -> str:
+        """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""
+        return self._get(run_id).query
+
+    def table(self, run_id: str) -> tuple[dict[str, Any], pa.Table]:
+        """A completed run's status and its whole result, from its snapshot (Compare, GD-02). Columns
+        with the same name get the export's unique names."""
+        run = self._get(run_id)
+        if run.state != "completed":
+            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to compare.")
+        if not run.snapshot.exists():
+            raise RerunNeeded("This result was cleaned up. Run the query again to compare it.")
+        with pa.memory_map(str(run.snapshot)) as source:
+            table = pa.ipc.open_file(source).read_all()
+        return run.status(), table.rename_columns(_unique_names(table.schema).names)
 
     # ---- export
 
@@ -750,7 +766,7 @@ class SqlExecutions:
                         writer.close()
             if export.cancel.is_set():
                 raise _Stopped()
-            os.replace(partial, export.path)  # over the empty file that reserved the name
+            jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
             export.state = "completed"
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files
@@ -789,6 +805,20 @@ class _Stopped(Exception):
 
 
 _OUTSIDE_COMMAND = re.compile(r"(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
+_DOLLAR_TAG = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")  # opens $$...$$ or $tag$...$tag$
+
+
+def _escape_string_end(query: str, i: int) -> int:
+    """Just past the quote that ends an E'...' string whose text starts at ``i``."""
+    n = len(query)
+    while i < n:
+        if query[i] == "\\":
+            i += 2
+        elif query[i] == "'":
+            return i + 1
+        else:
+            i += 1
+    return n
 
 
 def _outside_command(query: str) -> str:
@@ -812,8 +842,12 @@ def _outside_command(query: str) -> str:
             start = False
             continue
         ch = query[i]
-        if ch in "'\"":
+        if ch == "'" and i and query[i - 1] in "eE" and not (i > 1 and (query[i - 2].isalnum() or query[i - 2] == "_")):
+            i = _escape_string_end(query, i + 1)  # E'...': a backslash escapes the next character
+        elif ch in "'\"":
             i = n if (j := query.find(ch, i + 1)) < 0 else j + 1  # '' inside a string is two strings back to back
+        elif ch == "$" and not (i and (query[i - 1].isalnum() or query[i - 1] == "_")) and (tag := _DOLLAR_TAG.match(query, i)):
+            i = n if (j := query.find(tag.group(), tag.end())) < 0 else j + len(tag.group())  # quotes inside are text
         elif query.startswith("--", i):
             i = n if (j := query.find("\n", i)) < 0 else j + 1
         elif query.startswith("/*", i):

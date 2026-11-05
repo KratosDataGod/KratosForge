@@ -2,7 +2,7 @@
 
 KratosForge Learn is built from lessons and labs that ship inside the app. They run on this PC,
 work offline, and never publish anything to Fabric. This page is for people who write or review
-them. Learn has no screen in the app yet; the plan is in issue #1065 and the stories it links to.
+them. People use them on the [Learn](../learn.md) page; the plan is in issue #1065 and the stories it links to.
 
 ## Where content lives
 
@@ -43,7 +43,7 @@ Every check says in words why it passed or failed, so the learner knows what to 
 | `table_shape` | A table the answer makes has these columns and types, unique keys and no empty values | `table`, `columns` (`{name: type}`), `unique`, `not_null` |
 | `integrity` | Every row of a child table finds its parent | `child`, `column`, `parent`, `parent_column` |
 | `no_findings` | The answer has no finding of these best-practice rules | `rules` |
-| `faster_than` | Same answer as the baseline, at least `factor` times faster (median of `runs` runs on this PC) | `baseline` (a file), `factor` (2), `runs` (3) |
+| `faster_than` | Same answer as the baseline, at least `factor` times faster (fastest of `runs` runs each, taking turns, on this PC) | `baseline` (a file), `factor` (2), `runs` (3) |
 | `defects_found` | The answer lists (table, key) for every seeded defect | `kinds`: only these defect kinds |
 
 ## Datasets

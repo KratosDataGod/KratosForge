@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from . import access as access_mod
@@ -19,6 +20,7 @@ from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcut_watch as watch
 from . import shortcuts as shortcuts_mod
+from . import sql_exec
 from .auth import ONELAKE_SCOPES
 from .central import core
 from .errors import NotSetUp
@@ -147,6 +149,23 @@ class ShortcutMixin:
                 "requests": requests, "checked_at": max((r["checked_at"] for r in rows), default=""),
                 "admin": self._sc_admin()}
 
+    def shortcut_export(self, lakehouses: list[dict[str, str]], ids: list[str] | None = None) -> dict[str, Any]:
+        """The shortcuts the All view shows (``ids``, in that order; every one when None) as a new CSV in
+        Downloads. Never replaces a file."""
+        data = self.shortcut_center(lakehouses)
+        if data.get("pending"):
+            raise ValueError("The shortcuts are still being read: try again in a moment")
+        rows = data["rows"]
+        if ids is not None:
+            by_id = {r["id"]: r for r in rows}
+            rows = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
+        # The mark tells Excel it's UTF-8; newline="" keeps the CSV's own \r\n (Windows would make it \r\r\n)
+        path.write_text(center.to_csv(rows), encoding="utf-8-sig", newline="")
+        return {"path": str(path), "rows": len(rows)}
+
     # ---- health
 
     def shortcut_check(self, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -210,7 +229,7 @@ class ShortcutMixin:
         for cand in candidates:
             with ThreadPoolExecutor(max_workers=8) as pool:
                 hits = list(pool.map(there, [(cand, s) for s in shortcuts]))
-            found = [s["id"] for s, hit in zip(shortcuts, hits) if hit]
+            found = [s["id"] for s, hit in zip(shortcuts, hits, strict=True) if hit]
             if best is None or len(found) > len(best[1]):
                 best = (cand, found)
         cand, found = best  # type: ignore[misc]
@@ -379,7 +398,8 @@ class ShortcutMixin:
                    f"{str(source.get('path') or '').strip('/')}").lower()
             try:
                 products = center.port_index(self._catalog().call("list_products"))  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - the shortcut shows without its data product
+                _log.warning("Couldn't read the catalog's data products for a shortcut: %s", describe(exc))
                 products = {}
             out["product"] = products.get(key)
         return out
@@ -451,7 +471,8 @@ class ShortcutMixin:
             try:
                 api.create_shortcut(workspace_id, item_id, path, name, current["rest_target"])
                 again = "It was put back as it was."
-            except Exception:  # noqa: BLE001
+            except Exception as back:  # noqa: BLE001 - recorded as removed; the reply says to Recreate it
+                _log.warning("Repointing a shortcut failed and putting it back failed too: %s", describe(back))
                 self._sc_log("removed", ref, before, None, "Repoint failed and the old shortcut couldn't be put back")
                 again = "Putting it back failed too: use Recreate on Shortcuts > Changes."
             self._all_shortcuts = None
@@ -556,24 +577,143 @@ class ShortcutMixin:
                 d = req["detail"]
                 why = f"Request from {req.get('requested_by') or 'someone'}: {req.get('reason') or ''}".strip(": ")
                 try:
-                    self.create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
+                    self._create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
                                          d.get("lakehouse_name", ""), workspace_name=d.get("workspace_name", ""),
                                          target_workspace_name=d.get("target_workspace_name", ""), note=why,
                                          via_request=True)
                 except FabricError as exc:
                     if exc.status != 409 and "AlreadyExists" not in str(exc.code or ""):
                         raise
-                    self._sc_made_before(req, why, exc)
+                    ours = self._sc_made_before(req, why, exc)
+                    self._sc_progress(req, found=not ours)
+                    others = self._sc_make_twins(req, why)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
                     return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
-                                           "asks, so it was kept"]}
+                                           "asks, so it was kept", *others]}
+                self._sc_progress(req)
+                others = self._sc_make_twins(req, why)
+                out = super().platform_decide(id, approve, note)  # type: ignore[misc]
+                return out | {"next": [*(out.get("next") or []), *others]}
         return super().platform_decide(id, approve, note)  # type: ignore[misc]
 
-    def _sc_made_before(self, req: dict[str, Any], why: str, conflict: Exception) -> None:
+    # ---- the same shortcut in Dev, Test and Prod
+
+    def _sc_env_groups(self) -> list[dict[str, str]]:
+        """The metadata project's workspaces as {env: workspace id} groups: one for its main workspaces,
+        one per layer that has its own."""
+        groups: dict[str, dict[str, str]] = {}
+        try:
+            for env, cfg in self._project().environments.items():  # type: ignore[attr-defined]
+                if cfg.get("workspace_id"):
+                    groups.setdefault("", {})[env] = cfg["workspace_id"]
+                for layer, ws in (cfg.get("workspaces") or {}).items():
+                    if isinstance(ws, dict) and ws.get("id"):
+                        groups.setdefault(str(layer), {})[env] = ws["id"]
+        except Exception as exc:  # noqa: BLE001 - no metadata project: workspace names decide
+            _log.info("No metadata project; workspace names pair the environments: %s", describe(exc))
+        return [g for g in groups.values() if len(g) > 1]
+
+    def _sc_twin_plan(self, req: dict[str, Any]) -> dict[str, Any]:
+        return center.env_twins(req["detail"], self._sc_envs(), self._sc_lakehouses(), self._sc_env_groups())
+
+    def shortcut_request_envs(self, id: str) -> dict[str, Any]:
+        """Where approving a waiting shortcut request also makes its shortcut: the matching lakehouse in each
+        other environment, pointing at that environment's match of its target. Reads only."""
+        req = next((r for r in self._catalog().call("list_requests", status="waiting")  # type: ignore[attr-defined]
+                    if r["id"] == id and r["kind"] == "shortcut"), None)
+        if req is None:
+            raise ValueError("That shortcut request isn't waiting any more")
+        return self._sc_twin_plan(req)
+
+    def _sc_make_twins(self, req: dict[str, Any], why: str) -> list[str]:
+        """After the asked-for shortcut is made, the same one in each other environment, as the approver and
+        under the shortcut rules. One that can't be made doesn't stop the approval: it is said, in words."""
+        d = req["detail"]
+        try:
+            plan = self._sc_twin_plan(req)
+        except Exception as exc:  # noqa: BLE001 - the asked-for shortcut is made; the others are said
+            return [f"Not made in the other environments: the lakehouses couldn't be listed ({describe(exc)})"]
+        if plan["why"]:
+            return [plan["why"]]
+        said: list[str] = []
+        made: list[dict[str, str]] = []
+        me = self._sc_me()
+        for p in plan["places"]:
+            label = p["env"].title()
+            if p.get("why"):
+                said.append(f"Not made in {label}: {p['why']}")
+                continue
+            where = f"{p['workspace_name']} / {p['lakehouse_name']}"
+            try:
+                self._create_shortcut(p["workspace_id"], p["lakehouse_id"], d["where"], d["name"], p["source"],  # type: ignore[attr-defined]
+                                      p["lakehouse_name"], workspace_name=p["workspace_name"],
+                                      target_workspace_name=p["target_workspace_name"],
+                                      note=f"{why} ({label} copy of the request)".strip(),
+                                      via_request=self._sc_may_decide_twin(me, p))
+            except FabricError as exc:
+                if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
+                    said.append(self._sc_twin_there(p, d, where))
+                else:
+                    said.append(f"Not made in {label} ({where}): {describe(exc)}")
+                continue
+            except Exception as exc:  # noqa: BLE001 - rules, rights: said, and the next environment is tried
+                said.append(f"Not made in {label} ({where}): {describe(exc)}")
+                continue
+            made.append({"env": p["env"], "workspace_name": p["workspace_name"], "lakehouse_name": p["lakehouse_name"],
+                         "shortcut_id": core.shortcut_id(p["lakehouse_id"], f"{shortcuts_mod.location(d['where'])}/{d['name']}")})
+            said.append(f"Also made in {label}: {where}")
+        if made:
+            self._rq_progress(req, {"also": made})  # type: ignore[attr-defined]
+        return said
+
+    def _sc_me(self) -> dict[str, Any]:
+        """The approver as the catalog sees them: {user, admin}. Unknown means neither."""
+        try:
+            who = self._catalog().call("whoami")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - unknown: the twins get the plain rules
+            _log.info("Couldn't ask the shortcut catalog who is approving: %s", describe(exc))
+            return {"user": "", "admin": False}
+        return {"user": str(who.get("user") or "").strip().lower(), "admin": bool(who.get("admin"))}
+
+    def _sc_may_decide_twin(self, me: dict[str, Any], p: dict[str, Any]) -> bool:
+        """Whether the approver could approve this environment's copy on its own: a platform admin, or an
+        owner of the data product that copy points at. Approving one request decides only for the product
+        it names, so anyone else gets the plain rules for the other environments, and a rule that only
+        admins make shortcuts stops that copy (and says so)."""
+        if me.get("admin"):
+            return True
+        if not me.get("user"):
+            return False
+        product = self._sc_new(p["workspace_id"], p["workspace_name"], p["source"],
+                               p.get("target_workspace_name", "")).get("product") or {}
+        return me["user"] in center.owners(product.get("owner"))
+
+    def _sc_twin_there(self, p: dict[str, Any], d: dict[str, Any], where: str) -> str:
+        """Fabric refused an environment's copy because a shortcut of that name is there: kept when it points
+        at that environment's target (an earlier approval made it), else said."""
+        label = p["env"].title()
+        api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        path = shortcuts_mod.location(d["where"])
+        there = next((s for s in api.list_shortcuts(p["workspace_id"], p["lakehouse_id"])
+                      if str(s.get("path") or "").strip("/") == path and s.get("name") == d["name"]), None)
+        if there is not None and shortcuts_mod.same_target(there.get("target") or {}, shortcuts_mod.target(p["source"])):
+            return f"{label} already had it in {where}, pointing at its {label} match, so it was kept"
+        return f"Not made in {label}: {where} already has a shortcut {path}/{d['name']} pointing somewhere else"
+
+    def _sc_progress(self, req: dict[str, Any], found: bool = False) -> None:
+        """Record the shortcut on the request, so declining it after a later step fails says it's in OneLake.
+        ``found``: it was there already and this request's own approval hadn't logged making it, so it may be
+        one made by hand before the request (or one whose create answer was lost): a decline says to check."""
+        d = req["detail"]
+        sid = core.shortcut_id(d["item_id"], f"{shortcuts_mod.location(d['where'])}/{d['name']}")
+        self._rq_progress(req, {"shortcut_id": sid, **({"found": True} if found else {})})  # type: ignore[attr-defined]
+
+    def _sc_made_before(self, req: dict[str, Any], why: str, conflict: Exception) -> bool:
         """Fabric refused a shortcut request's shortcut because one is there already. It counts as made only
         when it points exactly where the request asks: an earlier approval made it and its answer, or the
-        approval after it, was lost (#1052). Its "added" entry is recorded once."""
+        approval after it, was lost (#1052). Its "added" entry is recorded once. True when this request's own
+        approval had already logged making it; otherwise it may have been there before the request (#1260)."""
         d = req["detail"]
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
         where = shortcuts_mod.location(d["where"])
@@ -591,8 +731,10 @@ class ShortcutMixin:
         sid = core.shortcut_id(d["item_id"], f"{where}/{d['name']}")
         since = str(req.get("requested_at") or "")
         logged = self._catalog().call("shortcut_changes", days=3650, shortcut=sid)  # type: ignore[attr-defined]
-        if not any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged):
+        ours = any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged)
+        if not ours:
             ref = {"workspace_id": d["workspace_id"], "lakehouse_id": d["item_id"], "path": where, "name": d["name"],
                    "workspace_name": d.get("workspace_name", ""), "lakehouse_name": d.get("lakehouse_name", "")}
             self._sc_log("added", ref, None, self._sc_def(d["workspace_id"], d["item_id"], where, d["name"], wanted), why)
         self._all_shortcuts = None
+        return ours

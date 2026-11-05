@@ -10,11 +10,12 @@ Nothing here writes anywhere; it only builds queries. ``install()`` is called by
 
 from __future__ import annotations
 
+import builtins
 import itertools
 import re
 import sys
 import types
-from typing import Any
+from typing import Any, Callable, cast
 
 import duckdb
 import sqlglot
@@ -23,6 +24,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
+from . import spark_builtins_sql
 from . import sql as spark_sql
 
 _ids = itertools.count()
@@ -43,15 +45,27 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")).sql("duckdb")
+    tree = spark_builtins_sql.mark(_parse(text))
+    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
+        spark_sql.spark_integer_casts(tree)))))
+
+
+def _parse(text: str) -> exp.Expression:
+    """One Spark SQL expression as sqlglot reads it (it types the result as its base Expr)."""
+    return cast(exp.Expression, sqlglot.parse_one(text, read="spark"))
+
+
+def _literal(text: str) -> Callable[[re.Match[str]], str]:
+    """A re.sub replacement that puts ``text`` in as it is (a string would read its backslashes)."""
+    return lambda _m: text
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
     """A Spark SQL call with ``{0}``, ``{1}``... for columns, translated to DuckDB SQL."""
     holes = [f"__fdc{i}__" for i in range(len(cols))]
     text = spark_expr(spark_sql.format(*holes))
-    for hole, c in zip(holes, cols):
-        text = re.sub(rf'"?{hole}"?', lambda _m, c=c: f"({_col_sql(c)})" if _col_sql(c) != "*" else "*", text)
+    for hole, c in zip(holes, cols, strict=True):
+        text = re.sub(rf'"?{hole}"?', _literal(f"({_col_sql(c)})" if _col_sql(c) != "*" else "*"), text)
     return _sql(text)
 
 
@@ -253,8 +267,62 @@ def nanvl(col1: Any, col2: Any) -> Column:
 
 
 def format_number(col: Any, d: int) -> Column:
-    # Spark: #,###,###.## rounded half-even to d places (2.345 -> 2.34, 0.125 -> 0.12).
-    return _sql(f"printf('%,.{int(d)}f', round_even({_col_sql(col)}, {int(d)}))")
+    """#,###,###.## rounded half-even to d places, as Spark's DecimalFormat does. A decimal or an
+    integer is rounded by its value. A double is rounded from the digits Java prints for it, padded with
+    zeros past them: its shortest digits (2.345, not 2.34500000000000019...), but the exact whole number for
+    a whole double from 2**53 to 2**62 (Java prints those). When those digits fall on a tie at
+    the last place, the double's exact binary value decides (2.345 is a little above 2.345, so 2.35;
+    2.675 a little below, so 2.67; 0.125 is exactly a tie, so 0.12). DuckDB's round_even does none of
+    this the same on 1.x and 2.0, so it is done on exact decimals by hand and printed from their digits."""
+    x, d = _col_sql(col), int(d)
+    if not 0 <= d <= 18:
+        return _sql(f"printf('%,.{max(d, 0)}f', {x})")
+    double = f"CAST({x} AS DOUBLE)"
+    negative = f"({x} < 0 OR ({x} = 0 AND CAST({double} AS VARCHAR) LIKE '-%'))"  # -0.0 prints -0, as in Java
+    unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
+    # printf prints a double's exact digits; a VARCHAR, its shortest ones.
+    exact = f"CAST(printf('%.20f', {double}) AS DECIMAL(38, 20))"
+    shortest = f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 20))"
+    # Which side of its shortest digits the exact value lies (-1, 0, 1). Below 1, 37 places show it.
+    side = (f"CASE WHEN abs({double}) < 1 THEN sign(CAST(printf('%.37f', {double}) AS DECIMAL(38, 37)) - "
+            f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 37))) ELSE sign({exact} - {shortest}) END")
+    near = f"round({shortest}, {d})"  # half away from zero
+    tie = f"abs({shortest} - {near}) * 2 = {unit}"
+    from_shortest = (f"CASE WHEN NOT ({tie}) THEN {near} WHEN {side} * sign({double}) > 0 THEN {near} "
+                     f"WHEN {side} * sign({double}) < 0 THEN {near} - sign({double}) * {unit} "
+                     f"ELSE {_half_even(shortest, d)} END")
+    whole = f"CAST(printf('%.0f', {double}) AS DECIMAL(38, 0))"  # from 2**53 to 2**62 (a whole double), its exact digits
+    whole_shortest = f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 0))"  # from 2**62, its shortest digits
+    # Beyond the exact decimals DuckDB's own rounding prints it, as before. NaN and infinity print as
+    # DecimalFormat prints them.
+    big = f"printf('%,.{d}f', round_even({x}, {d}))"
+    special = (f"WHEN isnan({double}) THEN 'NaN' WHEN isinf({double}) THEN "
+               f"CASE WHEN {x} < 0 THEN '-∞' ELSE '∞' END")
+    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE {special} "
+                f"WHEN abs({x}) >= 9007199254740992 AND abs({x}) < 4611686018427387904 THEN {_printed(whole, d, negative)} "
+                f"WHEN abs({x}) < 1e17 THEN {_printed(from_shortest, d, negative)} "
+                f"WHEN abs({x}) < 1e37 THEN {_printed(whole_shortest, d, negative)} ELSE {big} END) "
+                f"WHEN abs({double}) < 1e20 THEN "
+                f"{_printed(_half_even(f'CAST({x} AS DECIMAL(38, 18))', d), d, negative)} ELSE {big} END")
+
+
+def _half_even(v: str, d: int) -> str:
+    """``v``, an exact decimal, rounded half-even to ``d`` places (a decimal). A NULL stays NULL."""
+    unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
+    r = f"round({v}, {d})"  # half away from zero, exact on a decimal
+    tie_to_odd = f"abs({v} - {r}) * 2 = {unit} AND CAST({r} * CAST('1e{d}' AS DECIMAL(38, 0)) AS HUGEINT) % 2 <> 0"
+    return f"CASE WHEN {tie_to_odd} THEN {r} - sign({v}) * {unit} ELSE {r} END"
+
+
+def _printed(rounded: str, d: int, negative: str) -> str:
+    """``rounded``, a decimal with no more than ``d`` places, with thousands separators and ``d``
+    places, from its digits rather than through a double, so all of them are exact (BIGINT's largest is
+    9,223,372,036,854,775,807). A negative value that rounds to zero keeps its sign, as DecimalFormat
+    prints it (-0.25 -> -0)."""
+    whole = f"trunc(abs({rounded}))"
+    places = "" if d == 0 else (f" || '.' || lpad(CAST(CAST((abs({rounded}) - {whole}) * CAST('1e{d}' AS "
+                                f"DECIMAL(38, 0)) AS HUGEINT) AS VARCHAR), {d}, '0')")
+    return f"CASE WHEN {negative} THEN '-' ELSE '' END || format('{{:,}}', CAST({whole} AS HUGEINT)){places}"
 
 
 def to_json(col: Any, options: Any = None) -> Column:
@@ -299,10 +367,26 @@ def initcap(col: Any) -> Column:
 
 def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = spark_sql.spark_substring(sqlglot.parse_one(text, read="spark"))
+    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(spark_sql.spark_integer_casts(_parse(text))))
     if isinstance(parsed, exp.Alias):
-        return _sql(parsed.this.sql("duckdb")).alias(parsed.alias)
-    return _sql(parsed.sql("duckdb"))
+        return _sql(spark_sql.duckdb_sql(parsed.this)).alias(parsed.alias)
+    return _sql(spark_sql.duckdb_sql(parsed))
+
+
+def to_date(col: Any, format: str | None = None) -> Column:  # noqa: A002 - PySpark's name
+    """A date from a date, timestamp or text, in ``format`` when given. Text that isn't a date gives
+    NULL, as in Spark with ANSI off (EA-015); DuckDB's own to_date stops the query, and refuses a format."""
+    named = f"to_date({_name_of(col)}" + ("" if format is None else f", {format}") + ")"
+    call = "to_date({0})" if format is None else f"to_date({{0}}, {_lit(format)})"
+    return _call(call, col).alias(named)
+
+
+def to_timestamp(col: Any, format: str | None = None) -> Column:  # noqa: A002
+    """A timestamp from a date, timestamp or text, in ``format`` when given. Text that isn't one gives
+    NULL, as in Spark with ANSI off (EA-015)."""
+    named = f"to_timestamp({_name_of(col)}" + ("" if format is None else f", {format}") + ")"
+    call = "to_timestamp({0})" if format is None else f"to_timestamp({{0}}, {_lit(format)})"
+    return _call(call, col).alias(named)
 
 
 _count = F.count
@@ -361,7 +445,7 @@ class WindowSpec:
         if self._partition:
             parts.append("PARTITION BY " + ", ".join(_col_sql(c) for c in self._partition))
         if self._order:
-            parts.append("ORDER BY " + ", ".join(f"{_col_sql(c)} {getattr(c, '_fd_order', 'ASC NULLS FIRST')}"
+            parts.append("ORDER BY " + ", ".join(f"{_col_sql(c)} {_order_of(c)}"
                                                  for c in self._order))
         if self._frame:
             parts.append(self._frame)
@@ -410,6 +494,39 @@ _ORDERS = {"asc": "ASC NULLS FIRST", "desc": "DESC NULLS LAST", "asc_nulls_first
            "asc_nulls_last": "ASC NULLS LAST", "desc_nulls_first": "DESC NULLS FIRST", "desc_nulls_last": "DESC NULLS LAST"}
 
 
+def _order_of(c: Any) -> str:
+    """The sort order ``.asc()``/``.desc()`` set on ``c``. Read from the instance itself: DuckDB's
+    ``Column.__getattr__`` answers any other name with a struct-field column, so getattr's default
+    would never be used."""
+    return vars(c).get("_fd_order", "ASC NULLS FIRST") if isinstance(c, Column) else "ASC NULLS FIRST"
+
+
+def _get_item(self: Column, key: Any) -> Column:
+    """``col.getItem(key)`` and ``col[key]``: a whole number is an array's 0-based position (NULL
+    outside the array, as Spark gives without ANSI mode); text is a map's key or a struct's field."""
+    if isinstance(key, Column):
+        raise NotImplementedError("getItem with a column doesn't run on this PC yet: "
+                                  "use F.element_at(col, position + 1) for an array, or a map's key as text")
+    if isinstance(key, bool) or not isinstance(key, (int, str)):
+        raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
+    if isinstance(key, int):
+        return _sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]")
+    return _sql(f"({_col_sql(self)})[{_lit(key)}]")
+
+
+def _getitem(original: Any) -> Any:
+    def getitem(self: Column, key: Any) -> Column:
+        return original(self, key) if isinstance(key, builtins.slice) else _get_item(self, key)
+    return getitem
+
+
+def _get_field(self: Column, name: str) -> Column:
+    """``col.getField(name)``: a struct's field."""
+    if not isinstance(name, str):
+        raise TypeError(f"getField takes a field name, not {type(name).__name__}")
+    return _sql(f"({_col_sql(self)})[{_lit(name)}]")
+
+
 def _ordered(name: str, fn: Any) -> Any:
     def order(self: Column) -> Column:
         out = fn(self)
@@ -418,7 +535,8 @@ def _ordered(name: str, fn: Any) -> Any:
     return order
 
 
-_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE \(\2 IS NOT NULL\)\)$', re.S)
+# DuckDB 1.x prints "first"(x) FILTER (WHERE (x IS NOT NULL)); 2.0 drops the quotes and the inner parentheses.
+_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE (\()?\2 IS NOT NULL(?(3)\))\)$', re.S)
 
 
 def _over(self: Column, window: WindowSpec) -> Column:
@@ -440,10 +558,63 @@ def _frame(df: DataFrame, relation: Any) -> DataFrame:
     return DataFrame(relation, df.session)
 
 
+def _spark_decimals(df: DataFrame, cols: Any) -> list[Any]:
+    """``cols`` (columns and column names over ``df``) with Spark's decimal result types for ``+ - * /``,
+    ``sum`` and ``avg`` of decimals (EA-004, #1682), by the rules Spark SQL on this PC follows
+    (spark_decimals). Each column keeps the name it had; one whose types can't be worked out, a name
+    and a star are left as they were."""
+    cols = list(cols)
+    at = [i for i, c in enumerate(cols) if isinstance(c, Column)]
+    texts = [str(cols[i].expr) for i in at]
+    if not at or any(t.strip() == "*" or t.endswith(".*") for t in texts):
+        return cols
+    from .spark_decimals import spark_decimal_columns
+    for i, new in zip(at, spark_decimal_columns(texts, _types(df)), strict=True):
+        if new is not None:
+            # The rewritten column keeps the column's name: its alias, or the name DuckDB gives the expression.
+            cols[i] = Column(duckdb.SQLExpression(new[0]).alias(new[1] or _bound_name(df, cols[i].expr)))
+    return cols
+
+
+def _bound_name(df: DataFrame, expression: Any) -> str:
+    """The name DuckDB gives ``expression`` as a column of ``df``: binding it runs nothing. An aggregate
+    binds only in aggregate(); DuckDB 2.0 quotes column names in get_name() but not in this name."""
+    for bind in (lambda: df.relation.select(expression), lambda: df.relation.aggregate([expression])):
+        try:
+            return str(bind().columns[0])
+        except duckdb.Error:
+            continue
+    return str(expression.get_name())
+
+
+def _decimal_select(fn: Any) -> Any:
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        return fn(self, *_spark_decimals(self, _flat(cols)))
+    select.__doc__ = fn.__doc__
+    return select
+
+
+def _decimal_with_column(fn: Any) -> Any:
+    def withColumn(self: DataFrame, colName: str, col: Any) -> DataFrame:  # noqa: N802, N803
+        return fn(self, colName, *_spark_decimals(self, [col]))
+    withColumn.__doc__ = fn.__doc__
+    return withColumn
+
+
+def _decimal_with_columns(fn: Any) -> Any:
+    def withColumns(self: DataFrame, *colsMap: Any) -> DataFrame:  # noqa: N802, N803
+        if len(colsMap) == 1 and isinstance(colsMap[0], dict):
+            names = list(colsMap[0])
+            colsMap = (dict(zip(names, _spark_decimals(self, [colsMap[0][n] for n in names]), strict=True)),)
+        return fn(self, *colsMap)
+    withColumns.__doc__ = fn.__doc__
+    return withColumns
+
+
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
     if len(exprs) == 1 and isinstance(exprs[0], dict):
         exprs = tuple(_dict_agg(self, exprs[0]))
-    return DataFrame(self.relation.aggregate([c.expr for c in exprs]), self.session)
+    return DataFrame(self.relation.aggregate([c.expr for c in _spark_decimals(self, exprs)]), self.session)
 
 
 def _grouped_agg(fn: Any) -> Any:
@@ -453,7 +624,7 @@ def _grouped_agg(fn: Any) -> Any:
             exprs = tuple(_dict_agg(self._df, exprs[0]))
         if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
             return _agg(self._df, *exprs)
-        return fn(self, *exprs)
+        return fn(self, *_spark_decimals(self._df, exprs))
     agg.__doc__ = fn.__doc__
     return agg
 
@@ -528,7 +699,7 @@ def _known(df: DataFrame, names: Any) -> list[str]:
 
 def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
     if isinstance(value, dict):
-        fills = dict(zip(_known(self, value), value.values()))
+        fills = dict(zip(_known(self, value), value.values(), strict=True))
     else:
         if not isinstance(value, (bool, int, float, str)):
             raise TypeError("fillna takes a number, text, a boolean or a dict of column to value.")
@@ -546,7 +717,7 @@ def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
 
 
 def _types(df: DataFrame) -> list[tuple[str, str]]:
-    return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types)]
+    return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types, strict=True)]
 
 
 def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
@@ -565,7 +736,7 @@ def _replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = 
         raise ValueError("to_replace and value lists should be of the same length. "
                          f"Got {len(to_replace)} and {len(value)}")  # PySpark's own check
     mapping = to_replace if isinstance(to_replace, dict) else (
-        dict(zip(to_replace, value if isinstance(value, (list, tuple)) else [value] * len(to_replace)))
+        dict(zip(to_replace, value if isinstance(value, (list, tuple)) else [value] * len(to_replace), strict=True))
         if isinstance(to_replace, (list, tuple)) else {to_replace: value})
     wanted = _known(self, subset) if subset else self.columns
     sample = next(iter(mapping))
@@ -651,7 +822,7 @@ def _drop_cols(fn: Any) -> Any:
 
         def resolve(c: Any) -> Any:  # F.col("ID") names the column too; another expression is left as given
             name = c if isinstance(c, str) else c.expr.get_name() if isinstance(c, Column) else None
-            if isinstance(c, Column) and len(name) > 1 and name[0] == name[-1] == "`":
+            if isinstance(c, Column) and name is not None and len(name) > 1 and name[0] == name[-1] == "`":
                 name = name[1:-1]
             return by_lower.get(name.lower(), c) if name is not None else c
         cols = tuple(resolve(c) for c in cols)
@@ -685,7 +856,7 @@ def _drop_duplicates(fn: Any) -> Any:
 def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None = None,  # noqa: N803
             seed: int | None = None) -> DataFrame:
     if withReplacement is not None and not isinstance(withReplacement, bool):  # sample(0.1) and sample(0.1, 42)
-        withReplacement, fraction, seed = None, withReplacement, fraction  # noqa: N806
+        withReplacement, fraction, seed = None, withReplacement, cast("int | None", fraction)  # noqa: N806
     if withReplacement:
         raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC. Leave it out to sample without replacement.")
     if fraction is None:
@@ -803,20 +974,174 @@ window_module.Window = Window  # type: ignore[attr-defined]
 window_module.WindowSpec = WindowSpec  # type: ignore[attr-defined]
 
 
+def spark_type_name(dt: Any) -> str:
+    """``dt`` as Spark's ``DataType.simpleString()`` writes it, which is what ``DataFrame.dtypes`` shows:
+    int, timestamp, timestamp_ntz. DuckDB 1.x's Spark API says integer and timestamptz, and DuckDB 2.0
+    says what Spark does, so the engine answers the same on both (#1341)."""
+    from duckdb.experimental.spark.sql import types as T
+    if isinstance(dt, T.ArrayType):
+        return f"array<{spark_type_name(dt.elementType)}>"
+    if isinstance(dt, T.MapType):
+        return f"map<{spark_type_name(dt.keyType)},{spark_type_name(dt.valueType)}>"
+    if isinstance(dt, T.StructType):
+        return "struct<" + ",".join(f"{f.name}:{spark_type_name(f.dataType)}" for f in dt.fields) + ">"
+    if isinstance(dt, T.IntegerType):
+        return "int"
+    if isinstance(dt, T.TimestampNTZType):
+        return "timestamp_ntz"
+    if isinstance(dt, T.TimestampType):
+        return "timestamp"
+    return str(dt.simpleString())
+
+
+def _dtypes(self: DataFrame) -> list[tuple[str, str]]:
+    return [(f.name, spark_type_name(f.dataType)) for f in self.schema.fields]
+
+
+def _struct_rows(value: Any, dt: Any) -> Any:
+    """A struct value as Spark's collect() gives it: a Row, also inside arrays and maps. DuckDB 1.x's
+    Spark API gives a dict; DuckDB 2.0's gives a Row (#1341)."""
+    from duckdb.experimental.spark.sql import types as T
+    from duckdb.experimental.spark.sql.types import Row
+    if value is None:
+        return None
+    if isinstance(dt, T.StructType):
+        if not isinstance(value, dict):
+            return value
+        row = tuple.__new__(Row, [_struct_rows(value.get(f.name), f.dataType) for f in dt.fields])
+        row.__fields__ = [f.name for f in dt.fields]
+        return row
+    if isinstance(dt, T.ArrayType) and isinstance(value, list):
+        return [_struct_rows(v, dt.elementType) for v in value]
+    if isinstance(dt, T.MapType) and isinstance(value, dict):
+        return {k: _struct_rows(v, dt.valueType) for k, v in value.items()}
+    return value
+
+
+def _has_struct(dt: Any) -> bool:
+    from duckdb.experimental.spark.sql import types as T
+    if isinstance(dt, T.StructType):
+        return True
+    if isinstance(dt, T.ArrayType):
+        return _has_struct(dt.elementType)
+    if isinstance(dt, T.MapType):
+        return _has_struct(dt.valueType)
+    return False
+
+
+def _collect_structs_as_rows(collect: Any) -> Any:
+    def collect_rows(self: DataFrame) -> list[Any]:
+        rows = collect(self)
+        fields = self.schema.fields
+        if not any(_has_struct(f.dataType) for f in fields):
+            return rows
+        out = []
+        for r in rows:
+            row = tuple.__new__(type(r), [_struct_rows(v, f.dataType) for v, f in zip(r, fields, strict=True)])
+            row.__fields__ = list(r.__fields__)
+            out.append(row)
+        return out
+    return collect_rows
+
+
+_TIME_TYPE_NAMES = ("date", "timestamp")
+# Spark's "timestamp" is TimestampType, a moment in time: the same DuckDB type as cast(TimestampType())
+# and Spark SQL's CAST AS TIMESTAMP, not DuckDB's own "timestamp" (without a time zone).
+_TIME_TARGETS = {"date": "DATE", "timestamp": "TIMESTAMPTZ"}
+
+
+def _time_cast(original: Any) -> Any:
+    """Column.cast to a date or timestamp as Spark's with ANSI off: a value that isn't one gives NULL
+    (EA-015), where DuckDB's cast stops the query. The column keeps the name DuckDB's cast gives it."""
+    from duckdb.experimental.spark.sql.types import DateType, TimestampNTZType, TimestampType
+
+    def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
+        plain = original(self, dataType)
+        if isinstance(dataType, str):
+            if dataType.strip().lower() not in _TIME_TYPE_NAMES:
+                return plain
+            target = _TIME_TARGETS[dataType.strip().lower()]
+        elif isinstance(dataType, (DateType, TimestampType, TimestampNTZType)):
+            target = str(dataType.duckdb_type)
+        else:
+            return plain
+        # Only text, a date or a timestamp can fail to be one: those give NULL. Anything else (a number)
+        # keeps DuckDB's own cast, so it is never NULL without a word.
+        value = _col_sql(self)
+        return _sql(f"(LIST_TRANSFORM([{value}], lambda kf_t: CASE WHEN typeof(kf_t) = 'VARCHAR' OR typeof(kf_t) "
+                    f"IN ({spark_sql._TIME_TYPES}) THEN TRY_CAST(kf_t AS {target}) ELSE CAST(kf_t AS {target}) END))[1]"
+                    ).alias(plain.expr.get_name())
+    return cast
+
+
+def _spark_divide(reverse: bool) -> Any:
+    """Column division as Spark's (ANSI off): dividing by zero gives NULL (EA-012); DuckDB gives inf,
+    -inf or NaN. Spark's ``/`` is a double division, as DuckDB's is."""
+    from duckdb.experimental.spark.sql.column import _get_expr
+
+    def divide(self: Column, other: Any) -> Column:
+        left, right = (_get_expr(other), self.expr) if reverse else (self.expr, _get_expr(other))
+        return Column(left / duckdb.FunctionExpression("nullif", right, duckdb.ConstantExpression(0)))
+    return divide
+
+
+# Column.cast to a whole-number type truncates as Spark does (EA-003); DuckDB's cast rounds.
+_INT_CAST_NAMES = {"tinyint": ("TINYINT", "TINYINT"), "byte": ("TINYINT", "TINYINT"),
+                   "smallint": ("SMALLINT", "SMALLINT"), "short": ("SMALLINT", "SMALLINT"),
+                   "int": ("INTEGER", "INT"), "integer": ("INTEGER", "INT"),
+                   "bigint": ("BIGINT", "BIGINT"), "long": ("BIGINT", "BIGINT")}
+_INT_CAST_TYPES = {"ByteType": "tinyint", "ShortType": "smallint", "IntegerType": "int", "LongType": "bigint"}
+
+
+def _int_cast(original: Any) -> Any:
+    def cast(self: Column, dataType: Any) -> Column:
+        name = dataType.strip().lower() if isinstance(dataType, str) else _INT_CAST_TYPES.get(type(dataType).__name__)
+        target = _INT_CAST_NAMES.get(name or "")
+        if isinstance(dataType, str) and name == "timestamp":
+            stamp: str | None = _TIME_TARGETS["timestamp"]
+        elif type(dataType).__name__ in ("TimestampType", "TimestampNTZType"):
+            stamp = str(dataType.duckdb_type)
+        else:
+            stamp = None
+        if target is None and stamp is None:
+            return original(self, dataType)
+        named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
+        # A number cast to a timestamp is its seconds since 1970 (EA-014), as spark_timestamp_cast writes it.
+        if stamp is not None:
+            cast_sql = spark_sql.spark_timestamp_cast("kf_cast", stamp, "legacy")
+        else:
+            duck_type, spark_type = target  # type: ignore[misc]  # not None here: one of the two is set
+            cast_sql = spark_sql.spark_integer_cast("kf_cast", duck_type, spark_type, "legacy")
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
+    return cast
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
-                    "add_months", "months_between", "element_at") or not hasattr(F, name):
+                    "add_months", "months_between", "element_at", "to_date", "to_timestamp") or not hasattr(F, name):
             setattr(F, name, fn)
-    F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
+    vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.getItem = _get_item  # type: ignore[attr-defined]
+    Column.getField = _get_field  # type: ignore[attr-defined]
+    Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
+    Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
+    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
+    # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.
+    Column.cast = _time_cast(Column.cast)  # type: ignore[method-assign]
+    Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]
-    DataFrame.select = _global_select(DataFrame.select)  # type: ignore[method-assign]
+    DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
+    DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
+    DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]
+    DataFrame.withColumn = _decimal_with_column(DataFrame.withColumn)  # type: ignore[method-assign]
+    DataFrame.withColumns = _decimal_with_columns(DataFrame.withColumns)  # type: ignore[method-assign]
     DataFrame.selectExpr = _select_expr  # type: ignore[attr-defined]
     DataFrame.fillna = _fillna  # type: ignore[attr-defined]
     DataFrame.dropna = _dropna  # type: ignore[attr-defined]

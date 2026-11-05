@@ -1,7 +1,9 @@
 """Developer profile: a private record of work KratosForge verified, and what it adds up to (KF-DX-001).
 
 The profile stores **evidence rows**, one per verified accomplishment, each a reference to a record
-the app already keeps (today: a Validate result, by its id and the notebook's code revision). It
+the app already keeps: a Validate result (its id and the notebook's code revision), a proof's run
+receipt, a Learn exercise whose checks all passed on this PC (the lesson's id and content version;
+rules v2), or a best-practice fix applied after Compare found the same rows (GD-06, rules v3). It
 never copies code, cell outputs, table names or rows, tokens or connection strings. Everything else
 (XP, level, achievements, skill coverage, the professional report) is worked out from the rows and
 the rules below every time it is shown, so excluding a row takes it out of all of them.
@@ -25,7 +27,8 @@ from typing import Any
 from . import jsonfile
 
 SCHEMA = "kratosforge/profile@1"
-RULES_VERSION = 1
+RULES_VERSION = 4   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked;
+#                     v4 (ACD-006): Academy exercises, as evidence for their exam objectives (no XP yet)
 LEVEL_CURVE = "v1"
 
 PASSED = ("ready", "ready_with_warnings")
@@ -35,8 +38,18 @@ NEW_NOTEBOOK_XP = 10
 DIMENSIONS = ("Data Engineering", "Engineering Quality", "Performance & Optimization", "Architecture & Reusability",
               "Reliability & Operations", "Security & Governance", "Learning & Growth", "Delivery & Impact")
 EVENT_DIMENSIONS = {"validate.pass": ("Data Engineering", "Engineering Quality"),
-                    "prove.match": ("Engineering Quality", "Performance & Optimization")}
-TRACKED = {d for dims in EVENT_DIMENSIONS.values() for d in dims}
+                    "prove.match": ("Engineering Quality", "Performance & Optimization"),
+                    "lab.pass": ("Learning & Growth",),
+                    "module.complete": ("Learning & Growth",),
+                    "fix.checked": ("Engineering Quality",),
+                    "academy.exercise": ("Learning & Growth",)}
+# A checked fix also counts toward its rule's area (rules v3): a guide's area to a skill.
+FIX_AREA_DIMENSIONS = {"Performance": "Performance & Optimization", "Security": "Security & Governance",
+                       "Reliability": "Reliability & Operations"}
+# A Learn exercise also counts toward the skill its checks show (rules v2).
+CHECK_DIMENSIONS = {"faster_than": "Performance & Optimization", "table_shape": "Architecture & Reusability",
+                    "integrity": "Architecture & Reusability", "defects_found": "Engineering Quality"}
+TRACKED = {d for dims in EVENT_DIMENSIONS.values() for d in dims} | set(CHECK_DIMENSIONS.values())
 
 ACHIEVEMENTS = {
     "first-flame": {"name": "First Flame", "xp": 50, "badge": "flame",
@@ -53,12 +66,36 @@ ACHIEVEMENTS = {
                      "criteria": "A Prove run finishes and its verification finds every table the same on this PC and "
                                  "in Fabric. It runs the notebook in Fabric too, so it is never needed to level up.",
                      "evidence": "One run receipt (its SHA-256 id) with the verification."},
+    # Learn (rules v2). Each needs an exercise whose checks all passed on this PC, in a published lesson.
+    "first-spark": {"name": "The First Spark", "xp": 50, "badge": "spark",
+                    "description": "Your first Learn exercise passed on this PC.",
+                    "criteria": "Every check of one exercise in a published Learn lesson or lab passes on this PC.",
+                    "evidence": "One passed exercise: the lesson's id and content version."},
+    "data-smith": {"name": "The Data Smith", "xp": 100, "badge": "anvil",
+                   "description": "Five different Learn exercises passed.",
+                   "criteria": "Five different exercises in published Learn lessons or labs have each passed every check. "
+                               "Passing the same one again doesn't count.",
+                   "evidence": "Five passed exercises, one per exercise."},
+    "query-forger": {"name": "The Query Forger", "xp": 100, "badge": "bolt",
+                     "description": "A query made measurably faster, with the same answer.",
+                     "criteria": "A Learn exercise with a speed check passes: the same result as the reference, and at "
+                                 "least as many times faster as the exercise asks, measured on this PC.",
+                     "evidence": "One passed exercise with its measured times."},
+    "architects-eye": {"name": "The Architect's Eye", "xp": 100, "badge": "eye",
+                       "description": "A data model built right: its keys, types and relationships check out.",
+                       "criteria": "A Learn exercise with a table shape or referential integrity check passes on this PC.",
+                       "evidence": "One passed exercise."},
+    "guardian": {"name": "The Guardian", "xp": 100, "badge": "shield",
+                 "description": "Every planted data quality problem in a lab found.",
+                 "criteria": "A Learn exercise that plants data quality problems passes: your query finds every one.",
+                 "evidence": "One passed exercise."},
 }
+LEARN_ACHIEVEMENTS = (("first-spark", None), ("query-forger", "faster_than"), ("architects-eye", "table_shape"),
+                      ("architects-eye", "integrity"), ("guardian", "defects_found"))
+DATA_SMITH_EXERCISES = 5
+MODULE_COMPLETE_XP = 25     # each lesson or lab finished for the first time, within the daily cap
 STEADY_HAND_NOTEBOOKS = 5
 NEW_PROOF_XP = 20           # each further notebook proven, after Proof Forged
-
-TITLES = ((50, "Legend of the Forge"), (40, "Wolf Guardian"), (30, "Forge Architect"), (20, "Master Forger"),
-          (15, "Steel Forger"), (10, "Iron Forger"), (5, "Forge Initiate"), (1, "Apprentice"))
 
 DEFAULT_SETTINGS = {"record": True, "progression": True, "notifications": True, "backfilled": False}
 IDENTITY_KEYS = ("display_name", "role", "technologies")
@@ -89,7 +126,7 @@ def path_for(root: Path, username: str | None) -> Path:
 
 def empty() -> dict[str, Any]:
     return {"schema": SCHEMA, "settings": dict(DEFAULT_SETTINGS), "identity": {k: "" for k in IDENTITY_KEYS},
-            "evidence": [], "excluded": [], "report": {"summary": ""}, "notice": ""}
+            "evidence": [], "excluded": [], "report": {"summary": ""}, "notice": "", "goals": []}
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -112,6 +149,8 @@ def load(path: Path) -> dict[str, Any]:
     out["evidence"] = [r for r in data.get("evidence") or [] if isinstance(r, dict) and r.get("id")]
     out["excluded"] = [str(i) for i in data.get("excluded") or []]
     out["report"]["summary"] = str((data.get("report") or {}).get("summary") or "")[:MAX_TEXT]
+    from . import roadmap  # roadmap reads progress, so it is imported here, not at the top
+    out["goals"] = roadmap.clean_goals(data.get("goals"))
     return out
 
 
@@ -168,6 +207,89 @@ def from_proof(record: dict[str, Any], receipt_id: str | None, origin: str = "li
             "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
 
+def from_lab(result: dict[str, Any], module: dict[str, Any], origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for a Learn exercise whose checks all passed, or None. Only published lessons
+    count: a draft may still change. The row keeps the lesson's id, exercise and content version, the
+    check kinds and a speed check's measured times; never the answer or the lab's data."""
+    if not result.get("passed") or module.get("status") != "live" or not result.get("results"):
+        return None
+    mid, exercise, version = module["id"], result["exercise"], int(result.get("version") or module.get("version") or 1)
+    number = next((i for i, ex in enumerate(module.get("exercises") or [], 1) if ex.get("id") == exercise), None)
+    kinds = list(dict.fromkeys(str(r.get("kind")) for r in result["results"]))   # in the exercise's order
+    timed = next((r.get("measured") for r in result["results"] if r.get("kind") == "faster_than" and r.get("measured")), None)
+    dims = list(EVENT_DIMENSIONS["lab.pass"]) + sorted({CHECK_DIMENSIONS[k] for k in kinds if k in CHECK_DIMENSIONS})
+    return {"id": evidence_id("lab.pass", f"{mid}/{exercise}", f"v{version}|{','.join(sorted(kinds))}"), "type": "lab.pass",
+            "at": _now(), "artifact": {"kind": module.get("kind") or "module", "name": mid, "exercise": exercise,
+                                       "number": number, "title": str(module.get("title") or "")[:200]},
+            "ref": {"source": "learn", "id": f"{mid}/{exercise}", "revision": f"v{version}"},
+            "status": "verified", "verdict": "passed", "detail": {"checks": kinds, "level": module.get("level")},
+            "measurement": {**timed, "kind": "measured", "source": "Learn speed check on this PC"} if timed else None,
+            "dimensions": dims, "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
+def from_fix(rule_id: str, area: str, compared: dict[str, Any], runs: dict[str, str], where: str,
+             origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for a best-practice fix applied after Compare ran the SQL as written and as
+    fixed and found the same rows (GD-06), or None unless it did. It keeps the rule, the two runs' ids,
+    the row count and each run's measured time (one run each), never the SQL or its rows."""
+    if compared.get("result") != "match" or not runs.get("before") or not runs.get("after") or not rule_id:
+        return None
+    seconds = compared.get("seconds") or {}
+    timed = all(isinstance(seconds.get(k), (int, float)) for k in ("before", "after"))
+    dims = list(EVENT_DIMENSIONS["fix.checked"]) + ([FIX_AREA_DIMENSIONS[area]] if area in FIX_AREA_DIMENSIONS else [])
+    return {"id": evidence_id("fix.checked", rule_id, f"{runs['before']}|{runs['after']}"), "type": "fix.checked",
+            "at": _now(), "artifact": {"kind": "rule", "name": str(rule_id), "where": str(where or "")[:200]},
+            "ref": {"source": "compare", "id": str(runs["after"]), "revision": str(runs["before"])},
+            "status": "verified", "verdict": "same",
+            "detail": {"rows": (compared.get("rows") or {}).get("after"), "level": compared.get("level"),
+                       "target": compared.get("target")},
+            "measurement": {"before_seconds": seconds["before"], "after_seconds": seconds["after"], "kind": "measured",
+                            "source": "Compare, one run each, the fixed one second"} if timed else None,
+            "dimensions": dims, "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
+def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification: dict[str, Any], hints_used: int = 0,
+                 explanation_seen: bool = False, origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for an Academy exercise whose validation all passed (ACD-006, rules v4), or None.
+    Only published exercises count. The row keeps the certification and the version of its study guide,
+    the objectives, the exercise's verification class and mode, hints used and whether the explanation was
+    open; never the answer or the data. Passing again on the same day adds nothing; on a later day it adds
+    a row, which is what retention reads. Rows are never changed when a new study guide version comes out."""
+    if not result.get("passed") or exercise.get("status") != "live" or not result.get("results"):
+        return None
+    pack, eid, version = certification["id"], exercise["id"], int(exercise.get("version") or 1)
+    day = _now()[:10]
+    kinds = list(dict.fromkeys(str(r.get("kind")) for r in result["results"]))
+    return {"id": evidence_id("academy.exercise", f"{pack}/{eid}", f"v{version}|{day}"), "type": "academy.exercise",
+            "at": _now(), "artifact": {"kind": "exercise", "name": f"{pack}/{eid}", "title": str(exercise.get("title") or "")[:200]},
+            "ref": {"source": "academy", "id": f"{pack}/{eid}", "revision": f"v{version}"},
+            "status": "verified", "verdict": "passed",
+            "detail": {"certification": pack, "certification_version": certification["version"],
+                       "objectives": [str(o) for o in exercise.get("objectives") or []], "class": exercise["class"],
+                       "mode": exercise["mode"], "hints_used": max(0, int(hints_used)),
+                       "explanation_seen": bool(explanation_seen), "checks": kinds},
+            "measurement": None, "dimensions": list(EVENT_DIMENSIONS["academy.exercise"]),
+            "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
+def module_complete(profile: dict[str, Any], module: dict[str, Any]) -> dict[str, Any] | None:
+    """The row for finishing a lesson or lab: every exercise of its current version has a lab.pass row."""
+    if module.get("status") != "live" or not module.get("exercises"):
+        return None
+    mid, version = module["id"], f"v{int(module.get('version') or 1)}"
+    passed = {(r.get("ref") or {}).get("id") for r in profile["evidence"]
+              if r.get("type") == "lab.pass" and (r.get("ref") or {}).get("revision") == version}
+    if any(f"{mid}/{ex['id']}" not in passed for ex in module["exercises"]):
+        return None
+    return {"id": evidence_id("module.complete", mid, version), "type": "module.complete", "at": _now(),
+            "artifact": {"kind": module.get("kind") or "module", "name": mid, "title": str(module.get("title") or "")[:200]},
+            "ref": {"source": "learn", "id": mid, "revision": version},
+            "status": "verified", "verdict": "passed",
+            "detail": {"exercises": len(module["exercises"]), "path": module.get("path"), "level": module.get("level")},
+            "measurement": None, "dimensions": list(EVENT_DIMENSIONS["module.complete"]),
+            "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": "live", "contribution": None}
+
+
 def add(profile: dict[str, Any], row: dict[str, Any]) -> bool:
     """Add a row unless one with its id is there already. Returns whether it was added."""
     if any(r["id"] == row["id"] for r in profile["evidence"]):
@@ -190,10 +312,6 @@ def level_for(xp: int) -> int:
     return level
 
 
-def title_for(level: int) -> str:
-    return next(t for floor, t in TITLES if level >= floor)
-
-
 def included(profile: dict[str, Any]) -> list[dict[str, Any]]:
     excluded = set(profile["excluded"])
     rows = [r for r in profile["evidence"] if r["id"] not in excluded and r.get("status") == "verified"]
@@ -205,6 +323,7 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
     included rows in date order."""
     seen: set[str] = set()
     proven: set[str] = set()
+    learned: set[str] = set()
     per_day: dict[str, int] = {}
     xp_by_row: dict[str, int] = {}
     earned: list[dict[str, Any]] = []
@@ -212,11 +331,11 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
     reached = 1
     for r in included(profile):
         before = len(earned)
-        _progress_row(r, seen, proven, per_day, xp_by_row, earned)
+        _progress_row(r, seen, proven, per_day, xp_by_row, earned, learned)
         milestones += [{"kind": "achievement", "at": a["at"], "id": a["id"], "text": f"Earned {a['name']} (+{a['xp']} XP)"}
                        for a in earned[before:]]
         now = level_for(sum(xp_by_row.values()) + sum(a["xp"] for a in earned))
-        milestones += [{"kind": "level", "at": r.get("at"), "level": lv, "text": f"Reached level {lv}, {title_for(lv)}"}
+        milestones += [{"kind": "level", "at": r.get("at"), "level": lv, "text": f"Reached level {lv}"}
                        for lv in range(reached + 1, now + 1)]
         reached = now
     xp = sum(xp_by_row.values()) + sum(a["xp"] for a in earned)
@@ -231,14 +350,22 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
     if "proof-forged" not in got:
         upcoming.append({"id": "proof-forged", "name": ACHIEVEMENTS["proof-forged"]["name"], "xp": ACHIEVEMENTS["proof-forged"]["xp"],
                          "progress": "Prove a notebook gives the same results on this PC and in Fabric (optional: it runs in Fabric)"})
-    return {"xp": xp, "level": level, "title": title_for(level), "level_xp": xp_for_level(level),
+    exercises = sum(k.startswith("lab.pass|") for k in learned)
+    if "first-spark" not in got:
+        upcoming.append({"id": "first-spark", "name": ACHIEVEMENTS["first-spark"]["name"], "xp": ACHIEVEMENTS["first-spark"]["xp"],
+                         "progress": "Pass an exercise in a Learn lesson or lab"})
+    elif "data-smith" not in got:
+        upcoming.append({"id": "data-smith", "name": ACHIEVEMENTS["data-smith"]["name"], "xp": ACHIEVEMENTS["data-smith"]["xp"],
+                         "progress": f"{exercises} of {DATA_SMITH_EXERCISES} different Learn exercises"})
+    # No title here: the title is the rank (ranks.py), which the service adds (PB-125).
+    return {"xp": xp, "level": level, "level_xp": xp_for_level(level),
             "next_level_xp": xp_for_level(level + 1), "achievements": earned, "next": upcoming,
             "xp_by_row": xp_by_row, "milestones": milestones[::-1], "rules_version": RULES_VERSION, "level_curve": LEVEL_CURVE}
 
 
 def _progress_row(r: dict[str, Any], seen: set[str], proven: set[str], per_day: dict[str, int],
-                  xp_by_row: dict[str, int], earned: list[dict[str, Any]]) -> None:
-    """One included row's XP and any achievement it completes (rules v1)."""
+                  xp_by_row: dict[str, int], earned: list[dict[str, Any]], learned: set[str]) -> None:
+    """One included row's XP and any achievement it completes (rules v2)."""
     xp_by_row[r["id"]] = 0
     name = r["artifact"]["name"]
     day = (r.get("at") or "")[:10]
@@ -251,6 +378,9 @@ def _progress_row(r: dict[str, Any], seen: set[str], proven: set[str], per_day: 
         elif per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
             per_day[day] = per_day.get(day, 0) + 1
             xp_by_row[r["id"]] = NEW_PROOF_XP
+        return
+    if r["type"] in ("lab.pass", "module.complete"):
+        _learn_row(r, learned, per_day, xp_by_row, earned)
         return
     if r["type"] != "validate.pass":
         return
@@ -267,6 +397,31 @@ def _progress_row(r: dict[str, Any], seen: set[str], proven: set[str], per_day: 
         earned.append(_award("steady-hand", r))
 
 
+def _learn_row(r: dict[str, Any], learned: set[str], per_day: dict[str, int], xp_by_row: dict[str, int],
+               earned: list[dict[str, Any]]) -> None:
+    """A Learn row (rules v2). An exercise counts once whatever its content version, so passing it again
+    or after an update adds evidence but nothing else; finishing a lesson earns a little XP within the
+    same daily cap as notebooks. Nothing here grows with the number of runs."""
+    got = {a["id"] for a in earned}
+    key = f"{r['type']}|{(r.get('ref') or {}).get('id')}"
+    if key in learned:
+        return
+    learned.add(key)
+    if r["type"] == "module.complete":
+        day = (r.get("at") or "")[:10]
+        if per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
+            per_day[day] = per_day.get(day, 0) + 1
+            xp_by_row[r["id"]] = MODULE_COMPLETE_XP
+        return
+    kinds = set((r.get("detail") or {}).get("checks") or [])
+    for aid, kind in LEARN_ACHIEVEMENTS:
+        if aid not in got and (kind is None or kind in kinds):
+            earned.append(_award(aid, r))
+            got.add(aid)
+    if "data-smith" not in got and sum(k.startswith("lab.pass|") for k in learned) == DATA_SMITH_EXERCISES:
+        earned.append(_award("data-smith", r))
+
+
 def _award(aid: str, row: dict[str, Any]) -> dict[str, Any]:
     a = ACHIEVEMENTS[aid]
     return {"id": aid, "name": a["name"], "xp": a["xp"], "badge": a["badge"], "description": a["description"],
@@ -274,7 +429,7 @@ def _award(aid: str, row: dict[str, Any]) -> dict[str, Any]:
 
 
 def coverage(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Each skill dimension's evidence coverage (rules v1). Missing evidence is never a low score."""
+    """Each skill dimension's evidence coverage (rules v2). Missing evidence is never a low score."""
     rows = included(profile)
     out = []
     for d in DIMENSIONS:
@@ -312,6 +467,53 @@ def _parse(stamp: str | None) -> dt.datetime | None:
         return None
 
 
+# ---- impact: measured results only (KF-DX-009)
+
+
+def impact(profile: dict[str, Any]) -> dict[str, Any]:
+    """What the included evidence measured, newest first, and the verified outcomes it counts.
+
+    Only figures a row measured are shown: a proof's times on this PC and in Fabric, a checked fix's
+    time as written and as fixed (one run each), and a Learn speed check's times. Nothing is
+    estimated, summed into a saving or turned into money. Capacity units aren't read per run yet, so
+    capacity is reported as not measured rather than guessed."""
+    rows = included(profile)
+    measured: list[dict[str, Any]] = []
+    for r in rows:
+        m = r.get("measurement") or {}
+        if not m:
+            continue
+        base = {"id": r["id"], "at": r.get("at"), "type": r["type"], "source": m.get("source") or ""}
+        if r["type"] == "prove.match" and (_num(m.get("pc_seconds")) or _num(m.get("fabric_seconds"))):
+            measured.append({**base, "kind": "proof", "what": f"Proved notebook {r['artifact']['name']}",
+                             "this_pc_seconds": m.get("pc_seconds") if _num(m.get("pc_seconds")) else None,
+                             "fabric_seconds": m.get("fabric_seconds") if _num(m.get("fabric_seconds")) else None})
+        elif r["type"] == "fix.checked" and _num(m.get("before_seconds")) and _num(m.get("after_seconds")):
+            before, after = float(m["before_seconds"]), float(m["after_seconds"])
+            where = r["artifact"].get("where")
+            measured.append({**base, "kind": "fix", "what": f"Fixed {r['artifact']['name']}{' on ' + where if where else ''}",
+                             "before_seconds": before, "after_seconds": after,
+                             "change_percent": round(100 * (before - after) / before, 1) if before > 0 else None})
+        elif r["type"] == "lab.pass" and _num(m.get("seconds")) and _num(m.get("baseline_seconds")):
+            title = r["artifact"].get("title") or r["artifact"]["name"]
+            measured.append({**base, "kind": "speed", "what": f"Made a query faster in {r['artifact']['name']}, {title}",
+                             "before_seconds": m["baseline_seconds"], "after_seconds": m["seconds"],
+                             "speedup": m.get("speedup") if _num(m.get("speedup")) else None})
+    faster = sum(1 for x in measured if x["kind"] != "proof" and x["after_seconds"] < x["before_seconds"])
+    outcomes = {"notebooks_validated": len({r["artifact"]["name"] for r in rows if r["type"] == "validate.pass"}),
+                "notebooks_proven": len({r["artifact"]["name"] for r in rows if r["type"] == "prove.match"}),
+                "fixes_checked": sum(1 for r in rows if r["type"] == "fix.checked"),
+                "quality_labs": sum(1 for r in rows if r["type"] == "lab.pass"
+                                    and "defects_found" in ((r.get("detail") or {}).get("checks") or []))}
+    return {"measured": measured[::-1], "faster": faster, "outcomes": outcomes,
+            "capacity": {"measured": False, "why": "KratosForge doesn't read Fabric capacity units per run yet, so it "
+                                                   "claims no capacity or cost saving."}}
+
+
+def _num(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 # ---- the professional report
 
 
@@ -324,10 +526,11 @@ def md(text: str) -> str:
 
 
 def report(profile: dict[str, Any], days: int = 90, include_achievements: bool = False,
-           now: dt.datetime | None = None) -> dict[str, Any]:
+           now: dt.datetime | None = None, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """A review-ready summary of the included rows in the last ``days`` days, as Markdown and plain
     text. Every line says where it came from; nothing is inferred beyond the evidence. No XP, levels
-    or badges unless ``include_achievements``."""
+    or badges unless ``include_achievements``. ``plan`` is roadmap.roadmap(): with it, the report lists
+    the person's goals and suggested next milestones under Development goals."""
     now = now or dt.datetime.now(dt.timezone.utc)
     start = now - dt.timedelta(days=days)
     rows = [r for r in included(profile) if (_parse(r.get("at")) or now) >= start]
@@ -383,6 +586,11 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     if proved:
         lines.append(f"{len(proved)} proof{'s' if len(proved) != 1 else ''} whose results matched in Microsoft Fabric, "
                      "each with a run receipt. *(Verified)*")
+    fixed = [r for r in rows if r["type"] == "fix.checked"]
+    if fixed:
+        rules = sorted({r["artifact"]["name"] for r in fixed})
+        lines.append(f"{len(fixed)} best-practice fix{'es' if len(fixed) != 1 else ''} ({', '.join(md(x) for x in rules)}) "
+                     "applied after running the query as written and as fixed and finding the same rows. *(Verified)*")
     if not rows:
         lines.append("No validations in this period. *(Not measured)*")
     lines += ["", "## Performance and efficiency", ""]
@@ -393,22 +601,67 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
                  if isinstance(mm.get(k), (int, float))]
         lines.append(f"- {md(r['artifact']['name'])}: {', '.join(parts)} end to end, measured in the same proof. "
                      f"*(Verified, {refs[r['id']]})*")
-    if not timed:
+    for r in fixed:
+        mm = r.get("measurement") or {}
+        if isinstance(mm.get("before_seconds"), (int, float)) and isinstance(mm.get("after_seconds"), (int, float)):
+            lines.append(f"- {md(r['artifact']['name'])} fix{' on ' + md(r['artifact']['where']) if r['artifact'].get('where') else ''}: "
+                         f"{mm['before_seconds']:g} s as written, {mm['after_seconds']:g} s fixed, one run each, measured. "
+                         f"*(Verified, {refs[r['id']]})*")
+    if not timed and not any(r.get("measurement") for r in fixed):
         lines.append("No before and after measurements in this period. *(Not measured)*")
+    lines += ["", "## Learning", ""]
+    finished = {r["ref"]["id"]: r for r in rows if r["type"] == "module.complete"}
+    passed = [r for r in rows if r["type"] == "lab.pass"]
+    for mid, r in finished.items():
+        ids = ", ".join(refs[x["id"]] for x in rows if x["type"] == "module.complete" and x["ref"]["id"] == mid)
+        what = "lab" if r["artifact"].get("kind") == "lab" else "lesson"
+        title = r["artifact"].get("title") or mid
+        lines.append(f"- Finished KratosForge Learn {what} {md(mid)}, {md(title)}: every exercise passed its checks "
+                     f"on a workstation. *(Verified, {ids})*")
+    if passed:
+        n_ex = len({r["ref"]["id"] for r in passed})
+        lines.append(f"{n_ex} Learn exercise{'s' if n_ex != 1 else ''} passed, each checked against a reference answer "
+                     "on a workstation. *(Verified)*")
+    if not finished and not passed:
+        lines.append("No Learn lessons or labs in this period. *(Not measured)*")
     lines += ["", "## Technical competencies", ""]
     shown = [c for c in coverage(profile) if c["state"] in ("Emerging", "Demonstrated", "Established")]
     lines.append("; ".join(f"{c['name']}: {c['state'].lower()} ({c['rows']} verified items across {c['artifacts']} "
                         f"artifacts)" for c in shown) + ". *(Generated summary)*" if shown
               else "Not enough evidence yet to name a competency. *(Not measured)*")
+    if plan is not None:
+        lines += ["", "## Development goals", ""]
+        for g in plan["goals"]:
+            if g["source"] == "entered":
+                state = "done" if g["met"] else "in progress"
+                lines.append(f"- {md(g['title'])}: {state}. *(Entered by you)*")
+            elif g["met"]:
+                lines.append(f"- {md(g['track'])}: {md(g['title'])}. Met: {md('; '.join(c['text'] for c in g['checks']))}. "
+                             "*(Verified)*")
+            else:
+                todo = "; ".join(f"{c['text']} ({c['have']} of {c['need']})" for c in g["checks"] if not c["met"])
+                lines.append(f"- {md(g['track'])}: {md(g['title'])}. In progress: {md(todo)}. *(Goal set by you)*")
+        for s in plan["suggestions"]:
+            lines.append(f"- {md(s['track'])}: {md(s['title'])}. *(Suggested next step, next to verified work)*")
+        if not plan["goals"] and not plan["suggestions"]:
+            lines.append("No development goals set. *(Not measured)*")
     if include_achievements:
         p = progression(profile)
         lines += ["", "## KratosForge achievements", "",
-               f"Level {p['level']} ({p['title']}), {p['xp']} XP. Levels and achievements are motivational and are "
+               f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
                "not a skill rating."]
         lines += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
     lines += ["", "## Evidence appendix", ""]
     for r in rows:
         ref = r.get("ref") or {}
+        if ref.get("source") == "learn":
+            lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Learn {md(ref.get('id') or '')} · version "
+                         f"{md((ref.get('revision') or '').removeprefix('v'))} · {r['verdict']}")
+            continue
+        if ref.get("source") == "compare":
+            lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Compare for {md(r['artifact']['name'])} · runs "
+                         f"{md(ref.get('revision') or '')} and {md(ref.get('id') or '')} · {r['verdict']}")
+            continue
         source = (f"Run receipt {ref.get('id')} (SHA-256)" if ref.get("source") == "receipt"
                   else f"Validate {ref.get('id')}")
         lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · {source} · code revision "

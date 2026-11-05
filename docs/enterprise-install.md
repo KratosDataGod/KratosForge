@@ -1,6 +1,6 @@
 # Enterprise install
 
-This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md).
+This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md). To follow it step by step, use the [IT deployment checklist](it-deployment-checklist.md).
 
 > **What has been tested:** the policy keys on this page are covered by automated tests on every build. The deployment steps below have **not** been tried in an Intune or Configuration Manager tenant yet. Try them on a pilot group first.
 
@@ -8,11 +8,12 @@ This page is for IT teams that roll KratosForge out to many Windows PCs with Int
 
 | Part | Where it goes | How it gets there |
 | --- | --- | --- |
-| `kratosforge.exe` | Any folder. It is one file; there is no installer or MSI | You copy it |
+| `kratosforge.exe` | Any folder. It is one file | You copy it |
+| or `kratosforge.msi` (the same exe, packaged) | `%LOCALAPPDATA%\Programs\KratosForge` for each Windows user, with a Start menu shortcut | You assign it per user in Intune or Configuration Manager ([Deploy the MSI](#deploy-the-msi)) |
 | The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release, or from [your own folder](#host-the-engine-yourself), on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | `policy.json` (optional) | `%ProgramData%\FabricDesktop\policy.json` | You push it ([the keys](azure-setup.md#4-push-settings-to-everyone)) |
 
-Nothing needs admin rights at run time, and nothing is written to the registry. The engine is per user, so a shared PC downloads it once for each person who uses the app.
+Nothing needs admin rights at run time. The exe writes nothing to the registry; the MSI adds its own uninstall entry and two values under `HKCU\Software\KratosBI\KratosForge`. The engine is per user, so a shared PC downloads it once for each person who uses the app.
 
 ## Pick an update model
 
@@ -24,6 +25,15 @@ Nothing needs admin rights at run time, and nothing is written to the registry. 
 A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the update fails with "Could not move ... aside" and the app keeps running the old build. Use the managed model there.
 
 With `"auto_update": false` the startup window says "Your organization rolls out updates", and when a newer build is out it names it, so you can see who is behind.
+
+## Deploy the MSI
+
+Each build's release also has `kratosforge.msi`, built by CI from the same exe the release publishes. It installs **per user** (no administrator rights, nothing in Program Files or HKLM) to `%LOCALAPPDATA%\Programs\KratosForge`, with a Start menu shortcut, and Windows lists it under Installed apps so it uninstalls cleanly. A newer MSI replaces an older one.
+
+- In Intune, add it as a **Line-of-business app** (or a Win32 app) and assign it to **users**, not devices. Install behaviour: User. Silent install: `msiexec /i kratosforge.msi /qn`.
+- That folder is the user's, so the app can still update itself there. To control versions yourself, also set `"auto_update": false` and deploy each new MSI.
+- The MSI is unsigned until code signing lands, the same as the exe. Expect the same SmartScreen and policy checks.
+- Each build's MSI has a higher version than the one before. Going back to an earlier build (a Stable rollback) gives a lower version, which the MSI refuses over a newer one: uninstall KratosForge first, then assign the earlier MSI. Settings and the engine stay, since they live outside the install folder.
 
 ## Deploy
 
@@ -45,6 +55,24 @@ With `"auto_update": false` the startup window says "Your organization rolls out
    If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
 
 5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. A broken file leaves each PC on the last copy it could read; a PC that never read a valid one fails closed, which turns off runs in Fabric, Preview features, telemetry and AI tools until the file is fixed; people can still sign in and work on their PC ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
+
+## Changes to the policy file
+
+Each time the engine starts, and each time someone opens Settings, KratosForge compares `policy.json` with what it saw last and writes any difference to the PC's [audit trail](user-guide.md#audit-trail):
+
+| What happened | What is recorded |
+|---|---|
+| The first look on this PC | `policy_file_seen`, with the file's SHA-256 |
+| The file changed | `policy_file_changed`, with the SHA-256 before and after |
+| The file broke and the last copy that could be read applies | `policy_file_changed`, with `state` `last_good` (`fail_closed` when there's no good copy) |
+| The file was removed | `policy_file_changed`, with no SHA-256 and `state` `none` |
+| Nothing changed | Nothing |
+
+Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped. A [support bundle](troubleshooting.md) carries the same hash and last change in `about.json` (`policy_record`); making one only reads them.
+
+An [agent](agent.md#operate) on the same machine does the same at its start and every 15 minutes, in its own audit log.
+
+This makes a change visible; it doesn't stop one. Nothing is blocked. A local administrator can change the file, and their change looks the same as your push except for the hash. The account signed in to the PC can delete or edit the audit trail and the record of what was last seen (`%LOCALAPPDATA%\FabricDesktop\policy-seen.json`), and so could hide a change, so ship the audit files to a log store when that matters.
 
 ## Keep the exe and the engine in step
 
@@ -106,6 +134,7 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | `api.powerbi.com` | Semantic models, workspace access, and reading endorsement for a Fabric administrator |
 | `graph.microsoft.com` | Looking up people when granting access, and Entra ID groups on the Platform page |
 | `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |
+| `api.anthropic.com`, `api.openai.com`, `generativelanguage.googleapis.com`, your Azure OpenAI resource (`<name>.openai.azure.com`) or your own OpenAI-compatible server | Only if someone adds a model connection in App Studio (Preview, not in the app yet): their own key and billing, schema and metadata only unless they allow sample rows ([App Studio](architecture/app-studio.md)). Ollama connections stay on the PC (`localhost`) |
 | Your Git hosts (`dev.azure.com`, `github.com`, `gitlab.com`, `bitbucket.org` or your own server) | Only if people connect notebooks to a repository |
 | `*.vault.azure.net` | Only if notebook code reads Key Vault secrets with `notebookutils.credentials.getSecret` |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |
@@ -113,6 +142,10 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 
 The list comes from the hosts named in the source code. Notebooks run on the PC, so any host their own code calls is reached from the PC too. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
 
+### Proxies and HTTPS inspection
+
+The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. If a certificate is still refused, the error starts with "HTTPS was refused because the server's certificate isn't trusted on this PC" and says what to do. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+
 ## Uninstall
 
-Remove the packaged app, which deletes the exe. Each user's `%LOCALAPPDATA%\FabricDesktop` (engine, notebooks, settings, sign-in cache) stays until you remove it; a cleanup script can delete it at sign-out. Schedules on a PC live in Windows Task Scheduler under the `FabricDesktop` folder and should be removed first. Nothing in Fabric is removed. More in [Install: Uninstall](install.md#uninstall).
+Remove the packaged app, which deletes the exe. Each user's `%LOCALAPPDATA%\FabricDesktop` (engine, notebooks, settings, sign-in cache) stays until you remove it; a cleanup script can delete it at sign-out. Schedules on a PC live in Windows Task Scheduler under the `FabricDesktop` folder and should be removed first. Nothing in Fabric is removed. If Academy exercises ran in the Windows AppContainer, the engine folder keeps a read permission for KratosForge's own exercise sandbox, which nothing else can use; to remove it first, choose **Remove exercise permissions** under Settings > Advanced > Exercise sandbox before uninstalling. More in [Install: Uninstall](install.md#uninstall).

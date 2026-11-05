@@ -78,6 +78,7 @@ from typing import Any, Callable
 from .fabric_run import schedule_configuration
 from .local_schedules import local_configuration
 from .meta.project import ENVIRONMENTS
+from .redact import one_line
 
 # Keys whose value would be a secret itself. Give the name of an environment variable instead.
 _SECRET_KEYS = {"client_secret", "password", "secret", "certificate_password", "teams_webhook", "token", "api_key"}
@@ -217,7 +218,7 @@ def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
         if not isinstance(r, dict):
             errors.append(f"incidents.route {i + 1}: write it as [[incidents.route]] with a name and webhook_env")
             continue
-        where = f"incidents.route {r.get('name') or i + 1}"
+        where = f"incidents.route {one_line(r.get('name') or i + 1, 80)}"
         name = str(r.get("name") or "")
         if not _ID.fullmatch(name) or name == "default":
             errors.append(f"{where}: name is letters, digits, . _ or - (and not \"default\")")
@@ -239,7 +240,7 @@ def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
 
 
 def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None:
-    where = f"schedule {raw.get('id') or i + 1}"
+    where = f"schedule {one_line(raw.get('id') or i + 1, 80)}"
     sid, env = str(raw.get("id", "")), raw.get("env")
     if not _ID.fullmatch(sid):
         errors.append(f"{where}: id is letters, digits, . _ or -")
@@ -324,6 +325,14 @@ def load(path: Path | str | None = None) -> AgentConfig:
     return parse(raw, path)
 
 
+def _is_file(path: Path) -> bool:
+    """Whether ``path`` exists; a path the system refuses to look up (too long, a bad character) doesn't."""
+    try:
+        return path.exists()
+    except (OSError, ValueError):
+        return False
+
+
 def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors = _secret_keys(raw, "")
     agent, auth, retry, alerts, pipe, inc, sh = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
@@ -331,8 +340,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     project = agent.get("project", "")
     if not project:
         errors.append("agent.project: the metadata project folder is required")
-    elif not (Path(project) / "layers.toml").exists():
-        errors.append(f"agent.project: {project} isn't a metadata project (no layers.toml)")
+    elif not _is_file(Path(project) / "layers.toml"):
+        errors.append(f"agent.project: {one_line(project, 200)} isn't a metadata project (no layers.toml)")
     envs = list(agent.get("environments") or [])
     if not envs:
         errors.append("agent.environments: list the environments this agent may run, e.g. [\"prod\"]")
@@ -344,8 +353,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
             errors.append("auth: a service principal needs tenant_id and client_id")
         if not auth.get("certificate_path") and not auth.get("client_secret_env"):
             errors.append("auth: give certificate_path (preferred) or client_secret_env")
-        elif auth.get("certificate_path") and not Path(auth["certificate_path"]).exists():
-            errors.append(f"auth.certificate_path: {auth['certificate_path']} doesn't exist")
+        elif auth.get("certificate_path") and not _is_file(Path(auth["certificate_path"])):
+            errors.append(f"auth.certificate_path: {one_line(auth['certificate_path'], 200)} doesn't exist")
 
     def number(table: dict[str, Any], key: str, default: float, low: float, where: str) -> float:
         value = table.get(key, default)
@@ -360,7 +369,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors += [f"schedule {i}: the id is used twice" for i in sorted({i for i in ids if ids.count(i) > 1})]
     errors += [f"schedule {s.id}: {s.env} isn't in agent.environments" for s in schedules if s.env not in envs]
     pipe_envs = [str(e) for e in pipe.get("environments") or envs]
-    errors += [f"pipeline.environments: {e} isn't in agent.environments" for e in pipe_envs if e not in envs]
+    errors += [f"pipeline.environments: {one_line(e, 80)} isn't in agent.environments" for e in pipe_envs if e not in envs]
     for key in ("enabled", "allow_backfill", "take_over", "require_run"):
         if not isinstance(pipe.get(key, False), bool):
             errors.append(f"pipeline.{key}: true or false")

@@ -9,6 +9,7 @@
 const NB_RUN_TRIGGERS = {
   schedule: "Schedule",
   manual: "Schedule, Run now",
+  home: "Run from Home",
   fabric: "Run in Fabric",
   run_now: "Fabric schedule, Run now",
   prove: "Prove this notebook",
@@ -80,7 +81,7 @@ async function loadRuns(nb, refresh) {
   try {
     r.rows = await rpc("notebook_runs", { name: nb.name, limit: NB_RUNS_LIMIT, refresh });
   } catch (err) {
-    r.problem = `Couldn't read this notebook's runs. ${friendlyError(err)}`;
+    r.problem = `Couldn't read this notebook's runs. ${friendlyError(err).text}`;
   }
   r.refreshing = false;
   drawRuns(nb);

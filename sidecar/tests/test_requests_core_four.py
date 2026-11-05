@@ -318,6 +318,8 @@ def test_approving_workspace_access_never_lowers_a_role(svc, who, kind, have, as
         assert changed == []
         whom = "the group Sales Engineers" if kind == "group" else DEV
         assert out["next"] == [f"{whom} {note}"] and out["made"]["kept"] == have
+    change = "raised" if note is None else "same" if have == asked else "kept"
+    assert out["detail"]["made"] == {"assigned": True, "change": change, "from": have}  # recorded for the audit trail (#1207)
 
 
 class FabricDomains:

@@ -18,8 +18,10 @@ the job starts no run. Copy jobs made here are Preview until a tenant run has ch
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
+from ..fabric_api import FabricError
 from ..fabric_run import schedule_configuration
 from ..redact import describe
 from ..orchestration import copyjob_build
@@ -30,6 +32,14 @@ _log = logging.getLogger(__name__)
 
 COPY_JOB_TYPE = "CopyJob"
 SCHEDULE_JOB_TYPE = "Execute"  # the job type a Copy job runs as (workloads/inventory.py); unverified on a tenant
+
+
+_GUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
+
+
+def _gone(exc: FabricError) -> bool:
+    """Fabric says the workspace isn't there. No access (403) isn't; the admin API confirms the rest."""
+    return exc.status == 404 or exc.code in ("WorkspaceNotFound", "EntityNotFound")
 
 
 class LandingCopyMixin:
@@ -149,6 +159,80 @@ class LandingCopyMixin:
             made["schedule_id"] = str(sched.get("id") or "")
             self._rq_progress(req, {"schedule_id": made["schedule_id"]})  # type: ignore[attr-defined]
         return made
+
+    # ---- a source isn't deleted while the Copy job that lands it is still in Fabric
+
+    def platform_delete_source(self, name: str) -> list[dict[str, Any]]:
+        """Refuses while a Copy job a request made for this source is still in the landing workspace:
+        deleting the source would leave the job running on its schedule with nothing in the app that
+        names it. Nothing in Fabric is changed. A job that's gone from Fabric no longer holds it."""
+        source = core.key_name(name)
+        if not self._catalog().call("whoami").get("admin"):  # type: ignore[attr-defined]
+            # Anyone else is refused by the platform as before, before any request record is read.
+            return super().platform_delete_source(name)  # type: ignore[misc]
+        jobs = self._lc_jobs_for(source)
+        if jobs:
+            api = self._rq_fabric()  # type: ignore[attr-defined]
+            for job in jobs:
+                try:
+                    there = any(i.get("id") == job["id"] for i in api.list_items(job["workspace_id"]))
+                except FabricError as exc:
+                    if not (_gone(exc) and self._lc_workspace_gone(job["workspace_id"])):
+                        raise self._lc_unchecked(source, job, exc) from exc
+                    there = False  # the landing workspace itself is gone, and its Copy job with it
+                except Exception as exc:
+                    raise self._lc_unchecked(source, job, exc) from exc
+                if there:
+                    raise core.PlatformError(
+                        f"{source} has the Copy job {job['name']} in the landing workspace, on its schedule: "
+                        "delete it in Fabric first, then delete the source")
+        return super().platform_delete_source(name)  # type: ignore[misc]
+
+    def _lc_workspace_gone(self, workspace_id: str) -> bool:
+        """Some tenants answer "not found" to someone who isn't a member, so a 404 alone could leave a
+        running Copy job with no source. Fabric's admin API sees every workspace: gone only when it
+        says so too. Unreadable (not a Fabric admin) is not gone."""
+        try:
+            ws = self._fabric_admin().admin_get_workspace(workspace_id)  # type: ignore[attr-defined]
+        except FabricError as exc:
+            if exc.status == 404 or exc.code in ("WorkspaceNotFound", "EntityNotFound"):
+                return True
+            _log.info("Fabric's admin API couldn't confirm the landing workspace is gone: %s", describe(exc))
+            return False
+        except Exception as exc:  # noqa: BLE001 - unconfirmed keeps the source
+            _log.info("Fabric's admin API couldn't confirm the landing workspace is gone: %s", describe(exc))
+            return False
+        return str(ws.get("state") or "") in ("Deleted", "Removing")
+
+    def _lc_unchecked(self, source: str, job: dict[str, str], exc: BaseException) -> core.PlatformError:
+        _log.info("Couldn't read the landing workspace for %s's Copy job: %s", source, describe(exc))
+        return core.PlatformError(
+            f"Couldn't check whether {source}'s Copy job {job['name']} is still in the landing "
+            f"workspace ({describe(exc)}), so the source is kept. Try again when Fabric can be reached")
+
+    def _lc_jobs_for(self, source: str) -> list[dict[str, str]]:
+        """The Copy jobs any request for this source recorded making, whatever became of the request:
+        a declined or withdrawn one can have made its job before it stopped."""
+        out, seen = [], set()
+        for r in self._catalog().call("list_requests"):  # type: ignore[attr-defined]
+            m = (r.get("detail") or {}).get("made") or {}
+            jid, ws = str(m.get("copy_job_id") or ""), str(m.get("workspace_id") or "")
+            if r.get("kind") != "source" or str(r.get("target") or "").strip().lower() != source or not jid or jid in seen:
+                continue
+            if not _GUID.fullmatch(jid):
+                # A job id that isn't Fabric's can't name a Copy job, and never goes into a Fabric call.
+                _log.warning("Request %s for %s recorded a Copy job id KratosForge can't read; skipped",
+                             r.get("id"), source)
+                continue
+            if not _GUID.fullmatch(ws):
+                # The job may be real, but where it is can't be read: keep the source.
+                raise core.PlatformError(
+                    f"{source}'s request recorded the Copy job {jid} in a landing workspace KratosForge can't read, "
+                    "so the source is kept. Check that Copy job in Fabric, and delete it there if it isn't wanted")
+            seen.add(jid)
+            out.append({"id": jid, "workspace_id": ws,
+                        "name": str(m.get("copy_job_name") or copyjob_build.job_name(source))})
+        return out
 
     # ---- the landing zone shows which sources a Copy job lands
 

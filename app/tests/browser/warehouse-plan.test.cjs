@@ -29,7 +29,7 @@ before(async () => {
     ? { columns: [{ name: "Microsoft SQL Server 2005 XML Showplan", type: "string" }], rows: [[answer]] }
     : { columns: [{ name: "x", type: "int" }], rows: [[1]] }));
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list"],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list"],
     mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
       sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse" }) },
   });

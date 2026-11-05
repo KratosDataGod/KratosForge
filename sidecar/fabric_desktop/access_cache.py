@@ -31,7 +31,7 @@ S, B = pl.String, pl.Boolean
 WORKSPACE, LAKEHOUSE = "workspace_roles", "data_access_roles"
 GONE = "gone"  # a lakehouse the cache knew that its workspace no longer lists
 
-TABLES_V1: dict[str, dict[str, pl.DataType]] = {
+TABLES_V1: dict[str, dict[str, schema.Dtype]] = {
     # state: ok (roles read), error (couldn't read them; problem says why), gone (no longer in its
     # workspace). snapshot_id is "" unless ok.
     "scans": {"scan_id": S, "kind": S, "workspace_id": S, "workspace_name": S, "item_id": S, "item_name": S,

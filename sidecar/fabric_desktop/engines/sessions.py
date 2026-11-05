@@ -12,16 +12,27 @@ on the chosen engine, ``execute`` says so and stops: it never moves the cell to 
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .. import redact
 from . import authorization as auth
 from .capabilities import check_cell
 from .contract import CellRequest, CellResult, EngineAdapter, EngineSession, OutputSink, SessionConfig, Unsupported
 from .usage import UsageRecord
 
 DECISIONS = ("close", "keep")
+_log = logging.getLogger(__name__)
+# What a remote session that couldn't be closed may use, and where the person stops it now:
+# by engine first, then by how the engine bills.
+_STOP: dict[str, tuple[str, str]] = {
+    "databricks-connect": ("compute (DBUs)", "end it on the cluster's page in Databricks"),
+    "databricks-sql": ("compute (DBUs)", "stop it on the SQL warehouse's page in Databricks"),
+    "fabric_capacity": ("capacity", "cancel it in Fabric's Monitor hub"),
+    "databricks_dbu": ("compute (DBUs)", ""),
+}
 
 
 class SwitchNeeded(RuntimeError):
@@ -44,6 +55,8 @@ class SessionManager:
         self._on_usage = on_usage
         self._lock = threading.Lock()
         self._notebooks: dict[str, _Notebook] = {}
+        self._notes: dict[str, list[str]] = {}
+        self._unclosed: list[tuple[str, EngineSession]] = []
 
     def engine_of(self, notebook: str) -> str | None:
         nb = self._notebooks.get(notebook)
@@ -83,15 +96,19 @@ class SessionManager:
                     raise SwitchNeeded(t)
                 if decision not in t["decisions"]:
                     raise ValueError(f"{decision!r} isn't possible here. Choose one of: {', '.join(t['decisions'])}.")
-            if nb is not None and t["needed"] and decision == "close":
-                nb.sessions.pop(nb.engine).close()
             session = nb.sessions.get(engine) if nb else None
             if session is None or session.closed:
+                # Opened before the old session closes: if it can't open, the notebook keeps the
+                # engine and session it had, never an engine with no session.
                 session = new.open_session(config or SessionConfig(notebook), authorization)
             if nb is None:
                 nb = self._notebooks[notebook] = _Notebook(engine)
+            old = nb.sessions.pop(nb.engine) if t["needed"] and decision == "close" else None
             nb.engine = engine
             nb.sessions[engine] = session
+            note = self._close(t["from"], old) if old is not None else None
+            if note:
+                self._notes.setdefault(notebook, []).append(note)
             return session
 
     def check(self, notebook: str, request: CellRequest) -> dict[str, Any]:
@@ -105,7 +122,8 @@ class SessionManager:
         if not verdict["ok"]:
             raise Unsupported(verdict["reason"])
         session = self.session(notebook)
-        assert session is not None
+        if session is None:
+            raise Unsupported("This notebook's engine has no open session. Pick its engine again.")
         result = session.execute(request, on_output)
         if self._on_usage:
             self._on_usage([UsageRecord(result.engine, "seconds", result.seconds, "measured", "engine session")])
@@ -119,12 +137,56 @@ class SessionManager:
         """Close every session of ``notebook``, kept ones included."""
         with self._lock:
             nb = self._notebooks.pop(notebook, None)
-        for session in (nb.sessions.values() if nb else ()):
+        notes = [n for engine, session in (nb.sessions.items() if nb else ()) if (n := self._close(engine, session))]
+        if notes:
+            with self._lock:
+                self._notes.setdefault(notebook, []).extend(notes)
+
+    def notes(self, notebook: str) -> list[str]:
+        """What the person should know from the last switch or close of ``notebook`` (a session that
+        couldn't be closed), each said once."""
+        with self._lock:
+            return self._notes.pop(notebook, [])
+
+    def _close(self, engine: str, session: EngineSession) -> str | None:
+        """Close a session the notebook has already let go of. A failure is logged and returned as a
+        note for the person, never raised: the switch or close it belongs to has already happened.
+        The session is kept to try once more at close_all (app exit)."""
+        try:
             session.close()
+            return None
+        except Exception as exc:  # noqa: BLE001 - logged and noted; the caller's step already succeeded
+            detail = " ".join(redact.secrets(str(exc)).split())[:300]
+            _log.warning("Closing a %s session failed (%s): %s", engine, type(exc).__name__, detail)
+            self._unclosed.append((engine, session))
+            return self._note(engine)
+
+    def _note(self, engine: str) -> str:
+        try:
+            desc = self._adapter_for(engine).describe()
+            label, remote, billing = desc.label, desc.remote, desc.billing
+        except (KeyError, ValueError):
+            label, remote, billing = engine, False, "none"
+        note = f"Couldn't close the {label} session."
+        if not remote:
+            return note
+        meter, stop = _STOP.get(engine) or _STOP.get(billing) or ("compute or capacity", "")
+        return f"{note} It ends on its own after its idle timeout, and may use {meter} until then." + \
+            (f" To stop it now, {stop}." if stop else "")
 
     def close_all(self) -> None:
+        """Close every notebook's sessions, then try once more those whose close failed before."""
         for notebook in list(self._notebooks):
             self.close(notebook)
+        with self._lock:
+            retry, self._unclosed = self._unclosed, []
+        for engine, session in retry:
+            if session.closed:
+                continue
+            try:
+                session.close()
+            except Exception as exc:  # noqa: BLE001 - the app is exiting; logged, nothing else to do
+                _log.warning("Closing a %s session failed again at exit (%s)", engine, type(exc).__name__)
 
     def open_sessions(self) -> list[dict[str, Any]]:
         return [{"notebook": name, "engine": eid, "active": eid == nb.engine}

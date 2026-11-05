@@ -26,7 +26,8 @@ FABRIC_LIMIT = ("Reads Fabric with your own account, so you see exactly what you
 WORKSPACE = schema({"id": STR, "name": STR, "type": STR, "capacity_id": {"type": ["string", "null"]}}, extra=True)
 ARTIFACT = schema({"id": STR, "name": STR, "type": STR, "description": STR}, extra=True)
 NOTEBOOK_ROW = schema({"name": STR, "modified": {"type": "number"}}, extra=True)
-CHECK = schema({"ok": {"type": "boolean"}, "reasons": {"type": "array"}}, extra=True)
+CHECK = schema({"ok": {"type": "boolean"}, "status": {"enum": ["ok", "blocked", "unknown"]}, "reasons": {"type": "array"},
+                "unknown": {"type": "array"}}, extra=True)
 
 
 def register_core(reg: Registry) -> None:
@@ -140,7 +141,8 @@ def register_core(reg: Registry) -> None:
             "fabric_desktop_validate_notebook", "Validate notebook",
             "Whether a notebook can run on this PC and in Fabric and which cells stop it, what a proof would refuse, "
             "how its cells depend on each other, and Validate's findings (errors, warnings and info, each with its cell "
-            "and a fix): the checks the notebook screen runs. Runs no code.",
+            "and a fix): the checks the notebook screen runs. Runs no code. ok is false when nothing stops it but some "
+            "cells can't be read (status unknown).",
             schema({"name": NAME}, ["name"]),
             schema({"ok": {"type": "boolean"}, "this_pc": CHECK, "fabric": CHECK, "proof": {"type": "object"},
                     "dependencies": {"type": "object"}}, ["ok", "this_pc", "fabric"], extra=True),

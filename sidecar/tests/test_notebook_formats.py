@@ -278,14 +278,51 @@ def test_a_databricks_import_lists_each_dropped_or_changed_construct_with_its_ce
         'dbutils.widgets.text("run_date", "2026-10-28")', "%%sh", "%fs ls dbfs:/mnt/raw",
         'dbutils.fs.mount("wasbs://raw@acct.blob.core.windows.net", "/mnt/raw")', "<div style='color:red'>Note</div>",
         "%run ./shared/setup", "%%spark"]
-    # Widgets and dbutils.fs.ls run here as written: nothing to say about cell 1 but its title.
-    assert notes[1] == [("dropped", "The cell title 'Parameters': KratosForge cells have no titles.")]
+    # Widgets run here as written; cell 1 only loses its title, and Fabric would need a parameter cell.
+    assert notes[1][0] == ("dropped", "The cell title 'Parameters': KratosForge cells have no titles.")
+    assert [k for k, _ in notes[1][1:]] == ["fabric"] and "parameter cell" in notes[1][1][1]
     assert notes[2] == [("changed", "%sh became %%sh, KratosForge's way to mark the language.")]
     assert [k for k, _ in notes[3]] == ["check"] and "dbfs:/" in notes[3][0][1]
     assert [k for k, _ in notes[4]] == ["check"] and "mounts" in notes[4][0][1]
     assert notes[5][0][0] == "changed" and "md-sandbox" in notes[5][0][1]
     assert notes[6][0][0] == "check" and "%run" in notes[6][0][1]
     assert notes[7][0][0] == "changed" and "%%spark" in notes[7][0][1]
+
+
+def _dbx(*cells):
+    return "# Databricks notebook source\n" + "\n\n# COMMAND ----------\n\n".join(cells) + "\n"
+
+
+@pytest.mark.parametrize("source, kind, says", [
+    ("import dlt\n@dlt.table\ndef orders():\n    return spark.read.table('raw.orders')", "check", "Delta Live Tables"),
+    ("# MAGIC %sql\n# MAGIC CREATE OR REFRESH STREAMING TABLE orders AS SELECT * FROM STREAM(raw.orders)",
+     "check", "Delta Live Tables"),
+    ("# MAGIC %sql\n# MAGIC APPLY CHANGES INTO live.customers FROM stream(cdc) KEYS (id) SEQUENCE BY ts",
+     "check", "Delta Live Tables"),
+    ("# MAGIC %sql\n# MAGIC CREATE LIVE TABLE t (CONSTRAINT valid_id EXPECT (id IS NOT NULL)) AS SELECT 1 AS id",
+     "check", "Delta Live Tables"),
+    ('x = dbutils.widgets.get("run_date")', "fabric", "parameter cell"),
+    ("dbutils.library.restartPython()", "fabric", "notebookutils.session.restartPython()"),
+    ('spark.conf.set("spark.databricks.io.cache.enabled", "true")', "fabric", "Databricks Runtime setting"),
+    ("spark.conf.set('spark.databricks.photon.enabled', 'true')", "fabric", "Databricks Runtime setting"),
+    ('q = df.writeStream.trigger(processingTime="10 seconds").toTable("t")', "fabric", "availableNow=True"),
+    ('q = df.writeStream.trigger(continuous="1 second").toTable("t")', "fabric", "continuous"),
+    ("p = spark.read.parquet('dbfs:/mnt/raw/orders')", "check", "neither this PC nor Fabric"),
+])
+def test_an_import_names_the_databricks_gotchas_with_their_cell(source, kind, says):
+    notes = [n for n in nbf.parse_source(_dbx("x = 1", source), "nb.py")["notes"] if n["kind"] != "changed"]  # %sql
+    assert [(n["cell"], n["kind"]) for n in notes] == [(2, kind)]
+    assert says in notes[0]["what"]
+
+
+@pytest.mark.parametrize("source", [
+    'spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")',  # Delta's own; Fabric reads it
+    "q = df.writeStream.trigger(availableNow=True).toTable('t')",
+    "dlt_rows = 3  # a name that starts with dlt",
+    "# MAGIC %sql\n# MAGIC CREATE TABLE orders AS SELECT 1",
+])
+def test_code_that_runs_the_same_in_fabric_isnt_listed(source):
+    assert [n for n in nbf.parse_source(_dbx(source), "nb.py")["notes"] if n["kind"] != "changed"] == []
 
 
 def test_widgets_sh_fs_and_dbutils_survive_a_round_trip_through_databricks_source():

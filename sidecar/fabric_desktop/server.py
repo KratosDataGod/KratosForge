@@ -13,28 +13,31 @@ import logging
 import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit
+from . import audit, net_trust, rpc_params
 from .redact import secrets
 from .service import Service
 
-METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
-           "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
+METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
+           "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
+           "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
-           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
-           "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
+           "platform_whoami", "platform_change_window", "platform_save_change_window", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_owner_coverage", "platform_note_seen", "platform_access_reviews", "platform_confirm_access", "platform_overview", "platform_products",
-           "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
+           "platform_product_trust", "platform_scan_endorsement", "platform_follow",
            "platform_product_items", "platform_add_product_item", "platform_remove_product_item",
            "platform_entra_groups", "platform_entra_script", "platform_entra_save", "platform_entra_link", "platform_entra_unlink",
            "platform_entra_naming_save", "platform_entra_find", "platform_entra_check",
@@ -60,26 +63,27 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
-           "usage_preview", "usage_import", "usage_imports", "usage_import_delete",
-           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "usage_preview", "usage_import", "usage_import_delete",
+           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge",
            "model_bpa_status", "model_bpa_risk", "model_bpa_check",
            "create_shortcut", "delete_shortcut", "shortcut_connections",
-           "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
+           "shortcut_center", "shortcut_export", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
-           "shortcut_request", "shortcut_find_moved", "shortcut_repoint_many", "shortcut_accept_risk", "shortcut_withdraw_risk",
+           "shortcut_request", "shortcut_request_envs", "shortcut_find_moved", "shortcut_repoint_many", "shortcut_accept_risk", "shortcut_withdraw_risk",
            "meta_entity_shortcuts", "access_review", "access_set_role", "access_find_person", "access_lakehouse",
            "access_save_role", "access_delete_role", "access_who_can_read", "meta_tests", "meta_varlib",
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
-           "set_pc_schedule_enabled", "update_pc_schedule", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
+           "set_pc_schedule_enabled", "update_pc_schedule", "set_pc_schedule_signed_out", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "update_fabric_schedule", "time_zones", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
+           "xray", "xray_pause", "xray_dismiss", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_staging_preview", "xray_remove_staging",
+           "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
            "workload_preflight", "workload_act", "workload_capacity_use",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
-           "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
+           "incidents_board", "incidents_for_me", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
            "incident_impact", "incident_tell_impacted",
            "receipt_get", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
@@ -87,8 +91,11 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "notebook_debug_get", "notebook_debug_set", "replay_bundle_preview", "replay_bundle_save",
            "replay_bundles_list", "replay_bundle_open", "replay_check", "replay_start", "replay_result", "replay_end",
            "replay_delete_outputs",
-           "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "kernel_sessions", "stop_kernel_process", "kernel_session_share", "kernel_session_leave", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
+           "wizard_templates", "wizard_preview", "wizard_create", "kernel_sessions", "stop_kernel_process", "kernel_session_share", "kernel_session_leave", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
            "notebook_dependencies", "side_by_side_writes", "side_by_side_cores", "side_by_side_cores_set",
+           "fabric_item_support", "fabric_git_links", "fabric_git_check", "fabric_git_link",
+           "fabric_git_unlink", "fabric_git_overview", "fabric_git_status",
+           "fabric_git_update",
            "git_info", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_status", "git_diff", "git_stage",
            "git_stage_all", "git_unstage", "git_discard", "git_commit", "git_log", "git_commit_detail",
@@ -104,7 +111,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
            "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
-           "git_notebook_info", "telemetry_status", "telemetry_new_install_id"}
+           "telemetry_status", "telemetry_new_install_id"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).
@@ -142,6 +149,26 @@ METHODS |= ENGINE_METHODS
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 
 METHODS |= ACCESS_CACHE_METHODS
+
+# Learn: lessons and labs on this PC (learn_service.py).
+from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
+
+METHODS |= LEARN_METHODS
+
+# Academy (Preview): certification packs, exercises and readiness on this PC (academy_service.py).
+from .academy_service import METHODS as ACADEMY_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_METHODS
+
+# Academy > Assessments (Preview): practice exams, diagnostics and drills on this PC (academy_exam_service.py).
+from .academy_exam_service import METHODS as ACADEMY_EXAM_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_EXAM_METHODS
+
+# Fabric App Studio (Preview): projects, Design changes and the local preview (appstudio_service.py).
+from .appstudio_service import METHODS as APPSTUDIO_METHODS  # noqa: E402
+
+METHODS |= APPSTUDIO_METHODS
 
 # Settings > Advanced > OneLake writes: the local write folders (local_writes_service.py).
 from .local_writes_service import METHODS as LOCAL_WRITES_METHODS  # noqa: E402
@@ -240,13 +267,13 @@ METHODS |= POWERBI_EMBED_METHODS
 # (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
 # long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
-    "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
+    "app_settings", "cached_schemas", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
     "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
-    "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
+    "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
     "engine_state", "engine_poll_cell", "engine_cancel",
@@ -258,24 +285,52 @@ def handle(service: Service, line: str) -> dict:
         req = json.loads(line)
     except json.JSONDecodeError as exc:
         return {"id": None, "error": f"invalid JSON: {exc}"}
+    if not isinstance(req, dict):  # a list or a bare value has no id to answer, but the shell still gets a line
+        return {"id": None, "error": "invalid request: expected an object with id, method and params"}
     req_id, method = req.get("id"), req.get("method")
-    if method not in METHODS:
-        return {"id": req_id, "error": f"unknown method {method!r}"}
+    if not isinstance(method, str) or method not in METHODS:
+        return {"id": req_id, "error": _short(f"unknown method {method!r}")}
     params = req.get("params", {})
     started = time.monotonic()
     try:
-        reply = {"id": req_id, "result": getattr(service, method)(**params)}
+        call = getattr(service, method)
+        rpc_params.check(method, call, params)
+        reply = {"id": req_id, "result": call(**params)}
     except Exception as exc:  # report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            reply = {"id": req_id, "error": secrets(str(exc))}
+            reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
-            reply = {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
+            text = f"{type(exc).__name__}: {exc}"
+            if net_trust.certificate_refused(exc):  # one line that says what to do, then the detail
+                text = f"{net_trust.HINT} ({text})"
+            reply = {"id": req_id, "error": _short(_home(secrets(text)))}
     if audit.audited(method):
         seconds = time.monotonic() - started
         _audit(service, method, params, reply, seconds)
         _count(service, method, reply, seconds)
     return reply
+
+
+ERROR_CHARS = 4000  # an error quoting a huge input (a 200,000-character name) is cut to this
+
+
+def _home(message: str) -> str:
+    """``message`` with the home folder written as ~, so an error pasted into a ticket or a screenshot
+    doesn't usually carry the Windows account name (other text, such as a OneDrive folder or a sign-in
+    name, still can). Results keep full paths: the app opens them."""
+    try:
+        home = Path.home()
+    except (RuntimeError, KeyError, OSError):  # no HOME or USERPROFILE: the error still has to reach the shell
+        return message
+    for form in dict.fromkeys((str(home).replace("\\", "\\\\"), str(home), home.as_posix())):  # repr() doubles \
+        if len(form) > 3:  # never a bare drive or /
+            message = re.sub(re.escape(form) + r"(?![^\\/'\"\s:)])", "~", message, flags=re.IGNORECASE)
+    return message
+
+
+def _short(message: str) -> str:
+    return message if len(message) <= ERROR_CHARS else message[:ERROR_CHARS] + f"… ({len(message) - ERROR_CHARS} more characters)"
 
 
 def _audit(service: Service, method: str, params: dict, reply: dict, seconds: float) -> None:
@@ -409,6 +464,7 @@ def main() -> None:
     from . import notebook
     notebook.sweep_spills()  # output files a closed notebook session left behind
     service = Service()
+    service.policy_record()  # a policy file changed since the last start goes in the audit trail (#1670)
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
     try:
         serve(service, stdin=sys.stdin, stdout=rpc_out)

@@ -10,10 +10,13 @@ permissions:
   contents: read
 
 # A newer push to a pull request cancels that pull request's older run, so the
-# queue holds only current heads. Pushes to main each get their own group and
-# are never cancelled, so every main batch still publishes a Preview.
+# queue holds only current heads. Pushes to main share one group: a running main
+# build is never cancelled, and GitHub keeps at most one main run waiting, the
+# newest, so a burst of merges builds the running commit and then main's tip
+# (only the newest commit's build publishes a Preview anyway). A merge that lands
+# mid-burst gets no main build of its own; its pull request was tested.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -101,6 +104,26 @@ jobs:
         run: |
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
+      # pyproject allows a range of sqlglot and the suite above runs the pin, so the SQL tests also
+      # run on the oldest and newest version of that range (#1252).
+      - name: SQL tests on both ends of the sqlglot range
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          for v in $(python tests/test_sqlglot_version.py); do
+            python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/sqlglot-$v" "sqlglot==$v"
+            PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider \
+              -k "sql or spark or sqlglot or ossie or databricks or tsql or snowflake"
+          done
+      # pyproject allows DuckDB 1.x and 2.x (#1401) but installs the pinned 1.x; the whole engine suite
+      # also runs on 2.0 here, so a change that breaks it there shows before anyone moves the pin (#1341).
+      - name: Engine tests on the next DuckDB major
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          v=$(python tests/test_duckdb_version.py)
+          python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/duckdb-$v" "duckdb==$v"
+          PYTHONPATH="$RUNNER_TEMP/duckdb-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider
 
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
@@ -114,7 +137,7 @@ jobs:
 
   lint:
     # Mistakes rather than style in the engine's Python: syntax errors, names that are unused or
-    # undefined (sidecar/pyproject.toml [tool.ruff]; ruff is one of the engine's pinned packages),
+    # undefined, likely bugs (bugbear) (sidecar/pyproject.toml [tool.ruff]; ruff is one of the engine's pinned packages),
     # and new type errors. The engine's packages are installed so mypy sees their types.
     runs-on: ubuntu-latest
     defaults:
@@ -155,6 +178,17 @@ jobs:
         working-directory: vscode
         env:
           FABRIC_DESKTOP_PYTHON: python
+      # The installable extension (.vsix), attached to each Preview release. Each run gets its own
+      # version, so VS Code takes a newer file as an update of the one it has.
+      - run: |
+          npm pkg set version="0.1.${{ github.run_number }}"
+          npm run package
+        working-directory: vscode
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kratosforge-vscode
+          path: vscode/kratosforge.vsix
+          if-no-files-found: error
 
   ui-browser:
     # app/tests/browser: the real UI in headless Chromium with the shell stubbed; SQL and Optimize
@@ -286,7 +320,10 @@ jobs:
     env:
       PYTHON_VERSION: "3.12.10"
       # From https://www.python.org/downloads/release/python-31210/ (Windows embeddable package, 64-bit).
+      # python.org lists only MD5 for 3.12 files, so the build checks that, and SHA-256 is pinned
+      # too: MD5 alone no longer stops a deliberately made file with the same hash.
       PYTHON_EMBED_MD5: "fe8ef205f2e9c3ba44d0cf9954e1abd3"
+      PYTHON_EMBED_SHA256: "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -301,16 +338,26 @@ jobs:
           $ErrorActionPreference = "Stop"
           $dir = "$env:RUNNER_TEMP\engine"
           Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip" -OutFile "$env:RUNNER_TEMP\embed.zip"
-          # The engine's Python must be exactly the file python.org published (MD5 from its release page).
+          # The engine's Python must be exactly the file python.org published: its MD5 from the release
+          # page, and the SHA-256 of that same file pinned above. Bumping PYTHON_VERSION means updating both.
           $md5 = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm MD5).Hash.ToLower()
           $sha = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm SHA256).Hash.ToLower()
           "Embeddable Python sha256 $sha md5 $md5"
           if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the file python.org published (md5 $md5)" }
+          if ($sha -ne $env:PYTHON_EMBED_SHA256) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the pinned file (sha256 $sha)" }
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
+          # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
+          # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
+          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages"
+          if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
+          python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
+          & "$dir\python.exe" -m pip check
+          if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
           # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
@@ -449,10 +496,48 @@ jobs:
           $signed = $sig.Status -eq 'Valid'
           if ($env:SIGNING -eq 'true' -and -not $signed) { throw "Signing is set up, but the exe isn't validly signed ($($sig.Status)), so it isn't published." }
           "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+      # The same exe as a per-user MSI for Intune and Configuration Manager (app/installer/kratosforge.wxs,
+      # docs/enterprise-install.md). Built after signing, so the MSI carries the signed exe.
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          # An MSI version's third field stops at 65535, so the run number carries into the second.
+          $run = ${{ github.run_number }}
+          $version = "0.$([math]::Floor($run / 65536) + 1).$($run % 65536)"
+          wix build ..\installer\kratosforge.wxs -arch x64 `
+            -d Version=$version `
+            -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico `
+            -o target\release\kratosforge.msi
+          if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+      - name: Sign the MSI
+        if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\app\src-tauri\target\release\kratosforge.msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Check the MSI's signature
+        shell: pwsh
+        env:
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          $sig = Get-AuthenticodeSignature target\release\kratosforge.msi
+          "The MSI's signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          if ($env:SIGNING -eq 'true' -and $sig.Status -ne 'Valid') { throw "Signing is set up, but the MSI isn't validly signed ($($sig.Status)), so it isn't published." }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
-          path: app/src-tauri/target/release/kratosforge.exe
+          path: |
+            app/src-tauri/target/release/kratosforge.exe
+            app/src-tauri/target/release/kratosforge.msi
           if-no-files-found: error
 
   release:
@@ -460,8 +545,12 @@ jobs:
     # exe, and is also kept as a release of its own (build-<sha>) for pinning and rollback.
     # People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, ui, engine, shell, sbom-app, audit]
+    needs: [sidecar, ui, engine, shell, sbom-app, audit, vscode-extension]
     runs-on: ubuntu-latest
+    # The Preview publish runs in its own environment, as Stable's does (promote.yml), so its rules
+    # live in Settings > Environments > preview: allow only the main branch to deploy, and add
+    # required reviewers there if every Preview build should wait for an approval.
+    environment: preview
     # One publish at a time, shared with Promote to stable: two merges close together used to
     # replace the release's files at once and left Preview with no engine zip.
     concurrency:
@@ -491,18 +580,27 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sbom-app
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: kratosforge-vscode
       # The exe is kratosforge.exe. Builds from before it download only fabric-desktop.exe, so every
       # release also carries the same file under that name (app/src-tauri/src/exe_name.rs).
       - run: cp kratosforge.exe fabric-desktop.exe
+      # The engine's source, for PCs that install the engine into their own Python
+      # (updater.py download_sidecar): published with this build, its SHA-256 in version.json.
+      - run: git archive --format=zip --prefix="KratosForge-$GITHUB_SHA/" -o sidecar-source.zip "$GITHUB_SHA" sidecar
       # Signed proof that these exact files were built by this workflow from this commit.
       # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
             kratosforge.exe
+            kratosforge.msi
             fabric-desktop.exe
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
+            sidecar-source.zip
+            kratosforge.vsix
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -524,18 +622,22 @@ jobs:
           [[ "$RUNTIME" =~ ^[0-9a-f]{64}$ ]] || { echo "The engine's engine.json has no runtime key"; exit 1; }
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum kratosforge.exe | cut -d' ' -f1)" \
+            --arg msi "$(sha256sum kratosforge.msi | cut -d' ' -f1)" \
+            --arg vsix "$(sha256sum kratosforge.vsix | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
+            --arg source "$(sha256sum sidecar-source.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
-              engine_runtime: $runtime, engine_update_sha256: $update, published: $published, signed: $signed}' > version.json
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, msi_sha256: $msi, vsix_sha256: $vsix, engine_sha256: $engine,
+              engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
+              published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          BUILD_FILES=(kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -563,12 +665,12 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
+            gh release upload latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
+            gh release create latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

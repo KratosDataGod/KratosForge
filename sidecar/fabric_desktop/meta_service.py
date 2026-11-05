@@ -91,6 +91,15 @@ def _days(value: Any) -> Any:
         return value
 
 
+def _project_folder(path: str) -> Path:
+    """A project's folder as the app's folder picker gives it: a full path. A relative one would be
+    taken from wherever the engine happened to start (#1173)."""
+    folder = Path(path)
+    if not folder.is_absolute():
+        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\Documents\\metadata, not {path!r}")
+    return folder
+
+
 class NoMetadataProject(NotSetUp):
     """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
 
@@ -127,14 +136,14 @@ class MetaMixin:
 
     def _project(self) -> Project:
         path = self._settings().get("meta_project")
+        if path and not Path(path).is_absolute():  # saved before full paths were required: where it points depends on the start folder
+            raise NoMetadataProject(f"The metadata project was saved as {path!r}, not a full path. Open its folder again.")
         if not path or not (Path(path) / "layers.toml").exists():
             raise NoMetadataProject("No metadata project is open. Create one or open its folder.")
-        project = getattr(self, "_meta_project", None)
-        if project is None or str(project.root) != path:
-            project = Project(path)
-            self._meta_project = project
-        else:
-            project.reload()
+        # A new Project each call, never a reload of the last one: a job thread may still be reading
+        # that one (the agent validates and runs it while its loop asks for the project again), and a
+        # reload empties its entities before refilling them.
+        project = Project(path)
         self._install_guard(project)
         return project
 
@@ -175,12 +184,12 @@ class MetaMixin:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
         except Exception as exc:  # not signed in: the owner can be filled in later
             _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
-        init_project(Path(path), preset, owner, sample)
+        init_project(_project_folder(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
 
     def meta_open(self, path: str) -> dict[str, Any]:
-        if not (Path(path) / "layers.toml").exists():
+        if not (_project_folder(path) / "layers.toml").exists():
             raise FileNotFoundError(f"{path} isn't a metadata project (it has no layers.toml)")
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -574,7 +583,7 @@ class MetaMixin:
         errors += breaking
         deprecated, link_notes = self._deprecation_gate(project)
         errors += deprecated
-        notes += link_notes
+        notes += link_notes + self._window_gate(project, target)
         git = release.status(project.root)
         unreleased, more = self._release_gate(project, target, git)
         errors += unreleased
@@ -597,6 +606,7 @@ class MetaMixin:
         deprecated, link_notes = self._deprecation_gate(project)
         errors += deprecated
         notes += link_notes
+        window = self._window_gate(project, target)
         git = release.status(project.root)
         unreleased, release_notes = self._release_gate(project, target, git)
         errors += unreleased
@@ -621,6 +631,8 @@ class MetaMixin:
                 result["variable_library"] = f"not updated: {exc}"
         if notes:
             result["breaking"] = notes
+        if window:
+            result["change_window"] = window
         if release_notes:
             result["release"]["notes"] = release_notes
         if policies["excepted"] or policies["notes"]:
@@ -814,6 +826,27 @@ class MetaMixin:
         except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
             return [], [f"couldn't check whether the products this project links to are deprecated ({exc})"]
         return mesh.deprecated_links(project, published, mesh.utc_today())
+
+    def _window_gate(self, project: Project, target: str) -> list[str]:
+        """A warning when this promote changes products other projects read in ``target`` outside the
+        platform's change window (mesh.change_window_notes). Never a block. A platform without a window,
+        or one made before change windows, says nothing; an unreachable one is a note."""
+        if not any(p.status != "draft" for p in project.products.values()):
+            return []
+        try:
+            window = self._catalog().call("change_window")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the platform
+            if isinstance(exc, (LookupError, ValueError)):
+                return []  # an older UDF_Platform: no change window to keep
+            return [f"couldn't check the platform's change window ({exc})"]
+        if not (isinstance(window, dict) and window.get("window")):
+            return []
+        try:
+            published = self._catalog().call("list_products")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            return [f"couldn't check who reads what's changing for the change window ({exc})"]
+        return mesh.change_window_notes(window["window"], project, published, target,
+                                        dt.datetime.now(dt.timezone.utc))
 
     def _product_gate(self, project: Project) -> list[str]:
         """Products other teams read must be documented and owned before they move on."""

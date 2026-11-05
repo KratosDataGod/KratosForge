@@ -121,7 +121,7 @@ How the import works:
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in KratosForge. Owners and description are the platform's and stay as you set them.
 - Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
-- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Data mesh > Domains** once nothing uses it.
+- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Data mesh > Domains** once nothing uses it: no subdomain, project, landing zone, policy assignment or active exception, Entra group link or waiting request names it. Delete says which ones still do.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
 - **New domain** on **Data mesh > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
 - Domains are created, imported and edited only on **Data mesh > Domains**, by platform admins. Everyone else sees the same list, read only, with each domain's owners, projects and published products. It was Platform > Set up > Domains; older links open it here.
@@ -181,7 +181,29 @@ entity = "gold.dim_customer"
 
 A reader that hasn't listed its columns counts as relying on every column of the port it links to.
 
+**The change window (Preview).** A platform can agree when changes reach Prod, for example Monday to Thursday, 08:00 to 16:00 London time. A promote to an environment the window covers (Prod unless it says otherwise) that changes products other projects read, outside the window, gets a warning naming those projects. It never blocks: you can still promote, and the promote's answer repeats the warning. A project nobody else reads, a platform without a window, and a platform made before change windows get no warning. Platform admins set it in Platform > Govern > Governance, on the Change window card (shown when Preview features are on): pick the days, the From and Until times on the same day, the time zone and whether it covers Prod or Test and Prod, or clear it. Everyone else sees it there read only. Behind the screen it's the platform's `save_change_window` operation (`days` from mon to sun, `start` and `end` as "HH:MM", `time_zone` such as "Europe/London", `envs` from test and prod), and anyone can read it with `change_window`. The time is judged in the window's time zone, so it's the same on every PC.
+
 **Deprecating a product.** Set `status = "deprecated"` and `deprecated_on`, then promote or publish. The first publish as deprecated, or one with a new date, sends one Teams notice (`product.deprecated`) to the projects that link to it, through the platform's Teams routes (see [the governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)); the publish's answer lists who was told. A notice that can't be sent never stops the publish: the answer says so. From the date on, the catalog takes no new links to it, and a project that still links to it can't promote until it moves the link (before the date, its promote gets a note saying when). Runs aren't stopped: a running pipeline keeps reading until its team moves it.
+
+## Promises to readers (Preview)
+
+A product can promise its readers how fresh and how clean its data is, in its own file:
+
+```toml
+[promise]
+within_hours = 24        # a successful load at most this long ago
+by = "06:00"             # and/or: loaded today by this time (the clock of the PC or agent that checks)
+max_rejected_pct = 1     # and/or: the newest load rejected (quarantined) under 1 % of the rows it read
+envs = ["prod"]          # where it applies; Prod when left out, because that's what readers read
+```
+
+Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing.
+
+**On screen.** On the open project, **Data mesh > Project > Products and links > Data products**, a product's dialog has **Promise to readers**: loaded at least every so many hours, loaded by a time each day, under a percentage of rows rejected, and whether it applies in Prod or in Test and Prod. Saving writes `[promise]` in the product's file; leaving all three empty removes it. A product's page (**Data mesh > Products >** the product) shows a **Promise to readers** card to everyone. Its own team, with the product's project open, also sees **Kept** or **Broken** on each line, read from the open incidents on its ports, with a link to the incident.
+
+**Where readers see it.** Publishing the product (on promote, or **Publish to the catalog**) keeps the promise with it in the catalog (`catalog.product.promise`), so `list_products` returns it to anyone deciding whether to link. Publishing without a `[promise]` takes it away. A platform made before promises gets the column the first time a product is published; reading never adds it.
+
+**When it's broken.** Each incident check (an agent on its timer, the app every 10 minutes, or **Check now** on Monitor > Incidents) checks every port's table against its products' promises, from the run log alone. A late load or too many rejected rows opens one **Promise broken** incident for that table, naming the products and why, and it resolves itself once a later load keeps the promise. When the table's own `[freshness]` already reports it late, the promise doesn't report the same lateness again. From there it's an incident like any other: who's affected, Teams notices and the incident's SLA.
 
 ## Follow a product (Preview)
 
@@ -189,9 +211,11 @@ A reader that hasn't listed its columns counts as relying on every column of the
 
 Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)), except whoever promoted it. Who follows a product is personal data: only its owners and platform admins can list its followers. People a deprecation was already sent to as `product.deprecated` don't get it again in `product.changed`; other followers do. A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
 
-## Endorsement and business terms
+**How each product is doing now (Preview).** **Status** on **Data mesh > Products** shows each product as Red, Amber or Green in one environment (Prod unless you pick Test or Dev). Red means an open incident stops its load: a failed load of one of its tables, or an agent offline when no other agent in that environment is live. Amber means one of its tables is late, it broke its promise to readers, or an agent is offline while another live agent carries on. Green means nothing is open. Red rows come first. Each row says why (the kind of problem and the table, for example "Load failed: silver.orders"), how many readers a Red product affects, and what its team last did (for example "Acknowledged by its team"). Incident text, notes and people's names stay with the team. Readers can't see a team's incidents, so the team's own incident check reports the status: the app while it's open, or the team's agent when one checks the environment. It writes `catalog.product_status` only when a product's status changed, and only a project's own members or a platform admin can report for it. A product nobody has checked shows **Not checked**, and a status older than a day says when it was last checked. A platform made before the Status view shows no **Status** button until a platform admin runs **Finish or repair** once.
 
-Preview. **Data mesh > Products**, then select a product's name. The product's page shows two trust signals next to its name.
+## Endorsement
+
+Preview. **Data mesh > Products**, then select a product's name. The product's page shows its endorsement next to its name.
 
 **Endorsement** (Certified, Promoted or Master data) is set in Fabric, on the item's settings. KratosForge reads it and never sets it. The items are the lakehouse each port lives in, in the highest environment the product is published to (Prod, else Test, else Dev), and the semantic models and reports its owner grouped under it ([Tables, semantic models and reports](#tables-semantic-models-and-reports-preview)). When a product has a semantic model, the badge by its name is the model's endorsement.
 
@@ -199,8 +223,6 @@ Preview. **Data mesh > Products**, then select a product's name. The product's p
 - **What a scan reads and writes.** It scans only the workspaces the platform's published products, and their semantic models and reports, live in, at most 100 a call, and asks for no lineage, data sources, schemas, expressions or users. It writes what it read for each product item to `catalog.endorsement` in the platform's catalog: the endorsement, who certified it when Fabric says, when, and who scanned. Each scan is in the platform's audit log, without the certifier's name.
 - **Everyone sees the last scan.** The badge shows with "From the tenant scan" and its age. Before any scan, or for an item the latest scan didn't report, the badge is a grey **Endorsement unknown**: KratosForge never guesses, and a later scan that doesn't confirm an old badge takes it away. **See it in Fabric** opens the item there. Under the product's name, **Last tenant scan** says when the newest of its items was read. When a product's items differ (say one lakehouse is Certified and another unknown), the badge by its name is a grey **Endorsement varies**, and the Endorsement card lists each item with its own badge.
 - **To change it,** open the item's settings in Fabric. Scan again to update the badge.
-
-**Business terms** are a term's name and a link to it in Microsoft Purview, so people can read the definition where your organization keeps it. **Add a term** asks for the term and **Link to the term in Purview**: copy the address from Purview. It must be an `https` link on `purview.microsoft.com` or `web.purview.azure.com`; anything else is refused. KratosForge doesn't read Purview: its sign-in can't get a Purview token, so the terms are what your stewards type. The product's owner or a platform admin adds and removes them (removing asks first); each change writes `catalog.product_term` and the platform's audit log. The term itself stays in Purview.
 
 An older UDF_Platform doesn't have these functions yet. The page then says: *After an update, a platform admin runs Platform > Settings > Finish or repair once.*
 

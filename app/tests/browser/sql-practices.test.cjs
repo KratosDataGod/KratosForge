@@ -17,7 +17,7 @@ const panel = () => page().locator(".sql-compat");
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_compat_profiles", "sql_practices", "governance_practice_settings"],
+    engine: ["sql_format", "sql_analyze", "sql_practices", "governance_practice_settings"],
     storage: { "fabric-desktop.sql.lh1": JSON.stringify([{ name: "Views", sql: "SELECT 1", dialect: "warehouse" }]) },
     mocks: {
       list_tables: () => ({ dbo: ["sales"] }),

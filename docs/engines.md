@@ -25,6 +25,10 @@ refuses to register an engine that claims more than it has an adapter and tests 
 | Translated | The code is rewritten for another engine first. Spark SQL and Snowflake SQL on DuckDB are translated by sqlglot. |
 | Unsupported | Not available. Anything not listed is unsupported. |
 
+Which Spark SQL built-in functions a notebook can use on this PC is in
+[Spark functions on this PC](spark-functions.md): every Spark 3.5 built-in, each checked against
+Apache Spark's own value for its documented example, and kept current by CI.
+
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
@@ -34,14 +38,14 @@ APIs and clients, and stay Preview until they have.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | No | Nothing | Tested |
+| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Partial (DuckDB queries stop, also on a notebook's own duckdb.connect; Polars, and queries on connections opened in threads the cell starts, finish first) | No | Native | No | Nothing | Tested |
 | DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Native | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
-| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | No | Fabric capacity | Preview, tested against fakes |
+| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
-| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | No | DBUs | Preview, tested against fakes |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
 | Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
@@ -67,6 +71,12 @@ The Python engine uses the notebook's own session (the same process **Stop** end
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
 
+## T-SQL on this PC
+
+Warehouse T-SQL runs on this PC's DuckDB engine after translation. What it refuses, by name, is the
+"Refused, not half-translated" list in [Local data: T-SQL](local-data.md#t-sql); a test runs a query
+for each item in that list and fails when the list and the code differ (#1666).
+
 ## Snowflake SQL on this PC (Preview)
 
 The DuckDB engine runs Snowflake SQL translated, so Snowflake queries can be tried on this PC without
@@ -89,10 +99,13 @@ The same session rules apply as for any DuckDB cell (no files, extensions or net
 shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
-and DuckDB versions; each probe statement is a test.
+and DuckDB versions, and from 136 function checks against Snowflake's documented values (below);
+each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.10.1.
+Rules 2026.10.6.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -100,12 +113,19 @@ Rules 2026.10.1.
 | SFX-002 | Rewritten | TO_VARCHAR and TO_CHAR with a date or time format written in the query become strftime. Elements with no equivalent (quarter, week) aren't rewritten. |
 | SFX-003 | Runs only in Snowflake | TO_VARCHAR and TO_CHAR with a number format. |
 | SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |
+| SFX-005 | Rewritten | A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless its alias names the columns. |
+| SFX-006 | Rewritten | SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that case. |
+| SFX-007 | Rewritten | RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't change the result. x is worked out twice, which matters only when it isn't deterministic (RANDOM(), for example). |
+| SFX-008 | Rewritten | HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius 6,371 km. |
+| SFX-009 | Rewritten | TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. Where the name can't be known, SFD-007 applies. The argument is worked out more than once, which matters only when it isn't deterministic. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
 | SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
-| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
+| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. Dividing by zero gives infinity or NULL here, where Snowflake stops with an error. |
 | SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
 | SFD-005 | Runs, with a difference: FLATTEN rows and keys | FLATTEN runs as DuckDB's json_each: rows come back in no set order, KEY is the position for array elements (Snowflake gives NULL) and PATH is written differently. |
+| SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to DATE instead, and a TIMESTAMP cast or function raises nothing. |
+| SFD-007 | Runs, with a difference: TYPEOF can't always name Snowflake's type | TYPEOF gives Snowflake's type names here (SFX-009), with two exceptions. A JSON number with a fraction or an exponent that wasn't parsed in the same call (a column, a path such as v:a) comes back as 'DECIMAL or DOUBLE': Snowflake tells them apart by how the number was written (1.912e2 is DOUBLE, 191.2 is DECIMAL) and DuckDB doesn't keep that. A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't known here: a column, a path or a computed value. |
 | SFN-001 | Runs only in Snowflake | Streams. |
 | SFN-002 | Runs only in Snowflake | Tasks. |
 | SFN-003 | Runs only in Snowflake | Dynamic tables (their SELECT can be tried on its own). |
@@ -120,6 +140,22 @@ Rules 2026.10.1.
 | SFN-012 | Runs only in Snowflake | Cortex AI functions. |
 | SFN-013 | Runs only in Snowflake | TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a time zone name. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
+
+### Snowflake functions checked value by value
+
+Each check runs a Snowflake function through the same rules and DuckDB and compares the answer
+with the value Snowflake's SQL reference documents for it. A function that answers differently is
+always labelled as a difference when it runs, never as translated.
+
+<!-- Generated from snowflake_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
+Of 136 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
+
+| Function | Group | On this PC | What to know |
+| --- | --- | --- | --- |
+| `/ (by zero)` | Numeric | Different result | Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0. |
+| `TYPEOF (path to an exponent)` | Semi-structured | Different result | A JSON number with a fraction or exponent read from a path or a column is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF(PARSE_JSON(...)) is exact. |
+
+These 134 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `SOUNDEX`, `SOUNDEX (same code for similar names)`, `SOUNDEX (adjacent same codes)`, `SOUNDEX (first letter's code)`, `SOUNDEX (H between same codes)`, `SOUNDEX (padded with zeros)`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `DATE_TRUNC (DATE)`, `DATEADD (DATE, month end)`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `IS_NULL_VALUE`, `TYPEOF`, `TYPEOF (JSON null)`, `TYPEOF (SQL NULL)`, `TYPEOF (BOOLEAN)`, `TYPEOF (INTEGER)`, `TYPEOF (DECIMAL)`, `TYPEOF (DOUBLE)`, `TYPEOF (VARCHAR)`, `TYPEOF (ARRAY)`, `TYPEOF (OBJECT)`, `TYPEOF (VARCHAR cast to VARIANT)`, `TYPEOF (TIMESTAMP cast to VARIANT)`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `APPROX_COUNT_DISTINCT`, `STDDEV_SAMP`, `RATIO_TO_REPORT`, `RATIO_TO_REPORT (docs example)`, `RATIO_TO_REPORT (null value)`, `RATIO_TO_REPORT (sum is 0)`, `RATIO_TO_REPORT (by partition)`, `HAVERSINE`, `HAVERSINE (docs example)`.
 
 ## Databricks SQL warehouse (Preview)
 
@@ -143,42 +179,57 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   write and test a warehouse query against local tables without starting the warehouse. Unity
   Catalog three-part names need that catalog and schema in the local session, and Delta-only
   commands don't run there.
+- **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
+  times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
+  waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again
+  only after a 429, because the warehouse turned it away unread; after any other failure it is never
+  resent, so it can't run twice. An error after the last try says how many times it was tried.
+- **If the connection stays down mid-cell:** the statement is cancelled on the warehouse, so it doesn't
+  keep the warehouse busy with no one watching. If the cancel can't get through either, the error
+  says the statement may still be running; stop it in Databricks' query history. The two-hour limit
+  and a **Cancel** pressed while the statement is being sent report the same way: "stopped" only
+  when the warehouse accepted the cancel.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
+- **Whole results, to compare engines.** When a comparison asks for the whole result, the cell's last
+  statement runs with a row limit one above the rows asked for, and every result chunk is read in
+  order. Values are typed from the warehouse's schema: numbers, decimals, booleans, strings, dates
+  and timestamps (read as UTC, kept without a zone, as the Fabric Spark engine keeps them). Arrays,
+  maps, structs, binary and intervals come back as text, and the output names those columns. More
+  rows than asked for is an error, never a cut table. The rows are copied onto this PC, so a
+  comparison asks for them only after its own confirm.
 
 ### Databricks SQL functions on this PC
 
-Of 130 commonly used Databricks SQL built-in functions, these are the ones the DuckDB engine
-doesn't answer the same way, checked by running each one through the engine's own translation
-(sqlglot, then DuckDB) against the value Databricks gives: its documented example, or one worked by
-hand where the reference gives none. A test runs them again, so the table
-changes when an upgrade fixes or breaks one. A function not listed here or below hasn't been checked.
+The DuckDB engine's own translation (sqlglot, then DuckDB) runs each check against the value
+Databricks gives: its documented example, or one worked by hand where the reference gives none. A
+test runs them again, so the table changes when an upgrade fixes or breaks one. A function not listed
+here or below hasn't been checked.
+
+Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
+
+Casts to TINYINT, SMALLINT, INT or BIGINT answer as Spark does, in Spark SQL, Databricks SQL, `F.expr` and `Column.cast`: a fraction is truncated (`CAST(3.7 AS INT)` is 3, not 4), and text is read as Spark reads it (`CAST('1.9' AS INT)` is 1 with ANSI off, NULL for `try_cast`, and stops in Databricks SQL's ANSI `CAST`).
+
+`from_json` runs here when its schema is written out as text, such as `'a INT, b STRING'` or `'ARRAY<STRUCT<n: BIGINT>>'`, with fields of INT, BIGINT, SMALLINT, TINYINT, DOUBLE, FLOAT, DECIMAL, STRING, BOOLEAN, DATE, TIMESTAMP, ARRAY and STRUCT. JSON keys match field names case-sensitively, as in Databricks. Values are read as Databricks' JSON reader reads them: DOUBLE also takes "NaN" and "Infinity", DECIMAL also takes a number written as text ("1,000.5"), and TIMESTAMP also takes a whole number of seconds since 1970. A value that doesn't fit its field (text in an INT field, for example) gives NULL for that field, as Databricks does with partial results on; text that isn't JSON gives a struct of NULLs. An object that repeats one of the schema's keys stops with a message, since Databricks keeps the last value. A number read into a STRING field is written as DuckDB writes it, which can differ from Databricks for very large or very small numbers (1e20). A schema with MAP or TIMESTAMP_NTZ fields, a schema that isn't written-out text, from_json options, and a JSON array read with a struct schema are refused with a message, so nothing runs with a different answer. `str_to_map` splits on regular expressions, as Databricks does. `schema_of_json` of JSON written out as text is worked out when the query is translated, as Databricks infers it with default options, so `from_json(x, schema_of_json('...'))` runs too; options, a whole number too big for BIGINT, and a repeated key are refused.
+
+<!-- Generated from databricks_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
+
+Of 209 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB engine doesn't answer the same way.
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
-| `format_number` | String | Doesn't run | DuckDB has no format_number; use printf or format. |
-| `soundex` | String | Doesn't run | DuckDB has no soundex. |
-| `bround` | Math | Doesn't run | DuckDB has no banker's rounding function. |
-| `pmod` | Math | Doesn't run | DuckDB has no pmod; use ((a % b) + b) % b. |
-| `conv` | Math | Doesn't run | DuckDB has no base conversion function. |
-| `last_day` | Date and time | Doesn't run | Needs a DATE, not a string: last_day(DATE'2009-01-12') runs. |
-| `dayofweek` | Date and time | Different result | DuckDB counts from Sunday = 0, Databricks from Sunday = 1. |
-| `next_day` | Date and time | Doesn't run | DuckDB has no next_day for this argument type. |
-| `array_distinct` | Array and map | Can differ | Same items, but the order depends on the machine, not first-seen order. |
-| `sort_array` | Array and map | Different result | Ascending puts NULL last here, first on Databricks. |
-| `arrays_overlap` | Array and map | Doesn't run | DuckDB names it array_has_any. |
-| `array_union` | Array and map | Doesn't run | Not translated to a DuckDB equivalent. |
-| `exists` | Array and map | Doesn't run | The lambda isn't translated to DuckDB's syntax. |
-| `percentile` | Aggregate | Different result | Translated to a discrete quantile; Databricks interpolates. |
-| `percentile_approx` | Aggregate | Different result | Approximate on both, but the estimates differ. |
+| `get_json_object (every element)` | JSON | Not translated | Refused here: a [*] path would give a list, not the JSON text '[1,2]'. Read the values with from_json, or use a path to one element. |
+| `json_tuple` | JSON | Doesn't run | json_tuple runs in the select list here, not in FROM. Write SELECT json_tuple(...) or use get_json_object for each field. |
 
-These 115 answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `levenshtein`, `abs`, `round`, `round (negative half)`, `ceil`, `floor`, `mod (%)`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `year`, `month`, `dayofmonth`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_sort`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `approx_count_distinct`, `stddev`, `variance`, `any_value`.
+These 207 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `format_number`, `levenshtein`, `soundex`, `abs`, `round`, `round (negative half)`, `bround`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `conv`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `exists`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `percentile_approx`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`, `bround (one argument, odd)`, `bround (negative places)`, `conv (negative to a signed base)`, `conv (negative to an unsigned base)`, `conv (stops at an invalid digit)`, `conv (base out of range)`, `soundex (H and W keep a run)`, `soundex (not a letter first)`, `format_number (no decimals)`, `format_number (half-even)`, `exists (NULL and no match)`, `transform (with index)`, `filter (with index)`, `filter (drop NULLs)`, `exists (looking for NULL)`, `forall`, `forall (all match)`, `forall (NULL and a miss)`, `forall (NULL and no miss)`, `aggregate (finish)`, `aggregate (struct accumulator)`, `reduce`, `reduce (finish)`, `array_sort (comparator)`, `array_sort (descending comparator)`, `zip_with`, `zip_with (strings)`, `zip_with (unequal lengths)`, `map_filter`, `transform_keys`, `transform_keys (key and value)`, `transform_values`, `transform_values (key and value)`, `map_from_arrays`, `map_concat`, `map_from_entries`, `map_entries`, `str_to_map`, `str_to_map (no value)`, `element_at (map)`, `element_at (map, missing key)`, `element_at (negative index)`, `try_element_at`, `map_contains_key`, `map_contains_key (missing key)`, `get_json_object (nested)`, `get_json_object (array index)`, `get_json_object (bracket name)`, `get_json_object (no match)`, `from_json`, `from_json (name case)`, `to_json (array of structs)`, `to_json (map)`, `json_tuple (in the select list)`, `schema_of_json`, `lag`, `lag (default)`, `lag (offset 2)`, `lead`, `lead (default)`, `nth_value`, `nth_value (too few rows)`, `ntile`, `percent_rank`, `cume_dist`, `rank`, `dense_rank`, `row_number`.
+
+`array_sort` with a comparator compares every pair of elements, so it sorts up to 3,000 elements per array on this PC; a longer array stops with a message (use `array_sort` or `sort_array` without a comparator, or run it on Databricks).
 
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
-what you can use. Discovery is a command, with no screen in the app yet:
+what you can use: **Settings > Connections > Check workspace** in the app (below), or the command:
 
 ```
 fabric-desktop databricks-discover --profile dev
@@ -201,6 +252,106 @@ warehouse and a cluster to try first.
   it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
 
 It's tested against fakes of those APIs, not yet against a live workspace.
+
+## Connection profiles in Settings (Preview)
+
+**Settings > Connections** lists the connection profiles on this PC and adds a connection to one.
+
+- **Sign in with the CLI first.** A Databricks connection uses a profile of the Databricks CLI
+  (`databricks auth login --host <workspace URL> --profile dev`); a Snowflake one uses a connection
+  of the Snowflake CLI (`snow connection add`). You pick it by name: the workspace address or account
+  and the sign-in are read from the CLI's own file, so the app never types or keeps a token. A CLI
+  profile that keeps a personal access token in plain text says so.
+- **Check workspace** runs discovery for the CLI profile you picked and lists the warehouses, the
+  clusters Databricks Connect can use, and the catalogs, with the suggested ones already picked.
+  Nothing starts and nothing bills DBUs.
+- **Save connection** adds it to a profile, or to a new one, with the warehouse, cluster, catalog and
+  schema you picked. The engine picker lists it at once. A profile with connections to two platforms
+  becomes a hybrid profile. A value that looks like a token is refused and nothing is written.
+- **Remove** takes one connection out of a profile, after you confirm. The CLI's own profile or
+  connection stays as it is.
+
+Checking a Snowflake account from Settings, and switching the profile in use, come later.
+
+## Databricks jobs and Lakeflow in Monitor (Preview)
+
+**Monitor > Databricks** lists the job runs and Lakeflow pipeline updates in the workspace of a
+Databricks connection: yours by default, or everyone's, for the last 24 hours or 7 days, newest first.
+
+- **Nothing starts.** Runs are read with the Jobs and Pipelines REST APIs, GET requests only, so
+  reading them starts no job, pipeline, warehouse or cluster and bills no DBUs.
+- **Why a run failed.** Pick a job run to see each task, how long it took, its notebook, and the
+  failed task's error. **Open in Databricks** opens the run's own page, only when it is on that
+  workspace.
+- **Each list stands alone.** If the pipelines can't be read (a 403, say), the job runs still show,
+  with a line that says why.
+- **DBUs per run** come from billing, which Optimize > Cost reads after asking first: reading billing
+  runs a query on a SQL warehouse.
+
+Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
+will confirm first and say which cluster.
+
+## Databricks workspace sync (Preview)
+
+**Workspaces > Databricks** keeps a folder of notebooks on this PC in step with a folder in a
+Databricks workspace. **Pair a folder** names the two folders and the Databricks connection to use.
+
+- **Compare reads only.** It lists each notebook (`.py`, `.ipynb`, `.sql`) directly in the folder,
+  with its state on this PC and in Databricks and what pushing would do. Reading the workspace starts
+  nothing.
+- **Never over someone else's change.** Each file remembers when Databricks last changed it at the
+  last sync. If it has changed there since, it's a conflict: it can't be pushed until you sort it
+  out. A file that isn't in Databricks is written so that one appearing meanwhile isn't replaced.
+- **Deletes ask twice.** A notebook deleted on this PC stays in Databricks unless you tick it, and
+  pushing a delete asks again. If the notebook changed in Databricks since the last sync, it is a
+  conflict and isn't deleted. Folders are never deleted.
+- **Notebooks go across as Databricks source** (`# COMMAND ----------`). What a `.ipynb` loses on the
+  way (outputs, the parameter cell, Fabric-only calls such as `notebookutils`) is listed before you push.
+- **Pull** brings a `.py` or `.sql` file changed in Databricks to this PC, when it hasn't changed here.
+- **Git folders are read only here**: a path under `/Repos`, a Git folder or a folder inside one changes through Git, so it can't be paired or pushed to.
+- Pushes and pulls are written as you, and each one is recorded in the audit log.
+
+Comparing a conflict side by side and picking a side come later.
+
+## Databricks Asset Bundles in Source control (Preview)
+
+**Source control > Bundles** works with a Databricks Asset Bundle (`databricks.yml`) in the open
+repository, or in a folder of it you pick. It runs your own Databricks CLI as one of its profiles, so
+the CLI signs in and KratosForge never handles a token. Install the Databricks CLI and sign in with
+`databricks auth login` first.
+
+- **Validate and Plan change nothing in Databricks.** Validate lists problems and warnings in the
+  files. Plan lists what a deploy to the target would create, update, delete or rebuild.
+- **Commands on this PC are shown first.** A bundle can make the CLI run commands on your PC:
+  `experimental.scripts` hooks, artifact builds (a wheel builds even with no `build` line) and Python
+  resource code. Before the CLI runs, `databricks.yml` and every file it includes are read and any
+  such command is listed. Nothing runs until you allow exactly those commands, and a changed list asks
+  again. An include that matches no file or points out of the folder is refused.
+- **Deploy deploys the plan you saw.** It plans again first. If the plan changed (the files or the
+  workspace changed meanwhile), it shows the new plan instead of deploying.
+- **Deletes and production ask for the target's name.** A plan that deletes or rebuilds a job or
+  pipeline, or a target that is production (by its `mode` or its name), needs the target's name
+  typed. A rebuilt job or pipeline loses its run history.
+- **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
+- Deploys are recorded in the audit log.
+
+## Databricks DBUs in Optimize > Cost (Preview)
+
+**Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,
+7 days or 30 days, by job, Lakeflow pipeline, SQL warehouse and cluster, read from Databricks'
+`system.billing.usage` table.
+
+- **It asks first.** Billing is a system table, so reading it runs one query on a SQL warehouse you
+  pick. If the warehouse is stopped it starts, and it bills DBUs while it runs. **Read Databricks
+  billing** names the warehouse and says whether it's running and when it stops, and runs nothing
+  until you confirm. The connection profile's execution policy applies, as for any remote cell: a
+  profile set to `never` refuses, and one that allows Databricks SQL by policy runs without the confirm.
+- **The query is fixed.** Only the number of days goes in. It needs `SELECT` on
+  `system.billing.usage`; without it, the section says Databricks refused.
+- **DBUs stay DBUs.** They are never added to Fabric capacity units or Snowflake credits, and never
+  turned into money.
+- **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
+  reading.
 
 ## Databricks Connect (Preview)
 
@@ -237,8 +388,10 @@ the rest of the cell's Python runs on this PC.
 
 Cells can run in an interactive Spark session in your Fabric workspace, on a lakehouse you pick,
 through Fabric's Livy API with your own Fabric sign-in. PySpark, Python, Spark SQL and Scala cells
-run in the same session, as in a Fabric notebook. Each cell is sent once and never retried, so it
-can't run twice. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
+run in the same session, as in a Fabric notebook. A cell is sent again only when Fabric turns it
+away as busy (HTTP 429) before accepting it, so it can't run twice; checking on a cell, cancelling it
+and closing the session are tried up to four times through throttling, gateway errors and a dropped
+connection, within 30 seconds of waiting. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
 
 - **It uses Fabric capacity** for as long as the session is open, including while it sits idle,
   until you close it or Fabric ends it. A session opens only after your confirmation for that
@@ -246,7 +399,10 @@ can't run twice. **Cancel** cancels the running statement in Fabric, and closing
   from KratosForge.
 - **Limits:** output arrives when the cell finishes; notebookutils and %magics are Fabric notebook
   features a Livy session doesn't fully have; capacity use is in the Fabric Capacity Metrics app, not
-  per cell. A cell still running after two hours is cancelled.
+  per cell. A cell still running after two hours is cancelled. If the connection stays down mid-cell,
+  the cell is cancelled in Fabric. If that cancel, the two-hour limit's cancel, or a **Cancel**
+  pressed while the cell is being sent can't get through, the error says the cell may still be
+  running, so stop it from the Monitor hub or close the session.
 
 ## Switching engines
 
@@ -271,8 +427,10 @@ its own SQL, so a query and its translation can be checked against each other.
   256 MB, makes that side an error, and nothing is compared.
 - If the first engine fails, the second doesn't run.
 - A remote engine's result would be copied onto this PC. That never happens on its own: the caller
-  asks you first, and approving the session itself doesn't count. No remote engine returns whole
-  results yet.
+  asks you first, and approving the session itself doesn't count. Fabric Spark is the only remote
+  engine that returns whole results so far, for SQL cells: Spark sends the rows as JSON with its
+  schema, and this PC types them back. Timestamps read as the session's time zone shows them.
+  Nested types and binary come back as text, and the cell says which columns.
 - Both results stay in memory and are gone when the comparison is returned. Nothing is written.
 
 ## Remote compute needs your say-so
@@ -420,7 +578,8 @@ adapter has one.
 
 ## Not yet
 
-- No profile setup screen: connection profiles are read, not edited, by the engine picker.
+- Settings > Connections adds CLI-based connections only: service principals and the other sign-in
+  methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's

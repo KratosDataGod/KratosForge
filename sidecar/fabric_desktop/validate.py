@@ -20,6 +20,7 @@ Reading code can't see calls built at run time; the result says so.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from . import depgraph, envprofile, notebook_cells, proof
@@ -55,9 +56,12 @@ def _is_params(c: dict[str, Any]) -> bool:
 
 
 def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on: str | None = None,
-          observed: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+          observed: dict[str, dict[str, Any]] | None = None,
+          load: Callable[[str], Any] | None = None, resources: str | None = None) -> dict[str, Any]:
     """The code checks. ``runs_on`` is where the notebook is set to run: "pc", "fabric", or None
-    when that isn't known (then what stops either place is a warning, not an error)."""
+    when that isn't known (then what stops either place is a warning, not an error). ``load`` reads
+    another notebook by name and ``resources`` the notebook's resources folder, so the notebooks and
+    Built-in files it runs are checked too (compute_check)."""
     out: list[dict[str, Any]] = []
     graph = depgraph.graph(cells)
     by_n = {info["n"]: info for info in graph["cells"]}
@@ -99,7 +103,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
                     "or something defined at run time.", f"Import or define {u['name']} in an earlier cell.", n, cells))
 
     # Where it can run.
-    where = compute_check(cells, lakehouse)
+    where = compute_check(cells, lakehouse, load, resources=resources)
     for side, label in (("local", "this PC"), ("fabric", "Fabric")):
         target = {"local": "pc", "fabric": "fabric"}[side]
         sev = "warning" if runs_on is None else ("error" if runs_on == target else "info")
@@ -110,6 +114,11 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
             out.append(finding(sev, f"runs_on_{target}", f"{where_text} can't run on {label}",
                                f"It {r['text']}.", "Set Runs on to the other place, or change the cell." if r.get("cell")
                                else "", r.get("cell"), cells))
+        for r in where[side]["unknown"]:
+            out.append(finding("warning" if runs_on in (None, target) else "info", f"runs_on_{target}_unknown",
+                               f"Cell {r['cell']} may not run on {label}",
+                               f"It {r['text']}.", "Prove the notebook to find out, or write the code so it can be "
+                               "read (a literal name or SQL text).", r["cell"], cells))
 
     # Packages.
     env = envprofile.check(cells, observed)
@@ -142,7 +151,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
                                hit["remediation"], n, cells, hit["line"]))
 
     # The clock, the network, other notebooks: things a clean run can't make repeatable.
-    pr = proof.check(cells, lakehouse)
+    pr = proof.check(cells, lakehouse, load, resources)
     for w in pr["warnings"]:
         title, text = _effect(w["text"])
         out.append(finding("warning", "side_effect", f"Cell {w['cell']} {title}", text, "", w["cell"], cells, w.get("line")))
@@ -197,13 +206,20 @@ def run_plan(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, spar
 
     ``spark`` True lets Spark cells run: on this PC ``spark`` (spark_local) reads tables through
     lakehouse.open_table and writes them through lakehouse.write_table, which the proof runtime pins
-    and redirects like any other cell's. proof.check blocks Spark for a proof's Fabric side only."""
+    and redirects like any other cell's. With ``spark`` False (local pipeline steps) Spark cells stop the run."""
     pr = proof.check(cells, lakehouse)
     step = notebook_cells.step_cell(cells)  # a clean run skips it
-    blockers = [b for b in pr["blockers"] if b.get("cell") and b["cell"] != step and _escapes(b["text"])
-                and not (spark and b["text"].startswith("uses Spark"))]
+    blockers = [b for b in pr["blockers"] if b.get("cell") and b["cell"] != step and _escapes(b["text"])]
+    if not spark:
+        first = next((n for n, c in enumerate(cells, 1) if n != step and c.get("type") != "markdown"
+                      and uses_spark([c])), None)
+        if first is not None:
+            blockers.insert(0, {"cell": first, "cell_id": cells[first - 1].get("cell_id"),
+                                "text": "uses Spark, which this run doesn't take yet. Use the lakehouse module "
+                                        "(read_table, write_table, sql)."})
     uncontained = [{"cell": w["cell"], "cell_id": w.get("cell_id"), "line": w.get("line"), "text": _effect(w["text"])[1]}
-                   for w in pr["warnings"] if w["cell"] != step and not w["text"].startswith("uses the clock")]
+                   for w in pr["warnings"] if w["cell"] != step and not w["text"].startswith(("uses the clock", "may not run on"))]
+    # "may not run on this PC" (compute_check's Unknown) isn't something the run lets out: running it is how to find out.
     return {"ok": not blockers, "blockers": blockers, "uncontained": uncontained,
             "sandbox": bool(lakehouse)}
 

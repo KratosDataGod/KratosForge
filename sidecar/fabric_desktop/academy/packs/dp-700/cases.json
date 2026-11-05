@@ -1,0 +1,14 @@
+{
+  "fernway-telemetry": {
+    "title": "Fernway Energy: a slow, noisy telemetry platform",
+    "text": "Fernway Energy streams readings from 20,000 smart meters through an eventstream into an eventhouse, and a nightly pipeline copies daily summaries into a lakehouse table that a Direct Lake semantic model reads. Engineers report that the lakehouse table now holds over 100,000 small files, the nightly pipeline copies 300 meter regions one at a time, and dashboards query the last 30 days of readings far more than anything older. Nobody is told when the nightly pipeline fails."
+  },
+  "harbor-analytics": {
+    "title": "Harbor Health: setting up a governed analytics workspace",
+    "text": "Harbor Health is moving its reporting to Fabric. The data team of six engineers will build in a Dev workspace, and finished work moves through Test to a Production workspace. Engineers must be able to create and edit items but not manage access. Fifty analysts only read reports and query curated tables with SQL. Patient email addresses must be hidden from analysts in query results, and every curated item that holds patient data must carry the organization's Confidential label."
+  },
+  "larkspur-orders": {
+    "title": "Larkspur Outfitters: nightly order loads",
+    "text": "Larkspur Outfitters runs its web shop on an Azure SQL database. Every night a Fabric pipeline loads the Orders table (about 400 million rows, a LastModified column set on every insert and update, about 1% of rows change each day) into a bronze lakehouse, and a notebook builds silver and gold Delta tables from it. When the source is slow the pipeline retries, and some nights the same batch of orders has landed twice. New customers are created in the CRM, which syncs to the lakehouse once a day, so orders sometimes arrive for customers the Customer dimension doesn't have yet."
+  }
+}

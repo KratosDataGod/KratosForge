@@ -38,6 +38,10 @@ Chris chose telemetry over none (D-C1). It goes to Azure Monitor Application Ins
 
 Chris chose "last known good" for HD-010. A policy file that exists but can't be read is replaced by the last copy each PC read successfully, as Windows Group Policy keeps its last applied settings, so one bad push by IT doesn't stop sign-in for everyone. Only a PC that has never read a valid file fails closed (no runs in Fabric, Preview, telemetry and AI tools off). On 2026-10-18 Chris chose that sign-in still works there, so one typo never stops people working on their PCs; `allowed_tenants` isn't enforced on such a PC until the file is fixed. Settings > Help and about says when the copy is in use. The copy lives in the person's profile; editing it only matters while the real file is broken.
 
+## D-E10: The engine allows DuckDB 2, and the app keeps its 1.x pin (2026-11-01)
+
+`sidecar/pyproject.toml` allows `duckdb>=1.1,<3`, so anyone who installs the engine into their own Python can use DuckDB 2. The app's own engine stays pinned to `duckdb==1.5.6` in `constraints.txt`. **Why:** the whole engine suite passes on 2.0 (7,730 tests, the same as on 1.5.6, #1401), and CI runs it on both on every change (#1355). Before that, 2.0 failed 79 engine tests, so #1342 capped it below 2 while #1341's fixes landed. `tests/test_duckdb_version.py` checks that pyproject allows the pinned version and the next major CI tests, and nothing beyond. **Revisit when** moving the app's pin to 2.x, which needs a Windows run, a Preview build and the TPC-H comparison on Chris's PC, or when CI on 2.x fails.
+
 ## Decisions waiting on Chris
 
 | Id | Question | Recommendation | Blocks |

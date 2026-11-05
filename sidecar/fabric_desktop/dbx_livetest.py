@@ -29,6 +29,8 @@ from __future__ import annotations
 import functools
 import json
 import re
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -39,9 +41,10 @@ from typing import Any, Callable
 
 from .engines import authorization
 from .engines.contract import CellRequest, SessionConfig
+from .engines import databricks_auth
 from .engines.databricks_auth import TokenProvider
 from .engines.databricks_sql import Client, DatabricksError
-from .livetest import MARKER, Check, scrub
+from .livetest import MARKER, Check, cell, scrub
 
 SCHEMA = "databricks-live-test-result@1"
 # Long enough that a 2X-Small warehouse or a small cluster is still busy when the cancel arrives.
@@ -50,6 +53,63 @@ SLOW_CELL = "spark.range(100000000000).selectExpr('sum(id * 7 % 13) AS s').colle
 CANCEL_WAIT = 60.0           # seconds to wait for the slow statement to be running before cancelling
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
 _RUNNING = ("RUNNING", "STARTING", "PENDING", "RESIZING", "RESTARTING")
+
+
+MIN_PYTHON = (3, 12)          # sidecar/pyproject.toml requires-python
+MIN_CLI = (0, 205)           # the first Databricks CLI with ``auth token`` as databricks_auth reads it
+_CLI_VERSION = re.compile(r"v?(\d+)\.(\d+)(?:\.(\d+))?")
+
+
+def pc_checks(connection: dict[str, Any], *, environ: Any = None, cfg_path: Path | None = None,
+              run: Callable[..., Any] = subprocess.run, version: tuple[int, ...] = tuple(sys.version_info[:3])
+              ) -> list[tuple[bool, str]]:
+    """What this PC needs before the live test can sign in, as (ok, what) lines: Python, the
+    Databricks CLI and its version, and the profile or workspace address. It signs in to nothing and
+    reads no token: the CLI is asked only for its version, and the profile only for its host."""
+    found: list[tuple[bool, str]] = []
+    need = ".".join(map(str, MIN_PYTHON))
+    have = ".".join(map(str, version))
+    found.append((version[:2] >= MIN_PYTHON, f"Python {have} (KratosForge needs {need} or later)."))
+    cli = databricks_auth.find_cli(environ)
+    if not cli:
+        found.append((False, "The Databricks CLI isn't on PATH. Install it from "
+                             "https://docs.databricks.com/dev-tools/cli/install.html, then open a new terminal."))
+    else:
+        found.append(_cli_version(cli, run))
+    credential = connection.get("credential") or {}
+    if credential.get("method") == "cli-profile":
+        profile = str(credential.get("profile") or "")
+        try:
+            section = databricks_auth._cfg_section(profile, cfg_path)
+            host = databricks_auth.check_host(section.get("host", ""))
+        except databricks_auth.DatabricksAuthError as exc:
+            found.append((False, f"{exc} Sign in with: databricks auth login --host <workspace address> "
+                                 f"--profile {profile}"))
+        else:
+            found.append((True, f"Profile {profile!r} points at {host}."))
+    else:
+        try:
+            found.append((True, f"Workspace address {databricks_auth.check_host(str(connection.get('host') or ''))}."))
+        except databricks_auth.DatabricksAuthError as exc:
+            found.append((False, str(exc)))
+    return found
+
+
+def _cli_version(cli: str, run: Callable[..., Any]) -> tuple[bool, str]:
+    need = ".".join(map(str, MIN_CLI))
+    try:
+        done = run([cli, "--version"], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"The Databricks CLI at {cli} didn't answer --version ({type(exc).__name__})."
+    match = _CLI_VERSION.search(f"{done.stdout or ''} {done.stderr or ''}")
+    if done.returncode != 0 or not match:
+        return False, (f"The Databricks CLI at {cli} didn't say its version. This may be the old Python "
+                       f"databricks-cli; install the current CLI ({need} or later).")
+    got = tuple(int(g or 0) for g in match.groups())
+    text = ".".join(map(str, got))
+    if got[:2] < MIN_CLI:
+        return False, f"The Databricks CLI at {cli} is {text}; the live test needs {need} or later. Update it."
+    return True, f"Databricks CLI {text} at {cli}."
 
 
 def warehouse_tags(info: dict[str, Any]) -> set[str]:
@@ -404,17 +464,17 @@ def summary(result: dict[str, Any]) -> str:
     wh = result["warehouse"]
     lines = [f"# KratosForge Databricks live test {result['run_id']}", "",
              f"Outcome: **{result['outcome']}**. Workspace {result['workspace']['host'] or 'from the CLI profile'}, "
-             f"warehouse {wh['name'] or wh['id']}"
-             + (f", cluster {result['cluster']['name'] or result['cluster']['id']}" if result["cluster"] else "")
+             f"warehouse {cell(wh['name'], 200) or cell(wh['id'], 100)}"
+             + (f", cluster {cell(result['cluster']['name'], 200) or cell(result['cluster']['id'], 100)}"
+                if result["cluster"] else "")
              + f", started {result['started_at']}.", ""]
     if result["refused"]:
-        lines += ["Nothing was run, because:", ""] + [f"- {r}" for r in result["refused"]] + [""]
+        lines += ["Nothing was run, because:", ""] + [f"- {cell(r)}" for r in result["refused"]] + [""]
     lines += ["| Check | Result | Seconds | Detail |", "| --- | --- | --- | --- |"]
     for c in result["checks"]:
-        detail = c["detail"].replace("|", "\\|").replace("\n", " ")
-        lines.append(f"| {c['title']} | {mark[c['status']]} | {c['seconds']} | {detail} |")
+        lines.append(f"| {cell(c['title'], 200)} | {mark[c['status']]} | {c['seconds']} | {cell(c['detail'])} |")
     if result["left_running"]:
         lines += ["", "**Started by this run and left to its auto-stop**" +
                   (" (stopping it failed)" if result["stop_compute"] else " (add --stop-compute to stop it)") + ":", ""]
-        lines += [f"- {t['kind']} {t['id']}" for t in result["left_running"]]
+        lines += [f"- {t['kind']} {cell(t['id'], 100)}" for t in result["left_running"]]
     return "\n".join(lines) + "\n"

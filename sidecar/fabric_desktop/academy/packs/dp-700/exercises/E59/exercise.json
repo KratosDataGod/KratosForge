@@ -1,0 +1,79 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E59",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a query that got slow because its filter can't skip data",
+  "objectives": [
+    "3.3.6"
+  ],
+  "objective_text": "Find why a monthly revenue query can't skip data, rewrite the filter so the engine can, and prove the answer didn't change.",
+  "scenario": "The month-end revenue query used to return instantly. Someone 'tidied' its filter to year() and month(), and now it reads all two million rows every time. The table is sorted by order_date, as a table loaded day by day usually is.",
+  "prerequisites": [
+    "LM-18",
+    "LAB-02"
+  ],
+  "minutes": 20,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "month_revenue.sql",
+  "verifies": [
+    "Your query gave the same answer as the original on this PC with DuckDB.",
+    "Your filter compares order_date as it is, so the engine can skip blocks of rows (no SQ002 finding)."
+  ],
+  "does_not_verify": [
+    "A speed-up threshold: on this data DuckDB measured the fix at about 2.1 to 2.7 times faster, too close to a 2x goal to grade reliably, so speed is shown as a measurement, not a pass mark.",
+    "The speed-up in Fabric: Warehouse, the SQL analytics endpoint and Spark skip data by their own rules (file and row-group statistics, V-Order), and timings there differ.",
+    "Anything about capacity units: a local timing is not a CU estimate."
+  ],
+  "datasets": [],
+  "fault": {
+    "summary": "The filter wraps order_date in year() and month(), so every row's date is converted before it can be compared and no block of the date-sorted table can be skipped.",
+    "planted": [
+      {
+        "where": "month_revenue.sql, WHERE clause",
+        "what": "year(o.order_date) = 2026 AND month(o.order_date) = 3"
+      }
+    ],
+    "symptom": "The query is many times slower than an equivalent range filter, with the same answer."
+  },
+  "expected": {
+    "result": "Revenue and order count by region for completed orders in March 2026, ordered by region."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Same answer as the original query.",
+      "fail": "The answer changed: check the first and last day of March."
+    },
+    {
+      "kind": "no_findings",
+      "rules": [
+        "SQ002"
+      ],
+      "pass": "The filter compares order_date directly.",
+      "fail": "A function still wraps a column in WHERE."
+    }
+  ],
+  "hints": [
+    "Look at the WHERE clause. What does the engine have to work out for every row before it can compare its date?",
+    "year(order_date) has to be worked out for every row before it can be compared, so the engine can't use the min and max dates it keeps for each block.",
+    "order_date >= DATE '2026-03-01' AND order_date < DATE '2026-04-01' selects the same days. Use < on the first day of the next month, not <= on the 31st, so a timestamp column would work too."
+  ],
+  "explanation": "Engines keep the minimum and maximum of each column for each block of rows (DuckDB row groups, Parquet row groups in Delta tables). A filter that compares the column itself can skip every block whose range can't match; on a table sorted by that column, almost all of them. A function around the column hides it from that check, so every row is read and converted. The rewrite is a half-open range: inclusive start, exclusive end.",
+  "remediation": [
+    "LM-18",
+    "LAB-02",
+    "https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance"
+  ],
+  "reset": "Reset restores month_revenue.sql; the data is rebuilt from the same fixed hashes.",
+  "parity": null,
+  "review_notes": [
+    "Speed isn't graded: on this data the fix measured 2.1-2.7x faster, too close to a 2x goal to grade reliably. EXPLAIN ANALYZE here shows output rows, not blocks skipped, so the lesson doesn't use it as evidence."
+  ]
+}

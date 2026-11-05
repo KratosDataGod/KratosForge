@@ -159,7 +159,15 @@ def _choice(value: Any, allowed: tuple[str, ...] | list[str], what: str) -> str:
     return value
 
 
+def _shown(text: Any, limit: int = 80) -> str:
+    """``text`` from a policy file as part of one message line: control characters and line breaks
+    folded to spaces and cut. (This module also runs in the function app, so it keeps to core's names.)"""
+    folded = " ".join("".join(c if c.isprintable() else " " for c in str(text)).split())
+    return folded if len(folded) <= limit else folded[:limit - 1] + "…"
+
+
 def _param(name: str, spec: Any) -> dict[str, Any]:
+    name = _shown(name)  # a key from the policy's file, shown in each message below
     if not isinstance(spec, dict) or "value" not in spec:
         raise PlatformError(f"parameter {name} needs a value, like {{\"value\": 40, \"stricter\": \"lower\"}}")
     value, stricter = spec["value"], spec.get("stricter", "fixed")
@@ -972,9 +980,9 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
                               "description": "Classifications that count as a sensitivity label"}}},
     "data-contract": {
         "name": "Data contract", "category": "contract", "severity": "medium", "enforcement": "warn", "scopes": _ALL_SCOPES,
-        "description": "A published data product loads within N hours, records its row count on every load, and links business terms.",
-        "rule": "contract.freshness, contract.row_count, contract.terms_linked",
-        "remediation": "Run or schedule the product's entities, and add its business terms on its page.",
+        "description": "A published data product loads within N hours and records its row count on every load.",
+        "rule": "contract.freshness, contract.row_count",
+        "remediation": "Run or schedule the product's entities.",
         "params": {"within_hours": {"value": 24, "stricter": "lower", "description": "Hours since the last successful load"},
                    "min_rows": {"value": 1, "stricter": "higher", "description": "Rows the last load wrote, at least"}}},
 }

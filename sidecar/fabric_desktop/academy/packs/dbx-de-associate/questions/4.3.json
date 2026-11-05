@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "4.3",
+  "questions": [
+    {
+      "id": "4.3-q1",
+      "type": "single",
+      "stem": "Which trigger starts a job when new files land in a Unity Catalog volume or external location?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Manual"
+        },
+        {
+          "id": "b",
+          "text": "Continuous"
+        },
+        {
+          "id": "c",
+          "text": "Scheduled"
+        },
+        {
+          "id": "d",
+          "text": "File arrival"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A file arrival trigger watches a storage location governed by Unity Catalog and starts a run when new files arrive.",
+      "source": "https://docs.databricks.com/aws/en/jobs/file-arrival-triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.3-q2",
+      "type": "single",
+      "stem": "Which trigger starts a job when a source table it reads is updated?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Table update"
+        },
+        {
+          "id": "b",
+          "text": "Continuous"
+        },
+        {
+          "id": "c",
+          "text": "Scheduled"
+        },
+        {
+          "id": "d",
+          "text": "File arrival"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A table update trigger runs the job when the Unity Catalog tables it watches are updated.",
+      "source": "https://docs.databricks.com/aws/en/jobs/trigger-table-update",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.3-q3",
+      "type": "single",
+      "stem": "A report job must run at 06:00 every weekday. Which trigger fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Continuous"
+        },
+        {
+          "id": "b",
+          "text": "Scheduled, with a cron-style schedule"
+        },
+        {
+          "id": "c",
+          "text": "Table update"
+        },
+        {
+          "id": "d",
+          "text": "File arrival"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A scheduled trigger runs the job on a time-based schedule, which you can edit in Quartz cron syntax.",
+      "source": "https://docs.databricks.com/aws/en/jobs/scheduled",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.3-q4",
+      "type": "single",
+      "stem": "A job should start a new run as soon as the previous run ends, so that it always keeps running. Which trigger fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Continuous"
+        },
+        {
+          "id": "b",
+          "text": "File arrival"
+        },
+        {
+          "id": "c",
+          "text": "Manual"
+        },
+        {
+          "id": "d",
+          "text": "Scheduled every minute"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A continuous trigger keeps one run active, starting a new run when the previous one finishes.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.3-q5",
+      "type": "single",
+      "stem": "Fernhill's files land in a volume at uneven times. Which trigger avoids both idle runs and long waits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "File arrival on the volume"
+        },
+        {
+          "id": "b",
+          "text": "Scheduled every 24 hours"
+        },
+        {
+          "id": "c",
+          "text": "Continuous on a fixed cluster"
+        },
+        {
+          "id": "d",
+          "text": "Manual"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A file arrival trigger reacts when files land, so the job runs only when there is new data.",
+      "source": "https://docs.databricks.com/aws/en/jobs/file-arrival-triggers",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

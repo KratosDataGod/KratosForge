@@ -20,7 +20,7 @@ const skip = !playwright && "Playwright is not installed";
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects"],
+    engine: ["sql_format"],
     // A query tab saved by the old textarea page: no dialect.
     storage: { "fabric-desktop.sql.lh1": JSON.stringify([{ name: "Monthly revenue", sql: "-- Revenue\nSELECT 1;\n" }, { name: "Query 2", sql: "SELECT 2" }]) },
     mocks: {

@@ -32,7 +32,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, audit
+from . import app_settings, audit, jsonfile
 
 KEEP_DAYS = 30  # unsent days older than this are dropped, so a PC that never reaches the endpoint doesn't pile up
 # Only an exception class's own name (HTTPError, TimeoutError), so a message that starts "orders: ..." can't
@@ -94,16 +94,13 @@ class Telemetry:
 
     def _load(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.path, {})
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
             return {}
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
+        jsonfile.write_text(self.path, json.dumps(data, indent=1, sort_keys=True))
 
     def _install_id(self, data: dict[str, Any]) -> str:
         if not data.get("install_id"):
@@ -205,9 +202,18 @@ def envelope(conn: str, payload: dict[str, Any]) -> dict[str, Any]:
             "data": {"baseType": "EventData", "baseData": {"ver": 2, "name": payload["name"], "properties": props}}}
 
 
-def _post(conn: str, envelopes: list[dict[str, Any]]) -> None:
-    import requests
+def _post(conn: str, envelopes: list[dict[str, Any]], sleep: Callable[[float], None] | None = None) -> None:
+    """Send the reports through the shared session. A 429 is waited out (Application Insights took
+    nothing); anything else is sent once, since a report it may have taken would be counted twice,
+    and the days stay queued for the next try."""
+    import time
+
+    from . import http_session
+    from .retrying import send_with_retry
 
     endpoint = parse_connection_string(conn).get("ingestionendpoint", "https://dc.services.visualstudio.com").rstrip("/")
-    resp = requests.post(f"{endpoint}/v2/track", json=envelopes, timeout=15)
-    resp.raise_for_status()
+    http = http_session.session()
+    resp = send_with_retry(lambda: http.post(f"{endpoint}/v2/track", json=envelopes, timeout=15), "POST",
+                           sleep=sleep or time.sleep, safe=False)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"The usage report wasn't sent ({resp.status_code}); it waits for the next try.")

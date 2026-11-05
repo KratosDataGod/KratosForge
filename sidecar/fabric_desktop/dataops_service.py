@@ -17,8 +17,8 @@ from typing import Any
 import polars as pl
 import pyarrow as pa
 import pyarrow.compute  # noqa: F401 - pa.compute
-import requests
 
+from . import http_session, retrying
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -29,8 +29,10 @@ from .meta import store as store_mod
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from . import sealed_settings
-from .redact import describe
-from .workloads.notify import failure
+from .redact import describe, one_line
+from .retrying import send_with_retry
+from .workloads import deliver
+from .workloads.notify import LINE_MAX
 
 _log = logging.getLogger(__name__)
 
@@ -228,18 +230,18 @@ class DataOpsMixin:
         """Remove rows by id (and add ``add``), committed against the version read, so rows a run
         quarantines meanwhile are kept: on a conflict it reads the table again and retries."""
         from deltalake.exceptions import CommitFailedError
-        for attempt in range(5):
+
+        def once() -> None:
             store, lh, table, q, version = self._quarantine_at(project, name, env)
             if q is None:
                 return
             rest = q.filter(~pl.col("_qid").is_in(list(ids)))
             out = pl.concat([rest, add], how="diagonal_relaxed") if add is not None else rest
-            try:
-                store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
-                return
-            except CommitFailedError:
-                if attempt == 4:
-                    raise
+            store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
+
+        # A lost commit race is tried again at once (5 tries), against a fresh read each time.
+        retrying.retry_call(once, lambda exc: isinstance(exc, CommitFailedError), 5, lambda n: 0.0,
+                            sleep=lambda s: None)
 
     def meta_quarantine(self, name: str, env: str = "dev", limit: int = 500) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -299,9 +301,10 @@ class DataOpsMixin:
         new = freshness_mod.set_promise(text, within_hours or None, by or None, envs or None)
         return self.meta_save_entity(name, new)  # type: ignore[attr-defined]
 
-    def meta_freshness(self, notify: bool = False) -> dict[str, Any]:
-        """Every freshness promise in every environment that has runs, late ones first. With
-        ``notify``, newly late or failed tables are posted to the Teams channel, once each."""
+    def meta_freshness(self) -> dict[str, Any]:
+        """Every freshness promise in every environment that has runs, late ones first. Teams
+        hears about a late or failed table from its incident (incident_service.incidents_watch),
+        so this only reports."""
         alerts = bool(self._settings().get("teams_webhook"))  # type: ignore[attr-defined]
         unreadable = self._alerts_unreadable()
         try:
@@ -315,70 +318,38 @@ class DataOpsMixin:
         data = self.meta_runs_all(limit=100000)  # type: ignore[attr-defined]
         envs = [env for env in ENVIRONMENTS if any(r["env"] == env for r in data["runs"])]
         items = freshness_mod.report({n: e.spec for n, e in project.entities.items()}, data["runs"], envs)
-        out: dict[str, Any] = {"items": items, "unavailable": data["unavailable"],
-                               "alerts": bool(self._settings().get("teams_webhook")),  # type: ignore[attr-defined]
-                               "alerts_unreadable": unreadable}
-        if notify:
-            out["alerted"], out["alert_error"] = self._freshness_alerts(items)
-        return out
-
-    def _alert_state(self) -> dict[str, str]:
-        try:
-            return json.loads((self.root / "freshness_alerts.json").read_text(encoding="utf-8"))  # type: ignore[attr-defined]
-        except (FileNotFoundError, ValueError):
-            return {}
-
-    def _freshness_alerts(self, items: list[dict[str, Any]]) -> tuple[int, str | None]:
-        url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
-        if not url:
-            return 0, None
-        sent = self._alert_state()
-        lines, keys = [], []
-        for x in items:
-            env = x["env"].title()
-            if x["status"] == "late":
-                key = f"late:{x['env']}:{x['entity']}:{x['last_ok']}"
-                text = f"**{x['entity']}** in {env} is late: {'; '.join(x['reasons'])}."
-            elif x.get("failed_run"):
-                key = f"failed:{x['env']}:{x['entity']}:{x['failed_run']}"
-                text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in KratosForge'}."
-            else:
-                continue
-            if key not in sent:
-                lines.append(text)
-                keys.append(key)
-        if not lines:
-            return 0, None
-        try:
-            post_teams(url, f"{len(lines)} table{'s' if len(lines) != 1 else ''} need attention", lines)
-        except Exception as exc:  # the app still shows them; try again on the next check
-            return 0, failure(exc)
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
-        sent.update({k: now for k in keys})
-        (self.root / "freshness_alerts.json").write_text(json.dumps(sent, indent=1), encoding="utf-8")  # type: ignore[attr-defined]
-        return len(lines), None
+        return {"items": items, "unavailable": data["unavailable"], "alerts": alerts, "alerts_unreadable": unreadable}
 
     def _alerts_unreadable(self) -> bool:
         """The Teams address is saved but this Windows account can't decrypt it (sealed_settings.py)."""
         return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
 
     def meta_alerts(self) -> dict[str, Any]:
+        """Whether incident alerts are set, their kind and what the UI may show (deliver.label: a host,
+        or how many people). Never the address: a webhook or flow URL works like a password."""
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
+        out: dict[str, Any] = {"set": bool(url), "kind": deliver.kind(url) if url else "",
+                               "label": deliver.label(url, self._mail_server()) if url else ""}  # type: ignore[attr-defined]
+        return out | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
-        url = (teams_webhook or "").strip()
-        if url and not url.startswith("https://"):
-            raise ValueError("The Teams webhook address starts with https://")
+        """Where this PC's incident alerts go: a Teams webhook, a Power Automate flow (flow:https://...)
+        or email (mailto:a@x;b@y, through the company mail server). workloads/deliver.py checks it."""
+        url = deliver.check(teams_webhook or "")
+        if url and deliver.kind(url) == "email" and self._mail_server() is None:  # type: ignore[attr-defined]
+            raise ValueError("Set the company mail server first (Settings > Notifications), then email alerts can go out")
         if url and test:
-            post_teams(url, "KratosForge alerts are on",
-                       ["Late or failed tables will be posted here, once each."])
+            self._notice_post()(url, "KratosForge alerts are on",  # type: ignore[attr-defined]
+                                ["Late or failed tables will be sent here, once each."])
         self._save_settings(teams_webhook=url)  # type: ignore[attr-defined]
         return self.meta_alerts()
 
 
 def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
-    """A message for a Teams Workflows webhook ("When a Teams webhook request is received")."""
+    """A message for a Teams Workflows webhook ("When a Teams webhook request is received"). Each
+    title and line is one line with anything credential-shaped removed, also for one queued by
+    an older build."""
+    title, lines = one_line(title, LINE_MAX), [one_line(line, LINE_MAX) for line in lines]
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "wrap": True}]
     body += [{"type": "TextBlock", "text": line, "wrap": True, "spacing": "Small"} for line in lines[:20]]
     if len(lines) > 20:
@@ -389,6 +360,22 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
 
 
 def post_teams(url: str, title: str, lines: list[str]) -> None:
-    r = requests.post(url, json=teams_card(title, lines), timeout=15)
+    """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
+    Retry-After says; after a 5xx or a dropped connection the card may have been posted, so the
+    caller's outbox decides whether to send it again."""
+    http = http_session.session()
+    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=15), "POST")
     if r.status_code >= 300:
-        raise RuntimeError(f"Teams answered {r.status_code}: {r.text[:200]}")
+        raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
+
+
+def _teams_error(resp: Any) -> str:
+    """Teams' own error message, on one line, from its JSON body; nothing when there isn't one."""
+    try:
+        body = resp.json()
+    except (ValueError, AttributeError):
+        return ""
+    err = body.get("error") if isinstance(body, dict) else None
+    message = (err.get("message") if isinstance(err, dict) else err) if err else (body.get("message") if isinstance(body, dict) else None)
+    text = one_line(message or "", 200)
+    return f": {text}" if text else ""

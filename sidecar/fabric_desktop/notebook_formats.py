@@ -65,6 +65,13 @@ def _magic(source: str) -> str | None:
     return m.group(1).lower() if m else None
 
 
+def _magic_first(source: str) -> str:
+    """``source`` with its cell magic on the first line: the blank lines before a cell magic, and the
+    indent of its line, are dropped, as Jupyter runs it. Any other cell is returned as it is."""
+    rest = source.replace("\r\n", "\n").replace("\r", "\n").lstrip()
+    return rest if _magic(rest) else source
+
+
 def _lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
@@ -87,6 +94,23 @@ def _meta_block(value: dict[str, Any]) -> list[str]:
     return [FABRIC_METADATA, ""] + [f"# META {line}" for line in json.dumps(value, indent=2).split("\n")]
 
 
+def _prefixed(prefix: str, lines: list[str]) -> list[str]:
+    """Each line behind ``prefix``. A blank line gets the bare prefix; any other line keeps its
+    trailing spaces, which are part of the text (two at the end of a markdown line break it)."""
+    return [f"{prefix} {line}" if line else prefix for line in lines]
+
+
+_FABRIC_MARKERS = (FABRIC_CELL, FABRIC_PARAMS, FABRIC_MARKDOWN, FABRIC_METADATA)
+
+
+def _misread(lines: list[str], markers: tuple[str, ...], titles: bool = False) -> bool:
+    """Whether a Python cell written as it is would read back as something else: a line that is a
+    cell marker would split it, and a cell of only ``# MAGIC`` lines would lose that prefix."""
+    if any(ln.rstrip() in markers or (titles and ln.startswith("# DBTITLE")) for ln in lines):
+        return True
+    return any(ln.strip() for ln in lines) and all(ln.startswith("# MAGIC") for ln in lines if ln.strip())
+
+
 def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None) -> str:
     """The notebook as Fabric writes ``notebook-content.py`` in a Git-connected workspace."""
     meta: dict[str, Any] = {"kernel_info": {"name": "synapse_pyspark"}, "dependencies": {}}
@@ -99,12 +123,16 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         source = c.get("source", "")
         out.append("")
         if c.get("type") == "markdown":
-            out += [FABRIC_MARKDOWN, ""] + [f"# {line}".rstrip() for line in _lines(source)]
+            out += [FABRIC_MARKDOWN, ""] + _prefixed("#", _lines(source))
             continue
+        source = _magic_first(source)
         magic = _magic(source)
         language = _FABRIC_LANGUAGE.get(magic or "", "python")
         out += [FABRIC_PARAMS if _is_params(c) else FABRIC_CELL, ""]
-        out += [f"# MAGIC {line}".rstrip() for line in _lines(source)] if magic else _lines(source)
+        lines = _lines(source)
+        # A Python cell that would read back wrong is written as # MAGIC lines too, as a magic
+        # cell is; its METADATA still says Python, so it reads back as the same code.
+        out += _prefixed("# MAGIC", lines) if magic or _misread(lines, _FABRIC_MARKERS) else lines
         out += [""] + _meta_block({"language": language, "language_group": "synapse_pyspark"})
     return "\n".join(out) + "\n"
 
@@ -116,18 +144,22 @@ def to_databricks_py(cells: list[dict[str, Any]]) -> str:
     for c in cells:
         source = c.get("source", "")
         if c.get("type") == "markdown":
-            parts.append("\n".join(["# MAGIC %md"] + [f"# MAGIC {line}".rstrip() for line in _lines(source)]))
+            parts.append("\n".join(_prefixed("# MAGIC", ["%md"] + _lines(source))))
             continue
+        source = _magic_first(source)
         magic = _magic(source)
+        lines = _lines(source)
         if magic:
-            first, _, rest = source.partition("\n")
-            head = f"%{_TO_DATABRICKS[magic]}" if magic in _TO_DATABRICKS else first
-            body = [head] + (_lines(rest) if rest else [])
-            parts.append("\n".join(f"# MAGIC {line}".rstrip() for line in body))
+            head = f"%{_TO_DATABRICKS[magic]}" if magic in _TO_DATABRICKS else lines[0]
+            parts.append("\n".join(_prefixed("# MAGIC", [head] + lines[1:])))
         elif source.lstrip().startswith("%"):
             # A line magic cell (%run, %fs, %pip): Databricks keeps it as # MAGIC lines, never bare,
             # since a bare %line isn't Python.
-            parts.append("\n".join(f"# MAGIC {line}".rstrip() for line in _lines(source)))
+            parts.append("\n".join(_prefixed("# MAGIC", lines)))
+        elif not source.strip() or _misread(lines, (f"# {DATABRICKS_COMMAND}",), titles=True):
+            # An empty cell, or Python that would read back wrong (a COMMAND line splits it, a
+            # DBTITLE line is dropped): written as a %python cell, which Databricks reads as the same code.
+            parts.append("\n".join(_prefixed("# MAGIC", ["%python"] + lines)))
         else:
             parts.append(source)
     return f"# {DATABRICKS_HEADER}\n" + f"\n\n# {DATABRICKS_COMMAND}\n\n".join(parts) + "\n"
@@ -139,6 +171,7 @@ def to_databricks_py(cells: list[dict[str, Any]]) -> str:
 #   dropped  not in the converted notebook at all
 #   changed  carried over in another form
 #   check    carried over as written, but won't work the same where it now runs
+#   fabric   runs on this PC as written, but needs a change before it runs in Fabric
 
 def _note(cell: int | None, kind: str, what: str) -> dict[str, Any]:
     return {"cell": cell, "kind": kind, "what": what}
@@ -168,13 +201,20 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
         if c.get("type") != "code":
             continue
-        source = c.get("source", "")
+        source = _magic_first(c.get("source", ""))
         magic = _magic(source)
         if magic and magic not in _DATABRICKS_KNOWN:
             notes.append(_note(n, "check", f"%%{magic} has no Databricks equivalent. The cell is kept as written, "
                                            "so it won't run there until it's rewritten."))
-        elif magic in _TO_DATABRICKS and magic not in ("md", "pyspark"):
+        elif magic == "md":
+            notes.append(_note(n, "changed", "%%md became a %md cell, which Databricks shows as markdown, so it "
+                                             "comes back from Databricks as a markdown cell."))
+        elif magic in _TO_DATABRICKS and magic != "pyspark":
             notes.append(_note(n, "changed", f"%%{magic} became %{_TO_DATABRICKS[magic]}, Databricks' way to mark the language."))
+        options = _lines(source)[0][len(magic or "") + 2:].strip()
+        if magic in _TO_DATABRICKS and options:
+            notes.append(_note(n, "dropped", f"The options on the %%{magic} line ({options}): the export writes "
+                                             f"%{_TO_DATABRICKS[magic]} on its own."))
         rest = [ln for ln in _lines(source.lstrip())[1:] if ln.strip() and not ln.lstrip().startswith("%")]
         if not magic and source.lstrip().startswith("%") and rest:
             first = source.lstrip().split(None, 1)[0]
@@ -193,17 +233,51 @@ _HERE_CHECKS = (
     (re.compile(r"\bdbutils\.library\.install"), "dbutils.library.install runs in Databricks; this PC's packages are fixed."),
     (re.compile(r"\bdbutils\.credentials\."), "dbutils.credentials is a Databricks on AWS feature; this PC signs in to Microsoft as you."),
     (re.compile(r"(?i)(?:dbfs:/|[\"'\s(]/dbfs/|[\"'\s(]/Volumes/|[\"'\s(]/Workspace/)"),
-     "A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which this PC can't reach. "
-     "Point it at a lakehouse or a folder on this PC to run it here."),
+     "A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
+     "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC."),
+    # Delta Live Tables (Lakeflow declarative pipelines): Python decorators and SQL statements.
+    (re.compile(r"(?m)^\s*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
+                r"(?:STREAMING|LIVE)\s+(?:TABLE|LIVE\s+TABLE|VIEW)\b|\bCREATE\s+OR\s+REFRESH\b|"
+                r"\b(?:APPLY\s+CHANGES|AUTO\s+CDC)\s+INTO\b|\bCONSTRAINT\s+\w+\s+EXPECT\s*\()"),
+     "Delta Live Tables code, which only a Databricks pipeline runs: neither this PC nor Fabric has it. "
+     "Rewrite each dataset as a cell that writes its table, check the data in code instead of EXPECT, "
+     "and run the cells in order from a pipeline."),
     (re.compile(r"(?m)^\s*%run\s+(?:\.{1,2}/|/)"),
      "%run with a workspace path: on this PC it runs the notebook of that name from the notebooks folder, so import it too."),
+)
+
+
+# Databricks code that runs on this PC but needs a change before it runs in Fabric. Based on the
+# migration gotchas in microsoft/skills-for-fabric (MIT), written in our own words:
+# https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/databricks-migration/resources/migration-gotchas.md
+# Not checked, because the source doesn't show them: Unity Catalog names (one schema-enabled
+# lakehouse per catalog keeps schema.table as it was), Photon tuning, cluster init scripts, and
+# Repos versus Fabric Git integration.
+_FABRIC_CHECKS = (
+    (re.compile(r"\bdbutils\.widgets\."),
+     "dbutils.widgets runs on this PC, but Fabric has no widgets. Before running it in Fabric, put the "
+     "defaults in a parameter cell; a pipeline or notebookutils.notebook.run passes the values."),
+    (re.compile(r"\bdbutils\.library\.restartPython\b"),
+     "In Fabric the call is notebookutils.session.restartPython(). For scheduled runs, add the packages "
+     "to the Fabric environment rather than installing them in the notebook."),
+    # spark.databricks.delta.* settings are Delta Lake's own and Fabric's Delta reads them; the rest
+    # are Databricks Runtime settings.
+    (re.compile(r"""["']spark\.databricks\.(?!delta\.)\w[\w.]*["']"""),
+     "A Databricks Runtime setting (spark.databricks., other than Delta's), which Fabric doesn't have: "
+     "setting it does nothing there, and reading it fails unless the call gives a default."),
+    (re.compile(r"\.trigger\(\s*(?:processingTime|continuous)\s*="),
+     "A stream that keeps running. In Fabric it uses capacity for as long as it runs, and continuous "
+     "triggers aren't supported there. The usual Fabric pattern is trigger(availableNow=True) run on a "
+     "schedule. On this PC it already runs once, as availableNow."),
 )
 
 
 def _here_notes(cells: list[dict[str, Any]], notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for n, c in enumerate(cells, 1):
         if c.get("type") == "code":
-            notes += [_note(n, "check", what) for pattern, what in _HERE_CHECKS if pattern.search(c.get("source", ""))]
+            source = c.get("source", "")
+            notes += [_note(n, "check", what) for pattern, what in _HERE_CHECKS if pattern.search(source)]
+            notes += [_note(n, "fabric", what) for pattern, what in _FABRIC_CHECKS if pattern.search(source)]
     return sorted(notes, key=lambda x: (x["cell"] or 0))
 
 
@@ -262,7 +336,7 @@ def to_ipynb_text(cells: list[dict[str, Any]], outputs: bool, lakehouse: dict[st
     """The notebook as .ipynb; with ``outputs``, each code cell's outputs and run count as well."""
     nb = to_ipynb(cells, lakehouse)
     if outputs:
-        for cell, c in zip(nb["cells"], cells):
+        for cell, c in zip(nb["cells"], cells, strict=True):
             if cell["cell_type"] != "code":
                 continue
             cell["outputs"] = [x for x in (_nb_output(o) for o in c.get("outputs") or [] if isinstance(o, dict)) if x]

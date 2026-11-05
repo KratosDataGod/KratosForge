@@ -5,13 +5,13 @@ const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded:
 
 const XRAY_KINDS = {
   small_files: "Small files", unidentified: "Unidentified", access: "Access", cost: "Cost",
-  stale: "Not changing", vacuum: "Needs vacuum", empty: "Empty lakehouses",
+  stale: "Not changing", vacuum: "Needs vacuum", staging: "Leftover staging", empty: "Empty lakehouses",
 };
 
 // Where each kind of finding is explained, with how to fix it by hand (docs/xray-fixes.md).
 const XRAY_DOCS = {
   small_files: "small-files", unidentified: "unidentified-tables", access: "access", cost: "cost",
-  stale: "not-changing", vacuum: "needs-vacuum", empty: "empty-lakehouses",
+  stale: "not-changing", vacuum: "needs-vacuum", staging: "leftover-staging-lakehouses", empty: "empty-lakehouses",
 };
 
 function openXrayDoc(kind) {
@@ -143,11 +143,14 @@ function xrayHow() {
       + "The first scan on this PC starts by itself after you sign in; after that it reads only when you press Scan again.",
     changes: "Scanning changes no lakehouse it reads. When this PC is connected to a central lakehouse you can write to "
       + "(Settings > Optimize lakehouses), each scan also adds its lakehouse and table findings there as new rows, never "
-      + "the names of people or cost estimates. Three buttons write, and each asks first. Optimize names the table, says it runs in "
+      + "the names of people or cost estimates. Four buttons write, and each asks first. Optimize names the table, says it runs in "
       + "Fabric and uses capacity, and shows the risk check, then starts a Fabric table maintenance job that compacts it "
       + "and removes old files past the history the table keeps. Vacuum first shows how many old files it would delete, and deletes them in "
       + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
-      + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed.",
+      + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed. "
+      + "Remove, on a leftover Dataflow Gen2 staging lakehouse, first checks again that a newer one exists in the workspace and "
+      + "that nothing was written to it for 30 days, shows what it holds, and deletes that one lakehouse in Fabric only when you type delete. "
+      + "The newest staging lakehouse in a workspace is never offered.",
     results: "Findings are kept on this PC. Lakehouse and table findings added to the central lakehouse show in "
       + "Optimize > Opportunities, and anyone who can read that lakehouse can read them, including the workspace, "
       + "lakehouse and table names of every workspace this scan reached; the app hides items you can't open, but "
@@ -159,6 +162,10 @@ function xrayHow() {
 // Where the scan's findings went besides this PC, when it is connected to a central lakehouse.
 function xrayShared(shared) {
   if (!shared) return null;
+  if (shared.queued) {
+    return h("p", { class: "muted-text small" },
+      `${shared.lakehouse} couldn't be reached (${shared.error}), so ${shared.queued} finding${shared.queued === 1 ? " waits" : "s wait"} on this PC. They're added with the next scan, or when you connect to it again.`);
+  }
   return h("p", { class: "muted-text small" }, shared.error
     ? `These findings weren't added to ${shared.lakehouse}: ${shared.error}`
     : `${shared.findings} lakehouse and table finding${shared.findings === 1 ? " was" : "s were"} added to ${shared.lakehouse} for Optimize > Opportunities.`);
@@ -182,6 +189,7 @@ function xrayAction(f, box, res, { small = false, solid = true } = {}) {
   const make = {
     optimize: () => btn("Optimize", "sync", () => optimizeDialog(f, box, res), cls("tool primary")),
     vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), cls("tool outline")),
+    remove_staging: () => btn("Remove", "delete", () => stagingDialog(f, box, res), cls("tool outline")),
     open: () => btn("Open in Fabric", "publish", lakehouseLink, cls("tool outline")),
     access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, cls("tool outline")),
     run_local: () => btn("Open notebook", "notebook", () => {
@@ -223,27 +231,29 @@ function vacuumArgs(f) {
 }
 
 // Optimize one table: say what runs in Fabric and the risk check (FINOPS-004) first. Blocked has
-// no Optimize button; warnings need the box ticked when the settings ask for it.
+// no Optimize button; warnings need the box ticked when the settings ask for it. The engine checks
+// again on start: it refuses blocked or changed findings and records going ahead past warnings.
 async function optimizeDialog(f, box, res, refresh = false) {
   const label = f.schema ? `${f.schema}.${f.table}` : f.table;
   const body = h("div", { class: "wl-confirm" }, h("p", { class: "muted-text" }, `Checking ${label} and its capacity...`));
   const start = btn("Optimize", "sync", async () => {
     if (ack && !ack.querySelector("input").checked) { toast("Tick \"I've looked at these\" first, or cancel.", true); return; }
     start.disabled = true;
-    const r = await attempt(() => rpc("xray_optimize", vacuumArgs(f)), "Optimize not started");
+    const r = await attempt(() => rpc("xray_optimize", { ...vacuumArgs(f), risk_id: risk?.id || "" }), "Optimize not started");
     if (!r) { start.disabled = false; return; }
     closeDialog();
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Optimizing ${label} in Fabric. Follow it in Monitor.`, false, { log: true });
     redrawXray(box, res);
   }, "tool primary");
-  let ack = null;
+  let ack = null, risk = null;
   start.disabled = true;
   showDialog(`Optimize ${label}?`, body, [btn("Cancel", null, closeDialog, "tool outline"), start]);
   const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
   const p = await attempt(() => rpc("xray_optimize_check", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, refresh }),
     "Could not check the table");
   if (!p) { closeDialog(); return; }
+  risk = p.risk;
   ack = riskAckBox(p.risk);
   body.replaceChildren(
     h("p", { class: "text" }, `Optimize runs in Fabric as a table maintenance job on ${label}, and uses capacity. `,
@@ -266,7 +276,7 @@ async function vacuumDialog(f, box, res) {
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Vacuuming ${label} in Fabric, keeping ${r.keep_days} days of history. Follow it in Monitor.`, false, { log: true });
     redrawXray(box, res);
-  }, "tool primary");
+  }, "tool danger-solid");
   vacuumBtn.disabled = true;
   showDialog(`Vacuum ${label}`, body, [btn("Cancel", null, closeDialog, "tool outline"), vacuumBtn]);
   const { workspace_id, lakehouse_id, table, schema, lakehouse_name } = vacuumArgs(f);
@@ -282,6 +292,51 @@ async function vacuumDialog(f, box, res) {
       "It runs in Fabric as table maintenance, VACUUM only, and does not compact files."),
   );
   vacuumBtn.disabled = !p.files;
+}
+
+// Remove one leftover Dataflow Gen2 staging lakehouse: the engine checks again, live, that a newer
+// one exists and nothing was written to this one lately; anything it couldn't confirm keeps it.
+async function stagingDialog(f, box, res) {
+  const args = { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id };
+  const body = h("div", {}, h("p", { class: "muted-text" }, `Checking ${f.lakehouse_name}...`));
+  let p = null;
+  const removeBtn = btn("Remove...", "delete", async () => {
+    const ok = await confirmDialog(`Delete ${p.lakehouse_name}?`,
+      `This deletes the lakehouse ${p.lakehouse_name} in ${f.workspace_name} with its ${p.files.toLocaleString()} file${p.files === 1 ? "" : "s"} `
+      + `(${sizeText(p.bytes)}). Fabric may not let you get it back. ${p.kept} is kept.`, "Delete lakehouse",
+      { danger: true, typeToConfirm: "delete" });
+    if (!ok) return;
+    const r = await attempt(() => rpc("xray_remove_staging", { ...args, lakehouse_name: p.lakehouse_name,
+      workspace_name: f.workspace_name, finding_id: f.id }), "Lakehouse not deleted");
+    if (!r) return;
+    f.fixed = true;
+    toast(`Deleted ${p.lakehouse_name}. ${p.kept} is kept.`, false, { log: true });
+    redrawXray(box, res);
+  }, "tool danger");
+  removeBtn.disabled = true;
+  showDialog(`Remove ${f.lakehouse_name}`, body, [btn("Cancel", null, closeDialog, "tool outline"), removeBtn]);
+  p = await attempt(() => rpc("xray_staging_preview", args), "Could not check the lakehouse");
+  if (!p) { closeDialog(); return; }
+  const row = (k, v) => h("tr", {}, h("th", {}, k), h("td", {}, v));
+  body.replaceChildren(
+    h("p", { class: "text" }, p.ok
+      ? `${p.lakehouse_name} looks left over: ${p.kept} in the same workspace is newer, nothing has been written to it for ${p.quiet_days} days or more, `
+        + "and every dataflow in the workspace has refreshed since without writing to it."
+      : `${p.lakehouse_name} stays. Nothing will be deleted:`),
+    p.ok ? "" : h("ul", { class: "reason" }, p.why.map((w) => h("li", {}, w))),
+    h("table", { class: "list compact" }, h("tbody", {},
+      row("Workspace", f.workspace_name),
+      row("Made", p.created ? when(p.created) : "Not known"),
+      row("Last written", p.last_write ? when(p.last_write) : p.files === 0 ? "Never: it's empty" : "Not known"),
+      row("Holds", p.files == null ? "Not known" : `${p.files.toLocaleString()} file${p.files === 1 ? "" : "s"}, ${sizeText(p.bytes)}`),
+      row("Kept", p.kept ? `${p.kept} (the newest, always kept)` : "None"),
+      row("Dataflows", (p.dataflows || []).length ? h("div", {}, p.dataflows.map((d) => h("div", {},
+        d.ok ? "✓ " : "✗ ", h("b", {}, d.name), h("span", { class: "muted-text small" },
+          d.names_it ? " names it" : d.last_refresh ? ` refreshed ${relTime(d.last_refresh)}` : " no completed refresh"))))
+        : "None found"))),
+    h("p", { class: "muted-text small" }, "Fabric doesn't say which staging lakehouse a dataflow uses, so the newest is always kept, "
+      + "and an older one goes only when every dataflow's refreshes and definition show it doesn't stage there. Only this lakehouse is deleted."));
+  removeBtn.disabled = !p.ok;
 }
 
 // Every shown "Needs vacuum" finding, one Fabric job each, each keeping its own table's history.
@@ -300,7 +355,7 @@ function vacuumAll(findings, box, res) {
   showDialog(`Vacuum ${findings.length} tables`, h("p", { class: "text" },
     "Each table is vacuumed in Fabric as its own table maintenance job. Each keeps the history it promises: at least 7 days, ",
     "or its layer's Keep history days, or its own retention setting, whichever is longest."),
-  [btn("Cancel", null, closeDialog, "tool outline"), btn(`Vacuum ${findings.length}`, "delete", run, "tool primary")]);
+  [btn("Cancel", null, closeDialog, "tool outline"), btn(`Vacuum ${findings.length}`, "delete", run, "tool danger-solid")]);
 }
 
 function xrayLakehouses(rows) {
@@ -359,7 +414,8 @@ async function adoptDialog(r) {
     h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["", "Table", "Entity", "Key", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, plan.tables.map((t) => h("tr", { "data-table": t.table, "data-schema": t.schema || "" },
-        h("td", {}, h("input", { type: "checkbox", checked: t.ok && !t.exists ? true : null, disabled: t.ok ? null : true })),
+        h("td", {}, h("input", { type: "checkbox", checked: t.ok && !t.exists ? true : null, disabled: t.ok ? null : true,
+          "aria-label": `Adopt ${t.schema ? `${t.schema}.${t.table}` : t.table}` })),
         h("td", {}, h("span", { class: "mono" }, t.schema ? `${t.schema}.${t.table}` : t.table),
           t.columns ? h("div", { class: "muted-text small" }, `${t.columns.length} columns`) : null),
         h("td", {}, t.ok ? h("input", { class: "name", value: t.exists ? `${t.name}_adopted` : t.name, "aria-label": "Entity name" }) : null),

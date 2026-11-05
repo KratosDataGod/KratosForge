@@ -65,6 +65,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [vscode.md](vscode.md) | Engineers | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, `kratosforge://` links back, repository setup, Copilot (Preview) |
+| [home-notebooks.md](home-notebooks.md) | Engineers, analysts | Home's Recent notebooks: each notebook's workspace, lakehouse and last run, running several at once, and items pinned to Home (Preview) |
+| [learn.md](learn.md) | Everyone | Learn (Preview): lessons, paths and practice labs that run on this PC, the best-practice rules explained, and guidance modes; [writing a lesson](learn/writing-lessons.md) for authors |
 | [notebook-fabric-step.md](notebook-fabric-step.md) | Engineers | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake (Preview) |
 | [notebook-best-practices.md](notebook-best-practices.md) | Engineers | Best-practice checks on a notebook's code, read on this PC without running it (Preview) |
 | [notebook-folders.md](notebook-folders.md) | Engineers, analysts | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one; publishing from a folder (Preview) |
@@ -87,6 +89,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [semantic-model-best-practices.md](semantic-model-best-practices.md) | Engineers, BI developers | Best Practice Analyzer through semantic-link-labs in Fabric (Preview): what a check runs, writes and costs |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
+| [health-thresholds.md](health-thresholds.md) | Engineers, platform owners | The thresholds KratosForge flags tables, warehouses and capacity use at, compared with Microsoft's Fabric skills, and why each value is kept |
+| [platform-audit.md](platform-audit.md) | Auditors, platform owners | The platform's audit trail: what each request, decision and access change records, and how to pull one request's history |
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, catalog text |
@@ -108,9 +112,10 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [xray-fixes.md](xray-fixes.md) | Engineers | Each Estate X-ray finding and how to fix it |
 | [agent.md](agent.md) | Platform owners | The headless agent on Windows or Linux servers |
 | [architecture.md](architecture.md) | Contributors | How the app, the engine and OneLake fit together |
-| [ai/README.md](ai/README.md) | Everyone | Connecting your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client): setup for each, [workflows](ai/workflows.md), [instructions to paste](ai/agent-instructions.md) |
+| [ai/README.md](ai/README.md) | Everyone | Connecting your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client): setup for each, [workflows](ai/workflows.md), [instructions to paste](ai/agent-instructions.md), [use with Microsoft's Fabric skills](ai/microsoft-fabric-skills.md) |
 | [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md), [AI tool test checklist](product/ai-integration-client-checklist.md)) |
 | [architecture/power-bi-embedding.md](architecture/power-bi-embedding.md) | Contributors | Proposed, not built: Embed Studio for Power BI embedded analytics, the isolated embed host, tokens and what each content type supports |
+| [architecture/app-studio.md](architecture/app-studio.md) | Contributors | Fabric App Studio (In progress, page in Preview), bring-your-own-model app building: reuse inventory, Microsoft capability matrix, targets, stories |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
 | [design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) | Contributors, designers, agents | The visual identity, Forged Heroism: the canonical storyboard, palette, the wolf, the forge language, animation standards, consistency checks, image generation ([assets](design/assets.md), [wolf sheet](design/wolf-character-sheet.md), [event catalog](design/animation-events.md), [examples](design/examples.md)) |
 | [animation-style-guide.md](animation-style-guide.md) | Contributors, designers | The four animation tiers (Ember, Spark, Forge, Titan), brand fire and winter colours, motifs, timing and reduced-motion rules |
@@ -121,6 +126,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [local-data-engine-plan.md](local-data-engine-plan.md) | Contributors, platform owners | The local data engine program FD-LDE-001 to 020: audit, implementation matrix, owners, PR plan |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |
 | [quality/README.md](quality/README.md) | Contributors, release managers | Engineering quality baseline: scorecard, [findings](quality/findings.md) (QA-nnn), [architecture standards](quality/architecture.md), [remediation plan](quality/remediation.md), [PR quality gate](quality/pr-review.md) |
+| [audits/EXECUTIVE_SUMMARY.md](audits/EXECUTIVE_SUMMARY.md) | Maintainers, enterprise reviewers | Enterprise engineering audit: [scorecard](audits/ENTERPRISE_READINESS.md), [security and data integrity](audits/SECURITY_AND_DATA_INTEGRITY.md), [engine compatibility](audits/ENGINE_COMPATIBILITY.md), [quality gates](audits/QUALITY_GATES.md), [remediation backlog](audits/REMEDIATION_BACKLOG.md) (EA-nnn), [architecture decisions](audits/ARCHITECTURE_DECISIONS.md) |
 | [git-integration-plan.md](git-integration-plan.md) | Contributors | The Git integration program: assessment, Phase 1 (Git foundation, done), Fabric workspace Git, deployment and extensions |
 | [prove/plan.md](prove/plan.md) | Contributors | The Prove this notebook program: what exists, the stages, and all 100 backlog items ([continuation note](prove/continuation.md)) |
 | [orchestration/plan.md](orchestration/plan.md) | Contributors | Fabric pipelines on this PC, ORCH-001 to ORCH-010: definitions, compatibility registry, local execution ([continuation note](orchestration/continuation.md)) |
@@ -158,6 +164,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
 | Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
 | Notebook engine picker | Notebook ribbon: Engine beside Run all, which replaces Runs on ([engines.md](engines.md#engine-picker-preview)) |
+| Skins | Settings > Appearance > Skin: the KratosForge and Fabric-familiar skins ([skins.md](skins.md#choosing-a-skin-preview)) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
@@ -165,6 +172,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Notebook runs | Notebook ribbon > Schedule > Recent runs, or the Run tab ([notebooks.md](notebooks.md#recent-runs-preview)) |
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
+| Run several notebooks from Home | Home > Recent notebooks: tick notebooks, then Run ([home-notebooks.md](home-notebooks.md#run-several-notebooks-preview)) |
+| Items pinned to Home | Home > Pinned; the pin on Home's notebook rows and on Workspaces item rows ([home-notebooks.md](home-notebooks.md#pinned-items-preview)) |
 | Run the last cell on Fabric | Notebook cell ⋯ menu > Run on Fabric (Spark) ([notebook-fabric-step.md](notebook-fabric-step.md)) |
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
@@ -198,7 +207,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Data mesh | Data mesh > Domains, Data mesh > Products, Home, entity page (domains from Fabric, products, links, glossary, About, the map on Home, data products for everyone, following a product) |
 | Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
 | Workspace, domain and exception requests | Data mesh > Requests > New request: a new workspace, access to a workspace, a domain, an exception to a policy, data from another team; Data mesh > Products > Ask for data ([platform.md](platform.md#requests)) |
-| Endorsement and business terms | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan, and business terms linked to Purview ([data-mesh.md](data-mesh.md#endorsement-and-business-terms)) |
+| Endorsement | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan ([data-mesh.md](data-mesh.md#endorsement)) |
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
@@ -229,6 +238,9 @@ KratosForge is new, and it's honest about what has been proven.
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
+| Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
+| Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |
+| App Studio | Create > Applications: build an app from a template, preview it on sample data on this PC, and keep every version ([app-studio.md](app-studio.md)) |
 
 Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
 

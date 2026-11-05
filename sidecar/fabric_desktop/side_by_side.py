@@ -26,6 +26,7 @@ from typing import Any, Callable
 import pyarrow as pa
 
 from .redact import describe
+from .duckdb_rows import one_row
 
 _log = logging.getLogger(__name__)
 
@@ -86,9 +87,9 @@ def fingerprint(data: Any, numbers: set[str] | frozenset[str] = frozenset()) -> 
         fields = sorted(schema, key=lambda f: f.name.lower())
         if fields:
             row_hash = f"hash({', '.join(_normalized(f.name, f.type, f.name.lower() in numbers) for f in fields)})"
-            rows, total = con.execute(f"SELECT count(*), coalesce(sum(CAST({row_hash} AS HUGEINT)), 0) FROM t").fetchone()
+            rows, total = one_row(con.execute(f"SELECT count(*), coalesce(sum(CAST({row_hash} AS HUGEINT)), 0) FROM t"))
         else:
-            rows, total = con.execute("SELECT count(*), 0 FROM t").fetchone()
+            rows, total = one_row(con.execute("SELECT count(*), 0 FROM t"))
     finally:
         con.close()
     return {"rows": int(rows), "checksum": int(total) % _MOD, "columns": columns}

@@ -21,7 +21,8 @@ const pane = () => page().locator(".practicespane");
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ engine: ["notebook_practices", "governance_practice_settings"] });
+  app = await openApp({ engine: ["notebook_practices", "governance_practice_settings", "learn_rule_guides", "learn_dismissals",
+    "learn_dismiss", "learn_undismiss"] });
   await page().evaluate((cells) => {
     loadIntoState({ name: "Load orders", cells });
     state.ribbonTab = "view";
@@ -49,6 +50,15 @@ test("About NB003 opens the rule's section of the docs (LX-01)", { skip }, async
   assert.deepStrictEqual(opened, ["notebook-best-practices.md#nb003"]);
 });
 
+test("each cell shows its own findings under its code", { skip }, async () => {
+  const strip = (i) => page().locator("[data-cell]").nth(i).locator(".practice-strip");
+  assert.strictEqual(await strip(0).isHidden(), true, "the markdown cell has none");
+  assert.match(await strip(1).innerText(), /NB009 .*\(line 1\)/);
+  const third = await strip(2).locator(".practice-line").allInnerTexts();
+  assert.deepStrictEqual(third.map((t) => t.split(" ")[2]).sort(), ["NB003", "NB005"]);
+  assert.match(third.join("\n"), /NB003 .*\(line 2\)/);
+});
+
 test("Go to cell selects the cell and puts the cursor on the line", { skip }, async () => {
   await pane().locator("[data-rule=NB003] .link-btn").click();
   const at = await page().evaluate(() => {
@@ -69,8 +79,42 @@ test("fixing the code clears its finding as you type, without saving", { skip },
   assert.strictEqual(await pane().locator("[data-rule]").count(), 2);
 });
 
+test("Dismiss Not in this file hides a finding in this notebook only, and Show all again brings it back (LX-09)", { skip }, async () => {
+  await pane().locator("[data-rule=NB003]").getByRole("button", { name: /Dismiss NB003/ }).click();
+  await pane().locator("[data-rule=NB003] .learn-dismiss-item", { hasText: "Not in this file" }).click();
+  await pane().locator("[data-rule=NB003]").waitFor({ state: "detached" });
+  assert.match(await page().locator("button[data-practices]").innerText(), /Best practices · 1/);
+  const cellLines = () => page().locator("[data-cell]").nth(2).locator(".practice-strip .practice-line").allInnerTexts();
+  assert.deepStrictEqual((await cellLines()).map((t) => t.split(" ")[2]), ["NB005"], "a dismissed finding leaves its cell too");
+  assert.deepStrictEqual(await page().evaluate(() => learnDismissed.map((d) => [d.rule_id, d.scope, d.where])), [["NB003", "file", "notebooks/Load orders"]]);
+  await pane().locator(".learn-dismissed button", { hasText: "1 dismissed · Show" }).click();
+  await pane().locator(".learn-dismissed button", { hasText: "Show all again" }).click();
+  await pane().locator("[data-rule=NB003]").waitFor();
+  assert.deepStrictEqual((await cellLines()).map((t) => t.split(" ")[2]).sort(), ["NB003", "NB005"], "and comes back under its cell");
+});
+
+test("Explain says how important a rule is, its principle and how to check the change (GD-03)", { skip }, async () => {
+  await page().evaluate(() => {
+    const view = editors.get(state.notebook.cells[1].id);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'conn = "Server=x;Password=Sup3rS3cret!"' } });
+  });
+  const nb001 = pane().locator("[data-rule=NB001]");
+  await nb001.waitFor({ timeout: 10000 });
+  await nb001.locator("button", { hasText: "Explain" }).click();
+  const explain = nb001.locator(".learn-detail");
+  await explain.waitFor();
+  const tag = explain.locator(".learn-importance");
+  assert.strictEqual(await tag.innerText(), "Critical · Security");
+  assert.strictEqual(await tag.getAttribute("aria-label"), "Importance: Critical, Security");
+  assert.match(await tag.getAttribute("title"), /^Critical: it can leak a secret, lose data or put wrong data in place\.$/);
+  assert.match(await explain.innerText(), /What to do\s+Keep secrets out of code[\s\S]*How to check\s+Best practices shows no NB001/);
+  assert.strictEqual(await nb001.locator(".pill-s").first().innerText(), "Error", "the severity stays the rule's");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-practices-explain.png") });
+});
+
 test("closing the panel stops it", { skip }, async () => {
   await pane().getByRole("button", { name: "Close best practices" }).click();
   assert.strictEqual(await pane().count(), 0);
+  assert.strictEqual(await page().locator(".practice-strip:not([hidden])").count(), 0, "no findings under the cells once closed");
   assert.match(await page().locator("button[data-practices]").innerText(), /^Best practices\n?Preview$/, "no count once closed");
 });

@@ -1,0 +1,159 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.1",
+  "questions": [
+    {
+      "id": "3.1-q1",
+      "type": "single",
+      "stem": "Which SQL expression returns 'Unknown' when country is null and country otherwise?",
+      "options": [
+        {
+          "id": "a",
+          "text": "count(country, 'Unknown')"
+        },
+        {
+          "id": "b",
+          "text": "coalesce(country, 'Unknown')"
+        },
+        {
+          "id": "c",
+          "text": "nullif(country, 'Unknown')"
+        },
+        {
+          "id": "d",
+          "text": "country = NULL OR 'Unknown'"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "coalesce returns its first argument that isn't null.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/coalesce",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1-q2",
+      "type": "single",
+      "stem": "A bronze column order_ts holds timestamps as strings. How should silver standardize it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Keep it as a string"
+        },
+        {
+          "id": "b",
+          "text": "Cast it with to_timestamp (or CAST AS TIMESTAMP) into a timestamp column"
+        },
+        {
+          "id": "c",
+          "text": "Convert it to an integer of characters"
+        },
+        {
+          "id": "d",
+          "text": "Drop the column"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "to_timestamp parses a string into a timestamp; silver standardizes types so queries compare and filter correctly.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/to_timestamp",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1-q3",
+      "type": "single",
+      "stem": "Rows with a null order_id can't be used. Which SQL keeps only usable rows for silver?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SELECT * FROM bronze_orders WHERE order_id != NULL"
+        },
+        {
+          "id": "b",
+          "text": "SELECT * FROM bronze_orders WHERE order_id = NULL"
+        },
+        {
+          "id": "c",
+          "text": "SELECT * FROM bronze_orders WHERE order_id IS NOT NULL"
+        },
+        {
+          "id": "d",
+          "text": "SELECT DISTINCT NULL FROM bronze_orders"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A comparison with NULL returns NULL (unknown), not true, so WHERE drops it; use IS NOT NULL.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-null-semantics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1-q4",
+      "type": "single",
+      "stem": "Why do silver tables read from bronze rather than from the source again?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It's required by Delta Lake"
+        },
+        {
+          "id": "b",
+          "text": "Bronze keeps the raw history, so silver can be rebuilt or corrected without going back to the source"
+        },
+        {
+          "id": "c",
+          "text": "Bronze is faster than any source"
+        },
+        {
+          "id": "d",
+          "text": "Silver can't read files"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Keeping raw data in bronze lets you reprocess silver with new rules without re-ingesting.",
+      "source": "https://docs.databricks.com/aws/en/lakehouse/medallion",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1-q5",
+      "type": "order",
+      "stem": "Put the steps of a typical bronze-to-silver cleaning job in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write the result to the silver table"
+        },
+        {
+          "id": "b",
+          "text": "Read the bronze table"
+        },
+        {
+          "id": "c",
+          "text": "Clean it: handle missing values, deduplicate and cast types"
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "a"
+      ],
+      "explanation": "You read the raw data, clean it, and write the cleaned result.",
+      "source": "https://docs.databricks.com/aws/en/lakehouse/medallion",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

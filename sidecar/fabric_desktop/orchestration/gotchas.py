@@ -5,7 +5,8 @@ that Fabric can only find by item id, a timeout Fabric caps, an expression Fabri
 Each ``Gotcha`` checks a definition for one such case and reports a warning, never an error, so
 it never stops a local run. The list follows Microsoft's pipeline-migration gotchas PG1-PG10
 (SOURCE, MIT licensed), written here in our own words, plus the activity types that guide says
-have no Fabric equivalent. The registry runs these in ``compatibility`` and lists them in
+have no Fabric equivalent, and Data Factory's documented ForEach limits (FOREACH_LIMITS, ORCH-H2).
+The registry runs these in ``compatibility`` and lists them in
 ``describe``, so a change here changes REGISTRY_VERSION like any entry change.
 """
 
@@ -21,6 +22,8 @@ from .validate import Diagnostic
 
 SOURCE = ("https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/pipeline-migration/resources/"
           "pipeline-gotchas.md")
+FOREACH_LIMITS = ("https://learn.microsoft.com/en-us/azure/data-factory/control-flow-for-each-activity"
+                  "#limitations-and-workarounds")
 
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _GLOBAL = re.compile(r"pipeline\(\)\s*\.\s*globalParameters\s*\.\s*(\w+)(\s*[\[.])?")
@@ -193,17 +196,57 @@ def _key_vault(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
     return out
 
 
+def _containers(a: Activity, imp: ImportedPipeline) -> list[Activity]:
+    """The activities ``a`` is inside, innermost first."""
+    out: list[Activity] = []
+    name = a.container
+    while name is not None and len(out) < 100:
+        parent = imp.pipeline.find(name)
+        if parent is None:
+            break
+        out.append(parent)
+        name = parent.container
+    return out
+
+
+def _foreach_limits(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
+    """Data Factory's documented ForEach limits. The Fabric ForEach page doesn't state them, so the
+    warnings say they aren't verified in Fabric yet."""
+    if a.type not in ("ForEach", "SetVariable"):
+        return []
+    outer = _containers(a, imp)
+    if a.type == "ForEach":
+        loop = next((c for c in outer if c.type in ("ForEach", "Until")), None)
+        if loop is None:
+            return []
+        return [_warn(a, "nested_foreach", f"{a.name}: is a ForEach inside {loop.type} {loop.name}. Data Factory "
+                      "doesn't allow a ForEach inside another ForEach or an Until (not yet verified in Fabric); a "
+                      "local run allows it.", f"{a.path}.type",
+                      "Move the inner loop into a child pipeline and call it with Invoke pipeline.")]
+    parallel = next((c for c in outer if c.type == "ForEach" and c.type_properties.get("isSequential") is not True),
+                    None)
+    if parallel is None:
+        return []
+    return [_warn(a, "set_variable_in_parallel_foreach", f"{a.name}: sets a variable inside ForEach {parallel.name}, "
+                  "which runs its iterations in parallel. Pipeline variables are shared by every iteration, so Data "
+                  "Factory doesn't allow it (not yet verified in Fabric); here, as there, the last iteration to "
+                  "finish wins.", f"{a.path}.typeProperties.variableName",
+                  "Make the ForEach sequential, use Append Variable, or move the iteration into a child pipeline.")]
+
+
 @dataclass(frozen=True)
 class Gotcha:
-    id: str          # Microsoft's number for it, PG1-PG10 (PG6 also covers the other types with no equivalent)
+    id: str          # Microsoft's number for it, PG1-PG10 (PG6 also covers the other types with no equivalent),
+                     # or FOREACH for Data Factory's ForEach limits
     title: str
     codes: tuple[str, ...]
     differs: str     # what differs between a local run and Fabric, in a sentence
     check: Callable[[Activity, ImportedPipeline], list[Diagnostic]] | None = None
+    source: str = SOURCE
 
     def to_json(self) -> dict[str, Any]:
         return {"id": self.id, "title": self.title, "codes": list(self.codes), "differs": self.differs,
-                "source": SOURCE}
+                "source": self.source}
 
 
 GOTCHAS: tuple[Gotcha, ...] = (
@@ -231,6 +274,9 @@ GOTCHAS: tuple[Gotcha, ...] = (
            "Checked with PG3."),
     Gotcha("PG10", "The item type is DataPipeline", ("item_type_not_data_pipeline",),
            "Fabric only accepts a pipeline as a DataPipeline item."),
+    Gotcha("FOREACH", "ForEach limits", ("nested_foreach", "set_variable_in_parallel_foreach"),
+           "Data Factory doesn't allow a ForEach inside a ForEach or Until, or Set Variable inside a parallel "
+           "ForEach; a local run allows both.", _foreach_limits, FOREACH_LIMITS),
 )
 
 CODES = frozenset(c for g in GOTCHAS for c in g.codes)

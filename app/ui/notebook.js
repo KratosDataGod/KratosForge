@@ -8,6 +8,7 @@ state.showVariables = false;
 state.lineNumbers = true;
 state.mode = "command";        // command | edit, as in Fabric and Jupyter
 state.nbTables = {};           // lakehouse_id -> ["dbo.sales", ...], for autocomplete
+state.nbSchemas = {};          // lakehouse_id -> { tables: {schema: [names]}, cols, cached, pending }, for %%sql completion
 
 const editors = new Map();     // cell id -> CodeMirror view
 const deletedCells = [];       // for Z (undo delete)
@@ -234,6 +235,7 @@ function renderExplorer() {
         h("button", { class: "tool small", title: "Refresh", "aria-label": "Refresh", onclick: () => {
           Object.keys(state.tree).filter((k) => k.startsWith(lh.lakehouse_id)).forEach((k) => delete state.tree[k]);
           delete state.nbTables[lh.lakehouse_id];
+          delete state.nbSchemas[lh.lakehouse_id];
           renderNotebook();
         } }, icon("restart", 14)),
         fromLocations ? null : h("button", { class: "tool small", title: "Remove lakehouse", "aria-label": "Remove lakehouse", onclick: detachLakehouse }, icon("dismiss", 14))),
@@ -382,7 +384,7 @@ function renderCell(cell) {
   } else {
     box.append(h("div", { class: "editor" }, editorFor(cell).dom));
   }
-  box.append(depsStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));
+  box.append(depsStrip(cell), practiceStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));  // nbpractices.js
   node.append(gutter, box);
   return node;
 }
@@ -754,29 +756,67 @@ function languageFor(cell) {
   // %%tsql (Fabric Python notebooks): T-SQL for a Warehouse; it runs in Fabric (notebook.py _tsql).
   if (/^\s*%%tsql(\s|$)/.test(cell.source)) return [CM.sql({ dialect: CM.StandardSQL, upperCaseKeywords: true })];
   if (lang === "html") return [CM.html(), CM.autocompletion()];
+  // %%sql runs as Spark SQL: the SQL page's completion, so an alias offers its table's columns (PB-027).
   if (lang === "sql") {
-    const schema = Object.fromEntries(currentTables().map((t) => [t, []]));
-    return [CM.sql({ dialect: CM.StandardSQL, schema, upperCaseKeywords: true }), CM.autocompletion()];
+    return [CM.sql({ dialect: sqlCmDialect("spark"), upperCaseKeywords: true }),
+      CM.autocompletion({ override: [sqlCompletionSource(nbSqlProvider, () => "spark")], activateOnTypingDelay: 120 })];
   }
   return [CM.python(), CM.autocompletion({ override: [pythonCompletions], activateOnTypingDelay: 150 }),
     ...intelExtensions()];  // nbintel.js: hover, signature help, syntax errors
 }
 
 function currentTables() {
-  const lh = state.notebook?.lakehouse;
+  const lh = state.notebook && nbLakehouse(state.notebook);
   return (lh && state.nbTables[lh.lakehouse_id]) || [];
 }
 
 async function loadTableNames(lh) {
   if (state.nbTables[lh.lakehouse_id]) return;
   state.nbTables[lh.lakehouse_id] = [];
+  const sql = state.nbSchemas[lh.lakehouse_id] = { tables: {}, cols: {}, cached: {}, pending: {}, failed: {} };
+  // The names this PC read last time (schema_cache.py): the tables while offline, a table's columns when Fabric can't be asked.
+  const cached = rpc("cached_schemas", { lakehouse_id: lh.lakehouse_id }).catch(() => null);
+  let bySchema = null;
   try {
-    const bySchema = await rpc("list_tables", { workspace_id: lh.workspace_id, lakehouse_id: lh.lakehouse_id });
-    state.nbTables[lh.lakehouse_id] = Object.entries(bySchema || {}).flatMap(([s, names]) => names.map((n) => `${s}.${n}`));
+    bySchema = await rpc("list_tables", { workspace_id: lh.workspace_id, lakehouse_id: lh.lakehouse_id });
   } catch {
-    // Not signed in or offline: autocomplete just has no table names.
+    // Not signed in or offline: the cached names, or none.
   }
+  const last = await cached;
+  sql.cached = last?.columns || {};
+  sql.tables = bySchema || last?.tables || {};
+  state.nbTables[lh.lakehouse_id] = Object.entries(sql.tables).flatMap(([s, names]) => names.map((n) => `${s}.${n}`));
 }
+
+// The %%sql completion's names: the notebook's lakehouse, read when it's first needed. A table's columns
+// come from Fabric once per table, or from the cache when Fabric can't be asked (offline, signed out);
+// Fabric is asked again a minute later, so a table read while offline gets its real columns once back.
+const NB_SQL_RETRY_MS = 60000;
+const nbSqlProvider = {
+  id: "notebook",
+  label: "Notebook lakehouse",
+  lakehouse: () => state.notebook && nbLakehouse(state.notebook),
+  sql() { const lh = this.lakehouse(); return lh && state.nbSchemas[lh.lakehouse_id]; },
+  tables() { return Object.entries(this.sql()?.tables || {}).flatMap(([schema, names]) => names.map((name) => ({ schema, name }))); },
+  cachedColumns(t) {
+    const sql = this.sql();
+    const k = sqlTableName(t.schema, t.name);
+    return sql?.cols[k] || (sql?.failed[k] ? sql.cached[k] || [] : undefined);
+  },
+  columns(t) {
+    const sql = this.sql();
+    const lh = this.lakehouse();
+    if (!sql || !lh) return Promise.resolve([]);
+    const k = sqlTableName(t.schema, t.name);
+    if (sql.cols[k]) return Promise.resolve(sql.cols[k]);
+    if (Date.now() - (sql.failed[k] || 0) < NB_SQL_RETRY_MS) return Promise.resolve(sql.cached[k] || []);
+    sql.pending[k] ||= rpc("table_columns", { lakehouse_ref: lh, table: k })
+      .then((cols) => { delete sql.failed[k]; return (sql.cols[k] = cols || []); })
+      .catch(() => { sql.failed[k] = Date.now(); return sql.cached[k] || []; })
+      .finally(() => { delete sql.pending[k]; });
+    return sql.pending[k];
+  },
+};
 
 const CM_TYPES = { method: "method", function: "function", property: "property", variable: "variable",
   keyword: "keyword", namespace: "namespace", class: "class" };
@@ -1077,7 +1117,7 @@ function vegaPage(source, spec) {
 function renderVegaLite(o) {
   const wrap = h("div", { class: "output" }, h("div", { class: "out-bar" }, previewMarked("altair", h("span", { class: "muted-text" }, "Altair chart"))));
   loadVega().then((source) => wrap.append(htmlFrame(vegaPage(source, o.spec))),
-    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err).text)));
   return wrap;
 }
 
@@ -1102,7 +1142,7 @@ function plotlyPage(source, figure) {
 function renderPlotly(o) {
   const wrap = h("div", { class: "output" });
   loadPlotly().then((source) => wrap.append(htmlFrame(plotlyPage(source, o.figure))),
-    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err).text)));
   return wrap;
 }
 
@@ -1238,7 +1278,7 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
       else { v.page = p; v.offset = p.offset; }
     } catch (err) {
       if (ask !== v.asked) return;
-      toast(`Could not load rows: ${friendlyError(err)}`, true);
+      toast(`Could not load rows: ${friendlyError(err).text}`, true);
     }
     v.busy = false;
     draw();
@@ -1406,7 +1446,7 @@ function renderFrameProfile(o, numeric, count) {
       o.profileGone = true;
       box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Run the cell again to profile every row.`;
     } else { o.profile = p; show(p); }
-  }, (err) => { box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Could not profile every row: ${friendlyError(err)}`; });
+  }, (err) => { box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Could not profile every row: ${friendlyError(err).text}`; });
   return box;
 }
 
@@ -1424,7 +1464,7 @@ function renderInspect(o, numeric) {
       const bins = new Array(12).fill(0);
       nums.forEach((v) => { bins[Math.min(11, Math.floor(((v - min) / (max - min || 1)) * 12))] += 1; });
       const top = Math.max(...bins);
-      picture = h("div", { class: "hist", "aria-label": `Distribution of ${c}` }, bins.map((b) => h("span", { style: `height:${Math.round((b / top) * 100)}%` })));
+      picture = h("div", { class: "hist", role: "img", "aria-label": `Distribution of ${c}` }, bins.map((b) => h("span", { style: `height:${Math.round((b / top) * 100)}%` })));
     } else if (present.length) {
       const counts = new Map();
       present.forEach((v) => counts.set(String(v), (counts.get(String(v)) || 0) + 1));

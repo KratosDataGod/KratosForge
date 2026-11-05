@@ -36,6 +36,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass
 from typing import Any, Callable
+from .duckdb_rows import one_row
 
 SEVERITY_OF = {"critical": "Error", "high": "Error", "medium": "Warning", "low": "Info"}
 LEVEL_OF = {"Error": "high", "Warning": "medium", "Info": "low"}
@@ -102,9 +103,20 @@ def find_rule(rule_id: str) -> tuple[Checker, dict[str, Any]] | None:
     return None
 
 
+# Rules a policy saved by an earlier release may still name, by id with their name. Nothing checks them any
+# more, so they are left out of the policy's rules; Check now says so (retired_rule_ids) rather than
+# reporting a rule no checker has.
+RETIRED_RULES = {"contract.terms_linked": "Business terms linked"}
+
+
+def retired_rule_ids(text: Any) -> list[str]:
+    """The retired rules a policy's Checked by field still names."""
+    return [x for x in re.split(r"[,\s]+", str(text or "").strip()) if x in RETIRED_RULES]
+
+
 def rule_ids(text: Any) -> list[str]:
-    """The rule ids a policy's Checked by field names: separated by commas or spaces."""
-    return [x for x in re.split(r"[,\s]+", str(text or "").strip()) if x]
+    """The rule ids a policy's Checked by field names: separated by commas or spaces. Retired rules are left out."""
+    return [x for x in re.split(r"[,\s]+", str(text or "").strip()) if x and x not in RETIRED_RULES]
 
 
 def settings_for(rule: dict[str, Any], policy_severity: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -178,7 +190,7 @@ def store_fabric_findings(state: dict[str, Any], project: str, rule_id: str, fin
 # Items (built by checks_service.py from the open project and the platform's catalog):
 #   entity   {kind, id, project, layer, table, owner, classification, columns: [{name, classification, markers}]}
 #   product  {kind, id, name, project, status, owner, steward (None: unknown), steward_reason, description,
-#             terms (None: unknown), terms_reason, last_load (None: unknown), last_rows, load_reason, load_env,
+#             last_load (None: unknown), last_rows, load_reason, load_env,
 #             endorsement ([{item_name, endorsement}] or None: unknown), endorsement_reason}
 
 
@@ -228,7 +240,7 @@ def _full_match(pattern: str, text: str) -> bool:
     if _re2 is None:
         _re2 = duckdb.connect()
     try:
-        return bool(_re2.cursor().execute("SELECT regexp_full_match(?, ?)", [text, pattern]).fetchone()[0])
+        return bool(one_row(_re2.cursor().execute("SELECT regexp_full_match(?, ?)", [text, pattern]))[0])
     except duckdb.Error as exc:
         raise ValueError(str(exc).replace("Invalid Input Error: ", "")) from exc
 
@@ -351,9 +363,6 @@ CONTRACT_RULES = [
     _rule("contract.row_count", "product", "Warning", "contract", "Row count checked",
           "Each load of the product's tables recorded its row count, at least min_rows.",
           "Look at the last run of the product's entities.", {"min_rows": 1}),
-    _rule("contract.terms_linked", "product", "Warning", "contract", "Business terms linked",
-          "The product links at least one business term in Purview.",
-          "Add a term on the product's page (Data mesh > Products).", {"min_terms": 1}),
     _rule("contract.description", "product", "Warning", "contract", "Description",
           "The product says what it is.", "Edit the product and write a description."),
     _rule("contract.endorsed", "product", "Info", "contract", "Endorsement",
@@ -400,14 +409,6 @@ def contract_check(item: dict[str, Any], settings: dict[str, Any],
                                    outcome="unknown"))
             elif int(item["last_rows"]) < int(t.get("min_rows") or 0):
                 out.append(finding(rule, s, "product", pid, f"The last load wrote {item['last_rows']} rows; the contract says at least {t.get('min_rows')}."))
-        elif rid == "contract.terms_linked":
-            if item.get("terms") is None:
-                out.append(finding(rule, s, "product", pid, item.get("terms_reason") or "Its business terms can't be read.",
-                                   outcome="unknown"))
-            elif len(item["terms"]) < int(t.get("min_terms") or 1):
-                out.append(finding(rule, s, "product", pid, "Links no business term." if not item["terms"]
-                                   else f"Links {len(item['terms'])} business terms; the contract says at least {t.get('min_terms')}.",
-                                   fix={"action": "open_product_page", "label": "Add a term", "product_id": pid}))
         elif rid == "contract.description":
             if not str(item.get("description") or "").strip():
                 out.append(finding(rule, s, "product", pid, "Has no description.", fix=_edit_product(item)))

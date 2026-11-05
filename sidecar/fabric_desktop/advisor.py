@@ -68,15 +68,18 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
     ``compat``: ``fabric_run.compute_check``'s result. ``proofs``: Prove receipts (``{"id", "receipt"}``),
     newest first. ``comparisons``: side-by-side records, newest first."""
     reasons: list[dict[str, Any]] = []
-    local_ok, fabric_ok = compat["local"]["ok"], compat["fabric"]["ok"]
-    if not local_ok:
-        reasons.append(_reason("compatibility", "Can't run on this PC as it is: " + _cells(compat["local"]["reasons"]),
-                               side="pc", cells=compat["local"]["reasons"]))
-    if not fabric_ok:
-        reasons.append(_reason("compatibility", "Can't run in Fabric as it is: " + _cells(compat["fabric"]["reasons"]),
-                               side="fabric", cells=compat["fabric"]["reasons"]))
-    if local_ok and fabric_ok:
+    # A side the check can't read fully (Unknown) isn't blocked, and isn't taken as fine either.
+    local_ok, fabric_ok = not compat["local"]["reasons"], not compat["fabric"]["reasons"]
+    for side, key, label in (("pc", "local", "on this PC"), ("fabric", "fabric", "in Fabric")):
+        if compat[key]["reasons"]:
+            reasons.append(_reason("compatibility", f"Can't run {label} as it is: " + _cells(compat[key]["reasons"]),
+                                   side=side, cells=compat[key]["reasons"]))
+        elif compat[key].get("unknown"):
+            reasons.append(_reason("compatibility", f"Unknown whether it runs {label}: the check can't read "
+                                   + _cells(compat[key]["unknown"]), side=side, cells=compat[key]["unknown"], unknown=True))
+    if compat["local"]["ok"] and compat["fabric"]["ok"]:
         reasons.append(_reason("compatibility", "No cell stops it on this PC or in Fabric.", side="both"))
+    local_unknown = local_ok and not compat["local"]["ok"]
 
     proofs = [p for p in proofs if (p.get("receipt") or {}).get("kind") == "proof"]
     same = [p for p in proofs if ((p["receipt"].get("notebook") or {}).get("code") or {}).get("revision") == revision]
@@ -133,6 +136,8 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
         next_step = "Change the cells listed so it can run in at least one place."
     elif not local_ok:
         place = FABRIC
+    elif local_unknown and verdict != "same":  # until a proof shows it runs here with the same results
+        place = FABRIC if fabric_ok else UNKNOWN
     elif not fabric_ok or verdict == "same":
         place = PC
     elif verdict == "differs":

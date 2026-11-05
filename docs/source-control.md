@@ -92,7 +92,7 @@ Never in a file: times, who changed what, key values, requests, decisions, grant
 - A changed policy is published as a new version; a published version never changes. A policy with a draft in progress in the platform is skipped, so a deploy never overwrites someone's draft.
 - A source id is never renumbered: a file whose `source_id` doesn't match the platform stops the whole deploy before anything is written. A new source keeps the id its file gives it. Source connections stay as they are in the platform.
 - Key tables are created where missing, never renamed, changed or removed (their keys stay).
-- A new landing zone is made the way **New landing zone** makes it: its lakehouse in the landing workspace first, then the zone in the catalog. So the platform needs its landing workspace first (Platform > Set up > Landing zone); until then, zones are skipped and the plan says why, and so is a source whose zone can't be made. Shared is made with the landing workspace, never by a deploy. A changed zone is saved with its lakehouse kept, and people named as its readers in the platform stay. A zone in the platform with no file shows as **removed in Git** and is left alone: a deploy never removes a landing zone (remove it on the Landing zone tab once no source is in it).
+- A new landing zone is made the way **New landing zone** makes it: its lakehouse in the landing workspace first, then the zone in the catalog. So the platform needs its landing workspace first (Platform > Set up > Landing zone); until then, zones are skipped and the plan says why, and so is a source whose zone can't be made. Shared is made with the landing workspace, never by a deploy. A changed zone is saved with its lakehouse kept, and people named as its readers in the platform stay. A zone in the platform with no file shows as **removed in Git** and is left alone: a deploy never removes a landing zone (remove it on the Landing zone tab once no source is in it and no waiting source request lands in it).
 - A deploy never switches reads to the landing workspace. **Switch reads to the landing workspace** stays a manual step on the Landing zone tab, done once the files runs need are there.
 - Your organization's policy templates are added or changed with the template operations; a file using a built-in template's id is skipped. A template in the platform with no file is left alone: a deploy never deletes a template.
 - Something removed in Git is removed only when you tick it, after every other change: policies are retired (never deleted), then sources, then domains (subdomains first). A domain or source still in use is refused. Glossary terms can't be removed yet.
@@ -164,6 +164,16 @@ The **History** tab lists commits on the current branch. Click one for its messa
 ## Notebooks in a repository
 
 A notebook saved inside a repository shows its branch and whether it has uncommitted changes next to **Save**; click it to open Source control. Your notebooks folder isn't a repository unless you make it one: **Version my notebooks** makes it one, or save notebooks in a notebooks repository (see [Notebooks in a notebooks repository](#notebooks-in-a-notebooks-repository)).
+
+## Fabric workspace
+
+Fabric's own Git integration connects a workspace to one branch and folder of a GitHub or Azure DevOps repository. The **Fabric workspace** tab (Preview) shows that relationship next to the repository on this PC. It never treats a push as a workspace update.
+
+- **Link a workspace** for Dev, Test or Prod. KratosForge asks Fabric what the workspace follows and says whether one of this repository's remotes points there. A workspace that isn't connected to Git, or that follows another repository, asks before linking. The link is saved in `fabric-desktop.toml` at the repository root as a change to commit, so the team shares it. It holds the workspace id and name, and the provider, owner, project, repository, branch and folder Fabric follows. For GitHub Enterprise it also holds the ghe.com host, which the repository's own remote address already shows. It never holds a sign-in, a secret or the tenant id.
+- **Three commits side by side**: this PC (branch, commit, what isn't pushed or committed), the Git remote's copy of the branch Fabric follows (as of your last fetch), and the commit the workspace last synced, with how far apart they are where Git on this PC can tell.
+- **Check status in Fabric** lists the items that differ between the workspace and Git: changed in the workspace, changed in Git, conflicts (both changed) and the same change on both sides, conflicts first, each with how well Fabric Git supports its type. The first time, Windows asks you to allow KratosForge to use Fabric Git for you (`Workspace.GitUpdate.All`; see [Permissions](permissions.md)). Checking reads only.
+
+Linking and checking status change nothing in Fabric. Update from Git and Commit to Git come later, each behind a preview, a fresh status check and a confirm.
 
 ## What it doesn't do yet
 

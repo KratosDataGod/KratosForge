@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from . import livetest
+from . import jsonfile, livetest
 from .central import core, udf
 from .central import setup as setup_mod
 
@@ -201,7 +201,7 @@ class PlatformTest:
 
     def _save_ledger(self) -> None:
         body = {"run_id": self.run_id, "workspace_id": self.workspace_id, "items": self.ledger}
-        (self.dir / "platform-ledger.json").write_text(json.dumps(body, indent=2), encoding="utf-8")
+        jsonfile.write_text(self.dir / "platform-ledger.json", json.dumps(body, indent=2))
 
     def _finish_setup(self, first: bool) -> str:
         """Finish or repair once, as Platform > Settings runs it (setup.setup)."""

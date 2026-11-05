@@ -1,0 +1,1127 @@
+{
+  "schema": "kratosforge/academy-certification@1",
+  "id": "dbx-de-associate",
+  "title": "Databricks Certified Data Engineer Associate",
+  "vendor": "Databricks",
+  "version": "2026-08-06",
+  "source": {
+    "url": "https://www.databricks.com/sites/default/files/2026-10/Databricks-Certified-Data-Engineer-Associate-Exam-Guide-August-2026.pdf",
+    "page": "https://www.databricks.com/learn/certification/data-engineer-associate",
+    "read": "2026-11-03",
+    "page_updated": "2026-08-06",
+    "effective": "2026-05-04",
+    "effective_note": "The guide says 'Exam Published May 4, 2026 / Exam Guide Updated August 6, 2026'. The August update keeps the May 4 exam's sections, weights and objectives and rewords six objectives; their May wording is kept under earlier_wording.",
+    "earlier_guide": "https://www.databricks.com/sites/default/files/2026-03/databricks-certified-data-engineer-associate-exam-guide-may-4-2026.pdf",
+    "snapshot_sha256": "b2bcdef74115d655297a41567c3697a218f83a8a522a8d71613839cadeb31247"
+  },
+  "reviewed": "2026-11-03",
+  "exam": {
+    "scored_questions": 45,
+    "unscored_max": 10,
+    "minutes": 90,
+    "question_type": "multiple choice",
+    "code_languages": "SQL when possible, otherwise Python"
+  },
+  "notes": [
+    "The guide lists objectives straight under each section, with no skill areas; objective ids are the guide's own.",
+    "Each section has one published weight; it is recorded as a range from that weight to the same weight.",
+    "Practice questions are KratosForge's own. They are never Databricks exam content.",
+    "KratosForge readiness is an estimate from evidence on this PC, never Databricks' score or a promise of passing."
+  ],
+  "supplementary": [
+    {
+      "id": "X01",
+      "title": "Databricks Connect: run local code on a remote cluster",
+      "note": "Not an objective in the current guide; never counted toward coverage."
+    },
+    {
+      "id": "X02",
+      "title": "Notebook workflow: widgets, %run, dbutils and notebook exit values",
+      "note": "Not an objective in the current guide; never counted toward coverage."
+    },
+    {
+      "id": "X03",
+      "title": "Lineage and audit: where they come from and what they show",
+      "note": "Not an objective in the current guide; never counted toward coverage."
+    },
+    {
+      "id": "X04",
+      "title": "Delta Sharing and Lakehouse Federation (earlier guide topics)",
+      "note": "Not an objective in the current guide; never counted toward coverage."
+    }
+  ],
+  "gaps": [
+    {
+      "id": "G-01",
+      "title": "No COPY INTO or Auto Loader on this PC",
+      "why": "KratosForge models file tracking, schema inference and evolution itself; it is not Databricks' implementation, so results are SIMULATED.",
+      "closes_with": "DATABRICKS VERIFIED runs of E08-E12 in the learner's workspace (DBA-013).",
+      "objectives": [
+        "2.2",
+        "2.3"
+      ]
+    },
+    {
+      "id": "G-02",
+      "title": "No Unity Catalog on this PC",
+      "why": "Privileges, inheritance, ownership, managed storage, row filters, column masks and ABAC are evaluated by KratosForge's model of the documented rules.",
+      "closes_with": "DATABRICKS VERIFIED runs of E59-E64 with tagged, Academy-created objects (DBA-013).",
+      "objectives": [
+        "3.6",
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.4"
+      ]
+    },
+    {
+      "id": "G-03",
+      "title": "No Lakeflow Jobs scheduler or run history on this PC",
+      "why": "Job definitions are validated and run by a local model; triggers, run history and the Jobs UI exist only in a workspace.",
+      "closes_with": "DATABRICKS VERIFIED job runs (E34, E42) on serverless job compute after the learner's go.",
+      "objectives": [
+        "4.1",
+        "4.2",
+        "4.3",
+        "6.1",
+        "6.2"
+      ]
+    },
+    {
+      "id": "G-04",
+      "title": "No Lakeflow Declarative Pipelines runtime on this PC",
+      "why": "Materialized views, streaming tables, refresh semantics and the pipeline event log are modelled, not run.",
+      "closes_with": "DATABRICKS VERIFIED pipeline update (E29) in the learner's workspace.",
+      "objectives": [
+        "3.6"
+      ]
+    },
+    {
+      "id": "G-05",
+      "title": "No Apache Spark on this PC",
+      "why": "The notebook's spark is DuckDB's PySpark API, so physical plans, partitions, broadcast and Spark UI metrics are recorded Spark runs, not live ones.",
+      "closes_with": "Optional local Apache Spark (decision pending) for LOCAL VERIFIED; Databricks runs for DATABRICKS VERIFIED.",
+      "objectives": [
+        "3.5",
+        "6.3"
+      ]
+    },
+    {
+      "id": "G-06",
+      "title": "Bundle deploys need a workspace",
+      "why": "Variable and target resolution is checked offline; a deploy needs the Databricks CLI signed in to a workspace.",
+      "closes_with": "DATABRICKS VERIFIED deploy of E47 to a dev target.",
+      "objectives": [
+        "5.3"
+      ]
+    },
+    {
+      "id": "G-07",
+      "title": "Git folders are a workspace feature",
+      "why": "Branch, commit, push and pull request steps run in a local repository; the Git folder UI is not shown.",
+      "closes_with": "DATABRICKS VERIFIED Git folder check (read-only API) for E44.",
+      "objectives": [
+        "5.1"
+      ]
+    },
+    {
+      "id": "G-08",
+      "title": "Lakeflow Connect is a managed service",
+      "why": "Connector configurations are checked as documents; ingestion gateways and managed connectors only run in Databricks.",
+      "closes_with": "DATABRICKS VERIFIED read of a learner's ingestion pipeline definition.",
+      "objectives": [
+        "2.4"
+      ]
+    },
+    {
+      "id": "G-09",
+      "title": "Compute, cluster events and libraries are workspace features",
+      "why": "Compute choice, startup failures and library conflicts are taught from recorded events and logs.",
+      "closes_with": "DATABRICKS VERIFIED read-only check of the learner's compute policy and cluster events.",
+      "objectives": [
+        "1.2",
+        "6.5"
+      ]
+    },
+    {
+      "id": "G-10",
+      "title": "Liquid clustering and predictive optimization aren't in delta-rs",
+      "why": "OPTIMIZE and VACUUM run locally; CLUSTER BY and predictive optimization are explained and modelled.",
+      "closes_with": "DATABRICKS VERIFIED run of E55 on a Unity Catalog managed table.",
+      "objectives": [
+        "6.4"
+      ]
+    }
+  ],
+  "domains": [
+    {
+      "id": "1",
+      "title": "Databricks Intelligence Platform",
+      "weight": {
+        "min": 6,
+        "max": 6
+      },
+      "objectives": [
+        {
+          "id": "1.1",
+          "text": "Understand the core components of the Databricks Platform, such as its architecture, Delta Lake, and Unity Catalog.",
+          "competency": "Explain how the control plane, compute, Delta Lake and Unity Catalog fit together, and read a Delta table's log and history.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E01",
+            "E02"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "delta_table",
+            "assessment"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/delta/",
+            "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
+          ],
+          "gaps": [],
+          "status": "planned",
+          "earlier_wording": {
+            "2026-05-04": "Understand the core components of the Databricks Data Intelligence Platform, such as its architecture, Delta Lake, and Unity Catalog."
+          }
+        },
+        {
+          "id": "1.2",
+          "text": "Understand Databricks Platform's compute services, including their characteristics, limitations, and cost models, and select the most suitable option for each workload use case.",
+          "competency": "Choose serverless, SQL warehouse, job or all-purpose compute for a workload from its latency, cost model and limits.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E03",
+            "E04"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "config_matches",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/compute/",
+            "https://docs.databricks.com/aws/en/compute/serverless/"
+          ],
+          "gaps": [
+            "G-09"
+          ],
+          "status": "planned",
+          "earlier_wording": {
+            "2026-05-04": "Understand Databricks Data Intelligence Platform’s compute services, including their characteristics, limitations, and cost models, and select the most suitable option for each workload use case."
+          }
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Data Ingestion and Loading",
+      "weight": {
+        "min": 21,
+        "max": 21
+      },
+      "objectives": [
+        {
+          "id": "2.1",
+          "text": "Enable and detail data ingestion patterns, including batch, streaming, and incremental loading, and import data from sources such as local files, Lakeflow Connect standard connectors, and Lakeflow Connect managed connectors.",
+          "competency": "Build batch, incremental and streaming-style loads from files into Delta, with provenance, and reconcile source to target.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E05",
+            "E06",
+            "E07",
+            "E18",
+            "E26"
+          ],
+          "capstones": [
+            "C1"
+          ],
+          "lessons": [],
+          "questions_planned": 9,
+          "validation": [
+            "result_matches",
+            "delta_table",
+            "idempotent",
+            "data_quality"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/ingestion/",
+            "https://docs.databricks.com/aws/en/lakehouse/medallion"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "2.2",
+          "text": "Use the COPY INTO command to incrementally load files from cloud object storage (ADLS/S3/GCS) into Unity Catalog-governed tables.",
+          "competency": "Load files incrementally with COPY INTO so a rerun loads each file once, with the right format and copy options.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E08",
+            "E09"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 6,
+          "validation": [
+            "delta_table",
+            "idempotent",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/copy-into/"
+          ],
+          "gaps": [
+            "G-01"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "2.3",
+          "text": "Use Auto Loader with schema enforcement and schema evolution in batch modes (for example, directory listing or file notification) to land data into Unity Catalog-governed tables.",
+          "competency": "Ingest files with Auto Loader, choose schema inference, hints and an evolution mode, and recover a stream after schema drift.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E10",
+            "E11",
+            "E12"
+          ],
+          "capstones": [
+            "C1"
+          ],
+          "lessons": [],
+          "questions_planned": 8,
+          "validation": [
+            "delta_table",
+            "schema_matches",
+            "idempotent",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/",
+            "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/schema"
+          ],
+          "gaps": [
+            "G-01"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "2.4",
+          "text": "Configure Lakeflow Connect to reliably ingest data from diverse enterprise sources into Unity Catalog-governed tables.",
+          "competency": "Configure a Lakeflow Connect ingestion: connection, gateway where needed, destination catalog and schema, and schedule.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E13"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "config_matches",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
+          ],
+          "gaps": [
+            "G-08"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "2.5",
+          "text": "Use JDBC/ODBC or REST clients in notebooks to land data into cloud storage or directly into Unity Catalog-governed tables, usually orchestrated and scheduled with Lakeflow Jobs.",
+          "competency": "Land data from a database (JDBC) or a paged REST API from a notebook into storage or a governed table, ready to schedule.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E14",
+            "E15"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "result_matches",
+            "artifact_present",
+            "idempotent"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/connect/external-systems/jdbc",
+            "https://docs.databricks.com/aws/en/jobs/"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "2.6",
+          "text": "Prioritize between Auto Loader, Lakeflow Connect (standard and managed connectors), partner connectors, and other ingestion methods based on technical requirements such as data volume, ingestion frequency, data types, and governance needs with Unity Catalog.",
+          "competency": "Pick the ingestion method for a requirement from volume, frequency, data types and governance needs.",
+          "databricks_required": false,
+          "best_local": "knowledge_only",
+          "exercises": [
+            "E16"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 6,
+          "validation": [
+            "assessment"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/ingestion/",
+            "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "2.7",
+          "text": "Ingest semi-structured and unstructured data (for example, JSON and nested data) via Lakeflow Connect and other managed connectors into Unity Catalog-governed Delta tables.",
+          "competency": "Ingest nested JSON into Delta: schemas, struct access, explode and semi-structured types.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E17"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "schema_matches",
+            "result_matches"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/query/formats/json"
+          ],
+          "gaps": [],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Data Transformation and Modeling",
+      "weight": {
+        "min": 22,
+        "max": 22
+      },
+      "objectives": [
+        {
+          "id": "3.1",
+          "text": "Implement data cleaning by reading bronze tables with PySpark/SQL, cleaning nulls, standardizing data types, and writing to new silver tables.",
+          "competency": "Read bronze with PySpark or SQL, clean nulls, standardize types and write a silver Delta table.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E19",
+            "E20",
+            "E26",
+            "E33"
+          ],
+          "capstones": [
+            "C1"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "schema_matches",
+            "data_quality",
+            "result_matches",
+            "delta_table",
+            "idempotent"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/lakehouse/medallion",
+            "https://docs.databricks.com/aws/en/getting-started/dataframes"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "3.2",
+          "text": "Combine DataFrames with operations such as Inner join, left join, broadcast join, multiple keys, cross join, union, and union all.",
+          "competency": "Combine DataFrames with inner, left, multi-key, cross and broadcast joins, union and unionByName.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E21",
+            "E22"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "result_matches",
+            "plan_shows",
+            "assessment"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/getting-started/dataframes"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "3.3",
+          "text": "Manipulate columns, rows, and table structures by adding, dropping, splitting, renaming column names, applying filters, and exploding arrays.",
+          "competency": "Add, drop, split and rename columns, filter rows and explode arrays.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E23"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "schema_matches",
+            "result_matches"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/getting-started/dataframes"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "3.4",
+          "text": "Perform data deduplication operations and aggregate operations on DataFrames, such as count, approximate count distinct, and mean, summary.",
+          "competency": "Deduplicate and aggregate DataFrames: dropDuplicates, latest-row windows, count, approx_count_distinct, mean, summary.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E24",
+            "E25",
+            "E32"
+          ],
+          "capstones": [
+            "C1"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "result_matches",
+            "data_quality"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/getting-started/dataframes"
+          ],
+          "gaps": [],
+          "status": "planned"
+        },
+        {
+          "id": "3.5",
+          "text": "Understand the basic tuning parameters (spark.sql.shuffle.partitions, spark.default.parallelism, spark.executor/driver.memory, spark.sql.autoBroadcastJoinThreshold) and re-measure the performance.",
+          "competency": "Set shuffle partitions, parallelism, memory and the broadcast threshold for a workload and re-measure.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E22",
+            "E27"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 6,
+          "validation": [
+            "plan_shows",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/optimizations/aqe",
+            "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/"
+          ],
+          "gaps": [
+            "G-05"
+          ],
+          "status": "planned",
+          "earlier_wording": {
+            "2026-05-04": "Understand the basic tuning parameters (spark.sql.shuffle.partitions:, spark.default.parallelism, spark.executor/driver.memory, spark.sql.autoBroadcastJoinThreshold) and re-measure the performance."
+          }
+        },
+        {
+          "id": "3.6",
+          "text": "Understand the difference between, and how to build, Gold layer objects such as materialized views, views, streaming tables, and tables for BI and analytics teams in Unity Catalog.",
+          "competency": "Choose and build views, tables, materialized views and streaming tables for a gold layer in Unity Catalog.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E28",
+            "E29"
+          ],
+          "capstones": [
+            "C1"
+          ],
+          "lessons": [],
+          "questions_planned": 6,
+          "validation": [
+            "config_matches",
+            "delta_table",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
+            "https://docs.databricks.com/aws/en/ldp/"
+          ],
+          "gaps": [
+            "G-04",
+            "G-02"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "3.7",
+          "text": "Apply data quality checks and validation rules to ensure reliable Silver and Gold datasets.",
+          "competency": "Write data quality rules and pipeline expectations that warn, drop or fail, and quarantine bad rows.",
+          "databricks_required": false,
+          "best_local": "local_verified",
+          "exercises": [
+            "E29",
+            "E30",
+            "E31"
+          ],
+          "capstones": [
+            "C1"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "data_quality",
+            "pipeline_outcome",
+            "result_matches"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/ldp/expectations"
+          ],
+          "gaps": [],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Working with Lakeflow Jobs",
+      "weight": {
+        "min": 16,
+        "max": 16
+      },
+      "objectives": [
+        {
+          "id": "4.1",
+          "text": "Implement control flows (retries and conditional tasks such as branching and looping) using Lakeflow Jobs for pipeline orchestration",
+          "competency": "Use retries, timeouts, if/else condition tasks, run-if rules and for-each loops in a job.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E36",
+            "E37",
+            "E38",
+            "E42"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 9,
+          "validation": [
+            "job_graph",
+            "pipeline_outcome",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/jobs/run-if",
+            "https://docs.databricks.com/aws/en/jobs/tasks/for-each",
+            "https://docs.databricks.com/aws/en/jobs/configure-task"
+          ],
+          "gaps": [
+            "G-03"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "4.2",
+          "text": "Configure common tasks (notebook, SQL query, dashboard, and pipeline tasks) and their dependencies using Lakeflow Jobs and its DAG-based task graph",
+          "competency": "Configure notebook, SQL, dashboard and pipeline tasks, their parameters and depends_on graph.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E34",
+            "E35",
+            "E42",
+            "E43"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 9,
+          "validation": [
+            "job_graph",
+            "pipeline_outcome",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/jobs/",
+            "https://docs.databricks.com/aws/en/jobs/configure-task",
+            "https://docs.databricks.com/aws/en/jobs/run-if"
+          ],
+          "gaps": [
+            "G-03"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "4.3",
+          "text": "Implement job schedules using Lakeflow Jobs with an understanding of trigger types (scheduled, file arrival, and table update)",
+          "competency": "Schedule a job with cron and time zone, file arrival or table update triggers.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E39",
+            "E40"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "config_matches",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/jobs/triggers",
+            "https://docs.databricks.com/aws/en/jobs/file-arrival-triggers"
+          ],
+          "gaps": [
+            "G-03"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "4.4",
+          "text": "Choose between time-based and data-driven triggers based on data availability and pipeline dependencies.",
+          "competency": "Choose time-based or data-driven triggers from data availability and dependencies.",
+          "databricks_required": false,
+          "best_local": "knowledge_only",
+          "exercises": [
+            "E41"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "assessment"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/jobs/triggers"
+          ],
+          "gaps": [],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Implementing CI/CD",
+      "weight": {
+        "min": 10,
+        "max": 10
+      },
+      "objectives": [
+        {
+          "id": "5.1",
+          "text": "Manage your code development workflow within the Databricks workspace UI, including creating and switching between branches in Databricks Git folders (formerly Databricks Repos), committing and pushing changes, and creating pull requests using Databricks Git integration.",
+          "competency": "Branch, commit, push and open a pull request from a Git folder, and resolve a conflict.",
+          "databricks_required": true,
+          "best_local": "local_verified",
+          "exercises": [
+            "E44",
+            "E45"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "artifact_present",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/repos/"
+          ],
+          "gaps": [
+            "G-07"
+          ],
+          "status": "planned",
+          "earlier_wording": {
+            "2026-05-04": "Manage your code development workflow within the Databricks workspace UI, including creating and switching between branches in Databricks Repos, committing and pushing changes, and creating pull requests using Databricks Git integration."
+          }
+        },
+        {
+          "id": "5.2",
+          "text": "Understand environment-specific configuration using Declarative Automation Bundle (formerly Databricks Asset Bundles) variables and overrides while promoting the same codebase across dev, test, and prod targets.",
+          "competency": "Use bundle variables, targets and overrides to promote one codebase across dev, test and prod.",
+          "databricks_required": false,
+          "best_local": "simulated",
+          "exercises": [
+            "E46",
+            "E50"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "bundle_resolves",
+            "config_matches"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/dev-tools/bundles/variables"
+          ],
+          "gaps": [],
+          "status": "planned",
+          "earlier_wording": {
+            "2026-05-04": "Understand environment-specific configuration using Automation Bundle (formerly Databricks Asset Bundles) variables and overrides while promoting the same codebase across dev, test, and prod targets."
+          }
+        },
+        {
+          "id": "5.3",
+          "text": "Deploy Declarative Automation Bundles (formerly Databricks Asset Bundles) to package, configure, and promote Lakeflow Jobs, Lakeflow Declarative Pipelines, and other workspace assets across dev, test, and prod environments.",
+          "competency": "Package jobs and pipelines in a bundle and deploy them to dev, test and prod.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E47"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "bundle_resolves",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/dev-tools/bundles/"
+          ],
+          "gaps": [
+            "G-06"
+          ],
+          "status": "planned",
+          "earlier_wording": {
+            "2026-05-04": "Deploy Declarative Automation Bundles (formerly Databricks Asset Bundles) to package, configure, and promote Lakeflow Jobs, Lakeflow Spark Declarative Pipelines, and other workspace assets across dev, test, and prod environments."
+          }
+        },
+        {
+          "id": "5.4",
+          "text": "Understand the Databricks CLI to validate, deploy, and manage Declarative Automation Bundles (formerly Databricks Asset Bundles) and other workspace assets in automated CI/CD workflows.",
+          "competency": "Use the Databricks CLI in a CI workflow to validate and deploy bundles, with tests before deploy.",
+          "databricks_required": false,
+          "best_local": "simulated",
+          "exercises": [
+            "E48",
+            "E49"
+          ],
+          "capstones": [
+            "C3"
+          ],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "config_matches",
+            "result_matches"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/dev-tools/cli/",
+            "https://docs.databricks.com/aws/en/dev-tools/bundles/"
+          ],
+          "gaps": [],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Troubleshooting, Monitoring, and Optimization",
+      "weight": {
+        "min": 10,
+        "max": 10
+      },
+      "objectives": [
+        {
+          "id": "6.1",
+          "text": "Identify trends in job performance using the Lakeflow Jobs run history view to compare current execution times against historical baselines.",
+          "competency": "Compare a job's run times with its baseline in run history and spot a regression.",
+          "databricks_required": true,
+          "best_local": "local_verified",
+          "exercises": [
+            "E51"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "result_matches",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/jobs/monitor"
+          ],
+          "gaps": [
+            "G-03"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "6.2",
+          "text": "Use the Lakeflow Jobs UI to monitor pipeline health by interpreting job statuses, viewing DAG-based task graphs to spot upstream blockers, and tracking pipeline run times and failure rates.",
+          "competency": "Read job statuses, task graphs, run times and failure rates to find the upstream blocker.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E52"
+          ],
+          "capstones": [
+            "C2"
+          ],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/jobs/monitor",
+            "https://docs.databricks.com/aws/en/jobs/repair-job-failures"
+          ],
+          "gaps": [
+            "G-03"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "6.3",
+          "text": "Identify common performance bottlenecks such as data skew, shuffling, and disk spilling by interpreting stage-level metrics in the Spark UI.",
+          "competency": "Find skew, shuffle and spill from stage-level Spark metrics and fix the cause.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E53",
+            "E54"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "plan_shows",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/"
+          ],
+          "gaps": [
+            "G-05"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "6.4",
+          "text": "Understand the features of Liquid Clustering and predictive optimization.",
+          "competency": "Explain liquid clustering and predictive optimization, when to use them, and maintain Delta tables.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E55",
+            "E56"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "delta_table",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/tables/clustering",
+            "https://docs.databricks.com/aws/en/optimizations/predictive-optimization"
+          ],
+          "gaps": [
+            "G-10"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "6.5",
+          "text": "Diagnose cluster startup failures, library conflicts, and out-of-memory issues.",
+          "competency": "Diagnose cluster startup failures, library conflicts and out-of-memory errors from logs and events.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E57",
+            "E58"
+          ],
+          "capstones": [],
+          "lessons": [],
+          "questions_planned": 5,
+          "validation": [
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/compute/troubleshooting/"
+          ],
+          "gaps": [
+            "G-09"
+          ],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Governance and Security",
+      "weight": {
+        "min": 15,
+        "max": 15
+      },
+      "objectives": [
+        {
+          "id": "7.1",
+          "text": "Differentiate between managed and external tables in Unity Catalog and perform basic operations (create, modify, delete, and convert between managed and external tables) on them.",
+          "competency": "Create, alter, drop and convert managed and external tables and know what dropping each removes.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E59"
+          ],
+          "capstones": [
+            "C3"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "grants",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/tables/managed",
+            "https://docs.databricks.com/aws/en/tables/external",
+            "https://docs.databricks.com/aws/en/tables/convert-to-managed"
+          ],
+          "gaps": [
+            "G-02"
+          ],
+          "status": "planned",
+          "content_note": "SET MANAGED / UNSET MANAGED need Databricks Runtime 17.3 LTS or above or serverless; rollback is possible for 14 days (read 2026-11-03)."
+        },
+        {
+          "id": "7.2",
+          "text": "Configure access controls using the UI and SQL by applying GRANT, REVOKE, and DENY privileges to principals (users, groups, and service principals) at appropriate levels of the security hierarchy.",
+          "competency": "Grant and revoke privileges to users, groups and service principals at the right level of the hierarchy.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E60",
+            "E61",
+            "E62"
+          ],
+          "capstones": [
+            "C3"
+          ],
+          "lessons": [],
+          "questions_planned": 9,
+          "validation": [
+            "grants",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/",
+            "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/deny-policies"
+          ],
+          "gaps": [
+            "G-02"
+          ],
+          "status": "planned",
+          "content_note": "The guide names DENY. Unity Catalog's documented privilege statements are GRANT and REVOKE; DENY exists only as a Beta ABAC DENY policy, and only for MANAGE ACCESS CONTROL (read 2026-11-03). Exercises teach that difference."
+        },
+        {
+          "id": "7.3",
+          "text": "Understand column-level masking and row-level security to restrict data visibility based on user groups.",
+          "competency": "Restrict rows and columns by group with row filters and column masks.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E63"
+          ],
+          "capstones": [
+            "C3"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "grants",
+            "result_matches",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/data-governance/unity-catalog/filters-and-masks/"
+          ],
+          "gaps": [
+            "G-02"
+          ],
+          "status": "planned"
+        },
+        {
+          "id": "7.4",
+          "text": "Understand Unity Catalog ABAC policies to centrally control row-level filtering and column masking for sensitive data.",
+          "competency": "Use governed tags and ABAC policies to filter rows and mask columns across a catalog.",
+          "databricks_required": true,
+          "best_local": "simulated",
+          "exercises": [
+            "E64"
+          ],
+          "capstones": [
+            "C3"
+          ],
+          "lessons": [],
+          "questions_planned": 7,
+          "validation": [
+            "grants",
+            "assessment",
+            "databricks_check"
+          ],
+          "docs": [
+            "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/"
+          ],
+          "gaps": [
+            "G-02"
+          ],
+          "status": "planned"
+        }
+      ]
+    }
+  ]
+}

@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
 
@@ -65,7 +66,8 @@ function openLink(url) {
 async function signOut() {
   if (!(await confirmDialog("Sign out?", "KratosForge forgets your sign-in on this PC, in the app and in the Fabric views. " +
     "Scheduled runs on this PC wait until someone signs in again. Notebooks and settings stay.", "Sign out"))) return;
-  await attempt(() => rpc("sign_out"), "Sign-out failed");
+  // A refused sign-out keeps the sign-in: saying "Signed out" over the error would leave it on this PC (#1437).
+  if (!(await attempt(() => rpc("sign_out"), "Sign-out failed"))) return;
   await invoke("fabric_view_sign_out").catch(() => {});
   Object.assign(state, { user: null, tenant: null, workspaces: null, openWorkspace: null });
   try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }
@@ -98,28 +100,46 @@ function channelLabel() {
 
 // ---------- Report a problem ----------
 
-// Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses, the
-// Windows user name in paths, and tenant, workspace and item ids. The same rules as the engine's
+// Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses (a guest's too),
+// the tenant's onmicrosoft.com and SharePoint names, the organization on OneDrive folders, the Windows user name in paths, and tenant,
+// workspace and item ids. The same rules as the engine's
 // redact.py; both are tested against app/tests/redact-cases.json.
 function redactReport(text, level = "support") {
   const slash = "(?:\\\\\\\\|\\\\|/)+";
   const out = String(text)
     .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
-    .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/(\bauthorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}/gi, "$1[removed]")
+    .replace(/(\b(?:basic|Basic|BASIC)\s+)(?=[A-Za-z0-9+/]*(?:[0-9+/=]|[a-z][A-Z]))[A-Za-z0-9+/]{8,}={0,2}/g, "$1[removed]")
+    .replace(/(\bsig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/\b(?:fdt|kfp)_[A-Za-z0-9_\-]{20,}/g, "[removed]")
+    .replace(/(--(?:password|passwd|pwd)\s+)(?:"[^"\n]*"?|'[^'\n]*'?|[^\s"']+)/gi, "$1[removed]")
+    .replace(/(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+/gi, "$1[removed]")
+    .replace(/([?&#]code=)[^&\s"'<>#]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
     .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
     .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})/g, "[removed]")
     .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
-    .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
+    .replace(/\bdose[0-9a-f]{32}\b/g, "[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
+    .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
     .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
-    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
+    .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
+    .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
+    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
+    .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");
@@ -164,6 +184,20 @@ function reportProblem() {
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
   [btn("Copy only", null, () => copyText(report(), "Report"), "tool outline"), h("span", { class: "spacer" }),
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
+}
+
+// The policy file's SHA-256 and its last change (policy_watch.py, #1670), for IT to compare with the
+// hash of the file they pushed (Get-FileHash). Shown only when there is a file.
+function policyRecordRows(r) {
+  if (!r?.sha256) return null;
+  const when = r.changed_at ? dateTimeText(r.changed_at) : "";
+  const how = r.first ? `First seen ${when}` : `Last changed ${when}`;
+  return [
+    h("dt", {}, "Its SHA-256"), h("dd", { class: "mono" }, r.sha256),
+    h("dt", {}, "Changes"), h("dd", {}, r.managed === false
+      ? `${how}, while the account signed in to this PC could change the file: not the way IT pushes it. Compare the SHA-256 with the file IT shipped. The audit log has each change.`
+      : `${how}. The audit log has each change.`),
+  ];
 }
 
 // ---------- Check for updates ----------
@@ -221,7 +255,8 @@ async function checkForUpdates() {
     install.disabled = true;
     later.disabled = true;
     try {
-      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; })) return;
+      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; },
+        (note) => { text.textContent = note; })) return;
       install.lastChild.textContent = "Install and restart";
     } catch (err) {
       text.className = "error-text";
@@ -234,13 +269,20 @@ async function checkForUpdates() {
   show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
+// update_app's log line when the channel moved on since the person agreed to a build: the build
+// they saw, then the one installed instead.
+const REPLACED_BUILD = /^Build (\w{7}) was replaced on the update channel by build (\w{7})/;
+
 // Saves the open notebook, then downloads the build and hands over to it, the same checked
 // download as at startup (update_app). False when the notebook wasn't saved; throws when the
-// update failed. setLabel shows how far the download is.
-async function installUpdate(commit, setLabel) {
+// update failed. setLabel shows how far the download is; setNote, when given, says when a newer
+// build replaced the one shown.
+async function installUpdate(commit, setLabel, setNote) {
   if (state.notebook?.dirty && !(await saveNotebook())) return false;
   setLabel("Downloading…");
   const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+    const moved = REPLACED_BUILD.exec(e.payload);
+    if (moved && setNote) setNote(`Installing build ${moved[2]}, which replaced build ${moved[1]} on the channel.`);
     const m = /^progress (\d+)/.exec(e.payload);
     if (m) setLabel(m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`);
   });
@@ -331,7 +373,8 @@ function renderUpdateBanner() {
     const restart = btn("Restart to update", "arrowDownload", async () => {
       restart.disabled = true;
       try {
-        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; })) return;
+        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; },
+          (note) => { text.replaceChildren(h("b", {}, note)); })) return;
         restart.lastChild.textContent = "Restart to update";
       } catch (err) {
         text.replaceChildren(h("b", { class: "error-text" }, `Update to build ${n.commit.slice(0, 7)} failed: ${err}`),
@@ -547,6 +590,7 @@ function motionSettingsCard(s, locked) {
         onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),
@@ -659,6 +703,20 @@ function settingRow(title, help, control, source) {
     h("div", { class: "setting-control" }, control));
 }
 
+// With preview features hidden, Notifications still shows the company mail server (platform-notices.js),
+// since email incident alerts send through it.
+function mailServerOnly() {
+  const box = h("div", { class: "pn-settings" }, h("p", { class: "muted-text small" }, "Loading the mail server..."));
+  const draw = async () => {
+    const s = await rpc("platform_notify_settings", {}).catch((e) => ({ error: e }));
+    box.replaceChildren(s.error
+      ? h("p", { class: "fail-text small" }, `Couldn't read the mail server settings: ${friendlyError(s.error).text}`)
+      : mailServerCard(s.mail_server || { set: false }, draw));
+  };
+  draw();
+  return box;
+}
+
 async function renderSettings() {
   setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
   const s = await loadSettings();
@@ -712,7 +770,7 @@ async function renderSettings() {
           renderUpdateBanner();
           render();
         } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
-    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+    h("div", { class: "row wrap" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
@@ -747,9 +805,9 @@ async function renderSettings() {
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
-    settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
+    settingRow("Incident alerts", "Send late and failed tables to a Teams channel, a Power Automate flow or email. The bell always shows them.",
       btn("Set up", "alert", () => alertsDialog(), "tool outline")),
-    await platformNoticesSection());
+    previewShown() ? await platformNoticesSection() : mailServerOnly());
 
   // Help and about
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
@@ -762,8 +820,11 @@ async function renderSettings() {
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),
       h("dt", {}, "Engine Python"), h("dd", {}, state.python || "unknown"),
       h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file),
+      policyRecordRows(s.policy_record),
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
+      s.allow_signed_out_schedules?.value === false ? [h("dt", {}, "Schedules on this PC"),
+        h("dd", {}, "Only while you're signed in to Windows: your organization turned off runs while signed out")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
         // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
         h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
@@ -772,23 +833,31 @@ async function renderSettings() {
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
-  const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
+  // Connections (connections.js) is a tab too: Databricks and Snowflake connection profiles.
+  const tab = previewShown() && ["integrations", "connections"].includes(state.settingsTab) ? state.settingsTab : "general";
   const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
-    [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
+    [["general", "General"], ["connections", "Connections"], ["integrations", "Integrations"]].map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
-        label, id === "integrations" ? previewTag() : null))) : null;
+        label, id === "general" ? null : previewTag()))) : null;
   const integrations = h("div", { class: "integrations" });
+  const connections = h("div", { class: "connections" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
   const platform = previewShown() ? h("section", { class: "card pad platform-link" },
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
       h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
+  // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
+  if (state.view !== "settings") return;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
+    return;
+  }
+  if (tab === "connections") {
+    renderConnectionsTab(connections);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
@@ -831,7 +900,7 @@ function advancedSection(s, locked, limitRow) {
       "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
       [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
     s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
-      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared. A new process already uses about 0.8 GB on Windows before any cell runs.",
       [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null,
     s.kernel_process.value && s.kernel_max_sessions ? limitRow("kernel_max_sessions", "Notebooks with a session",
       "Each notebook you run gets a process of its own. Opening one more than this stops the least recently used idle one, and its variables are cleared. A running notebook is never stopped.",
@@ -845,7 +914,58 @@ function advancedSection(s, locked, limitRow) {
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [
     h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
       learnMore("advanced-settings")),
-    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+    signInGroup, kernel, onelake, exerciseSandboxSection(), sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// PB-131: Academy exercise scripts run in a Windows AppContainer, which KratosForge lets read its
+// Python on this PC. The row says whether runs use it and how many folders hold that permission, and
+// removes the permission (academy_sandbox_remove_grants). The next exercise run adds it back.
+function exerciseSandboxSection() {
+  const side = h("div", { class: "sandbox-status" }, h("div", { class: "muted-text small" }, "Looking..."));
+  const result = h("div", { class: "sandbox-result" });
+  const folders = (n) => `${n.toLocaleString()} folder${n === 1 ? "" : "s"}`;
+  const load = () => rpc("academy_sandbox_status").then((st) => {
+    const on = st.enabled && st.available;
+    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC." : "");
+    side.replaceChildren(...[
+      h("div", { class: on ? "sandbox-on" : "" }, on ? [icon("ok", 16), " On: exercises run in an AppContainer"]
+        : "Off: exercises run in a limited process on this PC"),
+      why ? h("div", { class: "muted-text small" }, `Why: ${why}`) : null,
+      h("div", { class: "muted-text small" }, st.granted
+        ? `Read permission on ${folders(st.granted)} of KratosForge's Python`
+        : on ? "No permissions held now. The next exercise adds them back." : "No permissions held."),
+      st.granted ? btn("Remove exercise permissions", null, () => remove(st.granted), "tool outline small") : null].filter(Boolean));
+  }, (err) => {
+    side.replaceChildren(errorPanel(err, { label: "Couldn't read the exercise sandbox status", retry: load }) || "");
+  });
+  const remove = async (n) => {
+    if (!(await confirmDialog("Remove exercise permissions?",
+      [`The AppContainer loses its read permission on KratosForge's Python (${folders(n)}). Your files and exercises aren't touched.`,
+        h("span", { class: "muted-text small confirm-note" },
+          "The next exercise you run adds the permission back. To keep it off, don't run exercises on this PC.")], "Remove"))) return;
+    const res = await attempt(() => rpc("academy_sandbox_remove_grants"), "Not removed");
+    if (!res) return;
+    if (res.why) { toast(res.why, true); return; }
+    if (!res.failed.length) {
+      result.replaceChildren();
+      toast(`Removed the exercise permissions from ${folders(res.removed)}`);
+    } else {
+      const list = res.failed.join("\n");
+      result.replaceChildren(h("div", { class: "callout git-warn small sandbox-failed", role: "alert" },
+        h("b", {}, icon("warning", 16), ` Removed from ${folders(res.removed)}. Windows wouldn't change ${res.failed.length}:`),
+        h("ul", { class: "mono" }, res.failed.map((p) => h("li", {}, p))),
+        h("div", { class: "row wrap" }, h("span", { class: "muted-text" }, "A program may have them open. Close other apps and try again."),
+          btn("Try again", null, () => remove(res.failed.length), "tool link small"),
+          btn("Copy the list", null, () => copyText(list, "The list"), "tool link small"))));
+    }
+    load();
+  };
+  load();
+  return h("div", { class: "advanced-group" }, h("h3", {}, "Exercise sandbox"),
+    settingRow("Academy exercises",
+      "When the AppContainer is on, exercise scripts (except Delta and PySpark ones) run in a Windows AppContainer: no network and no access to your own files. To make that work, KratosForge lets it read its Python on this PC. Removing that permission is safe: the next exercise you run adds it back.",
+      side),
+    result);
 }
 
 // How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the
@@ -1163,33 +1283,49 @@ function readinessCard() {
   return box;
 }
 
-// ---------- Get started (Home, until there's a metadata project) ----------
+// ---------- Getting started with KratosForge (Home) ----------
 
 function markDone(step) {
   try { localStorage.setItem(`fd.done.${step}`, "1"); } catch { /* not remembered */ }
 }
 
-function getStarted(project, notebookCount) {
+// The main starting points, one small tile each, in a card that folds to its header line and
+// remembers that (fd.fold.home.getstarted). Someone who hid the old Get started card starts folded.
+// Tiles tick once tried: a notebook, a lakehouse opened, a metadata project; the rest never tick.
+// Returns { el, mark(project, notebookCount) } so Home ticks them once it has read those.
+function gettingStarted() {
   let hidden = false;
-  const done = (step) => { try { return localStorage.getItem(`fd.done.${step}`) === "1"; } catch { return false; } };
   try { hidden = localStorage.getItem("fd.getstarted.hidden") === "1"; } catch { /* shown */ }
-  if (hidden || project?.path) return null;
-  const steps = [
-    // Signing in is asked once on Home: by Ready to work while it shows, else here.
-    readinessShown() ? null : [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
-    [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
-    [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
-    [false, "Set up a metadata project", "Describe your medallion tables once and let KratosForge build and run them.", () => go("metadata")],
-  ].filter(Boolean);
-  const box = h("section", { class: "card pad get-started" },
-    h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),
-      btn("Hide", null, () => { try { localStorage.setItem("fd.getstarted.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small")),
-    h("ol", {}, steps.map(([ok, title, help, run]) => h("li", { class: ok ? "done" : null },
-      h("span", { class: "step-mark" }, ok ? icon("ok", 16) : null),
-      h("div", { class: "grow" }, h("b", {}, title), h("div", { class: "muted-text small" }, help)),
-      ok ? null : btn("Start", null, run, "tool outline small")))),
-    h("p", { class: "muted-text small" }, learnMore("get-started", "Read the user guide")));
-  return box;
+  const done = (step) => { try { return localStorage.getItem(`fd.done.${step}`) === "1"; } catch { return false; } };
+  const points = [
+    ["notebook", "notebook", "Run a notebook on this PC", "Python and Spark-style code on your own processor.", "New notebook", () => newNotebook()],
+    ["import", "arrowUpload", "Bring your notebooks", "Import from Fabric or Databricks and run them here.", "Import", () => nbfImportDialog()],
+    ["lakehouse", "onelake", "Explore OneLake", "Browse lakehouse tables and files, or query them with SQL.", "OneLake catalog", () => go("onelake")],
+    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once; KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
+    ["optimize", "gauge", "Spend less Fabric capacity", "See what uses capacity and what could run on this PC.", "Optimize", () => go("optimize")],
+    ["platform", "building", "Set up the platform", "For admins: workspaces, environments, access and governance.", "Platform", () => go("platform")],
+  ];
+  const tiles = new Map();
+  const grid = h("div", { class: "gs-grid" }, points.map(([key, ic, title, text, verb, run]) => {
+    const tile = h("div", { class: `gs-tile${key === "lakehouse" && done("lakehouse") ? " done" : ""}` },
+      h("div", { class: "row gs-title" }, icon(ic, 16), h("b", { class: "grow" }, title), h("span", { class: "gs-tick", title: "Tried" }, icon("ok", 14))),
+      h("div", { class: "muted-text small" }, text),
+      btn(verb, null, run, "tool link small"));
+    tiles.set(key, tile);
+    return tile;
+  }));
+  const learn = PREVIEW_FEATURES.learn && previewShown()
+    ? btn("New to SQL or data work? Try the lessons in Learn", "beaker", () => go("learn"), "tool link small") : null;
+  const el = foldable("home.getstarted",
+    h("h2", {}, "Getting started with KratosForge"),
+    h("div", { class: "gs-body" }, grid,
+      h("div", { class: "row wrap gs-foot" }, learn, learnMore("get-started", "Read the user guide"))),
+    { cls: "card pad get-started", start: hidden });
+  const mark = (project, notebookCount) => {
+    tiles.get("notebook").classList.toggle("done", notebookCount > 0);
+    tiles.get("project").classList.toggle("done", !!project?.path);
+  };
+  return { el, mark };
 }
 
 registerFeature({

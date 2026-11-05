@@ -164,6 +164,13 @@ def _uses_cli(cred: dict[str, Any], cfg_path: Path | None = None) -> bool:
     return not (section.get("token") or (section.get("client_id") and section.get("client_secret")))
 
 
+def _check_profile_host(profile: str, host: str, cfg_path: Path | None) -> None:
+    """The SDK takes DATABRICKS_HOST over the profile's own host, so the profile must be for this
+    workspace, or name none and keep no secret of its own (databricks_auth.check_profile_host)."""
+    from .databricks_auth import _cfg_section, check_profile_host
+    check_profile_host(profile, _cfg_section(profile, cfg_path), host)
+
+
 def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, str] | None = None,
                environ: Mapping[str, str] | None = None, cfg_path: Path | None = None) -> dict[str, str]:
     """The process's environment: this PC's, minus any DATABRICKS_* or PYTHON* variable, plus the
@@ -174,6 +181,10 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
     cred = connection.get("credential") or {}
     method = cred.get("method") or "oauth-u2m"
     env |= {"DATABRICKS_HOST": host, "DATABRICKS_CLUSTER_ID": cluster_id}
+    if method == "cli-profile":
+        if not cred.get("profile"):
+            raise DatabricksAuthError("Name the Databricks CLI profile to use.")
+        _check_profile_host(str(cred["profile"]), host, cfg_path)
     # The SDK finds the CLI itself, current folder included; give it the one find_cli trusts.
     cli = find_cli(base)
     if cli:
@@ -183,8 +194,6 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
         raise DatabricksAuthError("This sign-in uses the Databricks CLI, which isn't installed or isn't on PATH. "
                                   "Install it from https://docs.databricks.com/dev-tools/cli/install.html.")
     if method == "cli-profile":
-        if not cred.get("profile"):
-            raise DatabricksAuthError("Name the Databricks CLI profile to use.")
         env["DATABRICKS_CONFIG_PROFILE"] = str(cred["profile"])
     elif method == "oauth-u2m":
         env["DATABRICKS_AUTH_TYPE"] = "databricks-cli"
@@ -203,7 +212,7 @@ def _frame_output(out: dict[str, Any]) -> dict[str, Any]:
     from .local_sql import _table_output
     columns, rows = out["columns"], out["rows"]
     try:
-        table = pa.Table.from_pylist([dict(zip(columns, r)) for r in rows]) if rows else \
+        table = pa.Table.from_pylist([dict(zip(columns, r, strict=True)) for r in rows]) if rows else \
             pa.table({c: pa.array([], pa.string()) for c in columns})
     except (pa.ArrowInvalid, pa.ArrowTypeError):
         table = pa.table({c: pa.array([None if r[i] is None else str(r[i]) for r in rows], pa.string())

@@ -21,7 +21,7 @@ def levels(pid):
 
 def test_levels_today():
     # Change these only with the evidence: a live test run, or a feature with its tests.
-    assert levels("fabric") == {"built": 4, "in_use": 2, "verified": 0}
+    assert levels("fabric") == {"built": 4, "in_use": 2, "verified": 2}
     assert levels("databricks") == {"built": 2, "in_use": 0, "verified": 0}
     assert levels("snowflake") == {"built": 0, "in_use": 0, "verified": 0}
     assert levels("local") == {"built": 4, "in_use": 4, "verified": 4}

@@ -1,0 +1,63 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E21",
+  "version": 1,
+  "status": "draft",
+  "title": "Combine web and store orders and add the customer with the right join",
+  "objectives": ["3.2"],
+  "objective_text": "Combine DataFrames with unions and joins: unionByName, left and inner joins, and multi-key joins.",
+  "scenario": "Web and store orders land in two bronze tables built by different teams, with the same columns in a different order. Sales wants one silver.orders table with every order and the customer's name. Customers are keyed by customer_id and region, because the same id was reused in each region.",
+  "difficulty": 1,
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {"name": "bronze.web_orders", "rows": 4, "size": "small", "seeded": "fixed values in setup.sql"},
+    {"name": "bronze.store_orders", "rows": 3, "size": "small", "seeded": "fixed values in setup.sql"},
+    {"name": "bronze.customers", "rows": 5, "size": "small", "seeded": "fixed values in setup.sql"}
+  ],
+  "starting_environment": "Delta tables bronze.web_orders, bronze.store_orders and bronze.customers in the exercise folder, and a starter answer.py.",
+  "required": [
+    "Every web and store order appears once, tagged with channel web or store.",
+    "Columns are matched by name, not position, when the two order tables are stacked.",
+    "customer_name comes from bronze.customers matched on customer_id and region; an order with no customer keeps its row with customer_name 'unknown'.",
+    "Write silver.orders with order_id, customer_id, region, channel, amount, customer_name, so that running the code again leaves the same table."
+  ],
+  "expected": {"description": "silver.orders has 7 rows, orders 1 to 7, each once; order 7's customer_name is unknown."},
+  "verifies": [
+    "Your PySpark stacks two tables by column name and left-joins on a two-column key, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Databricks workspace, so it doesn't show how Spark plans the join (broadcast or shuffle) or how it performs on large tables."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.orders", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.orders", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.orders",
+     "columns": {"order_id": "", "customer_id": "", "region": "", "channel": "", "amount": "", "customer_name": ""},
+     "unique": ["order_id"], "not_null": ["order_id", "customer_name"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.orders", "weight": 1, "required": true}
+  ],
+  "hints": [
+    "F.lit(\"web\") makes a constant column: add it with withColumn(\"channel\", ...) before stacking.",
+    "web.union(store) matches columns by position; the store table's columns are in another order. unionByName matches them by name.",
+    "Customer 100 exists in EU and in US. Join on both columns: on=[\"customer_id\", \"region\"].",
+    "how=\"left\" keeps order 7, whose customer isn't in bronze.customers; F.coalesce(F.col(\"name\"), F.lit(\"unknown\")) labels it.",
+    "Write with mode(\"overwrite\") so a rerun replaces the table."
+  ],
+  "explanation": "Tag each source with a literal channel column and stack them with unionByName, because union matches by position and the store table's columns are in another order. Then left-join customers on the full key, customer_id and region: an inner join would drop the order whose customer hasn't arrived, and a join on customer_id alone would match order 1 to both customer 100s and count it twice. Coalesce the missing name to 'unknown', select the columns, and overwrite silver.orders so a rerun can't double it.",
+  "troubleshooting": [
+    "An error about types in a union, or regions in the order_id column: the union is by position; use unionByName.",
+    "Some orders appear twice: the join key is missing region.",
+    "Order 7 is missing: the join is inner; use a left join."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/getting-started/dataframes"],
+  "reset": "Reset rebuilds the bronze tables from setup.sql, removes silver.orders and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

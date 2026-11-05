@@ -97,6 +97,19 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
+## Fakes follow what live runs refused
+
+The tests that stand in for Fabric use fakes. A fake that accepts what Fabric refuses lets a broken request pass every test and fail on the first live run, so each refusal seen on a live run becomes a rule the fakes share (`sidecar/tests/fabric_refusals.py`):
+
+| Refusal | Seen on | What the fakes do |
+| --- | --- | --- |
+| A User Data Functions item whose definition lists no functions: `NullOrEmptyArgument` | Live run 2, 2026-10-30 (#1165) | Refuse the create or update with the same 400 |
+| Windows sign-in with Microsoft's Fabric CLI client gets no token for Azure SQL or Kusto: `AADSTS65002` | Live run 2, 2026-10-30 (#1079) | Refuse the token with the same message |
+| A User Data Functions binding or connected data source with no item type Fabric knows: `UnsupportedArgument` (artifactType) | Live runs 3 to 5, 2026-11-03 | Refuse the create or update when a binding's `itemType` or a connected data source's `artifactType` isn't one Fabric lists (Fabric's data source has no `sourceType` field) (UDF_Platform's SQL_Platform connection is `SqlDbNative`) |
+| A User Data Functions input parameter with an underscore in its name: `MetadataValidationError` ("cannot contain an underscore") | Live run 6, 2026-11-04 | Refuse the create or update when a `@udf.function()` in `function_app.py` takes a parameter whose name has an underscore (UDF_Platform's functions take camelCase names, such as `businessKey`, and pass each on under the operation's own name) |
+
+When a live run finds a new refusal, add it there with the run it came from, and add a row here.
+
 ## What it doesn't check yet
 
 - Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).
@@ -126,9 +139,11 @@ fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id>
 fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id>             # asks "Run it?", then runs
 ```
 
+Both commands first check this PC and print a line for each: Python 3.12 or later, the Databricks CLI on PATH at 0.205 or later (it is only asked for its version), and the profile in `~/.databrickscfg` with an Azure Databricks workspace address (or the `--host` address). A line marked `NO` says what to install or run. The dry run only reports them; a real run stops there, before signing in or starting anything, until they all pass.
+
 Leave out `--cluster` to test only the SQL warehouse. Use `--host <workspace url>` instead of `--profile` to sign in with `databricks auth login --host`. Add `--stop-compute` to stop the warehouse and terminate the cluster afterwards. They are only stopped if they were stopped when the run began, so the test never stops compute someone else was using. Answering "Run it?" (or passing `--yes`) is the confirmation the engines need before they start remote compute.
 
-The exit code is 0 when every check passed, 1 when one failed, and 2 when the warehouse or cluster was refused or the run wasn't started.
+The exit code is 0 when every check passed, 1 when one failed, and 2 when this PC wasn't ready, the warehouse or cluster was refused, or the run wasn't started.
 
 ### What it checks
 
@@ -163,13 +178,13 @@ After an unattended run passes, check these in the app once, on the same warehou
 
 ## T-SQL contract cases
 
-KratosForge never runs T-SQL on this PC: it checks and formats it ([SQL compatibility check](sql-compatibility.md)) and runs Spark SQL and DuckDB here. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
+The SQL page and Spark SQL cells never run T-SQL on this PC: they check and format it ([SQL compatibility check](sql-compatibility.md)) and run Spark SQL and DuckDB here. A [local data project](local-data.md#t-sql) does run T-SQL, translated to DuckDB SQL, and its T-SQL answers are meant to match the cases' `fabric` rows. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
 
 The cases are in `sidecar/tests/tsql_contract/cases.jsonl`, one JSON object per line after the first, and `sidecar/tests/test_tsql_contract.py` runs them with the rest of the tests. Each case has:
 
 | Field | Holds |
 | --- | --- |
-| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
+| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `aggregate`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
 | `local.check` | The compatibility check's outcome and exact rules |
 | `local.format` | `formats` or `left_alone` (Format SQL left it as it was). Formatting must never change the check's findings |
 | `local.run` | Spark SQL cases only: the rows, or part of the error, that running it on this PC gives. T-SQL cases are always refused here, and the test checks that |

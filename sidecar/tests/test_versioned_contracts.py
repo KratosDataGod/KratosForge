@@ -2,6 +2,7 @@
 
 import datetime as dt
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -361,7 +362,7 @@ def test_the_deprecation_event_fits_the_platform_notice_shape():
 def test_a_platform_made_before_versioned_contracts_still_works(tmp_path):
     path = tmp_path / "old.sqlite"
     platform = LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # catalog.link and no port history, as a platform has them before Finish or repair
+    with closing(sqlite3.connect(path)) as conn, conn:  # catalog.link and no port history, as a platform has them before Finish or repair
         conn.execute('DROP TABLE "catalog__port_version"')
         conn.execute('ALTER TABLE "catalog__link" DROP COLUMN accepts')
         conn.execute('ALTER TABLE "catalog__link" DROP COLUMN columns')
@@ -372,14 +373,14 @@ def test_a_platform_made_before_versioned_contracts_still_works(tmp_path):
         db.run('DROP TABLE "catalog__port_version"')
         db.commit()
     assert platform.call("product_history", product_id="crm/customers") == []
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "catalog__port_version" not in tables, "a read made a table"
     products = platform.call("list_products")
     assert products[0]["consumers"] == []
     platform.call("register_link", consumer="finance", alias="c", product_id="crm/customers", port="customers",
                   reads=READS_TEST, accepts="1+")
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__link")')}
     assert {"accepts", "columns"} <= cols
     assert platform.call("list_products")[0]["consumers"][0]["accepts"] == "1+"

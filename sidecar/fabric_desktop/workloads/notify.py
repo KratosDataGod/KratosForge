@@ -14,17 +14,17 @@ import datetime as dt
 import json
 import sqlite3
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Iterator
+from typing import Any, Callable, ContextManager
 
-from .. import redact
+from .. import redact, sqlitefile
 from .evaluate import describe
 
 DIGEST_OVER = 5
 KEEP_TRYING = 3 * 86400  # an alert older than this is dropped from the outbox, not sent
 DEFAULT_ROUTE = "default"
+LINE_MAX = 500  # characters in one title or line of a Teams message
 
 
 @dataclass(frozen=True)
@@ -104,25 +104,19 @@ def single(url: str) -> Routing:
     return Routing([Route(DEFAULT_ROUTE, url)] if url else [])
 
 
-@contextmanager
-def transaction(path: Path) -> Iterator[sqlite3.Connection]:
-    """A connection to the SQLite file at path: commits on success, rolls back on error, then closes.
-
-    ``with sqlite3.connect(...)`` alone commits or rolls back but leaves the connection open, and an
-    open handle keeps the file locked on Windows."""
-    db = sqlite3.connect(path, timeout=30)
-    try:
-        with db:
-            yield db
-    finally:
-        db.close()
-
-
 class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is moved aside and the outbox starts empty: messages still waiting
+        # in it are kept in the moved file but not sent, and new ones are sent as usual.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="messages still waiting in it aren't sent; new ones are sent as usual")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, "
                        "lines TEXT, attempts INTEGER DEFAULT 0, error TEXT)")
             cols = {r[1] for r in db.execute("PRAGMA table_info(outbox)")}
@@ -132,7 +126,7 @@ class Outbox:
                 db.execute("ALTER TABLE outbox ADD COLUMN not_before REAL DEFAULT 0")
 
     def _db(self) -> ContextManager[sqlite3.Connection]:
-        return transaction(self.path)
+        return sqlitefile.transaction(self.path)
 
     def add(self, title: str, lines: list[str], error: str, route: str = DEFAULT_ROUTE,
             not_before: float = 0.0) -> None:
@@ -158,7 +152,14 @@ class Outbox:
 
 
 def messages(changes: list[dict[str, Any]], source: str, digest_over: int = DIGEST_OVER) -> list[tuple[str, list[str]]]:
-    """(title, lines) for each Teams message these changes need."""
+    """(title, lines) for each Teams message these changes need, each one line with anything
+    credential-shaped removed (a run's message is the error as it came), so neither the channel
+    nor the outbox ever holds a secret."""
+    return [(redact.one_line(title, LINE_MAX), [redact.one_line(line, LINE_MAX) for line in lines])
+            for title, lines in _messages(changes, source, digest_over)]
+
+
+def _messages(changes: list[dict[str, Any]], source: str, digest_over: int) -> list[tuple[str, list[str]]]:
     if not changes:
         return []
     opened = [c for c in changes if c["change"] in ("opened", "reopened")]

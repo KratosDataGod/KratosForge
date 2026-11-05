@@ -72,7 +72,8 @@ def test_restore_previews_then_applies_and_keeps_what_it_replaced(app, tmp_path)
     assert (app / "notebooks" / "new.ipynb").exists()  # restore never deletes
     kept = app / backup.SAFETY / "20261017-120000" / "app" / "notebooks" / "sales.ipynb"
     assert kept.read_text() == '{"cells": ["changed"]}'
-    assert sqlite3.connect(app / "workloads.sqlite").execute("select name from w").fetchall() == [("orders",)]
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        assert db.execute("select name from w").fetchall() == [("orders",)]
     assert "set it again" in backup.describe(done)
 
 
@@ -133,6 +134,20 @@ def test_restore_refuses_while_an_idle_connection_has_a_wal_database_open(app, t
     assert not (app / backup.SAFETY).exists()
 
 
+def test_restore_replaces_a_damaged_database_instead_of_calling_it_in_use(app, tmp_path):
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    data = bytearray((app / "workloads.sqlite").read_bytes())
+    data[100:4096] = b"\xff" * 3996  # page 1 after the header: SQLite says malformed, not busy
+    (app / "workloads.sqlite").write_bytes(bytes(data))
+    with pytest.raises(sqlite3.DatabaseError), closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        db.execute("select name from w").fetchall()
+    done = backup.restore(zip_path, app, apply=True, now=NOW)
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        assert db.execute("select name from w").fetchall() == [("orders",)]
+    assert (app / backup.SAFETY / "20261017-120000" / "app" / "workloads.sqlite").read_bytes() == bytes(data)
+    assert done["safety"]
+
+
 def test_restore_checks_each_file_it_writes(app, tmp_path, monkeypatch):
     zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
     (app / "notebooks" / "sales.ipynb").write_text('{"cells": ["changed"]}')
@@ -184,7 +199,8 @@ def test_a_changed_or_unsafe_backup_is_refused_before_writing(app, tmp_path):
 def test_agent_queue_is_included_when_asked(app, tmp_path):
     home = tmp_path / "agent"
     home.mkdir()
-    sqlite3.connect(home / "queue.sqlite3").execute("create table q (id int)").connection.commit()
+    with closing(sqlite3.connect(home / "queue.sqlite3")) as db, db:
+        db.execute("create table q (id int)")
     (home / "agent.log").write_text("log")
     zip_path = backup.create(tmp_path / "out", app, home, now=NOW)["path"]
     assert "agent/queue.sqlite3" in zipfile.ZipFile(zip_path).namelist()
@@ -203,3 +219,19 @@ def test_cli(app, tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         main(["restore", str(zip_path)])
     assert "Nothing was changed" in capsys.readouterr().out
+
+
+def test_a_damaged_database_is_backed_up_as_it_is_and_doesnt_stop_the_backup(app, tmp_path):
+    """#1674 (EA-028): backup.py doesn't open a store for use, it copies one. A file SQLite can't read
+    goes into the zip byte for byte, so the person can still hand it to support, and every other file
+    is backed up as usual. A restore then replaces it (test_restore_replaces_a_damaged_database...)."""
+    damaged = b"SQLite format 3\x00" + b"\xff" * 4080
+    (app / "integrations.sqlite").write_bytes(damaged)
+    result = backup.create(tmp_path / "out", app, now=NOW)
+    with zipfile.ZipFile(result["path"]) as z:
+        assert z.read("app/integrations.sqlite") == damaged
+        assert "app/workloads.sqlite" in z.namelist()
+        manifest = json.loads(z.read("manifest.json"))
+    assert {e["path"] for e in manifest["files"]} >= {"app/integrations.sqlite", "app/workloads.sqlite"}
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:  # the healthy one is untouched
+        assert db.execute("select name from w").fetchall() == [("orders",)]

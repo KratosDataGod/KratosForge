@@ -33,6 +33,7 @@ from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
 from ..jsonfile import write_text
+from ..redact import one_line
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -335,7 +336,7 @@ class Project:
                 continue
             name = spec.get("name") or p.stem
             if p.stem != name:
-                self.load_errors.append(f"{p.name}: file name must match its name ({name})")
+                self.load_errors.append(f"{p.name}: file name must match its name ({one_line(name, 80)})")
             self.entities[name] = Entity(name, spec, p)
         exc_file = self.root / "exceptions.toml"
         self.exceptions = tomllib.loads(exc_file.read_text(encoding="utf-8")).get("exception", []) \

@@ -21,21 +21,23 @@ function registerFeature(f) {
 }
 
 function railFeatures(bottom = false) {
-  return features.list.filter((f) => f.rail && !!f.rail.bottom === bottom && (!f.preview || previewShown()))
+  const list = features.list.filter((f) => f.rail && !!f.rail.bottom === bottom && (!f.preview || previewShown()))
     .sort((a, b) => a.rail.order - b.rail.order);
+  return typeof skinRailSort === "function" ? skinRailSort(list) : list;  // skins.js: the skin's order, when it gives one
 }
 
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
   return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
-    icon(f.rail.icon, 22), f.rail.label);
+    icon(f.rail.icon, 22), typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label);
 }
 
 // ---------- preview ----------
 
 // Features not yet tried on a live Fabric tenant. Each loses its tag once it has been.
 const PREVIEW_FEATURES = {
+  skins: "Skins",
   fabricRun: "Run in Fabric",
   schedules: "Schedules",
   sideBySide: "Side by side",
@@ -101,7 +103,7 @@ const PREVIEW_FEATURES = {
   pipelineRuns: "Pipeline runs in Monitor",
   cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
-  trustBadges: "Endorsement and business terms",
+  trustBadges: "Endorsement",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
   sqlPractices: "SQL best practices",
@@ -109,6 +111,11 @@ const PREVIEW_FEATURES = {
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  runSeveral: "Run several notebooks from Home",
+  itemPins: "Items pinned to Home",
+  learn: "Learn",
+  academy: "Academy",
+  appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
 };
 
@@ -185,8 +192,15 @@ const LAYOUT_CHOICES = {
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
     [["tags", "Tags"], ["dots", "Quiet dots"]]],
   ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
+  learn_mode: ["Learning guidance (Preview)", "Expert shows findings, their About link and Dismiss. Professional, the default, adds a line on why each finding matters, with Explain and Show example when you want them. Guided opens the explanation, adds the Learn lesson that covers each finding and suggests your next lesson on Learn. A preference only: checks and your organization's rules are the same at every level.",
+    [["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
+  // GD-08: a level for one subject, under Learning guidance. Same follows it.
+  learn_mode_sql: ["SQL guidance (Preview)", "Beside SQL best-practice findings, on the SQL and warehouse pages. Same follows Learning guidance.",
+    [["same", "Same"], ["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
+  learn_mode_notebooks: ["Notebook guidance (Preview)", "Beside notebook best-practice findings. Same follows Learning guidance.",
+    [["same", "Same"], ["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
 };
-const LAYOUT_DEFAULTS = { ui_explanations: "on_request" };  // as app_settings.DEFAULTS; others: the first choice
+const LAYOUT_DEFAULTS = { ui_explanations: "on_request", learn_mode: "professional", learn_mode_sql: "same", learn_mode_notebooks: "same" };  // as app_settings.DEFAULTS; others: the first choice
 const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_DEFAULTS[key] || LAYOUT_CHOICES[key][2][0][0];
 const howView = { open: null };  // the view the drawer was opened on
 
@@ -195,6 +209,7 @@ function applyAppearance() {
   body.classList.toggle("explain-on-request", layoutChoice("ui_explanations") === "on_request");
   body.classList.toggle("preview-dots", layoutChoice("ui_preview_marks") === "dots");
   body.classList.toggle("density-compact", layoutChoice("ui_density") === "compact");
+  if (typeof applySkin === "function") applySkin();  // skins.js
   syncHowToggle();
 }
 
@@ -370,6 +385,12 @@ function shortcutsDialog() {
     h("p", { class: "text" }, learnMore("keyboard-shortcuts", "Keyboard shortcuts in the user guide")));
   showDialog("Keyboard shortcuts", body, [btn("Close", null, closeDialog, "tool primary")]);
 }
+
+// Zoom is WebView2's own (tauri.conf.json zoomHotkeysEnabled), so these keys aren't in the app-wide table
+// that app.js reads: listed here for people to find (PB-063).
+registerShortcuts("Window", [
+  { keys: ["Ctrl+=", "Ctrl+-", "Ctrl+0"], label: "Make everything bigger or smaller, or back to 100% (Ctrl+mouse wheel too). Every page still fits at 200%" },
+]);
 
 // ---------- command bar (Ctrl+K) ----------
 

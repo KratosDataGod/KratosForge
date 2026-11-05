@@ -5,6 +5,7 @@ import random
 import sqlite3
 import sys
 import types
+from contextlib import closing
 
 import pytest
 
@@ -352,21 +353,23 @@ def test_a_platform_made_before_policies_gets_their_tables(tmp_path):
     conn.commit()
     conn.close()
     reopened = LocalPlatform(path, lambda: ADMIN)  # runs ensure_schema, as setup does in Fabric
-    db = core.Db(sqlite3.connect(path), "sqlite")
-    assert db.rows("SELECT value FROM \"config__setting\" WHERE name = 'schema_version'")[0]["value"] == str(core.SCHEMA_VERSION)
-    assert all(db.exists("catalog", t) for t in ("policy", "policy_version", "policy_assignment", "policy_event"))
+    with closing(sqlite3.connect(path)) as conn:
+        db = core.Db(conn, "sqlite")
+        assert db.rows("SELECT value FROM \"config__setting\" WHERE name = 'schema_version'")[0]["value"] == str(core.SCHEMA_VERSION)
+        assert all(db.exists("catalog", t) for t in ("policy", "policy_version", "policy_assignment", "policy_event"))
     assert [d["id"] for d in reopened.call("list_domains")] == ["sales"]
     assert reopened.call("key_stats", name="customer")["created"]
 
 
 def test_policy_operations_create_missing_tables_on_first_use(tmp_path):
-    db = core.Db(sqlite3.connect(tmp_path / "x.sqlite"), "sqlite")
-    core.ensure_schema(db)
-    for t in ("policy", "policy_version", "policy_assignment", "policy_event"):
-        db.run(f'DROP TABLE "catalog__{t}"')
-    assert policy.list_policies(db) == []
-    assert db.exists("catalog", "policy_event")
-    assert core.ensure_schema(db)["created"] == []  # safe to run again
+    with closing(sqlite3.connect(tmp_path / "x.sqlite")) as conn:
+        db = core.Db(conn, "sqlite")
+        core.ensure_schema(db)
+        for t in ("policy", "policy_version", "policy_assignment", "policy_event"):
+            db.run(f'DROP TABLE "catalog__{t}"')
+        assert policy.list_policies(db) == []
+        assert db.exists("catalog", "policy_event")
+        assert core.ensure_schema(db)["created"] == []  # safe to run again
 
 
 def test_the_function_app_runs_policies_in_their_own_module(monkeypatch):
@@ -391,10 +394,11 @@ def test_the_function_app_runs_policies_in_their_own_module(monkeypatch):
         assert f"def {op}(" in source
     app: dict = {}
     exec(compile(source, "function_app.py", "exec"), app)
-    db = app["Db"](sqlite3.connect(":memory:"), "sqlite")
-    app["OPERATIONS"]["ensure_schema"](db)
-    assert app["OPERATIONS"]["claim_admin"](db, ADMIN)["admin"]
-    assert app["OPERATIONS"]["create_policy"](db, NAMING, by=ADMIN)["draft_version"] == 1
+    with closing(sqlite3.connect(":memory:")) as conn:
+        db = app["Db"](conn, "sqlite")
+        app["OPERATIONS"]["ensure_schema"](db)
+        assert app["OPERATIONS"]["claim_admin"](db, ADMIN)["admin"]
+        assert app["OPERATIONS"]["create_policy"](db, NAMING, by=ADMIN)["draft_version"] == 1
 
 
 def test_local_resolution_needs_no_fabric(platform, monkeypatch):

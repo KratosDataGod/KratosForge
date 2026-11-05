@@ -109,11 +109,18 @@ PLATFORMS: dict[str, Platform] = {p.id: p for p in (
 )}
 
 FEATURES: tuple[Feature, ...] = (
-    Feature("fabric", "connect", "The app's own Microsoft sign-in", "live_used", ("auth.py",),
+    Feature("fabric", "connect", "The app's own Microsoft sign-in", "live_verified", ("auth.py",),
             ("test_offline_sign_in.py", "test_sign_in_errors.py"),
-            "Every session signs in this way; no recorded live test yet (FD-101 hasn't run)."),
-    Feature("fabric", "catalog", "Workspaces, lakehouses and tables", "live_used", ("fabric_api.py", "onelake.py"),
-            ("test_fabric_api.py",), "Browsed in daily use; no recorded live test yet."),
+            "Used in every session; recorded in the KUDP live run of 2026-10-29 in a test workspace (docs/platforms.md, Live runs), which signed in silently. FD-101 hasn't run yet."),
+    Feature("fabric", "catalog", "Workspaces, lakehouses and tables", "live_verified", ("fabric_api.py", "onelake.py"),
+            ("test_fabric_api.py",), "Browsed in daily use; recorded in the KUDP live run of 2026-10-29 in a test workspace (docs/platforms.md, Live runs), which listed workspaces and "
+            "lakehouses. Tables weren't listed in that run."),
+    Feature("fabric", "execute", "SQL cells in a Fabric Spark session", "live_verified", ("engines/fabric_spark.py",),
+            ("test_fabric_spark.py",), "Recorded in the KUDP live run of 2026-10-29 in a test workspace (docs/platforms.md, Live runs): one Livy session, 10 Spark SQL queries, whole "
+            "results back on this PC, session closed after 23 s."),
+    Feature("fabric", "test", "One query's answers compared, this PC against Fabric Spark", "live_verified",
+            ("engines/compare.py", "verify.py"), ("test_engine_compare.py",),
+            "Recorded in the KUDP live run of 2026-10-29 in a test workspace (docs/platforms.md, Live runs): 8 of 10 matched; the 2 that differed were found and explained."),
     Feature("fabric", "execute", "Notebooks on this PC reading and writing OneLake", "live_used",
             ("lakehouse.py", "publish.py"), ("test_onelake_writes.py",),
             "TPC-H loads to OneLake from this PC (2026-10-26); no recorded live test yet."),

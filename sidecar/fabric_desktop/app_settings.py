@@ -34,12 +34,24 @@ Keys:
     ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
                      with the tag kept on page titles
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
+    ui_skin          the platform skin's id (skins.py): "kratosforge" (default) or another built-in or
+                     saved skin. A skin is appearance and page arrangement only
+    ui_color_mode    "skin" (default) follows the skin's own color mode; "light" or "dark" overrides it
+    learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
+                     findings, About and Dismiss; "professional" (default) adds a line on why and
+                     Explain and Show example on request; "guided" opens Explain, adds the lesson
+                     that covers a finding and suggests the next lesson on Learn's Home. The first
+                     names, "focus" and "learning", still read as "expert" and "guided"
+    learn_mode_sql, learn_mode_notebooks  the level for SQL findings or notebook findings only:
+                     "same" (default) follows learn_mode; "expert", "professional" or "guided"
+                     overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
-                     it's ended; 0 (default) for no limit
+                     it's ended; 0 (default) for no limit. A new process already uses about
+                     0.8 GB on Windows (pyarrow), so under 2 leaves a notebook little room
     kernel_max_sessions      with kernel_process: how many notebooks keep a process of their own;
                      opening one more stops the least recently used idle one (default 5)
     kernel_idle_minutes      with kernel_process: stop a notebook's process after this many idle
@@ -52,8 +64,17 @@ Keys:
     allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
                      Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
                      the PC (default true)
+    allow_staging_cleanup  IT only: false stops the Estate X-ray deleting leftover Dataflow Gen2
+                     staging lakehouses; it still lists them (default true)
     allow_notebook_packages  IT only: false stops people installing packages into notebook
                      environments (environments.py); the engine's own packages still work
+    notebook_package_folder  IT only: a folder of approved .whl files (a full path on this PC or a
+                     network share); notebook environments install from it first (environments.py)
+    allow_pypi_packages  IT only: false stops notebook environments reaching PyPI (or the index the
+                     PC's pip uses) for a package the folder doesn't have (default true)
+    allow_signed_out_schedules  IT only: false stops people setting schedules on this PC to run while
+                     they're signed out of Windows (Windows keeps their password with the task); schedules
+                     already set that way say so and can only be turned back to signed-in (default true)
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
@@ -107,7 +128,9 @@ Keys:
                      links for the Windows user, and removes a registration it made (default true)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
-reads them through read_policy() here, so both read the file by the same rules.
+reads them through read_policy() here, so both read the file by the same rules. The appstudio_* keys
+(appstudio_models, appstudio_providers, appstudio_hosts, appstudio_sample_rows) are read the same way
+by appstudio/policy.py.
 
 Restrictions fail closed. A policy file that exists but can't be read is replaced by the last copy
 that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
@@ -121,13 +144,15 @@ fail silently.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from . import jsonfile
+from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -137,7 +162,8 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
-                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True}
+                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True,
+                            "allow_staging_cleanup": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -147,8 +173,8 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
                                             "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
-                                            "forge_animations": bool}
-USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
+                                            "forge_animations": bool, "allow_staging_cleanup": bool}
+USER_KEYS: tuple[str, ...] = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
              "forge_animations")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,
@@ -179,6 +205,11 @@ DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
+# Schedules on this PC that also run while signed out of Windows (local_schedules, signed_out_tasks).
+# Policy only: the person ticks it per schedule; IT can turn the choice off.
+DEFAULTS["allow_signed_out_schedules"] = True
+TYPES["allow_signed_out_schedules"] = bool
+
 # Owner coverage's last-used dates (central/core.py note_seen): personal data everyone who reads the
 # platform's catalog sees, so it stays off until IT turns it on in the policy file. Policy only.
 DEFAULTS["platform_presence"] = False
@@ -188,7 +219,7 @@ DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
 # OneLake writes from notebooks on this PC (lakehouse.write_table, publish). onelake_writes is the
 # default for notebooks that don't choose; each notebook can set its own.
-CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
+CHOICES: dict[str, tuple[str, ...]] = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
 DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
 TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
 USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
@@ -203,6 +234,29 @@ CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks":
 DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
+# Platform skins (skins.py, docs/skins.md): which skin, by id, and its color mode ("skin" follows the
+# skin's own). Appearance only: neither changes engines, connections or projects.
+CHOICES["ui_color_mode"] = ("skin", "light", "dark")
+DEFAULTS.update({"ui_skin": "kratosforge", "ui_color_mode": "skin"})
+TYPES.update({"ui_skin": str, "ui_color_mode": str})
+USER_KEYS += ("ui_skin", "ui_color_mode")
+# Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
+CHOICES["learn_mode"] = ("expert", "professional", "guided")
+DEFAULTS["learn_mode"] = "professional"
+TYPES["learn_mode"] = str
+USER_KEYS += ("learn_mode",)
+# Guidance by subject (GD-08): "same" follows learn_mode; another level overrides it for that subject only.
+for _subject in ("sql", "notebooks"):
+    CHOICES[f"learn_mode_{_subject}"] = ("same", "expert", "professional", "guided")
+    DEFAULTS[f"learn_mode_{_subject}"] = "same"
+    TYPES[f"learn_mode_{_subject}"] = str
+    USER_KEYS += (f"learn_mode_{_subject}",)
+# A value saved, or set by policy, under a name a setting no longer has, read as its new name.
+RENAMED: dict[str, dict[str, str]] = {"learn_mode": {"focus": "expert", "learning": "guided"}}
+# Notebook environments' package source (environments.py): the IT folder of approved wheels first,
+# then PyPI only when allow_pypi_packages lets it. Policy only.
+DEFAULTS.update({"notebook_package_folder": "", "allow_pypi_packages": True})
+TYPES.update({"notebook_package_folder": str, "allow_pypi_packages": bool})
 # Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
@@ -214,7 +268,9 @@ INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integration
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
 SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
-POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
+# Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
+APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
+POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -223,7 +279,10 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "telemetry": False, "sql_warehouse_writes": False,
                               "wh_monitoring_views": False,
                               "allow_dbconnect_install": False,
-                              "platform_presence": False}
+                              "platform_presence": False,
+                              "allow_replay_samples": False, "allow_optimize_lakehouse": False,
+                              "allow_notebook_packages": False, "allow_pypi_packages": False,
+                              "allow_signed_out_schedules": False, "allow_staging_cleanup": False}
 
 
 def policy_path() -> Path:
@@ -257,12 +316,18 @@ def saved_policy_path() -> Path:
     return user_path().with_name("policy-last-good.json")
 
 
-def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
-    """(settings, why the file can't be used, whether the saved copy stands in for it)."""
+def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
+    """(settings, why the file can't be used, whether the saved copy stands in for it). With ``digest``,
+    also the SHA-256 of the very bytes it read, as digest["sha256"] (None when it couldn't read any)."""
     path = policy_path()
     saved = saved_policy_path()
+    if digest is not None:
+        digest["sha256"] = None
     try:
-        text = path.read_text(encoding="utf-8-sig")
+        raw = path.read_bytes()
+        if digest is not None:
+            digest["sha256"] = hashlib.sha256(raw).hexdigest()
+        text = raw.decode("utf-8-sig")
         data = json.loads(text)
     except FileNotFoundError:
         saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
@@ -282,8 +347,9 @@ def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
-                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry and "
-                "external AI tools off. Sign-in still works, and accounts from any tenant can sign in"), False
+                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry, "
+                "external AI tools, package installs, the Optimize lakehouse and data samples in replay bundles off. "
+                "Sign-in still works, and accounts from any tenant can sign in"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:
@@ -309,6 +375,20 @@ def read_policy() -> tuple[dict[str, Any], str | None]:
     last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
     data, reason, from_copy = _policy_file()
     return data, None if from_copy else reason
+
+
+def policy_fingerprint() -> dict[str, Any]:
+    """What the policy file holds now, for the record of its changes (policy_watch.py): the SHA-256 of
+    its bytes, the same as PowerShell's Get-FileHash (None with no file, or one that can't be opened);
+    which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
+    "fail_closed" when nothing can, "none" with no file); and whether the account running the app
+    could change or replace it."""
+    path = policy_path()
+    digest: dict[str, str | None] = {}
+    _, reason, from_copy = _policy_file(digest)  # one read: the hash is of the bytes whose settings apply
+    exists = digest["sha256"] is not None or reason is not None
+    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
+    return {"sha256": digest["sha256"], "state": state, "user_can_change": exists and user_can_change(path)}
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
@@ -339,6 +419,16 @@ def _read_engine_info() -> dict[str, Any]:
         return {}
 
 
+def package_folder_problem(folder: str) -> str | None:
+    """Why ``folder`` can't be the approved wheel folder, or None. It has to be a full path (a drive
+    or a \\\\server\\share), never a web address: pip would read a URL as an index to download from."""
+    if "://" in folder or folder.lower().startswith(("http:", "https:", "file:")):
+        return "is a web address, not a folder"
+    if not (PureWindowsPath(folder).is_absolute() or PurePosixPath(folder).is_absolute()):
+        return "isn't a full path (like D:\\wheels or \\\\server\\wheels)"
+    return None
+
+
 def policy_problems() -> list[str]:
     """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
     data, reason, from_copy = _policy_file()
@@ -350,13 +440,17 @@ def policy_problems() -> list[str]:
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
-            problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
-        elif key in INTEGRATION_KEYS:
-            continue  # integrations/policy.py checks these, below
+            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+        elif key in INTEGRATION_KEYS or key in APPSTUDIO_KEYS:
+            continue  # integrations/policy.py and appstudio/policy.py check these, below
         elif key == "fabric_view_sign_in_hosts":
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "notebook_package_folder" and isinstance(value, str) and value:
+            why = package_folder_problem(value)
+            if why:
+                problems.append(f"notebook_package_folder {why}, so notebook packages can't be installed until it's fixed")
         elif key == "register_link_scheme":
             if not isinstance(value, bool):
                 problems.append(f"register_link_scheme should be bool, not {type(value).__name__}, so the app keeps "
@@ -368,7 +462,7 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
-        elif key in CHOICES and value not in CHOICES[key]:
+        elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
@@ -376,6 +470,8 @@ def policy_problems() -> list[str]:
             problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
             problems.append("client_id isn't an app (client) ID")
+        elif key == "ui_skin" and not _skin_id(value):
+            problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -393,6 +489,9 @@ def policy_problems() -> list[str]:
     if any(key in data for key in INTEGRATION_KEYS):
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
+    if any(key in data for key in APPSTUDIO_KEYS):
+        from .appstudio import policy as appstudio_policy
+        problems += appstudio_policy.current()["problems"]
     return problems
 
 
@@ -506,7 +605,14 @@ def _in_range(key: str, value: Any) -> bool:
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     if key in CHOICES:
         return value in CHOICES[key]
+    if key == "ui_skin":
+        return _skin_id(value)
     return True
+
+
+def _skin_id(value: Any) -> bool:
+    from .skins import _ID
+    return isinstance(value, str) and bool(_ID.fullmatch(value))
 
 
 def _telemetry_target(text: str) -> bool:
@@ -543,6 +649,7 @@ def load() -> dict[str, Any]:
             candidates.append(("built_in", built_in_client_id()))
         value, source = default, "default"
         for where, candidate in candidates:
+            candidate = RENAMED.get(key, {}).get(candidate, candidate) if isinstance(candidate, str) else candidate
             if candidate not in (None, "") and _typed(key, candidate) and _in_range(key, candidate):
                 value, source = candidate, where
                 break
@@ -580,6 +687,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in CHOICES and new not in (None, "", *CHOICES[key]):
             raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
+        if key == "ui_skin" and new not in (None, "") and not _skin_id(new):
+            raise ValueError("ui_skin must be a skin id: lower-case letters, digits or hyphens")
         if key in SQL_RANGES:
             new = _sql_number(key, new)
         if key == "sql_temp_dir":

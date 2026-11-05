@@ -160,7 +160,7 @@ two platforms give the same answer. Comparing answers needs both runs.
 ## How it's built and tested
 
 - `sidecar/fabric_desktop/sqlcompat/`: `profiles.py` describes each engine (statement categories, unsupported types and their alternatives, identifiers, transactions, DDL and DML, semantic differences, confidence and sources); `rules.py` holds the rules, each naming its engines, severity, confidence and source; `analyzer.py` splits the SQL into statements (at `;` and T-SQL's `GO`), reads each with sqlglot and the engine's tokenizer, applies the rules and builds the report. Rules work on tokens first, so they still find problems, at exact positions, in statements sqlglot can't read.
-- The engine methods are `sql_analyze`, `sql_compat_profiles` and `sql_compat_export`.
+- The engine methods are `sql_analyze` and `sql_compat_export`. `Service.sql_compat_profiles` lists the rules in-process; the app doesn't call it.
 - `sidecar/tests/fixtures/sql_compat_v1.jsonl` holds 197 cases: the SQL, the engine, the expected outcome, the exact set of rules expected and where the first finding is. 36 of them are false-positive guards, SQL that must not be flagged (Spark array indexes, `ISNULL(a, b)` in T-SQL, `UPDATE ... SET x = NULL`, keywords inside strings and comments, triggers in a SQL database). `sidecar/tests/test_sql_compat.py` runs them.
 - Changing a rule means moving `RULE_VERSION` on, reviewing the fixtures and updating this page.
 - The portability report is `sql_portability.py`, tested by `sidecar/tests/test_sql_portability.py`, which also grades every Snowflake probe statement.

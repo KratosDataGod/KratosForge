@@ -1,0 +1,66 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-04",
+  "kind": "lab",
+  "title": "Fix a broken load",
+  "path": "microsoft-fabric",
+  "level": "intermediate",
+  "minutes": 25,
+  "objectives": [
+    "Find the rows a retried, append-only load doubled",
+    "Rebuild a Silver table with one row per key, the latest version",
+    "Write a load that leaves the same table however many times it runs"
+  ],
+  "prerequisites": ["LM-06"],
+  "platforms": ["DuckDB", "Fabric Lakehouse (Spark SQL)", "Fabric Warehouse"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "find-doubles",
+      "prompt": "Find every order_id that appears more than once in silver_orders: order_id and copies, smallest order_id first.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-doubles.sql",
+      "solution": "solution-doubles.sql",
+      "hints": [
+        "GROUP BY order_id HAVING count(*) > 1."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    },
+    {
+      "id": "rebuild",
+      "prompt": "Rebuild silver_orders with one row per order, its latest load (by loaded_at), and end with SELECT order_id, status, amount FROM silver_orders ORDER BY order_id.",
+      "engine": "duckdb",
+      "starter": "starter-rebuild.sql",
+      "solution": "solution-rebuild.sql",
+      "hints": [
+        "CREATE OR REPLACE TABLE silver_orders AS SELECT ... FROM silver_orders replaces the table with your query's rows.",
+        "row_number() OVER (PARTITION BY order_id ORDER BY loaded_at DESC) = 1 keeps each order's latest row (LM-06)."
+      ],
+      "checks": [
+        {"kind": "result_matches", "ordered": true},
+        {"kind": "table_shape", "table": "silver_orders", "unique": ["order_id"], "not_null": ["order_id"]}
+      ]
+    },
+    {
+      "id": "safe-load",
+      "prompt": "Load src_orders_day3 into silver_clean so that running the load twice leaves one row per order. Write the load twice in your answer, then SELECT order_id, status, amount FROM silver_clean ORDER BY order_id.",
+      "engine": "duckdb",
+      "starter": "starter-safe.sql",
+      "solution": "solution-safe.sql",
+      "hints": [
+        "INSERT adds rows every time it runs. Which statement updates the rows that are already there and inserts only the new ones?",
+        "MERGE INTO silver_clean AS t USING src_orders_day3 AS s ON t.order_id = s.order_id, then WHEN MATCHED THEN UPDATE SET ... WHEN NOT MATCHED THEN INSERT ...",
+        "Set status, amount and loaded_at when it matches, and insert all four columns when it doesn't."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-30"
+}

@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2.2",
+  "questions": [
+    {
+      "id": "3.2.2-q1",
+      "type": "single",
+      "stem": "A Dataflow Gen2 refresh failed. Where do you start to find which query failed and why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The deployment pipeline"
+        },
+        {
+          "id": "b",
+          "text": "The eventstream runtime logs"
+        },
+        {
+          "id": "c",
+          "text": "The dataflow's refresh history and its run details"
+        },
+        {
+          "id": "d",
+          "text": "The warehouse's query insights"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Refresh history shows each run, and its details show the status and error for each table or activity.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.2-q2",
+      "type": "single",
+      "stem": "A dataflow that reads an on-premises database fails with a gateway error. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "V-Order is off"
+        },
+        {
+          "id": "b",
+          "text": "The workspace has no Git connection"
+        },
+        {
+          "id": "c",
+          "text": "The lakehouse has too many tables"
+        },
+        {
+          "id": "d",
+          "text": "The on-premises data gateway is offline or not in the dataflow connection's gateway"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "On-premises sources are reached through a gateway. If it is offline, or the connection doesn't use it, the refresh can't reach the source.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/how-to-access-on-premises-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.2-q3",
+      "type": "single",
+      "stem": "A dataflow fails when writing to a lakehouse table because a column holds text but the table's column is a number. What fixes it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Refresh the dataflow again without changes"
+        },
+        {
+          "id": "b",
+          "text": "Delete the lakehouse"
+        },
+        {
+          "id": "c",
+          "text": "Turn on high concurrency"
+        },
+        {
+          "id": "d",
+          "text": "Set the column's type in the dataflow to match the destination, or fix the values that don't convert"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The dataflow's column types must match the destination's. Change the type step or clean the values so they convert.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.2-q4",
+      "type": "single",
+      "stem": "A dataflow refresh fails with an authentication error to a source that worked yesterday. What do you check first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The semantic model's labels"
+        },
+        {
+          "id": "b",
+          "text": "The capacity SKU"
+        },
+        {
+          "id": "c",
+          "text": "The connection's credentials, which may have expired or changed"
+        },
+        {
+          "id": "d",
+          "text": "The workspace's domain"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Authentication errors usually come from expired or changed credentials on the connection. Update them in the connection settings.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

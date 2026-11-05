@@ -212,6 +212,17 @@ def test_runs_inside_an_import_without_a_row_are_told_apart_from_runs_no_import_
     assert states == {"j3": "no_row", "j4": "not_covered"} and r["runs"]["no_row"] == 1
 
 
+def test_an_imported_row_whose_start_cant_be_read_covers_nothing_and_breaks_nothing():
+    # Before: min() compared the unreadable start (None) with the others and the whole reconcile failed.
+    p = read(OPS)
+    rows = [dict(r) for r in p["rows"]]
+    rows.append(rows[0] | {"start": "not a time", "end": "not a time"})
+    imp = {"id": "u-1", "imported_at": NOW.isoformat(), "rows": rows}
+    r = rc.reconcile([imp], [run("j3", "nb_missing", "2026-10-16T14:30:00+00:00", "2026-10-16T14:31:00+00:00")],
+                     {}, NOW - dt.timedelta(days=30), NOW, now=NOW)
+    assert {b["job_id"]: b["state"] for b in r["by_run"]} == {"j3": "no_row"}  # still covered by the readable rows
+
+
 def test_item_names_come_from_what_each_kind_of_run_ran():
     assert rc.item_name({"kind": "Metadata run", "name": "all 3 entities"}) == "nb_fabric_desktop_runner"
     assert rc.item_name({"kind": "Table maintenance", "name": "LH_Silver dbo.sales", "table": "dbo.sales"}) == "LH_Silver"
@@ -256,14 +267,19 @@ def recent_ops():
     return HEAD + f"\nSales Dev,Notebook,nb_sales,Notebook run,{stamp(dt.timedelta(seconds=5))},{stamp(dt.timedelta(minutes=4))},Succeeded,ana@contoso.com,235,1880.5,0.6,Billable,op-1\n"
 
 
+# recent_ops() writes month first. On days 1 to 12 the dates read both ways, and the preview rightly
+# asks which (main went red on 1 November), so the order is given as a person would choose it.
+MDY = {"date_order": "mdy"}
+
+
 def test_service_preview_saves_nothing_and_import_keeps_a_local_copy(svc):
-    p = svc.usage_preview("timepoint.csv", recent_ops())
+    p = svc.usage_preview("timepoint.csv", recent_ops(), MDY)
     assert p["ready"] and "rows" not in p and not (svc.root / "usage_imports").exists()
-    saved = svc.usage_import("timepoint.csv", recent_ops())
+    saved = svc.usage_import("timepoint.csv", recent_ops(), MDY)
     assert saved["rows"] == 1 and saved["file_name"] == "timepoint.csv" and saved["id"].startswith("u-")
     assert svc.usage_imports()[0]["id"] == saved["id"]
     with pytest.raises(ValueError, match="already imported"):
-        svc.usage_import("again.csv", recent_ops())
+        svc.usage_import("again.csv", recent_ops(), MDY)
     rec = svc.usage_reconciliation(7)
     assert rec["matched"]["runs"] == 1 and rec["matched"]["estimated"]["classification"] == ms.ESTIMATED
     report = svc.cost_report(7)
@@ -281,7 +297,7 @@ def test_import_refuses_what_preview_refuses(svc):
 
 
 def test_preview_is_a_read_and_import_is_audited_without_the_files_content():
-    assert not audit.audited("usage_preview") and not audit.audited("usage_imports")
+    assert not audit.audited("usage_preview")
     assert audit.audited("usage_import") and audit.audited("usage_import_delete")
     assert audit.target({"file_name": "t.csv", "content": OPS})["content"] == "(given)"
 

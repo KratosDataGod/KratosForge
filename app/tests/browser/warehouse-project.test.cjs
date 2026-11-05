@@ -44,7 +44,7 @@ before(async () => {
   if (skip) return;
   const runs = sqlRunMocks(catalog);
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
     mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }), sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
       sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse" }) },
   });

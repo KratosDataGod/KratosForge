@@ -39,3 +39,9 @@ def test_this_windows_pc_lists_its_zones():
     out = tz.time_zones()
     assert len(out["zones"]) > 100 and any(z["id"] == "UTC" for z in out["zones"])
     assert out["here"] in {z["id"] for z in out["zones"]}
+
+
+def test_the_registry_reader_says_why_off_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(OSError, match="only on Windows"):
+        tz._registry()

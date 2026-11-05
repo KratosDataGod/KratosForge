@@ -184,3 +184,21 @@ test("Power BI's frame can't take itself off app.powerbi.com", { skip }, async (
   assert.match(await blocked, /^frame-src https:\/\/example\.com/);
   assert.ok(!page.frames().some((f) => f.url().startsWith("https://example.com/")), "the frame reached example.com");
 });
+
+// PBE-05: a report Power BI can't open comes back as the SDK's error event, with Power BI's request id kept for
+// support and no token. (How the app shows the error is Embed Studio's test.)
+test("a report Power BI can't open comes back as an error event with its request id and no token", { skip }, async () => {
+  const before = await page.evaluate(() => window.got.length);
+  const id = await page.evaluate((url) => window.command({ command: "embed", kind: "report", id: "r1", embedUrl: url, accessToken: "secret-token" }),
+    `${EMBED}&fail=event`);
+  const reply = await replyTo(id);
+  assert.strictEqual(reply.ok, true, reply.error);
+  await page.waitForFunction((n) => window.got.slice(n).some((m) => m.event === "error"), before);
+  const error = await page.evaluate((n) => window.got.slice(n).find((m) => m.event === "error"), before);
+  assert.strictEqual(error.detail.message, "LoadReportFailed");
+  assert.strictEqual(error.detail.errorCode, "403");
+  assert.strictEqual(error.detail.technicalDetails.requestId, "req-1129");
+  const sent = JSON.stringify(await page.evaluate((n) => window.got.slice(n), before));
+  assert.ok(!sent.includes("secret-token") && !sent.includes("leaked-token"), sent);
+  assert.ok(!(await page.evaluate((n) => window.got.slice(n).some((m) => m.event === "loaded"), before)));
+});

@@ -151,7 +151,7 @@ What works today:
 What's missing:
 
 - The builds are unsigned.
-- There is no MSI or MSIX package for Intune or Configuration Manager.
+- The MSI is new: it hasn't been tried in an Intune or Configuration Manager tenant yet, and it is unsigned like the exe.
 - The policy file is advisory against a determined local user.
 - Privacy statement and support terms aren't published yet.
 
@@ -210,3 +210,4 @@ A score only goes up with new evidence: a merged fix with its test, or a recorde
 | Date | Commit | Score | Change |
 | --- | --- | --- | --- |
 | 2026-11-02 | `b75dcf5` | 54 | Baseline |
+| 2026-11-02 07:00 UTC | `main` | 54 (unchanged) | EA-003 and EA-008 fixed, and part of EA-001, EA-020, EA-021 and EA-022. No category moves until the P1 data-integrity items (EA-001, EA-002, EA-004) are all merged |

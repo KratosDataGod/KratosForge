@@ -272,11 +272,11 @@ def test_charts_keep_nan_and_list_categories_and_refuse_non_number_values_plainl
         "took": pa.array([dt.timedelta(1)] * 4, pa.duration("us")),
     }))
     nan = frames.chart(fid, "bar", x=0, y=1)
-    assert dict(zip(nan["categories"], nan["series"][0]["values"])) == {1.0: 4.0, "nan": 6.0}
+    assert dict(zip(nan["categories"], nan["series"][0]["values"], strict=True)) == {1.0: 4.0, "nan": 6.0}
     tags = frames.chart(fid, "bar", x=2, y=1)
-    assert dict(zip(tags["categories"], tags["series"][0]["values"])) == {"[1]": 4.0, "[2]": 2.0, None: 4.0}
+    assert dict(zip(tags["categories"], tags["series"][0]["values"], strict=True)) == {"[1]": 4.0, "[2]": 2.0, None: 4.0}
     share = frames.chart(fid, "bar", x=4, y=3, agg="avg")
-    assert dict(zip(share["categories"], share["series"][0]["values"])) == {"a": 0.5, "b": 1.0}
+    assert dict(zip(share["categories"], share["series"][0]["values"], strict=True)) == {"a": 0.5, "b": 1.0}
     for kind, agg in (("bar", "sum"), ("histogram", "sum"), ("box", "sum")):
         with pytest.raises(ValueError, match="'took' isn't a number column"):
             frames.chart(fid, kind, x=4, y=5, agg=agg)

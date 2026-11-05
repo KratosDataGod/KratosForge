@@ -225,7 +225,7 @@ def test_null_x_and_nan_values():
     store = Frames()
     t = pa.table({"k": ["a", None, "a", None], "v": [1.0, 2.0, float("nan"), 4.0]})
     c = store.chart(store.keep(t), "bar", x=0, y=1, agg="sum")
-    got = dict(zip(c["categories"], c["series"][0]["values"]))
+    got = dict(zip(c["categories"], c["series"][0]["values"], strict=True))
     assert got == {"a": 1.0, None: 6.0}
 
 

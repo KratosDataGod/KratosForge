@@ -60,12 +60,30 @@ class JobQueue:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         self.backoff_seconds, self.max_backoff_seconds = backoff_seconds, max_backoff_seconds
+        self.set_aside: Path | None = None  # where an unreadable queue file was moved, this start
+        try:
+            self._open()
+        except sqlite3.DatabaseError as exc:
+            if isinstance(exc, sqlite3.OperationalError) or not self.path.exists():
+                raise  # busy or locked, or no disk: not a damaged file, so nothing is moved
+            self.set_aside = _set_aside(self.path, exc)
+            self._open()
+
+    def _open(self) -> None:
         with self._db() as db:
+            # A damaged file can open and fail only later, on a page a query reaches: check it all now.
+            check = db.execute("pragma quick_check").fetchone()[0]
+            if check != "ok":
+                raise sqlite3.DatabaseError(f"quick_check: {check}")
             db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
             db.executescript(_SCHEMA)  # executescript commits on its own
-            if "requeued_by" not in {r["name"] for r in db.execute("pragma table_info(jobs)")}:
-                try:  # a queue file from before requeue
-                    db.execute("alter table jobs add column requeued_by text")
+            cols = {r["name"] for r in db.execute("pragma table_info(jobs)")}
+            # requeued_by: a queue file from before requeue; claim_id: from before each claim had its own id
+            for col in ("requeued_by", "claim_id"):
+                if col in cols:
+                    continue
+                try:
+                    db.execute(f"alter table jobs add column {col} text")
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc):  # another process added it first
                         raise
@@ -123,7 +141,8 @@ class JobQueue:
                                   (dedupe_key,)).fetchone()
                 if same:
                     return self._row(same) | {"deduplicated": True}  # type: ignore[operator]
-            job_id = f"job-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{uuid.uuid4().hex[:6]}"
+            # 48 random bits: ids made in the same second must never meet (6 hex digits did, ~1 in 800 for 200 jobs).
+            job_id = f"job-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{uuid.uuid4().hex[:12]}"
             db.execute("insert into jobs (id, kind, payload, state, source, dedupe_key, max_attempts, next_at, created_at)"
                        " values (?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
                        (job_id, kind, json.dumps(payload), source, dedupe_key, max(1, int(max_attempts)), now + delay, now))
@@ -132,7 +151,9 @@ class JobQueue:
     # ---- working
 
     def claim(self, owner: str, lease_seconds: float) -> dict[str, Any] | None:
-        """The oldest job that is due, now leased to ``owner``; None when nothing is due."""
+        """The oldest job that is due, now leased to ``owner``; None when nothing is due. Its
+        ``claim_id`` is this claim's own: pass it to heartbeat and the calls that finish the job, so a
+        run whose lease ran out (and whose job was claimed again) can't renew or finish the new one."""
         with self._tx() as db:
             # The time is read once this claim holds the write lock: read before, a job another
             # thread or process added while this one waited would look not yet due.
@@ -142,37 +163,42 @@ class JobQueue:
             if row is None:
                 return None
             db.execute("update jobs set state = 'running', owner = ?, lease_until = ?, attempts = attempts + 1,"
-                       " started_at = ?, error = null where id = ?", (owner, now + lease_seconds, now, row["id"]))
+                       " started_at = ?, error = null, claim_id = ? where id = ?",
+                       (owner, now + lease_seconds, now, uuid.uuid4().hex, row["id"]))
             return self._row(db.execute("select * from jobs where id = ?", (row["id"],)).fetchone())
 
-    def heartbeat(self, job_id: str, owner: str, lease_seconds: float) -> bool:
-        """Extend the lease. False when the job is no longer this owner's (it was recovered)."""
+    def heartbeat(self, job_id: str, owner: str, lease_seconds: float, claim: str | None = None) -> bool:
+        """Extend the lease. False when the job is no longer this owner's (it was recovered), or with
+        ``claim``, no longer this claim's (it was recovered and claimed again)."""
         with self._tx() as db:
-            cur = db.execute("update jobs set lease_until = ? where id = ? and owner = ? and state = 'running'",
-                             (self.clock() + lease_seconds, job_id, owner))
+            cur = db.execute("update jobs set lease_until = ? where id = ? and owner = ? and state = 'running'"
+                             " and (? is null or claim_id = ?)",
+                             (self.clock() + lease_seconds, job_id, owner, claim, claim))
             return cur.rowcount == 1
 
-    def _finish(self, job_id: str, owner: str, state: str, result: Any = None, error: str | None = None) -> bool:
+    def _finish(self, job_id: str, owner: str, state: str, result: Any = None, error: str | None = None,
+                claim: str | None = None) -> bool:
         with self._tx() as db:
             cur = db.execute("update jobs set state = ?, finished_at = ?, lease_until = null, result = ?, error = ?"
-                             " where id = ? and owner = ? and state = 'running'",
+                             " where id = ? and owner = ? and state = 'running' and (? is null or claim_id = ?)",
                              (state, self.clock(), json.dumps(result, default=str) if result is not None else None,
-                              error, job_id, owner))
+                              error, job_id, owner, claim, claim))
             return cur.rowcount == 1
 
-    def succeed(self, job_id: str, owner: str, result: Any = None) -> bool:
-        return self._finish(job_id, owner, "succeeded", result)
+    def succeed(self, job_id: str, owner: str, result: Any = None, claim: str | None = None) -> bool:
+        return self._finish(job_id, owner, "succeeded", result, claim=claim)
 
-    def fail(self, job_id: str, owner: str, error: str, result: Any = None) -> bool:
+    def fail(self, job_id: str, owner: str, error: str, result: Any = None, claim: str | None = None) -> bool:
         """A failure retrying won't fix (a table failed its checks): no more attempts."""
-        return self._finish(job_id, owner, "failed", result, error)
+        return self._finish(job_id, owner, "failed", result, error, claim=claim)
 
-    def retry_later(self, job_id: str, owner: str, error: str) -> dict[str, Any] | None:
+    def retry_later(self, job_id: str, owner: str, error: str, claim: str | None = None) -> dict[str, Any] | None:
         """A failure worth another try (network, throttling, a table busy): back in the queue after the
         backoff, or ``dead`` once the attempts are used up. Returns the job as it now is."""
         now = self.clock()
         with self._tx() as db:
-            job = db.execute("select * from jobs where id = ? and owner = ? and state = 'running'", (job_id, owner)).fetchone()
+            job = db.execute("select * from jobs where id = ? and owner = ? and state = 'running'"
+                             " and (? is null or claim_id = ?)", (job_id, owner, claim, claim)).fetchone()
             if job is None:
                 return None
             self._requeue(db, job, error, now)
@@ -197,13 +223,16 @@ class JobQueue:
                 self._requeue(db, job, f"{job['owner']} stopped while running it", now)
             return [j["id"] for j in stale]
 
-    def cancel(self, job_id: str, reason: str, owner: str | None = None) -> bool:
+    def cancel(self, job_id: str, reason: str, owner: str | None = None, claim: str | None = None) -> bool:
         """Stop a queued job (waiting to start or to retry) from running. With ``owner``, also a job
-        that worker has just claimed and not yet started; a job that is writing is never stopped."""
+        that worker has just claimed and not yet started; with ``claim``, only that claim of it, and
+        never a queued job, so a run whose lease ran out can't cancel the job's next attempt. A job
+        that is writing is never stopped."""
         with self._tx() as db:
             cur = db.execute("update jobs set state = 'cancelled', finished_at = ?, lease_until = null, error = ?"
-                             " where id = ? and (state = 'queued' or (state = 'running' and owner = ?))",
-                             (self.clock(), reason, job_id, owner))
+                             " where id = ? and ((state = 'queued' and ? is null)"
+                             " or (state = 'running' and owner = ? and (? is null or claim_id = ?)))",
+                             (self.clock(), reason, job_id, claim, owner, claim, claim))
             return cur.rowcount == 1
 
     def requeue(self, job_id: str, by: str) -> dict[str, Any]:
@@ -291,3 +320,19 @@ class JobQueue:
 
     def close(self) -> None:
         """Nothing stays open between calls; kept for callers that close the queue when they're done."""
+
+
+def _set_aside(path: Path, exc: Exception) -> Path:
+    """Move a queue file SQLite can't read (with its -wal and -shm) to ``<name>.corrupt-<time>``, so the
+    agent starts with an empty queue instead of failing to start again and again. Its jobs stay in
+    the moved file for a person to look at; schedules add their next runs again on their own."""
+    from .jsonfile import replace, set_aside
+    from .redact import describe
+    dest = set_aside(path, f"the agent starts with an empty queue ({describe(exc)}); its jobs "
+                           "are in the moved file, and schedules add their next runs again")
+    for suffix in ("-wal", "-shm"):
+        side = path.with_name(path.name + suffix)
+        if side.exists():
+            replace(side, dest.with_name(dest.name + suffix))
+    return dest
+

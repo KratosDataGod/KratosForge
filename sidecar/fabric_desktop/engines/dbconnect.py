@@ -212,7 +212,7 @@ def _frame_output(out: dict[str, Any]) -> dict[str, Any]:
     from .local_sql import _table_output
     columns, rows = out["columns"], out["rows"]
     try:
-        table = pa.Table.from_pylist([dict(zip(columns, r)) for r in rows]) if rows else \
+        table = pa.Table.from_pylist([dict(zip(columns, r, strict=True)) for r in rows]) if rows else \
             pa.table({c: pa.array([], pa.string()) for c in columns})
     except (pa.ArrowInvalid, pa.ArrowTypeError):
         table = pa.table({c: pa.array([None if r[i] is None else str(r[i]) for r in rows], pa.string())

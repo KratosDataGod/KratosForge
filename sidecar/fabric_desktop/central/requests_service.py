@@ -138,6 +138,10 @@ def left_in_fabric(req: dict[str, Any]) -> list[str]:
         else:
             out.append(f"The shortcut {name} in {lakehouse}, made by this request, is still in OneLake: remove it on "
                        "OneLake > Shortcuts if it isn't wanted")
+        for twin in made.get("also") or []:
+            out.append(f"The shortcut {name} in {twin.get('workspace_name') or 'a workspace'} / "
+                       f"{twin.get('lakehouse_name') or 'a lakehouse'} ({str(twin.get('env') or '').title()}), made by this "
+                       "request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted")
     elif kind == "domain" and made.get("domain_id"):
         name = d.get("name") or req.get("target") or made["domain_id"]
         if made.get("found"):  # possibly someone else's: no removal advice

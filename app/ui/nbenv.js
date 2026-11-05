@@ -75,6 +75,7 @@ async function environmentDialog(nb, job = null) {
       data.allowed ? h("label", { class: "field" }, "Add packages", h("div", { class: "env-row" }, specs,
         btn("Install", "add", install, "tool primary small", { disabled: job?.state === "running" ? true : null })))
         : h("p", { class: "muted" }, "Your organization doesn't allow installing packages on this PC."),
+      data.allowed && data.source ? h("p", { class: "muted env-source" }, `Packages come from: ${data.source}.`) : null,
       log,
     ] : null),
   [env ? btn("Delete environment", "delete", del, "tool outline") : null, btn("Close", null, closeDialog, "tool primary")].filter(Boolean));

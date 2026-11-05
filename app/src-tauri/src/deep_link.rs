@@ -109,7 +109,7 @@ pub fn parse(url: &str) -> Result<Link, String> {
 /// A full path on a drive of this PC: `C:\...` or `C:/...`. Nothing else: not a network path
 /// (`\\host\share`, `//host/share`, `\\host@SSL\dav`) or a device path (`\\?\`, `\\.\`),
 /// which would make Windows contact that host and offer it the person's sign-in.
-fn local_path(path: &str) -> bool {
+pub fn local_path(path: &str) -> bool {
     let b = path.as_bytes();
     b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
 }

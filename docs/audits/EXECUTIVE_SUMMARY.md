@@ -16,7 +16,7 @@ Three things hold the score down:
 
 1. **Two release-critical proofs are missing.** The builds aren't signed yet, which waits on the Trusted Signing identity check. And nothing has been run against a live Fabric tenant. Until both are done, no category can be rated enterprise-ready.
 2. **Data integrity has confirmed gaps.** Appending to a table can quietly change values to fit the column types: 2.75 becomes 2, and a timestamp loses its time. Some local calculations also give Fabric different results or different column types: casts round instead of truncating, and sums are written as decimals. An overwrite can keep rows another writer added during the upload.
-3. **Enterprise packaging is incomplete.** There is no MSI or MSIX package, and no published privacy statement or support terms.
+3. **Enterprise packaging is incomplete.** A per-user MSI now ships next to the exe, but it is unsigned and hasn't been tried in an Intune or Configuration Manager tenant yet. There is no MSIX package, and no published privacy statement or support terms.
 
 ## Top risks
 

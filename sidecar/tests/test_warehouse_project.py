@@ -47,7 +47,7 @@ def repo(svc, tmp_path):
 
 
 def objs(*items):
-    return [dict(zip(("kind", "schema", "name", "text"), i)) for i in items]
+    return [dict(zip(("kind", "schema", "name", "text"), i, strict=True)) for i in items]
 
 
 def test_a_file_says_which_object_it_defines():

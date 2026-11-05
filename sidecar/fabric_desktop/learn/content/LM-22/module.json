@@ -1,0 +1,84 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-22",
+  "kind": "module",
+  "title": "Schema drift: when a source adds a column",
+  "path": "python-data-engineering",
+  "level": "intermediate",
+  "minutes": 12,
+  "objectives": [
+    "Notice when a source's columns change",
+    "Combine batches by column name, not position",
+    "Give older rows a stated default for a new column"
+  ],
+  "prerequisites": [
+    "LM-12"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Python (DuckDB or Polars)",
+    "Fabric notebooks",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "jan-and-feb",
+      "prompt": "February's file added a currency column. Combine both months: order_id, amount and currency, with 'USD' for January's rows (it was the only currency then), in order_id order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter stacks the files by position and fails: the two months don't have the same number of columns.",
+        "Name the columns in each SELECT, and give January a currency of its own: 'USD' AS currency."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "order_id",
+          "amount",
+          "currency"
+        ],
+        "rows": [
+          [
+            1,
+            10.0,
+            "USD"
+          ],
+          [
+            2,
+            20.0,
+            "USD"
+          ],
+          [
+            3,
+            30.0,
+            "EUR"
+          ],
+          [
+            4,
+            40.0,
+            "USD"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://duckdb.org/docs/sql/query_syntax/setops"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

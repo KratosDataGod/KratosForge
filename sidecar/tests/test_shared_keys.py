@@ -9,6 +9,7 @@ from fabric_desktop.central.client import PlatformKeys
 from fabric_desktop.meta import keys as K
 from fabric_desktop.meta.project import GateError
 from fabric_desktop.service import Service
+from tests.fabric_refusals import check_item
 
 
 @pytest.fixture
@@ -126,6 +127,7 @@ class FakeFabric:
         return self.items
 
     def save_item(self, ws, kind, name, definition=None, description=""):
+        check_item(kind, definition)
         self.saved.append((ws, kind, name, definition))
         return {"id": f"{kind}-id", "created": True}
 
@@ -149,7 +151,8 @@ def test_setup_puts_the_database_and_its_functions_in_one_keys_workspace(monkeyp
     [(_, _, sql, _), (_, _, fn, definition)] = fabric.saved
     assert (sql, fn) == ("SQL_Keys", "UDF_Keys")
     [source] = json.loads(definition["definition.json"])["connectedDataSources"]
-    assert source == {"alias": udf.ALIAS, "artifactId": "SQLDatabase-id", "workspaceId": "ws-keys", "sourceType": "SqlDatabase"}
+    assert source == {"alias": udf.ALIAS, "artifactId": "SQLDatabase-id", "artifactType": "SqlDbNative",
+                      "workspaceId": "ws-keys"}
     assert calls == [("ws-keys", "UserDataFunction-id")]
     assert "you're its first admin" in out["steps"][-1]["detail"]
 

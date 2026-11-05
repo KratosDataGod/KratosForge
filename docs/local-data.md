@@ -108,21 +108,39 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | T-SQL | Gives here, as in Fabric |
 | --- | --- |
 | `7 / 2`, `qty / boxes` on integer columns | `3`: integers divide as integers, truncated toward zero |
-| `AVG(qty)` on an integer column | An integer |
+| `AVG(qty)` on an integer column, also with `OVER (...)` | An integer |
+| `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
+| `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)` | `'a'`, `NULL`, `NULL`: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` of a negative count are `NULL`, and a negative `SUBSTRING` length is an error |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
+| `DATEDIFF(week, a, b)` | The number of Sundays from `a` to `b`, whatever the time of day: Saturday to Sunday is `1` |
+| `DATETRUNC(week, d)` | The Sunday the week starts on (`iso_week`: the Monday) |
+| `DATEADD(day, 1, d)`, `DATETRUNC(month, d)` on a `DATE` | A `DATE`, not a timestamp. A time part (`hour` and smaller) on a date is an error, as in T-SQL |
+| `y`, `w`, `m`, `n` and the other short date parts | T-SQL's meaning: `y` is day of year, `w` weekday, `m` month, `n` minute. `DATEPART(ms, t)` and `DATEPART(mcs, t)` count within the second. A part a function doesn't take is an error, and `nanosecond` in `DATEADD`, `DATEDIFF` or `DATETRUNC` is refused, since times are kept to the microsecond here |
+| `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself, the `ESCAPE` character works inside the brackets too, and a range written backwards such as `[z-a]` matches nothing). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
 | `name = 'Ann'`, `<>`, `<`, `IN (...)` on text | Trailing spaces don't count, as in T-SQL: `'Ann  ' = 'Ann'` is true. Leading spaces and case still count. An equality between a column and a value still lets a Parquet or Delta file skip row groups |
 | `name + '!'` on text columns | The two strings joined |
 | `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
+| `CAST(0.1 AS FLOAT)`, `FLOAT(24)`, `REAL` | `FLOAT` (and `FLOAT(25)` to `FLOAT(53)`) is an 8-byte float, `REAL` and `FLOAT(1)` to `FLOAT(24)` 4 bytes, as SQL Server stores them |
+| `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |
+| `CAST(' 5 ' AS INT)`, `CAST('3.7' AS INT)` | `5`, an error: text becomes an integer only when it's a whole number (spaces around it are fine, and `''` is `0`). `TRY_CAST` and `TRY_CONVERT` give `NULL` instead of the error |
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
+| `PATINDEX('%b%', s)`, `PATINDEX('%[0-9]%', s)` | Where the `LIKE` pattern first matches, from 1, or `0`. A pattern with no leading `%` must match from the start. The pattern has to be written out as text; a `NULL` pattern gives `NULL` |
 | `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
+| `CAST(1 AS BIT)`, a `BIT` column | `true`: `BIT` is a boolean. `CAST('true' AS BIT)` and `CAST('2' AS BIT)` are `true`. A `BIT` column in a table made before this release keeps DuckDB's bit-string type until the table is created again |
+| `CHOOSE(2, 'a', 'b')`, `ROUND(123.456, 1, 1)`, `DATALENGTH('é')` | `'b'`, `123.4` (cut, not rounded), `2` (UTF-8 bytes, as varchar; an `N'...'` literal counts 2 bytes a character, and a number is refused) |
+| `STRING_SPLIT(tags, ',')` in `FROM` or `CROSS APPLY` | One row per part, in a `value` column. The separator is one character, as in T-SQL (`enable_ordinal` isn't run here yet) |
+| `POWER(2, -1)`, `POWER(qty, 2)` on an integer column | `0`, an integer: an integer base gives an integer, cut toward zero, and one too big for its type is an error. A `FLOAT` base (`POWER(2e0, -1)`) gives `0.5` |
+| `QUOTENAME('a]b')`, `QUOTENAME(s, '"')`, `STR(123.45, 6, 1)` | `'[a]]b]'` (the closing character doubled, `NULL` over 128 characters; `[`, `]`, `"` and `'` are taken), `' 123.5'` (right-aligned to the length, 10 by default, with fewer places when they don't fit and asterisks when the whole number doesn't; length and places written in the query) |
+| `TOP 5 WITH TIES ... ORDER BY total` | The first 5 rows and every row tied with the fifth (not with `PERCENT` or `DISTINCT`) |
+| `DATEPART(quarter, '2024-03-05')` | The text read as a date, as T-SQL does |
 | `#t` | A temporary table kept apart from an ordinary table `t` |
 
 The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
 
-**Refused, not half-translated:** variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result.
+**Refused, not half-translated:** `ISNUMERIC` (use `TRY_CAST(x AS FLOAT) IS NOT NULL` for now), `POWER` of a decimal such as `POWER(2.5, 2)` (T-SQL keeps the decimal's scale; cast the base to `FLOAT`), `SYSDATETIMEOFFSET` (use `SYSUTCDATETIME()`: a warehouse's clock is UTC), any function DuckDB doesn't have, such as `ISDATE`, `CHECKSUM` or `TRY_PARSE` (each is named in the message), variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
 

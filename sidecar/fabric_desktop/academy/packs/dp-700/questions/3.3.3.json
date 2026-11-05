@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3.3",
+  "questions": [
+    {
+      "id": "3.3.3-q1",
+      "type": "single",
+      "stem": "A process loads a warehouse table with thousands of single-row INSERT statements and is slow. What is the better pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add more single-row inserts in parallel"
+        },
+        {
+          "id": "b",
+          "text": "Load in batches with COPY INTO, INSERT ... SELECT or CREATE TABLE AS SELECT"
+        },
+        {
+          "id": "c",
+          "text": "Wrap each insert in its own transaction"
+        },
+        {
+          "id": "d",
+          "text": "Use a cursor"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The warehouse is built for set-based loads. Singleton inserts create many small files and transactions.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.3-q2",
+      "type": "single",
+      "stem": "What does the warehouse do about statistics for the query optimizer?",
+      "options": [
+        {
+          "id": "a",
+          "text": "You must rebuild every index nightly"
+        },
+        {
+          "id": "b",
+          "text": "It creates and updates statistics automatically, and you can also create them manually for specific columns"
+        },
+        {
+          "id": "c",
+          "text": "It needs a Spark job to build them"
+        },
+        {
+          "id": "d",
+          "text": "Nothing; statistics aren't used"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Statistics help the optimizer estimate row counts. The warehouse maintains them automatically, and manual statistics can help specific queries.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/statistics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.3-q3",
+      "type": "single",
+      "stem": "Why should warehouse columns use the smallest data type that fits the values, such as varchar(50) instead of varchar(8000)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Larger types are not allowed"
+        },
+        {
+          "id": "b",
+          "text": "It makes no difference"
+        },
+        {
+          "id": "c",
+          "text": "Smaller types make storage, memory use and query processing more efficient"
+        },
+        {
+          "id": "d",
+          "text": "Smaller types turn on V-Order"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Right-sized types reduce what has to be stored, read and held in memory, which speeds up queries.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.3-q4",
+      "type": "single",
+      "stem": "Files in a storage account must be loaded into a warehouse table as fast as possible. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "COPY INTO"
+        },
+        {
+          "id": "b",
+          "text": "A loop of single-row INSERTs"
+        },
+        {
+          "id": "c",
+          "text": "SELECT INTO a temp table, row by row"
+        },
+        {
+          "id": "d",
+          "text": "A cursor over the file"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "COPY INTO loads files into warehouse tables at high throughput.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data-copy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

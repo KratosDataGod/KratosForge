@@ -1,5 +1,5 @@
 """Trust badges on a data product (Preview): endorsement from Fabric's admin tenant scan, kept in the
-catalog for everyone, and business terms linked to Microsoft Purview. No tenant calls: HTTP is faked."""
+catalog for everyone. No tenant calls: HTTP is faked."""
 
 import json
 
@@ -16,7 +16,6 @@ WS = "aaaaaaaa-0000-0000-0000-000000000001"
 LH = "bbbbbbbb-0000-0000-0000-000000000002"
 LH_TEST = "cccccccc-0000-0000-0000-000000000003"
 PID = "crm/customer_360"
-TERM_URL = "https://purview.microsoft.com/datacatalog/governance/main/catalog/glossary/term/123?tid=abc"
 
 
 class Who:
@@ -140,7 +139,7 @@ def test_scanner_says_when_a_scan_fails():
 def test_unknown_when_nothing_has_been_scanned(svc):
     trust = svc.platform_product_trust(PID)
     assert [(i["item_id"], i["env"], i["endorsement"]) for i in trust["items"]] == [(LH, "prod", None)]
-    assert trust["terms"] == [] and trust["admin"] is True
+    assert trust["admin"] is True and "terms" not in trust
 
 
 def test_scan_stores_the_badge_and_a_non_admin_sees_it(svc, who, platform):
@@ -154,7 +153,7 @@ def test_scan_stores_the_badge_and_a_non_admin_sees_it(svc, who, platform):
     who.user = "bo@example.com"  # not a platform admin, not the owner
     seen = svc.platform_product_trust(PID)
     assert seen["items"][0]["endorsement"] == "Certified" and seen["items"][0]["scanned_at"]
-    assert seen["admin"] is False and seen["can_edit_terms"] is False
+    assert seen["admin"] is False and seen["can_edit"] is False
     entry = platform.call("audit", limit=5)[0]
     assert entry["action"] == "record endorsement scan"
     assert "Ana" not in (entry["detail"] or "")  # who certified isn't copied into the audit
@@ -197,50 +196,12 @@ def test_a_platform_admin_who_is_not_a_fabric_admin_is_told_so(svc):
     assert svc.platform_product_trust(PID)["items"][0]["endorsement"] is None
 
 
-# --------------------------------------------------------------------------- business terms
-
-
-@pytest.mark.parametrize("url", [
-    "http://purview.microsoft.com/term/1", "https://purview.microsoft.com.evil.example/term",
-    "https://evil.example/?u=purview.microsoft.com", "https://user@purview.microsoft.com/term",
-    "https://purview.microsoft.com:8443/term", "javascript:alert(1)", "", "https://purview.microsoft.com/a b",
-    "https://evil.example\\.purview.microsoft.com/"])
-def test_term_links_must_be_purview_https(svc, url):
-    with pytest.raises(ValueError, match="Purview"):
-        svc.platform_add_product_term(PID, "Customer", url)
-    with pytest.raises(core.PlatformError, match="Purview"):
-        core.purview_url(url)
-
-
-def test_purview_hosts_are_accepted():
-    for url in (TERM_URL, "https://web.purview.azure.com/resource/x/main/glossary/term?termGuid=1",
-                "https://contoso.purview.microsoft.com/term/2"):
-        assert core.purview_url(url) == url
-
-
-def test_terms_are_added_and_removed_by_the_owner_or_an_admin_and_audited(svc, who, platform):
-    trust = svc.platform_add_product_term(PID, "  Active   customer ", TERM_URL)
-    assert trust["terms"] == [{"term": "Active customer", "url": TERM_URL, "added_by": "chris@example.com",
-                               "added_at": trust["terms"][0]["added_at"]}]
-    who.user = "bo@example.com"
-    with pytest.raises(core.PlatformError, match="product's owner or a platform admin"):
-        svc.platform_add_product_term(PID, "Churn", TERM_URL)
-    with pytest.raises(core.PlatformError, match="product's owner or a platform admin"):
-        svc.platform_remove_product_term(PID, "Active customer")
+def test_the_product_s_owner_or_an_admin_can_edit_it(svc, who):
+    assert svc.platform_product_trust(PID)["can_edit"] is True  # a platform admin
     who.user = "ana@example.com"  # the product's owner
-    assert svc.platform_product_trust(PID)["can_edit_terms"] is True
-    svc.platform_add_product_term(PID, "Churn", TERM_URL)
-    assert [t["term"] for t in svc.platform_remove_product_term(PID, "active customer")["terms"]] == ["Churn"]
-    with pytest.raises(core.PlatformError, match="isn't a business term"):
-        svc.platform_remove_product_term(PID, "Active customer")
-    actions = [(a["action"], a["by_user"]) for a in platform.call("audit", limit=10)]
-    assert actions[:3] == [("remove product term", "ana@example.com"), ("add product term", "ana@example.com"),
-                           ("add product term", "chris@example.com")]
-
-
-def test_terms_need_a_published_product(svc):
-    with pytest.raises(core.PlatformError, match="isn't a published data product"):
-        svc.platform_add_product_term("crm/nope", "Churn", TERM_URL)
+    assert svc.platform_product_trust(PID)["can_edit"] is True
+    who.user = "bo@example.com"
+    assert svc.platform_product_trust(PID)["can_edit"] is False
 
 
 # --------------------------------------------------------------------------- an older platform
@@ -253,33 +214,30 @@ class NotFoundSession:
 
 def test_an_older_udf_platform_says_to_finish_or_repair(svc):
     svc._catalog = lambda: FabricPlatform(lambda: "tok", "ws", "fn", session=NotFoundSession())
-    for call in (lambda: svc.platform_product_trust(PID),
-                 lambda: svc.platform_add_product_term(PID, "Churn", TERM_URL),
-                 lambda: svc.platform_remove_product_term(PID, "Churn")):
-        with pytest.raises(LookupError, match="After an update, a platform admin runs Platform > Settings > Finish or repair once"):
-            call()
+    with pytest.raises(LookupError, match="After an update, a platform admin runs Platform > Settings > Finish or repair once"):
+        svc.platform_product_trust(PID)
 
 
 def test_a_platform_made_before_gets_the_tables_on_first_use(platform):
     with platform._db() as db:
-        for t in ("endorsement", "product_term"):
-            db.run(f"DROP TABLE {db.t('catalog', t)}")
+        db.run(f"DROP TABLE {db.t('catalog', 'endorsement')}")
         db.commit()
         assert not db.exists("catalog", "endorsement")
     assert platform.call("product_trust", product_id=PID)["items"][0]["endorsement"] is None
     with platform._db() as db:
-        assert db.exists("catalog", "endorsement") and db.exists("catalog", "product_term")
+        assert db.exists("catalog", "endorsement")
 
 
 def test_rpc_names_udf_functions_and_audit():
-    for m in ("platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term"):
+    for m in ("platform_product_trust", "platform_scan_endorsement"):
         assert m in server.METHODS
     assert not audit.audited("platform_product_trust")
-    for m in ("platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term"):
-        assert audit.audited(m)
+    assert audit.audited("platform_scan_endorsement")
     source = udf.function_app()
-    for op in ("product_trust", "record_endorsements", "add_product_term", "remove_product_term"):
+    for op in ("product_trust", "record_endorsements"):
         assert f"def {op}(" in source and op in core.OPERATIONS
+    for op in ("add_product_term", "remove_product_term"):
+        assert f"def {op}(" not in source and op not in core.OPERATIONS
     compile(source, "function_app.py", "exec")
 
 

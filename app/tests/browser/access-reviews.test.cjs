@@ -25,7 +25,7 @@ before(async () => {
   app = await openApp({ mocks: {
     platform_whoami: () => ({ admin: false, user: "bo@contoso.com" }),
     platform_products: () => ({ project: null, products: [product(PID, "c360"), product("crm/orders", "orders")] }),
-    platform_product_trust: () => ({ product_id: PID, name: "c360", owner: "", admin: false, can_edit_terms: false, items: [], terms: [] }),
+    platform_product_trust: () => ({ product_id: PID, name: "c360", owner: "", admin: false, can_edit: false, items: [] }),
     platform_access_reviews: reviews,
     platform_confirm_access: ({ projects }) => {
       grants = grants.map((g) => (projects.includes(g.project) ? { ...g, due: false, days: 0, reviewed_at: new Date().toISOString(), reviewed_by: "bo@contoso.com" } : g));

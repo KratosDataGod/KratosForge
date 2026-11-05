@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 from . import http_session, sql_exec
 from .jsonfile import write_bytes
+from .appstudio import discovery, generate
 from .appstudio import policy as as_policy
 from .appstudio import project, sample, templates
 from .appstudio import providers as prov
@@ -33,8 +38,12 @@ METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_ch
            "appstudio_redo", "appstudio_history", "appstudio_versions", "appstudio_save_version",
            "appstudio_restore_version", "appstudio_save_as", "appstudio_export", "appstudio_import",
            "appstudio_preview", "appstudio_connections", "appstudio_connection_save", "appstudio_connection_delete",
-           "appstudio_connection_test"}
-SOURCES_FROM_UI = {"visual", "manual"}  # an AI change arrives through its own method, after its checks
+           "appstudio_connection_test", "appstudio_plan", "appstudio_create_from_plan"}
+SOURCES_FROM_UI = {"visual", "manual"}
+MAX_DESCRIPTION = 4000
+MAX_PLANS = 20  # plans waiting for approval, kept in memory only
+PLAN_MINUTES = 60
+_GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")  # an AI change arrives through its own method, after its checks
 
 
 class AppStudioMixin:
@@ -205,3 +214,77 @@ class AppStudioMixin:
         """Check a connection works: read its key and list the models the key can see. Spends no tokens and
         sends no application context."""
         return prov.validate(self._appstudio_model(conn_id), http_session.session())
+
+    # ---------------------------------------------------------------- generation (AS-10)
+
+    def _appstudio_plan_store(self) -> dict[str, dict[str, Any]]:
+        if getattr(self, "_appstudio_plans", None) is None:
+            self._appstudio_plans: dict[str, dict[str, Any]] = {}
+            self._appstudio_plans_lock = threading.Lock()
+        return self._appstudio_plans
+
+    def _appstudio_metadata(self, source: dict[str, Any] | None, include_expressions: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+        """(metadata, spec source) for a plan: a semantic model's sanitized metadata, or the sample fields."""
+        if not source:
+            return generate.sample_metadata(), {"kind": "sample", "name": "Sample data"}
+        ws, item = str(source.get("workspace_id", "")), str(source.get("item_id", ""))
+        if not (_GUID.fullmatch(ws) and _GUID.fullmatch(item)):
+            raise ValueError("Choose a semantic model: its workspace id and item id.")
+        name = redact_name(source.get("name")) or "Semantic model"
+        bim = self._model_bim(ws, {"id": item, "displayName": name})  # type: ignore[attr-defined]
+        meta = discovery.from_bim(bim, include_expressions=include_expressions)
+        return meta, {"kind": "semantic-model", "name": name, "workspace_id": ws, "item_id": item}
+
+    def appstudio_plan(self, description: str, target: str = "powerbi-report", source: dict[str, Any] | None = None,
+                       conn_id: str = "", include_expressions: bool = False) -> dict[str, Any]:
+        """Ask the person's model for a plan. Sends the description and sanitized metadata only (no rows); measure
+        formulas only with ``include_expressions``. The plan is checked against the metadata and kept here,
+        in memory, until it is approved (appstudio_create_from_plan) or an hour passes. Nothing is saved."""
+        text = " ".join(str(description).split())
+        if not text:
+            raise ValueError("Describe the application first.")
+        if len(text) > MAX_DESCRIPTION:
+            raise ValueError(f"Keep the description under {MAX_DESCRIPTION} characters.")
+        if target not in specs.TARGETS:
+            raise ValueError(f"target must be one of: {', '.join(sorted(specs.TARGETS))}.")
+        conn = self._appstudio_model(conn_id)  # the organization's policy, every time
+        if not conn["consent"]["context"]:  # before the semantic model is even read
+            raise prov.ConsentError("Agree to send application context to this model first (App Studio > Model connections).")
+        meta, spec_source = self._appstudio_metadata(source, bool(include_expressions))
+        got = prov.complete(conn, self._appstudio_store(), http_session.session(), generate.instruction(target), text,
+                            generate.PLAN_SCHEMA, generate.context(meta))
+        checked = generate.check_plan(got["result"], meta, target)
+        plans = self._appstudio_plan_store()
+        plan_id = str(uuid.uuid4())
+        now = time.monotonic()
+        with self._appstudio_plans_lock:
+            for k in [k for k, v in plans.items() if now - v["at"] > PLAN_MINUTES * 60]:
+                del plans[k]
+            while len(plans) >= MAX_PLANS:
+                del plans[min(plans, key=lambda k: plans[k]["at"])]
+            plans[plan_id] = {"metadata": meta, "target": target, "source": spec_source, "at": now}
+        return {"plan_id": plan_id, "plan": checked["plan"], "left_out": checked["left_out"],
+                "sent": {**generate.summary(meta), "description_chars": len(text)},
+                "connection": {"name": conn["name"], "provider": conn["provider"], "model": conn["model"]},
+                "usage": got["usage"], "warning": got["warning"]}
+
+    def appstudio_create_from_plan(self, plan_id: str, plan: dict[str, Any], name: str = "") -> dict[str, Any]:
+        """Approve a plan: check it again against the same metadata (the person may have edited it), make the
+        specification here and save it as a new project. The plan can be used once."""
+        plans = self._appstudio_plan_store()
+        with self._appstudio_plans_lock:
+            kept = plans.get(str(plan_id))
+            if kept is None or time.monotonic() - kept["at"] > PLAN_MINUTES * 60:
+                plans.pop(str(plan_id), None)
+                raise ValueError("That plan has expired. Ask for a new one.")
+        checked = generate.check_plan(plan, kept["metadata"], kept["target"])
+        doc = generate.to_spec(checked["plan"], kept["metadata"], kept["target"], kept["source"], " ".join(str(name).split())[:120])
+        folder = project.create(self._appstudio_root(), doc["name"], doc)
+        with self._appstudio_plans_lock:
+            plans.pop(str(plan_id), None)
+        return {**self._appstudio_opened(folder), "left_out": checked["left_out"]}
+
+
+def redact_name(value: Any) -> str:
+    from .redact import one_line
+    return one_line(value, 120) if isinstance(value, str) else ""

@@ -375,7 +375,7 @@ OPEN_READS = {
 def test_open_reads_answer_anyone_signed_in_in_full(seeded, tmp_path):
     path = _copy(seeded, tmp_path)
     LocalPlatform(path, lambda: ADMIN).call("issue_keys", name="customer", business_keys=["C-1", "C-2"])
-    answers = {user: {op: LocalPlatform(path, lambda: user).call(op, **args) for op, args in OPEN_READS.items()}
+    answers = {user: {op: LocalPlatform(path, lambda user=user: user).call(op, **args) for op, args in OPEN_READS.items()}
                for user in (ADMIN, NOBODY)}
     assert answers[NOBODY] == answers[ADMIN]
     seen = answers[NOBODY]

@@ -116,6 +116,7 @@ const PREVIEW_FEATURES = {
   learn: "Learn",
   academy: "Academy",
   appStudio: "App Studio",
+  embedStudio: "Embed Studio (Power BI)",
 };
 
 function previewShown() {

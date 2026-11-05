@@ -284,8 +284,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                     and _unknown(info.this.type):
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
+            source = _numeric_style(node, info) or info.this.type
             _truncated(node, info.this.type)
-            _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
+            _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     return notes
 
 
@@ -354,6 +355,24 @@ def _float_text(value: exp.Expression) -> exp.Expr:
     return exp.func("REGEXP_REPLACE", printed, exp.Literal.string(r"e([+-])(\d\d)$"), exp.Literal.string(r"e\10\2"))
 
 
+def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType | None:
+    """sqlglot reads a ``CONVERT`` style as a date style, so ``CONVERT(VARCHAR, x, 1)`` of a number
+    became ``STRFTIME(x, '%m/%d/%y')``, which fails. For an integer or a decimal T-SQL ignores the
+    style, and so does this; a float's styles 1, 2 and 3 (8, 16 and 17 digits) are refused. Returns
+    the number's type when the STRFTIME was taken off."""
+    style = node.meta.get("tsql_style")
+    if style is None or not isinstance(node.this, exp.TimeToStr) or not isinstance(info.this, exp.TimeToStr):
+        return None
+    kind = info.this.this.type
+    if not _is(kind, _NUMBERS):
+        return None
+    if style != "0" and _is(kind, _FLOATS):
+        raise ValueError(f"This T-SQL can't be run on the local engine: CONVERT style {style} for a float isn't "
+                         "carried yet. Leave the style out, or use 0.")
+    node.set("this", node.this.this)
+    return kind
+
+
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 _PADDED = {exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 
@@ -397,6 +416,9 @@ def _converts(tree: exp.Expression) -> None:
             # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
+            style = node.args.get("style")
+            if isinstance(new.this, exp.TimeToStr) and isinstance(style, exp.Literal):
+                new.meta["tsql_style"] = style.name  # a date style, unless _types finds a number (_numeric_style)
         node.replace(new)
 
 
@@ -866,8 +888,8 @@ def _string_edges(tree: exp.Expression) -> None:
                 if int(value) < 0:
                     raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same "
                                      "error.")
-                if value != int(value):
-                    node.set("expression", exp.Literal.number(int(value)))  # DuckDB would round it
+                if not _whole(length, 0):  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
+                    node.set("expression", exp.Literal.number(int(value)))
             elif not _whole(length, 0):
                 whole = exp.cast(exp.Trunc(this=length.copy()), "BIGINT")
                 negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))

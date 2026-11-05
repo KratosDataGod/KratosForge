@@ -152,7 +152,17 @@ def read_delta(path: Path) -> pa.Table:
     """A Delta table's current rows, read by delta-rs itself (DataFusion), not through a pyarrow file
     system: the learner process refuses pyarrow's PyFileSystem, which to_pyarrow_table uses."""
     query = deltalake.QueryBuilder().register("t", deltalake.DeltaTable(str(path)))
-    return query.execute("SELECT * FROM t").read_all()
+    return _no_views(pa.table(query.execute("SELECT * FROM t").read_all()))
+
+
+def _no_views(table: pa.Table) -> pa.Table:
+    """DataFusion returns text as string_view. DuckDB pushes a join's key filter into the Arrow scan as
+    is_in, which pyarrow has no string_view kernel for, so a join on a text key would fail: read plain
+    string and binary instead."""
+    plain = {pa.types.is_string_view: pa.string(), pa.types.is_binary_view: pa.binary()}
+    fields = [pa.field(f.name, next((t for test, t in plain.items() if test(f.type)), f.type), f.nullable, f.metadata)
+              for f in table.schema]
+    return table.cast(pa.schema(fields, table.schema.metadata))
 
 
 class AcademySession(SparkSession):

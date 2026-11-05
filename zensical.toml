@@ -51,6 +51,7 @@ nav = [
     { "Notebook variables" = "notebook-editor/variables.md" },
     { "Notebook files" = "notebook-files.md" },
     { "VS Code" = "vscode.md" },
+    { "Embed Studio" = "embed-studio.md" },
     { "Recent notebooks and pinned items" = "home-notebooks.md" },
     { "Academy" = "academy-guide.md" },
     { "Learn" = "learn.md" },
@@ -202,6 +203,7 @@ nav = [
       { "Quality gates" = "audits/QUALITY_GATES.md" },
       { "Remediation backlog" = "audits/REMEDIATION_BACKLOG.md" },
       { "Architecture decisions" = "audits/ARCHITECTURE_DECISIONS.md" },
+      { "Redactors" = "audits/REDACTORS.md" },
     ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },

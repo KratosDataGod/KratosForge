@@ -184,3 +184,20 @@ def test_a_failed_copy_leaves_nothing_behind(svc, tmp_path, monkeypatch):
     monkeypatch.undo()
     assert not (tmp_path / "sales-notebooks" / "notebooks" / f"{name}.ipynb").exists()
     assert svc.move_notebook(name, root)["moved"]  # a retry works
+
+
+def test_saving_locations_keeps_lf_line_endings_and_leaves_no_temporary_file(svc, tmp_path, monkeypatch):
+    root = repo_of(svc, tmp_path)
+    svc.git_set_locations(root, {"test": TEST})
+    folder = tmp_path / "sales-notebooks"
+    saved = (folder / scopes.LOCATIONS).read_bytes()
+    assert b"\n" in saved and b"\r\n" not in saved  # the same file on every OS, so git sees no change
+    before = sorted(p.name for p in folder.iterdir())
+
+    def refused(src, dst):
+        raise PermissionError("the swap is refused")
+    monkeypatch.setattr(scopes.jsonfile, "replace", refused)
+    with pytest.raises(PermissionError):
+        svc.git_set_locations(root, {"test": TEST | {"lakehouse_id": "lh-other"}})
+    assert sorted(p.name for p in folder.iterdir()) == before
+    assert (folder / scopes.LOCATIONS).read_bytes() == saved

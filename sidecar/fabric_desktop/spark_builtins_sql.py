@@ -5,25 +5,30 @@ gives Spark's value (the Fails and Differs rows of docs/spark-functions.md).
 this PC and the DuckDB engine's Databricks SQL both get it. It runs after every other rewrite there,
 so nothing it writes is rewritten again; each argument is the person's own node, already rewritten.
 
-Functions that can't give Spark's value here (sketches, XPath, AES, time windows) are refused by
+Functions that can't give Spark's value here (sketches, XPath, AES, session windows) are refused by
 name with a message, so a cell stops before anything runs with another answer.
 """
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Callable, cast
 
 import sqlglot
 from sqlglot import exp
 
+from .spark_hash import hash_sql
+
 # ---- helpers
 
 
-def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
-    """``template`` read as DuckDB SQL, with the arguments in place of fj_arg0, fj_arg1, ...
-    (as sql._with_args). Lambda names in templates start with kf_, which a query can't use."""
-    tree = cast(exp.Expression, sqlglot.parse_one(template, read="duckdb"))
+def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    """``template`` read as DuckDB SQL (or already read: a copy is used), with the arguments in place
+    of fj_arg0, fj_arg1, ... (as sql._with_args). Lambda names in templates start with kf_, which a
+    query can't use."""
+    tree = (template.copy() if isinstance(template, exp.Expression)
+            else cast(exp.Expression, sqlglot.parse_one(template, read="duckdb")))
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
             column.replace(args[int(column.name[6:])].copy())
@@ -437,6 +442,30 @@ def _window_columns(statement: exp.Expression) -> None:
 
 _SKETCH = "it builds a DataSketches or count-min sketch whose bytes this PC can't make the same way."
 _XPATH = "XPath isn't available in the engine on this PC."
+@functools.lru_cache(maxsize=32)
+def _hash_template(name: str, count: int) -> exp.Expression:
+    """hash_sql read once per name and argument count: it is long, and reading it is most of the time."""
+    return cast(exp.Expression, sqlglot.parse_one(hash_sql(name, count), read="duckdb"))
+
+
+def _spark_literal(arg: exp.Expression) -> exp.Expression:
+    """-2147483648 is an int to Spark and a BIGINT to DuckDB (which reads 2147483648, then negates it):
+    a value hashed by its type must be the type Spark gives it."""
+    inner = arg.this if isinstance(arg, exp.Neg) else None
+    if isinstance(inner, exp.Literal) and not inner.is_string and inner.this == "2147483648":
+        return exp.cast(arg.copy(), exp.DataType.Type.INT)
+    return arg
+
+
+def _hash(name: str) -> Callable[..., exp.Expression]:
+    """hash(a, b, ...) and xxhash64(a, b, ...) as Spark computes them (spark_hash.py)."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+        if not args:
+            raise ValueError(f"{name}() needs at least one argument, as in Spark.")
+        return _with_args(_hash_template(name, len(args)), [_spark_literal(a) for a in args])
+    return build
+
+
 _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **_AGGREGATES,
     "ARRAY_REPEAT": _template("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_TRANSFORM(RANGE(GREATEST(fj_arg1, 0)), "
@@ -453,6 +482,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "EXPM1": _template(_EXPM1, 1),
     "FIND_IN_SET": _template(_FIND_IN_SET, 2),
     "GET": _template("CASE WHEN fj_arg1 < 0 THEN NULL ELSE fj_arg0[fj_arg1 + 1] END", 2),
+    "HASH": _hash("hash"),
     "HYPOT": _template("SQRT(POW(CAST(fj_arg0 AS DOUBLE), 2) + POW(CAST(fj_arg1 AS DOUBLE), 2))", 2),
     "INLINE_OUTER": _template(_INLINE_OUTER, 1),
     "ISNOTNULL": _template("(fj_arg0 IS NOT NULL)", 1),
@@ -495,16 +525,13 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "SCHEMA_OF_CSV": _refuse("schema_of_csv", "this PC doesn't infer a CSV schema from one line the way Spark does.",
                              "write the schema out for from_csv"),
     "SENTENCES": _refuse("sentences", "it splits text by Java's locale rules, which this PC doesn't have."),
-    "TO_VARCHAR": _refuse("to_varchar", "number format patterns ('999', '$99.99') aren't read here.",
-                          "use format_number or cast"),
-    "TRY_TO_NUMBER": _refuse("try_to_number", "number format patterns ('999', '$99.99') aren't read here.",
-                             "use try_cast"),
     **{name: _refuse(name.lower(), _XPATH) for name in ("XPATH", "XPATH_BOOLEAN", "XPATH_DOUBLE", "XPATH_FLOAT",
                                                        "XPATH_INT", "XPATH_LONG", "XPATH_NUMBER", "XPATH_SHORT",
                                                        "XPATH_STRING")},
     "WINDOW": _time_window,
     "WINDOW_TIME": _template("CAST(STRUCT_EXTRACT(fj_arg0, 'end') - INTERVAL 1 MICROSECOND AS TIMESTAMP)", 1),
     "SESSION_WINDOW": _refuse("session_window", "session windows run in Fabric only."),
+    "XXHASH64": _hash("xxhash64"),
 }
 
 
@@ -532,6 +559,8 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
                                                [_uncast(n.this), n.args["zone"]])),
         ("FromTimeZone", lambda n, a: _with_args("TIMEZONE('UTC', TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP)))",
                                                  [_uncast(n.this), n.args["zone"]])),
+        ("ToNumber", lambda n, a: _to_number(False)(n, [n.this, n.args["format"]] if n.args.get("format") else [n.this])),
+        ("ToChar", lambda n, a: _to_char("to_char")(n, [n.this, n.args["format"]]) if n.args.get("format") else None),
         ("ParseUrl", _parse_url),
         ("Extract", _extract),
         ("Hour", _template(f"HOUR({_TS})", 1)),
@@ -575,6 +604,50 @@ def _to_date_with_format(node: exp.Expression, args: list[exp.Expression]) -> ex
         return None
     parsed = exp.StrToTime(this=node.this.copy(), format=fmt.copy(), safe=True)
     return exp.cast(exp.cast(parsed, exp.DataType.Type.TIMESTAMP), exp.DataType.Type.DATE)
+
+
+def _format_text(node: exp.Expression) -> str | None:
+    """A number format written as text: one literal, or literals Spark joins ('9' '9', also written '9''9'),
+    in upper case as Spark reads it ('99d9' is '99D9')."""
+    from .spark_number_format import spark_format
+    if isinstance(node, exp.Literal) and node.is_string:
+        return spark_format(node.name)
+    if isinstance(node, exp.Concat) and all(isinstance(e, exp.Literal) and e.is_string for e in node.expressions):
+        return spark_format("".join(e.name for e in node.expressions))
+    return None
+
+
+def _to_number(try_: bool) -> Callable[..., exp.Expression | None]:
+    """to_number(text, format) and try_to_number: Spark's number format patterns (spark_number_format).
+    A format that isn't a constant text is refused, as Spark refuses it."""
+    name = "try_to_number" if try_ else "to_number"
+
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        from . import spark_number_format
+        if len(args) != 2:
+            return None
+        fmt = _format_text(args[1])
+        if fmt is None:
+            raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
+        shown = fmt.replace("'", "''''")   # inside the SQL text of ERROR's argument
+        fail = "NULL" if try_ else (f"ERROR('{name}(): the input ''' || kf_s || ''' doesn''t match the format "
+                                    f"''{shown}'', as in Fabric.')")
+        text, _, _ = spark_number_format.parse_sql(fmt, fail)
+        return _with_args(text, [args[0]])
+    return build
+
+
+def _to_char(name: str) -> Callable[..., exp.Expression | None]:
+    """to_char(number, format) and to_varchar: a number written with Spark's number format patterns."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        from . import spark_number_format
+        if len(args) != 2:
+            return None
+        fmt = _format_text(args[1])
+        if fmt is None:
+            raise ValueError(f"{name}()'s format must be written out as text ('999.99'), as Spark requires.")
+        return _with_args(spark_number_format.format_sql(fmt), [args[0]])
+    return build
 
 
 # parse_url as Spark 3.5 answers it: Spark reads the text with java.net.URI (RFC 2396) and gives NULL
@@ -705,6 +778,8 @@ def _uncast(node: exp.Expression) -> exp.Expression:
 
 
 _TYPED = _typed()
+_ANON["TRY_TO_NUMBER"] = _to_number(True)
+_ANON["TO_VARCHAR"] = _to_char("to_varchar")
 _ANON["DATE_PART"] = _ANON["DATEPART"] = _date_part
 _RANKS = tuple(c for c in (getattr(exp, n, None) for n in ("Rank", "DenseRank", "PercentRank")) if c is not None)
 
@@ -825,7 +900,19 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
             if isinstance(node, exp.ExplodeOuter) and isinstance(node.parent, exp.Select):
                 replacement = cast(exp.Expression, exp.alias_(replacement, "col"))  # Spark names explode_outer's column col
             node.replace(replacement)
+    _no_duckdb_hash(statement)
     return statement
+
+
+def _no_duckdb_hash(statement: exp.Expression) -> None:
+    """A hash or xxhash64 still here lost its mark on the way (another rewrite wrote it out as text):
+    DuckDB would answer with its own hash, another number, so the cell stops instead."""
+    for call in statement.find_all(exp.Anonymous):
+        if call.name.upper() in ("HASH", "XXHASH64"):
+            name = call.name.lower()
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric here, so nothing ran: "
+                             f"written this way it would give another number than Spark's {name}. Run the cell "
+                             "in Fabric, or compute the hash in a column of its own first.")
 
 
 def _truncated_time(node: exp.Expression) -> None:

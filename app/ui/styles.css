@@ -4,6 +4,7 @@
   --accent-dark: #12264a;
   --accent-soft: #e9eef7;
   --brand-orange: #f8991c;
+  --rail-active: #f8991c;  /* the active rail item's stripe; a skin can set it apart from the brand orange */
   --text: #242424;
   --text-2: #424242;
   --muted: #616161;
@@ -124,7 +125,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 11px; line-height: 1.2; text-align: center; cursor: pointer; overflow-wrap: anywhere;
 }
 .rail-item:hover { background: var(--hover); }
-.rail-item.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand-orange); }
+.rail-item.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; box-shadow: inset 3px 0 0 var(--rail-active); }
 .rail-divider { width: 40px; height: 1px; margin: 6px 0; background: var(--border); }
 /* A platform skin's label over KratosForge's own pages (skins.js skinRailChildren). */
 .rail-group-label { width: 68px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px;
@@ -2501,6 +2502,22 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .action-bar { gap: 8px; }
 .tool[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 
+/* Table detail on the Warehouse page (WH-16) */
+.dialog:has(.wh-detail) { max-width: 900px; }
+.wh-detail { display: flex; flex-direction: column; gap: 12px; }
+.wh-detail-head { display: flex; gap: 12px; align-items: center; }
+.wh-detail-head p { flex: 1; margin: 0; }
+.wh-detail-cols { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+.wh-detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wh-detail-table th { position: sticky; top: 0; background: var(--surface-2, var(--surface)); text-align: left; font-weight: 600; color: var(--text-2); }
+.wh-detail-table th, .wh-detail-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.wh-detail-table .num { text-align: right; font-variant-numeric: tabular-nums; color: inherit; }
+.wh-detail-empty { font-weight: 600; }
+.wh-detail-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wh-detail-tools section { border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.wh-detail-tools p { margin: 0; }
+.wh-detail-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wh-detail-row input { padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 13px; background: var(--surface); color: var(--text); }
 /* The notebook's next step after a run (nbnext.js, AF-4): one line under the ribbon. */
 .nb-next { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 8px 16px 0; padding: 6px 14px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
 .nb-next-why { color: var(--text); }
@@ -2736,6 +2753,13 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-fix-times th, .learn-fix-times td { padding: 2px 16px 2px 0; text-align: left; }
 .learn-fix-times td { font-variant-numeric: tabular-nums; }
 .learn-principle { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
+/* Save support bundle (PB-062): sizes line up on the right; a long description wraps. */
+table.bundle-files { table-layout: auto; }
+table.bundle-files td { white-space: normal; }
+table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit; }
+.setup.bundle h3 { margin: 6px 0 0; font-size: 14px; }
+.setup.bundle ul { margin: 0; padding-left: 18px; }
+.setup.bundle pre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; }
 
 /* Settings > Connections (connections.js, Preview) */
 .cx-page { display: flex; flex-direction: column; gap: 12px; }
@@ -3021,3 +3045,50 @@ tr.fg-conflict { background: var(--danger-soft); }
   .catalog-detail { width: auto; border-left: 0; border-top: 1px solid var(--border); }
   .catalog-head { flex-wrap: wrap; }
 }
+/* Embed Studio (powerbi.js, Preview): Workspaces > Power BI and the studio around the embed host frame. */
+.pbi-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.pbi-find { width: 300px; max-width: 100%; }
+.pbi-list .pbi-star-col { width: 32px; }
+.pbi-list .actions { display: flex; gap: 8px; justify-content: flex-end; }
+.embed-studio .crumb { background: none; border: 0; padding: 0; cursor: pointer; }
+.pbi-studio { display: flex; gap: 12px; min-height: 520px; }
+.pbi-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pbi-stage-bar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border-soft); }
+.pbi-pages { display: flex; gap: 4px; overflow-x: auto; }
+.pbi-frame-wrap { position: relative; flex: 1; min-height: 480px; }
+.pbi-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--surface); }
+.pbi-frame.pbi-hidden { visibility: hidden; }
+.pbi-problem-slot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; pointer-events: none; }
+.pbi-problem-slot:empty { display: none; }
+.pbi-problem { max-width: 520px; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
+.pbi-problem h2 { margin: 0; font-size: 16px; }
+.pbi-problem .pill { align-self: flex-start; }
+.pbi-problem p { margin: 0; }
+.pbi-problem.stop .pill { background: var(--danger-soft); color: var(--danger); }
+.pbi-problem.warn .pill { background: var(--warn-soft); color: var(--warn-strong); }
+.pbi-side { width: 320px; flex: none; display: flex; flex-direction: column; overflow: hidden; }
+.pbi-side .subtabs { padding: 0 14px; margin-bottom: 0; }
+.pbi-facts { padding: 14px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.pbi-fact { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.pbi-events-card { margin-top: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.pbi-events-head { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border-soft); }
+.pbi-events-head h2 { margin: 0; font-size: 14px; }
+.pbi-events { list-style: none; margin: 0; padding: 4px 14px; max-height: 180px; overflow: auto; font-family: var(--mono); font-size: 12px; }
+.pbi-events li { display: grid; grid-template-columns: 90px 140px minmax(0, 1fr); gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.pbi-events .good { color: var(--ok-3); }
+.pbi-events .bad { color: var(--danger); }
+.pbi-event-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) { .pbi-studio { flex-direction: column; } .pbi-side { width: auto; } }
+
+/* Embed Studio gives the report the window: a slim header row, and the frame stretches to the bottom. */
+.page.embed-studio { display: flex; flex-direction: column; padding: 10px 14px 12px; }
+.embed-studio .pbi-head { align-items: center; margin-bottom: 8px; }
+.embed-studio .pbi-head-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.embed-studio .pbi-head h1 { font-size: 18px; margin: 0; }
+.embed-studio .pbi-head .sub { margin: 0; }
+.embed-studio .with-how { flex: 1; min-height: 0; align-items: stretch; }
+.embed-studio .with-how-main { min-height: 0; gap: 10px; }
+.embed-studio .how-it-works { align-self: start; }
+.embed-studio .pbi-studio { flex: 1; min-height: 420px; }
+.embed-studio .pbi-stage-bar { padding: 2px 10px; }
+.embed-studio .pbi-frame-wrap { min-height: 360px; }

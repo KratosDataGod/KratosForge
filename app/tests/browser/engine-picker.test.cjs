@@ -43,7 +43,7 @@ test("Engine replaces Runs on beside Run all, and says This PC", { skip }, async
   const engine = page().locator(".engine-btn").first();
   await engine.waitFor();
   assert.match(await engine.textContent(), /Engine\s*Python \(this PC\)/);
-  assert.strictEqual(await page().locator(".engine-where").first().textContent(), "This PC");
+  assert.strictEqual(await page().locator(".engine-where").first().textContent(), "This PC · no Fabric job");
   assert.strictEqual(await page().getByRole("button", { name: /^Runs on/ }).count(), 0);
   await engine.click();
   await page().locator("#menu [role^=menuitem]", { hasText: "More" }).waitFor();  // the menu opens once the catalog is read

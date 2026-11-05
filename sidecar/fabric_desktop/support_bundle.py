@@ -3,7 +3,8 @@
 ``fabric-desktop support-bundle`` writes ``fabric-desktop-support-<time>.zip`` holding:
 
     about.json      app and engine build, Python, operating system, where each setting comes from,
-                    and the policy file's state (the setting names it sets, never their values)
+                    and the policy file's state (the setting names it sets, never their values), its
+                    SHA-256 and when this PC last saw it change
     sidecar.log     the last lines of the engine's log
     sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
     agent.log       the last lines of the headless agent's log, on a server with an agent
@@ -16,6 +17,7 @@ addresses, the tenant's onmicrosoft.com and SharePoint names, the organization o
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 import sys
@@ -24,8 +26,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, app_settings
+from . import __version__, app_settings, policy_watch
 from .redact import for_support, secret_key
+
+log = logging.getLogger(__name__)
 
 LOG_LINES = 2000
 
@@ -53,7 +57,7 @@ def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> st
     return "".join(text.splitlines(keepends=True)[-lines:])
 
 
-def about() -> dict[str, Any]:
+def about(data_dir: Path | None = None) -> dict[str, Any]:
     """Versions and settings sources; values that identify an organization are summarized."""
     settings = app_settings.load()
     summary = {}
@@ -76,6 +80,7 @@ def about() -> dict[str, Any]:
         "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
         "policy_file": app_settings.policy_path().exists(),
         "policy": policy_state(settings),
+        "policy_record": policy_record(data_dir or _data_dir()),
         "settings": summary,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -96,9 +101,29 @@ def policy_state(settings: dict[str, Any] | None = None) -> dict[str, Any]:
             "from_policy": sorted(k for k, entry in settings.items() if entry.get("source") == "policy")}
 
 
+def policy_record(data_dir: Path) -> dict[str, Any]:
+    """The policy file's SHA-256 now, for IT to compare with the file they shipped (Get-FileHash), whether
+    only administrators can change it, and the last change this PC recorded (policy_watch.py). Read only:
+    a bundle never writes policy-seen.json or the audit trail. A part that can't be read is left empty."""
+    record: dict[str, Any] = {"sha256": None, "managed": None, "last_change": None}
+    try:
+        now = app_settings.policy_fingerprint()
+        record["sha256"] = now["sha256"]
+        record["managed"] = None if now["state"] == "none" else not now["user_can_change"]
+    except Exception as exc:  # noqa: BLE001 - a bundle is still made without it
+        log.warning("Couldn't read the policy file's hash for the support bundle: %s", exc)
+    try:
+        seen = json.loads((data_dir / policy_watch.SEEN).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        seen = None
+    if isinstance(seen, dict):
+        record["last_change"] = {k: seen.get(k) for k in ("changed_at", "sha256", "previous", "state", "managed", "first")}
+    return record
+
+
 def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
-    files: dict[str, str] = {"about.json": json.dumps(about(), indent=2)}
+    files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2)}
     logs = {"sidecar.log": data_dir / "sidecar.log"}
     if agent_home:
         logs["agent.log"] = agent_home / "logs" / "agent.log"
@@ -119,6 +144,7 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "No table data, notebook contents or sign-in cache is included.",
                 "Settings that hold a secret, such as a connection string, or an internal address show only whether they are set.",
                 "The policy file shows only the setting names it sets, never their values; other keys are counted.",
+                "about.json has the policy file's SHA-256, to compare with the file IT shipped, and when this PC last saw it change.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
     return {name: for_support(text) for name, text in files.items()}

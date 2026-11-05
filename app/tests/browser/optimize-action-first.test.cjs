@@ -3,7 +3,9 @@
 // without starting one. Creating a lakehouse is no longer the page's solid button (see harness.cjs).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: optimize.js:optimizeLocalDismiss
 
 const skip = !playwright && "Playwright is not installed";
 let app;
@@ -108,5 +110,19 @@ test("Dismiss asks why, hides the finding on this PC and can be undone (OPT-010)
   assert.ok(app.calls.some((c) => c.method === "xray_dismiss" && c.params.reopen === true));
   assert.ok(!app.calls.some((c) => /^xray_(vacuum|optimize)$/.test(c.method)), "dismissing starts nothing in Fabric");
   await page().evaluate(() => { optimizePage.localDismissed = false; });
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("axe finds nothing serious on the Dismiss dialog", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
+  scan = fresh();
+  app.calls.length = 0;
+  await overview();
+  await page().waitForSelector('.optimize-local tr[data-finding="events"]');
+  await page().click('.optimize-local tr[data-finding="events"] button:has-text("Dismiss...")');
+  await page().waitForSelector(".dialog input");
+  assert.deepStrictEqual(await axeFindings(page(), ".dialog"), [], "Dismiss dialog");
+  await page().click('.dialog button:has-text("Cancel")');
+  await page().waitForFunction(() => !document.querySelector(".dialog"));
+  assert.ok(!app.calls.some((c) => c.method === "xray_dismiss"), "Cancel dismisses nothing");
   assert.deepStrictEqual(app.errors, []);
 });

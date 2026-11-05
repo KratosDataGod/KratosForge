@@ -22,7 +22,7 @@ from typing import Any
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError, UnsupportedError
+from sqlglot.errors import ParseError, SqlglotError
 
 RULES_VERSION = "2026.10.6"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
@@ -706,7 +706,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))
-    except UnsupportedError as exc:
+    except SqlglotError as exc:  # UnsupportedError, or sqlglot stopping while it writes (TIME() with no argument)
         first = (str(exc).splitlines() or ["sqlglot can't rewrite it"])[0]
         return StatementReport(n, "not_translatable", None,
                                (_refuse("SFX-000", "Not rewritten for DuckDB", first + "."),))

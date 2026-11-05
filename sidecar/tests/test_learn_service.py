@@ -4,6 +4,7 @@ data folder; nothing reaches Fabric."""
 from __future__ import annotations
 
 import pytest
+import duckdb
 
 from fabric_desktop import audit, server
 from fabric_desktop.learn_service import METHODS, LearnMixin
@@ -63,9 +64,9 @@ def test_run_shows_rows_and_undoes_changes(svc):
 def test_run_has_no_file_or_network_access(svc, tmp_path):
     svc.learn_lab_start("LM-01")
     (tmp_path / "secret.csv").write_text("a\n1\n", encoding="utf-8")
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.PermissionException):
         svc.learn_lab_run("LM-01", f"SELECT * FROM read_csv('{(tmp_path / 'secret.csv').as_posix()}')")
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.InvalidInputException):
         svc.learn_lab_run("LM-01", "SET enable_external_access = true")
 
 
@@ -102,5 +103,5 @@ def test_a_runaway_query_is_stopped_and_memory_is_capped(svc, monkeypatch):
     assert out["passed"] is False and "Stopped after 1 seconds" in out["results"][0]["detail"]
     assert svc.learn_lab_run("LM-01", "SELECT count(*) AS n FROM orders")["rows"] == [[7]]  # the lab still works
     assert "MiB" in svc.learn_lab_run("LM-01", "SELECT current_setting('memory_limit') AS m")["rows"][0][0]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.InvalidInputException):
         svc.learn_lab_run("LM-01", "SET memory_limit = '64GB'")

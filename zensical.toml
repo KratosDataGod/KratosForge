@@ -69,6 +69,7 @@ nav = [
     { "Decision patterns" = "decision-patterns.md" },
     { "Platform support levels" = "platforms.md" },
     { "Platform skins" = "skins.md" },
+    { "Skins demonstration" = "skins-demo.md" },
     { "Platform experience parity" = "parity.md" },
     { "Where each capability runs" = "capabilities.md" },
     { "Notebook comments" = "notebook-comments.md" },

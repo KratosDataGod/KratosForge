@@ -83,6 +83,11 @@ Preview features are shown, and an administrator's policy can lock it.
 | Snowflake-familiar | A blue accent and light surfaces, and Worksheets, Data, Load and create and Monitoring at the top of the rail, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
-services, Learn), at most 8 main pages in the rail, and Settings at the bottom. Dark versions of the
+services, Learn), at most 8 main pages in the rail, and Settings at the bottom. In a platform skin, KratosForge's own
+pages (Platform, Optimize and Data mesh) sit together under a "KratosForge" label in the rail, so you can
+see what the app adds to the platform you know. Every skin also keeps the same "where it runs" chip
+beside the notebook's engine, such as "This PC · no Fabric job" (reading or writing OneLake from this PC still uses Fabric
+capacity), and a skin can't hide or change it.
+Dark versions of the
 skins come once the rest of the app's colors are on tokens. A skin renames rail entries only: the pages
 themselves, and where code runs, stay KratosForge's.

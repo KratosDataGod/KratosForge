@@ -19,6 +19,8 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
 const { playwright, openApp, axeSource, axeFindings: harnessAxe } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: wizard.js:drawWizard
 
 const skip = !playwright && "Playwright is not installed";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

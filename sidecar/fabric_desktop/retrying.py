@@ -188,6 +188,22 @@ def data_upload_dropped(exc: BaseException) -> bool:
 T = TypeVar("T")
 
 
+def retry_call(fn: Callable[[], T], retry_on: Callable[[BaseException], bool], attempts: int,
+               wait: Callable[[int], float], sleep: Callable[[float], None] = time.sleep) -> T:
+    """Call ``fn`` at most ``attempts`` times. After an error ``retry_on`` accepts, sleep
+    ``wait(n)`` seconds (n is 1 before the second try, 2 before the third, ...) and call it again.
+    Any other error, or the last try's, is raised as it is. Callers keep their own policy (what to
+    retry, how many times, how long to wait); this is the one loop they share (EA-028)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if attempt == attempts or not retry_on(exc):
+                raise
+            sleep(wait(attempt))
+    raise ValueError("attempts must be at least 1")
+
+
 def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05) -> T:
     """Repeat ``fn`` while it hits the Windows Delta log race, a bounded number of times. Only
     calls that are safe to repeat go through here; any other error is raised at once."""

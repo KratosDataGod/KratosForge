@@ -1,0 +1,85 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E24",
+  "version": 1,
+  "status": "draft",
+  "title": "Type 2 history: close the old row, add the new one",
+  "objectives": [
+    "2.1.2"
+  ],
+  "objective_text": "Apply a batch of customer changes to a dimension that keeps history for city (type 2) and overwrites email (type 1).",
+  "scenario": "Finance reports revenue by the city a customer lived in when they ordered, so city changes must keep history. Marketing only ever wants the latest email address, on every row. Tonight's batch has a move, an email change, a customer with no change and a new customer.",
+  "prerequisites": [
+    "LAB-05"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your statements ran on this PC with DuckDB and left dim_customer with the expected history.",
+    "Every customer has exactly one current row and every surrogate key is unique."
+  ],
+  "does_not_verify": [
+    "That the statements run in a Fabric Warehouse or Spark SQL unchanged: UPDATE ... FROM is written differently in Spark SQL, where MERGE is the usual way.",
+    "Behaviour under concurrent loads, which needs the target's own transaction rules."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "dim_customer": {
+        "columns": [
+          "customer_key",
+          "customer_id",
+          "city",
+          "email",
+          "valid_from",
+          "valid_to",
+          "is_current"
+        ],
+        "unique": [
+          "customer_key"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over dim_customer, ordered by customer_key."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "History and current rows are right.",
+      "fail": "Check each customer in customer_changes: which ones need a new row, and which rows need the new email?"
+    },
+    {
+      "kind": "table_shape",
+      "table": "dim_customer",
+      "unique": [
+        "customer_key"
+      ],
+      "not_null": [
+        "customer_key",
+        "valid_from",
+        "is_current"
+      ],
+      "pass": "Keys are unique and every row has its dates.",
+      "fail": "A key appears twice or a row is missing valid_from or is_current."
+    }
+  ],
+  "hints": [
+    "There are three kinds of change: email (overwrite every row of the customer), city (close the current row and add a new one), and a new customer (add a row).",
+    "Do the type 1 email update first, on all of the customer's rows, so the new type 2 row and the old ones agree.",
+    "New keys continue from max(customer_key); row_number() OVER (ORDER BY customer_id) numbers the rows you insert."
+  ],
+  "explanation": "A type 2 attribute keeps the past: the current row is closed (valid_to set, is_current false) and a new row with a new surrogate key starts on the change date, so old facts keep pointing at the old city. A type 1 attribute is corrected everywhere, including closed rows, because nobody needs the old value. Mixing the two in one dimension is common; the order of the steps decides whether the new row carries the new email.",
+  "remediation": [
+    "LAB-05",
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-dimension-tables"
+  ],
+  "reset": "Reset restores dim_customer and customer_changes.",
+  "parity": null
+}

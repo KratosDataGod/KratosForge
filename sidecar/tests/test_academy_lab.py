@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 
+import duckdb
 import pytest
 
 from fabric_desktop import audit, progress, server
@@ -90,7 +91,7 @@ def test_a_run_is_rolled_back_and_has_no_file_access(svc, tmp_path):
     (tmp_path / "secret.csv").write_text("a\n1\n", encoding="utf-8")
     for sql in (f"SELECT * FROM read_csv('{(tmp_path / 'secret.csv').as_posix()}')",
                 "SET enable_external_access = true", "BEGIN; DELETE FROM silver_orders; COMMIT;"):
-        with pytest.raises(Exception):
+        with pytest.raises((duckdb.Error, ValueError)):
             svc.academy_run(PACK, "E37", sql)
     out = svc.academy_run(PACK, "E37", "SELECT * FROM range(5000)")
     assert len(out["rows"]) == 200 and out["more"]
@@ -280,7 +281,7 @@ def test_an_oversized_answer_to_check_is_refused(svc):
 def test_sandbox_status_counts_the_runtime_grants_on_record(svc, tmp_path):
     from fabric_desktop import jsonfile
     got = svc.academy_sandbox_status()
-    assert got["granted"] == 0 and got["enabled"] is False and "available" in got and "why_not" in got
+    assert got["granted"] == 0 and got["enabled"] is True and "available" in got and "why_not" in got
     real = tmp_path / "py"
     real.mkdir()
     record = tmp_path / "academy" / "appcontainer-grants.json"

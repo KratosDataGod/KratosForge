@@ -29,7 +29,7 @@ import duckdb
 
 from ..learn import checks
 from ..learn import content as learn_content
-from . import pipelab, pylab, registry
+from . import pipelab, pylab, registry, validators
 
 SCHEMA = "kratosforge/academy-exercise@1"
 MODES = ("guided", "challenge", "troubleshoot")
@@ -39,7 +39,8 @@ ADAPTERS = ("duckdb_lab", "dbsql_lab", "python_lab", "pyspark_lab", "delta_lab",
 # Adapters that run the learner's artifact, so a pass can be LOCAL VERIFIED.
 EXECUTING = ("duckdb_lab", "dbsql_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_lab", "git_lab", "sqlproj_lab")
 # What each adapter can check today. Adapters with nothing here aren't built yet (ACD-004, 011, 012, 014).
-ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity"),
+ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity", "unchanged",
+                                                             "no_findings"),
                                               "dbsql_lab": ("result_matches", "table_shape", "integrity", "idempotent"),
                                               "pyspark_lab": ("result_matches", "table_shape", "idempotent"),
                                               **{a: pylab.CHECKS for a in pylab.ADAPTERS},
@@ -147,13 +148,20 @@ def run_check(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, so
     kind = c["kind"]
     if kind == "result_matches":
         return checks.result_matches(con, answer, reference=solution, ordered=bool(c.get("ordered")))
+    if kind == "no_findings":   # reads the answer's text only; nothing runs
+        return checks.no_findings(answer, [str(r) for r in c["rules"]])
     try:
         checks.guard(con, answer)
     except ValueError as exc:
         return {"kind": kind, "passed": False, "detail": f"Your SQL wasn't run: {exc}."}
     con.begin()
     try:
+        # unchanged: the engine fingerprints the protected tables inside the same rolled-back transaction,
+        # just before the answer runs; nothing of it is visible to or computed by the learner's SQL.
+        before = validators.snapshot(con, [str(t) for t in c["tables"]]) if kind == "unchanged" else None
         con.execute(answer)
+        if before is not None:
+            return validators.unchanged(con, [str(t) for t in c["tables"]], before)
         if kind == "table_shape":
             return checks.table_shape(con, c["table"], c.get("columns"), c.get("unique"), c.get("not_null"))
         return checks.integrity(con, c["child"], c["column"], c["parent"], c.get("parent_column"))
@@ -267,7 +275,7 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
             out += [f"{eid}: {p}" for c in ex["validation"] for p in pipelab.check_problems(c)]
         for c in ex["validation"]:
             need = {"table_shape": ("table",), "integrity": ("child", "column", "parent"),
-                    "idempotent": ("table",)}.get(c.get("kind"), ())
+                    "idempotent": ("table",), "unchanged": ("tables",), "no_findings": ("rules",)}.get(c.get("kind"), ())
             if ex["adapter"] == "pyspark_lab" and c.get("kind") == "result_matches":
                 need = ("table",)
             if [k for k in need if not c.get(k)]:

@@ -8,6 +8,9 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const { playwright, openApp, animationsDone } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: features.js:shortcutsDialog, integrations.js:showApproval, learn.js:learnPatternDialog
+// axe covers dialogs: meta.js:confirmDialog, settings.js:reportProblem
 
 let axeSource = null;
 try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: skip */ }
@@ -42,6 +45,7 @@ const JUDGED = [
   [/^report-problem: color-contrast @ \.mono$/, "Pass: the diagnostics are #424242 on #fafafa, 9.6:1."],
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > u:nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text))$/, "Pass: in both runs the decision pattern's text, links, headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
+  [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\) > \.learn-more\[href="#"\]$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
 
@@ -76,6 +80,9 @@ const EXTRA = [
       summary: { action: "Run Python on this PC", target: { workspace_id: "w1" }, content: { text: "print(1)" } } }, null);
   }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
   { id: "report-problem", name: "Report a problem dialog", open: (p) => p.evaluate(() => reportProblem()),
+    ready: "#dialog-root .dialog", scope: "#dialog-root" },
+  // #1673: the keyboard shortcuts list (Help and about, or ?).
+  { id: "shortcuts", name: "Keyboard shortcuts dialog", open: (p) => p.evaluate(() => shortcutsDialog()),
     ready: "#dialog-root .dialog", scope: "#dialog-root" },
   // The engine picker's "This PC or Fabric? How to choose" item opens this decision pattern (engines.js).
   { id: "engine-choose", name: "Engine picker's How to choose dialog", open: (p) => p.evaluate(() => learnPatternDialog("DP-02")),

@@ -302,6 +302,16 @@ def counts(findings: list[dict[str, Any]]) -> dict[str, int]:
     return out
 
 
+# What a finding's fix asks of the person, from the fix itself, never from the data: "Low" is one
+# button that asks first and then runs in Fabric (Optimize, Vacuum, Remove staging); "Medium" is steps they take
+# themselves (open the lakehouse, review access, move a notebook to this PC). No fix is "High" yet.
+EFFORT = {"optimize": "Low", "vacuum": "Low", "remove_staging": "Low"}
+
+
+def effort_of(action: str | None) -> str:
+    return EFFORT.get(action or "", "Medium")
+
+
 RULE_SET = "xray-1"
 _FIXES = {"optimize": ("optimize", "Compact the small files and apply V-Order (X-ray > Optimize)"),
           "vacuum": ("vacuum", "Vacuum the files older than the history the table keeps (X-ray > Vacuum)")}
@@ -325,7 +335,8 @@ def optimize_records(result: dict[str, Any]) -> dict[str, Any]:
                                  "detail": f.get("detail"), "evidence": json.dumps(evidence) if evidence else None})
         if f.get("action") in _FIXES:
             kind, reason = _FIXES[f["action"]]
-            recommendations.append(where | {"kind": kind, "reason": reason, "confidence": "high"})
+            recommendations.append(where | {"kind": kind, "reason": reason, "confidence": "high",
+                                            "effort": effort_of(f["action"])})
     artifacts = [{"workspace_id": r["workspace_id"], "item_id": r["lakehouse_id"], "item_type": "Lakehouse",
                   "display_name": r["lakehouse_name"]} for r in lakehouses.values()]
     run = {"run_id": f"xray-{result['scanned']}", "finished_at": result["scanned"],

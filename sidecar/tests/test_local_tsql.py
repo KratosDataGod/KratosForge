@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import pytest
+import duckdb
 
 from fabric_desktop.localdata import LocalData
 from fabric_desktop.localdata.tsql import split_batches, translate
@@ -140,7 +142,7 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
 def test_plus_with_a_number_adds_as_numbers(engine):
     r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[2, 14, "Ann  !"]]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.ConversionException):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
@@ -200,7 +202,7 @@ def test_convert_keeps_its_length_and_fails_where_tsql_fails(engine):
     r = tsql(engine, "SELECT CONVERT(VARCHAR(10), day, 120) AS a, CONVERT(INT, '5') AS b, "
                      "TRY_CONVERT(INT, 'x') AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [["2026-10-18", 5, None]]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.InvalidInputException):
         tsql(engine, "SELECT CONVERT(INT, 'x')")  # an error in T-SQL, not NULL
 
 
@@ -407,3 +409,97 @@ def test_a_float_as_text_has_six_significant_digits(engine):
         "rows"] == [["1e+010", "2.5"], ["1e+010", "4.0"]]  # price is a decimal: unchanged
     with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
         tsql(engine, "SELECT CAST(d AS VARCHAR(5)) AS s FROM dbo.f")  # '0.333333' is 8 characters
+
+
+def test_format_of_a_date_follows_dotnets_formats(engine):
+    # Expected text: .NET's en-US formats, as FORMAT uses them (UNVERIFIED on a Fabric Warehouse).
+    at = "CAST('2024-03-05 14:07:09.123456' AS DATETIME2)"
+    cases = {
+        "yyyy-MM-dd": "2024-03-05", "d": "3/5/2024", "D": "Tuesday, March 5, 2024",
+        "f": "Tuesday, March 5, 2024 2:07 PM", "F": "Tuesday, March 5, 2024 2:07:09 PM", "g": "3/5/2024 2:07 PM",
+        "G": "3/5/2024 2:07:09 PM", "M": "March 5", "O": "2024-03-05T14:07:09.1234560",
+        "R": "Tue, 05 Mar 2024 14:07:09 GMT", "s": "2024-03-05T14:07:09", "t": "2:07 PM", "T": "2:07:09 PM",
+        "u": "2024-03-05 14:07:09Z", "Y": "March 2024", "ddd dd MMM": "Tue 05 Mar", "dddd MMMM": "Tuesday March",
+        "hh:mm tt": "02:07 PM", "h t": "2 P", "HH:mm:ss.fff": "14:07:09.123", "%d": "5", "%M": "3",
+        "y yy yyy yyyyy": "24 24 2024 02024", "''Q''q \\d": "Qq d", '"yyyy" yyyy': "yyyy 2024",
+        "dd/MM/yyyy": "05/03/2024",
+    }
+    sql = ", ".join(f"FORMAT({at}, '{f}') AS c{i}" for i, f in enumerate(cases))
+    assert tsql(engine, f"SELECT {sql}")["rows"][0] == list(cases.values())
+    r = tsql(engine, "SELECT FORMAT(day, 'dd MMM yyyy', 'en-US') AS d, FORMAT(CAST(NULL AS DATE), 'yyyy') AS n "
+                     "FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["18 Oct 2026", None], ["04 Jan 2026", None]]
+    assert tsql(engine, "SELECT FORMAT(CAST('0999-01-02' AS DATE), 'yyyy') AS y")["rows"] == [["0999"]]
+
+
+def test_format_of_a_number_rounds_half_away_from_zero(engine):
+    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, FORMAT(-0.004, 'N2') AS c, "
+                     "FORMAT(-0.005, 'N2') AS d, FORMAT(1234567, 'N') AS e, FORMAT(2.5, 'F0') AS f, "
+                     "FORMAT(-1234.5, 'f3') AS g, FORMAT(-42, 'D5') AS h, FORMAT(123456, 'D3') AS i, FORMAT(42, 'd') AS j")
+    assert r["rows"] == [["1,234.50", "-1,235", "0.00", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
+                          "123456", "42"]]
+    r = tsql(engine, "SELECT FORMAT(price, 'N1') AS p, FORMAT(qty, 'N0') AS q, FORMAT(CAST(NULL AS INT), 'N') AS n "
+                     "FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["2.5", "7", None], ["4.0", "-7", None]]
+
+
+@pytest.mark.parametrize("sql, says", [
+    ("SELECT FORMAT(1e0, 'N2')", "FORMAT of a FLOAT value"),
+    ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "FORMAT of a MONEY value"),
+    ("SELECT FORMAT(CAST('10:00' AS TIME), 'hh')", "FORMAT of a TIME value"),
+    ("SELECT FORMAT('2024-01-01', 'yyyy')", "FORMAT of text"),
+    ("SELECT FORMAT(5, '0000')", "number format '0000'"),
+    ("SELECT FORMAT(5, 'C')", "number format 'C'"),
+    ("SELECT FORMAT(1.5, 'D')", "'D' format is for integers"),
+    ("SELECT FORMAT(day, 'D', 'de-DE') FROM dbo.orders", "'en-US' culture"),
+    ("SELECT FORMAT(day, name) FROM dbo.orders", "text written in the query"),
+    ("SELECT FORMAT(day, 'U') FROM dbo.orders", "date format 'U'"),
+    ("SELECT FORMAT(day, 'yyyy K') FROM dbo.orders", "K (the time zone)"),
+    ("SELECT FORMAT(day, 'ss.FFF') FROM dbo.orders", "F (fractions"),
+    ("SELECT FORMAT(day, 'ffffffff') FROM dbo.orders", "at most 7 f's"),
+    ("SELECT FORMAT(day, 'yyyy''') FROM dbo.orders", "isn't closed"),
+    ("SELECT FORMAT(5)", "takes a value, a format"),
+])
+def test_format_that_cant_be_carried_is_refused(engine, sql, says):
+    with pytest.raises(ValueError, match=f"on the local engine: .*{re.escape(says)}"):
+        tsql(engine, sql)
+
+
+def test_format_of_a_value_whose_type_cant_be_told_is_refused():
+    with pytest.raises(ValueError, match="FORMAT needs to know its value's type"):
+        translate("SELECT FORMAT(x, 'yyyy') FROM dbo.nowhere")
+
+
+@pytest.mark.parametrize("sql, want", [
+    ("SELECT CASE WHEN 'a' = 'a  ' THEN 1 ELSE 0 END", 1),
+    ("SELECT CASE WHEN 'a' <> 'a  ' THEN 1 ELSE 0 END", 0),
+    ("SELECT CASE WHEN 'a ' < 'a' THEN 1 ELSE 0 END", 0),
+    ("SELECT CASE WHEN 'a' IN ('b', 'a  ') THEN 1 ELSE 0 END", 1),
+    ("SELECT CASE WHEN ' a' = 'a' THEN 1 ELSE 0 END", 0),  # only trailing spaces
+    ("SELECT CASE WHEN 'a' = 'A' THEN 1 ELSE 0 END", 0),  # still case-sensitive
+])
+def test_text_compares_without_trailing_spaces(engine, sql, want):
+    assert tsql(engine, sql)["rows"] == [[want]]
+
+
+def test_a_text_column_compares_without_trailing_spaces(engine):
+    # 'Ann  ' is stored with two trailing spaces.
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE name = 'Ann'")["rows"] == [[1]]
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE 'Ann ' = name")["rows"] == [[1]]
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE name <> 'Ann' ORDER BY id")["rows"] == [[2]]
+    assert tsql(engine, "SELECT id FROM dbo.orders WHERE name IN ('Ann', 'Cy') ORDER BY id")["rows"] == [[1]]
+    assert tsql(engine, "SELECT COUNT(*) FROM dbo.orders a JOIN dbo.orders b ON a.name = RTRIM(b.name)")["rows"] == [[2]]
+
+
+def test_an_equality_on_a_text_column_keeps_a_range_for_skipping_row_groups():
+    texts, _ = translate("SELECT id FROM dbo.orders WHERE name = 'Ann '", {"dbo": {"orders": {"id": "INTEGER", "name": "VARCHAR"}}})
+    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name) = 'Ann')"]
+
+
+def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
+    texts, notes = translate("SELECT 1 FROM q WHERE n = 3 AND m < 2.5")
+    assert texts == ["SELECT 1 FROM q WHERE n = 3 AND m < 2.5"] and notes == []
+    texts, notes = translate("SELECT 1 FROM q WHERE a = 'x' OR b = 'y'")
+    assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
+    assert notes == ["Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
+                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count."]

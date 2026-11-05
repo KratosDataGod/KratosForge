@@ -1,0 +1,84 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E43",
+  "version": 1,
+  "status": "draft",
+  "title": "Tumbling, hopping and session windows over device events",
+  "objectives": [
+    "2.3.5"
+  ],
+  "objective_text": "Group device events into tumbling, hopping and session windows, and explain which window answers which business question.",
+  "scenario": "Cold-store sensors send a reading whenever the door opens. Operations wants three views: openings per 5-minute block for the shift report, a rolling 10-minute count every 5 minutes for the alarm, and door 'sessions' (bursts of openings with no more than 5 minutes between them) to find doors left ajar.",
+  "prerequisites": [
+    "LM-15"
+  ],
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your SQL ran on this PC with DuckDB over a fixed set of events and produced the expected windows of all three kinds."
+  ],
+  "does_not_verify": [
+    "Windowing in a running stream: this ran a batch query over stored events, not Eventstream, KQL or Spark structured streaming.",
+    "Late-event handling and watermarks, which streaming engines add on top of these window definitions.",
+    "The exact window functions of each Fabric engine: Eventstream's group-by windows, KQL's bin() and Spark's window() and session_window() are covered in E34, E41 and C2."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "door_windows": {
+        "columns": [
+          "kind",
+          "device_id",
+          "window_start",
+          "window_end",
+          "events"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over door_windows, ordered by kind, device_id and window_start."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "All three kinds of window are right.",
+      "fail": "Check one kind at a time. For sessions, a gap of exactly 5 minutes stays in the same session."
+    },
+    {
+      "kind": "table_shape",
+      "table": "door_windows",
+      "unique": [
+        "kind",
+        "device_id",
+        "window_start"
+      ],
+      "not_null": [
+        "window_end",
+        "events"
+      ],
+      "pass": "One row per window.",
+      "fail": "A window appears twice or has no end."
+    }
+  ],
+  "hints": [
+    "Tumbling: time_bucket(INTERVAL '5 minutes', event_ts) gives each event's block start; the end is start + 5 minutes.",
+    "Hopping: each event belongs to two 10-minute windows, the ones starting at its 5-minute block and 5 minutes earlier. Join the events to (VALUES (0), (5)) and subtract that many minutes.",
+    "Sessions: lag(event_ts) OVER (PARTITION BY device_id ORDER BY event_ts) finds the gap; a gap over 5 minutes starts a new session; a running sum of those starts numbers the sessions."
+  ],
+  "explanation": "A tumbling window splits time into fixed, non-overlapping blocks: every event is counted once, which suits periodic reports. A hopping window has a fixed size but starts more often than it lasts, so windows overlap and each event counts in several: good for rolling alerts. A session window has no fixed size: it grows while events keep coming within the timeout, so it finds bursts of activity. The same ideas appear in Eventstream's windowed aggregations, KQL's bin() and Spark's window() and session_window().",
+  "remediation": [
+    "LM-15",
+    "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor"
+  ],
+  "reset": "Reset restores door_events and drops door_windows.",
+  "parity": null,
+  "review_notes": [
+    "Before live: confirm the Eventstream window types against the current Group by operator docs; the event processor editor page linked in remediation doesn't list them."
+  ]
+}

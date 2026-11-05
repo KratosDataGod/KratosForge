@@ -21,8 +21,10 @@ KEPT = "supplier was already in LH_Silver, pointing where this request asks, so 
 
 
 @pytest.fixture
-def api(svc):
-    """Fabric's answer to a second shortcut at the same place: a 409, as the real API gives it."""
+def api(svc, monkeypatch):
+    """Fabric's answer to a second shortcut at the same place: a 409, as the real API gives it. Only the
+    asked-for place is checked here: the other environments are test_shortcut_request_envs.py's."""
+    monkeypatch.setattr(type(svc), "_sc_make_twins", lambda self, req, why: [])
     real = svc.api.create_shortcut
 
     def create(ws, item, path, name, target):

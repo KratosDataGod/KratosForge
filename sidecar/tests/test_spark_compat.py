@@ -541,3 +541,28 @@ def test_empty_struct_message_only_when_struct_is_the_error():
         with pytest.raises(ValueError, match="Could not read the query"):
             sql.parse(query)
     assert sql.parse("SELECT 'struct<>' AS s")
+
+
+def test_a_window_ordered_by_a_plain_column_sorts_ascending(live, F):
+    from pyspark.sql.window import Window
+    df = live.createDataFrame([(1, 3.0), (1, 1.0), (1, None), (2, 2.0)], ["k", "v"])
+    for order in (F.col("v"), "v", F.col("v").asc()):
+        w = Window.partitionBy("k").orderBy(order)
+        out = df.select("k", "v", F.row_number().over(w).alias("rn")).orderBy("k", "rn")
+        assert rows(out) == [(1, None, 1), (1, 1.0, 2), (1, 3.0, 3), (2, 2.0, 1)]
+    w = Window.partitionBy("k").orderBy(F.col("v").desc())
+    assert rows(df.where("k = 1").select("v", F.row_number().over(w).alias("rn")).orderBy("rn")) == [
+        (3.0, 1), (1.0, 2), (None, 3)]
+
+
+def test_get_item_reads_arrays_from_zero_and_maps_and_structs_by_name(live, F):
+    df = live.createDataFrame([("a b",), ("c",)], ["s"])
+    parts = F.split("s", " ")
+    out = df.select(parts.getItem(0).alias("first"), parts.getItem(1).alias("second"),
+                    parts[0].alias("bracket"), parts.getItem(5).alias("past_end"), parts.getItem(-1).alias("neg"))
+    assert rows(out) == [("a", "b", "a", None, None), ("c", None, "c", None, None)]
+    m = live.sql("SELECT map('x', 1, 'y', 2) AS m, named_struct('f', 7, 'g', 'z') AS st")
+    assert rows(m.select(F.col("m").getItem("y"), F.col("m")["x"], F.col("st").getField("g"),
+                         F.col("st")["f"], F.col("st").f)) == [(2, 1, "z", 7, 7)]
+    with pytest.raises(NotImplementedError, match="this PC"):
+        parts.getItem(F.col("s"))

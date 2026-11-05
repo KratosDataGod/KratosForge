@@ -1,0 +1,137 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.3.4",
+  "questions": [
+    {
+      "id": "1.3.4-q1",
+      "type": "single",
+      "stem": "What does dynamic data masking do in a Fabric warehouse?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It encrypts the column on disk"
+        },
+        {
+          "id": "b",
+          "text": "It hides a column's values in query results for users without the UNMASK permission; the stored data doesn't change"
+        },
+        {
+          "id": "c",
+          "text": "It removes the column from the table"
+        },
+        {
+          "id": "d",
+          "text": "It blocks every query on the table"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Masking changes what non-privileged users see in results. The data itself is stored unchanged.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.4-q2",
+      "type": "multiple",
+      "stem": "Which three are dynamic data masking functions? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "encrypt()"
+        },
+        {
+          "id": "b",
+          "text": "email()"
+        },
+        {
+          "id": "c",
+          "text": "default()"
+        },
+        {
+          "id": "d",
+          "text": "partial()"
+        },
+        {
+          "id": "e",
+          "text": "hash_sha256()"
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "d"
+      ],
+      "explanation": "Masking functions include default(), email(), random() and partial(). Encryption and hashing aren't masking functions.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.4-q3",
+      "type": "single",
+      "stem": "At Harbor Health, one compliance officer among the analysts must see real email addresses. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Remove the mask from the column for everyone"
+        },
+        {
+          "id": "b",
+          "text": "Copy the table without the mask for them"
+        },
+        {
+          "id": "c",
+          "text": "Grant the UNMASK permission to the compliance officer"
+        },
+        {
+          "id": "d",
+          "text": "Make the compliance officer a workspace Admin"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "UNMASK lets a user see the real values while the mask stays in place for everyone else.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "case": "harbor-analytics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.4-q4",
+      "type": "single",
+      "stem": "Which statement about dynamic data masking is true?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It applies to warehouse admins too"
+        },
+        {
+          "id": "b",
+          "text": "It makes masked values impossible to infer"
+        },
+        {
+          "id": "c",
+          "text": "It replaces the need for row-level security"
+        },
+        {
+          "id": "d",
+          "text": "It isn't a complete security boundary: a user who can query a column can still infer values with filters, so combine it with permissions"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Masking limits exposure in results, but a user with SELECT can run queries such as WHERE Email LIKE 'a%' to learn about values. Use it alongside column and row permissions.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

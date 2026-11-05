@@ -13,9 +13,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlsplit
 
-from . import notebook_cells
+from . import app_settings, notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
@@ -23,6 +22,7 @@ from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
 from .redact import describe
+from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .workloads.notify import Outbox, send, single
 
@@ -42,19 +42,6 @@ TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefi
 STALE_LOCK_SECONDS = 12 * 3600
 
 
-def _without_webhook(text: str, url: Any) -> str:
-    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
-    secret in the path, which requests puts in connection errors and redact.secrets doesn't know."""
-    if not isinstance(url, str) or not url:
-        return text
-    parts = urlsplit(url)
-    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
-                        key=len, reverse=True):
-        if len(piece) > 1:
-            text = text.replace(piece, "[webhook]")
-    return text
-
-
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -70,11 +57,42 @@ def _read_lock(path: Path) -> dict[str, Any]:
     return {"pid": int(text)} if text.isdigit() else {}
 
 
-def _pid_alive(pid: Any) -> bool:
+def process_identity(pid: int) -> str | None:
+    """What tells process ``pid`` apart from a later one given the same PID: when it started, in the
+    OS's own units (Windows' creation time, Linux's start tick). None where that can't be read."""
+    if sys.platform == "win32":  # so mypy, on any OS, checks this branch against Windows' ctypes
+        import ctypes
+        from ctypes import wintypes
+
+        from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return None
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            return str(times[0].dwHighDateTime << 32 | times[0].dwLowDateTime)
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]  # starttime, field 22
+    except (OSError, IndexError):
+        return None
+
+
+def _pid_alive(pid: Any, identity: Any = None) -> bool:
     """Whether process ``pid`` is still running. Unknown counts as running, so a lock is only taken
-    over when its process has certainly ended (or the lock is past STALE_LOCK_SECONDS)."""
+    over when its process has certainly ended (or the lock is past STALE_LOCK_SECONDS). With the
+    ``identity`` the lock recorded (process_identity), a PID now used by another process, once the
+    lock's own has ended, counts as ended: that one can be told apart."""
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return True
+    if isinstance(identity, str) and identity:
+        now = process_identity(pid)
+        if now is not None and now != identity:
+            return False  # the PID was reused: the lock's process has ended
     if pid == os.getpid():
         return True
     if sys.platform == "win32":  # so mypy, on any OS, checks this branch against Windows' ctypes
@@ -113,11 +131,11 @@ class ScheduleMixin:
 
     @property
     def pc_schedules(self) -> LocalSchedules:
-        return LocalSchedules(self.root)  # type: ignore[attr-defined]
+        return LocalSchedules(self.root, allow_signed_out=bool(app_settings.value("allow_signed_out_schedules")))  # type: ignore[attr-defined]
 
     # ---- schedules on this PC
 
-    def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any]) -> dict[str, Any]:
+    def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any], signed_out: bool = False) -> dict[str, Any]:
         if target.get("kind") == "notebook":
             self.notebooks.load(target.get("name", ""))  # type: ignore[attr-defined]  # it exists
         elif target.get("kind") == "pipeline":
@@ -127,7 +145,7 @@ class ScheduleMixin:
             unknown = [n for n in target.get("entities") or [] if n not in project.entities]
             if unknown:
                 raise ValueError(f"Not in the project: {', '.join(unknown)}")
-        item = self.pc_schedules.add(target, schedule)
+        item = self.pc_schedules.add(target, schedule, signed_out=bool(signed_out))
         return {"schedule": item, "windows": self.pc_schedules.scheduler.available}
 
     def _pipeline_schedule_target(self, target: dict[str, Any]) -> dict[str, Any]:
@@ -171,9 +189,15 @@ class ScheduleMixin:
     def set_pc_schedule_enabled(self, schedule_id: str, enabled: bool) -> dict[str, Any]:
         return self.pc_schedules.set_enabled(schedule_id, enabled)
 
-    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
-        """Change when one of this PC's schedules runs (PB-048)."""
-        return self.pc_schedules.update(schedule_id, schedule)
+    def set_pc_schedule_signed_out(self, schedule_id: str, signed_out: bool) -> dict[str, Any]:
+        """Also run while signed out of Windows (Windows asks for the password), or only while signed
+        in. Turning it on again is how a changed Windows password is given (PB-048)."""
+        return self.pc_schedules.set_signed_out(schedule_id, signed_out)
+
+    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any], signed_out: bool | None = None) -> dict[str, Any]:
+        """Change when one of this PC's schedules runs, and optionally whether it also runs while signed
+        out, in one save (PB-048)."""
+        return self.pc_schedules.update(schedule_id, schedule, None if signed_out is None else bool(signed_out))
 
     def time_zones(self) -> dict[str, Any]:
         """Every Windows time zone and this PC's, for the Fabric schedule form (PB-048)."""
@@ -251,15 +275,18 @@ class ScheduleMixin:
                        and r.get("item_id") in items]
 
     def sync_pc_schedules(self) -> dict[str, Any]:
-        """Called when the app starts: point every task at this engine, and log the runs that
-        stopped before they finished."""
+        """Called when the app starts: pause signed-out schedules IT has turned off
+        (allow_signed_out_schedules), point every task at this engine, and log the runs that stopped
+        before they finished."""
         try:
             interrupted = self.recover_pc_schedule_runs()["interrupted"]
         except OSError as exc:  # the locks folder can't be read: each schedule's next run still takes its lock over
             _log.warning("Couldn't check for scheduled runs that stopped: %s", describe(exc))
             interrupted = 0
         try:
-            return {"updated": self.pc_schedules.sync(), "interrupted": interrupted}
+            schedules = self.pc_schedules
+            paused = schedules.pause_disallowed()  # IT's control first, so a failed sync can't skip it
+            return {"updated": schedules.sync(), "paused": paused, "interrupted": interrupted}
         except Exception as exc:  # Task Scheduler refused: the list still shows them
             return {"updated": 0, "interrupted": interrupted, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -276,7 +303,7 @@ class ScheduleMixin:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             return None
-        os.write(fd, json.dumps({"pid": os.getpid(), **(run or {})}).encode())
+        os.write(fd, json.dumps({"pid": os.getpid(), "process": process_identity(os.getpid()), **(run or {})}).encode())
         os.close(fd)
         return path
 
@@ -299,7 +326,7 @@ class ScheduleMixin:
                 held, age = _read_lock(path), time.time() - path.stat().st_mtime
             except FileNotFoundError:
                 return True, False  # its run just ended
-            if age <= STALE_LOCK_SECONDS and _pid_alive(held.get("pid")):
+            if age <= STALE_LOCK_SECONDS and _pid_alive(held.get("pid"), held.get("process")):
                 return False, False
             path.unlink(missing_ok=True)
         finally:
@@ -315,8 +342,15 @@ class ScheduleMixin:
             label = target_label(self.pc_schedules.get(schedule_id)["target"])
         except (KeyError, ValueError, OSError):  # the schedule was removed since
             label = schedule_id
-        row = {"schedule_id": schedule_id, "label": label, "trigger": held.get("trigger") or "schedule",
-               "started": held.get("started"), "ended": None, "seconds": None, "pid": held.get("pid"),
+        # Only what this app writes in a lock goes into the history, and only from this schedule's own
+        # lock: the file is anyone's to edit, and the history is what Monitor shows.
+        if held.get("schedule_id") not in (None, schedule_id):
+            held = {}
+        trigger = held.get("trigger") if held.get("trigger") in ("schedule", "manual") else "schedule"
+        started = held.get("started") if isinstance(held.get("started"), str) and len(held["started"]) <= 40 else None
+        pid = held.get("pid") if isinstance(held.get("pid"), int) and not isinstance(held.get("pid"), bool) else None
+        row = {"schedule_id": schedule_id, "label": label, "trigger": trigger,
+               "started": started, "ended": None, "seconds": None, "pid": pid,
                "status": "failed", "interrupted": True,
                "message": "Stopped before it finished: its process ended (it was killed, or the PC shut down "
                           "or restarted). What it changed before then is kept; run it again to finish."}
@@ -347,6 +381,13 @@ class ScheduleMixin:
         s = schedules.get(schedule_id)
         row: dict[str, Any] = {"schedule_id": schedule_id, "label": target_label(s["target"]), "trigger": trigger,
                                "started": _now(), "pid": os.getpid()}
+        if s.get("signed_out") and not schedules.allow_signed_out:
+            # A task set up before IT turned it off still has its password; it never runs, and says why.
+            row |= {"ended": _now(), "seconds": 0, "status": "skipped",
+                    "message": "Your organization turned off runs while you're signed out of Windows. "
+                               "Edit the schedule to run only while you're signed in."}
+            schedules.log_run(row)
+            return row
         lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
@@ -599,7 +640,7 @@ class ScheduleMixin:
         return out
 
     def update_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
-                               schedule: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+                               schedule: dict[str, Any], enabled: bool) -> dict[str, Any]:
         """Change when a Fabric schedule runs, in place (Update Item Schedule): it keeps its id and whether
         it is on (PB-048)."""
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),

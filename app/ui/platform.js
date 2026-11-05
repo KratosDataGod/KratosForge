@@ -932,6 +932,7 @@ async function confirmApproval(r) {
     return ok ? {} : null;
   }
   if (r.kind === "source" && d.copy) return confirmCopyJob(r);
+  if (r.kind === "shortcut") return confirmShortcutEnvs(r);
   if (r.kind === "exception") {
     const ok = await confirmDialog(`Grant an exception to ${d.policy_name || r.target}?`,
       `The platform records the exception for ${d.scope} ${d.scope_target} until ${d.until}, with its reason, and adds it to the policy's history. Where the policy is resolved there, it shows as "Excepted until ${d.until}" instead of applying. It ends on its own on that date.`,
@@ -939,6 +940,27 @@ async function confirmApproval(r) {
     return ok ? {} : null;
   }
   return {};
+}
+
+// Approving a shortcut request makes it where it was asked for and in the matching lakehouse of each other
+// environment, each pointing at its own environment's target. Said before anything is made.
+async function confirmShortcutEnvs(r) {
+  const d = r.detail || {};
+  const plan = await reqQuietly("shortcut_request_envs", { id: r.id });
+  const label = (e) => ENV_LABEL[e] || e;
+  const here = `${d.workspace_name || "its workspace"} / ${d.lakehouse_name || "its lakehouse"}`;
+  const rows = (plan?.places || []).map((p) => h("li", {}, p.why
+    ? h("span", { class: "muted-text" }, `${label(p.env)}: not made. ${p.why}.`)
+    : h("span", {}, `${label(p.env)}: ${p.workspace_name} / ${p.lakehouse_name}, pointing at ${p.target_workspace_name || "its target"}${p.target_lakehouse_name ? ` / ${p.target_lakehouse_name}` : ""}`)));
+  const ok = await new Promise((resolve) => showDialog(`Approve shortcut ${d.name || r.target}?`, h("div", {},
+    h("p", { class: "text" }, "As you, under the shortcut rules, KratosForge makes it in:"),
+    h("ul", { class: "text" }, h("li", {}, h("b", {}, `${plan?.env ? `${label(plan.env)}: ` : ""}${here}`), ", as asked"), ...rows),
+    plan === null ? h("p", { class: "wrn-text small" }, "The other environments couldn't be worked out now; approving says what it made.")
+      : plan.why ? h("p", { class: "muted-text small" }, `${plan.why}.`) : null,
+    h("p", { class: "muted-text small" }, "Then the request is approved. If the first one can't be made, it stays waiting and says why; one that can't be made in another environment is said, and the approval goes ahead.")), [
+    btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+    btn("Make and approve", null, () => { closeDialog(); resolve(true); }, "tool primary")]));
+  return ok ? {} : null;
 }
 
 // Where the Copy job writes, with one landing workspace: the zone comes from the request, so the
@@ -996,8 +1018,10 @@ function leftInFabric(r) {
   }
   if (r.kind === "shortcut" && made.shortcut_id) {
     const sc = `The shortcut ${d.name || r.target} in ${d.lakehouse_name || "its lakehouse"}`;
+    const env = (e) => String(e || "").charAt(0).toUpperCase() + String(e || "").slice(1);
     return [made.found ? `${sc} is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts`
-      : `${sc}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`];
+      : `${sc}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`,
+    ...(made.also || []).map((t) => `The shortcut ${d.name || r.target} in ${t.workspace_name || "a workspace"} / ${t.lakehouse_name || "a lakehouse"} (${env(t.env)}), made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`)];
   }
   if (r.kind === "domain" && made.domain_id) {
     const name = d.name || r.target || made.domain_id;
@@ -1210,7 +1234,7 @@ registerFeature({
 // ---------- Data mesh > Products: every team's products, for everyone ----------
 // It was OneLake > Data products; OneLake's tab and every link now open it on Data mesh.
 
-const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "", offer: "all" };
+const productsPage = { query: "", domain: "all", open: null, following: false, status: false, statusEnv: "prod", reviewDue: false, mine: "", offer: "all" };
 const productsHost = { body: null };
 
 // Open the products list, or one product's page, on Data mesh > Products.
@@ -1243,7 +1267,7 @@ async function renderDataProducts() {
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("section", { class: "card pad" }, list),
     howItWorks("onelake.products", {
-      reads: "Every team's published data products, their ports and readers, and the semantic models and reports grouped under each (catalog.product_item, with the endorsement the last tenant scan read in catalog.endorsement), from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
+      reads: "Every team's published data products, their ports and readers, and the semantic models and reports grouped under each (catalog.product_item, with the endorsement the last tenant scan read in catalog.endorsement), from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), each product's status in each environment as its own team last reported it (catalog.product_status), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
       results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on Project > Products and links > Links.",
       anchor: "data-products-preview",
@@ -1267,6 +1291,7 @@ async function renderDataProducts() {
       }, "tool primary small")
         : p.why === "request" ? btn("Request access", null, () => requestDialog("access", p.id, draw, { title: p.name, owner: p.owner }), "tool outline small")
           : p.why === "requested" ? h("span", { class: "pill-s wrn" }, "Requested") : h("span", { class: "muted-text small" }, p.why);
+    if (pp.status) return list.replaceChildren(productStatusView(shown, out.products.length, draw));
     list.replaceChildren(...[
       reviews?.due ? h("div", { class: "row tight access-review-band" }, icon("shield", 16),
         h("span", { class: "grow" }, `Access review: ${reviews.due} grant${reviews.due === 1 ? "" : "s"} on your products ${reviews.due === 1 ? "hasn't" : "haven't"} been confirmed for ${reviews.every_days} days. Open each product and confirm who still needs it, or take access away.`),
@@ -1281,7 +1306,7 @@ async function renderDataProducts() {
       shown.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Domain", "Owner", "Open to", "Ports", "Readers", ""].map((x) => h("th", {}, x)))),
         h("tbody", {}, shown.map((p) => h("tr", {},
-          h("td", {}, previewShown() ? h("a", { href: "#", class: "product-open", title: "Endorsement and business terms",
+          h("td", {}, previewShown() ? h("a", { href: "#", class: "product-open", title: "Endorsement",
             onclick: (e) => { e.preventDefault(); pp.open = p; render(); } }, h("b", {}, p.name)) : h("b", {}, p.name),
             h("span", { class: "muted-text small" }, ` v${p.version}`),
             grouped ? h("span", { class: "product-offer-badge" }, " ", productModelBadge(p)) : null,
@@ -1297,45 +1322,83 @@ async function renderDataProducts() {
           h("td", {}, action(p))))))
         : h("p", { class: "muted-text" }, out.products.length ? "Nothing matches." : "No team has published a data product yet.")].filter(Boolean));
   };
-  // All products or the ones you follow on the left; the domain, search and Refresh on the right.
+  // All products, the ones you follow, or how each is doing now (Status, Preview) on the left; the domain,
+  // search and Refresh on the right.
   const following = out.can_follow && previewShown();
+  const status = out.can_status && previewShown();
+  if (!following) pp.following = false;
+  if (!status) pp.status = false;
   const views = h("div", { class: "seg", role: "group", "aria-label": "Show" });
-  const drawViews = () => views.replaceChildren(...[[false, "All products"], [true, `Following (${out.products.filter((p) => p.following).length})`]]
-    .map(([on, label]) => h("button", { class: `${pp.following === on ? "on" : ""}${on ? " follow-chip" : ""}`.trim() || null,
-      "aria-pressed": String(pp.following === on), onclick: () => { pp.following = on; drawViews(); draw(); } }, label)));
-  if (following) drawViews();
-  else pp.following = false;
+  const drawViews = () => views.replaceChildren(...[["all", "All products"],
+    following ? ["following", `Following (${out.products.filter((p) => p.following).length})`] : null,
+    status ? ["status", "Status"] : null].filter(Boolean)
+    .map(([id, label]) => {
+      const on = (pp.status ? "status" : pp.following ? "following" : "all") === id;
+      return h("button", { class: `${on ? "on" : ""}${id === "following" ? " follow-chip" : ""}${id === "status" ? " status-chip" : ""}`.trim() || null,
+        "aria-pressed": String(on), onclick: () => { pp.following = id === "following"; pp.status = id === "status"; drawViews(); draw(); } }, label);
+    }));
+  if (following || status) drawViews();
   const domain = h("select", { class: "group-select", "aria-label": "Domain", onchange: (e) => { pp.domain = e.target.value; draw(); } },
     ["all", ...domains].map((d) => h("option", { value: d, selected: pp.domain === d ? true : null }, d === "all" ? "All domains" : d)));
-  meshChrome({ views: following ? views : null, tools: [domains.length ? domain : null, search] });
+  meshChrome({ views: following || status ? views : null, tools: [domains.length ? domain : null, search] });
   search.addEventListener("input", () => { pp.query = search.value; draw(); });
   draw();
 }
 
-// ---------- Data mesh > Products > one product: endorsement and business terms (Preview) ----------
+// ---------- Data mesh > Products > Status (data mesh P5, Preview) ----------
+// Each team's incident check reports how its products are doing (catalog.product_status), so readers see
+// it without seeing the team's incidents. Red: an open incident stops the load. Amber: late, or a broken
+// promise. Green: nothing open. Text is the kind of problem, the table and who last acted, nothing more.
+
+const PRODUCT_STATUS = { red: ["fail", "Red", 0], amber: ["wrn", "Amber", 1], green: ["pass", "Green", 2] };
+const STATUS_STALE_HOURS = 24;
+
+function productStatusView(shown, total, redraw) {
+  const pp = productsPage;
+  const envs = ["prod", "test", "dev"];
+  const env = h("select", { class: "group-select", "aria-label": "Environment", onchange: (e) => { pp.statusEnv = e.target.value; redraw(); } },
+    envs.map((e) => h("option", { value: e, selected: pp.statusEnv === e ? true : null }, { prod: "Prod", test: "Test", dev: "Dev" }[e])));
+  const of = (p) => p.health?.[pp.statusEnv] || null;
+  const stale = (r) => r && r.checked_at && (Date.now() - Date.parse(r.checked_at)) / 36e5 > STATUS_STALE_HOURS;
+  const rank = (p) => { const r = of(p); return r && PRODUCT_STATUS[r.status] ? PRODUCT_STATUS[r.status][2] : 3; };
+  const rows = [...shown].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  const newest = rows.map(of).filter(Boolean).map((r) => r.checked_at).sort().pop();
+  return h("div", { class: "product-status" },
+    h("div", { class: "row tight" }, env, previewTag(), h("span", { class: "muted-text small grow" },
+      newest ? `Newest check ${relTime(newest)}. Each team's own incident check reports it.` : "No team has reported a status here yet.")),
+    rows.length ? h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["Product", "Status", "Why", "Latest update"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, rows.map((p) => {
+        const r = of(p);
+        const [cls, label] = (r && PRODUCT_STATUS[r.status]) || ["neu", "Not checked"];
+        const readers = (p.consumers || []).length;
+        return h("tr", { "data-product": p.id },
+          h("td", {}, h("a", { href: "#", class: "product-open", onclick: (e) => { e.preventDefault(); pp.open = p; render(); } }, h("b", {}, p.name)),
+            h("div", { class: "muted-text small" }, p.project)),
+          h("td", {}, h("span", { class: `pill-s ${cls}` }, label),
+            stale(r) ? h("div", { class: "muted-text small status-stale" }, `Not checked since ${relTime(r.checked_at)}`) : null),
+          h("td", {}, r?.status === "green" ? h("span", { class: "muted-text" }, "Nothing open")
+            : r ? [r.why || "", r.status === "red" && readers ? h("span", { class: "muted-text" }, `, ${readers} reader${readers === 1 ? "" : "s"} affected`) : null]
+              : h("span", { class: "muted-text" }, "Its team's app or agent hasn't checked it here")),
+          h("td", {}, r?.latest ? [r.latest, r.latest_at ? h("span", { class: "muted-text small" }, `, ${relTime(r.latest_at)}`) : null]
+            : h("span", { class: "muted-text" }, "None")));
+      })))
+      : h("p", { class: "muted-text" }, total ? "Nothing matches." : "No team has published a data product yet."),
+    h("p", { class: "muted-text small" }, "Red: an open incident stops the load (a failed load, or an agent offline with no other agent live). Amber: late, a broken promise, or an agent offline while another carries on. ",
+      "Green: nothing open. Follow a product to hear about its changes."));
+}
+
+// ---------- Data mesh > Products > one product: endorsement (Preview) ----------
 // Endorsement is read only by Fabric admins (Power BI's admin tenant scan); the platform keeps the last
-// scan's reading so everyone sees it. Terms are typed with a link to Purview; nothing reads Purview.
+// scan's reading so everyone sees it.
 
 const ENDORSE_CLASS = { Certified: "pass", Promoted: "info", "Master data": "info", None: "neu" };
-const PURVIEW_HOSTS = ["purview.microsoft.com", "web.purview.azure.com"];
 const ITEM_WORD = { Lakehouse: "lakehouse", SemanticModel: "semantic model", Report: "report", Warehouse: "warehouse" };
 
 // A badge for what the last scan read; no reading is "Endorsement unknown", never a guess.
 function endorsementBadge(e) {
   if (!e) return h("span", { class: "pill-s neu endorse-badge unknown" }, "Endorsement unknown");
   return h("span", { class: `pill-s ${ENDORSE_CLASS[e] || "info"} endorse-badge` }, e === "None" ? "Not endorsed" : e);
-}
-
-// Why a pasted term address isn't a Purview link, or "" (the platform checks it the same way: core.purview_url).
-function purviewUrlProblem(text) {
-  const bad = "Paste the term's address from Purview: an https link on purview.microsoft.com or web.purview.azure.com";
-  const t = String(text || "").trim();
-  if (!t || /[\s\\]/.test(t)) return bad;
-  let u;
-  try { u = new URL(t); } catch { return bad; }
-  const host = u.hostname.toLowerCase();
-  if (u.protocol !== "https:" || u.username || u.password || (u.port && u.port !== "443")) return bad;
-  return PURVIEW_HOSTS.some((x) => host === x || host.endsWith(`.${x}`)) ? "" : bad;
 }
 
 // Follow a product to hear in Teams when it's deprecated, gets a new version or its columns change in Prod.
@@ -1373,7 +1436,6 @@ async function renderProductTrust(p) {
   const badges = h("span", { class: "row tight endorse-head" });
   const lastScan = h("div", { class: "muted-text small trust-last-scan" });
   const endorsement = h("div", { class: "card pad trust-endorsement" }, h("b", {}, "Endorsement"), loading());
-  const terms = h("div", { class: "card pad trust-terms" }, h("b", {}, "Business terms"), loading());
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("div", {},
       h("section", { class: "card pad" },
@@ -1384,12 +1446,12 @@ async function renderProductTrust(p) {
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       productOfferCard(p, (items) => { models = items.filter((i) => i.item_type === "SemanticModel"); paintBadge(); }),
-      endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
+      productPromiseCard(p), endorsement, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
-      reads: "The product's endorsement as the last tenant scan read it, its business terms, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
-      anchor: "endorsement-and-business-terms-preview",
+      reads: "The product's promise to readers as the catalog keeps it and, for your open project's own product, its open incidents in Monitor > Incidents. The product's endorsement as the last tenant scan read it, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric: KratosForge can't set endorsement.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read. Each scan, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
+      anchor: "endorsement-preview",
     }))));
   const here = () => productsHere() && pp.open === p;
   // The product's badge is its semantic model's endorsement when it has one; otherwise its lakehouses'.
@@ -1412,13 +1474,11 @@ async function renderProductTrust(p) {
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     lastScan.replaceChildren(...(latest ? ["Last tenant scan: ", when(latest)] : []));
     endorsement.replaceChildren(h("b", {}, "Endorsement"), ...endorsementLines(t, scan));
-    terms.replaceChildren(...termLines(t, p, draw));
   };
   const failed = (err) => {
     if (!here()) return;
     const why = h("p", { class: "fail-text small" }, trustError(err));
     endorsement.replaceChildren(h("b", {}, "Endorsement"), why);
-    terms.replaceChildren(h("b", {}, "Business terms"), why.cloneNode(true));
   };
   const scan = async () => {
     endorsement.querySelectorAll(".trust-scan").forEach((a) => { a.textContent = "Scanning..."; });
@@ -1437,6 +1497,82 @@ async function renderProductTrust(p) {
   } catch (err) {
     failed(err);
   }
+}
+
+// What a product promises its readers ([promise] in its file, kept with it in the catalog). Its own team,
+// with the product's project open, also sees whether each promise holds now: a broken one is an open
+// "Promise broken" incident on one of its ports in Monitor > Incidents, or a "Late" one that says it breaks this
+// product's promise too.
+const PROMISE_ENV = { dev: "Dev", test: "Test", prod: "Prod" };
+
+function promiseLines(promise) {
+  const out = [];
+  if (promise.within_hours) out.push({ key: "fresh", text: `Loaded at least every ${Number(promise.within_hours)} h` });
+  if (promise.by) out.push({ key: "fresh", text: `Loaded by ${promise.by} each day` });
+  if (promise.max_rejected_pct !== undefined && promise.max_rejected_pct !== null) {
+    out.push({ key: "rejected", text: `Under ${Number(promise.max_rejected_pct)} % of rows rejected` });
+  }
+  return out;
+}
+
+function productPromiseCard(p) {
+  const card = h("div", { class: "card pad product-promise" });
+  const promise = p.promise;
+  const own = !!(productsPage.mine && p.project === productsPage.mine);
+  const head = h("div", { class: "row tight" }, h("b", { class: "grow" }, "Promise to readers"), previewTag(),
+    own ? btn(promise ? "Edit promise" : "Add a promise", null, () => editProductPromise(p), "tool outline small") : null);
+  if (!promise) {
+    card.replaceChildren(head, h("p", { class: "muted-text small" }, own
+      ? "This product promises nothing yet. Add how fresh and how clean it will be, so readers know what they can count on before they link."
+      : "This product promises nothing about how fresh or clean it is. Ask for a change to ask its team for one."));
+    return card;
+  }
+  const envs = (promise.envs || ["prod"]).map((e) => PROMISE_ENV[e] || e).join(" and ");
+  const lines = promiseLines(promise);
+  const now = (line) => h("td", { class: "promise-now" }, own ? h("span", { class: "muted-text small" }, "Checking…") : null);
+  const rows = lines.map((line) => ({ line, cell: now(line) }));
+  card.replaceChildren(head,
+    h("p", { class: "muted-text small" }, `In ${envs}, from the product's file. A broken promise opens an incident for its team.`),
+    h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Promise"), own ? h("th", {}, "Now") : null)),
+      h("tbody", {}, rows.map((r) => h("tr", { "data-promise": r.line.key }, h("td", {}, r.line.text), own ? r.cell : null)))));
+  if (!own) return card;
+  const ports = new Set((p.ports || []).map((x) => x.entity).filter(Boolean));
+  Promise.all((promise.envs || ["prod"]).map((env) => rpc("incidents_list", { env, include_resolved: false })
+    .then((res) => ({ env, res })).catch(() => ({ env, res: null })))).then((all) => {
+    if (!card.isConnected) return;
+    const open = all.flatMap(({ env, res }) => (res?.incidents || []).map((i) => ({ ...i, env })))
+      .filter((i) => ["open", "acknowledged"].includes(i.state) && ports.has(i.name)
+        && (i.kind === "late" ? (i.evidence?.promise_products || []).includes(p.name)
+          : i.kind === "promise" && (i.evidence?.products || []).includes(p.name)));
+    const unread = all.some(({ res }) => !res || (res.observation && res.observation.state !== "live"));
+    for (const r of rows) {
+      // A promise incident's reasons start with the product's name; rows rejected is its own reason.
+      const mine = (i) => (i.evidence?.reasons || []).filter((x) => x.startsWith(`${p.name}: `));
+      const hits = open.filter((i) => r.line.key === "fresh"
+        ? i.kind === "late" || mine(i).some((x) => !/rows rejected/.test(x))
+        : mine(i).some((x) => /rows rejected/.test(x)));
+      const why = hits.flatMap(mine).map((x) => x.slice(p.name.length + 2))
+        .find((x) => (r.line.key === "fresh") !== /rows rejected/.test(x));
+      r.cell.replaceChildren(hits.length
+        ? h("span", { class: "row tight" }, h("span", { class: "pill-s wrn" }, "Broken"),
+          why ? h("span", { class: "muted-text small promise-why" }, why) : null,
+          btn(hits.length === 1 ? "Open the incident" : `${hits.length} incidents`, null,
+            () => (hits.length === 1 ? openIncident(hits[0]) : backToIncidents()), "tool link small"))
+        : unread ? h("span", { class: "muted-text small" }, "Couldn't read the incidents. Refresh to try again.")
+          : h("span", { class: "pill-s pass" }, "Kept"));
+    }
+  });
+  return card;
+}
+
+// Edit promise opens the product's own dialog here: the product is in the project open on this PC.
+async function editProductPromise(p) {
+  const [project, o] = await Promise.all([state.meta.project || loadMetaProject(), meshOverview()]);
+  if (!project || !o) return;
+  const x = (o.products || []).find((y) => y.name === p.name);
+  if (!x) return toast(`${p.name} isn't in the project open on this PC, so its file can't be edited here.`, true);
+  productDialog(project, x, () => render());
 }
 
 // Who was given access to a product, and taking it away. The product's owner or a platform admin
@@ -1530,48 +1666,3 @@ function endorsementLines(t, scan) {
   })];
 }
 
-function termLines(t, p, done) {
-  const rows = t.terms.map((x) => h("tr", {},
-    h("td", {}, h("b", {}, x.term)),
-    h("td", {}, h("a", { href: "#", class: "trust-purview", onclick: (e) => { e.preventDefault(); openLink(x.url); } }, "Open in Purview")),
-    h("td", {}, t.can_edit_terms ? btn("Remove", "delete", async () => {
-      if (!(await confirmDialog(`Remove ${x.term}?`, "The term and its link come off this product. The term itself stays in Purview.", "Remove", { danger: true }))) return;
-      try {
-        done(await rpc("platform_remove_product_term", { product_id: p.id, term: x.term }));
-        toast(`Removed ${x.term}`);
-      } catch (err) {
-        toast(trustError(err), true);
-      }
-    }, "tool link small") : null)));
-  return [
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Business terms"),
-      t.can_edit_terms ? btn("Add a term", "add", () => termDialog(p, done), "tool outline small") : null),
-    rows.length ? h("table", { class: "list trust-term-list" }, h("tbody", {}, rows))
-      : h("p", { class: "muted-text small" }, t.can_edit_terms ? "No business terms yet. Add one with its link in Purview."
-        : "No business terms yet. The product's owner or a platform admin adds them."),
-  ];
-}
-
-function termDialog(p, done) {
-  const term = h("input", { placeholder: "Like Active customer", "aria-label": "Term" });
-  const url = h("input", { placeholder: "https://purview.microsoft.com/...", "aria-label": "Link to the term in Purview" });
-  const problem = h("p", { class: "fail-text small", role: "alert" });
-  showDialog("Add a term", h("div", {},
-    h("label", { class: "field" }, "Term", term),
-    h("label", { class: "field" }, "Link to the term in Purview", url),
-    h("p", { class: "muted-text small" }, "Copy the term's address from Purview. KratosForge doesn't read Purview."), problem), [
-    btn("Cancel", null, closeDialog, "tool outline"),
-    btn("Add", "add", async () => {
-      const name = term.value.trim();
-      const why = name ? purviewUrlProblem(url.value) : "Give the term's name.";
-      if (why) { problem.textContent = why; return; }
-      try {
-        const t = await rpc("platform_add_product_term", { product_id: p.id, term: name, url: url.value.trim() });
-        closeDialog();
-        toast(`Added ${name}`);
-        done(t);
-      } catch (err) {
-        problem.textContent = trustError(err);
-      }
-    }, "tool primary")]);
-}

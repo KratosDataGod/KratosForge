@@ -136,7 +136,7 @@ def test_cell_tags_round_trip(tmp_path):
                                                           "source_hidden": True}},
              {"type": "code", "source": "a"}]
     ids = store.save("nb", cells)["cell_ids"]
-    assert store.load("nb")["cells"] == [c | {"cell_id": i} for c, i in zip(cells, ids)]
+    assert store.load("nb")["cells"] == [c | {"cell_id": i} for c, i in zip(cells, ids, strict=True)]
 
 
 def test_output_streams_while_a_cell_runs_and_cancel_keeps_variables():

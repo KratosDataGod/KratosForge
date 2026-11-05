@@ -1,0 +1,9 @@
+{
+  "schema": "kratosforge/academy-pack@1",
+  "id": "dbx-de-associate",
+  "title": "Databricks Certified Data Engineer Associate",
+  "vendor": "Databricks",
+  "platform": "databricks",
+  "certification": "certification.json",
+  "status": "draft"
+}

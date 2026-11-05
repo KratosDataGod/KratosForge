@@ -44,7 +44,7 @@ from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
-from ..sql import KfDuckDB
+from ..sql import KfDuckDB, refuse_spark_hashes
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -645,6 +645,7 @@ class LocalEngine:
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
+                refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)
                 found = delta.rewrite_tree(tree, n)
                 n += len(found)
                 change = self._own_change(delta_dml.parse_tree(tree))
@@ -662,7 +663,7 @@ class LocalEngine:
                               "kind": "write delta" if write else _kind(text)})
             return steps
         if dialect == "tsql":
-            texts, notes = tsql.translate(sql, self._column_types(con))
+            texts, notes = tsql.translate(sql, self._column_types(con), self._function_names(con))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
             return self._duckdb_steps(con, texts, n)
@@ -716,6 +717,11 @@ class LocalEngine:
                              "registered folders are only read. Copy it into the project first: CREATE TABLE "
                              f"{change.table}_copy USING DELTA AS SELECT * FROM {change.name}")
         return None
+
+    def _function_names(self, con: duckdb.DuckDBPyConnection) -> set[str]:
+        """The upper-case names of the functions and macros the database has, so T-SQL can refuse others by name."""
+        rows = con.execute("SELECT DISTINCT function_name FROM duckdb_functions()").fetchall()
+        return {str(name).upper() for (name,) in rows}
 
     def _column_types(self, con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, dict[str, str]]]:
         """{schema: {table: {column: type}}} for the project's tables and views, temporary ones included,
@@ -936,7 +942,7 @@ class LocalEngine:
                     raise ValueError(f"The query returns {len(incoming)} columns and {name} has {len(table_schema)}"
                                      f" ({', '.join(table_schema.names)}). INSERT matches columns by position; "
                                      "INSERT ... BY NAME matches them by name.")
-                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema)])
+                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema, strict=True)])
                 by_position = True
             problems = delta.fits(incoming, table_schema)
             if problems and w.schema_mode == "merge" and \
@@ -1092,7 +1098,7 @@ class LocalEngine:
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
-        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)])
+        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)])
         return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
@@ -1542,7 +1548,7 @@ def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
     table = pa.Table.from_batches(kept, schema=reader.schema)
     columns = [c.to_pylist() for c in table.columns]
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in reader.schema],
-            "rows": [[_json(v) for v in row] for row in zip(*columns)],
+            "rows": [[_json(v) for v in row] for row in zip(*columns, strict=True)],
             "row_count": total if (count or not truncated) else None, "truncated": truncated}
 
 

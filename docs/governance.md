@@ -2,7 +2,7 @@
 
 **Preview.** KratosForge keeps your organization's governance standards in one place, the platform's catalog, so they are defined once and every project is checked against the same thing. This page covers the policy registry (GOV-001): writing, publishing and assigning policies, and how a project's policies are worked out. [Best practices: checks and templates](#best-practices-checks-and-templates-preview) adds reusable policy templates and **Check now**, which checks a project against its policies on your PC. A policy set to **Block** stops a promote ([Block stops promote](#block-stops-promote)). Blocking deployment and the later governance features build on it. For a walk-through with worked examples, and what can and can't be enforced today, see the [governance guide](governance-guide.md).
 
-It complements Microsoft Fabric and Microsoft Purview rather than repeating them: Purview stays the place for sensitivity labels, data maps and tenant-wide classification, and Fabric keeps workspace roles and domains. The registry holds the engineering standards a development team works to on its own PC (naming, schemas, quality, ownership, contracts, deployment readiness) so they can be checked before anything reaches Fabric.
+It complements Microsoft Fabric rather than repeating it: sensitivity labels and tenant-wide classification stay with your tenant's own tools, and Fabric keeps workspace roles and domains. The registry holds the engineering standards a development team works to on its own PC (naming, schemas, quality, ownership, contracts, deployment readiness) so they can be checked before anything reaches Fabric.
 
 Everything here runs against the platform you already have: `SQL_Platform` through `UDF_Platform` in Fabric, or the SQLite platform on your PC before the platform is in Fabric ([The platform](platform.md)). Working out which policies apply runs on your PC: no Fabric job runs and no OneLake data is read. With the platform in Fabric, reading the policies is one call to `UDF_Platform` (and its `SQL_Platform` database), which uses a little capacity; with the SQLite platform it uses none.
 
@@ -21,7 +21,7 @@ Everything here runs against the platform you already have: `SQL_Platform` throu
 | **Applies to** | Optional: only some layers or environments. |
 | **In force** | Optional dates it takes effect and expires. |
 | **Exceptions** | Whether people may ask for an exception (with a reason, an approver and an expiry, as in `exceptions.toml`). |
-| **Checked by** | The ids of the rules that check it, separated by commas, like `contract.freshness, contract.terms_linked`. Check now runs these rules ([the rules](#the-rules)). A policy with none is listed as not checked. |
+| **Checked by** | The ids of the rules that check it, separated by commas, like `contract.freshness, contract.row_count`. Check now runs these rules ([the rules](#the-rules)). A policy with none is listed as not checked. |
 | **Parameters** | Named values the rule uses, like `max_length = 60`. Each says which way is **stricter**: higher, lower, more items, fewer items, on, or fixed (can't change under a mandatory assignment). |
 | **How to fix** | What a developer does when the policy flags something. |
 | **Status** | Draft, Published, Deprecated or Retired. |
@@ -121,7 +121,7 @@ An older `UDF_Platform` without the end operation says so: a platform admin runs
 | Table names | Naming | Gold tables are snake_case and start `dim_` or `fact_` | `naming.table_name` | `pattern` (a regular expression, fixed), `layers` (more is stricter) |
 | Every product has an owner | Ownership | A published product names an owner and a steward | `ownership.product_owner` | `steward_required` |
 | Sensitive columns are labelled | Classification | Columns marked PII or PHI carry a sensitivity label | `classification.sensitive_columns` | `markers` (the column tags that mark sensitive data), `labels` (classifications that count as a label) |
-| Data contract | Data contract | Fresh within N hours, row count checked, business terms linked | `contract.freshness`, `contract.row_count`, `contract.terms_linked` | `within_hours` (lower is stricter), `min_rows` |
+| Data contract | Data contract | Fresh within N hours, row count checked | `contract.freshness`, `contract.row_count` | `within_hours` (lower is stricter), `min_rows` |
 
 - **Use** makes a new policy draft from a template (a policy id and name, then the usual draft, publish and assign). It needs a platform admin, as every new policy does.
 - **Save as template**, on a policy's page, copies the policy's current published definition (its draft if it was never published) into a new template.
@@ -165,10 +165,10 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 | `naming.table_name` | The entity's name |
 | `ownership.product_owner` | `owner` and `steward` in `metadata/products/<name>.toml` (the product form has a **Steward** field) |
 | `ownership.entity_owner` | `owner` in the entity's file |
-| `classification.sensitive_columns` | A column is marked by `tags` (like `tags = ["pii"]`) or `pii = true` / `phi = true` in `[catalog.columns.<name>]`, or by tags saved in the catalog. Its label is its classification, the catalog's own (Public, Internal, Confidential, Restricted), not a Purview sensitivity label |
+| `classification.sensitive_columns` | A column is marked by `tags` (like `tags = ["pii"]`) or `pii = true` / `phi = true` in `[catalog.columns.<name>]`, or by tags saved in the catalog. Its label is its classification, the catalog's own (Public, Internal, Confidential, Restricted), not a Fabric sensitivity label |
 | `classification.required` | The entity's classification |
 | `contract.freshness`, `contract.row_count` | The run logs: the last successful run of each of the product's port entities, in the highest environment where all of them ran. Row count is the rows that run recorded writing |
-| `contract.terms_linked`, `contract.endorsed` | `catalog.product_term` and `catalog.endorsement` ([endorsement and business terms](data-mesh.md#endorsement-and-business-terms)) |
+| `contract.endorsed` | `catalog.endorsement` ([endorsement](data-mesh.md#endorsement)) |
 | `contract.description` | The product's description |
 
 `contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't. Its items are the lakehouses the product's ports live in. Semantic models and reports grouped under a product (`catalog.product_item`, [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview)) show their own badges on its page and don't change this check.
@@ -281,6 +281,31 @@ gc.register("notebook-example", lambda: RULES, check)
 A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells, and `scheduled` when an enabled schedule on this PC runs the notebook, either a notebook schedule or a Notebook step of a pipeline schedule) when a policy names a notebook rule, SQL items (this PC's SQL scripts: your saved queries, those in the repositories opened in Source control, and the `.sql` files of the warehouse projects in those repositories) when a policy names a SQL rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
 
 The notebook rules `NB001` to `NB012` and `NB018` to `NB020` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now runs them only on the notebooks a schedule on this PC runs: a notebook schedule's notebook, or a saved notebook a pipeline schedule's Notebook step runs (Fabric schedules aren't read, and a paused schedule doesn't count). SQL rules check each script as warehouse T-SQL; a script that can't be read is listed under the result's problems, not skipped silently. A policy whose rules found nothing of their kind (no notebooks, no scheduled notebooks or no SQL scripts on this PC) shows as not checked, never as passing, and so does one whose parameters turn its rules off (`enabled = false`).
+
+### Team guidance
+
+A policy whose **Checked by** names `learn.guidance` sets a team's default learning guidance level
+(`learn/team.py`, [your team's level](learn.md#your-teams-level)) through its parameters, each a
+fixed value: `level` for everything, and `sql` or `notebooks` for one subject. The values are
+`expert`, `professional` and `guided`. Assign it where the team works: the enterprise, a domain or a
+project, and a lower scope's assignment can change the level like any parameter. The open project's
+Best practices panels get it with the rule settings (`governance_practice_settings` returns
+`guidance: {level, policy}`), so the project's [policy package](#offline-policy-packages) carries it
+offline too.
+
+- It's a default, never a lock: a level someone picked in Settings wins, and only the IT policy file
+  can fix a level on a PC.
+- Two policies that set a level for one subject: the one with more guidance wins (Guided over
+  Professional over Expert). A value that isn't a level is ignored and the panel says so.
+- It changes how much explanation shows, never which rules run or are required. `learn.guidance` can
+  sit beside rule ids in the same **Checked by** (`learn.guidance, NB003`), and Check now has nothing
+  to check for it: a policy that only sets a level shows as not checked, never as passing.
+
+| Field | Example |
+| --- | --- |
+| Name | New starters |
+| Checked by | `learn.guidance` |
+| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed) |
 
 ## What isn't built yet
 

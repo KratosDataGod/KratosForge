@@ -18,7 +18,7 @@ const product = () => ({ id: PID, project: "crm", name: "customer_360", descript
 const mocks = {
   platform_whoami: () => me,
   platform_products: () => ({ project: null, products: [product()] }),
-  platform_product_trust: () => ({ product_id: PID, name: "customer_360", owner: "", admin: false, can_edit_terms: false, items: [], terms: [] }),
+  platform_product_trust: () => ({ product_id: PID, name: "customer_360", owner: "", admin: false, can_edit: false, items: [] }),
   platform_revoke: ({ project }) => { granted = granted.filter((g) => g !== project); return granted.map((g) => ({ id: `${PID}|${g}`, product_id: PID, project: g })); },
 };
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-01",
+  "updated": "2026-11-05",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -205,7 +205,10 @@
         "auth.py writes a plain cache file",
         "PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a",
         "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.",
-        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save)."
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).",
+        "Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f",
+        "Re-review of criterion 2 in docs/product/reviews/PB-005-593.md (2026-11-02): met (#1554, #1590, #1557); recommend Accept with Documented Limitations, since criterion 1 still waits on the product owner's Windows check",
+        "Re-review in docs/product/reviews/PB-005-593.md: Accepted with Documented Limitations (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ); limitations: criterion 1 and the Windows file-lock behaviour aren't checked on Windows (the product owner's check with a second Windows account is still to do), and the plain cache from before encryption isn't wiped"
       ],
       "features": [
         "FEAT-AUTH-03"
@@ -234,7 +237,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "mandatory_reason": "Refresh tokens on disk unencrypted are a security finding any enterprise review will raise.",
       "computed": {
         "benefit": 2.45,
@@ -243,7 +246,10 @@
         "priority": "P1"
       },
       "prs": [
-        593
+        593,
+        1554,
+        1557,
+        1590
       ]
     },
     {
@@ -625,7 +631,11 @@
         "fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.",
         "docs/product/enterprise-gap-analysis.md FD-111 partial",
         "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers",
-        "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met"
+        "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met",
+        "Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written",
+        "The notebook names the cells the check can't read in a grey note of their own, with reason and line, built from the mockup Chris approved on 2026-11-02 (#1663) on main at 9367abf7; criterion 2 to be re-reviewed",
+        "Re-review of criterion 2 in docs/product/reviews/PB-014-1190.md (2026-11-02): met (#1663); recommend Accept",
+        "Re-review in docs/product/reviews/PB-014-1190.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); criterion 2's ribbon is met by the notebook's compute note, per the mockup Chris approved"
       ],
       "features": [
         "FEAT-NB-07"
@@ -654,7 +664,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.9,
         "cost": 2.5,
@@ -667,7 +677,8 @@
         1275,
         1300,
         1305,
-        1324
+        1324,
+        1663
       ]
     },
     {
@@ -740,15 +751,14 @@
       "evidence": [
         "envprofile.py classifies imports only",
         "fabric_api.py has no Environment item calls",
-        "Package-source decision open (Prove)"
+        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb",
+        "Package source decided by the product owner on 2026-11-03 (10:09 UTC): the IT-approved wheel folder first, then PyPI only if policy allows; shipped in #1765"
       ],
       "features": [
         "FEAT-PRV-04",
         "FEAT-FAB-09"
       ],
-      "external_dependencies": [
-        "Product-owner decision: package source for environment profiles (Prove)"
-      ],
+      "external_dependencies": [],
       "acceptance": [
         "A notebook's profile installs the same versions on the PC that its Fabric Environment declares",
         "The app can attach a notebook to an existing Environment item",
@@ -779,7 +789,8 @@
       },
       "prs": [
         906,
-        942
+        942,
+        1765
       ],
       "issues": [
         899,
@@ -1664,7 +1675,9 @@
       "problem": "Workspaces connected to Git can't be seen or driven from the app.",
       "capability": "Owned and specified by the Git-native program (Phase 2); not restated here.",
       "evidence": [
-        "docs/git-integration-plan.md Phase 2"
+        "docs/git-integration-plan.md Phase 2",
+        "A registry of which item types work with Fabric Git, deployment pipelines and KratosForge (#1739) on main at 5f8144f7",
+        "Link a repository to a workspace (#1740), which items differ and conflict (#1761), a Fabric workspace tab in Source control (#1762), Update from Git only after a fresh status check with conflicts chosen and the workspace name typed (#1763) and its dialog (#1766, Preview) on main at 9b7848eb; deployment pipelines are PB-041"
       ],
       "features": [
         "FEAT-FAB-12"
@@ -1691,13 +1704,21 @@
       ],
       "effort": "L",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.85,
         "cost": 3.0,
         "score": 2.31,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        1739,
+        1740,
+        1761,
+        1762,
+        1763,
+        1766
+      ]
     },
     {
       "id": "PB-041",
@@ -2215,7 +2236,9 @@
         "central/setup.py setup() and join() have no tests",
         "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
         "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d",
-        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant"
+        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant",
+        "UDF_Platform's connected data source names SqlDbNative too (#1754) on main at 9b7848eb",
+        "UDF_Platform: the SQL connection's type in artifactType as Fabric documents, and parameter names without underscores (#1813, #1819) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2260,6 +2283,7 @@
         1038,
         1041,
         1045,
+        1166,
         1200,
         1205,
         1213,
@@ -2279,7 +2303,11 @@
         1348,
         1351,
         1353,
-        1354
+        1354,
+        1716,
+        1754,
+        1813,
+        1819
       ],
       "issues": [
         909
@@ -2522,10 +2550,10 @@
     },
     {
       "id": "PB-060",
-      "title": "Sensitive data classification that complements Purview",
+      "title": "Sensitive data classification that complements Fabric sensitivity labels",
       "category": "Data Governance and Quality",
       "problem": "Columns carry no classification; a UDF exists with no caller.",
-      "capability": "Classification captured in contracts and carried to products, reading and writing Purview labels rather than replacing them.",
+      "capability": "Classification captured in contracts and carried to products, reading and writing Fabric sensitivity labels rather than replacing them.",
       "evidence": [
         "central/udf.py set_classification has no caller"
       ],
@@ -2557,7 +2585,7 @@
       "confidence": "Low",
       "state": "Proposed",
       "external_dependencies": [
-        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features"
+        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with external catalogs such as Collibra rather than build catalog features"
       ],
       "computed": {
         "benefit": 3.0,
@@ -2671,7 +2699,9 @@
         "app/tests/ui.test.cjs static checks",
         "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
         "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
-        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet"
+        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet",
+        "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7",
+        "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2716,7 +2746,10 @@
         1294,
         1297,
         1334,
-        1339
+        1339,
+        1640,
+        1690,
+        1717
       ],
       "issues": [
         880,
@@ -3574,7 +3607,7 @@
       "evidence": [
         "service.py endorsements returns available:false",
         "docs/troubleshooting.md",
-        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing",
+        "Endorsement badges show on data products (#627); the catalog filter is still missing",
         "The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93",
         "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
@@ -3622,7 +3655,11 @@
         "meta/freshness.py and workloads/incidents.py",
         "PR #127 merged 2026-10-17; awaiting implementation review",
         "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.",
-        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet."
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.",
+        "Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges",
+        "Fix (a) merged: only incidents post to Teams, once when a table goes late and once when it recovers, with Preview on or off (#1553) on main at 9367abf7",
+        "Implementation review docs/product/reviews/PB-084-1553.md (2026-11-02): criteria met; recommend Accept with Documented Limitations",
+        "Implementation review docs/product/reviews/PB-084-1553.md: Accepted with Documented Limitations (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); limitations: no Windows or live Teams run; with Preview off the incident list uses capacity for an environment in Fabric"
       ],
       "features": [
         "FEAT-GOV-01",
@@ -3647,9 +3684,10 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
-        127
+        127,
+        1553
       ],
       "computed": {
         "benefit": 2.05,
@@ -4310,7 +4348,9 @@
         "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)",
         "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223",
         "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
-        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949"
+        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949",
+        "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f",
+        "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4392,7 +4432,42 @@
         1490,
         1498,
         1502,
-        1512
+        1512,
+        1572,
+        1573,
+        1576,
+        1578,
+        1582,
+        1583,
+        1585,
+        1586,
+        1588,
+        1591,
+        1598,
+        1599,
+        1600,
+        1602,
+        1608,
+        1610,
+        1611,
+        1612,
+        1613,
+        1615,
+        1616,
+        1618,
+        1619,
+        1620,
+        1621,
+        1623,
+        1628,
+        1629,
+        1631,
+        1639,
+        1654,
+        1686,
+        1711,
+        1712,
+        1755
       ]
     },
     {
@@ -4444,7 +4519,8 @@
       "capability": "Owned and specified by the Codebase audit and hardening thread (HD-001..057, backlog in docs/hardening/backlog.md on its branch); not restated here. Its P0s are HD-001..009; P1 HD-010..035; P2 HD-036..054; P3 HD-050, 055..057.",
       "evidence": [
         "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
-        "Backlog not yet pushed (push freeze)"
+        "Backlog not yet pushed (push freeze)",
+        "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -4503,6 +4579,7 @@
         757,
         768,
         786,
+        799,
         911,
         916,
         918,
@@ -4510,6 +4587,7 @@
         934,
         938,
         952,
+        984,
         989,
         992,
         1003,
@@ -4579,7 +4657,61 @@
         1546,
         1547,
         1548,
-        1549
+        1549,
+        1555,
+        1556,
+        1559,
+        1560,
+        1561,
+        1567,
+        1569,
+        1570,
+        1571,
+        1574,
+        1575,
+        1577,
+        1581,
+        1584,
+        1589,
+        1593,
+        1597,
+        1606,
+        1617,
+        1624,
+        1627,
+        1630,
+        1634,
+        1636,
+        1637,
+        1638,
+        1644,
+        1655,
+        1662,
+        1683,
+        1685,
+        1688,
+        1689,
+        1691,
+        1692,
+        1693,
+        1694,
+        1695,
+        1696,
+        1698,
+        1699,
+        1703,
+        1704,
+        1705,
+        1719,
+        1724,
+        1729,
+        1730,
+        1743,
+        1757,
+        1758,
+        1764,
+        1767,
+        1789
       ],
       "issues": [
         910,
@@ -4696,7 +4828,8 @@
       "evidence": [
         "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
         "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here",
-        "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed"
+        "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
+        "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-NB-04",
@@ -4768,6 +4901,7 @@
         1230,
         1234,
         1240,
+        1246,
         1258,
         1290,
         1298,
@@ -4822,7 +4956,14 @@
         1535,
         1536,
         1537,
-        1544
+        1544,
+        1565,
+        1697,
+        1731,
+        1732,
+        1745,
+        1787,
+        1792
       ]
     },
     {
@@ -4833,14 +4974,16 @@
       "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).",
       "evidence": [
         "Chris's Optimize brief, 2026-10-18 08:55Z",
-        "No code or plan merged yet"
+        "Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py",
+        "Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4",
+        "Plan merged (#1708): what's merged, what's left, the audit's four gaps, and no CU savings claim without a measured baseline; results wait on this PC when the lakehouse can't be reached (#1726, #1733) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-ADM-01"
       ],
       "acceptance": [
-        "As defined in PR-OPT-001..009 by its owning thread",
-        "Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized"
+        "As defined in PR-OPT-001..013 in docs/optimize/plan.md section 4",
+        "Savings follow the brief's rule: no CU savings without a measured Fabric baseline, and estimated savings are never labelled realized"
       ],
       "scores": {
         "developer_value": 3,
@@ -4854,7 +4997,7 @@
       "mandatory": "none",
       "owner": "Optimize central lakehouse",
       "source_refs": [
-        "PR-OPT-001..009"
+        "PR-OPT-001..013"
       ],
       "duplicates": [
         "Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item"
@@ -4873,7 +5016,12 @@
         "cost": 4.5,
         "score": 1.27,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1708,
+        1726,
+        1733
+      ]
     },
     {
       "id": "PB-105",
@@ -4883,7 +5031,9 @@
       "capability": "Owned and specified by the Simplified incident management thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off, either stored in a central lakehouse or handed to ServiceNow or Jira. Not restated here.",
       "evidence": [
         "Chris's unit testing, 2026-10-18, item 33",
-        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)"
+        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)",
+        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb",
+        "Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -4913,7 +5063,13 @@
         "cost": 3.5,
         "score": 1.43,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        1735,
+        1799,
+        1800,
+        1802
+      ]
     },
     {
       "id": "PB-106",
@@ -4989,7 +5145,8 @@
         949,
         985,
         1112,
-        1181
+        1181,
+        1641
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5014,7 +5171,8 @@
       "evidence": [
         "Chris's 'Go' 2026-10-24 18:16Z",
         "DF-1 engine merged as #640",
-        "Mockup waits on Chris"
+        "Mockup waits on Chris",
+        "Open in Fabric goes to the dataflow itself (#1798) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-FAB-10",
@@ -5074,7 +5232,8 @@
         1250,
         1251,
         1256,
-        1333
+        1333,
+        1798
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5253,7 +5412,8 @@
       "capability": "Owned by the 'Bring VS Code developers to KratosForge' thread: phase 0 on-disk change guard (#650, merged), MCP in VS Code and an Add to VS Code button; later phases need Chris's go and three decisions.",
       "evidence": [
         "Proposal 2026-10-24",
-        "#650 merged: the app never saves over a file another program changed"
+        "#650 merged: the app never saves over a file another program changed",
+        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-EXT-01",
@@ -5294,7 +5454,8 @@
         712,
         742,
         754,
-        795
+        795,
+        1707
       ],
       "mandatory": "none",
       "computed": {
@@ -5472,7 +5633,8 @@
       "capability": "Check now runs the Fabric BPA (#560) on a deployed model after the capacity warning and stores its findings.",
       "evidence": [
         "Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1)",
-        "PR #560 merged; not yet run live"
+        "PR #560 merged; not yet run live",
+        "The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -5488,7 +5650,8 @@
         "docs/product/reviews/PB-112-753.md finding 1"
       ],
       "prs": [
-        560
+        560,
+        1818
       ],
       "depends_on": [
         "PB-112"
@@ -5670,7 +5833,7 @@
     {
       "id": "PB-119",
       "title": "Learn v1: lessons, labs and finding actions",
-      "state": "In review",
+      "state": "Accepted",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -5684,14 +5847,18 @@
         1140,
         1158,
         1159,
-        1160
+        1160,
+        1552
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
       "capability": "A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.",
       "evidence": [
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
         "LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
-        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)"
+        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)",
+        "Lab time and memory limits now have tests (#1552) on main at 32cbd98f",
+        "Implementation review docs/product/reviews/PB-119-learn-v1.md (2026-11-02): all five criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-119-learn-v1.md: Accepted (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ)"
       ],
       "features": [
         "FEAT-DEV-04",
@@ -5702,7 +5869,7 @@
       ],
       "acceptance": [
         "The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)",
-        "A lab runs on this PC with generated data, with no file or network access (test_learn_labs)",
+        "A lab runs on this PC with generated data, with no file or network access, and a run or check stops at 30 seconds with memory held at 1 GB (test_learn_labs, including test_a_run_and_a_check_are_stopped_at_the_time_limit and test_the_limits_are_30_seconds_and_1gb_and_an_answer_cant_raise_the_memory)",
         "Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)",
         "Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)",
         "docs/learn.md and docs/learn/writing-lessons.md match the code"
@@ -5777,12 +5944,34 @@
         1517,
         1518,
         1528,
-        1531
+        1531,
+        1562,
+        1566,
+        1579,
+        1587,
+        1601,
+        1607,
+        1609,
+        1625,
+        1626,
+        1643,
+        1648,
+        1649,
+        1720,
+        1738,
+        1741,
+        1742,
+        1746,
+        1747,
+        1760,
+        1816
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
       "evidence": [
-        "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4"
+        "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4",
+        "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb",
+        "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -5823,7 +6012,8 @@
       "prs": [
         1126,
         1134,
-        1135
+        1135,
+        1642
       ],
       "problem": "Reports and semantic models can't be viewed or tested inside the app.",
       "capability": "An isolated Power BI embed host frame with its own policy, tokens kept in memory, and no service principal secrets.",
@@ -5873,13 +6063,15 @@
         1184,
         1186,
         1216,
-        1233
+        1233,
+        1713
       ],
       "problem": "Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.",
       "capability": "Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and \"fixed and checked\" evidence in Profile.",
       "evidence": [
         "Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949",
-        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)"
+        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)",
+        "GD-09: a governance policy sets a team's default guidance level (#1713, Preview) on main at 5f8144f7; GD-07 still to build"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -5916,15 +6108,19 @@
     {
       "id": "PB-123",
       "title": "Learn phase 2: rule batches, Profile v2 and comparison lessons",
-      "state": "Proposed",
+      "state": "In progress",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
-      "prs": [],
+      "prs": [
+        1722
+      ],
       "problem": "Learn v1 covers the first rule catalog and paths only.",
-      "capability": "New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).",
+      "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",
       "evidence": [
-        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built"
+        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built",
+        "2026-11-02: the platform comparison lessons (Databricks and Snowflake porting) moved to PB-126 (LM-26 to LM-29, LAB-08, LAB-09); rule batches and Profile v2 stay here",
+        "Profile v2 started: Impact tab, goals with a development roadmap and the report as PDF (#1722) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -5952,6 +6148,526 @@
         "cost": 1.5,
         "score": 2.34,
         "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-124",
+      "title": "Enterprise audit remediation (EA backlog)",
+      "category": "Security and Enterprise Readiness",
+      "problem": "The enterprise engineering audit (#1571) scored readiness 54/100 and found defects in data integrity, engine compatibility, release integrity and operations that a Fortune 100 rollout needs closed.",
+      "capability": "Each EA-nnn finding in docs/audits/REMEDIATION_BACKLOG.md fixed or recorded as an explicit refusal or limitation, with a test per fix, and the readiness scorecard re-scored.",
+      "evidence": [
+        "Audit baseline, scorecard and remediation backlog (#1571, docs/audits/) at b75dcf5; progress table updated in #1638",
+        "Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608)",
+        "Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
+        "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
+        "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps",
+        "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7",
+        "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7",
+        "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb",
+        "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-SHL-01"
+      ],
+      "acceptance": [
+        "Every EA item in docs/audits/REMEDIATION_BACKLOG.md is merged with a test, withdrawn with a reason, or accepted by the product owner as a documented limitation",
+        "The scorecard in docs/audits/ENTERPRISE_READINESS.md is re-scored after EA-001, EA-002 and EA-004 merge",
+        "Items that need Windows or the product owner (EA-009, EA-024, EA-030) are checked there or listed as limitations",
+        "Private security items stay out of public docs and are closed with the security owner"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 2,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "owner": "Enterprise readiness",
+      "source_refs": [
+        "EA-001..030"
+      ],
+      "duplicates": [
+        "Overlaps PB-101 (codebase audit and hardening): where an EA item repeats an earlier HD finding, REMEDIATION_BACKLOG.md cites it"
+      ],
+      "effort": "L",
+      "confidence": "Medium",
+      "state": "In progress",
+      "mandatory_reason": "EA-001 (appends quietly changed values in lakehouse tables) and EA-020 (engine packages and sources installed without hash checks) are data-integrity and release-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.",
+      "prs": [
+        1571,
+        1572,
+        1573,
+        1574,
+        1575,
+        1576,
+        1578,
+        1579,
+        1580,
+        1581,
+        1582,
+        1584,
+        1585,
+        1586,
+        1588,
+        1589,
+        1590,
+        1591,
+        1592,
+        1593,
+        1594,
+        1597,
+        1598,
+        1599,
+        1600,
+        1601,
+        1602,
+        1604,
+        1605,
+        1606,
+        1607,
+        1608,
+        1609,
+        1613,
+        1614,
+        1615,
+        1617,
+        1624,
+        1625,
+        1626,
+        1627,
+        1630,
+        1636,
+        1637,
+        1638,
+        1645,
+        1646,
+        1647,
+        1709,
+        1710,
+        1714,
+        1723,
+        1734,
+        1811
+      ],
+      "issues": [],
+      "computed": {
+        "benefit": 3.5,
+        "cost": 3.5,
+        "score": 1.75,
+        "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-125",
+      "title": "Learn ranks and profile pictures",
+      "state": "Accepted",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "M",
+      "prs": [
+        1657
+      ],
+      "problem": "Learn records what a person has done, but there is no earned rank to show progress, and Profile has no picture.",
+      "capability": "Earned ranks on the Profile page, themed on the Kratos Forge, wolves and Greek myth (no rank is \"Data God\"), each with a prompt people can use to generate a profile picture, and a profile picture people upload themselves.",
+      "evidence": [
+        "Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp",
+        "Nothing built. Builds as draft PRs once Chris approves the rank ladder",
+        "Thirteen ranks in three tiers (the Forge, the Pack, the Myth) earned from verified work on this PC, a Copy picture prompt per rank, and a profile picture kept as a 256 px PNG of at most 512 KB (#1657) on main at 9367abf7",
+        "Implementation review docs/product/reviews/PB-125-1657.md (2026-11-02): criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-125-1657.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "Learn curriculum design 2026-11-02"
+      ],
+      "acceptance": [
+        "A rank is earned only from the person's own verified evidence on this PC (Learn passes, clean Validate runs and checked fixes), never set by hand; Proof Forged is never required",
+        "Ranks follow the Developer progression switch (Settings > Developer progression)",
+        "Every rank name and picture prompt follows the approved ladder; no rank name contains god, deity or divine, and a test enforces it",
+        "A person can add, change and remove their own profile picture; it stays on this PC and is checked for type and size",
+        "The picture prompts are text only: the app generates no images and calls no AI service"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-126",
+      "title": "Learn curriculum content batches by path",
+      "state": "Accepted",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1658,
+        1659,
+        1660,
+        1677,
+        1684,
+        1687
+      ],
+      "problem": "Learn v1 has the first lessons and labs only, so no path is a full curriculum.",
+      "capability": "A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.",
+      "evidence": [
+        "From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09)",
+        "Nothing built. Each batch needs Chris's go before it is built",
+        "All six batches merged: Data Fundamentals and SQL (#1658), Python and Data Engineering (#1659), Microsoft Fabric (#1660), Databricks and Snowflake porting (#1677), Enterprise Architecture (#1684) and The Forge Trial capstone lab LAB-12 (#1687) on main at 9367abf7",
+        "Implementation review docs/product/reviews/PB-126-curriculum.md (2026-11-02): criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-126-curriculum.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "LM-13..35",
+        "LAB-05..12"
+      ],
+      "acceptance": [
+        "Every lesson names rule ids that resolve in the catalog (test_learn_content)",
+        "Every lab runs on this PC with generated data inside the lab limits (test_learn_labs)",
+        "docs/learn.md lists the paths and lessons as shipped"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-127",
+      "title": "Fabric App Studio",
+      "state": "In progress",
+      "owner": "Fabric App Studio (AS)",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1715,
+        1718,
+        1721,
+        1727,
+        1728,
+        1736
+      ],
+      "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
+      "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
+      "evidence": [
+        "AS-01 design and capability matrix (#1715), AS-02 to AS-04 specification, patches with undo and project folder (#1718), AS-05 model connections with key references, consent and spend limits (#1721), AS-09 sanitized semantic model metadata (#1728) and AS-12 the PBIR compiler (#1727) on main at 5f8144f7",
+        "Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03",
+        "First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one",
+        "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
+        "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)",
+        "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb"
+      ],
+      "features": [
+        "FEAT-FAB-05"
+      ],
+      "source_refs": [
+        "AS-01..20"
+      ],
+      "acceptance": [
+        "As defined for AS-01 to AS-20 in docs/architecture/app-studio.md",
+        "App Studio is off until a model connection is added, and every other page works without one",
+        "Only schema and sanitized metadata go to a model by default; sample rows need per-connection consent and are redacted",
+        "Model output is validated against the specification schema before anything is previewed or published"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 4,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.25,
+        "cost": 4.5,
+        "score": 0.97,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-128",
+      "title": "KratosForge Academy: certification preparation",
+      "state": "In progress",
+      "owner": "Academy",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1771,
+        1776,
+        1777,
+        1778,
+        1779,
+        1781,
+        1782,
+        1783,
+        1784,
+        1785,
+        1786,
+        1788,
+        1790,
+        1791,
+        1793,
+        1794,
+        1795,
+        1796,
+        1797,
+        1801,
+        1804,
+        1806,
+        1807,
+        1808,
+        1809,
+        1812,
+        1814,
+        1815,
+        1817,
+        1820,
+        1821
+      ],
+      "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
+      "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
+      "evidence": [
+        "Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z)",
+        "Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb",
+        "Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant",
+        "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)",
+        "PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38",
+        "Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it.",
+        "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "ACD-001..020",
+        "DBA-001..016"
+      ],
+      "acceptance": [
+        "Every objective in a certification's registry has exercises or a recorded gap",
+        "An exercise is graded on what the learner made, read as untrusted input, in a limited process",
+        "Practice exams, diagnostics and drills run on one exam engine with original questions",
+        "Nothing in Academy writes to Fabric or spends capacity"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 3,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.95,
+        "cost": 3.5,
+        "score": 1.48,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-129",
+      "title": "Platform skins and experience parity",
+      "state": "In progress",
+      "owner": "Platform skins",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1756,
+        1759,
+        1770,
+        1772,
+        1773,
+        1816
+      ],
+      "problem": "Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.",
+      "capability": "One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.",
+      "evidence": [
+        "Go: Chris's Platform Skins and Experience Parity brief of 2026-11-03 13:41 UTC, set as P0 (Platform skins thread cmsg_018T4o2pQdpbLBNhHpgVNNGp2RXWZE4bjmFwbEhenXh44y)",
+        "Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb",
+        "A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration",
+        "Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)",
+        "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-EXT-05"
+      ],
+      "source_refs": [
+        "Chris's Platform Skins brief, 2026-11-03 13:41Z (P0)"
+      ],
+      "acceptance": [
+        "Appearance, workflow, platform and engine are independent settings",
+        "A skin is declarative configuration, validated on import, and can't change credentials, permissions, engine behaviour or project data",
+        "Switching skins keeps open work, connections and execution settings",
+        "Every skin keeps local-first, multi-engine, optimization, training and deployment features reachable",
+        "The end-to-end demonstration in the brief is recorded, with mocked parts named"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.65,
+        "cost": 3.5,
+        "score": 1.82,
+        "priority": "P0"
+      },
+      "mandatory_reason": "The product owner set platform skins and experience parity as P0 in the Platform Skins brief of 2026-11-03 13:41 UTC."
+    },
+    {
+      "id": "PB-130",
+      "title": "Data product promises, status and change windows",
+      "category": "Enterprise Shared Services",
+      "problem": "Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.",
+      "capability": "A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.",
+      "evidence": [
+        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb"
+      ],
+      "features": [
+        "FEAT-MESH-04",
+        "FEAT-GOV-01",
+        "FEAT-MESH-05"
+      ],
+      "depends_on": [
+        "PB-002"
+      ],
+      "acceptance": [
+        "A product's promise is shown to readers and its team sees Kept or Broken",
+        "A broken promise opens one incident",
+        "Status and change window views read the same records"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "owner": "Data mesh",
+      "effort": "M",
+      "confidence": "Medium",
+      "state": "In progress",
+      "external_dependencies": [],
+      "prs": [
+        1737,
+        1744,
+        1774,
+        1775,
+        1780
+      ],
+      "source_refs": [
+        "Data mesh Wave 2"
+      ],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-131",
+      "title": "Let people remove Academy's runtime access grants",
+      "category": "Security and Enterprise Readiness",
+      "problem": "The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.",
+      "capability": "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grants after a confirm, using revoke_runtime(); nothing is removed while an exercise runs. By Security's decision there is no uninstall step, because a grant on the app-owned engine is inert after uninstall.",
+      "evidence": [
+        "Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38",
+        "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grant after a confirm, with a Try again for paths Windows wouldn't change (#1820); enterprise-install.md says to run it before uninstalling, and Security (2026-11-04) chose no uninstall step because grants on the app-owned engine are inert after uninstall (#1821) on main at 03d2b53a",
+        "Windows CI on #1823: test_settings_shows_the_grants_and_removes_them shows grants > 0 after an AppContainer exercise and none after Remove, with no ACE left; test_nothing_is_removed_while_an_exercise_runs (#1823) on main",
+        "Implementation review docs/product/reviews/PB-131-1820.md: Accepted (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv)"
+      ],
+      "features": [
+        "FEAT-DEV-04",
+        "FEAT-SHL-09"
+      ],
+      "acceptance": [
+        "Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does",
+        "Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere",
+        "A test shows grants before and none after"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 1,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 2
+      },
+      "mandatory": "required",
+      "owner": "Academy",
+      "source_refs": [
+        "ACD-005b"
+      ],
+      "duplicates": [],
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "Accepted",
+      "mandatory_reason": "The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).",
+      "prs": [
+        1820,
+        1821,
+        1823
+      ],
+      "computed": {
+        "benefit": 2.3,
+        "cost": 2.0,
+        "score": 1.84,
+        "priority": "P1"
       }
     }
   ]

@@ -5,6 +5,7 @@
     about.json      app and engine build, Python, operating system, where each setting comes from,
                     and the policy file's state (the setting names it sets, never their values)
     sidecar.log     the last lines of the engine's log
+    sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
     agent.log       the last lines of the headless agent's log, on a server with an agent
     CONTENTS.txt    what is in the zip and what was taken out
 
@@ -64,7 +65,7 @@ def about() -> dict[str, Any]:
             value = sorted(value) if isinstance(value, dict) else []
         elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
-        elif key == "sql_temp_dir" and isinstance(value, str) and value[:2] in ("\\\\", "//"):
+        elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and value[:2] in ("\\\\", "//"):
             value = "a network folder"  # a share's server name is the organization's
         summary[key] = {"value": value, "source": entry["source"]}
     engine = app_settings._read_engine_info()
@@ -108,6 +109,9 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
             missing.append(name)
         else:
             files[name] = text
+    previous = _tail(data_dir / "sidecar.prev.log")  # only there once the app has restarted the engine
+    if previous is not None:
+        files["sidecar.prev.log"] = previous
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",

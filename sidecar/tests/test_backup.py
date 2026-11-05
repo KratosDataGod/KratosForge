@@ -134,6 +134,20 @@ def test_restore_refuses_while_an_idle_connection_has_a_wal_database_open(app, t
     assert not (app / backup.SAFETY).exists()
 
 
+def test_restore_replaces_a_damaged_database_instead_of_calling_it_in_use(app, tmp_path):
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    data = bytearray((app / "workloads.sqlite").read_bytes())
+    data[100:4096] = b"\xff" * 3996  # page 1 after the header: SQLite says malformed, not busy
+    (app / "workloads.sqlite").write_bytes(bytes(data))
+    with pytest.raises(sqlite3.DatabaseError), closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        db.execute("select name from w").fetchall()
+    done = backup.restore(zip_path, app, apply=True, now=NOW)
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        assert db.execute("select name from w").fetchall() == [("orders",)]
+    assert (app / backup.SAFETY / "20261017-120000" / "app" / "workloads.sqlite").read_bytes() == bytes(data)
+    assert done["safety"]
+
+
 def test_restore_checks_each_file_it_writes(app, tmp_path, monkeypatch):
     zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
     (app / "notebooks" / "sales.ipynb").write_text('{"cells": ["changed"]}')

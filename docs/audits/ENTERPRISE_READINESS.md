@@ -224,8 +224,7 @@ There are reproducible benchmark scripts with recorded results for large-table m
 
 Missing:
 
-- No benchmark exists for app start, notebook start or SQL latency.
-- No performance check runs in CI.
+- The engine's performance check in CI is advisory until 2026-11-19: a regression warns but doesn't fail the job.
 - No local-versus-Fabric comparison has been recorded under documented, comparable conditions.
 
 Capacity-unit savings are not claimed as measured anywhere in this audit.
@@ -234,6 +233,7 @@ Since the baseline:
 
 - EA-029: a start-up, notebook-start and SQL benchmark with a recorded baseline (#1608).
 - The app window has a recorded baseline and budgets, and CI's browser tests hold each run to them (#1756).
+- EA-029 in CI: the Performance workflow runs the start-up, notebook-start and SQL benchmark on the Windows runner after every merge to main. It compares each median with a recorded Windows baseline and warns on a regression of more than 1.5 times and 25 ms (#1664).
 
 A local-versus-Fabric comparison is still not recorded.
 

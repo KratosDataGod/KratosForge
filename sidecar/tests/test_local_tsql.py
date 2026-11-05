@@ -377,6 +377,22 @@ def test_substring_stuff_and_replicate_at_the_edges(engine):
         tsql(engine, "SELECT SUBSTRING(name, 1, qty) AS s FROM dbo.orders")
 
 
+def test_left_right_and_translate_fail_where_tsql_fails(engine):
+    # DuckDB drops from the other end for a negative LEFT / RIGHT and drops unpartnered TRANSLATE characters.
+    r = tsql(engine, "SELECT LEFT(name, id) AS l, RIGHT(name, id) AS r, LEFT('abc', 0) AS z, "
+                     "TRANSLATE(name, 'nB', 'Nb') AS t FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["A", " ", "", "ANN  "], ["Bo", "Bo", "", "bo"]]
+    for sql in ("SELECT LEFT('abc', -1)", "SELECT RIGHT(name, -2) FROM dbo.orders"):
+        with pytest.raises(ValueError, match="Invalid length parameter passed to the (LEFT|RIGHT) function"):
+            tsql(engine, sql)
+    with pytest.raises(Exception, match="Invalid length parameter passed to the LEFT function"):
+        tsql(engine, "SELECT LEFT(name, qty) AS l FROM dbo.orders")  # -7 on the second row
+    with pytest.raises(ValueError, match="must contain an equal number of characters"):
+        tsql(engine, "SELECT TRANSLATE('abc', 'ab', 'x')")
+    with pytest.raises(Exception, match="must contain an equal number of characters"):
+        tsql(engine, "SELECT TRANSLATE(name, name, 'x') AS t FROM dbo.orders")
+
+
 def test_format_of_a_date_follows_dotnets_formats(engine):
     # Expected text: .NET's en-US formats, as FORMAT uses them (UNVERIFIED on a Fabric Warehouse).
     at = "CAST('2024-03-05 14:07:09.123456' AS DATETIME2)"

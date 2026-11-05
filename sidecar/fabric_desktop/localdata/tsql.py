@@ -816,6 +816,15 @@ def _whole(node: exp.Expression | None, low: int) -> bool:
     return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
 
 
+def _negative(node: exp.Expression | None) -> bool:
+    """A negative number literal, such as ``-1``."""
+    if isinstance(node, exp.Neg):
+        node = node.this
+        return isinstance(node, exp.Literal) and not node.is_string and node.name.replace(".", "", 1).isdigit() \
+            and float(node.name) > 0
+    return isinstance(node, exp.Literal) and not node.is_string and node.name.startswith("-")
+
+
 def _string_edges(tree: exp.Expression) -> None:
     """Where DuckDB's string functions answer differently from T-SQL's at the edges, as T-SQL does:
 
@@ -825,10 +834,36 @@ def _string_edges(tree: exp.Expression) -> None:
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
     - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
+    - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
+      characters of ``a`` that have no partner in ``b``).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat)):
-        if isinstance(node, exp.Substring):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate)):
+        if isinstance(node, (exp.Left, exp.Right)):
+            name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
+            length = node.expression
+            message = f"Invalid length parameter passed to the {name} function."
+            if _negative(length):
+                raise ValueError(f"This T-SQL can't be run on the local engine: {message} A Fabric Warehouse gives the "
+                                 "same error.")
+            if not _whole(length, 0):
+                negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
+                node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))],
+                                      default=node.copy()))
+        elif isinstance(node, exp.Translate):
+            source, target = node.args["from_"], node.args["to"]
+            message = ("The second and third arguments of the TRANSLATE function must contain an equal number "
+                       "of characters.")
+            if all(isinstance(x, exp.Literal) and x.is_string for x in (source, target)):
+                if len(source.name) != len(target.name):
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} A Fabric Warehouse "
+                                     "gives the same error.")
+                continue
+            differ = exp.NEQ(this=exp.func("LENGTH", source.copy()), expression=exp.func("LENGTH", target.copy()))
+            node.replace(exp.Case(ifs=[exp.If(this=differ, true=exp.func("ERROR", exp.Literal.string(message)))],
+                                  default=node.copy()))
+        elif isinstance(node, exp.Substring):
             start, length = node.args.get("start"), node.args.get("length")
             if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
                 continue
@@ -844,8 +879,8 @@ def _string_edges(tree: exp.Expression) -> None:
                                default=exp.Substring(this=node.this, start=first, length=count))
             if not _whole(length, 0):
                 negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
-                message = exp.Literal.string("Invalid length parameter passed to the SUBSTRING function.")
-                cut = exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", message))], default=cut)
+                error = exp.func("ERROR", exp.Literal.string("Invalid length parameter passed to the SUBSTRING function."))
+                cut = exp.Case(ifs=[exp.If(this=negative, true=error)], default=cut)
             node.replace(cut)
         elif isinstance(node, exp.Stuff):
             start, length = node.args["start"], node.args["length"]

@@ -1,0 +1,78 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E19",
+  "version": 1,
+  "status": "draft",
+  "title": "Parameterised pipeline: ForEach over tables with dynamic expressions",
+  "objectives": [
+    "1.4.3"
+  ],
+  "objective_text": "Drive a pipeline from a parameter: loop over the tables it names, build each target name with an expression, and return what was loaded.",
+  "scenario": "The nightly load copies a fixed pair of tables, and every new table means editing the pipeline. The platform team wants one pipeline that loads whatever list of tables its schedule passes in, names each Bronze table bronze. followed by the table name, and returns the list it loaded so the next step can check it.",
+  "prerequisites": [],
+  "minutes": 30,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pipeline_lab",
+  "engine_label": "Local pipeline runner on this PC (control flow only)",
+  "lesson": "lesson.md",
+  "starter": "pipeline.json",
+  "verifies": [
+    "Your pipeline JSON ran on the local runner on this PC with the run's own table list: the loop, the expressions and the return value behaved as required."
+  ],
+  "does_not_verify": [
+    "Copying data: the Copy activity here is a stand-in with a fixed result, so no data moves and no connection is tested.",
+    "Running in a Fabric workspace, its schedule or trigger, or parallel ForEach behaviour under load."
+  ],
+  "datasets": [],
+  "parameters": {
+    "tables": [
+      "customers",
+      "stores",
+      "orders"
+    ]
+  },
+  "mocks": {
+    "Copy table": {
+      "output": {
+        "rowsCopied": 10
+      }
+    }
+  },
+  "expected": {
+    "return_value": {
+      "loaded": "bronze.customers,bronze.stores,bronze.orders"
+    }
+  },
+  "validation": [
+    {
+      "kind": "pipeline_outcome",
+      "status": "Succeeded",
+      "activities": {
+        "Each table": "Succeeded",
+        "Copy table": "Succeeded",
+        "Summary": "Succeeded"
+      },
+      "return_value": {
+        "loaded": "bronze.customers,bronze.stores,bronze.orders"
+      },
+      "pass": "The pipeline loaded exactly the tables the run asked for.",
+      "fail": "Compare the run's tables parameter with what your pipeline looped over and returned."
+    }
+  ],
+  "hints": [
+    "The run passes tables = customers, stores, orders. Where does your ForEach get its items?",
+    "@pipeline().parameters.tables is the list the run passed in; item() is the current table inside the loop.",
+    "Append @concat('bronze.', item()) to loaded, and return it as loaded with @join(variables('loaded'), ',')."
+  ],
+  "explanation": "A metadata-driven pipeline takes its work list from a parameter (or a Lookup) instead of hard-coding it, so a new table is a change to the schedule's parameters, not to the pipeline. Inside a ForEach, item() is the current element; expressions such as concat() build names from it. The pipeline return value (a Set variable activity that sets the system variable) hands results to a calling pipeline. This loop is sequential: appending to one variable from parallel iterations is unreliable in Fabric pipelines.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/foreach-activity",
+    "https://learn.microsoft.com/fabric/data-factory/expression-language"
+  ],
+  "reset": "Reset puts the original pipeline.json back.",
+  "review_notes": [
+    "Before live: confirm both remediation links load and that the return value shape matches Fabric's current Set variable docs.",
+    "A pipeline that hard-codes exactly this run's three tables would pass. Running each exercise with a second parameter set needs pipeline_lab support for several runs."
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E48",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a pipeline fails on a bad expression and never reports why",
+  "objectives": [
+    "3.2.1"
+  ],
+  "objective_text": "Read a pipeline run's activity errors, fix a dynamic expression, and repair a dependency condition so a failed copy is logged and reported.",
+  "scenario": "The orders load fails every night, and the failure alert that should say why never fires. The run shows Build query failed and everything after it skipped. Tonight the source system is also offline, so once the expression is fixed, the copy will fail too, and that failure has to be logged and reported.",
+  "prerequisites": [],
+  "minutes": 25,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "pipeline_lab",
+  "engine_label": "Local pipeline runner on this PC (control flow only)",
+  "lesson": "lesson.md",
+  "starter": "pipeline.json",
+  "verifies": [
+    "Your repaired pipeline JSON ran on the local runner on this PC: the query was built from the lookup, the failed copy was logged, and the run reported the failure with its reason."
+  ],
+  "does_not_verify": [
+    "Copying data: the Copy activity here is a stand-in with a fixed result, so no data moves and no connection is tested.",
+    "Fabric's monitoring hub or alerts: the run record here comes from the local runner."
+  ],
+  "datasets": [],
+  "fault": {
+    "summary": "Build query reads a property the lookup doesn't return, and the failure handler runs only when the copy succeeds.",
+    "planted": [
+      {
+        "where": "Build query",
+        "what": "activity('Lookup watermark').output.firstRow.lastLoaded; the lookup returns last_loaded"
+      },
+      {
+        "where": "Log failure",
+        "what": "depends on Copy orders with the condition Succeeded instead of Failed"
+      }
+    ],
+    "symptom": "Build query fails with an expression error, and when it's fixed, a failed copy still skips Log failure and Fail run."
+  },
+  "mocks": {
+    "Lookup watermark": {
+      "output": {
+        "firstRow": {
+          "last_loaded": "2026-04-02T11:00:00Z"
+        }
+      }
+    },
+    "Copy orders": {
+      "status": "Failed",
+      "error": {
+        "message": "source offline"
+      }
+    }
+  },
+  "expected": {
+    "status": "Failed",
+    "activities": {
+      "Log failure": "Succeeded",
+      "Fail run": "Failed"
+    }
+  },
+  "validation": [
+    {
+      "kind": "pipeline_outcome",
+      "status": "Failed",
+      "activities": {
+        "Build query": "Succeeded",
+        "Copy orders": "Failed",
+        "Log failure": "Succeeded",
+        "Fail run": "Failed"
+      },
+      "outputs": {
+        "Build query.value": "SELECT * FROM orders WHERE arrived_at > '2026-04-02T11:00:00Z'",
+        "Log failure.value": "source offline"
+      },
+      "pass": "The query is built, and the failed copy is logged and reported.",
+      "fail": "Read each activity's status in the run: the first one that isn't what you expect is where to look."
+    }
+  ],
+  "hints": [
+    "Open Build query's error. Which property does it ask the lookup for, and which one does the lookup's output have?",
+    "Expressions read output properties by exact name: last_loaded, not lastLoaded.",
+    "Log failure should run when Copy orders fails. Which dependency condition says that?"
+  ],
+  "explanation": "An activity's error names the expression and the missing property, so read the run before changing anything. Output properties are read by their exact names. Dependency conditions decide which path runs: Succeeded, Failed, Completed or Skipped. A handler meant for failures must hang off Failed (or Completed). Ending the failure path with a Fail activity makes the run report Failed with your own message; without it, a run whose failure was handled can report success, and nobody is alerted.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/expression-language",
+    "https://learn.microsoft.com/fabric/data-factory/fail-activity"
+  ],
+  "reset": "Reset puts the broken pipeline.json back.",
+  "review_notes": [
+    "Before live: confirm both remediation links load."
+  ]
+}

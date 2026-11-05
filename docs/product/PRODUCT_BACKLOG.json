@@ -6461,7 +6461,10 @@
         1815,
         1817,
         1820,
-        1821
+        1821,
+        1823,
+        1824,
+        1825
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6472,7 +6475,8 @@
         "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)",
         "PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38",
         "Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it.",
-        "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a"
+        "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a",
+        "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2"
       ],
       "features": [
         "FEAT-DEV-04"

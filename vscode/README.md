@@ -6,7 +6,7 @@ Preview. Windows, with KratosForge installed and open.
 
 ## Use it
 
-Install it from the [Preview release](https://github.com/KratosDataGod/KratosForge/releases/tag/latest): download `kratosforge.vsix`, then in VS Code run **Extensions: Install from VSIX…** and pick the file.
+Install it from the [Preview release](https://github.com/KratosDataGod/KratosForge/releases/tag/latest): download `kratosforge.vsix`, then in VS Code run **Extensions: Install from VSIX…** and pick the file. To check the file was built by KratosForge's CI, run `gh attestation verify kratosforge.vsix -R KratosDataGod/KratosForge` first.
 
 1. In KratosForge, **Settings > Integrations > VS Code**: turn on **Let VS Code run notebooks**.
 2. Open a notebook from KratosForge's notebooks folder, or from a notebooks repository KratosForge has open in Source control (**Open in VS Code** on a notebook does this).

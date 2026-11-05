@@ -255,7 +255,8 @@ async function checkForUpdates() {
     install.disabled = true;
     later.disabled = true;
     try {
-      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; })) return;
+      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; },
+        (note) => { text.textContent = note; })) return;
       install.lastChild.textContent = "Install and restart";
     } catch (err) {
       text.className = "error-text";
@@ -268,13 +269,20 @@ async function checkForUpdates() {
   show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
+// update_app's log line when the channel moved on since the person agreed to a build: the build
+// they saw, then the one installed instead.
+const REPLACED_BUILD = /^Build (\w{7}) was replaced on the update channel by build (\w{7})/;
+
 // Saves the open notebook, then downloads the build and hands over to it, the same checked
 // download as at startup (update_app). False when the notebook wasn't saved; throws when the
-// update failed. setLabel shows how far the download is.
-async function installUpdate(commit, setLabel) {
+// update failed. setLabel shows how far the download is; setNote, when given, says when a newer
+// build replaced the one shown.
+async function installUpdate(commit, setLabel, setNote) {
   if (state.notebook?.dirty && !(await saveNotebook())) return false;
   setLabel("Downloading…");
   const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+    const moved = REPLACED_BUILD.exec(e.payload);
+    if (moved && setNote) setNote(`Installing build ${moved[2]}, which replaced build ${moved[1]} on the channel.`);
     const m = /^progress (\d+)/.exec(e.payload);
     if (m) setLabel(m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`);
   });
@@ -365,7 +373,8 @@ function renderUpdateBanner() {
     const restart = btn("Restart to update", "arrowDownload", async () => {
       restart.disabled = true;
       try {
-        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; })) return;
+        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; },
+          (note) => { text.replaceChildren(h("b", {}, note)); })) return;
         restart.lastChild.textContent = "Restart to update";
       } catch (err) {
         text.replaceChildren(h("b", { class: "error-text" }, `Update to build ${n.commit.slice(0, 7)} failed: ${err}`),
@@ -761,7 +770,7 @@ async function renderSettings() {
           renderUpdateBanner();
           render();
         } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
-    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+    h("div", { class: "row wrap" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 

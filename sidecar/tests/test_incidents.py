@@ -130,6 +130,41 @@ def test_acknowledge_assign_and_note_are_kept_with_who_and_when(backend):
         log.acknowledge(i, "chris@contoso.com")
 
 
+def test_assign_strips_the_owner_unassigns_with_empty_and_records_before_and_after(backend):
+    # Characterizes assign as it is: no state check (a resolved incident can still be reassigned),
+    # the owner is stripped, empty means nobody, and each change is a note and an event.
+    log = IncidentLog(backend, "prod", Clock())
+    [c] = log.sync(failed(), evaluated=True, by="a")
+    i = c["incident"]["id"]
+    log.assign(i, "  dana@contoso.com ", "chris@contoso.com")
+    inc = log.assign(i, "", "dana@contoso.com")
+    assert inc["owner"] == "" and inc["state"] == "open"  # assigning doesn't acknowledge
+    assert [n["text"] for n in inc["notes"]] == ["Assigned: nobody → dana@contoso.com",
+                                                "Assigned: dana@contoso.com → nobody"]
+    assert [(e["what"], e["by"], e["text"]) for e in inc["events"] if e["what"] == "assigned"] == [
+        ("assigned", "chris@contoso.com", "nobody → dana@contoso.com"),
+        ("assigned", "dana@contoso.com", "dana@contoso.com → nobody")]
+    log.resolve(i, "dana@contoso.com")
+    assert log.assign(i, "lee@contoso.com", "chris@contoso.com")["owner"] == "lee@contoso.com"
+    with pytest.raises(LookupError):
+        log.assign("inc-nope", "x", "y")
+
+
+def test_a_long_note_is_cut_and_the_event_list_keeps_the_first_and_the_newest(backend):
+    from fabric_desktop.workloads.incidents import KEEP_EVENTS
+    log = IncidentLog(backend, "prod", Clock())
+    [c] = log.sync(failed(), evaluated=True, by="a")
+    i = c["incident"]["id"]
+    first = c["incident"]["events"][0]
+    inc = log.note(i, "x" * 5000, "chris@contoso.com")
+    assert len(inc["notes"][-1]["text"]) == 2000 and len(inc["events"][-1]["text"]) == 2000
+    for n in range(KEEP_EVENTS + 5):
+        inc = log.note(i, f"note {n}", "chris@contoso.com")
+    assert len(inc["events"]) == KEEP_EVENTS
+    assert inc["events"][0] == first and inc["events"][-1]["text"] == f"note {KEEP_EVENTS + 4}"
+    assert len(inc["notes"]) == KEEP_EVENTS + 6  # notes aren't trimmed
+
+
 def test_resolved_incidents_are_trimmed_to_the_newest(backend, monkeypatch):
     from fabric_desktop.workloads import incidents
     monkeypatch.setattr(incidents, "KEEP_RESOLVED", 3)
@@ -384,6 +419,12 @@ def test_the_app_and_the_agent_share_one_incident_list(tmp_path, monkeypatch):
     assert svc.incidents_list("dev", include_resolved=False)["incidents"] == []
     with pytest.raises(ValueError):
         svc.incident_note("dev", inc["id"], "  ")
+    # who did it is the signed-in person, and a note is kept without its outer spaces
+    assigned = svc.incident_assign("dev", inc["id"], "dana@contoso.com")
+    assert assigned["owner"] == "dana@contoso.com" and assigned["events"][-1]["by"] == "chris@contoso.com"
+    assert svc.incident_note("dev", inc["id"], "  Source was late  ")["notes"][-1]["text"] == "Source was late"
+    with pytest.raises(LookupError):
+        svc.incident_assign("dev", "inc-nope", "dana@contoso.com")
     with pytest.raises(ValueError):
         svc.incidents_list("staging")
 

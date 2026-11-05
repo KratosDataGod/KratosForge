@@ -250,7 +250,8 @@ def test_the_docs_refused_list_names_exactly_the_refusals_checked_here():
     ticked = set(re.findall(r"`([^`]+)`", listed))
     unknown = ticked - set(REFUSED_IN_THE_DOCS) - ADVICE_IN_THE_DOCS
     assert not unknown, f"docs/local-data.md refuses {sorted(unknown)}: add a query for each to REFUSED_IN_THE_DOCS"
-    gone = [item for item in REFUSED_IN_THE_DOCS if item not in listed]
+    prose = {"transactions", "procedures and functions"}  # named in words, not backticked
+    gone = [item for item in REFUSED_IN_THE_DOCS if (item not in listed if item in prose else item not in ticked)]
     assert not gone, f"{gone} left the docs' refused list: take them out of REFUSED_IN_THE_DOCS too"
 
 

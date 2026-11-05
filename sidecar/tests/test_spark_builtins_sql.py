@@ -221,8 +221,6 @@ def test_a_selected_call_keeps_the_name_spark_gives_it():
     ("SELECT count_min_sketch(col, 0.5d, 0.5d, 1) FROM VALUES (1) AS tab(col)", "sketch"),
     ("SELECT make_ym_interval(1, 2)", "year-month"),
     ("SELECT sentences('Hi there! Good morning.')", "locale"),
-    ("SELECT try_to_number('454', '999')", "format"),
-    ("SELECT to_varchar(454, '999')", "format"),
 ])
 def test_what_cant_give_sparks_value_is_refused_by_name(query, match):
     with pytest.raises(ValueError, match=f"this PC.*{match}|{match}.*this PC"):
@@ -287,6 +285,89 @@ def test_dataframe_to_date_reads_the_format_too():
     con = duckdb.connect()
     got = con.execute(f"SELECT {query} FROM (VALUES ('2026-03-02'), ('2026-03-02 10:11:12')) AS v(t)").fetchall()
     assert got == [(None,), (dt.date(2026, 3, 2),)]
+
+
+# Spark's number format patterns (spark_number_format), with Apache Spark 3.5's values.
+@pytest.mark.parametrize("query, want, kind", [
+    ("SELECT to_number('454', '999')", Decimal("454"), "decimal(3,0)"),
+    ("SELECT to_number('454.00', '000.00')", Decimal("454.00"), "decimal(5,2)"),
+    ("SELECT to_number('12,454', '99,999')", Decimal("12454"), "decimal(5,0)"),
+    ("SELECT to_number('$78.12', '$99.99')", Decimal("78.12"), "decimal(4,2)"),
+    ("SELECT to_number('12,454.8-', '99,999.9S')", Decimal("-12454.8"), "decimal(6,1)"),
+    ("SELECT to_number('045', '000')", Decimal("45"), "decimal(3,0)"),
+    ("SELECT to_number('<45>', '999PR')", Decimal("-45"), "decimal(3,0)"),
+    ("SELECT to_number('45-', '999MI')", Decimal("-45"), "decimal(3,0)"),
+    ("SELECT to_number('1,24', '9,999')", Decimal("124"), "decimal(4,0)"),
+    ("SELECT to_number(' 45', '999')", Decimal("45"), "decimal(3,0)"),
+    ("SELECT to_number('.5', '9.9')", Decimal("0.5"), "decimal(2,1)"),
+    ("SELECT to_number('1.5', '9.99')", Decimal("1.50"), "decimal(3,2)"),
+    ("SELECT try_to_number('abc', '999')", None, "decimal(3,0)"),
+    ("SELECT try_to_number('45', '000')", None, "decimal(3,0)"),   # a run starting with 0 needs every digit
+    ("SELECT try_to_number('12454', '99,999')", None, "decimal(5,0)"),
+    ("SELECT try_to_number('$78.12', '$99.99')", Decimal("78.12"), "decimal(4,2)"),
+])
+def test_to_number_reads_sparks_number_formats(query, want, kind):
+    assert one(query) == want
+    assert one(f"SELECT typeof(x) FROM ({query}) AS t(x)") == kind
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT to_number('454', '99')",
+    "SELECT to_number('abc', '999')",
+    "SELECT to_number('', '999')",        # Spark stops on an input with no digits, try_to_number too
+    "SELECT try_to_number('', '999')",
+])
+def test_to_number_stops_where_spark_does(query):
+    with pytest.raises(duckdb.Error, match="to_number"):
+        sql.run(query)
+
+
+@pytest.mark.parametrize("fmt", ["", "abc", "9,", "9,,9", "$9$", "9.9.9", "99S9", "S9S", "9$", "PR999", "9.9,9"])
+def test_a_number_format_spark_refuses_is_refused(fmt):
+    with pytest.raises(ValueError, match="number format"):
+        sql.run(f"SELECT try_to_number('1', '{fmt}')")
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_char(454, '999')", "454"),
+    ("SELECT to_char(454.00, '000D00')", "454.00"),
+    ("SELECT to_char(12454, '99G999')", "12,454"),
+    ("SELECT to_char(78.12, '$99.99')", "$78.12"),
+    ("SELECT to_char(-12454.8, '99G999D9S')", "12,454.8-"),
+    ("SELECT to_char(454, '99')", "##"),
+    ("SELECT to_char(4, '999')", "  4"),
+    ("SELECT to_char(4, '000')", "004"),
+    ("SELECT to_char(-4, 'S999')", "  -4"),
+    ("SELECT to_char(-4, '999MI')", "  4-"),
+    ("SELECT to_char(-4, '999PR')", "  <4>"),
+    ("SELECT to_char(4.567, '9.99')", "#.##"),
+    ("SELECT to_char(0.5, '9.9')", "0.5"),
+    ("SELECT to_char(4, '9.99')", "4.00"),
+    ("SELECT to_char(1234567, '9,999,999')", "1,234,567"),
+    ("SELECT to_char(CAST(7 AS BIGINT), '999')", "  7"),
+    ("SELECT to_varchar(454, '999')", "454"),
+    ("SELECT to_char(CAST(NULL AS INT), '999')", None),
+])
+def test_to_char_writes_sparks_number_formats(query, want):
+    assert one(query) == want
+
+
+def test_to_char_of_a_double_is_refused_by_name():
+    # Spark casts a double to decimal(30,15) first, rounding as Java does; that isn't repeated here.
+    with pytest.raises(duckdb.Error, match="to_char.*this PC.*decimal"):
+        sql.run("SELECT to_char(4.5D, '9.9')")
+
+
+def test_to_char_is_named_as_spark_names_it():
+    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, '999')"]
+
+
+def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():
+    # Spark joins adjacent literals, so '9''9' is the format '99' (Apache Spark 3.5.3).
+    assert one("SELECT try_to_number('12', '9''9')") == Decimal("12")
+    assert one("SELECT to_char(12, '9''9')") == "12"
+    with pytest.raises(ValueError, match="number format 'a9' isn't valid"):
+        sql.run("SELECT try_to_number('1', 'a''9')")
 
 
 # ---- binary literals written X '..', bitmaps, and tumbling time windows (Spark 3.5's values)

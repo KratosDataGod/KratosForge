@@ -19,9 +19,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 361 |
+| Runs | 365 |
 | Differs | 0 |
-| Refused | 27 |
+| Refused | 23 |
 | Fails | 0 |
 | Not checked | 50 |
 | **All** | **438** |
@@ -520,13 +520,13 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `substring` | Runs | `SELECT substring('Spark SQL', 5)` |  |
 | `substring_index` | Runs | `SELECT substring_index('www.apache.org', '.', 2)` |  |
 | `to_binary` | Runs | `SELECT to_binary('abc', 'utf-8')` |  |
-| `to_char` | Refused | `SELECT to_char(454, '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Argument 'format' is not supported for expression 'ToChar' when targeting KfD |
-| `to_number` | Refused | `SELECT to_number('454', '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Unsupported TO_NUMBER function Run it in Fabric, or rewrite that part. |
-| `to_varchar` | Refused | `SELECT to_varchar(454, '999')` | to_varchar() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabric,  |
+| `to_char` | Runs | `SELECT to_char(454, '999')` |  |
+| `to_number` | Runs | `SELECT to_number('454', '999')` |  |
+| `to_varchar` | Runs | `SELECT to_varchar(454, '999')` |  |
 | `translate` | Runs | `SELECT translate('AaBbCc', 'abc', '123')` |  |
 | `trim` | Runs | `SELECT trim(' SparkSQL ')` |  |
 | `try_to_binary` | Runs | `SELECT try_to_binary('abc', 'utf-8')` |  |
-| `try_to_number` | Refused | `SELECT try_to_number('454', '999')` | try_to_number() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabri |
+| `try_to_number` | Runs | `SELECT try_to_number('454', '999')` |  |
 | `ucase` | Runs | `SELECT ucase('SparkSql')` |  |
 | `unbase64` | Runs | `SELECT unbase64('U3BhcmsgU1FM')` |  |
 | `upper` | Runs | `SELECT upper('SparkSql')` |  |

@@ -345,6 +345,23 @@ def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
     assert appcontainer.revoke_runtime(tmp_path)["removed"] >= 1
 
 
+def test_a_box_whose_profile_wont_close_still_lets_remove_run(tmp_path, monkeypatch):
+    work = tmp_path / "w"
+    work.mkdir()
+    box = appcontainer.Box(work, sandbox.BOOTSTRAP, data_root=tmp_path)
+    real_close = box.profile.close
+
+    def refuse():
+        raise OSError("still in use")
+
+    monkeypatch.setattr(box.profile, "close", refuse)
+    with pytest.raises(OSError):
+        box.close()
+    assert appcontainer._open_boxes == 0
+    real_close()
+    assert "why" not in appcontainer.revoke_runtime(tmp_path)
+
+
 def _script(work: Path) -> Path:
     work.mkdir()
     (work / "main.py").write_text("print('ran')\n", encoding="utf-8")

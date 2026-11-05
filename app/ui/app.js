@@ -3149,6 +3149,8 @@ function startMain() {
     render();
     attempt(async () => {
       const env = await rpc("environment");
+      // The engine answered, so this build works: after an update, the previous one can go (EA-024).
+      invoke("confirm_started").catch(() => {});
       state.python = env.python;
       state.user = env.user;
       state.tenant = env.tenant;

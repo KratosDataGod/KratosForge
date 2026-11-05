@@ -3,15 +3,17 @@ results by objective.
 
 Questions are data. Each pack keeps one file per objective under ``packs/<pack>/questions/``
 (schema ``kratosforge/academy-question@1``) and shared case studies in ``packs/<pack>/cases.json``.
-Every question is original, written for KratosForge from the Microsoft Learn page it cites. None is
-a Microsoft exam question, and nothing here imitates Microsoft's exam interface.
+Every question is original, written for KratosForge from the vendor documentation page it cites (Microsoft
+Learn for a Fabric pack, docs.databricks.com for a Databricks pack: the pack's platform ``doc_hosts`` in
+registry.py). None is a vendor exam question, and nothing here imitates a vendor's exam interface.
 
 questions/<objective>.json::
 
-    schema, objective, questions [{id ("<objective>-qN"), type ("single" | "multiple" | "order"),
+    schema, objective, questions [{id ("<objective>-qN"; objectives are 2.2.9 or, for a guide without
+    skill areas, 2.3), type ("single" | "multiple" | "order"),
     stem, options [{id ("a".."h"), text}], answer [option ids; for "order" all of them, in order],
     also_accept? (for "order": other step orders that are equally right, such as two filters that can
-    swap), explanation, source (a learn.microsoft.com page), case? (a cases.json id), version (int),
+    swap), explanation, source (a page on the platform's documentation host), case? (a cases.json id), version (int),
     status ("draft" | "live" | "retired"), reviewed ("YYYY-MM-DD", required when live)}]
 
 cases.json::
@@ -31,8 +33,8 @@ A session is a plain dict, saved by ``ExamStore`` and changed only through the f
 * ``finish`` scores the session and stores the result inside it. A finished session is never scored
   again, so a later question edit or a new certification version can't change a learner's past result.
 
-Scores are by objective and domain. They are a KratosForge practice result: never Microsoft's score,
-never a scaled score, and never a promise of passing (``NOTICE``).
+Scores are by objective and domain. They are a KratosForge practice result: never the vendor's score,
+never a scaled score, and never a promise of passing (``notice_for``; ``NOTICE`` is the Microsoft wording).
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import jsonfile
+from . import registry
 
 QUESTION_SCHEMA = "kratosforge/academy-question@1"
 SESSION_SCHEMA = "kratosforge/academy-exam-session@1"
@@ -53,17 +56,27 @@ PACKS = Path(__file__).resolve().parent / "packs"
 
 TYPES = ("single", "multiple", "order")
 STATUSES = ("draft", "live", "retired")
-KINDS = ("practice", "diagnostic")
+KINDS = ("practice", "diagnostic", "drill")   # a drill shows the answer and why after each question
 MIN_PER_OBJECTIVE = 4        # live questions every objective needs before the pack ships
 MAX_GAP = 60.0               # most seconds one heartbeat or action may add to the clock
 MAX_MINUTES = 300
-SOURCE_HOSTS = ("learn.microsoft.com",)
-NOTICE = ("Original practice questions written for KratosForge. They are not Microsoft exam questions, this is "
-          "not Microsoft's exam interface, and the result is not a Microsoft score or a prediction of passing.")
+SOURCE_HOSTS = registry.PLATFORMS[registry.DEFAULT_PLATFORM]["doc_hosts"]   # a Fabric pack's; see source_hosts()
+DOCS_NAMES = {"fabric": "Microsoft Learn", "databricks": "Databricks documentation"}
 RESULT_LABEL = "KratosForge practice result"
 
-_OBJECTIVE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{1,2}$")
-_QID = re.compile(r"^(\d{1,2}\.\d{1,2}\.\d{1,2})-q(\d{1,2})$")
+
+def notice_for(vendor: str, vendors: str | None = None) -> str:
+    """The words every exam screen and result carries: original questions, not the vendor's exam or score.
+    ``vendors`` is the possessive (registry PLATFORMS ``vendors``: "Databricks'"); "<vendor>'s" when None."""
+    poss = vendors or f"{vendor}'s"
+    return (f"Original practice questions written for KratosForge. They are not {vendor} exam questions, this is "
+            f"not {poss} exam interface, and the result is not a {vendor} score or a prediction of passing.")
+
+
+NOTICE = notice_for("Microsoft", "Microsoft's")
+
+_OBJECTIVE = re.compile(r"^\d{1,2}\.\d{1,2}(?:\.\d{1,2})?$")
+_QID = re.compile(r"^(\d{1,2}\.\d{1,2}(?:\.\d{1,2})?)-q(\d{1,2})$")
 _OPTION = re.compile(r"^[a-h]$")
 _CASE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 _SESSION = re.compile(r"^[0-9a-f]{32}$")
@@ -88,6 +101,26 @@ def _pack_root(pack: str, packs: Path = PACKS) -> Path:
     return packs / pack
 
 
+def _platform_name(root: Path) -> str:
+    """The pack's platform from its pack.json (``fabric`` when it doesn't say or isn't known)."""
+    try:
+        name = _read_json(root / "pack.json").get("platform", registry.DEFAULT_PLATFORM)
+    except (OSError, ValueError):
+        name = registry.DEFAULT_PLATFORM
+    return name if name in registry.PLATFORMS else registry.DEFAULT_PLATFORM
+
+
+def source_hosts(pack: str, packs: Path = PACKS) -> tuple[str, ...]:
+    """The documentation hosts a pack's questions may cite: its platform's ``doc_hosts``."""
+    return tuple(registry.PLATFORMS[_platform_name(_pack_root(pack, packs))]["doc_hosts"])
+
+
+def notice(pack: str, packs: Path = PACKS) -> str:
+    """``notice_for`` the pack's vendor."""
+    plat = registry.PLATFORMS[_platform_name(_pack_root(pack, packs))]
+    return notice_for(plat["vendor"], plat.get("vendors"))
+
+
 def load_bank(pack: str, packs: Path = PACKS, include_drafts: bool = False) -> dict[str, Any]:
     """{"questions": {id: question with "objective"}, "cases": {id: case}} for a pack. Retired questions are
     left out; drafts only when asked for."""
@@ -101,7 +134,9 @@ def load_bank(pack: str, packs: Path = PACKS, include_drafts: bool = False) -> d
             if status == "retired" or (status == "draft" and not include_drafts):
                 continue
             questions[q["id"]] = {**q, "objective": doc.get("objective")}
-    return {"pack": pack, "questions": questions, "cases": dict(cases)}
+    plat = registry.PLATFORMS[_platform_name(root)]
+    return {"pack": pack, "questions": questions, "cases": dict(cases),
+            "notice": notice_for(plat["vendor"], plat.get("vendors"))}
 
 
 def _text_problems(where: str, text: Any) -> list[str]:
@@ -112,7 +147,8 @@ def _text_problems(where: str, text: Any) -> list[str]:
     return []
 
 
-def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any]) -> list[str]:
+def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any],
+                       hosts: tuple[str, ...] = SOURCE_HOSTS, docs: str = DOCS_NAMES["fabric"]) -> list[str]:
     qid = str(q.get("id") or "?")
     where = f"question {qid}"
     m = _QID.match(qid)
@@ -145,8 +181,8 @@ def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any])
         out.append(f"{where}: also_accept is for ordering questions: other full step orders, each different from the answer")
     source = str(q.get("source") or "")
     host = re.match(r"^https://([^/]+)/", source)
-    if not host or host.group(1) not in SOURCE_HOSTS:
-        out.append(f"{where}: source is the Microsoft Learn page the question is based on")
+    if not host or host.group(1) not in hosts:
+        out.append(f"{where}: source is the {docs} page the question is based on")
     if q.get("case") is not None and q.get("case") not in cases:
         out.append(f"{where}: unknown case study {q.get('case')}")
     if not isinstance(q.get("version"), int) or q["version"] < 1:
@@ -167,6 +203,8 @@ def problems(pack: str, objectives: list[str] | None = None, packs: Path = PACKS
     except ExamError as exc:
         return [str(exc)]
     out: list[str] = []
+    plat = _platform_name(root)
+    hosts, docs = tuple(registry.PLATFORMS[plat]["doc_hosts"]), DOCS_NAMES.get(plat, registry.PLATFORMS[plat]["name"])
     cases: dict[str, Any] = {}
     if (root / "cases.json").is_file():
         try:
@@ -185,7 +223,7 @@ def problems(pack: str, objectives: list[str] | None = None, packs: Path = PACKS
     for f in sorted((root / "questions").glob("*")):
         objective = f.stem
         if f.suffix != ".json" or not _OBJECTIVE.match(objective):
-            out.append(f"questions/{f.name}: a question file is named by its objective, like 2.2.9.json")
+            out.append(f"questions/{f.name}: a question file is named by its objective, like 2.2.9.json or 2.3.json")
             continue
         try:
             doc = _read_json(f)
@@ -205,7 +243,7 @@ def problems(pack: str, objectives: list[str] | None = None, packs: Path = PACKS
             if q.get("id") in seen:
                 out.append(f"question {q.get('id')}: id used twice")
             seen.add(str(q.get("id")))
-            out += _question_problems(objective, q, cases)
+            out += _question_problems(objective, q, cases, hosts, docs)
             if q.get("status") == "live":
                 live[objective] = live.get(objective, 0) + 1
             if q.get("case"):
@@ -279,7 +317,7 @@ def build(bank: dict[str, Any], *, cert_version: str, objectives: list[str] | No
     return {"schema": SESSION_SCHEMA, "id": secrets.token_hex(16), "pack": bank["pack"], "cert_version": str(cert_version),
             "kind": kind, "seed": seed, "minutes": minutes, "items": items, "answers": {}, "flags": [],
             "elapsed": 0.0, "running": False, "last_seen": t, "created_at": t, "status": "in_progress",
-            "finished_at": None, "result": None}
+            "finished_at": None, "result": None, "checked": []}
 
 
 def _tick(session: dict[str, Any], now: dt.datetime) -> None:
@@ -341,6 +379,8 @@ def answer(session: dict[str, Any], qid: str, choice: list[str], now: dt.datetim
     item = _item(session, qid)
     if time_left(session) == 0:
         raise ExamError("Time is up: finish the exam to see your results")
+    if qid in (session.get("checked") or []):
+        raise ExamError("That answer was already checked, so it can't change")
     choice = [str(c) for c in choice or []]
     if any(c not in item["options"] for c in choice) or len(set(choice)) != len(choice):
         raise ExamError("That answer names an option the question doesn't have")
@@ -371,6 +411,28 @@ def _correct(q: dict[str, Any], choice: list[str] | None) -> bool:
     return sorted(choice) == sorted(q["answer"])
 
 
+def check(session: dict[str, Any], bank: dict[str, Any], qid: str, now: dt.datetime | None = None) -> dict[str, Any]:
+    """A drill only: lock the learner's answer to ``qid`` and give back whether it's right, the right answer, why
+    and the page it's based on. A checked answer can't change, and the final score uses the same answer."""
+    _open(session)
+    if session.get("kind") != "drill":
+        raise ExamError("Only a drill shows answers before the end")
+    _tick(session, now or _now())
+    _item(session, qid)
+    q = bank["questions"].get(qid)
+    if q is None:
+        raise ExamError(f"{qid} is no longer in the question bank")
+    choice = session["answers"].get(qid)
+    if not choice:
+        raise ExamError("Answer the question first")
+    checked = session.setdefault("checked", [])
+    if qid not in checked:
+        checked.append(qid)
+    return {"q": qid, "correct": _correct(q, choice), "answer": list(choice), "key": list(q["answer"]),
+            "also_accept": [list(a) for a in q.get("also_accept") or []], "explanation": q["explanation"],
+            "source": q["source"]}
+
+
 def _expected_count(q: dict[str, Any]) -> int | None:
     return len(q["answer"]) if q["type"] == "multiple" else None
 
@@ -389,13 +451,14 @@ def view(session: dict[str, Any], bank: dict[str, Any]) -> dict[str, Any]:
         items.append({"n": n, "q": it["q"], "objective": it["objective"], "type": q["type"], "stem": q["stem"],
                       "select": _expected_count(q), "case": {"id": q["case"], **case} if case else None,
                       "options": [{"id": o, "text": texts.get(o, "")} for o in it["options"]],
-                      "answer": session["answers"].get(it["q"]), "flagged": it["q"] in session["flags"]})
+                      "answer": session["answers"].get(it["q"]), "flagged": it["q"] in session["flags"],
+                      "checked": it["q"] in (session.get("checked") or [])})
     return {"id": session["id"], "pack": session["pack"], "cert_version": session["cert_version"],
             "kind": session["kind"], "status": session["status"], "items": items,
             "answered": sum(1 for it in session["items"] if it["q"] in session["answers"]),
             "flagged": len(session["flags"]), "total": len(session["items"]),
             "elapsed": float(session["elapsed"]), "minutes": session["minutes"], "time_left": time_left(session),
-            "running": bool(session.get("running")), "notice": NOTICE}
+            "running": bool(session.get("running")), "notice": bank.get("notice", NOTICE)}
 
 
 def _domain(objective: str) -> str:
@@ -434,7 +497,7 @@ def finish(session: dict[str, Any], bank: dict[str, Any], now: dt.datetime | Non
                      "also_accept": [list(a) for a in q.get("also_accept") or []]})
     correct = sum(int(r["correct"]) for r in rows)
     session["result"] = {
-        "label": RESULT_LABEL, "notice": NOTICE, "correct": correct, "total": len(rows),
+        "label": RESULT_LABEL, "notice": bank.get("notice", NOTICE), "correct": correct, "total": len(rows),
         "percent": round(100 * correct / len(rows)) if rows else 0,
         "by_objective": _tally(rows, "objective"), "by_domain": _tally(rows, "domain"),
         "items": rows, "left_out": left_out, "elapsed": float(session["elapsed"]),
@@ -444,8 +507,8 @@ def finish(session: dict[str, Any], bank: dict[str, Any], now: dt.datetime | Non
 
 
 def review(session: dict[str, Any], bank: dict[str, Any]) -> list[dict[str, Any]]:
-    """After finishing: each question with the learner's answer, the right answer, why, and the Learn page
-    it's based on. Right and wrong come from the stored result, not from today's bank."""
+    """After finishing: each question with the learner's answer, the right answer, why, and the documentation
+    page it's based on. Right and wrong come from the stored result, not from today's bank."""
     if session.get("status") != "finished" or not session.get("result"):
         raise ExamError("Finish the exam to review the answers")
     scored = {r["q"]: r for r in session["result"]["items"]}

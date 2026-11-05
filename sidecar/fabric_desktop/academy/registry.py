@@ -4,8 +4,13 @@ A certification is a content pack under ``packs/<id>/``: ``pack.json`` (schema `
 and ``certification.json`` (schema ``kratosforge/academy-certification@1``), which holds the vendor's
 objective hierarchy word for word (domains with their published weight ranges, skill areas, objectives)
 and, for each objective, what Academy plans or has for it: the competency in plain words, whether it can
-only be shown in Fabric, the best verification class this PC can give, exercises, capstones, Learn
-lessons, planned questions, validators, documentation links, coverage-gap records and status.
+only be shown on the certification's platform, the best verification class this PC can give, exercises,
+capstones, Learn lessons, planned questions, validators, documentation links, coverage-gap records and status.
+
+A pack names its platform (``pack.json`` ``platform``: ``fabric`` or ``databricks``, see ``PLATFORMS``). The
+platform decides the objective flag that says only the platform can show it (``fabric_required``,
+``databricks_required``), the validator that checks the platform (``fabric_check``, ``databricks_check``), the
+one class only the platform gives (FABRIC VERIFIED, DATABRICKS VERIFIED) and whose documentation counts.
 
 ``source.snapshot_sha256`` is the hash of the published part only (``snapshot()``), so a change to the
 vendor's list can't slip in unnoticed: editing an objective's words without updating the hash is a
@@ -13,7 +18,7 @@ problem, and the study guide check (ACD-020) compares the live page with the sam
 
 Content is data. Nothing here runs code, reads the network or writes anything. ``problems()`` lists
 everything wrong with the bundled packs; CI fails while it has any (tests/test_academy_registry.py).
-No published objective may be left out, and an objective that needs Fabric must say why in a gap record.
+No published objective may be left out, and an objective that needs the platform must say why in a gap record.
 """
 
 from __future__ import annotations
@@ -30,14 +35,28 @@ PACK_SCHEMA = "kratosforge/academy-pack@1"
 CERT_SCHEMA = "kratosforge/academy-certification@1"
 ROOT = Path(__file__).resolve().parent / "packs"
 
-# Verification classes (docs/academy/architecture.md). A local exercise can reach any but FABRIC VERIFIED.
-CLASSES = ("local_verified", "simulated", "fabric_verified", "knowledge_only")
+# What differs by platform. ``engines`` are names a result that didn't run on the platform may not claim.
+PLATFORMS: dict[str, dict[str, Any]] = {
+    "fabric": {"name": "Fabric", "vendor": "Microsoft", "vendors": "Microsoft's", "required": "fabric_required", "check": "fabric_check",
+               "verified": "fabric_verified", "label": "FABRIC VERIFIED", "adapter": "fabric",
+               "doc_hosts": ("learn.microsoft.com",),
+               "engines": re.compile(r"\b(Fabric Spark|Spark pool|Fabric Warehouse|Warehouse engine|Fabric SQL|"
+                                     r"SQL analytics endpoint)\b", re.I)},
+    "databricks": {"name": "Databricks", "vendor": "Databricks", "vendors": "Databricks'", "required": "databricks_required",
+                   "check": "databricks_check", "verified": "databricks_verified", "label": "DATABRICKS VERIFIED",
+                   "adapter": "databricks", "doc_hosts": ("docs.databricks.com", "www.databricks.com"),
+                   "engines": re.compile(r"\b(Databricks Runtime|DBR|Photon|Databricks Spark|SQL warehouse|"
+                                         r"serverless compute|Databricks cluster)\b", re.I)},
+}
+DEFAULT_PLATFORM = "fabric"
+# Verification classes (docs/academy/architecture.md). A local exercise can reach any but the platform's own.
 LOCAL_CLASSES = ("local_verified", "simulated", "knowledge_only")
+CLASSES = (*LOCAL_CLASSES, *(p["verified"] for p in PLATFORMS.values()))
 VALIDATORS = ("result_matches", "schema_matches", "data_quality", "delta_table", "notebook_ran", "pipeline_outcome",
-              "config_matches", "artifact_present", "faster_than", "fabric_check", "assessment")
+              "config_matches", "artifact_present", "faster_than", "assessment", "unchanged", "idempotent",
+              "job_graph", "grants", "bundle_resolves", "plan_shows", *(p["check"] for p in PLATFORMS.values()))
 STATUSES = ("planned", "in_progress", "covered", "retired")
 PACK_STATUSES = ("draft", "live", "retired")
-DOC_HOSTS = ("learn.microsoft.com",)
 
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -62,15 +81,38 @@ def pack(pack_id: str, root: Path = ROOT) -> dict[str, Any]:
 
 
 def certification(pack_id: str, root: Path = ROOT) -> dict[str, Any]:
-    """A pack's certification: the published hierarchy and Academy's plan for each objective."""
+    """A pack's certification: the published hierarchy and Academy's plan for each objective, with the
+    pack's ``platform`` added."""
     p = pack(pack_id, root)
-    return dict(_read_json(root / pack_id / p["certification"]))
+    return {**_read_json(root / pack_id / p["certification"]), "platform": p.get("platform", DEFAULT_PLATFORM)}
+
+
+def platform(cert_or_pack: dict[str, Any]) -> dict[str, Any]:
+    """The ``PLATFORMS`` entry for a certification or pack; unknown platforms raise."""
+    name = cert_or_pack.get("platform", DEFAULT_PLATFORM)
+    if name not in PLATFORMS:
+        raise ValueError(f"Unknown platform {name}")
+    return PLATFORMS[name]
+
+
+def required(o: dict[str, Any], plat: dict[str, Any]) -> bool:
+    """Whether only the platform can show this objective (its ``fabric_required`` or ``databricks_required``)."""
+    return o.get(plat["required"]) is True
+
+
+def _groups(d: dict[str, Any]) -> list[dict[str, Any]]:
+    """A domain's objective groups: its skill areas, or, for a guide that lists objectives straight under
+    each section (Databricks), the domain itself, so objective ids stay the guide's own (``2.3``)."""
+    if "objectives" in d and "skills" not in d:
+        return [{"id": d.get("id"), "objectives": d.get("objectives"), "_flat": True}]
+    return list(d.get("skills") or [])
 
 
 def objectives(cert: dict[str, Any]) -> list[dict[str, Any]]:
-    """Every objective in published order, each with its ``domain`` and ``skill`` ids added."""
+    """Every objective in published order, each with its ``domain`` and ``skill`` ids added (``skill`` is the
+    domain's id when the guide has no skill areas)."""
     return [{**o, "domain": d["id"], "skill": s["id"]}
-            for d in cert.get("domains") or [] for s in d.get("skills") or [] for o in s.get("objectives") or []]
+            for d in cert.get("domains") or [] for s in _groups(d) for o in s.get("objectives") or []]
 
 
 def objective(cert: dict[str, Any], objective_id: str) -> dict[str, Any]:
@@ -87,24 +129,26 @@ def snapshot(cert: dict[str, Any]) -> str:
     for d in cert.get("domains") or []:
         w = d.get("weight") or {}
         lines.append(f"D|{d.get('id')}|{d.get('title')}|{w.get('min')}-{w.get('max')}")
-        for s in d.get("skills") or []:
-            lines.append(f"S|{s.get('id')}|{s.get('title')}")
+        for s in _groups(d):
+            if not s.get("_flat"):
+                lines.append(f"S|{s.get('id')}|{s.get('title')}")
             lines += [f"O|{o.get('id')}|{o.get('text')}" for o in s.get("objectives") or []]
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
 def coverage(cert: dict[str, Any]) -> dict[str, Any]:
     """Counts for the coverage summary: objectives, by best local class, needing Fabric, with exercises."""
-    objs = objectives(cert)
+    objs, plat = objectives(cert), platform(cert)
     by_class = {c: sum(o.get("best_local") == c for o in objs) for c in LOCAL_CLASSES}
+    need = sum(required(o, plat) for o in objs)
     return {"objectives": len(objs), "with_exercises": sum(bool(o.get("exercises")) for o in objs),
-            "best_local": by_class, "fabric_required": sum(bool(o.get("fabric_required")) for o in objs),
+            "best_local": by_class, plat["required"]: need, "platform_required": need,
             "gaps": len(cert.get("gaps") or []), "status": {s: sum(o.get("status") == s for o in objs) for s in STATUSES}}
 
 
-def _doc_ok(link: Any) -> bool:
+def _doc_ok(link: Any, plat: dict[str, Any]) -> bool:
     m = re.match(r"^https://([^/]+)/\S+$", str(link))
-    return bool(m and m.group(1) in DOC_HOSTS)
+    return bool(m and m.group(1) in plat["doc_hosts"])
 
 
 def _lesson_ids() -> set[str]:
@@ -112,39 +156,49 @@ def _lesson_ids() -> set[str]:
     return {p.name for p in root.iterdir() if p.is_dir() and learn_content.is_id(p.name)}
 
 
-def _objective_problems(o: dict[str, Any], where: str, gap_ids: set[str], lessons: set[str]) -> list[str]:
+def _objective_problems(o: dict[str, Any], where: str, gap_ids: set[str], lessons: set[str],
+                        plat: dict[str, Any]) -> list[str]:
+    req, check, name = plat["required"], plat["check"], plat["name"]
     out = [f"{where}: needs {f}" for f in ("text", "competency", "best_local", "status") if not o.get(f)]
     if o.get("best_local") and o["best_local"] not in LOCAL_CLASSES:
-        out.append(f"{where}: best_local is one of {', '.join(LOCAL_CLASSES)} (FABRIC VERIFIED never runs on this PC)")
+        out.append(f"{where}: best_local is one of {', '.join(LOCAL_CLASSES)} ({plat['label']} never runs on this PC)")
     if o.get("status") and o["status"] not in STATUSES:
         out.append(f"{where}: status is one of {', '.join(STATUSES)}")
-    if not isinstance(o.get("fabric_required"), bool):
-        out.append(f"{where}: fabric_required is true or false")
+    if not isinstance(o.get(req), bool):
+        out.append(f"{where}: {req} is true or false")
+    out += [f"{where}: {p['required']} belongs to another platform's packs" for p in PLATFORMS.values()
+            if p is not plat and p["required"] in o]
     if not o.get("exercises"):
         out.append(f"{where}: needs at least one exercise; a published objective is never left out")
     out += [f"{where}: {e!r} isn't an exercise id like E01" for e in o.get("exercises") or [] if not _EXERCISE.match(str(e))]
     out += [f"{where}: {c!r} isn't a capstone id like C1" for c in o.get("capstones") or [] if not _CAPSTONE.match(str(c))]
     out += [f"{where}: unknown Learn lesson {m}" for m in o.get("lessons") or [] if m not in lessons]
     out += [f"{where}: unknown validator {v}" for v in o.get("validation") or [] if v not in VALIDATORS]
+    out += [f"{where}: {v} checks another platform" for v in o.get("validation") or []
+            if v in {p["check"] for p in PLATFORMS.values()} and v != check]
     if not o.get("validation"):
         out.append(f"{where}: needs the validators that will check it")
     if not isinstance(o.get("questions_planned"), int) or o["questions_planned"] < 1:
         out.append(f"{where}: questions_planned is a whole number from 1")
     if not o.get("docs"):
         out.append(f"{where}: needs at least one documentation link")
-    out += [f"{where}: docs link {d} isn't the vendor's documentation" for d in o.get("docs") or [] if not _doc_ok(d)]
+    out += [f"{where}: docs link {d} isn't the vendor's documentation" for d in o.get("docs") or [] if not _doc_ok(d, plat)]
     out += [f"{where}: unknown gap record {g}" for g in o.get("gaps") or [] if g not in gap_ids]
-    if o.get("fabric_required") is True and not o.get("gaps"):
-        out.append(f"{where}: needs Fabric, so it needs a gap record saying what this PC can't show")
-    if o.get("fabric_required") is False and o.get("gaps"):
-        out.append(f"{where}: has gap records but fabric_required is false")
-    if o.get("fabric_required") is True and "fabric_check" not in (o.get("validation") or []):
-        out.append(f"{where}: needs Fabric, so its validation includes fabric_check")
+    if o.get(req) is True and not o.get("gaps"):
+        out.append(f"{where}: needs {name}, so it needs a gap record saying what this PC can't show")
+    if o.get(req) is False and o.get("gaps"):
+        out.append(f"{where}: has gap records but {req} is false")
+    if o.get(req) is True and check not in (o.get("validation") or []):
+        out.append(f"{where}: needs {name}, so its validation includes {check}")
     return out
 
 
 def _cert_problems(pid: str, cert: dict[str, Any]) -> list[str]:
-    out = []
+    out: list[str] = []
+    try:
+        plat = platform(cert)
+    except ValueError as exc:
+        return [f"{pid}: {exc}; a pack's platform is one of {', '.join(PLATFORMS)}"]
     if cert.get("schema") != CERT_SCHEMA:
         out.append(f"{pid}: certification schema is {CERT_SCHEMA}")
     if cert.get("id") != pid:
@@ -155,7 +209,7 @@ def _cert_problems(pid: str, cert: dict[str, Any]) -> list[str]:
     if cert.get("reviewed") and not _DATE.match(str(cert["reviewed"])):
         out.append(f"{pid}: reviewed is YYYY-MM-DD")
     src = cert.get("source") or {}
-    if not _doc_ok(src.get("url")):
+    if not _doc_ok(src.get("url"), plat):
         out.append(f"{pid}: source.url is the vendor's study guide")
     if not _DATE.match(str(src.get("read") or "")):
         out.append(f"{pid}: source.read is the date the study guide was read (YYYY-MM-DD)")
@@ -181,19 +235,23 @@ def _cert_problems(pid: str, cert: dict[str, Any]) -> list[str]:
             out.append(f"{pid} domain {d.get('id')}: weight is the published range, whole percents, min to max")
         else:
             mins, maxes = mins + w["min"], maxes + w["max"]
-        if not d.get("title") or not d.get("skills"):
-            out.append(f"{pid} domain {d.get('id')}: needs a title and skill areas")
-        for sn, s in enumerate(d.get("skills") or [], 1):
-            if s.get("id") != f"{d.get('id')}.{sn}":
+        if not d.get("title") or not (d.get("skills") or d.get("objectives")):
+            out.append(f"{pid} domain {d.get('id')}: needs a title and skill areas (or objectives, if the guide has no skill areas)")
+        if "skills" in d and "objectives" in d:
+            out.append(f"{pid} domain {d.get('id')}: has skill areas or objectives, not both")
+        for sn, s in enumerate(_groups(d), 1):
+            if s.get("_flat"):
+                pass
+            elif s.get("id") != f"{d.get('id')}.{sn}":
                 out.append(f"{pid}: skill area {d.get('id')}.{sn} has id {s.get('id')}")
-            if not s.get("title") or not s.get("objectives"):
+            if not s.get("_flat") and (not s.get("title") or not s.get("objectives")):
                 out.append(f"{pid} skill area {s.get('id')}: needs a title and objectives")
             for on, o in enumerate(s.get("objectives") or [], 1):
                 oid = f"{s.get('id')}.{on}"
                 if o.get("id") != oid:
                     out.append(f"{pid}: objective {oid} has id {o.get('id')}")
                 seen.add(str(o.get("id")))
-                out += _objective_problems(o, f"{pid} {o.get('id')}", set(gap_ids), lessons)
+                out += _objective_problems(o, f"{pid} {o.get('id')}", set(gap_ids), lessons, plat)
     if cert.get("domains") and not mins <= 100 <= maxes:
         out.append(f"{pid}: the domains' weight ranges ({mins}-{maxes}%) can't add up to 100%")
     for g in gaps:
@@ -224,12 +282,14 @@ def problems(root: Path = ROOT) -> list[str]:
             out.append(f"{pid}: pack id {p.get('id')} doesn't match its folder")
         if p.get("status") not in PACK_STATUSES:
             out.append(f"{pid}: pack status is one of {', '.join(PACK_STATUSES)}")
+        if p.get("platform") not in PLATFORMS:
+            out.append(f"{pid}: pack platform is one of {', '.join(PLATFORMS)}")
         name = p.get("certification")
         if not isinstance(name, str) or "/" in name or "\\" in name or ".." in name or not (folder / name).is_file():
             out.append(f"{pid}: certification names a file in the pack's folder")
             continue
         try:
-            cert = _read_json(folder / name)
+            cert = {**_read_json(folder / name), "platform": p.get("platform", DEFAULT_PLATFORM)}
         except (OSError, ValueError) as exc:
             out.append(f"{pid}: {name} can't be read ({exc})")
             continue

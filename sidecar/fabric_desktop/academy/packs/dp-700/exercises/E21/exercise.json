@@ -2,12 +2,16 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E21",
   "version": 1,
-  "status": "draft",
+  "status": "live",
   "title": "Full or incremental: load orders with a watermark that misses nothing",
-  "objectives": ["2.1.1"],
+  "objectives": [
+    "2.1.1"
+  ],
   "objective_text": "Load only what changed since the last run, update changed rows instead of doubling them, and move the watermark safely.",
   "scenario": "The nightly job reloads every order, and it now takes most of the night. The source keeps a modified_at time on each order. Change the load so it reads only what changed since the last run, without doubling any order and without losing tomorrow's place.",
-  "prerequisites": ["LM-12"],
+  "prerequisites": [
+    "LM-12"
+  ],
   "minutes": 20,
   "mode": "guided",
   "class": "local_verified",
@@ -23,10 +27,24 @@
   "setup": "setup.sql",
   "starter": "starter.sql",
   "datasets": [],
-  "expected": {"description": "silver_orders holds orders 1 to 5 once each, order 2 complete, and the watermark is 2026-03-02 13:30."},
+  "expected": {
+    "description": "silver_orders holds orders 1 to 5 once each, order 2 complete, and the watermark is 2026-03-02 13:30."
+  },
   "validation": [
-    {"kind": "result_matches", "ordered": true},
-    {"kind": "table_shape", "table": "silver_orders", "unique": ["order_id"], "not_null": ["order_id"]}
+    {
+      "kind": "result_matches",
+      "ordered": true
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver_orders",
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id"
+      ]
+    }
   ],
   "hints": [
     "Read only the source rows with modified_at after the watermark in etl_watermark.",
@@ -34,7 +52,12 @@
     "After the MERGE, set high_water to max(modified_at) of what is now in silver_orders."
   ],
   "explanation": "The load reads only rows with modified_at after the stored watermark, MERGEs them on order_id so changed orders are updated and new ones inserted, and then moves the watermark to the latest change it loaded. A full append doubles every order; an insert-only load doubles the changed ones; and a watermark that never moves makes every run read the same rows again.",
-  "remediation": ["LM-12", "LM-21", "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"],
+  "remediation": [
+    "LM-12",
+    "LM-21",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
   "reset": "Reset rebuilds src_orders, silver_orders and etl_watermark from setup.sql and puts the starter back.",
-  "parity": []
+  "parity": [],
+  "reviewed": "2026-11-03"
 }

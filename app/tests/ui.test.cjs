@@ -774,6 +774,23 @@ test("Run as is a Preview Monitor segment that only reads who runs what", () => 
   assert.strictEqual(ctx.pill({ state: "failed" }).attrs.class, "pill-s fail");
 });
 
+// Incidents stage 2: every kind the engine opens has its "What to do", and the SLA cell names the clock that matters now.
+test("every incident kind has its guidance, and the SLA cell names the clock that matters", () => {
+  const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  const engine = fs.readFileSync(path.join(ui, "..", "..", "sidecar", "fabric_desktop", "workloads", "incidents.py"), "utf8");
+  const kinds = /^KINDS = \(([^)]*)\)/m.exec(engine)[1].match(/"([a-z_]+)"/g).map((k) => k.slice(1, -1));
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const INC_GUIDE = \{[\s\S]*?\n\};\n/)[0]}
+${src.match(/function incMinutes\([\s\S]*?\n}\n/)[0]}${src.match(/function incSlaText\([\s\S]*?\n}\n/)[0]}
+this.guide = INC_GUIDE; this.sla = incSlaText;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.guide).sort(), [...kinds].sort(), "INC_GUIDE and the engine's KINDS must match exactly");
+  assert.strictEqual(ctx.sla({ state: "breached", acknowledge: { state: "breached", over_minutes: 90 }, resolve: { state: "due", left_minutes: 300 } }).text,
+    "Acknowledge overdue 1 h 30 min");
+  assert.strictEqual(ctx.sla({ state: "at_risk", acknowledge: { state: "met" }, resolve: { state: "at_risk", left_minutes: 20 } }).text, "Resolve due in 20 min");
+  assert.strictEqual(ctx.sla({ state: "none", acknowledge: { state: "none" }, resolve: { state: "none" } }).text, "No SLA");
+  assert.strictEqual(ctx.sla({ state: "missed", acknowledge: { state: "missed" }, resolve: { state: "met" } }).text, "Missed");
+});
+
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
   const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
   const ctx = {};
@@ -1225,7 +1242,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync"\]/);  // Databricks sync is a Workspaces tab too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -1487,12 +1504,15 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
 // UX-018: a confirm that deletes, discards, replaces or removes something draws its button red
 // and focuses Cancel, so Enter doesn't lose data.
 test("confirms that delete or overwrite something pass danger", () => {
+  // Confirms that start with one of those words but change nothing the person can't get back, each
+  // with why. PB-131: the next exercise run grants the permission again (mockup, 2026-11-04).
+  const notDestructive = new Set(["Remove exercise permissions?"]);
   const missing = [];
   for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const lines = fs.readFileSync(path.join(ui, name), "utf8").split("\n");
     lines.forEach((line, i) => {
       const m = line.match(/confirmDialog\(\s*[`"](Delete|Discard|Replace|Remove|Revoke|Undo the pull|Repoint)\b/);
-      if (!m) return;
+      if (!m || notDestructive.has(line.match(/confirmDialog\(\s*[`"]([^`"]*)/)[1])) return;
       let end = i;
       while (end < lines.length - 1 && !lines[end].trimEnd().endsWith(";")) end++;
       if (!lines.slice(i, end + 1).join("\n").includes("danger: true")) missing.push(`${name}:${i + 1}`);
@@ -5589,12 +5609,15 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
-    trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
+    trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
-    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"],
-    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
+    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
+    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
+      "Databricks workspace discovery", "Connection profiles in Settings",
+      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5604,7 +5627,6 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
-    "Databricks workspace discovery": ["docs/engines.md", /Discovery is a command, with no screen in the app yet/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],

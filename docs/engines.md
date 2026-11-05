@@ -221,7 +221,7 @@ These 207 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
-what you can use. Discovery is a command, with no screen in the app yet:
+what you can use: **Settings > Connections > Check workspace** in the app (below), or the command:
 
 ```
 fabric-desktop databricks-discover --profile dev
@@ -244,6 +244,106 @@ warehouse and a cluster to try first.
   it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
 
 It's tested against fakes of those APIs, not yet against a live workspace.
+
+## Connection profiles in Settings (Preview)
+
+**Settings > Connections** lists the connection profiles on this PC and adds a connection to one.
+
+- **Sign in with the CLI first.** A Databricks connection uses a profile of the Databricks CLI
+  (`databricks auth login --host <workspace URL> --profile dev`); a Snowflake one uses a connection
+  of the Snowflake CLI (`snow connection add`). You pick it by name: the workspace address or account
+  and the sign-in are read from the CLI's own file, so the app never types or keeps a token. A CLI
+  profile that keeps a personal access token in plain text says so.
+- **Check workspace** runs discovery for the CLI profile you picked and lists the warehouses, the
+  clusters Databricks Connect can use, and the catalogs, with the suggested ones already picked.
+  Nothing starts and nothing bills DBUs.
+- **Save connection** adds it to a profile, or to a new one, with the warehouse, cluster, catalog and
+  schema you picked. The engine picker lists it at once. A profile with connections to two platforms
+  becomes a hybrid profile. A value that looks like a token is refused and nothing is written.
+- **Remove** takes one connection out of a profile, after you confirm. The CLI's own profile or
+  connection stays as it is.
+
+Checking a Snowflake account from Settings, and switching the profile in use, come later.
+
+## Databricks jobs and Lakeflow in Monitor (Preview)
+
+**Monitor > Databricks** lists the job runs and Lakeflow pipeline updates in the workspace of a
+Databricks connection: yours by default, or everyone's, for the last 24 hours or 7 days, newest first.
+
+- **Nothing starts.** Runs are read with the Jobs and Pipelines REST APIs, GET requests only, so
+  reading them starts no job, pipeline, warehouse or cluster and bills no DBUs.
+- **Why a run failed.** Pick a job run to see each task, how long it took, its notebook, and the
+  failed task's error. **Open in Databricks** opens the run's own page, only when it is on that
+  workspace.
+- **Each list stands alone.** If the pipelines can't be read (a 403, say), the job runs still show,
+  with a line that says why.
+- **DBUs per run** come from billing, which Optimize > Cost reads after asking first: reading billing
+  runs a query on a SQL warehouse.
+
+Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
+will confirm first and say which cluster.
+
+## Databricks workspace sync (Preview)
+
+**Workspaces > Databricks** keeps a folder of notebooks on this PC in step with a folder in a
+Databricks workspace. **Pair a folder** names the two folders and the Databricks connection to use.
+
+- **Compare reads only.** It lists each notebook (`.py`, `.ipynb`, `.sql`) directly in the folder,
+  with its state on this PC and in Databricks and what pushing would do. Reading the workspace starts
+  nothing.
+- **Never over someone else's change.** Each file remembers when Databricks last changed it at the
+  last sync. If it has changed there since, it's a conflict: it can't be pushed until you sort it
+  out. A file that isn't in Databricks is written so that one appearing meanwhile isn't replaced.
+- **Deletes ask twice.** A notebook deleted on this PC stays in Databricks unless you tick it, and
+  pushing a delete asks again. If the notebook changed in Databricks since the last sync, it is a
+  conflict and isn't deleted. Folders are never deleted.
+- **Notebooks go across as Databricks source** (`# COMMAND ----------`). What a `.ipynb` loses on the
+  way (outputs, the parameter cell, Fabric-only calls such as `notebookutils`) is listed before you push.
+- **Pull** brings a `.py` or `.sql` file changed in Databricks to this PC, when it hasn't changed here.
+- **Git folders are read only here**: a path under `/Repos`, a Git folder or a folder inside one changes through Git, so it can't be paired or pushed to.
+- Pushes and pulls are written as you, and each one is recorded in the audit log.
+
+Comparing a conflict side by side and picking a side come later.
+
+## Databricks Asset Bundles in Source control (Preview)
+
+**Source control > Bundles** works with a Databricks Asset Bundle (`databricks.yml`) in the open
+repository, or in a folder of it you pick. It runs your own Databricks CLI as one of its profiles, so
+the CLI signs in and KratosForge never handles a token. Install the Databricks CLI and sign in with
+`databricks auth login` first.
+
+- **Validate and Plan change nothing in Databricks.** Validate lists problems and warnings in the
+  files. Plan lists what a deploy to the target would create, update, delete or rebuild.
+- **Commands on this PC are shown first.** A bundle can make the CLI run commands on your PC:
+  `experimental.scripts` hooks, artifact builds (a wheel builds even with no `build` line) and Python
+  resource code. Before the CLI runs, `databricks.yml` and every file it includes are read and any
+  such command is listed. Nothing runs until you allow exactly those commands, and a changed list asks
+  again. An include that matches no file or points out of the folder is refused.
+- **Deploy deploys the plan you saw.** It plans again first. If the plan changed (the files or the
+  workspace changed meanwhile), it shows the new plan instead of deploying.
+- **Deletes and production ask for the target's name.** A plan that deletes or rebuilds a job or
+  pipeline, or a target that is production (by its `mode` or its name), needs the target's name
+  typed. A rebuilt job or pipeline loses its run history.
+- **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
+- Deploys are recorded in the audit log.
+
+## Databricks DBUs in Optimize > Cost (Preview)
+
+**Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,
+7 days or 30 days, by job, Lakeflow pipeline, SQL warehouse and cluster, read from Databricks'
+`system.billing.usage` table.
+
+- **It asks first.** Billing is a system table, so reading it runs one query on a SQL warehouse you
+  pick. If the warehouse is stopped it starts, and it bills DBUs while it runs. **Read Databricks
+  billing** names the warehouse and says whether it's running and when it stops, and runs nothing
+  until you confirm. The connection profile's execution policy applies, as for any remote cell: a
+  profile set to `never` refuses, and one that allows Databricks SQL by policy runs without the confirm.
+- **The query is fixed.** Only the number of days goes in. It needs `SELECT` on
+  `system.billing.usage`; without it, the section says Databricks refused.
+- **DBUs stay DBUs.** They are never added to Fabric capacity units or Snowflake credits, and never
+  turned into money.
+- **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
+  reading.
 
 ## Databricks Connect (Preview)
 
@@ -470,7 +570,8 @@ adapter has one.
 
 ## Not yet
 
-- No profile setup screen: connection profiles are read, not edited, by the engine picker.
+- Settings > Connections adds CLI-based connections only: service principals and the other sign-in
+  methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's

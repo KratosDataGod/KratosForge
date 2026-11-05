@@ -1488,7 +1488,7 @@
     {
       "id": "G-05",
       "title": "Sensitivity labels",
-      "why": "Needs Microsoft Purview labels published in the tenant",
+      "why": "Needs sensitivity labels published in the tenant",
       "closes_with": "FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO",
       "objectives": [
         "1.3.5"

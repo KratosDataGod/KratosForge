@@ -1306,7 +1306,7 @@ async function renderDataProducts() {
       shown.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Domain", "Owner", "Open to", "Ports", "Readers", ""].map((x) => h("th", {}, x)))),
         h("tbody", {}, shown.map((p) => h("tr", {},
-          h("td", {}, previewShown() ? h("a", { href: "#", class: "product-open", title: "Endorsement and business terms",
+          h("td", {}, previewShown() ? h("a", { href: "#", class: "product-open", title: "Endorsement",
             onclick: (e) => { e.preventDefault(); pp.open = p; render(); } }, h("b", {}, p.name)) : h("b", {}, p.name),
             h("span", { class: "muted-text small" }, ` v${p.version}`),
             grouped ? h("span", { class: "product-offer-badge" }, " ", productModelBadge(p)) : null,
@@ -1388,30 +1388,17 @@ function productStatusView(shown, total, redraw) {
       "Green: nothing open. Follow a product to hear about its changes."));
 }
 
-// ---------- Data mesh > Products > one product: endorsement and business terms (Preview) ----------
+// ---------- Data mesh > Products > one product: endorsement (Preview) ----------
 // Endorsement is read only by Fabric admins (Power BI's admin tenant scan); the platform keeps the last
-// scan's reading so everyone sees it. Terms are typed with a link to Purview; nothing reads Purview.
+// scan's reading so everyone sees it.
 
 const ENDORSE_CLASS = { Certified: "pass", Promoted: "info", "Master data": "info", None: "neu" };
-const PURVIEW_HOSTS = ["purview.microsoft.com", "web.purview.azure.com"];
 const ITEM_WORD = { Lakehouse: "lakehouse", SemanticModel: "semantic model", Report: "report", Warehouse: "warehouse" };
 
 // A badge for what the last scan read; no reading is "Endorsement unknown", never a guess.
 function endorsementBadge(e) {
   if (!e) return h("span", { class: "pill-s neu endorse-badge unknown" }, "Endorsement unknown");
   return h("span", { class: `pill-s ${ENDORSE_CLASS[e] || "info"} endorse-badge` }, e === "None" ? "Not endorsed" : e);
-}
-
-// Why a pasted term address isn't a Purview link, or "" (the platform checks it the same way: core.purview_url).
-function purviewUrlProblem(text) {
-  const bad = "Paste the term's address from Purview: an https link on purview.microsoft.com or web.purview.azure.com";
-  const t = String(text || "").trim();
-  if (!t || /[\s\\]/.test(t)) return bad;
-  let u;
-  try { u = new URL(t); } catch { return bad; }
-  const host = u.hostname.toLowerCase();
-  if (u.protocol !== "https:" || u.username || u.password || (u.port && u.port !== "443")) return bad;
-  return PURVIEW_HOSTS.some((x) => host === x || host.endsWith(`.${x}`)) ? "" : bad;
 }
 
 // Follow a product to hear in Teams when it's deprecated, gets a new version or its columns change in Prod.
@@ -1449,7 +1436,6 @@ async function renderProductTrust(p) {
   const badges = h("span", { class: "row tight endorse-head" });
   const lastScan = h("div", { class: "muted-text small trust-last-scan" });
   const endorsement = h("div", { class: "card pad trust-endorsement" }, h("b", {}, "Endorsement"), loading());
-  const terms = h("div", { class: "card pad trust-terms" }, h("b", {}, "Business terms"), loading());
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("div", {},
       h("section", { class: "card pad" },
@@ -1460,12 +1446,12 @@ async function renderProductTrust(p) {
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       productOfferCard(p, (items) => { models = items.filter((i) => i.item_type === "SemanticModel"); paintBadge(); }),
-      productPromiseCard(p), endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
+      productPromiseCard(p), endorsement, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
-      reads: "The product's promise to readers as the catalog keeps it and, for your open project's own product, its open incidents in Monitor > Incidents. The product's endorsement as the last tenant scan read it, its business terms, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
-      anchor: "endorsement-and-business-terms-preview",
+      reads: "The product's promise to readers as the catalog keeps it and, for your open project's own product, its open incidents in Monitor > Incidents. The product's endorsement as the last tenant scan read it, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric: KratosForge can't set endorsement.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read. Each scan, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
+      anchor: "endorsement-preview",
     }))));
   const here = () => productsHere() && pp.open === p;
   // The product's badge is its semantic model's endorsement when it has one; otherwise its lakehouses'.
@@ -1488,13 +1474,11 @@ async function renderProductTrust(p) {
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     lastScan.replaceChildren(...(latest ? ["Last tenant scan: ", when(latest)] : []));
     endorsement.replaceChildren(h("b", {}, "Endorsement"), ...endorsementLines(t, scan));
-    terms.replaceChildren(...termLines(t, p, draw));
   };
   const failed = (err) => {
     if (!here()) return;
     const why = h("p", { class: "fail-text small" }, trustError(err));
     endorsement.replaceChildren(h("b", {}, "Endorsement"), why);
-    terms.replaceChildren(h("b", {}, "Business terms"), why.cloneNode(true));
   };
   const scan = async () => {
     endorsement.querySelectorAll(".trust-scan").forEach((a) => { a.textContent = "Scanning..."; });
@@ -1682,48 +1666,3 @@ function endorsementLines(t, scan) {
   })];
 }
 
-function termLines(t, p, done) {
-  const rows = t.terms.map((x) => h("tr", {},
-    h("td", {}, h("b", {}, x.term)),
-    h("td", {}, h("a", { href: "#", class: "trust-purview", onclick: (e) => { e.preventDefault(); openLink(x.url); } }, "Open in Purview")),
-    h("td", {}, t.can_edit_terms ? btn("Remove", "delete", async () => {
-      if (!(await confirmDialog(`Remove ${x.term}?`, "The term and its link come off this product. The term itself stays in Purview.", "Remove", { danger: true }))) return;
-      try {
-        done(await rpc("platform_remove_product_term", { product_id: p.id, term: x.term }));
-        toast(`Removed ${x.term}`);
-      } catch (err) {
-        toast(trustError(err), true);
-      }
-    }, "tool link small") : null)));
-  return [
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Business terms"),
-      t.can_edit_terms ? btn("Add a term", "add", () => termDialog(p, done), "tool outline small") : null),
-    rows.length ? h("table", { class: "list trust-term-list" }, h("tbody", {}, rows))
-      : h("p", { class: "muted-text small" }, t.can_edit_terms ? "No business terms yet. Add one with its link in Purview."
-        : "No business terms yet. The product's owner or a platform admin adds them."),
-  ];
-}
-
-function termDialog(p, done) {
-  const term = h("input", { placeholder: "Like Active customer", "aria-label": "Term" });
-  const url = h("input", { placeholder: "https://purview.microsoft.com/...", "aria-label": "Link to the term in Purview" });
-  const problem = h("p", { class: "fail-text small", role: "alert" });
-  showDialog("Add a term", h("div", {},
-    h("label", { class: "field" }, "Term", term),
-    h("label", { class: "field" }, "Link to the term in Purview", url),
-    h("p", { class: "muted-text small" }, "Copy the term's address from Purview. KratosForge doesn't read Purview."), problem), [
-    btn("Cancel", null, closeDialog, "tool outline"),
-    btn("Add", "add", async () => {
-      const name = term.value.trim();
-      const why = name ? purviewUrlProblem(url.value) : "Give the term's name.";
-      if (why) { problem.textContent = why; return; }
-      try {
-        const t = await rpc("platform_add_product_term", { product_id: p.id, term: name, url: url.value.trim() });
-        closeDialog();
-        toast(`Added ${name}`);
-        done(t);
-      } catch (err) {
-        problem.textContent = trustError(err);
-      }
-    }, "tool primary")]);
-}

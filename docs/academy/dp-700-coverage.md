@@ -105,7 +105,7 @@ on the objective.
 | G-02 No Eventstream runtime | 2.3.2, 3.2.5, 3.3.4 | Eventstream is a Fabric service | Topology checks locally (SIMULATED), real runs in Fabric (ACD-014) |
 | G-03 T-SQL never runs here | 1.2.2 (deploy), 1.3.3 (security policy), 1.3.4, 3.2.6, 3.3.3 | DuckDB is not the Warehouse engine (`sql_dialects.py`) | Fabric Warehouse exercises (ACD-014) |
 | G-04 Workspace, tenant and domain settings, roles and endorsement | 1.1.1–1.1.4, 1.3.1, 1.3.2, 1.3.6 | Settings and permissions live in Fabric; some need admin roles | SIMULATED settings models locally, read-only checks in the learner's own workspace |
-| G-05 Sensitivity labels | 1.3.5 | Needs Microsoft Purview labels published in the tenant | FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO |
+| G-05 Sensitivity labels | 1.3.5 | Needs sensitivity labels published in the tenant | FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO |
 | G-06 Mirroring | 2.2.4 | Needs a source database and capacity | KO locally; Fabric exercise with a free-tier source is a cost decision for Chris |
 | G-07 Data workflows (Apache Airflow jobs) | 1.1.4 | No local Airflow job runtime in KratosForge | KO; Fabric exercise later |
 | G-08 Spark engine and continuous streaming | 1.1.1, 2.1.3, 2.3.3, 3.3.5 | The local PySpark API is DuckDB: no executors, shuffles or AQE; streams run only as availableNow here | File layout lessons locally; Spark tuning verified in Fabric |

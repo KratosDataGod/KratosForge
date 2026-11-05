@@ -150,7 +150,8 @@ def test_the_service_keeps_webhooks_out_of_the_ui_and_backups(svc):
     assert svc.posts[0][1] == "KratosForge platform notices are on"
     shown = svc.platform_notify_settings()
     assert HOOK not in str(shown) and shown["routes"][0] == {"name": "default", "kinds": [], "domains": [],
-                                                             "url_set": True, "host": "contoso.webhook.office.com"}
+                                                             "url_set": True, "kind": "teams",
+                                                             "host": "contoso.webhook.office.com"}
     svc.platform_notify_save([{"name": "default", "kinds": ["request.waiting"]}])  # no url: keeps the address
     assert svc._pn_raw()["routes"][0]["url"] == HOOK
     assert "platform_notify" in backup.SECRET_KEYS

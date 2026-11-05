@@ -29,23 +29,31 @@ import duckdb
 
 from ..learn import checks
 from ..learn import content as learn_content
-from . import registry
+from . import pipelab, pylab, registry
 
 SCHEMA = "kratosforge/academy-exercise@1"
 MODES = ("guided", "challenge", "troubleshoot")
 STATUSES = ("draft", "live", "retired")
-ADAPTERS = ("duckdb_lab", "python_lab", "delta_lab", "pipeline_lab", "config_model", "git_lab", "sqlproj_lab", "quiz",
-            "fabric")
+ADAPTERS = ("duckdb_lab", "dbsql_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_lab", "config_model", "git_lab",
+            "sqlproj_lab", "quiz", *(p["adapter"] for p in registry.PLATFORMS.values()))
 # Adapters that run the learner's artifact, so a pass can be LOCAL VERIFIED.
-EXECUTING = ("duckdb_lab", "python_lab", "delta_lab", "pipeline_lab", "git_lab", "sqlproj_lab")
+EXECUTING = ("duckdb_lab", "dbsql_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_lab", "git_lab", "sqlproj_lab")
 # What each adapter can check today. Adapters with nothing here aren't built yet (ACD-004, 011, 012, 014).
-ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity")}
-LABELS = {"local_verified": "LOCAL VERIFIED", "simulated": "SIMULATED", "fabric_verified": "FABRIC VERIFIED",
-          "knowledge_only": "KNOWLEDGE ONLY"}
-STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, "fabric_verified": 3}
-# A local result may not name a Fabric engine as what it proved (docs/academy/README.md, ground rules).
-FABRIC_ENGINE = re.compile(r"\b(Fabric Spark|Spark pool|Fabric Warehouse|Warehouse engine|Fabric SQL|SQL analytics endpoint)\b",
-                           re.I)
+ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity"),
+                                              "dbsql_lab": ("result_matches", "table_shape", "integrity", "idempotent"),
+                                              "pyspark_lab": ("result_matches", "table_shape", "idempotent"),
+                                              **{a: pylab.CHECKS for a in pylab.ADAPTERS},
+                                              pipelab.ADAPTER: pipelab.CHECKS}
+# Adapters whose answers are SQL files checked in DuckDB (dbsql_lab after translation).
+SQL_ADAPTERS = ("duckdb_lab", "dbsql_lab")
+# The reference solution's file and the planted wrong answers' pattern, by adapter (SQL unless named).
+SOLUTION_FILE = {"pyspark_lab": "solution.py"}
+WRONG_GLOB = {"pyspark_lab": "wrong-*.py"}
+LABELS = {"local_verified": "LOCAL VERIFIED", "simulated": "SIMULATED", "knowledge_only": "KNOWLEDGE ONLY",
+          **{p["verified"]: p["label"] for p in registry.PLATFORMS.values()}}
+STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, **{p["verified"]: 3 for p in registry.PLATFORMS.values()}}
+# A local result may not name a platform's engine as what it proved (docs/academy/README.md, ground rules).
+FABRIC_ENGINE = registry.PLATFORMS["fabric"]["engines"]
 
 _ID = re.compile(r"^(E\d{2}|C\d)$")
 _FILE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
@@ -102,12 +110,14 @@ def label(ex: dict[str, Any]) -> dict[str, Any]:
             "verifies": list(ex["verifies"]), "does_not_verify": list(ex["does_not_verify"])}
 
 
-def completes(objective: dict[str, Any], cls: str) -> bool:
-    """Whether evidence of class ``cls`` completes ``objective`` (a registry objective)."""
-    if cls not in STRENGTH:
+def completes(objective: dict[str, Any], cls: str, platform: str = registry.DEFAULT_PLATFORM) -> bool:
+    """Whether evidence of class ``cls`` completes ``objective`` (a registry objective of a ``platform``
+    pack). Another platform's verified class never counts."""
+    plat = registry.PLATFORMS[platform]
+    if cls not in STRENGTH or (cls in registry.CLASSES[len(registry.LOCAL_CLASSES):] and cls != plat["verified"]):
         return False
-    if objective.get("fabric_required"):
-        return cls == "fabric_verified"
+    if registry.required(objective, plat):
+        return cls == plat["verified"]
     return STRENGTH[cls] >= STRENGTH.get(objective.get("best_local", "local_verified"), 2)
 
 
@@ -133,7 +143,7 @@ def reference(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     return {"setup": setup or None, "starter": starter, "solution": solution, "wrong": wrong}
 
 
-def _check(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, solution: str) -> dict[str, Any]:
+def run_check(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, solution: str) -> dict[str, Any]:
     kind = c["kind"]
     if kind == "result_matches":
         return checks.result_matches(con, answer, reference=solution, ordered=bool(c.get("ordered")))
@@ -162,7 +172,7 @@ def grade(setup: str | None, validation: list[dict[str, Any]], answer: str, solu
             con.execute(setup)
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
-        results = [_check(con, c, answer, solution) for c in validation]
+        results = [run_check(con, c, answer, solution) for c in validation]
     finally:
         con.close()
     return {"passed": all(r["passed"] for r in results), "results": results}
@@ -172,8 +182,19 @@ def self_test(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     """The reference solution must pass and every planted wrong answer must fail. ``{"solution": result,
     "wrong": {name: result}}``."""
     ex = get(pack_id, exercise_id, root)
+    if ex["adapter"] in pylab.ADAPTERS:   # each run in a learner process of its own (ACD-011)
+        return pylab.self_test(_folder(pack_id, root) / exercise_id, _grading(pack_id, exercise_id, root), ex)
+    if ex["adapter"] == pipelab.ADAPTER:   # parsed and run as data on the local runner (ACD-012)
+        return pipelab.self_test(_folder(pack_id, root) / exercise_id, _grading(pack_id, exercise_id, root), ex)
+    if ex["adapter"] == "dbsql_lab":
+        from . import dbsql_lab   # it imports this module
+        return dbsql_lab.self_test(pack_id, exercise_id, root)
+    if ex["adapter"] == "pyspark_lab":
+        from . import pyspark_lab   # it imports this module
+        return pyspark_lab.self_test(pack_id, exercise_id, root)
     if ex["adapter"] != "duckdb_lab":
-        raise ValueError(f"{exercise_id}: only duckdb_lab exercises can be self-tested so far")
+        raise ValueError(f"{exercise_id}: only duckdb_lab, dbsql_lab, pyspark_lab, python_lab, delta_lab and "
+                         "pipeline_lab exercises can be self-tested so far")
     ref = reference(pack_id, exercise_id, root)
     return {"solution": grade(ref["setup"], ex["validation"], ref["solution"], ref["solution"]),
             "wrong": {name: grade(ref["setup"], ex["validation"], sql, ref["solution"]) for name, sql in ref["wrong"].items()}}
@@ -197,16 +218,24 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
         out.append(f"{eid}: minutes is a whole number from 1 to 240")
     if ex["status"] == "live" and not _DATE.match(str(ex.get("reviewed") or "")):
         out.append(f"{eid}: a live exercise needs the date it was last reviewed (reviewed: YYYY-MM-DD)")
-    # ACD-003: the class has to be one this adapter can honestly give.
-    if ex["class"] == "fabric_verified" and ex["adapter"] != "fabric":
-        out.append(f"{eid}: only the fabric adapter can give FABRIC VERIFIED")
-    if ex["adapter"] == "fabric" and ex["class"] != "fabric_verified":
-        out.append(f"{eid}: a fabric exercise is FABRIC VERIFIED")
+    # ACD-003: the class has to be one this adapter can honestly give, on this pack's platform.
+    plat = registry.platform(cert)
+    for other in registry.PLATFORMS.values():
+        if ex["class"] == other["verified"] and ex["adapter"] != other["adapter"]:
+            out.append(f"{eid}: only the {other['adapter']} adapter can give {other['label']}")
+        if ex["adapter"] == other["adapter"] and ex["class"] != other["verified"]:
+            out.append(f"{eid}: a {other['adapter']} exercise is {other['label']}")
+        if other is not plat and (ex["class"] == other["verified"] or ex["adapter"] == other["adapter"]):
+            out.append(f"{eid}: a {plat['name']} pack can't hold {other['name']} exercises")
     if ex["class"] == "local_verified" and ex["adapter"] not in EXECUTING:
         out.append(f"{eid}: LOCAL VERIFIED needs an adapter that runs the learner's work ({', '.join(EXECUTING)})")
-    if ex["class"] != "fabric_verified":
-        claims = [s for s in [ex["engine_label"], *ex["verifies"]] if FABRIC_ENGINE.search(str(s))]
-        out += [f"{eid}: a local result can't claim a Fabric engine: {s!r}" for s in claims]
+    for other in registry.PLATFORMS.values():
+        if ex["class"] != other["verified"]:
+            claims = [s for s in [ex["engine_label"], *ex["verifies"]] if other["engines"].search(str(s))]
+            out += [f"{eid}: a local result can't claim a {other['name']} engine: {s!r}" for s in claims]
+    for key in ("difficulty",):
+        if key in ex and ex[key] not in (1, 2, 3):
+            out.append(f"{eid}: difficulty is 1, 2 or 3")
     for key in ("verifies", "does_not_verify", "hints"):
         if not all(isinstance(s, str) and s.strip() for s in ex.get(key) or []):
             out.append(f"{eid}: {key} is a list of sentences")
@@ -232,18 +261,38 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
     checkable = ADAPTER_CHECKS.get(ex["adapter"])
     if checkable is not None:
         out += [f"{eid}: {ex['adapter']} can't check {c.get('kind')}" for c in ex["validation"] if c.get("kind") not in checkable]
+        if ex["adapter"] in pylab.ADAPTERS:
+            out += [f"{eid}: {p}" for c in ex["validation"] for p in pylab.check_problems(c)]
+        if ex["adapter"] == pipelab.ADAPTER:
+            out += [f"{eid}: {p}" for c in ex["validation"] for p in pipelab.check_problems(c)]
         for c in ex["validation"]:
-            need = {"table_shape": ("table",), "integrity": ("child", "column", "parent")}.get(c.get("kind"), ())
+            need = {"table_shape": ("table",), "integrity": ("child", "column", "parent"),
+                    "idempotent": ("table",)}.get(c.get("kind"), ())
+            if ex["adapter"] == "pyspark_lab" and c.get("kind") == "result_matches":
+                need = ("table",)
             if [k for k in need if not c.get(k)]:
                 out.append(f"{eid}: check {c.get('kind')} needs {', '.join(need)}")
+            if c.get("data") not in (None, "practice", "hidden"):
+                out.append(f"{eid}: check {c.get('kind')}'s data is practice or hidden")
+            if ex["adapter"] == "duckdb_lab" and (c.get("data") == "hidden" or (c.get("kind") == "result_matches"
+                                                                                and c.get("table"))):
+                out.append(f"{eid}: a duckdb_lab check reads the answer's last result on the setup's data, "
+                           "so it takes no table or hidden data")
     out += _file_problems(pack_id, folder, ex, root)
+    if ex["adapter"] == "dbsql_lab" and (_grading(pack_id, eid, root) / "solution.sql").is_file():
+        from . import dbsql_lab   # it imports this module
+        untested = dbsql_lab.unproven((_grading(pack_id, eid, root) / "solution.sql").read_text(encoding="utf-8"))
+        if untested:
+            out.append(f"{eid}: the reference solution uses {', '.join(untested)}, which the Databricks SQL parity "
+                       "table (engines/databricks_sql_parity.py) hasn't shown to answer the same on this PC")
     return out
 
 
 def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -> list[str]:
     eid, out = folder.name, []
     grading = _grading(pack_id, eid, root)
-    names = [ex[k] for k in ("lesson", "setup", "starter") if ex.get(k)]
+    names = [ex[k] for k in ("lesson", "setup", "starter") if ex.get(k)] + list(ex.get("files") or [])
+    names += list((ex.get("children") or {}).values()) if isinstance(ex.get("children"), dict) else []
     for name in names:
         if not isinstance(name, str) or not _FILE.match(name) or ".." in name:
             out.append(f"{eid}: {name!r} isn't a plain file name in the exercise's folder")
@@ -265,11 +314,33 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
             if m.group(2) not in [e["id"] for e in lab["exercises"]]:
                 out.append(f"{eid}: uses {ex['uses']}, which isn't a Learn exercise")
         out += [f"{eid}: with uses, {k} comes from the Learn lab" for k in ("setup", "starter") if ex.get(k)]
+        if ex.get("adapter") in (*pylab.ADAPTERS, pipelab.ADAPTER):
+            out.append(f"{eid}: uses reuses a Learn SQL lab, so it's only for duckdb_lab exercises")
+    elif ex.get("adapter") == pipelab.ADAPTER:
+        if not str(ex.get("starter") or "").endswith(".json"):
+            out.append(f"{eid}: a pipeline_lab exercise starts from a pipeline or DAG file (starter: pipeline.json)")
+        if not isinstance(ex.get("mocks") or {}, dict) or not isinstance(ex.get("children") or {}, dict):
+            out.append(f"{eid}: mocks and children map activity names and pipeline keys to what stands in for them")
+        if not (grading / "solution.json").is_file():
+            out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/solution.json")
+        if len(list(grading.glob("wrong-*.json")) if grading.is_dir() else []) < 2:
+            out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/wrong-*.json) that validation must fail")
+    elif ex.get("adapter") in pylab.ADAPTERS:
+        if not str(ex.get("starter") or "").endswith(".py"):
+            out.append(f"{eid}: a {ex['adapter']} exercise starts from a Python script (starter: answer.py)")
+        if not (grading / "solution.py").is_file():
+            out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/solution.py")
+        if len(list(grading.glob("wrong-*.py")) if grading.is_dir() else []) < 2:
+            out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/wrong-*.py) that validation must fail")
     elif ex.get("adapter") in EXECUTING:
-        if not (grading / "solution.sql").is_file():
-            out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/solution.sql")
-    if ex.get("adapter") == "duckdb_lab" and len(list(grading.glob("wrong-*.sql")) if grading.is_dir() else []) < 2:
-        out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/wrong-*.sql) that validation must fail")
+        sol = SOLUTION_FILE.get(ex["adapter"], "solution.sql")
+        if not (grading / sol).is_file():
+            out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/{sol}")
+    wrong = WRONG_GLOB.get(ex.get("adapter", ""), "wrong-*.sql")
+    if ex.get("adapter") in (*SQL_ADAPTERS, "pyspark_lab") and len(list(grading.glob(wrong)) if grading.is_dir() else []) < 2:
+        out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/{wrong}) that validation must fail")
+    if any(c.get("data") == "hidden" for c in ex.get("validation") or []) and not (grading / "hidden.sql").is_file():
+        out.append(f"{eid}: a check on hidden data needs grading/{eid}/hidden.sql")
     return out
 
 

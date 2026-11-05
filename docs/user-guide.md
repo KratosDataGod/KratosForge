@@ -381,13 +381,11 @@ Each entity page also has an **About** card (Preview): description, tags, classi
 - **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Data mesh > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
 - **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
 
-Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
+Products works with no metadata project open. Select a product's name to open its page: its endorsement, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
 
-### Endorsement and business terms (Preview)
+### Endorsement (Preview)
 
-A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
-
-**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
+A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it. The details are in [Endorsement](data-mesh.md#endorsement).
 
 ### Tables, semantic models and reports (Preview)
 
@@ -553,15 +551,17 @@ An incident is one record per problem in an environment: a table whose last run 
 
 **How this works**, from the title bar's info button, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
 
-**The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
+**The list.** Pick the environment from the list (each shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you), **Unassigned**, **SLA at risk** (near or past a target) or **Resolved**; each shows how many it holds. Each row shows the incident's number (`INC-PROD-0042`), its priority (P1 to P4), the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, where it stands against its SLA (for example *Acknowledge overdue 12 min* or *Resolve due in 3 h*), and whether it was escalated.
 
 **Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: the app checks it itself every 10 minutes while it's open, and posts new incidents to its own Teams webhook if one is set (**Settings > Notifications**). **Check *environment* now** checks at once and never posts to Teams. Agents post to the routes their admin set ([agent guide](agent.md#incidents-preview)).
 
 **Likely** is a hint matched from the error text (Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized) with whether a retry alone usually helps. The run's own error is the evidence.
 
-**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+**Report an incident**, beside **Check now**, on a workload's **Incidents** card, or from the command bar, is for a problem people notice that the app can't see, such as wrong numbers in a report. Say what's wrong, add details, pick the environment and how bad it is (P1 to P4, with what that priority means for your SLA). It goes into that environment's shared list with your name and a new number, and closes only when a person resolves it.
 
-**The incident page** shows what happened with its evidence and **Open run**, who is told (owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), and the history: opened, escalated, acknowledged, notes and resolved.
+**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Change priority** (under **More** on the incident page) sets P1 to P4 with a note saying why; after that, checks don't change it. **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+
+**The incident page** shows the number and priority, what happened with its evidence and **Open run**, who is told (priority, when it must be acknowledged and resolved by, owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), **What to do** for that kind of incident, and the timeline: every change with who made it and when.
 
 #### Who's affected (Preview)
 
@@ -569,9 +569,9 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 **Tell them** posts one Teams message through the platform's Teams routes (**Settings > Notifications**, kind *Incident reaching data products*) naming those people and products. The message has the incident's title and the products' names, never its notes. A note on the incident records who was told and when. Telling again only posts when someone new is reached. With no platform Teams route set, nothing is posted: **Copy emails** copies the addresses so you can tell them yourself.
 
-**On a workload's page**, **Incidents** lists its active incidents in every environment.
+**On a workload's page**, **Incidents** lists its active incidents in every environment, with their numbers and priorities, and has **Report an incident** for that workload: its owner, team and criticality come with it.
 
-**Numbers, priorities and SLAs.** Every incident now gets a number (`INC-PROD-0042`), a priority from P1 to P4, a timeline, and SLA targets for acknowledging and resolving it; people can also report a problem the app can't see. The list doesn't show these yet. How they work, and how IT sets its own SLA targets: [Incidents and your service desk](incidents.md).
+**Numbers, priorities and SLAs**: how priorities are set, the default SLA targets, and how IT sets its own, are in [Incidents and your service desk](incidents.md).
 
 ### Agents (Preview)
 
@@ -650,7 +650,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
-| **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
+| **Notifications** | **Incident alerts**: send new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, a Power Automate flow (`flow:https://...`) or email (`mailto:a@x;b@y`, through the company mail server), unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels, Power Automate flows or email for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 | **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
@@ -658,9 +658,15 @@ Anything your organization has set shows "Set by your organization's policy" and
 
 ### Platform notices (Preview)
 
-**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, shortcuts that break or are fixed, data products changed in Prod or deprecated, incidents upstream of your data, and policy exceptions about to end to Teams channels ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is posted once.
+**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, shortcuts that break or are fixed, data products changed in Prod or deprecated, incidents upstream of your data, and policy exceptions about to end to Teams channels, Power Automate flows or email ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is sent once.
 
-- **Add a route** names a channel, takes its Teams webhook, and optionally picks which kinds of notice and which domains it posts. A route named `default` gets everything no other route takes. **Test and save** posts one test message first and saves only if Teams takes it. A route's webhook is shown only as its host. Leave the box empty when editing to keep the address it has. **Remove route** asks first.
+- **Add a route** names it, picks how it sends (**Send by**), and optionally picks which kinds of notice and which domains it sends. A route named `default` gets everything no other route takes. **Test and save** sends one test message first and saves only if it's taken. **Remove route** asks first.
+  - **Teams webhook**: a channel's "Post to a channel when a webhook request is received" workflow.
+  - **Power Automate flow**: a flow that starts "When an HTTP request is received". It gets `title`, `lines`, `text` and `source` as JSON and sends the mail itself, as your tenant allows, so no app registration is needed.
+  - **Email**: up to 20 addresses or distribution lists, sent through the company mail server below.
+
+  A webhook or flow address is shown only as its host, and email addresses only as how many people. Leave the box empty when editing to keep what the route has.
+- **Company mail server** is set once on this PC, and every email route sends through it: the server, its port, the encryption (STARTTLS, required, on 587, or TLS from the start on 465; mail is never sent unencrypted, and the server's certificate is checked against Windows' certificate store), the From address, and an optional user name and password. The password is kept in Windows Credential Manager (as `KratosForge/mail-server`) for your Windows account, never in the app's settings, logs or backups. **Test and save** sends one email first and saves only if the server takes it. **Forget server** removes it and its password; email routes then wait until one is set again.
 - **Quiet hours** (this PC's clock, like `22:00-07:00`) hold notices until they end. **Send during quiet hours anyway** lets warnings, or everything else, through.
 - When notices haven't reached Teams, because quiet hours hold them or Teams didn't answer, the section says how many. They wait on this PC for up to three days.
 

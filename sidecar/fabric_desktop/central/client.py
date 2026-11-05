@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 import requests
 
-from . import core
+from . import core, udf
 from .. import http_session, redact, sqlitefile
 from ..retrying import send_with_retry
 
@@ -108,10 +108,13 @@ class FabricPlatform:
         if op not in core.OPERATIONS:
             raise ValueError(f"the platform has no operation {op!r}")
         kwargs.pop("by", None)
+        # The functions' parameters are named without underscores (udf.fabric_name); call_once's args
+        # go on to the operation as they are.
+        params = {udf.fabric_name(k): v for k, v in kwargs.items()}
         if op in core.READ_OPERATIONS or op in core.REPEATABLE_OPERATIONS:
-            return self._answer(op, self._send(op, kwargs, safe=True))
+            return self._answer(op, self._send(op, params, safe=True))
         if self._once is not False:
-            payload = {"call_id": uuid.uuid4().hex, "operation": op, "args": kwargs}
+            payload = {"callId": uuid.uuid4().hex, "operation": op, "args": kwargs}
             resp = self._send("call_once", payload, safe=True)
             if resp.status_code != 404:
                 self._once = True
@@ -119,7 +122,7 @@ class FabricPlatform:
             if self._once:  # it was there a moment ago: the 404 is the item's, not an older app's
                 return self._answer(op, resp)
         try:
-            out = self._answer(op, self._send(op, kwargs, safe=False))
+            out = self._answer(op, self._send(op, params, safe=False))
         except (requests.ConnectionError, requests.Timeout) as exc:
             raise requests.ConnectionError(
                 f"UDF_Platform didn't answer, so this {op.replace('_', ' ')} may or may not have been made. "

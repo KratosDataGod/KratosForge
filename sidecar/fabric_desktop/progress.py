@@ -27,7 +27,8 @@ from typing import Any
 from . import jsonfile
 
 SCHEMA = "kratosforge/profile@1"
-RULES_VERSION = 3   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked
+RULES_VERSION = 4   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked;
+#                     v4 (ACD-006): Academy exercises, as evidence for their exam objectives (no XP yet)
 LEVEL_CURVE = "v1"
 
 PASSED = ("ready", "ready_with_warnings")
@@ -40,7 +41,8 @@ EVENT_DIMENSIONS = {"validate.pass": ("Data Engineering", "Engineering Quality")
                     "prove.match": ("Engineering Quality", "Performance & Optimization"),
                     "lab.pass": ("Learning & Growth",),
                     "module.complete": ("Learning & Growth",),
-                    "fix.checked": ("Engineering Quality",)}
+                    "fix.checked": ("Engineering Quality",),
+                    "academy.exercise": ("Learning & Growth",)}
 # A checked fix also counts toward its rule's area (rules v3): a guide's area to a skill.
 FIX_AREA_DIMENSIONS = {"Performance": "Performance & Optimization", "Security": "Security & Governance",
                        "Reliability": "Reliability & Operations"}
@@ -244,6 +246,30 @@ def from_fix(rule_id: str, area: str, compared: dict[str, Any], runs: dict[str, 
             "measurement": {"before_seconds": seconds["before"], "after_seconds": seconds["after"], "kind": "measured",
                             "source": "Compare, one run each, the fixed one second"} if timed else None,
             "dimensions": dims, "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
+def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification: dict[str, Any], hints_used: int = 0,
+                 explanation_seen: bool = False, origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for an Academy exercise whose validation all passed (ACD-006, rules v4), or None.
+    Only published exercises count. The row keeps the certification and the version of its study guide,
+    the objectives, the exercise's verification class and mode, hints used and whether the explanation was
+    open; never the answer or the data. Passing again on the same day adds nothing; on a later day it adds
+    a row, which is what retention reads. Rows are never changed when a new study guide version comes out."""
+    if not result.get("passed") or exercise.get("status") != "live" or not result.get("results"):
+        return None
+    pack, eid, version = certification["id"], exercise["id"], int(exercise.get("version") or 1)
+    day = _now()[:10]
+    kinds = list(dict.fromkeys(str(r.get("kind")) for r in result["results"]))
+    return {"id": evidence_id("academy.exercise", f"{pack}/{eid}", f"v{version}|{day}"), "type": "academy.exercise",
+            "at": _now(), "artifact": {"kind": "exercise", "name": f"{pack}/{eid}", "title": str(exercise.get("title") or "")[:200]},
+            "ref": {"source": "academy", "id": f"{pack}/{eid}", "revision": f"v{version}"},
+            "status": "verified", "verdict": "passed",
+            "detail": {"certification": pack, "certification_version": certification["version"],
+                       "objectives": [str(o) for o in exercise.get("objectives") or []], "class": exercise["class"],
+                       "mode": exercise["mode"], "hints_used": max(0, int(hints_used)),
+                       "explanation_seen": bool(explanation_seen), "checks": kinds},
+            "measurement": None, "dimensions": list(EVENT_DIMENSIONS["academy.exercise"]),
+            "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
 
 def module_complete(profile: dict[str, Any], module: dict[str, Any]) -> dict[str, Any] | None:

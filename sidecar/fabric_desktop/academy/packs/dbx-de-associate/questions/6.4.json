@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "6.4",
+  "questions": [
+    {
+      "id": "6.4-q1",
+      "type": "single",
+      "stem": "What does liquid clustering replace for organising a Delta table's data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Unity Catalog"
+        },
+        {
+          "id": "b",
+          "text": "The transaction log"
+        },
+        {
+          "id": "c",
+          "text": "Column masks"
+        },
+        {
+          "id": "d",
+          "text": "Partitioning and Z-ordering"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Liquid clustering replaces table partitioning and ZORDER for data layout.",
+      "source": "https://docs.databricks.com/aws/en/delta/clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.4-q2",
+      "type": "single",
+      "stem": "How do you add liquid clustering to an existing table on customer_id?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ALTER TABLE t CLUSTER BY (customer_id)"
+        },
+        {
+          "id": "b",
+          "text": "CREATE INDEX ON t (customer_id)"
+        },
+        {
+          "id": "c",
+          "text": "ALTER TABLE t PARTITION BY (customer_id)"
+        },
+        {
+          "id": "d",
+          "text": "OPTIMIZE t ZORDER BY (customer_id) PARTITION"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "ALTER TABLE ... CLUSTER BY sets or changes clustering keys.",
+      "source": "https://docs.databricks.com/aws/en/delta/clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.4-q3",
+      "type": "single",
+      "stem": "What is an advantage of liquid clustering keys over partition columns?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They remove the need for a transaction log"
+        },
+        {
+          "id": "b",
+          "text": "They encrypt the columns"
+        },
+        {
+          "id": "c",
+          "text": "You can change the keys without rewriting existing data"
+        },
+        {
+          "id": "d",
+          "text": "They make the table external"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Clustering keys can be redefined later, and existing data need not be rewritten.",
+      "source": "https://docs.databricks.com/aws/en/delta/clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.4-q4",
+      "type": "single",
+      "stem": "What does predictive optimization do for Unity Catalog managed tables?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Predicts future rows"
+        },
+        {
+          "id": "b",
+          "text": "Moves tables to external storage"
+        },
+        {
+          "id": "c",
+          "text": "Grants privileges automatically"
+        },
+        {
+          "id": "d",
+          "text": "Runs maintenance such as OPTIMIZE and VACUUM automatically"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Predictive optimization decides when maintenance is worth running and runs it for you.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/predictive-optimization",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.4-q5",
+      "type": "multiple",
+      "stem": "Which statements about liquid clustering are true? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "It only works on CSV tables"
+        },
+        {
+          "id": "b",
+          "text": "CLUSTER BY AUTO lets Databricks choose the keys"
+        },
+        {
+          "id": "c",
+          "text": "OPTIMIZE clusters data on a clustered table"
+        },
+        {
+          "id": "d",
+          "text": "It needs the table to be partitioned too"
+        }
+      ],
+      "answer": [
+        "c",
+        "b"
+      ],
+      "explanation": "OPTIMIZE applies clustering, and automatic liquid clustering picks keys; it is not combined with partitioning.",
+      "source": "https://docs.databricks.com/aws/en/delta/clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

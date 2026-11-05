@@ -393,3 +393,43 @@ def test_store_saves_lists_and_refuses_bad_ids(bank, tmp_path):
     (tmp_path / "exams" / ("1" * 32 + ".json")).write_text(json.dumps({"schema": "other"}), encoding="utf-8")
     with pytest.raises(exam.ExamError, match="can open"):
         store.load("1" * 32)
+
+
+# ---------------------------------------------------------------- Databricks pack (DBA-012)
+
+DBX = "dbx-de-associate"
+
+
+def test_databricks_bank_covers_every_objective_with_two_level_ids():
+    ids = [o["id"] for o in registry.objectives(registry.certification(DBX))]
+    assert len(ids) == 33 and all(i.count(".") == 1 for i in ids)
+    assert exam.problems(DBX, ids) == []
+    bank = exam.load_bank(DBX)
+    assert {q["objective"] for q in bank["questions"].values()} == set(ids)
+
+
+def test_databricks_questions_cite_databricks_docs_and_its_notice_names_databricks():
+    bank = exam.load_bank(DBX)
+    assert exam.source_hosts(DBX) == ("docs.databricks.com", "www.databricks.com")
+    assert all(q["source"].startswith("https://docs.databricks.com/") for q in bank["questions"].values())
+    assert "not Databricks exam questions" in bank["notice"] and "Microsoft" not in bank["notice"]
+    assert "not Databricks' exam interface" in bank["notice"]
+    assert exam.notice("dp-700") == exam.NOTICE == exam.load_bank("dp-700")["notice"]
+
+
+def test_databricks_questions_never_cite_another_platforms_docs(tmp_path):
+    packs = tmp_path / "packs"
+    shutil.copytree(exam.PACKS / DBX, packs / DBX)
+    f = packs / DBX / "questions" / "7.2.json"
+    doc = json.loads(f.read_text(encoding="utf-8"))
+    doc["questions"][0]["source"] = "https://learn.microsoft.com/en-us/fabric/"
+    f.write_text(json.dumps(doc), encoding="utf-8")
+    assert any("source is the Databricks documentation page" in p for p in exam.problems(DBX, packs=packs))
+
+
+def test_databricks_drill_scores_by_two_level_objective():
+    bank = exam.load_bank(DBX)
+    s = exam.build(bank, cert_version="v", objectives=["7.2"], kind="drill", seed=3, now=T0)
+    assert s["items"] and all(it["objective"] == "7.2" for it in s["items"])
+    exam.finish(s, bank, now=at(1))
+    assert s["result"]["by_domain"][0]["domain"] == "7" and s["result"]["notice"] == bank["notice"]

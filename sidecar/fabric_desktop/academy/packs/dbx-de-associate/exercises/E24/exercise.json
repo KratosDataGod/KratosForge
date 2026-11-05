@@ -1,0 +1,61 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E24",
+  "version": 1,
+  "status": "draft",
+  "title": "Deduplicate events and customer versions, then aggregate revenue by country",
+  "objectives": ["3.4"],
+  "objective_text": "Deduplicate with dropDuplicates and a latest-row window, then aggregate with count, distinct count, sum and mean.",
+  "scenario": "Finance's revenue-by-country dashboard disagrees with the ledger. The order feed sometimes delivers an event twice, and the customer table keeps every version of a customer, so customers who moved are counted in both countries. Build gold.revenue_by_country so the numbers match.",
+  "difficulty": 2,
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {"name": "bronze.order_events", "rows": 8, "size": "small", "seeded": "fixed values in setup.sql"},
+    {"name": "bronze.customer_versions", "rows": 6, "size": "small", "seeded": "fixed values in setup.sql"}
+  ],
+  "starting_environment": "Delta tables bronze.order_events and bronze.customer_versions in the exercise folder, and a starter answer.py.",
+  "required": [
+    "Count each event_id once.",
+    "Use each customer's latest country (largest valid_from).",
+    "Per country: customers (distinct), orders, revenue as decimal(12,2) and avg_order rounded to 2 places.",
+    "Write gold.revenue_by_country with country, customers, orders, revenue, avg_order, so that running the code again leaves the same table."
+  ],
+  "expected": {"description": "Three countries: ES with 2 customers, 3 orders and 65.00; FR with 1, 1 and 15.00; PT with 1, 2 and 60.00."},
+  "verifies": [
+    "Your PySpark deduplicates by event id and by latest version and aggregates per country, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Databricks workspace, and it doesn't check approx_count_distinct, whose estimate can differ between engines."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "gold.revenue_by_country", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "gold.revenue_by_country", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "gold.revenue_by_country",
+     "columns": {"country": "", "customers": "", "orders": "", "revenue": "DECIMAL(12,2)", "avg_order": ""},
+     "unique": ["country"], "not_null": ["country"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "gold.revenue_by_country", "weight": 1, "required": true}
+  ],
+  "hints": [
+    "events.dropDuplicates([\"event_id\"]) keeps one row per event; deduplicating on customer_id and amount would also drop real orders.",
+    "Window.partitionBy(\"customer_id\").orderBy(F.col(\"valid_from\").desc()) with F.row_number() == 1 gives each customer's current country.",
+    "Join the events to the current customers on customer_id, then groupBy(\"country\").",
+    "F.countDistinct(\"customer_id\") counts customers; F.count(\"*\") counts orders."
+  ],
+  "explanation": "Drop redelivered events by event_id, not by business columns, which would also merge two real orders of the same amount. Keep each customer's latest version with row_number over a window partitioned by customer and ordered by valid_from descending, so a customer who moved counts only in their current country. Then join and aggregate per country with a distinct customer count, a row count, the sum cast to decimal(12,2) and the rounded average, and overwrite the gold table.",
+  "troubleshooting": [
+    "Revenue is too high: redelivered events are counted again; drop duplicates by event_id.",
+    "A customer is counted in two countries: every version of the customer was joined; keep the latest.",
+    "customers equals orders: count distinct customer ids, not rows."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/getting-started/dataframes"],
+  "reset": "Reset rebuilds the bronze tables from setup.sql, removes gold.revenue_by_country and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

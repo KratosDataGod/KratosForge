@@ -303,8 +303,10 @@ async function renderSourceControl() {
   if ((gitPage.tab === "platform" && !isPlatform) || (gitPage.tab === "capacity" && !isCapacity)) gitPage.tab = "changes";
   const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Repository" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
     isPlatform ? tab("platform", "Platform") : null, isCapacity ? tab("capacity", "Capacity") : null, tab("branches", "Branches"),
-    tab("history", "History"), tab("fabric", "Fabric workspace"), tab("settings", "Repository settings"));
-  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, fabric: gitFabricTab, settings: gitSettingsTab };
+    tab("history", "History"), tab("fabric", "Fabric workspace"), previewShown() ? tab("bundles", ["Bundles ", previewTag()]) : null,
+    tab("settings", "Repository settings"));
+  if (gitPage.tab === "bundles" && !previewShown()) gitPage.tab = "changes";
+  const bodies = { bundles: gitBundlesTab, changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, fabric: gitFabricTab, settings: gitSettingsTab };
   setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
@@ -1283,7 +1285,12 @@ function gitFabricItems(p) {
   });
   return h("section", { class: "card" },
     h("div", { class: "row wrap pad" }, h("h2", { class: "grow" }, s.items.length ? `Items (${s.items.length} differ)` : "Items"),
-      h("span", { class: "muted-text small" }, fabricGitSummary(s))),
+      h("span", { class: "muted-text small" }, fabricGitSummary(s)),
+      btn("Commit in Fabric", "open", () => openLink(`https://app.fabric.microsoft.com/groups/${p.overview.link.workspace_id}/list?experience=fabric-developer`),
+        "tool outline", { title: "Committing the workspace's changes to Git happens in Fabric's Source control panel" }),
+      btn("Update from Git…", "arrowDownload", () => gitFabricUpdateDialog(gitPage.status.root), "tool primary",
+        { disabled: !(s.counts.incoming || s.counts.conflict || s.counts.both_changed) || p.checking ? true : null,
+          title: "Bring the workspace up to the commit in Git, after a preview" })),
     s.remote_tracking && !s.remote_fetched_matches ? h("p", { class: "muted-text small pad" },
       `Fabric compared Git commit ${fgShort(s.remote_commit)}; this PC last fetched ${fgShort(s.remote_tracking)}. Fetch to see the same commits here.`) : null,
     s.items.length ? h("div", { class: "table-scroll" }, h("table", { class: "list" },
@@ -1306,6 +1313,77 @@ async function gitFabricCheck(root) {
     p.checking = false;
     if (state.view === "source" && gitPage.tab === "fabric") render();
   }
+}
+
+// Update from Git: the engine's plan first (it reads Fabric's status again), a choice for conflicts,
+// the workspace's name typed, then the one write. The engine checks every one of these again.
+async function gitFabricUpdateDialog(root) {
+  const p = gitPage.fabric;
+  const env = p.env;
+  const first = await attempt(() => rpc("fabric_git_update", { repo: root, env, fingerprint: p.status.fingerprint }), "Couldn't prepare the update");
+  if (!first) return;
+  if (first.stale) { p.status = first.status; render(); toast("Fabric changed since you checked. Here is the new list: check it, then update.", true); return; }
+  if (first.nothing) { toast("Nothing to bring in from Git."); return; }
+  const plan = first.plan;
+  const fingerprint = first.fingerprint;
+  const name = first.confirm_text;
+  const conflicts = p.status.items.filter((i) => i.state === "conflict" || i.state === "both_changed");  // from the preview the person saw
+  let policy = conflicts.length ? "PreferWorkspace" : "";
+  const line = (i, why) => h("div", { class: "fg-plan-row" }, h("b", {}, i.name), h("span", {}, i.label), h("span", {}, why));
+  const choice = conflicts.length ? h("fieldset", { class: "fg-conflicts" },
+    h("legend", {}, `${fgPlural(conflicts.length, "conflict", "conflicts")}: ${conflicts.map((i) => i.name).join(", ")}`),
+    h("p", { class: "small" }, "Changed in the workspace and in Git. Fabric applies one choice to every conflict in this update."),
+    ...[["PreferWorkspace", "Keep the workspace version (Git's change is not applied)"], ["PreferRemote", "Take the Git version (the workspace's change is lost)"]]
+      .map(([v, text]) => h("label", { class: "row" }, h("input", { type: "radio", name: "fg-policy", value: v, checked: v === policy ? true : null,
+        onchange: () => { policy = v; lossy(); } }), text))) : null;
+  const typed = h("input", { id: "fg-confirm", type: "text", autocomplete: "off", spellcheck: "false", oninput: () => ready() });
+  const loses = h("p", { class: "small" });
+  const err = h("p", { class: "field-error" });
+  const isConflict = (i) => i.state === "conflict" || i.state === "both_changed";
+  const atRisk = plan.overwrites.filter((i) => !isConflict(i));
+  const consent = h("input", { id: "fg-override", type: "checkbox", onchange: () => ready() });
+  const go = btn("Update workspace", null, () => run(), "tool danger-solid", { disabled: true });
+  const ready = () => { go.disabled = typed.value !== name || !consent.checked; };
+  const lossy = () => {
+    const lost = policy === "PreferRemote" ? conflicts.length : 0;
+    const risk = atRisk.length ? ` ${fgPlural(atRisk.length, "uncommitted workspace change", "uncommitted workspace changes")} may be lost.` : "";
+    loses.textContent = `This changes ${fgPlural(plan.changes.length + lost, "item", "items")} in the workspace${lost ? `, and ${lost} lose${lost === 1 ? "s" : ""} the workspace's own change` : ""}.${risk} Type ${name} to confirm.`;
+  };
+  lossy();
+  const run = async () => {
+    err.textContent = "";
+    go.disabled = true;
+    go.textContent = "Updating…";
+    try {
+      const out = await rpc("fabric_git_update", { repo: root, env, fingerprint, policy, confirm_name: typed.value, allow_override: consent.checked });
+      if (out.done) {
+        closeDialog();
+        toast(`Updated ${name} from Git.`);
+        gitFabricReload();
+        return;
+      }
+      if (out.stale) { closeDialog(); p.status = out.status; render(); toast("Fabric changed since the preview, so nothing was updated. Check the new list, then try again.", true); return; }
+      err.textContent = out.needs_choice ? "Choose what happens to the conflicts." : out.needs_override ? "Tick the box to let Fabric replace these workspace items."
+        : out.needs_confirm ? `Type ${out.confirm_text} exactly to confirm.` : "Nothing to bring in from Git.";
+    } catch (e) { err.textContent = friendlyError(e).text; }
+    go.textContent = "Update workspace";
+    ready();
+  };
+  showDialog(`Update ${name} from Git`, h("div", { class: "git-form fg-update" },
+    first.name_differs ? h("p", { class: "fg-warn small", role: "alert" }, `Fabric calls this workspace ${name}, but fabric-desktop.toml says ${first.linked_name}. Check it's the workspace you mean before you update.`) : null,
+    h("p", { class: "muted-text small" }, `Fabric workspace (cloud) · brings the workspace from ${fgShort(plan.from) || "its first sync"} to ${fgShort(plan.to)} on ${p.overview.link.branch || "its branch"}`),
+    h("h3", {}, "What changes in the workspace"),
+    plan.changes.length ? h("div", { class: "fg-plan" }, plan.changes.map((i) => line(i, i.why))) : h("p", { class: "small" }, "Only the conflicts below."),
+    choice,
+    atRisk.length ? [h("h3", {}, "May be lost"), h("p", { class: "small" }, "Changed only in the workspace and not committed. Microsoft doesn't say Update from Git keeps these, so commit them in Fabric first to be sure."),
+      h("div", { class: "fg-plan" }, atRisk.map((i) => line(i, "Uncommitted workspace change")))] : null,
+    plan.kept.length ? [h("h3", {}, "Not touched"), h("div", { class: "fg-plan" }, plan.kept.filter((i) => !isConflict(i)).map((i) => line(i, i.why)))] : null,
+    h("p", { class: "muted-text small" }, "Lakehouse tables and files, and warehouse data, never move through Git."),
+    h("label", { class: "row small" }, consent, "Let Fabric replace the workspace items listed above with the Git versions"),
+    loses, h("label", { for: "fg-confirm", class: "sr-only" }, `Type ${name} to confirm`), typed,
+    h("p", { class: "muted-text small" }, "Before it starts, KratosForge checks the status again. If anything changed since this preview, it stops and shows the new list."),
+    err),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }
 
 async function gitFabricUnlink(root, env) {

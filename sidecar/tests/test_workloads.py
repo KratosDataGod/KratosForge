@@ -592,3 +592,10 @@ def test_a_copy_job_opens_its_own_fabric_page():
     from fabric_desktop.workloads.inventory import fabric_url
     assert fabric_url("ws1", "cj1", "CopyJob") == \
         "https://app.fabric.microsoft.com/groups/ws1/copyjobs/cj1?experience=fabric-developer"
+
+
+def test_a_dataflow_opens_its_own_fabric_page():
+    # The path Fabric uses for a Dataflow Gen2, checked on a tenant (2026-11-03).
+    from fabric_desktop.workloads.inventory import fabric_url
+    assert fabric_url("ws1", "df1", "Dataflow") == \
+        "https://app.fabric.microsoft.com/groups/ws1/dataflows-gen2/df1?experience=fabric-developer"

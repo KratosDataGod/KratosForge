@@ -694,6 +694,20 @@ function settingRow(title, help, control, source) {
     h("div", { class: "setting-control" }, control));
 }
 
+// With preview features hidden, Notifications still shows the company mail server (platform-notices.js),
+// since email incident alerts send through it.
+function mailServerOnly() {
+  const box = h("div", { class: "pn-settings" }, h("p", { class: "muted-text small" }, "Loading the mail server..."));
+  const draw = async () => {
+    const s = await rpc("platform_notify_settings", {}).catch((e) => ({ error: e }));
+    box.replaceChildren(s.error
+      ? h("p", { class: "fail-text small" }, `Couldn't read the mail server settings: ${friendlyError(s.error).text}`)
+      : mailServerCard(s.mail_server || { set: false }, draw));
+  };
+  draw();
+  return box;
+}
+
 async function renderSettings() {
   setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
   const s = await loadSettings();
@@ -782,9 +796,9 @@ async function renderSettings() {
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
-    settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
+    settingRow("Incident alerts", "Send late and failed tables to a Teams channel, a Power Automate flow or email. The bell always shows them.",
       btn("Set up", "alert", () => alertsDialog(), "tool outline")),
-    await platformNoticesSection());
+    previewShown() ? await platformNoticesSection() : mailServerOnly());
 
   // Help and about
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
@@ -810,12 +824,14 @@ async function renderSettings() {
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
-  const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
+  // Connections (connections.js) is a tab too: Databricks and Snowflake connection profiles.
+  const tab = previewShown() && ["integrations", "connections"].includes(state.settingsTab) ? state.settingsTab : "general";
   const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
-    [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
+    [["general", "General"], ["connections", "Connections"], ["integrations", "Integrations"]].map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
-        label, id === "integrations" ? previewTag() : null))) : null;
+        label, id === "general" ? null : previewTag()))) : null;
   const integrations = h("div", { class: "integrations" });
+  const connections = h("div", { class: "connections" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
   const platform = previewShown() ? h("section", { class: "card pad platform-link" },
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
@@ -826,9 +842,13 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
+    return;
+  }
+  if (tab === "connections") {
+    renderConnectionsTab(connections);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
@@ -885,7 +905,58 @@ function advancedSection(s, locked, limitRow) {
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [
     h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
       learnMore("advanced-settings")),
-    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+    signInGroup, kernel, onelake, exerciseSandboxSection(), sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// PB-131: Academy exercise scripts run in a Windows AppContainer, which KratosForge lets read its
+// Python on this PC. The row says whether runs use it and how many folders hold that permission, and
+// removes the permission (academy_sandbox_remove_grants). The next exercise run adds it back.
+function exerciseSandboxSection() {
+  const side = h("div", { class: "sandbox-status" }, h("div", { class: "muted-text small" }, "Looking..."));
+  const result = h("div", { class: "sandbox-result" });
+  const folders = (n) => `${n.toLocaleString()} folder${n === 1 ? "" : "s"}`;
+  const load = () => rpc("academy_sandbox_status").then((st) => {
+    const on = st.enabled && st.available;
+    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC while the AppContainer is in Preview." : "");
+    side.replaceChildren(...[
+      h("div", { class: on ? "sandbox-on" : "" }, on ? [icon("ok", 16), " On: exercises run in an AppContainer"]
+        : "Off: exercises run in a limited process on this PC"),
+      why ? h("div", { class: "muted-text small" }, `Why: ${why}`) : null,
+      h("div", { class: "muted-text small" }, st.granted
+        ? `Read permission on ${folders(st.granted)} of KratosForge's Python`
+        : on ? "No permissions held now. The next exercise adds them back." : "No permissions held."),
+      st.granted ? btn("Remove exercise permissions", null, () => remove(st.granted), "tool outline small") : null].filter(Boolean));
+  }, (err) => {
+    side.replaceChildren(errorPanel(err, { label: "Couldn't read the exercise sandbox status", retry: load }) || "");
+  });
+  const remove = async (n) => {
+    if (!(await confirmDialog("Remove exercise permissions?",
+      [`The AppContainer loses its read permission on KratosForge's Python (${folders(n)}). Your files and exercises aren't touched.`,
+        h("span", { class: "muted-text small confirm-note" },
+          "The next exercise you run adds the permission back. To keep it off, don't run exercises on this PC.")], "Remove"))) return;
+    const res = await attempt(() => rpc("academy_sandbox_remove_grants"), "Not removed");
+    if (!res) return;
+    if (res.why) { toast(res.why, true); return; }
+    if (!res.failed.length) {
+      result.replaceChildren();
+      toast(`Removed the exercise permissions from ${folders(res.removed)}`);
+    } else {
+      const list = res.failed.join("\n");
+      result.replaceChildren(h("div", { class: "callout git-warn small sandbox-failed", role: "alert" },
+        h("b", {}, icon("warning", 16), ` Removed from ${folders(res.removed)}. Windows wouldn't change ${res.failed.length}:`),
+        h("ul", { class: "mono" }, res.failed.map((p) => h("li", {}, p))),
+        h("div", { class: "row wrap" }, h("span", { class: "muted-text" }, "A program may have them open. Close other apps and try again."),
+          btn("Try again", null, () => remove(res.failed.length), "tool link small"),
+          btn("Copy the list", null, () => copyText(list, "The list"), "tool link small"))));
+    }
+    load();
+  };
+  load();
+  return h("div", { class: "advanced-group" }, h("h3", {}, "Exercise sandbox"),
+    settingRow("Academy exercises",
+      "When the AppContainer is on, exercise scripts (except Delta and PySpark ones) run in a Windows AppContainer: no network and no access to your own files. To make that work, KratosForge lets it read its Python on this PC. Removing that permission is safe: the next exercise you run adds it back.",
+      side),
+    result);
 }
 
 // How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the

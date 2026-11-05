@@ -104,7 +104,7 @@ Every template carries handover markup:
 The marker is the first line of the cell, so it survives an import into any platform. The notebook's metadata
 (`kratosforge.template`, `kratosforge.support`, `kratosforge.handover`) records the same, plus the handover state.
 
-A notebook **conforms** while its standard cells are unchanged, it has no code cells the template doesn't have,
+A notebook **conforms** while its standard cells are unchanged and in their order, it has no code cells the template doesn't have,
 and its Parameters cell only sets values. Then the enterprise can support it. Editing a standard cell, adding a
 code cell or putting code in the Parameters cell makes it **domain-owned**: it still runs, but the domain
 supports it.
@@ -144,6 +144,9 @@ enterprise's support.
   and fact templates on Spark 4 with Delta 4. Identity columns only exist on Databricks itself, and the
   Snowflake templates need a Snowflake account, so those haven't been run yet. All of them are Preview until
   they have run on each platform.
+- On Fabric, two Silver runs adding new business keys to the same key table at the same moment rely on Delta's
+  conflict detection and the retry to never issue one key twice; the final check covers the Silver table, not
+  the key table.
 - Templates don't handle rows deleted at the source, and re-keying facts older than the lookback window needs
   a `full_reload` run.
 

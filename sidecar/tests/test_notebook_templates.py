@@ -166,6 +166,20 @@ def test_markdown_notes_and_parameter_values_keep_it_conforming():
     assert result["parameters"]["target_table"] == "GOLD.SALES.DIM_STORE"
 
 
+def test_reordered_cells_make_it_domain_owned():
+    nb = nt.load("fabric", "silver")
+    cells = nb["cells"]
+    i, j = cells.index(_cell(nb, "standard", "step-5")), cells.index(_cell(nb, "standard", "step-6"))
+    cells[i], cells[j] = cells[j], cells[i]  # the result check would run before the MERGE
+    assert nt.check(nb)["changes"] == [f"Cell {j + 1}, the standard cell step-5, is out of order"]
+    nb = nt.load("fabric", "silver")
+    params = _cell(nb, "parameters")
+    nb["cells"].remove(params)
+    nb["cells"].append(params)
+    assert nt.check(nb)["changes"] == [f"Cell {len(nb['cells'])}, the Parameters cell, is out of order: "
+                                       "it must come before the standard cells"]
+
+
 def test_removed_cell_and_missing_parameter_are_named():
     nb = nt.load("fabric", "gold_dim_type1")
     nb["cells"] = [c for c in nb["cells"] if nt.marker(nt.source_of(c)) is None

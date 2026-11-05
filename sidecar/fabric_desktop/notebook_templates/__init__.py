@@ -117,6 +117,12 @@ def _template_parameters(platform: str, kind: str) -> dict[str, Any]:
     return {}
 
 
+def _rank(cell_id: str) -> int:
+    """Where a standard cell runs: setup first, then step-1, step-2 and so on."""
+    m = re.fullmatch(r"step-(\d+)", cell_id)
+    return int(m.group(1)) if m else 0
+
+
 def identify(nb: dict[str, Any]) -> dict[str, str] | None:
     """Which template a notebook came from: its metadata, else the first marked cell."""
     meta = ((nb.get("metadata") or {}).get("kratosforge") or {}).get("template") or {}
@@ -148,6 +154,7 @@ def check(nb: dict[str, Any]) -> dict[str, Any]:
         expected = {}
     seen: set[str] = set()
     params_found = 0
+    last_rank = -1
     for n, cell in enumerate(nb.get("cells", []), 1):
         if cell.get("cell_type") != "code":
             continue
@@ -162,6 +169,8 @@ def check(nb: dict[str, Any]) -> dict[str, Any]:
             continue
         if m["role"] == "parameters":
             params_found += 1
+            if last_rank >= 0:
+                changes.append(f"Cell {n}, the Parameters cell, is out of order: it must come before the standard cells")
             values, problems = _parameters(source)
             changes.extend(problems)
             out["parameters"] = values
@@ -173,6 +182,10 @@ def check(nb: dict[str, Any]) -> dict[str, Any]:
             changes.append(f"Cell {n} names a standard cell, {cid}, the template doesn't have")
         elif cell_hash(source) != expected[cid]:
             changes.append(f"Cell {n}, the standard cell {cid}, was edited")
+        if cid in expected and cid not in seen:
+            if _rank(cid) < last_rank:
+                changes.append(f"Cell {n}, the standard cell {cid}, is out of order")
+            last_rank = max(last_rank, _rank(cid))
         seen.add(cid)
     for cid in expected:
         if cid not in seen:

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import polars as pl
 import pyarrow as pa
 import pytest
+import duckdb
 from deltalake import write_deltalake
 
 from fabric_desktop import server
@@ -144,7 +145,7 @@ def test_memory_project_keeps_nothing_but_its_folders(local, data, tmp_path):
     assert not (tmp_path / "app" / "local-data" / pid / "data.duckdb").exists()
     e = LocalData(tmp_path / "app" / "local-data").engine(pid)
     assert e.execute("SELECT count(*) FROM dbo.orders")["rows"] == [[3]]  # views made again
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.CatalogException):
         e.execute("SELECT * FROM t")
 
 
@@ -170,7 +171,7 @@ def test_no_automatic_refresh_when_switched_off(local, data):
     e = local.engine(pid)
     (data / "later.csv").write_text("x\n1\n")
     e._last_check = 0
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.CatalogException):
         e.execute("SELECT * FROM dbo.later")
     assert "/".join(e.refresh()["changed"]).endswith("data")
     assert e.execute("SELECT x FROM dbo.later")["rows"] == [[1]]
@@ -396,7 +397,7 @@ def test_delta_features_a_file_read_would_get_wrong_are_refused(local, tmp_path)
     added = local.add_source(pid, str(d))
     entry = added["tables"][0]
     assert entry["status"] == "error" and "deletion vectors" in entry["error"]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.CatalogException):
         local.engine(pid).execute("SELECT * FROM dv")
 
 
@@ -561,7 +562,7 @@ def test_the_engine_itself_reaches_only_the_projects_folders(local, tmp_path, da
                 "INSTALL httpfs",
                 "SET enable_external_access = true",
                 f"SET allowed_directories = ['{outside}']"):
-        with pytest.raises(Exception):
+        with pytest.raises(duckdb.Error):
             engine.execute(sql)
     assert sorted(p.name for p in outside.iterdir()) == ["secret.csv"]
     # The project's own folder still works: its tables, and files written inside it.
@@ -572,10 +573,10 @@ def test_the_engine_itself_reaches_only_the_projects_folders(local, tmp_path, da
     local.add_source(pid, str(outside))
     assert engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")["rows"] == [[42]]
     assert engine.execute("SELECT a FROM kept")["rows"] == [[1]]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.CatalogException):
         engine.execute("SELECT * FROM scratch")  # temporary tables don't survive the new connection
     engine.remove_source(str(outside.resolve()))
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.PermissionException):
         engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")
 
 

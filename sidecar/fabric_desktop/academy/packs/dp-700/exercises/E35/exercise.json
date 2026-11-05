@@ -1,0 +1,87 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E35",
+  "version": 1,
+  "status": "draft",
+  "title": "Denormalize a star into a wide reporting table",
+  "objectives": [
+    "2.2.7"
+  ],
+  "objective_text": "Flatten a fact table and its dimensions into one wide table with one row per fact, keeping every fact even when a dimension row is missing.",
+  "scenario": "A data science team wants the sales star as one flat table they can load into a notebook without joins. The fact has a sale whose product key was never matched, and the team must still see it, labelled Unknown, or their totals won't match finance's.",
+  "prerequisites": [
+    "LAB-03"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your SQL ran on this PC with DuckDB and gold_sales_wide has one row per sale with the expected attributes and totals."
+  ],
+  "does_not_verify": [
+    "How a wide table performs in Direct Lake or a Fabric Warehouse compared with the star: that depends on the service.",
+    "That the SQL runs unchanged in Spark SQL or T-SQL."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "gold_sales_wide": {
+        "columns": [
+          "sale_id",
+          "sale_date",
+          "month",
+          "product_name",
+          "category",
+          "store_name",
+          "region",
+          "quantity",
+          "amount"
+        ],
+        "unique": [
+          "sale_id"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over gold_sales_wide, ordered by sale_id."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Every sale is there with its attributes.",
+      "fail": "Count the rows of fact_sales and of your table, then check the sale with product_key 99."
+    },
+    {
+      "kind": "table_shape",
+      "table": "gold_sales_wide",
+      "unique": [
+        "sale_id"
+      ],
+      "not_null": [
+        "product_name",
+        "category",
+        "region"
+      ],
+      "pass": "One row per sale and no blank attributes.",
+      "fail": "A sale appears twice or an attribute is blank."
+    }
+  ],
+  "hints": [
+    "Start from fact_sales and LEFT JOIN each dimension, so no sale is lost.",
+    "coalesce(p.product_name, 'Unknown') labels the sale whose product isn't in dim_product.",
+    "month is strftime(d.date, '%Y-%m') from dim_date."
+  ],
+  "explanation": "Denormalizing copies dimension attributes onto every fact row. Start from the fact and left join outward so the row count never changes; label missing members instead of dropping them; and check the result's row count and totals against the fact. A wide table is convenient for notebooks and some reports, but it repeats attributes and must be rebuilt when a dimension changes.",
+  "remediation": [
+    "LAB-03",
+    "LAB-07",
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-overview"
+  ],
+  "reset": "Reset restores the star and drops gold_sales_wide.",
+  "parity": null
+}

@@ -287,3 +287,106 @@ def test_dataframe_to_date_reads_the_format_too():
     con = duckdb.connect()
     got = con.execute(f"SELECT {query} FROM (VALUES ('2026-03-02'), ('2026-03-02 10:11:12')) AS v(t)").fetchall()
     assert got == [(None,), (dt.date(2026, 3, 2),)]
+
+
+# parse_url, with the values Apache Spark 3.5 gave (it reads the text with java.net.URI, and a URL
+# URI refuses is NULL).
+@pytest.mark.parametrize("url, part, want", [
+    ("http://spark.apache.org/path?query=1", "HOST", "spark.apache.org"),
+    ("http://spark.apache.org/path?query=1", "FILE", "/path?query=1"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "AUTHORITY", "user:pw@www.example.com:8080"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "USERINFO", "user:pw"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "REF", "frag"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "PROTOCOL", "https"),
+    ("http://host", "PATH", ""),
+    ("http://host?q", "FILE", "?q"),
+    ("file:///tmp/x.txt", "HOST", None),
+    ("file:///tmp/x.txt", "PATH", "/tmp/x.txt"),
+    ("mailto:someone@example.com", "PROTOCOL", "mailto"),
+    ("mailto:someone@example.com", "PATH", None),
+    ("/rel/path?q=1#f", "QUERY", "q=1"),
+    ("//host/p?x=1", "HOST", "host"),
+    ("http://my_host/p", "HOST", None),           # not a host name: URI reads it as a registry authority
+    ("http://my_host/p", "AUTHORITY", "my_host"),
+    ("http://999.1.1.1/p", "HOST", None),
+    ("http://10.0.0.1:80/p", "HOST", "10.0.0.1"),
+    ("http://host:/p", "AUTHORITY", "host:"),
+    ("http://user@/p", "USERINFO", None),
+    ("http://host/p%20a", "PATH", "/p%20a"),
+    ("http://host/é", "PATH", "/é"),
+    ("http://h/p?k=v#x?y", "REF", "x?y"),
+    ("abfss://c@acct.dfs.core.windows.net/path/x", "USERINFO", "c"),
+    ("http://host/p a", "HOST", None),            # URI refuses these, so Spark gives NULL
+    ("http://host/p%zz", "PATH", None),
+    ("http://host/p[1]", "PATH", None),
+    ("http://host/p#a#b", "REF", None),
+    ("1http://x", "PATH", None),
+    ("http:", "PROTOCOL", None),
+    ("http://h/p?x=1", "host", None),             # the part is case-sensitive
+])
+def test_parse_url_gives_sparks_value(url, part, want):
+    assert one(f"SELECT parse_url('{url}', '{part}')") == want
+
+
+@pytest.mark.parametrize("url, key, want", [
+    ("http://h/p?x=1&y=2&x=3", "x", "1"),
+    ("http://h/p?ak=1&k=2", "k", "2"),
+    ("http://h/p?K=1", "k", None),
+    ("http://h/p?k=v=w", "k", "v=w"),
+    ("http://h/p?=1&k=", "k", ""),
+    ("http://h/p?axb=1", "a.b", "1"),             # Spark reads the key as a pattern; . matches any one
+    ("http://h/p?k-1=v&k_2=w", "k-1", "v"),
+    ("mailto:x?k=1", "k", None),
+])
+def test_parse_url_query_key_gives_sparks_value(url, key, want):
+    assert one(f"SELECT parse_url('{url}', 'QUERY', '{key}')") == want
+
+
+def test_parse_url_of_a_column_and_nulls():
+    got = rows("SELECT parse_url(u, 'HOST') FROM VALUES ('http://a.com/x'), (NULL), ('http://b.org') AS t(u)")
+    assert got == [("a.com",), (None,), ("b.org",)]
+    assert one("SELECT parse_url('http://h/p?x=1', NULL)") is None
+    assert one("SELECT parse_url('http://h/p?x=1', 'QUERY', NULL)") is None
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT parse_url('http://[::1]:80/p', 'HOST')",
+    "SELECT parse_url('http://h/p?a[]=1', 'QUERY', 'a[]')",
+])
+def test_parse_url_refuses_what_could_differ_by_name(query):
+    with pytest.raises(duckdb.Error, match="parse_url.*this PC"):
+        sql.run(query)
+
+
+# EXTRACT and date_part as Spark 3.5 answers them: 2019-08-12 is a Monday, the day of the week counts
+# from Sunday = 1 (ISO from Monday = 1), seconds keep their fraction as decimal(8,6), the other fields
+# are int, and Spark's TIMESTAMP (read as TIMESTAMPTZ) is read in the session's zone, UTC.
+@pytest.mark.parametrize("query, want, kind", [
+    ("SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')", 2019, "int"),
+    ("SELECT extract(HOUR FROM CAST('2019-08-12 23:00:00' AS TIMESTAMP))", 23, "int"),
+    ("SELECT extract(DOW FROM DATE '2019-08-12')", 2, "int"),
+    ("SELECT extract(DAYOFWEEK FROM TIMESTAMP '2019-08-18 10:00:00')", 1, "int"),
+    ("SELECT extract(DOW_ISO FROM DATE '2019-08-18')", 7, "int"),
+    ("SELECT extract(SECONDS FROM TIMESTAMP '2019-10-01 00:00:01.000001')", Decimal("1.000001"), "decimal(8,6)"),
+    ("SELECT extract(S FROM TIMESTAMP '2019-10-01 00:00:59.999999')", Decimal("59.999999"), "decimal(8,6)"),
+    ("SELECT extract(SECOND FROM DATE '2019-10-01')", Decimal("0"), "decimal(8,6)"),
+    ("SELECT extract(WEEK FROM DATE '2019-08-12')", 33, "int"),
+    ("SELECT extract(YEAR FROM '2019-08-12')", 2019, "int"),
+    ("SELECT extract(YEAR FROM 'not a date')", None, "int"),
+    ("SELECT date_part('DOW', DATE '2019-08-12')", 2, "int"),
+    ("SELECT datepart('SECONDS', TIMESTAMP '2019-10-01 00:00:01.000001')", Decimal("1.000001"), "decimal(8,6)"),
+    ("SELECT date_part('YEAR', TIMESTAMP '2019-10-01 00:00:01')", 2019, "int"),
+])
+def test_extract_and_date_part_give_sparks_value_and_type(query, want, kind):
+    assert one(query) == want
+    assert one(f"SELECT typeof(x) FROM ({query}) AS t(x)") == kind  # Spark's typeof
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')", 1460073600),
+    ("SELECT to_unix_timestamp('04/08/2016 01:02:03', 'MM/dd/yyyy HH:mm:ss')", 1460077323),
+    ("SELECT to_unix_timestamp('2016-04-08 10:11:12')", 1460110272),
+    ("SELECT to_unix_timestamp('2016/04/08', 'yyyy-MM-dd')", None),
+])
+def test_to_unix_timestamp_reads_its_format_as_unix_timestamp_does(query, want):
+    assert one(query) == want

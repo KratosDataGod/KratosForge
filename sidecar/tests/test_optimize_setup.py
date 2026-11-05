@@ -417,3 +417,43 @@ def test_a_family_with_its_own_schema_keeps_its_tables_there(tmp_path, monkeypat
     with pytest.raises(ValueError, match="already belongs"):
         schema.register(schema.Family("fdzzz_", "Same schema", [schema.Migration(1, "Create", INCIDENTS_V1)],
                                       schema="access"))
+
+
+# EA-028: setup.retry's behaviour, pinned before it moved onto retrying.retry_call.
+def test_retry_backs_off_on_retryable_errors_then_raises_the_last():
+    from deltalake.exceptions import CommitFailedError
+    waits: list[float] = []
+    calls = []
+
+    def lost_race():
+        calls.append(1)
+        raise CommitFailedError("lost the commit race")
+
+    with pytest.raises(CommitFailedError):
+        setup.retry(lost_race, attempts=7, sleep=waits.append)
+    assert len(calls) == 7
+    assert waits == [0.5, 1.0, 2.0, 4.0, 8.0, 8.0]  # doubling, capped at 8 s; no wait after the last try
+
+
+def test_retry_returns_the_first_success_and_raises_other_errors_at_once():
+    from deltalake.exceptions import CommitFailedError
+    waits: list[float] = []
+    tries = iter([CommitFailedError("race"), ConnectionError("blip"), "done"])
+
+    def flaky():
+        step = next(tries)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    assert setup.retry(flaky, sleep=waits.append) == "done"
+    assert waits == [0.5, 1.0]
+    calls = []
+
+    def bad_config():
+        calls.append(1)
+        raise ValueError("not a retryable error")
+
+    with pytest.raises(ValueError):
+        setup.retry(bad_config, sleep=waits.append)
+    assert len(calls) == 1 and waits == [0.5, 1.0]

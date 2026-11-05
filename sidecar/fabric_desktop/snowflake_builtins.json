@@ -1,0 +1,2063 @@
+[
+ {
+  "name": "ASCII",
+  "group": "String and binary"
+ },
+ {
+  "name": "BIT_LENGTH",
+  "group": "String and binary"
+ },
+ {
+  "name": "CHR",
+  "group": "String and binary"
+ },
+ {
+  "name": "CHAR",
+  "group": "String and binary"
+ },
+ {
+  "name": "CONCAT",
+  "group": "String and binary"
+ },
+ {
+  "name": "CONCAT_WS",
+  "group": "String and binary"
+ },
+ {
+  "name": "INSERT",
+  "group": "String and binary"
+ },
+ {
+  "name": "LENGTH",
+  "group": "String and binary"
+ },
+ {
+  "name": "LEN",
+  "group": "String and binary"
+ },
+ {
+  "name": "LPAD",
+  "group": "String and binary"
+ },
+ {
+  "name": "LTRIM",
+  "group": "String and binary"
+ },
+ {
+  "name": "OCTET_LENGTH",
+  "group": "String and binary",
+  "probe": "SELECT OCTET_LENGTH('abc')"
+ },
+ {
+  "name": "PARSE_IP",
+  "group": "String and binary"
+ },
+ {
+  "name": "PARSE_URL",
+  "group": "String and binary"
+ },
+ {
+  "name": "REPEAT",
+  "group": "String and binary"
+ },
+ {
+  "name": "REVERSE",
+  "group": "String and binary"
+ },
+ {
+  "name": "RPAD",
+  "group": "String and binary"
+ },
+ {
+  "name": "RTRIM",
+  "group": "String and binary"
+ },
+ {
+  "name": "RTRIMMED_LENGTH",
+  "group": "String and binary"
+ },
+ {
+  "name": "SOUNDEX",
+  "group": "String and binary"
+ },
+ {
+  "name": "SOUNDEX_P123",
+  "group": "String and binary"
+ },
+ {
+  "name": "SPACE",
+  "group": "String and binary"
+ },
+ {
+  "name": "SPLIT",
+  "group": "String and binary"
+ },
+ {
+  "name": "SPLIT_PART",
+  "group": "String and binary"
+ },
+ {
+  "name": "STRTOK",
+  "group": "String and binary"
+ },
+ {
+  "name": "STRTOK_TO_ARRAY",
+  "group": "String and binary"
+ },
+ {
+  "name": "TRANSLATE",
+  "group": "String and binary"
+ },
+ {
+  "name": "TRIM",
+  "group": "String and binary"
+ },
+ {
+  "name": "UNICODE",
+  "group": "String and binary"
+ },
+ {
+  "name": "UUID_STRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "SEARCH",
+  "group": "String and binary"
+ },
+ {
+  "name": "SEARCH_IP",
+  "group": "String and binary"
+ },
+ {
+  "name": "INITCAP",
+  "group": "String and binary"
+ },
+ {
+  "name": "LOWER",
+  "group": "String and binary"
+ },
+ {
+  "name": "UPPER",
+  "group": "String and binary"
+ },
+ {
+  "name": "CHARINDEX",
+  "group": "String and binary"
+ },
+ {
+  "name": "CONTAINS",
+  "group": "String and binary"
+ },
+ {
+  "name": "EDITDISTANCE",
+  "group": "String and binary"
+ },
+ {
+  "name": "ENDSWITH",
+  "group": "String and binary"
+ },
+ {
+  "name": "JAROWINKLER_SIMILARITY",
+  "group": "String and binary"
+ },
+ {
+  "name": "LEFT",
+  "group": "String and binary"
+ },
+ {
+  "name": "POSITION",
+  "group": "String and binary"
+ },
+ {
+  "name": "REPLACE",
+  "group": "String and binary"
+ },
+ {
+  "name": "RIGHT",
+  "group": "String and binary"
+ },
+ {
+  "name": "STARTSWITH",
+  "group": "String and binary"
+ },
+ {
+  "name": "SUBSTR",
+  "group": "String and binary"
+ },
+ {
+  "name": "SUBSTRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "COMPRESS",
+  "group": "String and binary"
+ },
+ {
+  "name": "DECOMPRESS_BINARY",
+  "group": "String and binary"
+ },
+ {
+  "name": "DECOMPRESS_STRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "BASE64_DECODE_BINARY",
+  "group": "String and binary"
+ },
+ {
+  "name": "BASE64_DECODE_STRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "BASE64_ENCODE",
+  "group": "String and binary"
+ },
+ {
+  "name": "HEX_DECODE_BINARY",
+  "group": "String and binary"
+ },
+ {
+  "name": "HEX_DECODE_STRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "HEX_ENCODE",
+  "group": "String and binary"
+ },
+ {
+  "name": "TRY_BASE64_DECODE_BINARY",
+  "group": "String and binary"
+ },
+ {
+  "name": "TRY_BASE64_DECODE_STRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "TRY_HEX_DECODE_BINARY",
+  "group": "String and binary"
+ },
+ {
+  "name": "TRY_HEX_DECODE_STRING",
+  "group": "String and binary"
+ },
+ {
+  "name": "COLLATE",
+  "group": "String and binary"
+ },
+ {
+  "name": "COLLATION",
+  "group": "String and binary"
+ },
+ {
+  "name": "REGEXP_COUNT",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "REGEXP_EXTRACT_ALL",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "REGEXP_INSTR",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "REGEXP_LIKE",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "REGEXP_REPLACE",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "REGEXP_SUBSTR",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "REGEXP_SUBSTR_ALL",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "RLIKE",
+  "group": "Regular expressions"
+ },
+ {
+  "name": "MD5",
+  "group": "Hash"
+ },
+ {
+  "name": "MD5_HEX",
+  "group": "Hash"
+ },
+ {
+  "name": "MD5_BINARY",
+  "group": "Hash"
+ },
+ {
+  "name": "MD5_NUMBER_LOWER64",
+  "group": "Hash"
+ },
+ {
+  "name": "MD5_NUMBER_UPPER64",
+  "group": "Hash"
+ },
+ {
+  "name": "SHA1",
+  "group": "Hash"
+ },
+ {
+  "name": "SHA1_HEX",
+  "group": "Hash"
+ },
+ {
+  "name": "SHA1_BINARY",
+  "group": "Hash"
+ },
+ {
+  "name": "SHA2",
+  "group": "Hash"
+ },
+ {
+  "name": "SHA2_HEX",
+  "group": "Hash"
+ },
+ {
+  "name": "SHA2_BINARY",
+  "group": "Hash"
+ },
+ {
+  "name": "HASH",
+  "group": "Hash"
+ },
+ {
+  "name": "HASH_AGG",
+  "group": "Hash"
+ },
+ {
+  "name": "DIV0",
+  "group": "Numeric"
+ },
+ {
+  "name": "DIV0NULL",
+  "group": "Numeric"
+ },
+ {
+  "name": "ABS",
+  "group": "Numeric"
+ },
+ {
+  "name": "CEIL",
+  "group": "Numeric"
+ },
+ {
+  "name": "FLOOR",
+  "group": "Numeric"
+ },
+ {
+  "name": "MOD",
+  "group": "Numeric"
+ },
+ {
+  "name": "ROUND",
+  "group": "Numeric"
+ },
+ {
+  "name": "SIGN",
+  "group": "Numeric"
+ },
+ {
+  "name": "TRUNCATE",
+  "group": "Numeric"
+ },
+ {
+  "name": "TRUNC",
+  "group": "Numeric"
+ },
+ {
+  "name": "CBRT",
+  "group": "Numeric"
+ },
+ {
+  "name": "EXP",
+  "group": "Numeric"
+ },
+ {
+  "name": "FACTORIAL",
+  "group": "Numeric"
+ },
+ {
+  "name": "POW",
+  "group": "Numeric"
+ },
+ {
+  "name": "POWER",
+  "group": "Numeric"
+ },
+ {
+  "name": "SQRT",
+  "group": "Numeric"
+ },
+ {
+  "name": "SQUARE",
+  "group": "Numeric"
+ },
+ {
+  "name": "LN",
+  "group": "Numeric"
+ },
+ {
+  "name": "LOG",
+  "group": "Numeric"
+ },
+ {
+  "name": "ACOS",
+  "group": "Numeric"
+ },
+ {
+  "name": "ACOSH",
+  "group": "Numeric"
+ },
+ {
+  "name": "ASIN",
+  "group": "Numeric"
+ },
+ {
+  "name": "ASINH",
+  "group": "Numeric"
+ },
+ {
+  "name": "ATAN",
+  "group": "Numeric"
+ },
+ {
+  "name": "ATAN2",
+  "group": "Numeric"
+ },
+ {
+  "name": "ATANH",
+  "group": "Numeric"
+ },
+ {
+  "name": "COS",
+  "group": "Numeric"
+ },
+ {
+  "name": "COSH",
+  "group": "Numeric"
+ },
+ {
+  "name": "COT",
+  "group": "Numeric"
+ },
+ {
+  "name": "DEGREES",
+  "group": "Numeric"
+ },
+ {
+  "name": "PI",
+  "group": "Numeric"
+ },
+ {
+  "name": "RADIANS",
+  "group": "Numeric"
+ },
+ {
+  "name": "SIN",
+  "group": "Numeric"
+ },
+ {
+  "name": "SINH",
+  "group": "Numeric"
+ },
+ {
+  "name": "TAN",
+  "group": "Numeric"
+ },
+ {
+  "name": "TANH",
+  "group": "Numeric"
+ },
+ {
+  "name": "WIDTH_BUCKET",
+  "group": "Numeric"
+ },
+ {
+  "name": "HAVERSINE",
+  "group": "Numeric"
+ },
+ {
+  "name": "DATE_FROM_PARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIME_FROM_PARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMESTAMP_FROM_PARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMESTAMP_LTZ_FROM_PARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMESTAMP_NTZ_FROM_PARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMESTAMP_TZ_FROM_PARTS",
+  "group": "Date and time"
+ },
+ {
+  "name": "DATE_PART",
+  "group": "Date and time",
+  "probe": "SELECT DATE_PART(YEAR, TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "DAYNAME",
+  "group": "Date and time"
+ },
+ {
+  "name": "EXTRACT",
+  "group": "Date and time",
+  "probe": "SELECT EXTRACT(YEAR FROM TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "HOUR",
+  "group": "Date and time"
+ },
+ {
+  "name": "MINUTE",
+  "group": "Date and time",
+  "probe": "SELECT MINUTE(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "SECOND",
+  "group": "Date and time",
+  "probe": "SELECT SECOND(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "LAST_DAY",
+  "group": "Date and time"
+ },
+ {
+  "name": "MONTHNAME",
+  "group": "Date and time"
+ },
+ {
+  "name": "NEXT_DAY",
+  "group": "Date and time",
+  "probe": "SELECT NEXT_DAY(TO_DATE('2024-03-05'), 'FR')"
+ },
+ {
+  "name": "PREVIOUS_DAY",
+  "group": "Date and time",
+  "probe": "SELECT PREVIOUS_DAY(TO_DATE('2024-03-05'), 'FR')"
+ },
+ {
+  "name": "YEAR",
+  "group": "Date and time"
+ },
+ {
+  "name": "YEAROFWEEK",
+  "group": "Date and time",
+  "probe": "SELECT YEAROFWEEK(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "YEAROFWEEKISO",
+  "group": "Date and time",
+  "probe": "SELECT YEAROFWEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "DAY",
+  "group": "Date and time",
+  "probe": "SELECT DAY(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "DAYOFMONTH",
+  "group": "Date and time",
+  "probe": "SELECT DAYOFMONTH(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "DAYOFWEEK",
+  "group": "Date and time"
+ },
+ {
+  "name": "DAYOFWEEKISO",
+  "group": "Date and time",
+  "probe": "SELECT DAYOFWEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "DAYOFYEAR",
+  "group": "Date and time",
+  "probe": "SELECT DAYOFYEAR(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "WEEK",
+  "group": "Date and time",
+  "probe": "SELECT WEEK(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "WEEKOFYEAR",
+  "group": "Date and time",
+  "probe": "SELECT WEEKOFYEAR(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "WEEKISO",
+  "group": "Date and time",
+  "probe": "SELECT WEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "MONTH",
+  "group": "Date and time",
+  "probe": "SELECT MONTH(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "QUARTER",
+  "group": "Date and time",
+  "probe": "SELECT QUARTER(TO_TIMESTAMP('2024-03-05 10:20:30'))"
+ },
+ {
+  "name": "ADD_MONTHS",
+  "group": "Date and time"
+ },
+ {
+  "name": "DATEADD",
+  "group": "Date and time"
+ },
+ {
+  "name": "DATEDIFF",
+  "group": "Date and time"
+ },
+ {
+  "name": "MONTHS_BETWEEN",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMEADD",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMEDIFF",
+  "group": "Date and time",
+  "probe": "SELECT TIMEDIFF(HOUR, TO_TIMESTAMP('2024-03-05 10:20:30'), TO_TIMESTAMP('2024-03-06 10:20:30'))"
+ },
+ {
+  "name": "TIMESTAMPADD",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIMESTAMPDIFF",
+  "group": "Date and time"
+ },
+ {
+  "name": "DATE_TRUNC",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIME_SLICE",
+  "group": "Date and time"
+ },
+ {
+  "name": "TO_DATE",
+  "group": "Date and time"
+ },
+ {
+  "name": "DATE",
+  "group": "Date and time"
+ },
+ {
+  "name": "TO_TIME",
+  "group": "Date and time"
+ },
+ {
+  "name": "TIME",
+  "group": "Date and time",
+  "probe": "SELECT TIME('10:20:30')"
+ },
+ {
+  "name": "TO_TIMESTAMP",
+  "group": "Date and time"
+ },
+ {
+  "name": "TO_TIMESTAMP_LTZ",
+  "group": "Date and time"
+ },
+ {
+  "name": "TO_TIMESTAMP_NTZ",
+  "group": "Date and time"
+ },
+ {
+  "name": "TO_TIMESTAMP_TZ",
+  "group": "Date and time"
+ },
+ {
+  "name": "CONVERT_TIMEZONE",
+  "group": "Date and time"
+ },
+ {
+  "name": "CAST",
+  "group": "Conversion",
+  "probe": "SELECT CAST('1' AS INTEGER)"
+ },
+ {
+  "name": "TRY_CAST",
+  "group": "Conversion",
+  "probe": "SELECT TRY_CAST('x' AS INTEGER)"
+ },
+ {
+  "name": "TO_CHAR",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_VARCHAR",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_BINARY",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_BINARY",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_DECFLOAT",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_DECIMAL",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_NUMBER",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_NUMERIC",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_DOUBLE",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_DECFLOAT",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_DECIMAL",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_NUMBER",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_NUMERIC",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_DOUBLE",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_BOOLEAN",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_BOOLEAN",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_DATE",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_TIME",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_TIMESTAMP",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_TIMESTAMP_LTZ",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_TIMESTAMP_NTZ",
+  "group": "Conversion"
+ },
+ {
+  "name": "TRY_TO_TIMESTAMP_TZ",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_ARRAY",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_OBJECT",
+  "group": "Conversion"
+ },
+ {
+  "name": "TO_VARIANT",
+  "group": "Conversion"
+ },
+ {
+  "name": "CHECK_JSON",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "CHECK_XML",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "JSON_EXTRACT_PATH_TEXT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "PARSE_JSON",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "TRY_PARSE_JSON",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "PARSE_XML",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "STRIP_NULL_VALUE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_AGG",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_APPEND",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_CAT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_COMPACT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_CONSTRUCT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_CONSTRUCT_COMPACT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_CONTAINS",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_DISTINCT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_EXCEPT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_FLATTEN",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_GENERATE_RANGE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_INSERT",
+  "group": "Semi-structured",
+  "probe": "SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)"
+ },
+ {
+  "name": "ARRAY_INTERSECTION",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_MAX",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_MIN",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_POSITION",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_PREPEND",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_REMOVE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_REMOVE_AT",
+  "group": "Semi-structured",
+  "probe": "SELECT ARRAY_REMOVE_AT(ARRAY_CONSTRUCT(1, 2), 0)"
+ },
+ {
+  "name": "ARRAY_REVERSE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_SIZE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_SLICE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_SORT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_TO_STRING",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_UNION_AGG",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAY_UNIQUE_AGG",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAYS_OVERLAP",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAYS_TO_OBJECT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ARRAYS_ZIP",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_AGG",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_CONSTRUCT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_CONSTRUCT_KEEP_NULL",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_DELETE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_INSERT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_PICK",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "OBJECT_KEYS",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "FILTER",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "REDUCE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "TRANSFORM",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_CAT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_CONTAINS_KEY",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_DELETE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_ENTRIES",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_INSERT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_KEYS",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_PICK",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "MAP_SIZE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "GET",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "GET_IGNORE_CASE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "GET_PATH",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "XMLGET",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_ARRAY",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_BINARY",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_CHAR",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_VARCHAR",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_DATE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_DECIMAL",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_NUMBER",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_DOUBLE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_REAL",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_INTEGER",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_OBJECT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_TIME",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_TIMESTAMP_LTZ",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_TIMESTAMP_NTZ",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "AS_TIMESTAMP_TZ",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "TO_JSON",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "TO_XML",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_ARRAY",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_BOOLEAN",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_BINARY",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_CHAR",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_VARCHAR",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_DATE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_DATE_VALUE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_DECIMAL",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_DOUBLE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_REAL",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_INTEGER",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_NULL_VALUE",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_OBJECT",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_TIME",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_TIMESTAMP_LTZ",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_TIMESTAMP_NTZ",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "IS_TIMESTAMP_TZ",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "TYPEOF",
+  "group": "Semi-structured"
+ },
+ {
+  "name": "ANY_VALUE",
+  "group": "Aggregate"
+ },
+ {
+  "name": "AVG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "CORR",
+  "group": "Aggregate"
+ },
+ {
+  "name": "COUNT",
+  "group": "Aggregate"
+ },
+ {
+  "name": "COUNT_IF",
+  "group": "Aggregate"
+ },
+ {
+  "name": "COVAR_POP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "COVAR_SAMP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "LISTAGG",
+  "group": "Aggregate",
+  "probe": "SELECT LISTAGG(a, ',') WITHIN GROUP (ORDER BY a) FROM t"
+ },
+ {
+  "name": "MAX",
+  "group": "Aggregate"
+ },
+ {
+  "name": "MAX_BY",
+  "group": "Aggregate"
+ },
+ {
+  "name": "MEDIAN",
+  "group": "Aggregate"
+ },
+ {
+  "name": "MIN",
+  "group": "Aggregate"
+ },
+ {
+  "name": "MIN_BY",
+  "group": "Aggregate"
+ },
+ {
+  "name": "MODE",
+  "group": "Aggregate"
+ },
+ {
+  "name": "PERCENTILE_CONT",
+  "group": "Aggregate",
+  "probe": "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM t"
+ },
+ {
+  "name": "PERCENTILE_DISC",
+  "group": "Aggregate",
+  "probe": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) FROM t"
+ },
+ {
+  "name": "STDDEV",
+  "group": "Aggregate"
+ },
+ {
+  "name": "STDDEV_SAMP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "STDDEV_POP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "SUM",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VAR_POP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VAR_SAMP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VARIANCE",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VARIANCE_SAMP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "VARIANCE_POP",
+  "group": "Aggregate"
+ },
+ {
+  "name": "BITAND_AGG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "BITOR_AGG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "BITXOR_AGG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "BOOLAND_AGG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "BOOLOR_AGG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "BOOLXOR_AGG",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_AVGX",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_AVGY",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_COUNT",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_INTERCEPT",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_R2",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_SLOPE",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_SXX",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_SXY",
+  "group": "Aggregate"
+ },
+ {
+  "name": "REGR_SYY",
+  "group": "Aggregate"
+ },
+ {
+  "name": "KURTOSIS",
+  "group": "Aggregate"
+ },
+ {
+  "name": "SKEW",
+  "group": "Aggregate"
+ },
+ {
+  "name": "GROUPING",
+  "group": "Aggregate"
+ },
+ {
+  "name": "GROUPING_ID",
+  "group": "Aggregate"
+ },
+ {
+  "name": "APPROX_COUNT_DISTINCT",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "HLL",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "HLL_ACCUMULATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "HLL_COMBINE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "HLL_ESTIMATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "HLL_EXPORT",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "HLL_IMPORT",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "DATASKETCHES_HLL",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "DATASKETCHES_HLL_ACCUMULATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "DATASKETCHES_HLL_COMBINE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "DATASKETCHES_HLL_ESTIMATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROXIMATE_JACCARD_INDEX",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROXIMATE_SIMILARITY",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "MINHASH",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "MINHASH_COMBINE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_TOP_K",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_TOP_K_ACCUMULATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_TOP_K_COMBINE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_TOP_K_ESTIMATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_PERCENTILE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_PERCENTILE_ACCUMULATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_PERCENTILE_COMBINE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "APPROX_PERCENTILE_ESTIMATE",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "BITMAP_BIT_POSITION",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "BITMAP_BUCKET_NUMBER",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "BITMAP_CONSTRUCT_AGG",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "BITMAP_COUNT",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "BITMAP_OR_AGG",
+  "group": "Approximate and sketches"
+ },
+ {
+  "name": "CONDITIONAL_CHANGE_EVENT",
+  "group": "Window"
+ },
+ {
+  "name": "CONDITIONAL_TRUE_EVENT",
+  "group": "Window"
+ },
+ {
+  "name": "INTERPOLATE_BFILL",
+  "group": "Window"
+ },
+ {
+  "name": "INTERPOLATE_FFILL",
+  "group": "Window"
+ },
+ {
+  "name": "INTERPOLATE_LINEAR",
+  "group": "Window"
+ },
+ {
+  "name": "RATIO_TO_REPORT",
+  "group": "Window"
+ },
+ {
+  "name": "CUME_DIST",
+  "group": "Window"
+ },
+ {
+  "name": "DENSE_RANK",
+  "group": "Window"
+ },
+ {
+  "name": "FIRST_VALUE",
+  "group": "Window"
+ },
+ {
+  "name": "LAG",
+  "group": "Window"
+ },
+ {
+  "name": "LAST_VALUE",
+  "group": "Window"
+ },
+ {
+  "name": "LEAD",
+  "group": "Window"
+ },
+ {
+  "name": "NTH_VALUE",
+  "group": "Window"
+ },
+ {
+  "name": "NTILE",
+  "group": "Window"
+ },
+ {
+  "name": "PERCENT_RANK",
+  "group": "Window"
+ },
+ {
+  "name": "RANK",
+  "group": "Window"
+ },
+ {
+  "name": "ROW_NUMBER",
+  "group": "Window"
+ },
+ {
+  "name": "BOOLAND",
+  "group": "Conditional"
+ },
+ {
+  "name": "BOOLNOT",
+  "group": "Conditional"
+ },
+ {
+  "name": "BOOLOR",
+  "group": "Conditional"
+ },
+ {
+  "name": "BOOLXOR",
+  "group": "Conditional"
+ },
+ {
+  "name": "COALESCE",
+  "group": "Conditional"
+ },
+ {
+  "name": "DECODE",
+  "group": "Conditional"
+ },
+ {
+  "name": "EQUAL_NULL",
+  "group": "Conditional"
+ },
+ {
+  "name": "GREATEST",
+  "group": "Conditional"
+ },
+ {
+  "name": "GREATEST_IGNORE_NULLS",
+  "group": "Conditional"
+ },
+ {
+  "name": "LEAST",
+  "group": "Conditional"
+ },
+ {
+  "name": "LEAST_IGNORE_NULLS",
+  "group": "Conditional"
+ },
+ {
+  "name": "IFF",
+  "group": "Conditional"
+ },
+ {
+  "name": "IFNULL",
+  "group": "Conditional"
+ },
+ {
+  "name": "NULLIF",
+  "group": "Conditional"
+ },
+ {
+  "name": "NULLIFZERO",
+  "group": "Conditional"
+ },
+ {
+  "name": "NVL",
+  "group": "Conditional"
+ },
+ {
+  "name": "NVL2",
+  "group": "Conditional"
+ },
+ {
+  "name": "REGR_VALX",
+  "group": "Conditional"
+ },
+ {
+  "name": "REGR_VALY",
+  "group": "Conditional"
+ },
+ {
+  "name": "ZEROIFNULL",
+  "group": "Conditional"
+ },
+ {
+  "name": "BITAND",
+  "group": "Bitwise"
+ },
+ {
+  "name": "BITNOT",
+  "group": "Bitwise"
+ },
+ {
+  "name": "BITOR",
+  "group": "Bitwise"
+ },
+ {
+  "name": "BITSHIFTLEFT",
+  "group": "Bitwise"
+ },
+ {
+  "name": "BITSHIFTRIGHT",
+  "group": "Bitwise"
+ },
+ {
+  "name": "BITXOR",
+  "group": "Bitwise"
+ },
+ {
+  "name": "GETBIT",
+  "group": "Bitwise"
+ },
+ {
+  "name": "CURRENT_CLIENT",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_DATE",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_IP_ADDRESS",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_REGION",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_TIME",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_TIMESTAMP",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_VERSION",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_ACCOUNT",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_ACCOUNT_NAME",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_ORGANIZATION_NAME",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_ROLE",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_AVAILABLE_ROLES",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_SECONDARY_ROLES",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_SESSION",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_STATEMENT",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_TRANSACTION",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_USER",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_DATABASE",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_ROLE_TYPE",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_SCHEMA",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_SCHEMAS",
+  "group": "Context"
+ },
+ {
+  "name": "CURRENT_WAREHOUSE",
+  "group": "Context"
+ },
+ {
+  "name": "GETDATE",
+  "group": "Context"
+ },
+ {
+  "name": "LOCALTIME",
+  "group": "Context"
+ },
+ {
+  "name": "LOCALTIMESTAMP",
+  "group": "Context"
+ },
+ {
+  "name": "SYSDATE",
+  "group": "Context"
+ },
+ {
+  "name": "SYSTIMESTAMP",
+  "group": "Context"
+ },
+ {
+  "name": "LAST_QUERY_ID",
+  "group": "Context"
+ },
+ {
+  "name": "RANDOM",
+  "group": "Context"
+ },
+ {
+  "name": "UNIFORM",
+  "group": "Context"
+ },
+ {
+  "name": "SEQ4",
+  "group": "Context"
+ },
+ {
+  "name": "||",
+  "group": "Operators",
+  "probe": "SELECT 'a' || 'b'"
+ },
+ {
+  "name": "/",
+  "group": "Operators",
+  "probe": "SELECT 7 / 2"
+ },
+ {
+  "name": "%",
+  "group": "Operators",
+  "probe": "SELECT 7 % 3"
+ },
+ {
+  "name": "::",
+  "group": "Operators",
+  "probe": "SELECT '1'::INT"
+ },
+ {
+  "name": "CASE",
+  "group": "Operators",
+  "probe": "SELECT CASE WHEN 1 = 1 THEN 'a' ELSE 'b' END"
+ },
+ {
+  "name": "BETWEEN",
+  "group": "Operators",
+  "probe": "SELECT 2 BETWEEN 1 AND 3"
+ },
+ {
+  "name": "LIKE",
+  "group": "Operators",
+  "probe": "SELECT 'abc' LIKE 'a%'"
+ },
+ {
+  "name": "ILIKE",
+  "group": "Operators",
+  "probe": "SELECT 'ABC' ILIKE 'a%'"
+ },
+ {
+  "name": "LIKE ANY",
+  "group": "Operators",
+  "probe": "SELECT 'abc' LIKE ANY ('x%', 'a%')"
+ },
+ {
+  "name": "LIKE ALL",
+  "group": "Operators",
+  "probe": "SELECT 'abc' LIKE ALL ('a%', '%c')"
+ },
+ {
+  "name": "ILIKE ANY",
+  "group": "Operators",
+  "probe": "SELECT 'ABC' ILIKE ANY ('x%', 'a%')"
+ },
+ {
+  "name": "REGEXP",
+  "group": "Operators",
+  "probe": "SELECT 'abc' REGEXP 'a.c'"
+ },
+ {
+  "name": "IS DISTINCT FROM",
+  "group": "Operators",
+  "probe": "SELECT 1 IS DISTINCT FROM NULL"
+ },
+ {
+  "name": "Path (v:a)",
+  "group": "Operators",
+  "probe": "SELECT PARSE_JSON('{\"a\": 1}'):a"
+ },
+ {
+  "name": "QUALIFY",
+  "group": "Operators",
+  "probe": "SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1"
+ },
+ {
+  "name": "PIVOT",
+  "group": "Operators",
+  "probe": "SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))"
+ },
+ {
+  "name": "UNPIVOT",
+  "group": "Operators",
+  "probe": "SELECT * FROM t UNPIVOT (v FOR k IN (a, b))"
+ },
+ {
+  "name": "LATERAL FLATTEN",
+  "group": "Operators",
+  "probe": "SELECT f.value FROM t, LATERAL FLATTEN(input => PARSE_JSON('[1, 2]')) f"
+ },
+ {
+  "name": "SAMPLE",
+  "group": "Operators",
+  "probe": "SELECT * FROM t SAMPLE (50)"
+ },
+ {
+  "name": "MATCH_RECOGNIZE",
+  "group": "Operators",
+  "probe": "SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)"
+ },
+ {
+  "name": "GENERATOR",
+  "group": "Operators",
+  "probe": "SELECT SEQ4() FROM TABLE(GENERATOR(ROWCOUNT => 3))"
+ },
+ {
+  "name": "CREATE TABLE",
+  "group": "Statements",
+  "probe": "CREATE TABLE n (a INT, b VARCHAR)"
+ },
+ {
+  "name": "CREATE TABLE AS",
+  "group": "Statements",
+  "probe": "CREATE TABLE n AS SELECT * FROM t"
+ },
+ {
+  "name": "CREATE VIEW",
+  "group": "Statements",
+  "probe": "CREATE VIEW v AS SELECT * FROM t"
+ },
+ {
+  "name": "CREATE SCHEMA",
+  "group": "Statements",
+  "probe": "CREATE SCHEMA n"
+ },
+ {
+  "name": "CREATE TEMPORARY TABLE",
+  "group": "Statements",
+  "probe": "CREATE TEMPORARY TABLE n (a INT)"
+ },
+ {
+  "name": "CREATE TRANSIENT TABLE",
+  "group": "Statements",
+  "probe": "CREATE TRANSIENT TABLE n (a INT)"
+ },
+ {
+  "name": "INSERT INTO",
+  "group": "Statements",
+  "probe": "INSERT INTO t VALUES (3, 4)"
+ },
+ {
+  "name": "INSERT OVERWRITE",
+  "group": "Statements",
+  "probe": "INSERT OVERWRITE INTO t SELECT * FROM s"
+ },
+ {
+  "name": "UPDATE",
+  "group": "Statements",
+  "probe": "UPDATE t SET b = 0 WHERE a = 1"
+ },
+ {
+  "name": "UPDATE FROM",
+  "group": "Statements",
+  "probe": "UPDATE t SET b = s.b FROM s WHERE t.a = s.a"
+ },
+ {
+  "name": "DELETE",
+  "group": "Statements",
+  "probe": "DELETE FROM t WHERE a = 1"
+ },
+ {
+  "name": "DELETE USING",
+  "group": "Statements",
+  "probe": "DELETE FROM t USING s WHERE t.a = s.a"
+ },
+ {
+  "name": "MERGE",
+  "group": "Statements",
+  "probe": "MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED THEN INSERT (a, b) VALUES (s.a, s.b)"
+ },
+ {
+  "name": "TRUNCATE TABLE",
+  "group": "Statements",
+  "probe": "TRUNCATE TABLE t"
+ },
+ {
+  "name": "DROP TABLE",
+  "group": "Statements",
+  "probe": "DROP TABLE s"
+ },
+ {
+  "name": "ALTER TABLE ADD COLUMN",
+  "group": "Statements",
+  "probe": "ALTER TABLE t ADD COLUMN c INT"
+ },
+ {
+  "name": "ALTER TABLE RENAME",
+  "group": "Statements",
+  "probe": "ALTER TABLE t RENAME TO t2"
+ },
+ {
+  "name": "WITH",
+  "group": "Statements",
+  "probe": "WITH c AS (SELECT 1 AS x) SELECT x FROM c"
+ },
+ {
+  "name": "UNION ALL",
+  "group": "Statements",
+  "probe": "SELECT 1 UNION ALL SELECT 2"
+ },
+ {
+  "name": "CREATE STREAM",
+  "group": "Statements",
+  "probe": "CREATE STREAM st ON TABLE t"
+ },
+ {
+  "name": "CREATE TASK",
+  "group": "Statements",
+  "probe": "CREATE TASK tk WAREHOUSE = w SCHEDULE = '5 MINUTE' AS SELECT 1"
+ },
+ {
+  "name": "CREATE DYNAMIC TABLE",
+  "group": "Statements",
+  "probe": "CREATE DYNAMIC TABLE d TARGET_LAG = '1 minute' WAREHOUSE = w AS SELECT * FROM t"
+ },
+ {
+  "name": "CREATE PROCEDURE",
+  "group": "Statements",
+  "probe": "CREATE PROCEDURE p() RETURNS INT LANGUAGE SQL AS 'SELECT 1'"
+ },
+ {
+  "name": "CREATE FUNCTION",
+  "group": "Statements",
+  "probe": "CREATE FUNCTION f() RETURNS INT AS '1'"
+ },
+ {
+  "name": "CALL",
+  "group": "Statements",
+  "probe": "CALL p()"
+ },
+ {
+  "name": "EXECUTE IMMEDIATE",
+  "group": "Statements",
+  "probe": "EXECUTE IMMEDIATE 'SELECT 1'"
+ },
+ {
+  "name": "Time travel (AT)",
+  "group": "Statements",
+  "probe": "SELECT * FROM t AT (OFFSET => -60)"
+ },
+ {
+  "name": "UNDROP",
+  "group": "Statements",
+  "probe": "UNDROP TABLE t"
+ },
+ {
+  "name": "CLONE",
+  "group": "Statements",
+  "probe": "CREATE TABLE c CLONE t"
+ },
+ {
+  "name": "COPY INTO",
+  "group": "Statements",
+  "probe": "COPY INTO t FROM @stage"
+ },
+ {
+  "name": "PUT",
+  "group": "Statements",
+  "probe": "PUT file:///tmp/a.csv @stage"
+ },
+ {
+  "name": "USE",
+  "group": "Statements",
+  "probe": "USE WAREHOUSE w"
+ },
+ {
+  "name": "SHOW",
+  "group": "Statements",
+  "probe": "SHOW TABLES"
+ },
+ {
+  "name": "DESCRIBE",
+  "group": "Statements",
+  "probe": "DESCRIBE TABLE t"
+ },
+ {
+  "name": "GRANT",
+  "group": "Statements",
+  "probe": "GRANT SELECT ON TABLE t TO ROLE r"
+ },
+ {
+  "name": "CREATE STAGE",
+  "group": "Statements",
+  "probe": "CREATE STAGE sg"
+ },
+ {
+  "name": "CREATE SEQUENCE",
+  "group": "Statements",
+  "probe": "CREATE SEQUENCE sq"
+ }
+]

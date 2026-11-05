@@ -289,6 +289,78 @@ def test_dataframe_to_date_reads_the_format_too():
     assert got == [(None,), (dt.date(2026, 3, 2),)]
 
 
+# ---- binary literals written X '..', bitmaps, and tumbling time windows (Spark 3.5's values)
+
+def test_a_hex_literal_with_a_space_reads_as_spark_reads_it():
+    assert rows("SELECT hex(X '1010'), hex(x  'ff'), hex(X'10'), 'X' 'a'") == [("1010", "FF", "10", "Xa")]
+    with pytest.raises(ValueError, match="Could not read the query"):
+        sql.run("SELECT X 'zz'")  # not hex: the error names the query as written
+
+
+def test_bitmap_count_and_bitmap_or_agg():
+    assert one("SELECT bitmap_count(X '1010')") == 2
+    assert rows("SELECT bitmap_count(X''), bitmap_count(NULL)") == [(0, None)]
+    assert one("SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)") == "700000"
+    # Spark's bitmap is 4096 bytes: shorter ones are ORed into its first bytes, and NULLs are skipped.
+    assert rows("SELECT octet_length(bitmap_or_agg(c)), substring(hex(bitmap_or_agg(c)), 1, 4) "
+                "FROM VALUES (CAST(NULL AS BINARY)), (X'01'), (X'0102') t(c)") == [(4096, "0102")]
+    assert one("SELECT bitmap_count(bitmap_or_agg(m)) FROM (SELECT bitmap_construct_agg(c) m FROM VALUES (1), (2) t(c) "
+               "UNION ALL SELECT bitmap_construct_agg(c) FROM VALUES (2), (3) t(c))") == 3
+
+
+_TIMES = "VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b)"
+
+
+def test_window_groups_rows_into_tumbling_windows():
+    t = dt.datetime
+    assert rows(f"SELECT a, window.start, window.end, count(*) as cnt FROM {_TIMES} "
+                "GROUP by a, window(b, '5 minutes') ORDER BY a, start") == [
+        ("A1", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), 2), ("A1", t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 10), 1),
+        ("A2", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), 1)]
+    assert rows(f"SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, "
+                f"count(*) as cnt FROM {_TIMES} GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)") == [
+        ("A1", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 4, 59, 999999), 2),
+        ("A1", t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 10), t(2021, 1, 1, 0, 9, 59, 999999), 1),
+        ("A2", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 4, 59, 999999), 1)]
+    # window(...) first in GROUP BY, an 'interval ...' duration, and HAVING
+    assert rows(f"SELECT window.start, count(*) FROM {_TIMES} GROUP BY window(b, 'interval 5 minutes') "
+                "HAVING count(*) > 1") == [(t(2021, 1, 1, 0, 0), 3)]
+    # a selected window is a struct named window; rows whose time is NULL or not a time are skipped, as in Spark
+    result = sql.run("SELECT window(b, '1 hour') FROM VALUES ('2021-01-01 10:30:00'), (NULL), ('junk') t(b)")
+    assert result.column_names == ["window"]
+    assert result.to_pylist() == [{"window": {"start": t(2021, 1, 1, 10, 0), "end": t(2021, 1, 1, 11, 0)}}]
+
+
+@pytest.mark.parametrize("query, match", [
+    ("SELECT window(b, '10 minutes', '5 minutes') FROM VALUES ('2021-01-01') t(b)", "sliding"),
+    ("SELECT window(b, '1 month') FROM VALUES ('2021-01-01') t(b)", "duration"),
+    ("SELECT window(b, d) FROM VALUES ('2021-01-01', '5 minutes') t(b, d)", "duration"),
+    ("SELECT session_window(b, '5 minutes') FROM VALUES ('2021-01-01') t(b)", "session windows"),
+])
+def test_windows_this_pc_cant_match_are_refused(query, match):
+    with pytest.raises(ValueError, match=f"this PC.*{match}|{match}.*this PC"):
+        sql.run(query)
+
+
+def test_window_counts_from_1970_utc_in_the_sessions_time_zone():
+    from fabric_desktop import spark_local
+    spark_local._alias_pyspark()
+    spark = spark_local.session()
+    zone = spark.conf.get("spark.sql.session.timeZone")
+    spark.conf.set("spark.sql.session.timeZone", "America/Los_Angeles")
+    try:
+        got = spark.sql("SELECT window(b, '1 day') AS w FROM VALUES ('2021-01-01 10:00:00'), ('2021-03-14 10:00:00') t(b)").collect()
+    finally:
+        spark.conf.set("spark.sql.session.timeZone", zone)
+    t = dt.datetime
+    # a day's window starts at 00:00 UTC (16:00 the day before in Los Angeles) and lasts 86,400 seconds,
+    # also on 14 March 2021, when Los Angeles moved its clocks forward
+    assert [tuple(r.w) for r in got] == [(t(2020, 12, 31, 16, 0), t(2021, 1, 1, 16, 0)),
+                                        (t(2021, 3, 13, 16, 0), t(2021, 3, 14, 17, 0))]
+
+
+
+
 # parse_url, with the values Apache Spark 3.5 gave (it reads the text with java.net.URI, and a URL
 # URI refuses is NULL).
 @pytest.mark.parametrize("url, part, want", [

@@ -6,12 +6,12 @@ because both run the same code (core.py). The Fabric one invokes a User Data Fun
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import requests
 
@@ -52,8 +52,12 @@ class LocalPlatform:
             if not core.list_admins(db) and self._user():
                 core.claim_admin(db, self._user())
 
-    def _db(self) -> "_Open":
-        return _Open(self.path)
+    @contextmanager
+    def _db(self) -> Iterator[core.Db]:
+        """The platform file for one call: what the call changes lands together or not at all, and
+        the connection is closed either way (an open handle keeps the file locked on Windows)."""
+        with sqlitefile.transaction(self.path) as conn:
+            yield core.Db(conn, "sqlite")
 
     def call(self, op: str, **kwargs: Any) -> Any:
         if op not in core.OPERATIONS:
@@ -63,18 +67,6 @@ class LocalPlatform:
             kwargs["by"] = self._user()
         with self._lock, self._db() as db:
             return fn(db, **kwargs)
-
-
-class _Open:
-    def __init__(self, path: Path):
-        self.path = path
-
-    def __enter__(self) -> core.Db:
-        self.conn = sqlite3.connect(self.path, timeout=30)
-        return core.Db(self.conn, "sqlite")
-
-    def __exit__(self, *exc: Any) -> None:
-        self.conn.close()
 
 
 class FabricPlatform:

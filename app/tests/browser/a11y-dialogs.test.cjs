@@ -1,7 +1,7 @@
 // #1673: axe on the dialogs that had no accessibility case when the guard came in (ui.test.cjs, "every
 // dialog has an axe case"), most-used first, in batches. Each case opens one dialog the way its button
 // does, with test data, runs axe on it (WCAG 2.1 A and AA, serious and critical findings) and closes it.
-// Nothing here writes: every engine call is a mock that reads.
+// Nothing reaches Fabric or a real engine but the profile read: the engine calls are mocks.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
@@ -11,6 +11,11 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: notebook-files.js:nbMoveToFolderDialog, notebook-comments.js:commentDialog, notebook.js:cancelRun
 // axe covers dialogs: app.js:openDataItems, notebook-formats.js:nbfExport, meta.js:newEntityDialog, sqltemplates.js:openSqlTemplates
 // axe covers dialogs: git.js:gitNewDialog, git.js:nbChoosePlace, profile.js:editProfileIdentity
+// axe covers dialogs: notebook-versions.js:nbVersionView, notebook-versions.js:nbVersionCompare, app.js:nbDiskConflict
+// axe covers dialogs: notebook-files.js:nbRenameWarning, notebook-files.js:nbFolderRefusal, notebook-files.js:nbFabricChangeGate
+// axe covers dialogs: notebook-files.js:nbOpenFileDialog, notebook-files.js:nbEditFromFabric, engines.js:engineSwitchDialog
+// axe covers dialogs: engines.js:engineRemoteDialog, home-notebooks.js:homeRunNotebooks, sqlqueries.js:saveSqlQuery
+// axe covers dialogs: schedules.js:editScheduleDialog, incidents.js:priorityIncident, meta.js:showGateError
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -48,6 +53,14 @@ before(async () => {
       notebook_export: () => ({ path: "C:/exports/Daily sales.py", notes: [{ cell: 1, kind: "magic", what: "%%sql cell became a spark.sql call" },
         { cell: null, kind: "attachment", what: "The attached lakehouse isn't kept" }] }),
       sql_template_list: () => ({ templates: [], places: [] }),
+      notebook_version: () => ({ cells: [{ type: "code", source: "df = spark.read.table('orders')" }, { type: "markdown", source: "# Orders" }] }),
+      notebook_version_compare: () => ({ changes: [{ kind: "changed", position: 1, diff: ["-df = spark.read.table('order')", "+df = spark.read.table('orders')"] },
+        { kind: "added", position: 2, diff: ["+# Orders"] }] }),
+      save_notebook: () => ({ saved: true }),
+      notebook_publish_check: () => ({ changed: true, item_id: "i1", published_at: "2026-11-03T16:00:00Z",
+        fabric: [{ kind: "changed", position: 1, diff: ["-x = 1", "+x = 2"] }], mine: [{ kind: "changed", position: 2 }] }),
+      notebook_fabric_check: () => ({ here: null, taken: false, cells: 4, lakehouse: { name: "LH_Bronze" }, notes: ["2 cells use %run, which runs here as a plain cell."] }),
+      notebook_details: () => [{ name: "Daily sales", compute: "local", cells: 2 }, { name: "Orders", compute: "local", cells: 5 }],
     },
   });
   await page().waitForSelector("#rail-main .rail-item");
@@ -89,6 +102,30 @@ const CASES = [
   ["sqltemplates.js:openSqlTemplates", "SQL from a template", () => { openSqlTemplates({ kind: "lakehouse", name: "LH_Bronze" }, () => {}); }],
   ["git.js:gitNewDialog", "New repository", () => { gitNewDialog("notebooks"); }],
   ["git.js:nbChoosePlace", "New notebook", () => { nbChoosePlace(); }],
+  ["notebook-versions.js:nbVersionView", /^Saved, /, () => { nbVersionView({ id: "v1", at: "2026-11-03T16:00:00Z", cells: 2, kind: "auto" }); }],
+  ["notebook-versions.js:nbVersionCompare", /^Now compared with /, () => { nbVersionCompare({ id: "v1", at: "2026-11-03T16:00:00Z", cells: 2, kind: "auto" }); }],
+  ["app.js:nbDiskConflict", "This notebook changed outside KratosForge", () => { nbDiskConflict(state.notebook, { disk_stamp: 2, unreadable: false }); }],
+  ["notebook-files.js:nbRenameWarning", "Moved, but some things didn't follow", () => {
+    nbRenameWarning([{ notebook: "reports/Weekly", was: "Weekly", step: "schedule", error: "the schedule file is read-only" }]); }],
+  ["notebook-files.js:nbFolderRefusal", "Can't delete reports", () => { nbFolderRefusal({ name: "reports" }, "It still holds 2 notebooks. Move or delete them first."); }],
+  ["notebook-files.js:nbFabricChangeGate", "Daily sales changed in Fabric", () => { nbFabricChangeGate(state.notebook); }],
+  ["notebook-files.js:nbOpenFileDialog", "Open a notebook file", () => {
+    nbOpenFileDialog({ name: "orders.ipynb", path: "C:/Downloads/orders.ipynb", size: 4096 }, "{}", { name: "orders", cells: 4, code: 3, markdown: 1, outputs_dropped: true, notes: [] }); }],
+  ["notebook-files.js:nbEditFromFabric", "Edit Daily load on this PC", () => {
+    nbEditFromFabric({ name: "Daily load", workspace_id: "w1", item_id: "i9", workspace_name: "Sales Dev" }); }],
+  ["engines.js:engineSwitchDialog", "Switch to DuckDB (this PC)?", () => {
+    engineSwitchDialog(state.notebook, "Python (this PC)", "DuckDB (this PC)", { decisions: ["keep", "restart"] }); }],
+  ["engines.js:engineRemoteDialog", "Use Fabric Spark?", () => {
+    engineRemoteDialog(state.notebook, { id: "fabric-spark", label: "Fabric Spark" },
+      { target: { name: "Sales Dev", id: "w1", state: "Active" }, risk: { outcome: "warning", lines: ["The capacity is 80% used this hour."] } }); }],
+  ["home-notebooks.js:homeRunNotebooks", "Run 2 notebooks?", () => { homeRunNotebooks(["Daily sales", "Orders"]); }],
+  ["sqlqueries.js:saveSqlQuery", "Save query", () => { saveSqlQuery({ kind: "lakehouse", name: "LH_Bronze" }, { name: "Query 1", sql: "SELECT 1" }, true); }],
+  ["schedules.js:editScheduleDialog", "Edit the schedule for Daily sales", () => {
+    editScheduleDialog({ title: "Edit the schedule for Daily sales", text: "Every day at 06:00", fabric: false, signedOut: false,
+      config: { every: "day", at: "06:00" }, save: async () => ({}) }); }],
+  ["incidents.js:priorityIncident", /^Change the priority of /, () => {
+    priorityIncident({ id: "inc1", env: "prod", priority: "P2", kind: "late", subject: "silver.orders", title: "silver.orders is late" }, () => {}); }],
+  ["meta.js:showGateError", "That was blocked", () => { showGateError("Blocked by 2 checks\n- silver.orders has no owner\n- The change window is closed"); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

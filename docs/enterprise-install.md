@@ -68,7 +68,7 @@ Each time the engine starts, and each time someone opens Settings, KratosForge c
 | The file was removed | `policy_file_changed`, with no SHA-256 and `state` `none` |
 | Nothing changed | Nothing |
 
-Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped.
+Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped. A [support bundle](troubleshooting.md) carries the same hash and last change in `about.json` (`policy_record`); making one only reads them.
 
 An [agent](agent.md#operate) on the same machine does the same at its start and every 15 minutes, in its own audit log.
 

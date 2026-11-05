@@ -1,0 +1,83 @@
+{
+  "name": "load_tables",
+  "properties": {
+    "parameters": {
+      "tables": {
+        "type": "array",
+        "defaultValue": [
+          "customers",
+          "orders"
+        ]
+      }
+    },
+    "variables": {
+      "loaded": {
+        "type": "Array",
+        "defaultValue": []
+      }
+    },
+    "activities": [
+      {
+        "name": "Each table",
+        "type": "ForEach",
+        "dependsOn": [],
+        "typeProperties": {
+          "items": {
+            "value": "@pipeline().parameters.tables",
+            "type": "Expression"
+          },
+          "isSequential": true,
+          "activities": [
+            {
+              "name": "Copy table",
+              "type": "Copy",
+              "dependsOn": [],
+              "typeProperties": {}
+            },
+            {
+              "name": "Note table",
+              "type": "AppendVariable",
+              "dependsOn": [
+                {
+                  "activity": "Copy table",
+                  "dependencyConditions": [
+                    "Succeeded"
+                  ]
+                }
+              ],
+              "typeProperties": {
+                "variableName": "loaded",
+                "value": "@item()"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "Summary",
+        "type": "SetVariable",
+        "dependsOn": [
+          {
+            "activity": "Each table",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "variableName": "pipelineReturnValue",
+          "setSystemVariable": true,
+          "value": [
+            {
+              "key": "loaded",
+              "value": {
+                "type": "Expression",
+                "content": "@join(variables('loaded'), ',')"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

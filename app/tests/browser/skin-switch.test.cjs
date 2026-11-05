@@ -97,7 +97,7 @@ test("a platform skin groups KratosForge's own pages under a label, and keeps wh
   // The skin never hides or changes where code runs: the same chip as in the KratosForge skin.
   await page().evaluate(() => { loadIntoState({ name: "Where", cells: [{ type: "code", cell_id: "c1", source: "1", meta: {} }] }); go("notebook"); });
   await page().locator(".engine-where").first().waitFor();
-  assert.strictEqual(await page().locator(".engine-where").first().textContent(), "This PC · no cloud cost");
+  assert.strictEqual(await page().locator(".engine-where").first().textContent(), "This PC · no Fabric job");
   assert.ok(await page().locator(".engine-where").first().isVisible());
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "skin-fabric-notebook.png") });
 });

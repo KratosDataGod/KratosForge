@@ -16,6 +16,10 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: notebook-files.js:nbOpenFileDialog, notebook-files.js:nbEditFromFabric, engines.js:engineSwitchDialog
 // axe covers dialogs: engines.js:engineRemoteDialog, home-notebooks.js:homeRunNotebooks, sqlqueries.js:saveSqlQuery
 // axe covers dialogs: schedules.js:editScheduleDialog, incidents.js:priorityIncident, meta.js:showGateError
+// axe covers dialogs: workloads.js:confirmWorkloadAction, platform.js:requestDialog, settings.js:usageDialog, settings.js:writeTestDialog
+// axe covers dialogs: settings.js:showMotionGallery, meta.js:newKeyTableDialog, meta.js:useKeyTableDialog, meta.js:pickEnvWorkspace
+// axe covers dialogs: mesh.js:linkDialog, mesh.js:domainDialog, governance.js:assignDialog, platform.js:keyTableDialog
+// axe covers dialogs: platform.js:sourceDialog, governance-checks.js:labelDialog, platform-notices.js:mailServerDialog, estate.js:measureDialog
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -126,6 +130,34 @@ const CASES = [
   ["incidents.js:priorityIncident", /^Change the priority of /, () => {
     priorityIncident({ id: "inc1", env: "prod", priority: "P2", kind: "late", subject: "silver.orders", title: "silver.orders is late" }, () => {}); }],
   ["meta.js:showGateError", "That was blocked", () => { showGateError("Blocked by 2 checks\n- silver.orders has no owner\n- The change window is closed"); }],
+  // Batch 3: workloads, requests, settings and Data mesh.
+  ["workloads.js:confirmWorkloadAction", "Run Daily sales?", () => {
+    confirmWorkloadAction({ id: "nb:Daily sales", name: "Daily sales" }, { action: "run", label: "Run Daily sales", env: "dev" }, "Run", false,
+      { pre: { allowed: true, workload: "Daily sales", capacity: false, writes: ["silver.orders"], reads: ["bronze.orders"], risk: null } }); }],
+  ["platform.js:requestDialog", "Request a key table", () => { requestDialog("key_table", "supplier", () => {}); }],
+  ["settings.js:usageDialog", "What's sent", () => { usageDialog({ today: "2026-11-05", install_id: null, waiting: [] }); }],
+  ["settings.js:writeTestDialog", "Test a write to OneLake", () => { writeTestDialog(() => {}); }],
+  ["settings.js:showMotionGallery", "Motion & effects", () => { showMotionGallery(); }],
+  ["meta.js:newKeyTableDialog", "New key table", () => { newKeyTableDialog(() => {}); }],
+  ["meta.js:useKeyTableDialog", "Use a key table", () => {
+    useKeyTableDialog({ key_tables: [{ name: "customer" }], central_key_tables: [{ name: "customer" }, { name: "supplier", description: "One row per supplier" }] }, () => {}); }],
+  ["meta.js:pickEnvWorkspace", "Workspace for Dev", () => { pickEnvWorkspace("dev", state.meta.project); }],
+  ["mesh.js:linkDialog", "New link", () => {
+    linkDialog({ project: { name: "Mesh" }, published: [{ id: "finance/customers", project: "Finance", status: "published",
+      ports: [{ port: "customers_v1" }, { port: "customers_v2" }] }] }, null, () => {}); }],
+  ["mesh.js:domainDialog", "New domain", () => {
+    domainDialog({ domains: [{ id: "d1", name: "Sales", parent_id: null }, { id: "d2", name: "Finance", parent_id: null }] }, null, () => {}); }],
+  ["governance.js:assignDialog", "Assign Table names", () => {
+    assignDialog({ id: "pol1", name: "Table names", current_version: 2, versions: [{ version: 1, status: "published" }, { version: 2, status: "published" }],
+      current: { definition: { scopes: ["enterprise", "domain", "project"], mandatory: false, params: { max_length: { value: 40, stricter: "lower" } } } } },
+      { domains: [{ id: "d1", name: "Sales", parent_id: null }], projects: ["Mesh"], options: { enforcements: ["advisory", "warn", "block"], severities: ["low", "medium", "high"] } }, { admin: true, domains: [] }, null, () => {}); }],
+  ["platform.js:keyTableDialog", "New key table", () => { keyTableDialog(() => {}, true); }],
+  ["platform.js:sourceDialog", "Add a source", () => {
+    sourceDialog(null, () => {}, ["SAP", "Salesforce"], [{ id: "shared", name: "Shared" }, { id: "hr", name: "HR", secure: true }]); }],
+  ["governance-checks.js:labelDialog", "Label email?", () => { labelDialog({ column: "email", entity: "customer", labels: ["confidential", "restricted"] }, () => {}); }],
+  ["platform-notices.js:mailServerDialog", "Company mail server", () => { mailServerDialog({ host: "smtp.contoso.com", port: 587, security: "starttls", sender: "kf@contoso.com" }, () => {}); }],
+  ["estate.js:measureDialog", "Capacity use this month", () => {
+    measureDialog("Capacity use this month", { classification: "measured", value: 12.5, unit: "cu_hours", metric: "cu_hours", methods: ["Sum of CU-seconds"], sources: ["Capacity metrics"] }, "USD"); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

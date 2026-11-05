@@ -237,9 +237,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("path", help="an .ipynb file made from a template")
     p.add_argument("--domain", required=True, help="the domain handing it over")
     p.add_argument("--owner", required=True, help="who in the domain owns its parameters")
-    p = tpl_sub.add_parser("accept", help="the enterprise accepts a requested handover; refused if the notebook changed")
+    p = tpl_sub.add_parser("accept", help="the enterprise accepts a requested handover; refused unless the notebook's "
+                                          "code and parameter values match the handover record")
     p.add_argument("path", help="an .ipynb file whose handover was requested")
     p.add_argument("--by", required=True, help="who in the enterprise accepts it")
+    p.add_argument("--record", help="the handover record the enterprise reviewed (default: <notebook>.handover.json)")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -667,7 +669,13 @@ def _templates(args: argparse.Namespace) -> int:
             write_text(record_path, json.dumps(record, indent=2) + "\n", newline="\n")
             print(f"Handover requested. Send {record_path.name} with the notebook to the enterprise.")
         else:
-            updated = nt.accept(nb, args.by)
+            record_path = Path(args.record) if args.record else path.with_name(f"{path.stem}.handover.json")
+            try:
+                record = json.loads(record_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                print(f"Can't read the handover record {record_path}: {exc}")
+                return 2
+            updated = nt.accept(nb, args.by, record)
             print(f"{path.name} is now enterprise-managed.")
     except ValueError as exc:
         print(str(exc))

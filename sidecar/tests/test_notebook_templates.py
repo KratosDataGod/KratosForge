@@ -199,11 +199,13 @@ def test_unknown_version_and_plain_notebooks():
 
 def test_handover_then_accept():
     nb, record = nt.handover(nt.load("fabric", "silver"), "Sales", "ana@contoso.com", name="nb_customers")
+    assert record["code_sha256"] == nt.code_digest(nb)
     assert nb["metadata"]["kratosforge"]["handover"]["state"] == "requested"
     assert record["schema"] == nt.HANDOVER_SCHEMA and record["template"] == "silver-upsert"
     assert record["parameters"]["target_table"] == "LH_Silver.crm.customers"
     assert set(record["support"]) == {"enterprise", "domain"}
-    accepted = nt.accept(nb, "Data platform")
+    nb["cells"].insert(1, {"cell_type": "markdown", "metadata": {}, "source": ["A note"]})  # notes don't count
+    accepted = nt.accept(nb, "Data platform", record)
     handover = accepted["metadata"]["kratosforge"]["handover"]
     assert handover["state"] == "enterprise" and handover["accepted_by"] == "Data platform"
     assert nt.check(accepted)["handover"]["state"] == "enterprise"
@@ -219,14 +221,33 @@ def test_handover_refused_for_domain_owned_work():
 
 
 def test_accept_needs_a_request_and_an_unchanged_notebook():
+    _, record = nt.handover(nt.load("fabric", "silver"), "Sales", "ana")
     with pytest.raises(ValueError, match="Request the handover first"):
-        nt.accept(nt.load("fabric", "silver"), "Data platform")
-    nb, _ = nt.handover(nt.load("fabric", "silver"), "Sales", "ana")
+        nt.accept(nt.load("fabric", "silver"), "Data platform", record)
+    nb, record = nt.handover(nt.load("fabric", "silver"), "Sales", "ana")
     changed = copy.deepcopy(nb)
     _cell(changed, "standard", "step-5")["source"].append("\nx = 1")
     with pytest.raises(ValueError, match="changed since"):
-        nt.accept(changed, "Data platform")
+        nt.accept(changed, "Data platform", record)
     assert "warning" in nt.check(changed)
+    with pytest.raises(ValueError, match="isn't a handover record"):
+        nt.accept(nb, "Data platform", {})
+
+
+def test_accept_refuses_parameter_values_changed_after_the_handover():
+    nb, record = nt.handover(nt.load("fabric", "silver"), "Sales", "ana")
+    params = _cell(nb, "parameters")
+    params["source"] = [line.replace("LH_Silver.crm.customers", "LH_Silver.finance.ledger") for line in params["source"]]
+    assert nt.check(nb)["status"] == "conforms"  # still the template, but not what the enterprise reviewed
+    with pytest.raises(ValueError, match="parameter values changed: target_table"):
+        nt.accept(nb, "Data platform", record)
+
+
+def test_accept_refuses_a_record_for_another_notebook():
+    nb, _ = nt.handover(nt.load("fabric", "silver"), "Sales", "ana")
+    _, other = nt.handover(nt.load("fabric", "gold_fact"), "Sales", "ana")
+    with pytest.raises(ValueError, match="isn't the one in the handover record"):
+        nt.accept(nb, "Data platform", other)
 
 
 # ---- command line
@@ -248,6 +269,15 @@ def test_cli_new_check_handover_accept(tmp_path, capsys):
     assert e.value.code == 0
     record = json.loads((tmp_path / "nb_sales.handover.json").read_text())
     assert record["template"] == "gold-fact" and record["domain"] == "Sales"
+    nb = json.loads(out.read_text())
+    params = _cell(nb, "parameters")
+    params["source"] = [line.replace("GOLD.SALES.FACT_SALES", "GOLD.SALES.FACT_OTHER") for line in params["source"]]
+    edited = tmp_path / "edited.ipynb"
+    edited.write_text(json.dumps(nb))
+    with pytest.raises(SystemExit) as e:  # the record belongs to nb_sales, and the values differ
+        cli.main(["templates", "accept", str(edited), "--by", "Data platform",
+                  "--record", str(tmp_path / "nb_sales.handover.json")])
+    assert e.value.code == 1
     with pytest.raises(SystemExit) as e:
         cli.main(["templates", "accept", str(out), "--by", "Data platform"])
     assert e.value.code == 0

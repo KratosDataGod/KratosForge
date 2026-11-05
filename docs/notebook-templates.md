@@ -120,8 +120,13 @@ fabric-desktop templates accept nb_crm_to_silver_customers.ipynb --by "Data plat
 - `handover` is refused unless the notebook conforms. It marks the notebook's handover as requested and writes
   `<notebook>.handover.json` next to it: the template, version, parameter values, domain, owner, a hash of the
   cells and the split of responsibilities. The enterprise keeps that record.
-- `accept` is for the enterprise. It is refused if the notebook changed since the handover was requested, and
+- `accept` is for the enterprise, with the handover record it reviewed (`--record`, by default
+  `<notebook>.handover.json`). It is refused unless the notebook's code and every parameter value are exactly
+  what the record describes, so a notebook repointed at another table after the handover isn't accepted. It
   marks the notebook as enterprise-managed.
+- The handover state in a notebook is plain metadata, not a signature: anyone who can edit the file can change
+  it. The enterprise's own copy of the handover record, kept on its side, is the source of truth for what it
+  supports; compare a notebook's code with the record's `code_sha256` and parameters, as `accept` does.
 - When a handed-over notebook changes later, `check` warns that it left the enterprise's support.
 
 `standards.json` keeps the hash of every standard cell of every released version, so a notebook built from an

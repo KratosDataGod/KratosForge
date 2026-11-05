@@ -202,6 +202,13 @@ def _handover_meta(nb: dict[str, Any]) -> dict[str, Any]:
     return meta.setdefault("handover", {})
 
 
+def code_digest(nb: dict[str, Any]) -> str:
+    """SHA-256 of every code cell's source, in order. Outputs, Markdown and metadata don't count, so running
+    the notebook or adding notes doesn't change it; any change to code or parameter values does."""
+    sources = [cell_hash(source_of(c)) for c in nb.get("cells", []) if c.get("cell_type") == "code"]
+    return hashlib.sha256(json.dumps(sources).encode("utf-8")).hexdigest()
+
+
 def handover(nb: dict[str, Any], domain: str, owner: str, name: str = "") -> tuple[dict[str, Any], dict[str, Any]]:
     """The notebook with its handover requested, and the record the enterprise keeps.
 
@@ -216,30 +223,43 @@ def handover(nb: dict[str, Any], domain: str, owner: str, name: str = "") -> tup
     at = _now()
     _handover_meta(out).update({"state": "requested", "domain": domain.strip(), "owner": owner.strip(),
                                 "requested_at": at})
-    body = json.dumps(out.get("cells", []), sort_keys=True).encode("utf-8")
     record = {
         "schema": HANDOVER_SCHEMA, "name": name, "template": result["template"], "platform": result["platform"],
         "kind": result["kind"], "version": result["version"], "upgrade_available": result["upgrade_available"],
         "parameters": result["parameters"], "domain": domain.strip(), "owner": owner.strip(),
-        "requested_at": at, "cells_sha256": hashlib.sha256(body).hexdigest(),
+        "requested_at": at, "code_sha256": code_digest(nb),
         "support": {"enterprise": "the standard cells, upgrades and run failures they cause",
                     "domain": "parameter values: table names, keys, columns, measures and what the data means"},
     }
     return out, record
 
 
-def accept(nb: dict[str, Any], by: str) -> dict[str, Any]:
-    """The notebook marked as enterprise-managed, after the enterprise accepts a requested handover."""
+def accept(nb: dict[str, Any], by: str, record: dict[str, Any]) -> dict[str, Any]:
+    """The notebook marked as enterprise-managed, once the enterprise accepts the handover ``record`` it reviewed.
+
+    Refused unless the notebook's code, parameter values included, is exactly what the record describes."""
     if not by.strip():
         raise ValueError("Say who in the enterprise accepts it")
-    meta = _handover_meta(copy.deepcopy(nb))
-    if meta.get("state") != "requested":
+    if ((nb.get("metadata") or {}).get("kratosforge") or {}).get("handover", {}).get("state") != "requested":
         raise ValueError("Request the handover first (handover), then accept it")
+    if not isinstance(record, dict) or record.get("schema") != HANDOVER_SCHEMA:
+        raise ValueError("That isn't a handover record")
     result = check(nb)
     if result["status"] != "conforms":
         raise ValueError("The notebook changed since the handover was requested:\n- " + "\n- ".join(result["changes"]))
+    problems = [f"its {k} is {result.get(k)!r}, the record says {record.get(k)!r}"
+                for k in ("template", "platform", "version") if result.get(k) != record.get(k)]
+    if result["parameters"] != record.get("parameters"):
+        changed = sorted(k for k in set(result["parameters"]) | set(record.get("parameters") or {})
+                         if result["parameters"].get(k) != (record.get("parameters") or {}).get(k))
+        problems.append(f"parameter values changed: {', '.join(changed)}")
+    if code_digest(nb) != record.get("code_sha256"):
+        problems.append("its code isn't the code the record describes")
+    if problems:
+        raise ValueError("The notebook isn't the one in the handover record:\n- " + "\n- ".join(problems))
     out = copy.deepcopy(nb)
-    _handover_meta(out).update({"state": "enterprise", "accepted_by": by.strip(), "accepted_at": _now()})
+    _handover_meta(out).update({"state": "enterprise", "accepted_by": by.strip(), "accepted_at": _now(),
+                                "code_sha256": record["code_sha256"]})
     return out
 
 

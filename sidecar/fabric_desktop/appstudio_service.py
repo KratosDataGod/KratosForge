@@ -12,7 +12,10 @@ checked on every save, test and use: it can turn connections off, limit the prov
 chosen address may reach, and refuse sample rows. Testing a connection lists the models its key can see
 (no tokens are spent); nothing here sends application context to a model yet.
 
-Nothing here reads OneLake or writes to Fabric; publishing comes in a later update, behind a typed approval.
+Publishing (AS-13) is the one Fabric write: appstudio_publish_check reads the bound semantic model, the
+workspace's items and its name, and says what would happen; appstudio_publish makes the report only for the
+check the person saw (its fingerprint), with the workspace's name typed, and with ``replace`` when a report of
+that name is already there. Nothing here reads OneLake.
 """
 
 from __future__ import annotations
@@ -28,11 +31,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import http_session, sql_exec
+from . import http_session, redact, sql_exec
 from .jsonfile import write_bytes
 from .appstudio import discovery, edit, generate
 from .appstudio import policy as as_policy
 from .appstudio import project, sample, templates
+from .appstudio import publish as publishing
 from .appstudio import providers as prov
 from .appstudio import spec as specs
 
@@ -41,13 +45,14 @@ METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_ch
            "appstudio_restore_version", "appstudio_save_as", "appstudio_export", "appstudio_import",
            "appstudio_preview", "appstudio_connections", "appstudio_connection_save", "appstudio_connection_delete",
            "appstudio_connection_test", "appstudio_plan", "appstudio_create_from_plan",
-           "appstudio_change_plan", "appstudio_apply_change"}
+           "appstudio_change_plan", "appstudio_apply_change", "appstudio_publish_check", "appstudio_publish"}
 SOURCES_FROM_UI = {"visual", "manual"}  # an AI change arrives through its own method, after its checks
 MAX_DESCRIPTION = 4000
 MAX_PLANS = 20  # plans waiting for approval, kept in memory only
 PLAN_MINUTES = 60
 _PLANS_LOCK = threading.Lock()  # guards every service's plan store, made once
 _WRITE_LOCK = threading.Lock()  # one project write at a time, so an approved change is checked and saved together
+_PUBLISH_LOCK = threading.Lock()  # one publish at a time from this PC
 _GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
 
 
@@ -378,6 +383,107 @@ class AppStudioMixin:
                     plans.setdefault(str(change_id), kept)
                 raise
         return self._appstudio_opened(folder)
+
+    # ---------------------------------------------------------------- publish (AS-13)
+
+    def _appstudio_publish_state(self, folder: Path, workspace_id: str, name: str) -> dict[str, Any]:
+        """Everything a publish depends on, read again each time: the check, the workspace and any report there
+        under this name. Reads only."""
+        got = project.open_project(folder)
+        if not got["valid"]:
+            raise specs.SpecError(got["problems"])
+        spec = got["spec"]
+        source = publishing.model_source(spec)
+        model_id = str((source or {}).get("item_id", ""))
+        ws = str(workspace_id or (source or {}).get("workspace_id", ""))
+        report = publishing.report_name(name, spec["name"])
+        metadata = None
+        if source is not None:
+            if not (_GUID.fullmatch(model_id) and _GUID.fullmatch(str(source.get("workspace_id", "")))):
+                raise ValueError("The app's semantic model isn't named by its ids. Connect it again.")
+            bim = self._model_bim(str(source["workspace_id"]), {"id": model_id, "displayName": source.get("name") or ""})  # type: ignore[attr-defined]
+            metadata = discovery.from_bim(bim)
+        checked = publishing.check(spec, metadata, model_id)
+        out: dict[str, Any] = {"project": folder.name, "name": report, "model": {"id": model_id, "name": (source or {}).get("name", "")},
+                               "ready": checked["ready"], "problems": checked["problems"], "warnings": checked["warnings"],
+                               "parts": sorted(checked["parts"]), "workspace_id": ws, "workspace_name": "", "conflict": None,
+                               "unfinished": None, "fingerprint": ""}
+        history = project.publish_history(folder)
+        left = publishing.unfinished(history)
+        if left:
+            out["unfinished"] = {"at": left.get("at", ""), "workspace_id": left.get("workspace_id", ""), "name": left.get("name", "")}
+        if not checked["ready"]:
+            return {**out, "_parts": {}}
+        if not _GUID.fullmatch(ws):
+            raise ValueError("Choose the workspace to publish to.")
+        workspace = self.fabric.get_workspace(ws) or {}  # type: ignore[attr-defined]
+        out["workspace_name"] = str(workspace.get("displayName") or "")
+        if not out["workspace_name"]:
+            raise RuntimeError("Fabric didn't say what the workspace is called. Try again.")
+        items = self.fabric.list_items(ws)  # type: ignore[attr-defined]
+        out["conflict"] = publishing.conflict(items, report, publishing.published_ids(history, ws))
+        out["fingerprint"] = publishing.fingerprint(spec, ws, model_id, report, checked["parts"], out["conflict"])
+        return {**out, "_parts": checked["parts"]}
+
+    def _appstudio_left_behind(self, ws: str, report: str) -> str:
+        """The id of a report a failed create may have left in the workspace, or "" (also when the lookup fails:
+        the publish's own failure is what the person needs to see)."""
+        try:
+            return str((self.fabric.find_item(ws, publishing.REPORT_TYPE, report) or {}).get("id") or "")  # type: ignore[attr-defined]
+        except Exception:  # silent-ok: only a hint after the real failure, which is raised and recorded
+            return ""
+
+    def appstudio_publish_check(self, project_name: str, workspace_id: str = "", name: str = "") -> dict[str, Any]:
+        """What publishing would do, and what stops it. Reads the semantic model, the workspace's name and its
+        items; writes nothing. ``confirm_text`` is what the person types to publish."""
+        got = self._appstudio_publish_state(self._appstudio_project(project_name), workspace_id, name)
+        got.pop("_parts")
+        return {**got, "confirm_text": got["workspace_name"]}
+
+    def appstudio_publish(self, project_name: str, fingerprint: str, confirm_name: str = "", workspace_id: str = "",
+                          name: str = "", replace: bool = False) -> dict[str, Any]:
+        """Publish the app as a Power BI report, for the check the person saw. Everything is read again first;
+        nothing is written unless the fingerprint still matches, the workspace's name is typed exactly, and
+        ``replace`` is given when a report of that name is already there. Otherwise it returns what's missing:
+        ``stale``, ``needs_replace`` or ``needs_confirm``. The attempt is kept in the project's history."""
+        folder = self._appstudio_project(project_name)
+        if not _PUBLISH_LOCK.acquire(blocking=False):
+            raise RuntimeError("A publish is already running. Wait for it to finish.")
+        try:
+            state = self._appstudio_publish_state(folder, workspace_id, name)
+            parts = state.pop("_parts")
+            base = {**state, "confirm_text": state["workspace_name"], "done": False}
+            if not state["ready"]:
+                raise specs.SpecError(state["problems"])
+            if not fingerprint or fingerprint != state["fingerprint"]:
+                return {**base, "stale": True}
+            existing = state["conflict"]
+            if existing and not replace:
+                return {**base, "needs_replace": True}
+            if confirm_name != state["workspace_name"]:
+                return {**base, "needs_confirm": True}
+            ws, report = state["workspace_id"], state["name"]
+            definition = publishing.definition(parts)
+            project.record_publish(folder, "started", ws, (existing or {}).get("id", ""), report, replaced=bool(existing))
+            try:
+                if existing:
+                    self.fabric.update_item_definition(ws, existing["id"], definition)  # type: ignore[attr-defined]
+                    report_id = existing["id"]
+                else:
+                    made = self.fabric.create_item(ws, publishing.REPORT_TYPE, report, definition)  # type: ignore[attr-defined]
+                    report_id = str(made.get("id") or "")
+            except Exception as exc:
+                found = existing["id"] if existing else self._appstudio_left_behind(ws, report)
+                why = redact.one_line(f"{type(exc).__name__}: {exc}", 300)
+                project.record_publish(folder, "failed", ws, found, report, replaced=bool(existing), note=why)
+                left = (f" A report named {report} is in the workspace now; publishing again replaces it." if found and not existing
+                        else " The report in Fabric may be half updated; publishing again replaces it." if existing else "")
+                raise RuntimeError(f"Publishing didn't finish ({why}).{left}") from exc
+            project.record_publish(folder, "done", ws, report_id, report, replaced=bool(existing))
+            return {**base, "done": True, "report_id": report_id, "replaced": bool(existing),
+                    "url": f"https://app.powerbi.com/groups/{ws}/reports/{report_id}" if _GUID.fullmatch(report_id) else ""}
+        finally:
+            _PUBLISH_LOCK.release()
 
 
 def redact_name(value: Any) -> str:

@@ -299,8 +299,16 @@ def _format_case(toks: list[object], k: int | None, negative: bool) -> list[_Ite
     return out
 
 
+_INTEGER_TYPES = "'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT'"
+
+
+def spark_format(fmt: str) -> str:
+    """The format as Spark reads it: upper case (ASCII letters only, as Locale.ROOT)."""
+    return fmt.translate(str.maketrans("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+
+
 def format_sql(fmt: str) -> str:
-    """DuckDB SQL writing fj_arg0 (a decimal or an integer) with ``fmt`` as Spark's to_char does.
+    """DuckDB SQL writing fj_arg0 (a number, or text read as one) with ``fmt`` as Spark's to_char does.
     kf_v holds the number's digits before the point (b, no leading zeros), after it (a, padded to the
     format with zeros) and whether it is negative (n)."""
     toks = tokens(fmt)
@@ -329,14 +337,21 @@ def format_sql(fmt: str) -> str:
                          f"THEN {sql_of(_format_case(toks, k, negative))}")
         cases.append(f"WHEN kf_v.n = {str(negative).upper()} AND kf_v.b IS NULL "
                      f"THEN {sql_of(_format_case(toks, None, negative))}")
-    plain = "CAST(fj_arg0 AS VARCHAR)"
-    digits = f"LTRIM(SPLIT_PART({plain}, '.', 1), '-0')"
-    frac = f"RTRIM(SPLIT_PART({plain}, '.', 2), '0')"
+    plain = (f"CASE WHEN typeof(fj_arg0) LIKE 'DECIMAL%' OR typeof(fj_arg0) IN ({_INTEGER_TYPES}) "
+             "THEN CAST(fj_arg0 AS VARCHAR) "
+             # Spark casts text to DECIMAL(38,18), a double to DECIMAL(30,15) and a float to DECIMAL(14,7),
+             # from the value's shortest text; a wider decimal first, as DuckDB rounds '5e-19' wrongly.
+             "WHEN typeof(fj_arg0) = 'VARCHAR' THEN CAST(TRY_CAST(fj_arg0 AS DECIMAL(38, 18)) AS VARCHAR) "
+             "WHEN typeof(fj_arg0) = 'DOUBLE' THEN CAST(TRY_CAST(TRY_CAST(CAST(fj_arg0 AS VARCHAR) "
+             "AS DECIMAL(38, 23)) AS DECIMAL(30, 15)) AS VARCHAR) "
+             "WHEN typeof(fj_arg0) = 'FLOAT' THEN CAST(TRY_CAST(TRY_CAST(CAST(fj_arg0 AS VARCHAR) "
+             "AS DECIMAL(38, 30)) AS DECIMAL(14, 7)) AS VARCHAR) "
+             "ELSE ERROR('to_char() can''t run on this PC the way it runs in Fabric, so nothing ran: it writes "
+             "numbers and text here, not a ' || typeof(fj_arg0) || '. Run the cell in Fabric.') END")
+    digits = "LTRIM(SPLIT_PART(kf_p, '.', 1), '-0')"
+    frac = "RTRIM(SPLIT_PART(kf_p, '.', 2), '0')"
     fits = f"LENGTH({digits}) <= {nb} AND LENGTH({frac}) <= {na}"
     value = (f"{{'b': CASE WHEN {fits} THEN {digits} ELSE NULL END, 'a': RPAD({frac}, {na}, '0'), "
-             f"'n': fj_arg0 < 0}}")
-    return (f"CASE WHEN fj_arg0 IS NULL THEN NULL WHEN typeof(fj_arg0) NOT LIKE 'DECIMAL%' AND typeof(fj_arg0) NOT IN "
-            "('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT') "
-            "THEN ERROR('to_char() can''t run on this PC the way it runs in Fabric, so nothing ran: it writes "
-            "decimals and whole numbers here; cast a ' || typeof(fj_arg0) || ' to a decimal first, or run the cell "
-            f"in Fabric.') ELSE LIST_TRANSFORM([{value}], kf_v -> CASE " + " ".join(cases) + " END)[1] END")
+             f"'n': STARTS_WITH(kf_p, '-')}}")
+    return (f"CASE WHEN fj_arg0 IS NULL THEN NULL ELSE LIST_TRANSFORM([{plain}], kf_p -> CASE WHEN kf_p IS NULL "
+            f"THEN NULL ELSE LIST_TRANSFORM([{value}], kf_v -> CASE " + " ".join(cases) + " END)[1] END)[1] END")

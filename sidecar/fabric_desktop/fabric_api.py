@@ -548,6 +548,20 @@ class FabricClient:
         return next((i for i in self.list_items(workspace_id)
                      if i.get("type") == item_type and i.get("displayName") == name), None)
 
+    def create_item(self, workspace_id: str, item_type: str, name: str, definition: dict[str, Any] | None = None,
+                    description: str = "") -> dict[str, Any]:
+        """Create one item. Never looks for an existing one first: the caller has already decided it is new.
+        When the operation gives no result, the item is looked up by name for its id."""
+        body: dict[str, Any] = {"displayName": name, "type": item_type}
+        if definition:
+            body["definition"] = definition
+        if description:
+            body["description"] = description
+        created = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items", json=body))
+        if not created.get("id"):
+            created = self.find_item(workspace_id, item_type, name) or created
+        return created
+
     def save_item(self, workspace_id: str, item_type: str, name: str, parts: dict[str, str] | None = None,
                   description: str = "") -> dict[str, Any]:
         """Create an item of this type, or replace the definition of the one with this name.

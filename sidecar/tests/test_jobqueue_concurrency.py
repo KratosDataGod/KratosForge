@@ -145,11 +145,15 @@ def _agent(tmp_path: Path, lease: float) -> Agent:
     return Agent(dataclasses.replace(agent_config.load(path), job_lease_seconds=lease))
 
 
-def _short_busy_timeout(monkeypatch) -> None:
+def _short_busy_timeout(monkeypatch):
     """The queue's connections wait 0.05 s for a lock instead of 30, so a held lock is a real
-    "database is locked" error at the heartbeat, as one held longer than 30 s would be."""
-    real = sqlite3.connect
-    monkeypatch.setattr(jobqueue.sqlite3, "connect", lambda path, timeout=5.0, **k: real(path, timeout=0.05, **k))
+    "database is locked" error at the heartbeat, as one held longer than 30 s would be. Returns
+    ``restore``: once the test lets the lock go, call it so the test's own writes and the heartbeat's
+    wait for each other as in the app (with 0.05 s both ways, they failed each other at random)."""
+    real, short = sqlite3.connect, [True]
+    monkeypatch.setattr(jobqueue.sqlite3, "connect",
+                        lambda path, timeout=5.0, **k: real(path, timeout=0.05 if short[0] else timeout, **k))
+    return lambda: short.__setitem__(0, False)
 
 
 def test_a_lock_held_across_several_beats_doesnt_end_the_heartbeat_or_lose_the_lease(tmp_path, monkeypatch):
@@ -157,7 +161,7 @@ def test_a_lock_held_across_several_beats_doesnt_end_the_heartbeat_or_lose_the_l
     agent.queue.enqueue("meta", {"env": "dev"})
     job = agent.queue.claim(agent.config.name, 0.6)
     holder = sqlite3.connect(agent.queue.path, timeout=5, isolation_level=None)
-    _short_busy_timeout(monkeypatch)
+    restore = _short_busy_timeout(monkeypatch)
     calls, real = [], agent.queue.heartbeat
 
     def counted(*a, **k):
@@ -174,14 +178,15 @@ def test_a_lock_held_across_several_beats_doesnt_end_the_heartbeat_or_lose_the_l
             time.sleep(0.01)
         assert len(calls) >= 2
         time.sleep(0.05)
+        locked_until = agent.queue.get(job["id"])["lease_until"]  # a read: WAL lets it past the lock
         holder.execute("commit")
-        before = len(calls)
+        restore()
         deadline = time.monotonic() + 10
-        while len(calls) < before + 2 and time.monotonic() < deadline:
+        while agent.queue.get(job["id"])["lease_until"] == locked_until and time.monotonic() < deadline:
             time.sleep(0.01)
         assert beat.is_alive() and not lost.is_set()
         row = agent.queue.get(job["id"])
-        assert row["state"] == "running" and row["lease_until"] > time.time()  # renewed once the lock went
+        assert row["state"] == "running" and row["lease_until"] > locked_until  # renewed once the lock went
         assert agent.queue.recover() == []
     finally:
         done.set()
@@ -195,7 +200,7 @@ def test_a_lock_that_outlasts_the_lease_loses_the_job_to_the_next_claim_and_the_
     owner = agent.config.name
     job = agent.queue.claim(owner, 0.3)
     holder = sqlite3.connect(agent.queue.path, timeout=5, isolation_level=None)
-    _short_busy_timeout(monkeypatch)
+    restore = _short_busy_timeout(monkeypatch)
     done, lost = threading.Event(), threading.Event()
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     try:
@@ -206,6 +211,7 @@ def test_a_lock_that_outlasts_the_lease_loses_the_job_to_the_next_claim_and_the_
         holder.execute("update jobs set state = 'queued', owner = null, lease_until = null where id = ?"
                        " and lease_until < ?", (job["id"], time.time()))
         holder.execute("commit")
+        restore()
         assert lost.wait(5), "the run never learned its lease was gone"
         beat.join(5)
         assert not beat.is_alive()

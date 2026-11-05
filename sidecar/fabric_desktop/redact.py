@@ -55,9 +55,9 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b"), REMOVED),
     (re.compile(r"(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])"), REMOVED),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
-    # AI model keys (App Studio model connections): Anthropic, OpenAI (project, service account, admin and
-    # older keys) and Google AI Studio.
-    (re.compile(r"\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})"), REMOVED),
+    # AI model keys (App Studio model connections): any sk- key (Anthropic, OpenAI project, service account,
+    # admin and older keys, and other providers' sk- keys) and Google AI Studio.
+    (re.compile(r"(?<![A-Za-z0-9_\-])(?:sk-[A-Za-z0-9_\-]{20,}|AIza[0-9A-Za-z_\-]{35})"), REMOVED),
     # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
     (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     # A Databricks OAuth secret (a service principal's client secret: dose + 32 hex).

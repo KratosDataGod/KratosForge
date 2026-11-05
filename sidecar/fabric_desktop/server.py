@@ -111,7 +111,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
            "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
-           "telemetry_status", "telemetry_new_install_id"}
+           "telemetry_status", "telemetry_new_install_id",
+           "support_bundle_preview", "support_bundle_save", "support_bundle_reveal"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).

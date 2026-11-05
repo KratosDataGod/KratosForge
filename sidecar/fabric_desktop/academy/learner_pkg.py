@@ -29,6 +29,7 @@ SOURCES: dict[str, Path] = {
     "spark_builtins_sql.py": _ENGINE / "spark_builtins_sql.py",
     "sql_dialects.py": _ENGINE / "sql_dialects.py",
     "spark_decimals.py": _ENGINE / "spark_decimals.py",
+    "spark_hash.py": _ENGINE / "spark_hash.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",
 }
 REWRITES = {"pyspark_shim.py": (("from .. import spark_compat", "from . import spark_compat"),

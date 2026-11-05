@@ -7,8 +7,10 @@ wrappers) and expect every reach outside the exercise folder to fail."""
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -408,8 +410,12 @@ def test_a_refused_copy_back_leaves_the_workspace_as_it_was(tmp_path, monkeypatc
 def test_profiles_left_by_a_crash_are_swept(tmp_path, monkeypatch):
     api = appcontainer._api()
     left = appcontainer.Profile(api)   # never closed: as after a crash
+    # Aged by its folder's time, not by ORPHAN_AGE=0: a folder Windows stamps a few ms after
+    # time.time() read as not yet old and was skipped (flaky on Windows CI), and an age of 0 would
+    # also sweep the live profiles of exercises other test workers are running.
+    old = time.time() - 2 * appcontainer.ORPHAN_AGE
+    os.utime(left.folder, (old, old))
     monkeypatch.setattr(appcontainer, "_swept", False)
-    monkeypatch.setattr(appcontainer, "ORPHAN_AGE", 0.0)
     assert appcontainer.sweep(api) >= 1
     assert not left.folder.exists()
     monkeypatch.setattr(appcontainer, "_swept", False)

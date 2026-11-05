@@ -1,0 +1,95 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E63",
+  "version": 1,
+  "status": "draft",
+  "title": "File layout: partition a Delta table so queries can skip files",
+  "objectives": [
+    "3.3.5"
+  ],
+  "objective_text": "Choose a partition column that matches how a table is read and has few distinct values, and write the Delta table with it.",
+  "scenario": "Finance reads sales one month at a time, and the table will hold years of data. The first version was written as one undivided table. Write it so a month's query can skip every other month's files, without making thousands of tiny folders.",
+  "prerequisites": [
+    "LM-27"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "delta_lab",
+  "engine_label": "Python with delta-rs and Polars on this PC",
+  "lesson": "lesson.md",
+  "starter": "write_sales.py",
+  "files": [
+    "sales.csv"
+  ],
+  "verifies": [
+    "Your script ran on this PC and wrote a Delta table partitioned by sale_month, one partition per month, with all 600 sales once each."
+  ],
+  "does_not_verify": [
+    "How Spark in Fabric prunes partitions or uses file statistics when it reads: this checks the table's layout in its log, not a query plan.",
+    "Whether partitioning is worth it at your real data size: small tables often read faster unpartitioned."
+  ],
+  "datasets": [],
+  "expected": {
+    "table": "tables/sales",
+    "partition_by": [
+      "sale_month"
+    ],
+    "rows": 600
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error; read its output."
+    },
+    {
+      "kind": "delta_table",
+      "path": "tables/sales",
+      "partition_by": [
+        "sale_month"
+      ],
+      "files_min": 3,
+      "files_max": 12,
+      "pass": "Partitioned by month, a few files per month.",
+      "fail": "Check what the table is partitioned by, and how many files that made."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/sales.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "unique",
+          "column": "sale_id"
+        },
+        {
+          "rule": "row_count",
+          "equals": 600
+        },
+        {
+          "rule": "accepted",
+          "column": "sale_month",
+          "values": [
+            "2026-01",
+            "2026-02",
+            "2026-03"
+          ]
+        }
+      ],
+      "pass": "All 600 sales, each in its month.",
+      "fail": "Sales are missing or doubled, or sale_month isn't 'YYYY-MM'."
+    }
+  ],
+  "hints": [
+    "A good partition column matches the filter readers use and has few distinct values. How do reports filter this table?",
+    "Partitioning by sale_date makes one folder per day; by sale_id, one per sale. Both make many tiny files.",
+    "Add sale_month with pl.col('sale_date').dt.strftime('%Y-%m'), then write_deltalake(TABLE, ..., partition_by=['sale_month'])."
+  ],
+  "explanation": "Partitioning writes each value of a column to its own folder, so a query filtering on that column reads only the matching folders. It helps only when queries filter on the column and each partition holds plenty of data: a high-cardinality column (a date at day level for a small table, or an id) produces many tiny files and slows everything down. A month column suits monthly reporting. For finer pruning inside partitions, Delta also uses file statistics, and Fabric adds V-Order and Z-order options.",
+  "remediation": [
+    "LM-27",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset removes the table and the snapshot and puts the starter script back."
+}

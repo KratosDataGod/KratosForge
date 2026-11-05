@@ -9,15 +9,15 @@ import shutil
 import duckdb
 import pytest
 
-from fabric_desktop.academy import exercises, pipelab, registry
+from fabric_desktop.academy import exercises, pipelab, pylab, registry, workspace
 
 PACK = "dp-700"
 
 
 def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
-    assert exercises.ids(PACK) == ["E19", "E21", "E23", "E24", "E25", "E33", "E35", "E36", "E37", "E38", "E39",
-                                   "E43", "E48", "E49", "E57", "E58", "E59"]
+    assert exercises.ids(PACK) == ["E19", "E21", "E22", "E23", "E24", "E25", "E33", "E35", "E36", "E37", "E38",
+                                   "E39", "E43", "E48", "E49", "E56", "E57", "E58", "E59", "E63"]
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))
@@ -39,6 +39,15 @@ def test_the_starter_does_not_pass_yet(tmp_path):
             work.mkdir()
             shutil.copy(folder / ex["starter"], work / ex["starter"])
             assert not pipelab.grade(work, ex, folder)["passed"], eid
+            continue
+        if ex["adapter"] in pylab.ADAPTERS:   # the starter script, run in the learner process
+            folder = registry.ROOT / PACK / "exercises" / eid
+            data_root = tmp_path / f"{eid}-data"
+            work = workspace.workspace_dir(data_root, "starter", eid)
+            work.mkdir(parents=True)
+            pylab.prepare(work, folder, ex, (folder / ex["starter"]).read_text(encoding="utf-8"))
+            res = pylab.grade(work, ex["starter"], ex["validation"], data_root, appcontainer_ok=pylab.appcontainer_ok(ex))
+            assert not res["passed"], eid
             continue
         ref = exercises.reference(PACK, eid)
         assert not exercises.grade(ref["setup"], ex["validation"], ref["starter"], ref["solution"])["passed"], eid

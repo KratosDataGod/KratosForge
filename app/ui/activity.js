@@ -166,7 +166,7 @@ function errorPanel(err, { retry = null, label = "", hint = "" } = {}) {
 
 // Items: {id, status: info|ok|error|failed|running, title, text, details, at, progress, results, url, request}.
 // Kept on this PC so the history survives a restart; nothing in them is needed to work.
-const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null };
+const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null, incidents: null };
 
 (function loadActivity() {
   try {
@@ -182,7 +182,26 @@ function saveActivity() {
   } catch { /* storage full or blocked: the tray still works for this session */ }
 }
 
+// The same problem again within ten minutes (the engine failing to start fails every call the pages
+// make) updates the entry already there, with a count and the other places it happened, instead of
+// adding one per call: 34 copies of one failure hide the problem that's actually new.
+const REPEAT_MS = 10 * 60 * 1000;
+
+function repeatOf(item) {
+  if (item.id || !PROBLEM.has(item.status)) return -1;
+  const now = Date.now();
+  return activity.items.findIndex((x) => x.status === item.status && (x.text || "") === (item.text || "")
+    && (x.details || "") === (item.details || "") && now - new Date(x.at).getTime() < REPEAT_MS);
+}
+
 function logActivity(item) {
+  const r = repeatOf(item);
+  if (r >= 0) {
+    const was = activity.items[r];
+    const titles = [...new Set([was.title, ...(was.alsoIn || []), item.title].filter(Boolean))];
+    item = { ...item, id: was.id, repeats: (was.repeats || 1) + 1, title: item.title || was.title,
+      alsoIn: titles.filter((t) => t !== (item.title || was.title)).slice(-5), at: new Date().toISOString() };
+  }
   const id = item.id || `a${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const i = activity.items.findIndex((x) => x.id === id);
   const next = { at: new Date().toISOString(), ...(i >= 0 ? activity.items[i] : {}), ...item, id, stale: false };
@@ -204,13 +223,15 @@ function renderBell() {
   const unseen = (i) => new Date(i.at).getTime() > activity.seenAt;
   const problems = activity.items.filter((i) => PROBLEM.has(i.status) && unseen(i)).length;
   const notices = activity.items.filter((i) => i.notice && !PROBLEM.has(i.status) && unseen(i)).length;
-  const count = running + problems + notices;
+  const forYou = typeof incWaitingOnMe === "function" ? incWaitingOnMe().length : 0;  // incidents.js
+  const count = running + problems + notices + forYou;
   const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : "",
-    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : ""].filter(Boolean);
+    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : "",
+    forYou ? `${forYou} incident${forYou === 1 ? "" : "s"} waiting on you` : ""].filter(Boolean);
   bell.setAttribute("aria-label", `Activity${parts.length ? `, ${parts.join(", ")}` : ""}`);
   bell.title = parts.length ? `Activity: ${parts.join(", ")}` : "Activity";
   bell.classList.toggle("on", activity.open);
-  bell.replaceChildren(icon("alert", 20), ...(count ? [h("span", { class: `badge${problems ? " bad" : ""}` }, count)] : []));
+  bell.replaceChildren(icon("alert", 20), ...(count ? [h("span", { class: `badge${problems || forYou ? " bad" : ""}` }, count)] : []));
 }
 
 function toggleTray(open = !activity.open) {
@@ -220,7 +241,7 @@ function toggleTray(open = !activity.open) {
   renderBell();
   renderTray();
   placeFabricView();
-  if (open) loadPlatformNotices().then(() => { if (activity.open) renderTray(); });
+  if (open) Promise.all([loadPlatformNotices(), loadIncidentsForMe()]).then(() => { if (activity.open) renderTray(); });
 }
 
 function renderTray() {
@@ -230,6 +251,8 @@ function renderTray() {
   const problems = activity.items.filter((i) => PROBLEM.has(i.status));
   const platform = platformNoticesShown();
   if (activity.filter === "platform" && !platform) activity.filter = "all";
+  const forYou = typeof incidentsForMeShown === "function" && incidentsForMeShown();  // incidents.js
+  if (activity.filter === "for_you" && !forYou) activity.filter = "all";
   const shown = activity.filter === "running" ? running : activity.filter === "problems" ? problems : activity.items;
   const chip = (id, label) => h("button", { class: `chip${activity.filter === id ? " on" : ""}`, onclick: () => { activity.filter = id; renderTray(); } }, label);
   root.replaceChildren(h("aside", { class: "tray", "aria-label": "Activity" },
@@ -240,8 +263,10 @@ function renderTray() {
       }, "tool link small"),
       h("button", { class: "tool small", "aria-label": "Close", onclick: () => toggleTray(false) }, icon("dismiss", 16))),
     h("div", { class: "tray-chips" }, chip("all", "All"), chip("running", `Running ${running.length}`), chip("problems", `Problems ${problems.length}`),
+      forYou ? chip("for_you", incForYouLabel()) : null,
       platform ? chip("platform", `Platform ${activity.platform.open.length}`) : null),
-    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : shown.length ? shown.map(trayItem)
+    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : activity.filter === "for_you" ? incidentsTrayList()
+      : shown.length ? shown.map(trayItem)
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 
@@ -262,6 +287,8 @@ function trayItem(i) {
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
     i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
+    i.repeats > 1 ? h("div", { class: "muted-text small" }, `Happened ${i.repeats} times`
+      + (i.alsoIn?.length ? `, also in: ${i.alsoIn.join(", ")}` : "")) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);

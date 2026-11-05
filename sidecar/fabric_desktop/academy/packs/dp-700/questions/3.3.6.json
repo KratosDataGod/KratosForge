@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3.6",
+  "questions": [
+    {
+      "id": "3.3.6-q1",
+      "type": "single",
+      "stem": "Which WHERE clause lets the engine skip data by OrderDate's minimum and maximum values per file?",
+      "options": [
+        {
+          "id": "a",
+          "text": "WHERE YEAR(OrderDate) = 2026"
+        },
+        {
+          "id": "b",
+          "text": "WHERE CAST(OrderDate AS varchar(10)) LIKE '2026%'"
+        },
+        {
+          "id": "c",
+          "text": "WHERE OrderDate >= '2026-01-01' AND OrderDate < '2027-01-01'"
+        },
+        {
+          "id": "d",
+          "text": "WHERE DATEDIFF(day, OrderDate, GETDATE()) < 365"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Comparing the column itself to a range lets the engine use per-file statistics. Wrapping the column in a function hides its values from that check.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.6-q2",
+      "type": "single",
+      "stem": "A report query selects all 120 columns of a wide table but uses 6. What should change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use SELECT * twice"
+        },
+        {
+          "id": "b",
+          "text": "Add ORDER BY"
+        },
+        {
+          "id": "c",
+          "text": "Add DISTINCT"
+        },
+        {
+          "id": "d",
+          "text": "Select only the columns needed"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Columnar storage reads only the columns a query names, so listing six columns reads far less data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.6-q3",
+      "type": "single",
+      "stem": "You want to see how a slow query is executed before changing it. What do you look at?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The sensitivity label"
+        },
+        {
+          "id": "b",
+          "text": "The Git history"
+        },
+        {
+          "id": "c",
+          "text": "Its query plan"
+        },
+        {
+          "id": "d",
+          "text": "The workspace roles"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The plan shows the operators and estimated rows, which points to costly steps such as large scans or joins. SET SHOWPLAN_XML ON returns a query's estimated plan.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/statements/set-showplan-xml-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.6-q4",
+      "type": "multiple",
+      "stem": "Which two changes usually make a query faster? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Wrap filtered columns in functions"
+        },
+        {
+          "id": "b",
+          "text": "Select every column"
+        },
+        {
+          "id": "c",
+          "text": "Filter rows as early as possible"
+        },
+        {
+          "id": "d",
+          "text": "Sort results nobody needs sorted"
+        },
+        {
+          "id": "e",
+          "text": "Join on keys of matching data types"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "Early filters reduce the data each step handles, and joins on matching types avoid conversions. Functions on filter columns, extra columns and needless sorts add work.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -290,6 +290,39 @@ def test_a_run_ends_when_the_engine_goes(tmp_path):
         proc.wait(10)
 
 
+def test_when_the_engine_goes_the_worker_ends_without_library_shutdown(monkeypatch):
+    # On Windows the listener ends the process with TerminateProcess, so DuckDB's shutdown code
+    # can't hold it up while its threads are busy. The real exit is covered by the test above.
+    import io
+    import types
+
+    from fabric_desktop import sql_worker
+    calls = []
+
+    class Stop(Exception):
+        pass
+
+    def exit_(code):
+        calls.append(("exit", code))
+        raise Stop
+    kernel32 = types.SimpleNamespace(GetCurrentProcess=lambda: "this process",
+                                     TerminateProcess=lambda handle, code: calls.append(("terminate", handle, code)))
+    import ctypes
+    monkeypatch.setattr(ctypes, "windll", types.SimpleNamespace(kernel32=kernel32), raising=False)
+    monkeypatch.setattr(sql_worker.os, "_exit", exit_)
+    monkeypatch.setattr(sql_worker, "_engine", io.StringIO('{"value": 1}\n'))
+    monkeypatch.setattr(sql_worker.sys, "platform", "win32")
+    with pytest.raises(Stop):
+        sql_worker._listen()
+    assert calls == [("terminate", "this process", 3), ("exit", 3)]
+    assert sql_worker._replies.get_nowait() == {"value": 1}
+    calls.clear()
+    monkeypatch.setattr(sql_worker.sys, "platform", "linux")
+    with pytest.raises(Stop):
+        sql_worker._end_now(3)
+    assert calls == [("exit", 3)]
+
+
 def test_a_finished_run_ends_its_process_while_the_engine_still_listens(tmp_path):
     # The engine keeps stdin open until the process ends, so the worker must leave on its own.
     job = {"query": "SELECT 42 AS answer", "dialect": "spark", "allow": ["read_only"],

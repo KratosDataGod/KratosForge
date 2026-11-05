@@ -308,7 +308,7 @@ def _scored(scores: list) -> pl.DataFrame:
     """Three days of 100 rows; ``scores`` gives each day's extra (undeclared) score column."""
     days = [rows(range(i * 100, i * 100 + 100), day, amount=i) for i, day in enumerate(DAYS[:3])]
     dtype = pl.String if any(isinstance(v, str) or v is None for v in scores) else pl.Int64
-    return pl.concat([d.with_columns(pl.lit(v, dtype=dtype).alias("score")) for d, v in zip(days, scores)])
+    return pl.concat([d.with_columns(pl.lit(v, dtype=dtype).alias("score")) for d, v in zip(days, scores, strict=True)])
 
 
 def _batched(s: Setup) -> Engine:

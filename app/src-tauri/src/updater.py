@@ -69,18 +69,48 @@ def release_url(name: str = "") -> str:
     return f"https://github.com/{REPO}/releases/download/{CHANNEL_TAGS[name or channel()]}"
 
 
-def sidecar_url(commit: str) -> str:
-    return f"https://github.com/{REPO}/archive/{commit}.zip#subdirectory=sidecar"
+# CI's own copy of a build's sidecar/ folder, published with that build (build-<first 12 of its
+# commit>), whose version.json gives its SHA-256. GitHub's /archive zips have no published checksum.
+SOURCE_ASSET = "sidecar-source.zip"
+
+
+def build_release_url(commit: str) -> str:
+    return f"https://github.com/{REPO}/releases/download/build-{commit[:12].lower()}"
+
+
+def source_sha256(commit: str) -> str:
+    """The SHA-256 that a build's own release gives for its sidecar source, or "" when that release
+    names another build or gives none (a build from before it was published). ValueError, with the
+    reason, when the release can't be read."""
+    try:
+        with _get(f"{build_release_url(commit)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
+            info = json.load(resp)
+    except Exception as exc:  # noqa: BLE001 - shown to the person as the reason nothing was installed
+        raise ValueError(f"couldn't read build {commit[:7]}'s checksum from its release ({exc})") from exc
+    if not isinstance(info, dict) or str(info.get("commit") or "").lower() != commit.lower():
+        return ""
+    sha = str(info.get("sidecar_source_sha256") or "").lower()
+    return sha if re.fullmatch(r"[0-9a-f]{64}", sha) else ""
 
 
 def download_sidecar(commit: str, folder: str) -> Path:
-    """That commit's sidecar/ folder, downloaded once and unpacked into folder. Its constraints.txt
-    holds the exact package versions that commit was tested with (SH-9)."""
+    """That commit's sidecar/ folder, downloaded once from its build's release, checked against the
+    SHA-256 that release gives, and unpacked into folder. Its constraints.txt holds the exact package
+    versions that commit was tested with (SH-9)."""
     import zipfile
+    if not SHA.fullmatch(commit):  # it goes into the release's URL
+        raise ValueError(f"{commit!r} is not a build commit")
+    expected = source_sha256(commit)
+    if not expected:
+        raise ValueError(f"build {commit[:7]}'s release gives no checksum for its engine source, so it wasn't installed")
     archive = Path(folder) / "source.zip"
-    with _get(sidecar_url(commit).split("#", 1)[0], timeout=120) as resp, open(archive, "wb") as out:
+    digest = hashlib.sha256()
+    with _get(f"{build_release_url(commit)}/{SOURCE_ASSET}", timeout=120) as resp, open(archive, "wb") as out:
         while chunk := resp.read(1 << 20):
             out.write(chunk)
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        raise ValueError(f"the download doesn't match build {commit[:7]}'s checksum, so it wasn't installed")
     with zipfile.ZipFile(archive) as zf:
         # GitHub's archives hold one top folder, <repo>-<commit>/.
         members = [m for m in zf.namelist() if m.split("/")[1:2] == ["sidecar"]]

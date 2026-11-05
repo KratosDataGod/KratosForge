@@ -1,0 +1,95 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-15",
+  "kind": "module",
+  "title": "Window functions: running totals and rankings",
+  "path": "sql-development",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Compute a value across related rows without collapsing them",
+    "Restart a calculation for each group with PARTITION BY",
+    "Say exactly which rows a running total covers with a frame"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "running-total",
+      "prompt": "For each region and month, show the amount and the region's running total so far, as running_total. Order by region, then month.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter's window has nothing in its OVER (), so every row gets the grand total.",
+        "PARTITION BY region restarts the total for each region; ORDER BY month makes it run.",
+        "sum(amount) OVER (PARTITION BY region ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "region",
+          "month",
+          "amount",
+          "running_total"
+        ],
+        "rows": [
+          [
+            "North",
+            1,
+            10,
+            10
+          ],
+          [
+            "North",
+            2,
+            20,
+            30
+          ],
+          [
+            "North",
+            3,
+            30,
+            60
+          ],
+          [
+            "South",
+            1,
+            5,
+            5
+          ],
+          [
+            "South",
+            2,
+            15,
+            20
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://duckdb.org/docs/sql/functions/window_functions"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

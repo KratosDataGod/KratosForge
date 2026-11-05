@@ -1,0 +1,80 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-07",
+  "kind": "lab",
+  "title": "A Gold layer that stays in Direct Lake",
+  "path": "microsoft-fabric",
+  "level": "intermediate",
+  "minutes": 30,
+  "objectives": [
+    "Build Gold as tables, not views, so Direct Lake reads them directly",
+    "Point every fact row at a dimension, using an unknown member when needed",
+    "Choose the grain and types a report needs"
+  ],
+  "prerequisites": [
+    "LM-09",
+    "LM-23"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "Fabric lakehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "gold-daily",
+      "prompt": "Build the table gold_daily_sales from silver_sales: sold_on DATE, product_key INTEGER and revenue DECIMAL(12, 2), one row per day and product. Every product_key must be in dim_product; sales of a product code it doesn't know go to the Unknown member (-1). End with SELECT * FROM gold_daily_sales ORDER BY sold_on, product_key.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter makes a view, which Direct Lake can't read directly: the model would fall back to DirectQuery.",
+        "LEFT JOIN dim_product on product_code, and coalesce(d.product_key, -1) for codes it doesn't have.",
+        "CREATE TABLE gold_daily_sales (sold_on DATE, product_key INTEGER, revenue DECIMAL(12, 2)); then INSERT ... GROUP BY sold_on, coalesce(d.product_key, -1)."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "table_shape",
+          "table": "gold_daily_sales",
+          "columns": {
+            "sold_on": "DATE",
+            "product_key": "INTEGER",
+            "revenue": "DECIMAL"
+          },
+          "unique": [
+            "sold_on",
+            "product_key"
+          ],
+          "not_null": [
+            "sold_on",
+            "product_key",
+            "revenue"
+          ]
+        },
+        {
+          "kind": "integrity",
+          "child": "gold_daily_sales",
+          "column": "product_key",
+          "parent": "dim_product"
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

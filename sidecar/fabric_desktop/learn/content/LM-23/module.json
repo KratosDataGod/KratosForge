@@ -1,0 +1,77 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-23",
+  "kind": "module",
+  "title": "Warehouse or lakehouse: where T-SQL writes",
+  "path": "microsoft-fabric",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Tell which Fabric item a T-SQL statement can write to",
+    "Create a table with the types you chose, then load it",
+    "Avoid SELECT ... INTO tables whose types are guessed"
+  ],
+  "prerequisites": [
+    "LM-06"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "Fabric lakehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "daily-revenue",
+      "prompt": "Create daily_revenue with day DATE and revenue DECIMAL(12, 2), both NOT NULL, and load one row per day from sales.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter lets the query decide: the column is called sold_on and revenue comes out as a DOUBLE.",
+        "Write CREATE TABLE daily_revenue (day DATE NOT NULL, revenue DECIMAL(12, 2) NOT NULL) first.",
+        "Then INSERT INTO daily_revenue (day, revenue) SELECT sold_on, sum(amount) FROM sales GROUP BY sold_on."
+      ],
+      "checks": [
+        {
+          "kind": "table_shape",
+          "table": "daily_revenue",
+          "columns": {
+            "day": "DATE",
+            "revenue": "DECIMAL"
+          },
+          "unique": [
+            "day"
+          ],
+          "not_null": [
+            "day",
+            "revenue"
+          ]
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ004",
+            "SQ010"
+          ]
+        }
+      ]
+    }
+  ],
+  "rules": [
+    "SQ004",
+    "SQ010"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq004",
+    "https://learn.microsoft.com/fabric/data-warehouse/data-warehousing"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

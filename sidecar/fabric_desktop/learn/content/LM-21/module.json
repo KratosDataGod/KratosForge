@@ -1,0 +1,91 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-21",
+  "kind": "module",
+  "title": "Loads that are safe to run again",
+  "path": "python-data-engineering",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Say what makes a load idempotent",
+    "Replace a batch's rows by key instead of appending them again",
+    "Name the columns you insert"
+  ],
+  "prerequisites": [
+    "LM-12"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Python (DuckDB or Polars)",
+    "Fabric notebooks",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "rerun-batch",
+      "prompt": "The last run loaded orders 1 and 2 and then failed. Load the whole batch again so target has each order once, with the batch's values. End with SELECT order_id, amount FROM target ORDER BY order_id.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "Run the starter: orders 1 and 2 are in target twice now. What would a third run do?",
+        "First take out the rows this batch is about to load: DELETE FROM target WHERE order_id IN (SELECT order_id FROM batch).",
+        "Then INSERT INTO target (order_id, amount) SELECT order_id, amount FROM batch. Name the columns (SQ010)."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "table_shape",
+          "table": "target",
+          "unique": [
+            "order_id"
+          ]
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ010"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "order_id",
+          "amount"
+        ],
+        "rows": [
+          [
+            1,
+            10.0
+          ],
+          [
+            2,
+            22.0
+          ],
+          [
+            3,
+            30.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ010"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq010"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

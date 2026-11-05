@@ -22,11 +22,13 @@
   },
   "scripts": {
     "compile": "tsc -p .",
-    "test": "tsc -p . && node --test test/*.test.cjs"
+    "test": "tsc -p . && node --test test/*.test.cjs",
+    "package": "tsc -p . && vsce package --no-dependencies --skip-license -o kratosforge.vsix"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
     "@types/vscode": "1.95.0",
+    "@vscode/vsce": "4.0.0",
     "typescript": "5.7.2"
   }
 }

@@ -106,6 +106,8 @@ Expressions are evaluated by a fixed list of functions written for this purpose,
 
 A Failed activity's `error` has the fields Fabric gives it: `errorCode`, `message`, `failureType`, `target` (the activity's name) and `details` (empty). `failureType` is `UserError`, except `SystemError` when the local engine itself fails (`LocalAdapterError`); a mock can set its own `failureType`. So a catch branch can read `activity('Load').error.failureType` here as in Fabric. The error codes of local failures start with `Local` and differ from Fabric's numeric codes.
 
+A function's result is at most 10,485,760 characters of text, or 100,000 items counted through nested arrays and objects. Past that the activity fails with `LocalExpressionError` instead of using all the PC's memory (a `concat(s, s)` in an Until doubles a value on every pass). `replace` and `join` are checked before they run, because one call can multiply a value's size, and so is text built with `@{...}`. Set Variable and Append Variable hold a variable to the same limits (counting everything appended so far) and fail with `LocalValueTooBig` past them. Parameters and other values the caller gives the run aren't limited this way.
+
 `@@` escapes a literal `@`, `@{...}` interpolates into text, and `?.` reads a property that may be missing. Property names are matched without regard to case.
 
 Known differences, or things not yet compared with Fabric:
@@ -162,7 +164,7 @@ fabric-desktop pipeline schedule .\pl_hourly.DataPipeline --every-minutes 60 --m
 - **The pipeline must already run here.** Nobody is there to give a mock when a schedule fires, so the schedule is refused until every step runs on this PC or has a mock. The options are the same as `pipeline run`: `--param`, `--mocks`, `--notebook`, `--read-lakehouse`, `--workspace` and `--sql-project`.
 - **SecureString values are never kept.** A schedule refuses a value for a SecureString parameter, and the pipeline's default is used instead.
 - **The folder is read again at every run,** so a change pulled from Git is what the next run runs. If the change adds a step that needs a mock, that run fails before anything starts and says why.
-- **Each run is a normal local run.** It is kept with the other runs (Monitor > Runs and the pipeline's **Runs** tab show it). The schedule's line in **Monitor > KratosForge > Schedules** shows how the last run went, and a run that is still going when the next one is due makes that next one skip.
+- **Each run is a normal local run.** It is kept with the other runs (Monitor > Runs and the pipeline's **Runs** tab show it). The schedule's line in **Monitor > KratosForge > Schedules** shows how the last run went, and a run that is still going when the next one is due makes that next one skip. A run whose process ended before it finished (killed, or the PC shut down) doesn't hold the schedule up: the next run goes, and the stopped one is listed as failed with **Stopped before it finished**, when the app starts or at that next run.
 - **Turning off or removing** a schedule works from **Monitor > KratosForge > Schedules**, as for notebook schedules. There's no way to add one from the Pipelines page yet.
 
 The engine method is `add_pc_schedule` with a `pipeline` target: `{"kind": "pipeline", "path", "parameters", "mocks", "notebooks", "read_lakehouses", "workspace_id", "sql_projects"}`. `pc_schedules_for("pipeline", path=...)` lists one folder's schedules.

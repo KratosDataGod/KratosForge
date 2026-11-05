@@ -46,6 +46,7 @@ def _bundle(tmp_path, *extra):
 def test_no_planted_secret_reaches_the_zip(tmp_path, pc):
     lines = "\n".join(f"{kind}: {value}" for kind, value in PLANTED.items())
     (pc / "sidecar.log").write_text(f"start\n{lines}\nend\n")
+    (pc / "sidecar.prev.log").write_text(f"crashed\n{lines}\n")
     agent = tmp_path / "agent"
     (agent / "logs").mkdir(parents=True)
     (agent / "logs" / "agent.log").write_text(lines + "\n")
@@ -55,7 +56,7 @@ def test_no_planted_secret_reaches_the_zip(tmp_path, pc):
         "dbconnect_index_url": "https://ann.lee:Hunter2Secret!@pkgs.contoso.com/simple"}))
     app_settings.user_path().write_text(json.dumps({"sql_temp_dir": PLANTED["user_path"]}))
     files = _bundle(tmp_path, "--agent-home", str(agent))
-    assert set(files) == {"about.json", "sidecar.log", "agent.log", "CONTENTS.txt"}
+    assert set(files) == {"about.json", "sidecar.log", "sidecar.prev.log", "agent.log", "CONTENTS.txt"}
     for name, text in files.items():
         for leaked in LEAKS:
             assert leaked not in text, f"{leaked!r} reached {name}"
@@ -65,6 +66,16 @@ def test_no_planted_secret_reaches_the_zip(tmp_path, pc):
     assert about["settings"]["dbconnect_index_url"]["value"] == "set"  # an internal mirror's host names the organization
     assert "contoso" not in files["about.json"]
     assert "start" in files["sidecar.log"] and "end" in files["sidecar.log"]
+
+
+def test_the_last_runs_log_is_included_only_when_there_is_one(tmp_path, pc):
+    (pc / "sidecar.log").write_text("after the restart\n")
+    first = _bundle(tmp_path)
+    assert "sidecar.prev.log" not in first and "sidecar.prev.log" not in first["CONTENTS.txt"]
+    (pc / "sidecar.prev.log").write_text("Traceback: the crash\n")
+    second = _bundle(tmp_path / "again")
+    assert second["sidecar.prev.log"] == "Traceback: the crash\n"
+    assert "sidecar.prev.log" in second["CONTENTS.txt"]
 
 
 @pytest.mark.parametrize("folder", ["\\\\fs01.contoso.local\\scratch\\kf", "//fs01.contoso.local/scratch/kf"])
@@ -117,3 +128,13 @@ def test_the_preview_lists_what_the_saved_bundle_holds(tmp_path, pc, capsys):
     out = capsys.readouterr().out
     assert "sidecar.log" in out and "never their values" in out
     assert not (tmp_path / "nothing").exists(), "a preview saves nothing"
+
+
+def test_tail_reads_only_the_end_of_a_big_log(tmp_path):
+    log = tmp_path / "sidecar.log"
+    log.write_bytes(b"".join(b"line %d\r\n" % i for i in range(50_000)))
+    assert support_bundle._tail(log, lines=3) == "line 49997\nline 49998\nline 49999\n"
+    cut = support_bundle._tail(log, lines=10**6, max_bytes=100)
+    assert cut.endswith("line 49999\n") and len(cut) <= 100
+    assert all(line.startswith("line ") for line in cut.splitlines())  # the line cut in half is dropped
+    assert support_bundle._tail(tmp_path / "missing.log") is None

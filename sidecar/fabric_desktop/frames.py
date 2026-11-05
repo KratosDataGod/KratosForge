@@ -207,7 +207,7 @@ def _rows(result: Any) -> list[list[Any]]:
     timestamps (Delta's default), and the engine doesn't ship pytz."""
     table = (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
     cols = [c.to_pylist() for c in table.columns]
-    return [list(r) for r in zip(*cols)] if cols else []
+    return [list(r) for r in zip(*cols, strict=True)] if cols else []
 
 
 def _cell(value: Any) -> Any:

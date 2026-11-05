@@ -1,11 +1,14 @@
-# Opens the weekly review issue every Monday at 16:00 UTC, an hour before the orchestrator
-# thread's scheduled review reads it (docs/product/operations/README.md). It reads GitHub and the
+# Opens the weekly review issue every Monday at about 15:17 UTC, before the orchestrator
+# thread's scheduled review reads it at 17:00 (docs/product/operations/README.md). It reads GitHub and the
 # repo's product data only; it never changes code or releases.
 name: Weekly review
 
 on:
   schedule:
-    - cron: "0 16 * * 1"
+    # Off the hour: GitHub delays or drops scheduled runs when load is high, most of all at :00
+    # (the 16:00 run on 2026-11-02 never started). An earlier slot leaves time for a late start;
+    # Actions > Weekly review > Run workflow opens the issue by hand if it still doesn't come.
+    - cron: "17 15 * * 1"
   workflow_dispatch:
 
 permissions:

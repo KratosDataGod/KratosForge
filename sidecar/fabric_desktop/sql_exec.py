@@ -805,6 +805,7 @@ class _Stopped(Exception):
 
 
 _OUTSIDE_COMMAND = re.compile(r"(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
+_DOLLAR_TAG = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")  # opens $$...$$ or $tag$...$tag$
 
 
 def _escape_string_end(query: str, i: int) -> int:
@@ -845,6 +846,8 @@ def _outside_command(query: str) -> str:
             i = _escape_string_end(query, i + 1)  # E'...': a backslash escapes the next character
         elif ch in "'\"":
             i = n if (j := query.find(ch, i + 1)) < 0 else j + 1  # '' inside a string is two strings back to back
+        elif ch == "$" and not (i and (query[i - 1].isalnum() or query[i - 1] == "_")) and (tag := _DOLLAR_TAG.match(query, i)):
+            i = n if (j := query.find(tag.group(), tag.end())) < 0 else j + len(tag.group())  # quotes inside are text
         elif query.startswith("--", i):
             i = n if (j := query.find("\n", i)) < 0 else j + 1
         elif query.startswith("/*", i):

@@ -233,9 +233,9 @@ class ValidateMixin:
                 record["cell"] = n
                 row = {"cell": n, "cell_id": c.get("cell_id"), "status": "running", "seconds": 0}
                 record["cells"].append(row)
-                snap, outputs = notebook_cells.wait(
-                    kernel, kernel.start(c["source"]), lambda: record["_cancel"],
-                    lambda s, row=row: row.update(seconds=s.get("seconds", row["seconds"])))
+                def progress(s: dict[str, Any], row: dict[str, Any] = row) -> None:
+                    row["seconds"] = s.get("seconds", row["seconds"])
+                snap, outputs = notebook_cells.wait(kernel, kernel.start(c["source"]), lambda: record["_cancel"], progress)
                 if snap["status"] == "cancelled" and snap.get("seconds") is None:
                     snap["seconds"] = row["seconds"]
                 row.update(status=snap["status"], seconds=snap.get("seconds"))

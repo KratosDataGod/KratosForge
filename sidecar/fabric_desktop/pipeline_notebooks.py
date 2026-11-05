@@ -215,16 +215,16 @@ class LocalNotebooks:
 
     def _cell(self, kernel: Any, source: str, cancelled: Callable[[], bool], deadline: float | None,
               name: str, n: int) -> list[dict[str, Any]]:
-        why = [""]  # why the wait stopped the cell, if it did
+        stopped = [""]  # why the wait stopped the cell, if it did
 
         def stop() -> bool:
-            why[0] = "cancelled" if cancelled() else (
+            stopped[0] = "cancelled" if cancelled() else (
                 "timeout" if deadline is not None and time.monotonic() > deadline else "")
-            return bool(why[0])
+            return bool(stopped[0])
         snap, outputs = notebook_cells.wait(kernel, kernel.start(source), stop)
-        if why[0] == "cancelled":
+        if stopped[0] == "cancelled":
             raise ActivityFailed("Cancelled.", "LocalCancelled")
-        if why[0] == "timeout":
+        if stopped[0] == "timeout":
             raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
         if snap["status"] != "ok":
             err = next((o for o in reversed(outputs) if o.get("type") == "error"), None) or {}

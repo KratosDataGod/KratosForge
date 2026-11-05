@@ -1680,7 +1680,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Accepted |
 | [PB-101](#pb-101) | Codebase audit and hardening program | P0 | Codebase audit and hardening | XL | In progress |
 | [PB-124](#pb-124) | Enterprise audit remediation (EA backlog) | P0 | Enterprise readiness | L | In progress |
-| [PB-131](#pb-131) | Remove Academy's runtime access grants on uninstall | P1 | Academy | S | In review |
+| [PB-131](#pb-131) | Let people remove Academy's runtime access grants | P1 | Academy | S | Accepted |
 
 ### PB-001
 
@@ -1881,16 +1881,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-131
 
-**Remove Academy's runtime access grants on uninstall** · P1 (score 1.84) · S · confidence Medium · In review
+**Let people remove Academy's runtime access grants** · P1 (score 1.84) · S · confidence Medium · Accepted
 
 - **Problem:** The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.
-- **Proposed capability:** The grants are removed on uninstall, or by a confirmed Diagnostics action, using the existing revoke_runtime().
-- **Current-state evidence:** Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38; Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grant after a confirm, with a Try again for paths Windows wouldn't change (#1820); enterprise-install.md says to run it before uninstalling, and Security (2026-11-04) chose no uninstall step because grants on the app-owned engine are inert after uninstall (#1821) on main at 03d2b53a; Not done: a developer's own Python (FABRIC_DESKTOP_PYTHON) keeps the grant unless they run the action; the next exercise run adds it back
+- **Proposed capability:** Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grants after a confirm, using revoke_runtime(); nothing is removed while an exercise runs. By Security's decision there is no uninstall step, because a grant on the app-owned engine is inert after uninstall.
+- **Current-state evidence:** Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38; Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grant after a confirm, with a Try again for paths Windows wouldn't change (#1820); enterprise-install.md says to run it before uninstalling, and Security (2026-11-04) chose no uninstall step because grants on the app-owned engine are inert after uninstall (#1821) on main at 03d2b53a; Windows CI on #1823: test_settings_shows_the_grants_and_removes_them shows grants > 0 after an AppContainer exercise and none after Remove, with no ACE left; test_nothing_is_removed_while_an_exercise_runs (#1823) on main; Implementation review docs/product/reviews/PB-131-1820.md: Accepted (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
 - **Dependencies:** none
 - **Owner:** Academy (ACD-005b)
 - **Mandatory (required):** The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).
-- **Pull requests:** [#1820](https://github.com/KratosDataGod/KratosForge/pull/1820), [#1821](https://github.com/KratosDataGod/KratosForge/pull/1821)
+- **Pull requests:** [#1820](https://github.com/KratosDataGod/KratosForge/pull/1820), [#1821](https://github.com/KratosDataGod/KratosForge/pull/1821), [#1823](https://github.com/KratosDataGod/KratosForge/pull/1823)
 - **Acceptance criteria:**
     - Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does
     - Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere

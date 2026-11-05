@@ -5025,7 +5025,7 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
   assert.deepStrictEqual(cap.windows, ["main"]);
   assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
-  assert.deepStrictEqual(cap.permissions, ["core:default"]);
+  assert.deepStrictEqual(cap.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");

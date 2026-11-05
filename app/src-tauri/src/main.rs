@@ -2836,9 +2836,20 @@ mod embed_host_tests {
         assert!(cap.get("remote").is_none(), "no remote pages");
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui");
         let mut used = std::collections::BTreeSet::new();
-        for entry in std::fs::read_dir(&ui).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().is_some_and(|e| e == "js") {
+        let (mut folders, mut scripts) = (vec![ui], Vec::new());
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else if path.extension().is_some_and(|e| e == "js") {
+                    scripts.push(path);
+                }
+            }
+        }
+        assert!(scripts.len() > 10, "the pages' scripts were found");
+        for path in scripts {
+            {
                 let src = std::fs::read_to_string(&path).unwrap();
                 for (i, _) in src.match_indices("__TAURI__") {
                     let rest: String = src[i + "__TAURI__".len()..].chars().take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '?').collect();

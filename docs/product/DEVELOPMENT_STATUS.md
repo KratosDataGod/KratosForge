@@ -3,10 +3,12 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-04 23:42 UTC, main 03d2b53a.** Covers the PRs merged from #135 to #1821.
+**Product check of 2026-11-05 11:42 UTC, main 7c7ed9e2.** Covers the PRs merged from #135 to #1828.
 
 ## Summary
 
+- Morning check, 2026-11-05: 6 PRs merged after 03d2b53a. 2 were product data PRs; #1828 (a data product's page
+  no longer has a Business terms card) updated its own rows, and the other 3 hardened Academy's AppContainer (PB-128).
 - Acceptance, 2026-11-05: the product owner accepted PB-131, now titled "Let people remove Academy's runtime
   access grants", after a Windows test in #1823 showed the grants removed with none left.
 - Evening check, 2026-11-04: 16 PRs merged after 1ca71e38. 1 was a product data PR; the other 15 were linked.

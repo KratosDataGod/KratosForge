@@ -150,12 +150,13 @@ def to_ops(reply: Any, spec: dict[str, Any], metadata: dict[str, Any]) -> dict[s
             ops.append({"op": "set", "id": id_, "field": "type", "value": ch["type"]})
             done.append(f"Show {id_} as a {ch['type']}")
         elif action == "set_measure" and kind == "component":
-            found = measure_id(_text(ch.get("measure"), 128))
+            mname = _text(ch.get("measure"), 128)
+            found = measure_id(mname)
             if not found:
                 left_out.append(f"{what}: the model has no measure {str(ch.get('measure'))[:80]!r}")
                 continue
             ops.append({"op": "set", "id": id_, "field": "measures", "value": [found]})
-            done.append(f"Show {ch['measure']} in {id_}")
+            done.append(f"Show {mname} in {id_}")
         elif action == "set_field" and kind == "component":
             col = _field_ref(str(ch.get("field") or ""), columns)
             if not col:

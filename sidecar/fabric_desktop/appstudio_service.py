@@ -47,6 +47,7 @@ MAX_DESCRIPTION = 4000
 MAX_PLANS = 20  # plans waiting for approval, kept in memory only
 PLAN_MINUTES = 60
 _PLANS_LOCK = threading.Lock()  # guards every service's plan store, made once
+_WRITE_LOCK = threading.Lock()  # one project write at a time, so an approved change is checked and saved together
 _GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
 
 
@@ -117,17 +118,20 @@ class AppStudioMixin:
         if source not in SOURCES_FROM_UI:
             raise ValueError("source must be visual or manual.")
         folder = self._appstudio_project(project_name)
-        project.change(folder, ops, note=str(note), source=source)
+        with _WRITE_LOCK:
+            project.change(folder, ops, note=str(note), source=source)
         return self._appstudio_opened(folder)
 
     def appstudio_undo(self, project_name: str) -> dict[str, Any]:
         folder = self._appstudio_project(project_name)
-        project.undo(folder)
+        with _WRITE_LOCK:
+            project.undo(folder)
         return self._appstudio_opened(folder)
 
     def appstudio_redo(self, project_name: str) -> dict[str, Any]:
         folder = self._appstudio_project(project_name)
-        project.redo(folder)
+        with _WRITE_LOCK:
+            project.redo(folder)
         return self._appstudio_opened(folder)
 
     def appstudio_history(self, project_name: str, limit: int = 100) -> list[dict[str, Any]]:
@@ -142,7 +146,8 @@ class AppStudioMixin:
     def appstudio_restore_version(self, project_name: str, version: int) -> dict[str, Any]:
         """Restore a version. What was current is kept as a new version first."""
         folder = self._appstudio_project(project_name)
-        kept = project.restore_version(folder, version)["kept_as"]
+        with _WRITE_LOCK:
+            kept = project.restore_version(folder, version)["kept_as"]
         return {**self._appstudio_opened(folder), "kept_as": kept}
 
     def appstudio_save_as(self, project_name: str, name: str, clone: bool = False) -> dict[str, Any]:
@@ -359,19 +364,19 @@ class AppStudioMixin:
             kept = plans.pop(str(change_id), None)
         if (kept is None or kept.get("kind") != "change" or kept["project"] != folder.name
                 or time.monotonic() - kept["at"] > PLAN_MINUTES * 60):
-            if kept is not None and kept.get("kind") == "change" and kept["project"] != folder.name:
-                with _PLANS_LOCK:
+            if kept is not None and (kept.get("kind") != "change" or kept["project"] != folder.name):
+                with _PLANS_LOCK:  # not this change's to use up: a create plan, or another app's change
                     plans.setdefault(str(change_id), kept)
             raise ValueError("That change has expired. Ask again.")
-        current = project.open_project(folder)
-        if _digest(current["spec"]) != kept["base"]:
-            raise ValueError("The app changed since this was planned. Ask again so the change fits what's there now.")
-        try:
-            project.change(folder, kept["ops"], note=kept["note"], source="ai")
-        except Exception:
-            with _PLANS_LOCK:
-                plans.setdefault(str(change_id), kept)
-            raise
+        with _WRITE_LOCK:  # checked and saved together, so no edit lands in between
+            if _digest(project.open_project(folder)["spec"]) != kept["base"]:
+                raise ValueError("The app changed since this was planned. Ask again so the change fits what's there now.")
+            try:
+                project.change(folder, kept["ops"], note=kept["note"], source="ai")
+            except Exception:
+                with _PLANS_LOCK:
+                    plans.setdefault(str(change_id), kept)
+                raise
         return self._appstudio_opened(folder)
 
 

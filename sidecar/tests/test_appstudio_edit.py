@@ -122,6 +122,11 @@ def test_a_change_belongs_to_its_project_and_isnt_a_plan(svc):
     with pytest.raises(ValueError, match="expired"):
         svc.appstudio_create_from_plan(got["change_id"], PLAN)
     assert svc.appstudio_apply_change(svc.project, got["change_id"])["valid"], "still usable by its own project"
+    svc.reply = PLAN
+    plan = svc.appstudio_plan("Sales", source={"workspace_id": WS, "item_id": ITEM, "name": "Sales model"})
+    with pytest.raises(ValueError, match="expired"):
+        svc.appstudio_apply_change(svc.project, plan["plan_id"])
+    assert svc.appstudio_create_from_plan(plan["plan_id"], plan["plan"], "Sales 2")["project"], "a create plan isn't used up here"
 
 
 def test_policy_and_consent_come_first(svc, tmp_path):

@@ -585,6 +585,18 @@ def test_a_data_folder_every_appcontainer_could_read_means_no_appcontainer(tmp_p
     assert got["status"] == "ok" and got["runs_as"] == sandbox.RUNS_AS, got["stderr"]
 
 
+def test_a_sealed_file_every_appcontainer_could_read_means_no_appcontainer(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "settings.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(appcontainer, "_sealed_folders_ok", set())
+    assert appcontainer._icacls(str(data / "settings.json"), "/grant", "*S-1-15-2-2:(RX)").returncode == 0
+    work = tmp_path / "w"
+    work.mkdir()
+    with pytest.raises(appcontainer.SetupFailed, match="settings.json"):
+        appcontainer.Box(work, sandbox.BOOTSTRAP, data_root=data)
+
+
 def test_a_delta_exercise_runs_the_v1_way_and_says_so(tmp_path):
     work = tmp_path / "ws"
     work.mkdir()

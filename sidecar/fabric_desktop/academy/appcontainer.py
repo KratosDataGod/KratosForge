@@ -447,6 +447,15 @@ def check_sealed_folders_closed(data_root: Path | None) -> None:
         if any(kind == "A" for _item, kind, _flags in app_package_aces(folder)):
             raise OSError(f"Every AppContainer can read {folder}, where KratosForge keeps sealed secrets.")
         _sealed_folders_ok.add(key)
+    # The sealed files themselves too: an explicit allow on a file isn't in its folder's ACL. (Not the
+    # whole folder tree: the cache folder holds the engine.)
+    for file in (*([Path(data_root) / "settings.json"] if data_root else []), auth.default_cache_path()):
+        key = str(file)
+        if key in _sealed_folders_ok or not file.is_file():
+            continue
+        if any(kind == "A" for _item, kind, _flags in app_package_aces(file)):
+            raise OSError(f"Every AppContainer can read {file.name}, which holds sealed secrets.")
+        _sealed_folders_ok.add(key)
 
 
 def check_grants_keep_out(paths: list[tuple[Path, bool]], data_root: Path | None) -> None:

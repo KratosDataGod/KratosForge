@@ -229,7 +229,7 @@ Before it is turned on by default (Security's musts):
      any folder above them, and any granted file that holds a DPAPI blob.
    - Before the first run, the data folder and the sign-in cache's folder are checked for an ALL
      (RESTRICTED) APPLICATION PACKAGES allow (read as SDDL, so the language Windows names groups in
-     doesn't matter). If either has one, runs use the v1 learner process.
+     doesn't matter), and so are the sealed files in them. If any has one, runs use the v1 learner process.
    The folder checks and never granting the data folder are the main controls. The file scan is a
    second line and finds only those three forms: a base64 blob at another offset, or a DPAPI-NG
    blob, gets past it. Inherited grants below the data folder are allowed, so the engine's own

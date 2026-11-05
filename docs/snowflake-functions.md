@@ -21,8 +21,8 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 104 |
-| Differs | 19 |
+| Runs | 105 |
+| Differs | 18 |
 | Refused | 30 |
 | Fails | 107 |
 | Not checked | 234 |
@@ -130,8 +130,8 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `DIV0` | Runs | 1 value check |
-| `DIV0NULL` | Runs | 1 value check |
+| `DIV0` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `DIV0NULL` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
 | `ABS` | Runs | 1 value check |
 | `CEIL` | Runs | 1 value check |
 | `FLOOR` | Runs | 1 value check |
@@ -350,7 +350,7 @@ the known differences in more detail.
 | `IS_TIMESTAMP_LTZ` | Fails |  | DuckDB has no IS_TIMESTAMP_LTZ, and the rules don't rewrite it |
 | `IS_TIMESTAMP_NTZ` | Fails |  | DuckDB has no IS_TIMESTAMP_NTZ, and the rules don't rewrite it |
 | `IS_TIMESTAMP_TZ` | Fails |  | DuckDB has no IS_TIMESTAMP_TZ, and the rules don't rewrite it |
-| `TYPEOF` | Differs |  | TYPEOF (path to an exponent): A JSON number with a fraction or exponent read from a path or a column is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF(PARSE_JSON(...)) is exact. |
+| `TYPEOF` | Differs |  | TYPEOF (stored value with an exponent): A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
 
 ## Aggregate
 
@@ -534,7 +534,7 @@ the known differences in more detail.
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `\|\|` | Runs |  | 1 value check |
-| `/` | Differs |  | / (by zero): Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0. |
+| `/` | Runs |  | 2 value checks; labelled SFD-003 Division returns DOUBLE |
 | `%` | Runs |  | 1 value check |
 | `::` | Not checked | `SELECT '1'::INT` |  |
 | `CASE` | Not checked | `SELECT CASE WHEN 1 = 1 THEN 'a' ELSE 'b' END` |  |

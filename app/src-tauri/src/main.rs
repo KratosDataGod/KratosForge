@@ -797,6 +797,38 @@ impl SidecarState {
     }
 }
 
+/// The origins of the app's own page (http/https on Windows, tauri:// elsewhere).
+const APP_ORIGINS: [&str; 3] = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+
+/// Whether a call to one of the app's commands may come from this Origin header. Every command
+/// goes through it (`guarded`, wrapped around the whole handler), not only `rpc`. Frames inside the
+/// app (the notebook output frame, the Power BI host page) are served from their own `*.localhost`
+/// protocols, which Tauri counts as local, so its capability rules alone would let them call.
+/// Only the app's own page may: the whole origin must match exactly, never by prefix. A missing
+/// header is the postMessage route, which WebView2 delivers only from the top page of a webview,
+/// not from its frames. The frames also can't reach the IPC protocol at all: their policies allow
+/// no connections (tests notebook_output_frame_has_no_network_and_only_opens_in_the_app and
+/// the_embed_host_page_allows_no_connections). Loosening either policy needs a security read.
+fn invoke_allowed(_command: &str, origin: Option<&str>) -> bool {
+    origin.is_none_or(|o| APP_ORIGINS.contains(&o))
+}
+
+const INVOKE_REFUSED: &str = "Only KratosForge's own page can use the app's commands.";
+
+/// The app's command handler with the origin check in front: a refused call never reaches a command.
+fn guarded<R: tauri::Runtime>(
+    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let origin = invoke.message.headers().get(tauri::http::header::ORIGIN).map(|v| v.to_str().unwrap_or("not text"));
+        if !invoke_allowed(invoke.message.command(), origin) {
+            invoke.resolver.reject(INVOKE_REFUSED);
+            return true;
+        }
+        commands(invoke)
+    }
+}
+
 #[tauri::command]
 async fn rpc(
     state: tauri::State<'_, SidecarState>,
@@ -2489,11 +2521,11 @@ fn main() {
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .register_uri_scheme_protocol(EMBED_SCHEME, |ctx, request| embed_host(ctx.webview_label(), request.uri().path()))
         .on_window_event(on_window_event)
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(guarded(tauri::generate_handler![
             rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("error while running KratosForge");
 }
@@ -2868,6 +2900,32 @@ mod embed_host_tests {
             assert_eq!(header(&r, "X-Content-Type-Options"), "nosniff");
         }
         assert!(header(&embed_host("main", "/host.html"), "Content-Type").starts_with("text/html"));
+    }
+
+    #[test]
+    fn the_embed_host_page_allows_no_connections() {
+        assert!(EMBED_CSP.contains("connect-src 'none'"), "{EMBED_CSP}");
+        assert!(!EMBED_CSP.contains('*'), "{EMBED_CSP}");
+    }
+
+    #[test]
+    fn only_the_apps_own_page_can_use_the_apps_commands() {
+        let main_rs = include_str!("main.rs");
+        let list = main_rs.split("invoke_handler(guarded(tauri::generate_handler![").nth(1).expect("the handler is guarded")
+            .split("]").next().unwrap();
+        let commands: Vec<&str> = list.split(',').map(str::trim).filter(|c| !c.is_empty()).collect();
+        assert!(commands.len() >= 22 && commands.contains(&"rpc") && commands.contains(&"update_app") && commands.contains(&"open_link"), "{commands:?}");
+        for command in &commands {
+            for ok in [None, Some("http://tauri.localhost"), Some("https://tauri.localhost"), Some("tauri://localhost")] {
+                assert!(invoke_allowed(command, ok), "{command} {ok:?}");
+            }
+            for bad in ["null", "http://nbout.localhost", "http://pbiembed.localhost", "http://tauri.localhost.evil",
+                    "http://tauri.localhost.evil.com", "http://tauri.localhost:8080", "http://evil.tauri.localhost",
+                    "https://app.fabric.microsoft.com", "http://localhost", "HTTP://TAURI.LOCALHOST", "",
+                    "http://tauri.localhost/", "not text"] {
+                assert!(!invoke_allowed(command, Some(bad)), "{command} {bad}");
+            }
+        }
     }
 
     #[test]

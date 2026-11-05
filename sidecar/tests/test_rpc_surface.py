@@ -80,6 +80,8 @@ NO_UI_CALLER: dict[str, str] = {
     "appstudio_connection_test": _AS_MODELS,
     "appstudio_plan": _AS_MODELS,
     "appstudio_create_from_plan": _AS_MODELS,
+    "appstudio_change_plan": _AS_MODELS,
+    "appstudio_apply_change": _AS_MODELS,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

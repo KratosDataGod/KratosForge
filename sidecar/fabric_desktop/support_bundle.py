@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import platform
+import re
 import sys
 import zipfile
 from datetime import datetime, timezone
@@ -154,16 +155,32 @@ def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dic
     """What a bundle made now would hold, without writing it: each file's name and size, and the
     CONTENTS.txt text that says what was taken out. Settings shows this before saving (PB-062)."""
     files = _files(data_dir or _data_dir(), agent_home)
+    expected = ["sidecar.log", *(["agent.log"] if agent_home else [])]
     return {"files": [{"name": name, "bytes": len(text.encode("utf-8"))} for name, text in files.items()],
-            "contents": files["CONTENTS.txt"]}
+            "missing": [name for name in expected if name not in files], "contents": files["CONTENTS.txt"]}
 
 
 def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None = None) -> Path:
     files = _files(data_dir or _data_dir(), agent_home)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    path = out_dir / f"fabric-desktop-support-{stamp}.zip"
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        for name, text in files.items():
-            z.writestr(name, text)
+    for n in range(1, 100):  # a new file every time: never replaces one, even within the same second
+        path = out_dir / f"fabric-desktop-support-{stamp}{'' if n == 1 else f'-{n}'}.zip"
+        try:
+            handle = path.open("xb")
+        except FileExistsError:
+            continue
+        break
+    else:
+        raise FileExistsError(f"There are already 99 support bundles from this second in {out_dir}")
+    try:
+        with handle, zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, text in files.items():
+                z.writestr(name, text)
+    except BaseException:
+        path.unlink(missing_ok=True)  # never leave half a zip behind
+        raise
     return path
+
+
+NAME = re.compile(r"fabric-desktop-support-\d{8}-\d{6}(?:-\d{1,2})?\.zip")

@@ -53,7 +53,8 @@ def test_every_function_marked_as_running_has_value_checks_that_pass(rows):
 def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["IFF"] == "runs"
-    assert status["/"] == "differs" and status["LATERAL FLATTEN"] == "differs"  # SFD-003, SFD-005
+    assert status["/"] == "runs"  # it stops on a zero divisor, as in Snowflake (SFX-010)
+    assert status["TYPEOF"] == "differs" and status["LATERAL FLATTEN"] == "differs"  # SFD-007, SFD-005
     assert status["CREATE STREAM"] == "refused" and status["PARSE_URL"] == "refused"
     assert status["HLL"] == "fails"  # DuckDB has no HLL and nothing rewrites it
     assert status["MONTH"] == "not checked"  # runs, but no check compares its value yet

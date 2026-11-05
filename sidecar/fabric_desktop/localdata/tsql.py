@@ -343,6 +343,17 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
+_FLOATS = {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+
+
+def _float_text(value: exp.Expression) -> exp.Expr:
+    """A float as text in T-SQL's style 0: at most 6 significant digits, in scientific notation
+    from 1e+006 up and below 0.0001, with a three-digit exponent (``0.333333``, ``1.23457e+006``). That is C's
+    ``%g`` with the exponent padded; DuckDB writes the shortest exact form instead."""
+    printed = exp.func("PRINTF", exp.Literal.string("%g"), value)  # a float always converts
+    return exp.func("REGEXP_REPLACE", printed, exp.Literal.string(r"e([+-])(\d\d)$"), exp.Literal.string(r"e\10\2"))
+
+
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 _PADDED = {exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 
@@ -363,9 +374,10 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if isinstance(node, exp.TryCast):
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
     if _is(source, _NUMBERS):
-        too_long = exp.GT(this=exp.func("LENGTH", text.copy()), expression=exp.Literal.number(n))
+        shown = _float_text(node.this) if _is(source, _FLOATS) else text
+        too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=text)
+        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:
@@ -816,13 +828,17 @@ def _whole(node: exp.Expression | None, low: int) -> bool:
     return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
 
 
-def _negative(node: exp.Expression | None) -> bool:
-    """A negative number literal, such as ``-1``."""
+def _number(node: exp.Expression | None) -> float | None:
+    """The value of a number literal such as ``2``, ``-1`` or ``-0.5``; None for anything else."""
+    sign = 1.0
     if isinstance(node, exp.Neg):
-        node = node.this
-        return isinstance(node, exp.Literal) and not node.is_string and node.name.replace(".", "", 1).isdigit() \
-            and float(node.name) > 0
-    return isinstance(node, exp.Literal) and not node.is_string and node.name.startswith("-")
+        node, sign = node.this, -1.0
+    if isinstance(node, exp.Literal) and not node.is_string:
+        try:
+            return sign * float(node.name)
+        except ValueError:
+            return None
+    return None
 
 
 def _string_edges(tree: exp.Expression) -> None:
@@ -844,11 +860,18 @@ def _string_edges(tree: exp.Expression) -> None:
             name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
             length = node.expression
             message = f"Invalid length parameter passed to the {name} function."
-            if _negative(length):
-                raise ValueError(f"This T-SQL can't be run on the local engine: {message} A Fabric Warehouse gives the "
-                                 "same error.")
-            if not _whole(length, 0):
-                negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
+            value = _number(length)
+            if value is not None:
+                # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
+                if int(value) < 0:
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same "
+                                     "error.")
+                if value != int(value):
+                    node.set("expression", exp.Literal.number(int(value)))  # DuckDB would round it
+            elif not _whole(length, 0):
+                whole = exp.cast(exp.Trunc(this=length.copy()), "BIGINT")
+                negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+                node.set("expression", whole)
                 node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))],
                                       default=node.copy()))
         elif isinstance(node, exp.Translate):
@@ -857,8 +880,8 @@ def _string_edges(tree: exp.Expression) -> None:
                        "of characters.")
             if all(isinstance(x, exp.Literal) and x.is_string for x in (source, target)):
                 if len(source.name) != len(target.name):
-                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} A Fabric Warehouse "
-                                     "gives the same error.")
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the "
+                                     "same error.")
                 continue
             differ = exp.NEQ(this=exp.func("LENGTH", source.copy()), expression=exp.func("LENGTH", target.copy()))
             node.replace(exp.Case(ifs=[exp.If(this=differ, true=exp.func("ERROR", exp.Literal.string(message)))],

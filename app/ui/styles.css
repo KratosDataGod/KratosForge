@@ -4,6 +4,7 @@
   --accent-dark: #12264a;
   --accent-soft: #e9eef7;
   --brand-orange: #f8991c;
+  --rail-active: #f8991c;  /* the active rail item's stripe; a skin can set it apart from the brand orange */
   --text: #242424;
   --text-2: #424242;
   --muted: #616161;
@@ -124,7 +125,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 11px; line-height: 1.2; text-align: center; cursor: pointer; overflow-wrap: anywhere;
 }
 .rail-item:hover { background: var(--hover); }
-.rail-item.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand-orange); }
+.rail-item.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; box-shadow: inset 3px 0 0 var(--rail-active); }
 .rail-divider { width: 40px; height: 1px; margin: 6px 0; background: var(--border); }
 /* A platform skin's label over KratosForge's own pages (skins.js skinRailChildren). */
 .rail-group-label { width: 68px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px;
@@ -2736,6 +2737,13 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-fix-times th, .learn-fix-times td { padding: 2px 16px 2px 0; text-align: left; }
 .learn-fix-times td { font-variant-numeric: tabular-nums; }
 .learn-principle { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
+/* Save support bundle (PB-062): sizes line up on the right; a long description wraps. */
+table.bundle-files { table-layout: auto; }
+table.bundle-files td { white-space: normal; }
+table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit; }
+.setup.bundle h3 { margin: 6px 0 0; font-size: 14px; }
+.setup.bundle ul { margin: 0; padding-left: 18px; }
+.setup.bundle pre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; }
 
 /* Settings > Connections (connections.js, Preview) */
 .cx-page { display: flex; flex-direction: column; gap: 12px; }

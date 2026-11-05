@@ -10,6 +10,7 @@ lists the differences known so far).
 
 from __future__ import annotations
 
+import calendar
 import json
 import math
 import uuid
@@ -381,8 +382,22 @@ def _parse_time(v: Any) -> datetime:
     try:
         t = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        raise ExpressionError(f"{text!r} isn't a date and time this PC can read (use ISO 8601)") from None
+        t = _parse_invariant(text)
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+# Besides ISO 8601, the month-first forms .NET's invariant culture reads, as in the reference's own
+# examples (formatDateTime('03/15/2018 12:00:00', ...)).
+_INVARIANT = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M", "%m/%d/%Y")
+
+
+def _parse_invariant(text: str) -> datetime:
+    for fmt in _INVARIANT:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ExpressionError(f"{text!r} isn't a date and time this PC can read (use ISO 8601 or MM/dd/yyyy HH:mm:ss)")
 
 
 def _format_time(t: datetime, fmt: str | None) -> str:
@@ -429,6 +444,55 @@ def _add_time(unit: str) -> Callable[..., str]:
 def _start_of_day(ts: Any, fmt: Any = None) -> str:
     t = _parse_time(ts).astimezone(timezone.utc)
     return _format_time(t.replace(hour=0, minute=0, second=0, microsecond=0), fmt)
+
+
+def _start_of_hour(ts: Any, fmt: Any = None) -> str:
+    t = _parse_time(ts).astimezone(timezone.utc)
+    return _format_time(t.replace(minute=0, second=0, microsecond=0), fmt)
+
+
+def _start_of_month(ts: Any, fmt: Any = None) -> str:
+    t = _parse_time(ts).astimezone(timezone.utc)
+    return _format_time(t.replace(day=1, hour=0, minute=0, second=0, microsecond=0), fmt)
+
+
+_UNITS = {"second": "seconds", "minute": "minutes", "hour": "hours", "day": "days", "week": "weeks"}
+
+
+def _shift(t: datetime, n: Any, unit: Any, fn: str) -> datetime:
+    """``t`` moved by ``n`` of ``unit`` (Second, Minute, Hour, Day, Week, Month or Year). A month or
+    year keeps the day of the month, or the month's last day when it has fewer (as .NET's AddMonths)."""
+    name = _text(unit).strip().lower()
+    if name in _UNITS:
+        try:
+            return t + timedelta(**{_UNITS[name]: _num(n, fn)})
+        except OverflowError:
+            raise ExpressionError(f"{fn}() moved the time out of range") from None
+    if name not in ("month", "year"):
+        raise ExpressionError(f"{fn}() needs a time unit of Second, Minute, Hour, Day, Week, Month or Year, "
+                              f"not {_text(unit)!r}")
+    months = _int(n) * (12 if name == "year" else 1)
+    total = t.year * 12 + (t.month - 1) + months
+    year, month = divmod(total, 12)
+    if not 1 <= year <= 9999:
+        raise ExpressionError(f"{fn}() moved the time out of range")
+    last = calendar.monthrange(year, month + 1)[1]
+    return t.replace(year=year, month=month + 1, day=min(t.day, last))
+
+
+def _add_to_time(ts: Any, n: Any, unit: Any, fmt: Any = None) -> str:
+    return _format_time(_shift(_parse_time(ts), n, unit, "addToTime"), fmt)
+
+
+def _subtract_from_time(ts: Any, n: Any, unit: Any, fmt: Any = None) -> str:
+    return _format_time(_shift(_parse_time(ts), -_num(n, "subtractFromTime"), unit, "subtractFromTime"), fmt)
+
+
+def _ticks(ts: Any) -> int:
+    """100-nanosecond intervals since 0001-01-01T00:00:00 UTC, as .NET counts them."""
+    t = _parse_time(ts).astimezone(timezone.utc)
+    seconds = (t.toordinal() - 1) * 86400 + t.hour * 3600 + t.minute * 60 + t.second
+    return seconds * 10_000_000 + t.microsecond * 10
 
 
 def _variable(scope: Scope, name: Any) -> Any:
@@ -509,11 +573,20 @@ _PURE: dict[str, Callable[..., Any]] = {
     "formatdatetime": lambda ts, fmt=None: _format_time(_parse_time(ts), fmt),
     "adddays": _add_time("days"), "addhours": _add_time("hours"), "addminutes": _add_time("minutes"),
     "addseconds": _add_time("seconds"), "startofday": _start_of_day,
+    "startofhour": _start_of_hour, "startofmonth": _start_of_month,
+    "addtotime": _add_to_time, "subtractfromtime": _subtract_from_time,
+    "dayofmonth": lambda ts: _parse_time(ts).astimezone(timezone.utc).day,
+    "dayofweek": lambda ts: (_parse_time(ts).astimezone(timezone.utc).weekday() + 1) % 7,   # Sunday is 0
+    "dayofyear": lambda ts: _parse_time(ts).astimezone(timezone.utc).timetuple().tm_yday,
+    "ticks": _ticks,
 }
 
 _SCOPED: dict[str, Callable[..., Any]] = {
     "variables": _variable, "activity": _activity, "item": _item, "pipeline": _pipeline,
     "utcnow": lambda scope, fmt=None: _format_time(scope.now(), fmt),
+    "getfuturetime": lambda scope, n, unit, fmt=None: _format_time(_shift(scope.now(), n, unit, "getFutureTime"), fmt),
+    "getpasttime": lambda scope, n, unit, fmt=None: _format_time(
+        _shift(scope.now(), -_num(n, "getPastTime"), unit, "getPastTime"), fmt),
 }
 
 FUNCTIONS = tuple(sorted(set(_PURE) | set(_SCOPED)))

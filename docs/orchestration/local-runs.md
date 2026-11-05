@@ -101,7 +101,7 @@ Expressions are evaluated by a fixed list of functions written for this purpose,
 - Text: `concat`, `substring`, `replace`, `toLower`, `toUpper`, `trim`, `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`, `split`, `guid`.
 - Collections: `length`, `empty`, `contains`, `first`, `last`, `take`, `skip`, `union`, `intersection`, `createArray`, `join`, `coalesce`.
 - Conversion: `string`, `int`, `float`, `bool`, `json`, `array`.
-- Dates (UTC): `utcNow`, `formatDateTime`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `startOfDay`.
+- Dates (UTC): `utcNow`, `formatDateTime`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `addToTime`, `subtractFromTime`, `getFutureTime`, `getPastTime`, `startOfDay`, `startOfHour`, `startOfMonth`, `dayOfMonth`, `dayOfWeek` (Sunday is 0), `dayOfYear`, `ticks`. Adding months or years keeps the day of the month, or uses the month's last day when it's shorter, as .NET does. Dates are read as ISO 8601 or month first (`03/15/2018 12:00:00`), as the reference's examples write them.
 - Pipeline: `pipeline()` (`parameters`, `RunId`, `Pipeline`, `TriggerTime`, `TriggerType`, `TriggerId`, `TriggerName`, `GroupId`), `variables()`, `activity()` (`output`, `status`, `error`, `activityRunId`), `item()`.
 
 A Failed activity's `error` has the fields Fabric gives it: `errorCode`, `message`, `failureType`, `target` (the activity's name) and `details` (empty). `failureType` is `UserError`, except `SystemError` when the local engine itself fails (`LocalAdapterError`); a mock can set its own `failureType`. So a catch branch can read `activity('Load').error.failureType` here as in Fabric. The error codes of local failures start with `Local` and differ from Fabric's numeric codes.

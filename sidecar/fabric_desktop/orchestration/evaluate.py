@@ -10,9 +10,12 @@ lists the differences known so far).
 
 from __future__ import annotations
 
+import base64
+import binascii
 import calendar
 import json
 import math
+import urllib.parse
 import uuid
 from collections import ChainMap
 from dataclasses import dataclass, field
@@ -535,6 +538,47 @@ def _if(c: Any, a: Any, b: Any) -> Any:
     return a if c else b
 
 
+def _base64(v: Any) -> str:
+    return base64.b64encode(_text(v).encode("utf-8")).decode("ascii")
+
+
+def _from_base64(v: Any, fn: str) -> str:
+    try:
+        return base64.b64decode(_text(v), validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        raise ExpressionError(f"{fn}() was given text that isn't base64-encoded UTF-8 text") from None
+
+
+def _data_uri_text(v: Any) -> str:
+    """The text in a data URI (data:[<media type>][;charset=...][;base64],<data>), read as UTF-8 unless
+    it names another charset."""
+    text = _text(v)
+    head, sep, data = text.partition(",")
+    if not head.lower().startswith("data:") or not sep:
+        raise ExpressionError("dataUriToString() was given text that isn't a data URI")
+    params = [p.strip() for p in head[5:].split(";")]
+    charset = next((p.split("=", 1)[1] for p in params if p.lower().startswith("charset=")), "utf-8")
+    try:
+        raw = base64.b64decode(data, validate=True) if "base64" in (p.lower() for p in params) \
+            else urllib.parse.unquote_to_bytes(data)
+        return raw.decode(charset)
+    except (binascii.Error, LookupError, ValueError):
+        raise ExpressionError("dataUriToString() couldn't read the data URI's text") from None
+
+
+def _uri_encode(v: Any) -> str:
+    # As .NET's Uri.EscapeDataString: everything but letters, digits and - _ . ~ is escaped, as UTF-8.
+    return urllib.parse.quote(_text(v), safe="")
+
+
+def _uri_decode(v: Any) -> str:
+    # As .NET's Uri.UnescapeDataString: %XX escapes become UTF-8 text; a + stays a +.
+    try:
+        return urllib.parse.unquote(_text(v), errors="strict")
+    except UnicodeDecodeError:
+        raise ExpressionError("decodeUriComponent() was given escapes that aren't UTF-8 text") from None
+
+
 _PURE: dict[str, Callable[..., Any]] = {
     # logic and comparison
     "equals": lambda a, b: a == b, "not": lambda a: not _bool(a),
@@ -569,6 +613,11 @@ _PURE: dict[str, Callable[..., Any]] = {
     # conversion
     "string": _text, "int": _int, "float": _float, "bool": _bool, "json": _json,
     "array": lambda v: [v],
+    "base64": _base64, "base64tostring": lambda v: _from_base64(v, "base64ToString"),
+    "decodebase64": lambda v: _from_base64(v, "decodeBase64"),
+    "datauri": lambda v: "data:text/plain;charset=utf-8;base64," + _base64(v), "datauritostring": _data_uri_text,
+    "uricomponent": _uri_encode, "encodeuricomponent": _uri_encode,
+    "uricomponenttostring": _uri_decode, "decodeuricomponent": _uri_decode,
     # dates
     "formatdatetime": lambda ts, fmt=None: _format_time(_parse_time(ts), fmt),
     "adddays": _add_time("days"), "addhours": _add_time("hours"), "addminutes": _add_time("minutes"),

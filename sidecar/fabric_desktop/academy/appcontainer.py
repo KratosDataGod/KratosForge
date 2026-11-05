@@ -610,8 +610,10 @@ class Box:
             self.bootstrap = boot / "_bootstrap.py"
             shutil.copyfile(bootstrap, self.bootstrap)
         except BaseException:
-            self.profile.close()
-            self._uncount()
+            try:
+                self.profile.close()
+            finally:
+                self._uncount()
             raise
 
     def _uncount(self) -> None:
@@ -641,6 +643,8 @@ class Box:
             self._shared = 0
 
     def close(self) -> None:
-        self._unshare()
-        self.profile.close()
-        self._uncount()
+        try:
+            self._unshare()
+            self.profile.close()
+        finally:
+            self._uncount()   # even if the profile won't close, or Remove would stay refused

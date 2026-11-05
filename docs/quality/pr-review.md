@@ -398,6 +398,7 @@ Each category is scored 0 to 10 from evidence in the diff, the tests and the [st
 
 | Category | Weight | A 9 looks like | A 5 looks like |
 | --- | --- | --- | --- |
+| 2026-11-05 | #1856 212e58fd (on #1855) | Axe cases for 15 more dialogs | PASS 9.3 | Test-only; 15 dialog axe cases with title checks, baseline shrinks by 15 to 74; mocks read only. Ran ui.test 325/325, a11y-dialogs 33/33 (0 skipped, axe 4.10.2). Merge after #1854 then #1855. |
 | Functional correctness | 20% | Does what it says on every path, including failures; nothing reports success after a failure | Happy path works; some failure path guesses, or reports success |
 | Architectural consistency | 15% | Uses the existing helper for each concern (client factory, `fsutil`, `sqlite_util`, `retrying`, `redact`, `timeutil`, `confirmDialog`, `attempt`) | Adds a new copy of something the repo already has |
 | Code quality and maintainability | 15% | Small, named for what it does, no dead code, no broad silent `except` | Long functions, silent handlers, unexplained `type: ignore` |

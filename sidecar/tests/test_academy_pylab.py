@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from fabric_desktop.academy import exercises, pylab, registry
+from fabric_desktop.academy import appcontainer, exercises, pylab, registry, sandbox
 from fabric_desktop.academy import workspace as ws
 
 pytest.importorskip("polars")
@@ -52,7 +52,7 @@ def test_reference_passes_and_wrong_answers_fail_in_words(tmp_path):
     folder, grading, ex = _exercise(tmp_path)
     result = pylab.self_test(folder, grading, ex)
     assert result["solution"]["passed"], result["solution"]
-    assert result["solution"]["run"]["runs_as"].startswith("you on this PC, without your sign-in")
+    assert result["solution"]["run"]["runs_as"] in (sandbox.RUNS_AS, appcontainer.RUNS_AS)
     dupes, crash = result["wrong"]["wrong-dupes.py"], result["wrong"]["wrong-crash.py"]
     assert not dupes["passed"] and "order_id" in next(r for r in dupes["results"] if not r["passed"])["detail"]
     assert not crash["passed"] and [r["kind"] for r in crash["results"]] == ["notebook_ran"]

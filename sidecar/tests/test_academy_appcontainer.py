@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="AppContainers a
 
 @pytest.fixture(autouse=True)
 def appcontainer_available(monkeypatch):
-    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)   # off by default for now
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)   # the default; set so KRATOSFORGE_ACADEMY_APPCONTAINER=0 can't skip these
     if not appcontainer.status()["available"]:
         pytest.skip(f"AppContainers aren't available here: {appcontainer.status()['why_not']}")
 

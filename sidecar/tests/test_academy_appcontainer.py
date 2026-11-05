@@ -393,11 +393,11 @@ def test_a_refused_copy_back_leaves_the_workspace_as_it_was(tmp_path, monkeypatc
     real_copy = appcontainer.copy_tree
     calls = []
 
-    def copy(src, dst):
+    def copy(src, dst, **kw):
         calls.append(dst)
         if len(calls) > 1:   # the copy home, not the copy in
             raise appcontainer.ws.Refused("The exercise folder holds more than 2,000 files.")
-        real_copy(src, dst)
+        real_copy(src, dst, **kw)
     monkeypatch.setattr(appcontainer, "copy_tree", copy)
     with pytest.raises(appcontainer.ws.Refused):
         sandbox.run(work, "main.py", tmp_path, time_limit=60)

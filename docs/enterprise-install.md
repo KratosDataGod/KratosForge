@@ -70,6 +70,8 @@ Each time the engine starts, and each time someone opens Settings, KratosForge c
 
 Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped.
 
+An [agent](agent.md#operate) on the same machine does the same at its start and every 15 minutes, in its own audit log.
+
 This makes a change visible; it doesn't stop one. Nothing is blocked. A local administrator can change the file, and their change looks the same as your push except for the hash. The account signed in to the PC can delete or edit the audit trail and the record of what was last seen (`%LOCALAPPDATA%\FabricDesktop\policy-seen.json`), and so could hide a change, so ship the audit files to a log store when that matters.
 
 ## Keep the exe and the engine in step

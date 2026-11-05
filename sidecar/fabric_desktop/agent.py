@@ -12,6 +12,8 @@ its lease in the queue; each table it writes is held under a write lease in OneL
 the service (SIGTERM, Ctrl+C, service stop) stops taking new jobs and waits for running ones;
 anything cut off is picked up again by the next start. With ``[shortcut_health]`` it also checks
 the environments' shortcuts every ``shortcut_health.minutes`` and posts each new break to Teams once.
+It looks at the organization's policy file at start and every POLICY_CHECK_SECONDS, and writes a change
+to its audit log as the desktop app does (policy_watch.py), since the policy applies to it too.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
 
-from . import agent_status, shared_schedules, shortcut_watch
+from . import agent_status, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .dataops_service import post_teams
@@ -40,14 +42,18 @@ from .onelake import FileStore
 from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .runtime import Runtime
-from .workloads import evaluate
+from .workloads import deliver, evaluate
 from .workloads.agents import read_status
 from .workloads.incidents import IncidentLog
 from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
+AGENT_NO_EMAIL = ("Email routes are sent from the KratosForge app; on an agent use a Power Automate flow "
+                  "(flow:https://...). This route's messages go nowhere")
+
 KIND_META = "meta"
+POLICY_CHECK_SECONDS = 900  # how often a running agent looks for a change to the policy file
 
 
 def _epoch(local: dt.datetime) -> float:
@@ -78,6 +84,7 @@ class Agent:
         self.started_at = clock()
         self._status_at = 0.0
         self._pruned_at: float | None = None
+        self._policy_at: float | None = None
         self._controls: dict[str, Any] = {}
         self._controls_lock = threading.Lock()  # the shortcut check's thread builds them too
         self.mailbox: Mailbox | None = None
@@ -113,15 +120,41 @@ class Agent:
                 self._controls.pop(env, None)
                 self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
+    def _can_send(self, route: str, url: str) -> bool:
+        """Whether an agent can send to this address: a Teams webhook or a Power Automate flow. Email
+        is sent from the KratosForge app, which has the company mail server; an agent has none."""
+        if not url:
+            return False
+        warned: set[tuple[str, str]] = self.__dict__.setdefault("_route_warned", set())  # once per route and address
+        try:
+            deliver.check(url)
+        except ValueError as exc:
+            if (route, url) not in warned:
+                warned.add((route, url))
+                self.log.warning("an incident route's address can't be used; its messages go nowhere",
+                                 extra=fields(route=route, error=str(exc)))
+            return False
+        if deliver.kind(url) == "email":
+            if (route, url) not in warned:
+                warned.add((route, url))
+                self.log.warning(AGENT_NO_EMAIL, extra=fields(route=route))
+            return False
+        return True
+
+    def _post(self, url: str, title: str, lines: list[str]) -> None:
+        """Teams or a Power Automate flow (workloads/deliver.py), each message redacted and bounded."""
+        deliver.poster(None, lambda u, t, ls: post_teams(u, t, ls))(url, title, lines)
+
     def incident_routing(self) -> Routing:
         """Where incident messages go: the [[incidents.route]] channels, and alerts.teams_webhook_env
         for anything none of them matches. Webhook addresses are read from the environment now."""
         inc = self.config.incidents
-        routes = [Route(DEFAULT_ROUTE, self.config.teams_webhook)] if self.config.teams_webhook else []
+        routes = [Route(DEFAULT_ROUTE, self.config.teams_webhook)] if self._can_send(DEFAULT_ROUTE, self.config.teams_webhook) else []
         for r in inc.routes:
             url = os.environ.get(r["webhook_env"], "")
             if url:
-                routes.append(Route(r["name"], url, r["teams"], r["owners"], r["criticality"], r["kinds"], r["envs"]))
+                if self._can_send(r["name"], url):
+                    routes.append(Route(r["name"], url, r["teams"], r["owners"], r["criticality"], r["kinds"], r["envs"]))
             else:
                 self.log.warning("an incident route's webhook variable isn't set; its messages go nowhere",
                                  extra=fields(route=r["name"], variable=r["webhook_env"]))
@@ -153,7 +186,8 @@ class Agent:
             else:
                 specs = {n: e.spec for n, e in project.entities.items()}
                 signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,
-                                           team=mesh_mod.identity(project)["team"])
+                                           team=mesh_mod.identity(project)["team"],
+                                           promises=mesh_mod.promises(project))
                 evaluated |= evaluate.WORKLOAD_KINDS
             try:
                 signals += evaluate.agent_signals(read_status(log.backend), env, now, me=self.config.name)
@@ -176,7 +210,7 @@ class Agent:
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
                 self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
-            result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", post_teams,
+            result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", self._post,
                           self.config.incidents.digest_over, now=now)
             if result.get("error"):
                 self.log.warning("couldn't post incidents to Teams; they'll go with the next try",
@@ -453,17 +487,17 @@ class Agent:
         """Post job alerts Teams didn't take before (no network, Teams down), marked as delayed. They
         wait in job_alerts.sqlite3 in the agent's home and are dropped after three days."""
         url = self.config.teams_webhook
-        if not url or (self._alert_box is None and not (self.config.home / "job_alerts.sqlite3").exists()):
+        if not self._can_send(DEFAULT_ROUTE, url) or (self._alert_box is None and not (self.config.home / "job_alerts.sqlite3").exists()):
             return
         with self._alert_lock:
-            result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", post_teams)
+            result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", self._post)
         if result.get("error"):
             self.log.warning("couldn't post waiting alerts to Teams; they'll go with the next try",
                              extra=fields(error=_without_webhook(result["error"], url)))
 
     def _alert(self, job: dict[str, Any], error: str) -> None:
         url = self.config.teams_webhook
-        if not url:
+        if not self._can_send(DEFAULT_ROUTE, url):
             return
         self.send_waiting_alerts()  # older alerts first
         env = str(job["payload"].get("env", "")).title()
@@ -471,7 +505,7 @@ class Agent:
         lines = [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]]
         with self._alert_lock:
             try:
-                post_teams(url, title, lines)
+                self._post(url, title, lines)
                 return
             except Exception as exc:  # kept, and sent with the next try
                 problem = _without_webhook(failure(exc), url)
@@ -510,6 +544,18 @@ class Agent:
         if self._pruned_at is None or self.clock() - self._pruned_at >= 86400:
             self._pruned_at = self.clock()
             self.prune_queue()
+        if self._policy_at is None or self.clock() - self._policy_at >= POLICY_CHECK_SECONDS:
+            self._policy_at = self.clock()
+            self.check_policy()
+
+    def check_policy(self) -> None:
+        """Records a change to the policy file in the agent's audit log (policy_file_seen the first time,
+        policy_file_changed after), against the record in its home's policy-seen.json. A check that
+        fails is logged and tried again at the next one; it never stops the loop."""
+        try:
+            policy_watch.check(self.config.home, self.audit)
+        except Exception as exc:  # noqa: BLE001 - a record that can't be made never stops jobs
+            self.log.warning("couldn't check the policy file", extra=fields(error=f"{type(exc).__name__}: {exc}"))
 
     def prune_queue(self) -> None:
         """Remove finished jobs older than queue_retention_days. Last in the pass, after the mailbox has

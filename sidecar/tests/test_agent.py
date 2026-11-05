@@ -1,6 +1,7 @@
 """The headless agent: config, unattended sign-in, the durable queue, table leases, and real runs."""
 
 import json
+import re
 import sqlite3
 import time
 import threading
@@ -924,3 +925,56 @@ def test_a_lease_file_being_deleted_reads_as_busy_not_an_error(tmp_path, monkeyp
         return real(self)
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
     assert backend.read("LH/dbo.t").data == b"{}"
+
+
+def test_job_ids_made_in_the_same_second_carry_48_random_bits(tmp_path):
+    """200 jobs in one second with 24 random bits collided about once in 800 runs (UNIQUE constraint failed)."""
+    q = JobQueue(tmp_path / "q.sqlite3", clock=lambda: 1_700_000_000.0)
+    ids = [q.enqueue("meta", {"i": i})["id"] for i in range(200)]
+    assert len(set(ids)) == 200
+    assert all(re.fullmatch(r"job-\d{8}-\d{6}-[0-9a-f]{12}", i) for i in ids), ids[:3]
+
+
+# ---- the policy file (#1670's follow-up): the agent records a change in its own audit log
+
+def test_agent_records_the_policy_file_at_start_and_a_change_at_its_next_check(setup, monkeypatch, tmp_path):
+    from fabric_desktop import agent as agent_mod
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"show_preview": False}), encoding="utf-8")
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock), clock=clock)
+    seen = lambda: [(e["action"], e["target"]["state"]) for e in agent.audit.entries()  # noqa: E731
+                    if e["action"].startswith("policy_file_")]
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied")]
+    assert (setup.home / "policy-seen.json").exists()  # in the agent's home, apart from the desktop app's
+    policy.write_text(json.dumps({"show_preview": True}), encoding="utf-8")
+    clock.t += agent_mod.POLICY_CHECK_SECONDS - 1
+    agent.step()
+    assert len(seen()) == 1  # not time to look again yet
+    clock.t += 1
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied"), ("policy_file_changed", "applied")]
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert len(seen()) == 2  # unchanged: nothing new
+    policy.unlink()
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert seen()[-1] == ("policy_file_changed", "none")
+
+
+def test_a_policy_check_that_fails_is_logged_and_the_loop_carries_on(setup, monkeypatch, caplog):
+    from fabric_desktop import policy_watch
+    def broken(*_):
+        raise OSError("disk gone")
+    monkeypatch.setattr(policy_watch, "check", broken)
+    clock = Clock()
+    q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
+    agent = Agent(setup, queue=q, clock=clock)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert "couldn't check the policy file" in caplog.text
+    assert agent._pruned_at is not None  # the rest of the pass ran

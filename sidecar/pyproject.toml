@@ -71,9 +71,12 @@ include = ["fabric_desktop*"]
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
+# Academy certification packs (academy/registry.py), one folder per certification.
+"fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
 
 [tool.ruff]
-extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it
+extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
+                  "fabric_desktop/academy/packs"]  # exercise answers run with the exercise's spark (pyspark_lab)
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
 # import or a name that isn't defined, and bugbear (B), likely bugs such as a duplicate set item or an
@@ -82,10 +85,10 @@ extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its author
 [tool.ruff.lint]
 select = ["E9", "F", "B"]
 # Bugbear rules still to roll out, a few at a time, each with its findings fixed or marked:
-# B905 (zip without strict=), B017 (pytest.raises(Exception) in tests), and B023 (a closure using a loop
-# variable: most hits are reviewed false positives, called inside the loop). Blind excepts (BLE) come
-# after these, alongside tests/test_silent_except.py.
-ignore = ["B905", "B017", "B023"]
+# B023 (a closure using a loop variable: most hits are reviewed false positives, called inside the
+# loop). Blind excepts (BLE) stay off: tests/test_silent_except.py already requires every broad handler
+# to log, narrow or say why it is silent.
+ignore = ["B023"]
 
 [tool.ruff.lint.per-file-ignores]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.
@@ -95,6 +98,7 @@ ignore = ["B905", "B017", "B023"]
 # in mypy-baseline.json, and only new ones fail.
 [tool.mypy]
 files = ["fabric_desktop"]
+exclude = ["^fabric_desktop/academy/packs/"]  # exercise answers run with the exercise's spark (pyspark_lab)
 python_version = "3.12"  # CI's; the counts depend on it
 ignore_missing_imports = true  # several of the engine's packages ship no type information
 

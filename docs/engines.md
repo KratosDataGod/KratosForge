@@ -25,6 +25,10 @@ refuses to register an engine that claims more than it has an adapter and tests 
 | Translated | The code is rewritten for another engine first. Spark SQL and Snowflake SQL on DuckDB are translated by sqlglot. |
 | Unsupported | Not available. Anything not listed is unsupported. |
 
+Which Spark SQL built-in functions a notebook can use on this PC is in
+[Spark functions on this PC](spark-functions.md): every Spark 3.5 built-in, each checked against
+Apache Spark's own value for its documented example, and kept current by CI.
+
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
@@ -67,6 +71,12 @@ The Python engine uses the notebook's own session (the same process **Stop** end
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
 
+## T-SQL on this PC
+
+Warehouse T-SQL runs on this PC's DuckDB engine after translation. What it refuses, by name, is the
+"Refused, not half-translated" list in [Local data: T-SQL](local-data.md#t-sql); a test runs a query
+for each item in that list and fails when the list and the code differ (#1666).
+
 ## Snowflake SQL on this PC (Preview)
 
 The DuckDB engine runs Snowflake SQL translated, so Snowflake queries can be tried on this PC without
@@ -90,7 +100,9 @@ shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
 and DuckDB versions, and from 136 function checks against Snowflake's documented values (below);
-each is a test.
+each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
 Rules 2026.10.6.
@@ -207,19 +219,17 @@ Of 209 checks on commonly used Databricks SQL built-in functions, these are the 
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
-| `percentile_approx` | Aggregate | Different result | Approximate on both, but the estimates differ. |
 | `get_json_object (every element)` | JSON | Not translated | Refused here: a [*] path would give a list, not the JSON text '[1,2]'. Read the values with from_json, or use a path to one element. |
-| `json_tuple` | JSON | Doesn't run | DuckDB has no json_tuple. Use get_json_object for each field. |
-| `json_tuple (in the select list)` | JSON | Doesn't run | DuckDB has no json_tuple. Use get_json_object for each field. |
+| `json_tuple` | JSON | Doesn't run | json_tuple runs in the select list here, not in FROM. Write SELECT json_tuple(...) or use get_json_object for each field. |
 
-These 205 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `format_number`, `levenshtein`, `soundex`, `abs`, `round`, `round (negative half)`, `bround`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `conv`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `exists`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`, `bround (one argument, odd)`, `bround (negative places)`, `conv (negative to a signed base)`, `conv (negative to an unsigned base)`, `conv (stops at an invalid digit)`, `conv (base out of range)`, `soundex (H and W keep a run)`, `soundex (not a letter first)`, `format_number (no decimals)`, `format_number (half-even)`, `exists (NULL and no match)`, `transform (with index)`, `filter (with index)`, `filter (drop NULLs)`, `exists (looking for NULL)`, `forall`, `forall (all match)`, `forall (NULL and a miss)`, `forall (NULL and no miss)`, `aggregate (finish)`, `aggregate (struct accumulator)`, `reduce`, `reduce (finish)`, `array_sort (comparator)`, `array_sort (descending comparator)`, `zip_with`, `zip_with (strings)`, `zip_with (unequal lengths)`, `map_filter`, `transform_keys`, `transform_keys (key and value)`, `transform_values`, `transform_values (key and value)`, `map_from_arrays`, `map_concat`, `map_from_entries`, `map_entries`, `str_to_map`, `str_to_map (no value)`, `element_at (map)`, `element_at (map, missing key)`, `element_at (negative index)`, `try_element_at`, `map_contains_key`, `map_contains_key (missing key)`, `get_json_object (nested)`, `get_json_object (array index)`, `get_json_object (bracket name)`, `get_json_object (no match)`, `from_json`, `from_json (name case)`, `to_json (array of structs)`, `to_json (map)`, `schema_of_json`, `lag`, `lag (default)`, `lag (offset 2)`, `lead`, `lead (default)`, `nth_value`, `nth_value (too few rows)`, `ntile`, `percent_rank`, `cume_dist`, `rank`, `dense_rank`, `row_number`.
+These 207 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `format_number`, `levenshtein`, `soundex`, `abs`, `round`, `round (negative half)`, `bround`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `conv`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `exists`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `percentile_approx`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`, `bround (one argument, odd)`, `bround (negative places)`, `conv (negative to a signed base)`, `conv (negative to an unsigned base)`, `conv (stops at an invalid digit)`, `conv (base out of range)`, `soundex (H and W keep a run)`, `soundex (not a letter first)`, `format_number (no decimals)`, `format_number (half-even)`, `exists (NULL and no match)`, `transform (with index)`, `filter (with index)`, `filter (drop NULLs)`, `exists (looking for NULL)`, `forall`, `forall (all match)`, `forall (NULL and a miss)`, `forall (NULL and no miss)`, `aggregate (finish)`, `aggregate (struct accumulator)`, `reduce`, `reduce (finish)`, `array_sort (comparator)`, `array_sort (descending comparator)`, `zip_with`, `zip_with (strings)`, `zip_with (unequal lengths)`, `map_filter`, `transform_keys`, `transform_keys (key and value)`, `transform_values`, `transform_values (key and value)`, `map_from_arrays`, `map_concat`, `map_from_entries`, `map_entries`, `str_to_map`, `str_to_map (no value)`, `element_at (map)`, `element_at (map, missing key)`, `element_at (negative index)`, `try_element_at`, `map_contains_key`, `map_contains_key (missing key)`, `get_json_object (nested)`, `get_json_object (array index)`, `get_json_object (bracket name)`, `get_json_object (no match)`, `from_json`, `from_json (name case)`, `to_json (array of structs)`, `to_json (map)`, `json_tuple (in the select list)`, `schema_of_json`, `lag`, `lag (default)`, `lag (offset 2)`, `lead`, `lead (default)`, `nth_value`, `nth_value (too few rows)`, `ntile`, `percent_rank`, `cume_dist`, `rank`, `dense_rank`, `row_number`.
 
 `array_sort` with a comparator compares every pair of elements, so it sorts up to 3,000 elements per array on this PC; a longer array stops with a message (use `array_sort` or `sort_array` without a comparator, or run it on Databricks).
 
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
-what you can use. Discovery is a command, with no screen in the app yet:
+what you can use: **Settings > Connections > Check workspace** in the app (below), or the command:
 
 ```
 fabric-desktop databricks-discover --profile dev
@@ -242,6 +252,106 @@ warehouse and a cluster to try first.
   it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
 
 It's tested against fakes of those APIs, not yet against a live workspace.
+
+## Connection profiles in Settings (Preview)
+
+**Settings > Connections** lists the connection profiles on this PC and adds a connection to one.
+
+- **Sign in with the CLI first.** A Databricks connection uses a profile of the Databricks CLI
+  (`databricks auth login --host <workspace URL> --profile dev`); a Snowflake one uses a connection
+  of the Snowflake CLI (`snow connection add`). You pick it by name: the workspace address or account
+  and the sign-in are read from the CLI's own file, so the app never types or keeps a token. A CLI
+  profile that keeps a personal access token in plain text says so.
+- **Check workspace** runs discovery for the CLI profile you picked and lists the warehouses, the
+  clusters Databricks Connect can use, and the catalogs, with the suggested ones already picked.
+  Nothing starts and nothing bills DBUs.
+- **Save connection** adds it to a profile, or to a new one, with the warehouse, cluster, catalog and
+  schema you picked. The engine picker lists it at once. A profile with connections to two platforms
+  becomes a hybrid profile. A value that looks like a token is refused and nothing is written.
+- **Remove** takes one connection out of a profile, after you confirm. The CLI's own profile or
+  connection stays as it is.
+
+Checking a Snowflake account from Settings, and switching the profile in use, come later.
+
+## Databricks jobs and Lakeflow in Monitor (Preview)
+
+**Monitor > Databricks** lists the job runs and Lakeflow pipeline updates in the workspace of a
+Databricks connection: yours by default, or everyone's, for the last 24 hours or 7 days, newest first.
+
+- **Nothing starts.** Runs are read with the Jobs and Pipelines REST APIs, GET requests only, so
+  reading them starts no job, pipeline, warehouse or cluster and bills no DBUs.
+- **Why a run failed.** Pick a job run to see each task, how long it took, its notebook, and the
+  failed task's error. **Open in Databricks** opens the run's own page, only when it is on that
+  workspace.
+- **Each list stands alone.** If the pipelines can't be read (a 403, say), the job runs still show,
+  with a line that says why.
+- **DBUs per run** come from billing, which Optimize > Cost reads after asking first: reading billing
+  runs a query on a SQL warehouse.
+
+Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
+will confirm first and say which cluster.
+
+## Databricks workspace sync (Preview)
+
+**Workspaces > Databricks** keeps a folder of notebooks on this PC in step with a folder in a
+Databricks workspace. **Pair a folder** names the two folders and the Databricks connection to use.
+
+- **Compare reads only.** It lists each notebook (`.py`, `.ipynb`, `.sql`) directly in the folder,
+  with its state on this PC and in Databricks and what pushing would do. Reading the workspace starts
+  nothing.
+- **Never over someone else's change.** Each file remembers when Databricks last changed it at the
+  last sync. If it has changed there since, it's a conflict: it can't be pushed until you sort it
+  out. A file that isn't in Databricks is written so that one appearing meanwhile isn't replaced.
+- **Deletes ask twice.** A notebook deleted on this PC stays in Databricks unless you tick it, and
+  pushing a delete asks again. If the notebook changed in Databricks since the last sync, it is a
+  conflict and isn't deleted. Folders are never deleted.
+- **Notebooks go across as Databricks source** (`# COMMAND ----------`). What a `.ipynb` loses on the
+  way (outputs, the parameter cell, Fabric-only calls such as `notebookutils`) is listed before you push.
+- **Pull** brings a `.py` or `.sql` file changed in Databricks to this PC, when it hasn't changed here.
+- **Git folders are read only here**: a path under `/Repos`, a Git folder or a folder inside one changes through Git, so it can't be paired or pushed to.
+- Pushes and pulls are written as you, and each one is recorded in the audit log.
+
+Comparing a conflict side by side and picking a side come later.
+
+## Databricks Asset Bundles in Source control (Preview)
+
+**Source control > Bundles** works with a Databricks Asset Bundle (`databricks.yml`) in the open
+repository, or in a folder of it you pick. It runs your own Databricks CLI as one of its profiles, so
+the CLI signs in and KratosForge never handles a token. Install the Databricks CLI and sign in with
+`databricks auth login` first.
+
+- **Validate and Plan change nothing in Databricks.** Validate lists problems and warnings in the
+  files. Plan lists what a deploy to the target would create, update, delete or rebuild.
+- **Commands on this PC are shown first.** A bundle can make the CLI run commands on your PC:
+  `experimental.scripts` hooks, artifact builds (a wheel builds even with no `build` line) and Python
+  resource code. Before the CLI runs, `databricks.yml` and every file it includes are read and any
+  such command is listed. Nothing runs until you allow exactly those commands, and a changed list asks
+  again. An include that matches no file or points out of the folder is refused.
+- **Deploy deploys the plan you saw.** It plans again first. If the plan changed (the files or the
+  workspace changed meanwhile), it shows the new plan instead of deploying.
+- **Deletes and production ask for the target's name.** A plan that deletes or rebuilds a job or
+  pipeline, or a target that is production (by its `mode` or its name), needs the target's name
+  typed. A rebuilt job or pipeline loses its run history.
+- **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
+- Deploys are recorded in the audit log.
+
+## Databricks DBUs in Optimize > Cost (Preview)
+
+**Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,
+7 days or 30 days, by job, Lakeflow pipeline, SQL warehouse and cluster, read from Databricks'
+`system.billing.usage` table.
+
+- **It asks first.** Billing is a system table, so reading it runs one query on a SQL warehouse you
+  pick. If the warehouse is stopped it starts, and it bills DBUs while it runs. **Read Databricks
+  billing** names the warehouse and says whether it's running and when it stops, and runs nothing
+  until you confirm. The connection profile's execution policy applies, as for any remote cell: a
+  profile set to `never` refuses, and one that allows Databricks SQL by policy runs without the confirm.
+- **The query is fixed.** Only the number of days goes in. It needs `SELECT` on
+  `system.billing.usage`; without it, the section says Databricks refused.
+- **DBUs stay DBUs.** They are never added to Fabric capacity units or Snowflake credits, and never
+  turned into money.
+- **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
+  reading.
 
 ## Databricks Connect (Preview)
 
@@ -468,7 +578,8 @@ adapter has one.
 
 ## Not yet
 
-- No profile setup screen: connection profiles are read, not edited, by the engine picker.
+- Settings > Connections adds CLI-based connections only: service principals and the other sign-in
+  methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's

@@ -59,9 +59,93 @@ On that machine the T-SQL query's p95 was about 2.6 times its median, and the ot
 within about a third of their median. Treat a change smaller than that spread as noise, and re-run
 with more `--runs` before reading anything into it.
 
+## In CI
+
+The **Performance** workflow (`.github/workflows/perf.yml`) runs this benchmark on GitHub's Windows
+runner (`windows-latest`) with the defaults above, after every merge to main, on demand, and on a pull
+request that changes the benchmark. `examples/benchmark/compare.py` then compares each median with the
+Windows baseline in `examples/benchmark/baseline-windows.json`, which records the runner, commit and
+settings it came from. The job summary shows each median next to the baseline, and the result file is
+kept as an artifact.
+
+The Windows baseline was recorded on 2026-11-05 from the workflow's first run (Windows Server 2025, Python
+3.12, 4 CPUs, the defaults above). Medians in milliseconds: startup 979.6, notebook first cell 753.5, notebook
+first spark cell 754.4, SQL first query on a new project 1.5, count 1.5, group by 6.9, filter 4.6, t-sql top
+28.3.
+
+A measurement counts as a regression when its median is more than 1.5 times the baseline's **and**
+more than 25 ms slower. The second rule keeps a 1 ms query that takes 3 ms on a busy runner from
+counting. The SQL lines are compared only when the run used the baseline's table size.
+
+**The check is advisory until 2026-11-19.** Until then a regression is a warning on the run and in the
+summary, and the job doesn't fail. From then, if main's runs have stayed within range, the compare
+step gets `--gate` and a regression fails the job. Until it is a gate, read the warnings, not the
+job's colour. How to record a new baseline: [examples/benchmark/README.md](https://github.com/KratosDataGod/KratosForge/blob/main/examples/benchmark/README.md#in-ci-and-refreshing-the-baseline).
+
+## The app window
+
+`app/tests/browser/ui-benchmark.cjs` times the window itself in headless Chromium, with every engine call
+answered by a fake, so it needs no engine, Fabric or network. It was added before platform skins, to have a
+baseline to compare them with.
+
+```
+NODE_PATH="$(npm root -g)" node app/tests/browser/ui-benchmark.cjs --runs 3 --json ui.json
+```
+
+| Measurement | What it times |
+| --- | --- |
+| startup | page load until the left rail is drawn and every script has loaded |
+| navigation | opening each left-rail page until it is styled and laid out (first visit and later visits) |
+| token switch | new values for the color tokens on the page root, as a skin change sets them, until restyled |
+| density switch | Comfortable to Compact and back, until restyled |
+| large list | a workspace of 5,000 items: Show items until the first screen of rows is drawn, and the elements added |
+| editor | 200 characters typed into the SQL editor, and the longest task while typing |
+| memory | JS heap, elements in the page, and elements still held anywhere, after visiting every page |
+| background | main-thread time used in 10 seconds of doing nothing |
+
+Baseline, 2026-11-03 at main `00298ad`, median of 3 runs, on a Linux cloud build machine (4 CPUs, Chromium
+from Playwright 1.63). Times in milliseconds.
+
+| Measurement | Baseline | Budget |
+| --- | ---: | ---: |
+| startup | 349 | 1,200 |
+| navigation, slowest page | 4.7 | 25 |
+| navigation, median | 2.2 | |
+| token switch, slowest | 5.2 | 25 |
+| density switch, slowest | 2.7 | 15 |
+| large list, 5,000 items | 2,959 (706 now, see below) | 2,100 |
+| large list, elements added | 76,673 (3,007 now) | 9,000 |
+| editor, 200 characters | 724 | 2,500 |
+| editor, longest task | 159 | 500 |
+| JS heap | 10.3 MB | 32 MB |
+| elements in the page, on Home | 356 | 1,500 |
+| background, per 10 s | 11.1 | 60 |
+
+`app/tests/browser/ui-budgets.test.cjs` runs it in CI, one uncounted warm-up run and then one
+counted run, and fails when a number goes over its budget in
+`ui-budgets.json`. Each budget is about three times the baseline, so a slow CI machine doesn't fail it and a
+real regression does. Lower a budget when a change makes the app faster; raising one needs the reason in the
+pull request.
+
+What the baseline shows:
+
+- **Switching appearance is cheap.** Restyling the whole window for new tokens takes about 5 ms, so a skin
+  can switch at once without reloading the page (which would also lose open work).
+- **Large workspaces were slow.** At the baseline, 5,000 items took about 3 seconds and added about 77,000
+  elements, because every row was drawn. Now the first 200 rows are drawn and 200 more each time you scroll
+  near the end: 706 ms and 3,007 elements (median of 3 runs, same machine, 2026-11-03), and the budgets are
+  about three times that. The browser's find-in-page only sees rows already drawn, so in a big workspace
+  scroll to the end first.
+- **Pages already left are kept in memory.** After visiting every page and returning to Home, about 94,000
+  elements are still held, against 356 in the page, even after a garbage collection. In a separate check the
+  held count grew after the first and second visit to a large workspace and then stopped, so it looks like one
+  earlier copy of a page is kept, not a leak that grows without end. What holds it is not known yet (UNVERIFIED).
+- The editor's 200 characters include Playwright's own time per key, so read it as a comparison between runs,
+  not as typing latency.
+
 ## What it is not
 
-It is not run in CI and nothing fails on its numbers yet; the [quality gates](audits/QUALITY_GATES.md)
-propose recording it per build, warning-only at first. It does not time the app's window, WebView2
-or the Tauri shell, a notebook on Fabric, or OneLake reads and writes. For TPC-H on your PC and in
-Fabric side by side, see [the TPC-H benchmark notebooks](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark).
+The engine benchmark (`startup_and_sql.py`) is not run in CI and nothing fails on its numbers yet; the
+[quality gates](audits/QUALITY_GATES.md) propose recording it per build, warning-only at first. It does not time WebView2 or the Tauri shell
+(see [The app window](#the-app-window) for the page itself), a notebook on Fabric, or OneLake reads and
+writes. For TPC-H on your PC and in Fabric side by side, see [the TPC-H benchmark notebooks](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark).

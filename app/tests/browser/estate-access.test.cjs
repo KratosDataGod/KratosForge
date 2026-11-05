@@ -12,12 +12,14 @@
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: estate.js:grantDialog, estate.js:roleDialog, estate.js:usageImportDialog, meta.js:confirmDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const ME = "chris@contoso.com";
-const READS = ["access_review", "catalog", "access_lakehouse", "cost_report", "optimize_status"];  // optimize_status: the Optimize page's band
+const READS = ["access_review", "catalog", "access_lakehouse", "cost_report", "optimize_status", "engine_connections"];  // optimize_status: the Optimize page's band; engine_connections: Cost's Databricks DBUs section (Preview)
 const WRITES = ["access_set_role", "access_save_role", "access_delete_role", "usage_import", "usage_import_delete"];
 // Asks the engine something without changing anything, but only after the person acts.
 const LOOKUPS = ["access_find_person", "access_who_can_read", "usage_preview"];

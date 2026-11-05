@@ -216,7 +216,7 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
            text: list[bool]) -> dict[str, Any]:
     key_names = {x for x, _ in kq}
     keys = [(f"CAST(a.{x} AS VARCHAR)", f"CAST(b.{y} AS VARCHAR)") if t else (f"a.{x}", f"b.{y}")
-            for (x, y), t in zip(kq, text)]
+            for (x, y), t in zip(kq, text, strict=True)]
     on = " AND ".join(f"{x} IS NOT DISTINCT FROM {y}" for x, y in keys)
     checks, metrics = [], []
     for name_a, name_b, ka, kb in cols["common"]:

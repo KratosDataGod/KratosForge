@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3.2",
+  "questions": [
+    {
+      "id": "3.3.2-q1",
+      "type": "single",
+      "stem": "At Fernway, the nightly pipeline copies 300 regions one at a time in a ForEach. How do you shorten it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Split it into 300 pipelines run by hand"
+        },
+        {
+          "id": "b",
+          "text": "Add a Wait activity between iterations"
+        },
+        {
+          "id": "c",
+          "text": "Clear the ForEach's Sequential option and set a batch count, so iterations run in parallel"
+        },
+        {
+          "id": "d",
+          "text": "Increase the retry count"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A ForEach runs iterations in parallel unless Sequential is set; the batch count limits how many run at once.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
+      "case": "fernway-telemetry",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.2-q2",
+      "type": "single",
+      "stem": "Two Copy activities in a pipeline don't depend on each other, but one waits for the other to finish. How do you make them run at the same time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add a schedule"
+        },
+        {
+          "id": "b",
+          "text": "Turn on high concurrency"
+        },
+        {
+          "id": "c",
+          "text": "Put them in a ForEach with Sequential on"
+        },
+        {
+          "id": "d",
+          "text": "Remove the dependency between them so both start together"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Activities with no dependency between them run in parallel.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.2-q3",
+      "type": "single",
+      "stem": "A Copy activity reads a very large table from a database that supports partitioned reads, and it's slow. What can speed it up?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn off the destination"
+        },
+        {
+          "id": "b",
+          "text": "Add a Wait activity"
+        },
+        {
+          "id": "c",
+          "text": "Use the source's partitioning option (an advanced setting some database connectors offer) so the copy reads in parallel"
+        },
+        {
+          "id": "d",
+          "text": "Copy the table one row at a time"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Partitioned reads let the Copy activity read slices of the table in parallel.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.2-q4",
+      "type": "single",
+      "stem": "You want an on-demand copy of many small tables to finish faster with the least redesign. Which change usually helps most?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Copy each table twice"
+        },
+        {
+          "id": "b",
+          "text": "Run copies of independent tables in parallel instead of one after another"
+        },
+        {
+          "id": "c",
+          "text": "Add a notebook between every copy"
+        },
+        {
+          "id": "d",
+          "text": "Lower the pipeline's timeout"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Independent copies running in parallel use the time otherwise spent waiting. Extra steps only add time.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

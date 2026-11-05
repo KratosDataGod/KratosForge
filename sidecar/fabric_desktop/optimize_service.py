@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from . import app_settings, redact
+from . import app_settings, redact, retrying
 from .auth import ONELAKE_SCOPES
 from .fabric_api import FabricError
 from .optimize import local_runs, roles, schema, setup
+from .optimize.outbox import ANALYSIS, LOCAL_EXECUTIONS, Outbox
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
@@ -39,6 +40,16 @@ class OptimizeMixin:
     def optimize_registry(self) -> Registry:
         return Registry(self.root / "optimize")
 
+    @property
+    def optimize_outbox(self) -> Outbox:
+        """One Outbox per engine: opening it checks the whole file (sqlitefile.check), so it isn't
+        reopened on every call."""
+        path = self.root / "optimize" / "outbox.sqlite"
+        box = getattr(self, "_optimize_outbox", None)
+        if box is None or box.path != path:
+            box = self._optimize_outbox = Outbox(path)
+        return box
+
     def _optimize_allowed(self) -> None:
         if not app_settings.value("allow_optimize_lakehouse"):
             raise PermissionError("Your organization has turned off shared optimization lakehouses "
@@ -56,9 +67,11 @@ class OptimizeMixin:
     def optimize_status(self) -> dict[str, Any]:
         """What Optimize knows on this PC, without going online."""
         reg = self.optimize_registry
+        active = reg.active()
         return {"allowed": bool(app_settings.value("allow_optimize_lakehouse")), "default_name": DEFAULT_NAME,
                 "installation_id": self.optimize_installation.id, "label": self.optimize_installation.label,
-                "active": reg.active(), "connections": reg.all()}
+                "active": active, "connections": reg.all(),
+                "outbox": self.optimize_outbox.status(active["lakehouse_id"]) if active else None}
 
     def optimize_discover(self, workspace_id: str) -> list[dict[str, Any]]:
         """The workspace's lakehouses, each marked with whether it already holds Optimize's tables."""
@@ -108,7 +121,8 @@ class OptimizeMixin:
             if not initialize:
                 return {"connected": False, "needs_confirmation": True, "inspection": state}
             setup.initialize(lake, self.optimize_installation, approve=True)
-        return self._optimize_register(lake, workspace_id, workspace_name, lakehouse_id, lakehouse_name)
+        out = self._optimize_register(lake, workspace_id, workspace_name, lakehouse_id, lakehouse_name)
+        return out | {"sync": self._optimize_flush_quietly()}
 
     def _optimize_register(self, lake: Any, workspace_id: str, workspace_name: str, lakehouse_id: str,
                            lakehouse_name: str, created: bool = False) -> dict[str, Any]:
@@ -121,10 +135,12 @@ class OptimizeMixin:
         return {"connected": True, "created": created, "connection": conn, "access": access}
 
     def optimize_switch(self, lakehouse_id: str) -> dict[str, Any]:
-        return {"active": self.optimize_registry.activate(lakehouse_id)}
+        active = self.optimize_registry.activate(lakehouse_id)
+        return {"active": active, "sync": self._optimize_flush_quietly()}
 
     def optimize_disconnect(self, lakehouse_id: str) -> dict[str, Any]:
-        """Forget the lakehouse on this PC. Nothing in the lakehouse is changed or deleted."""
+        """Forget the lakehouse on this PC. Nothing in the lakehouse is changed or deleted, and results
+        still waiting for it on this PC stay, to be sent if this PC connects to it again."""
         self.optimize_registry.forget(lakehouse_id)
         return {"disconnected": lakehouse_id, "active": self.optimize_registry.active()}
 
@@ -145,6 +161,79 @@ class OptimizeMixin:
         lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True),
                                   **({"token": token} if token else {}))
         return Shared(lake, self.optimize_installation, access=conn.get("access") or "none")
+
+    # Results waiting on this PC (optimize/outbox.py, PR-OPT-006)
+
+    @staticmethod
+    def _optimize_transient(exc: BaseException) -> bool:
+        """Whether a failed write is worth trying again later: no network, throttling, a lost commit
+        race or a dropped upload. A permission error, a refused write or bad input is not."""
+        if isinstance(exc, (PermissionError, ValueError)) or setup.denied(exc):
+            return False
+        return retrying.is_retryable(exc) or retrying.data_upload_dropped(exc)
+
+    @staticmethod
+    def _optimize_send(shared: Shared, kind: str, payload: dict[str, Any]) -> int:
+        if kind == ANALYSIS:
+            out = shared.record_analysis(payload["run"], payload.get("artifacts") or (),
+                                         payload.get("findings") or (), payload.get("recommendations") or ())
+            return int(out["findings"])
+        return shared.record_local_executions(payload.get("rows") or [])
+
+    def _optimize_flush(self, token: Callable[[], str] | None = None) -> dict[str, Any]:
+        """Send what is waiting for the active lakehouse, oldest first. Stops at the first failure
+        that may pass (the lakehouse is probably still out of reach) or a permission error (it may be
+        granted later); an item the lakehouse refuses as it is gets dropped and counted, so it can't
+        hold up the rest."""
+        out: dict[str, Any] = {"sent": 0, "dropped": 0, "waiting": 0}
+        conn = self.central_lakehouse()
+        if not conn or conn.get("access") != "write":
+            return out
+        box, lakehouse_id = self.optimize_outbox, conn["lakehouse_id"]
+        # Every send is started by a person (connect, switch, share) or a finished scan, never a
+        # timer, so everything waiting is tried now; the wait between tries is for a background sync.
+        items = box.due(lakehouse_id, include_waiting=True)
+        if items:
+            shared = self._optimize_shared(token)
+            for item in items:
+                try:
+                    self._optimize_send(shared, item["kind"], item["payload"])
+                except Exception as exc:
+                    if self._optimize_transient(exc) or isinstance(exc, PermissionError) or setup.denied(exc):
+                        box.failed(item["id"], str(exc))
+                        out["error"] = redact.secrets(str(exc))
+                        break
+                    box.dropped(item["id"], str(exc))
+                    out["dropped"] += 1
+                    continue
+                box.sent(item["id"])
+                out["sent"] += 1
+        out["waiting"] = box.status(lakehouse_id)["pending"]
+        return out
+
+    def _optimize_flush_quietly(self, token: Callable[[], str] | None = None) -> dict[str, Any] | None:
+        """``_optimize_flush`` for callers whose own work mustn't fail because of it."""
+        try:
+            return self._optimize_flush(token)
+        except Exception as exc:  # noqa: BLE001 - connecting or switching stands without it
+            return {"error": redact.secrets(str(exc))}
+
+    def _optimize_write(self, kind: str, payload: dict[str, Any],
+                        token: Callable[[], str] | None = None) -> dict[str, Any]:
+        """Write to the active lakehouse, after anything still waiting for it. A failure that may pass
+        keeps the payload on this PC for the next write, connect or switch; any other failure raises."""
+        conn = self.central_lakehouse()
+        if not conn:
+            raise ValueError("Connect this PC to an optimization lakehouse first (Settings > Optimize lakehouses).")
+        sync = self._optimize_flush_quietly(token)
+        try:
+            return {"sent": self._optimize_send(self._optimize_shared(token), kind, payload), "queued": False,
+                    "sync": sync}
+        except Exception as exc:
+            if not self._optimize_transient(exc):
+                raise
+            self.optimize_outbox.add(conn["lakehouse_id"], kind, payload, str(exc))
+            return {"sent": 0, "queued": True, "error": redact.secrets(str(exc)), "sync": sync}
 
     # ---------- the central lakehouse, for other features ----------
 
@@ -263,11 +352,21 @@ class OptimizeMixin:
         notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
         rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
                 + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me))  # type: ignore[attr-defined]
-        done = shared.local_execution_ids()
-        new = [r for r in rows if r["execution_id"] not in done]
+        offline = None
+        try:
+            done = shared.local_execution_ids()
+        except Exception as exc:
+            if not self._optimize_transient(exc):
+                raise
+            # Out of reach: what's already there can't be read, so every run not already waiting on this
+            # PC counts as new; rows that turn out to be there already are skipped when they're sent.
+            done, offline = set(), redact.secrets(str(exc))
+        waiting = self.optimize_outbox.waiting_execution_ids((self.optimize_registry.active() or {}).get("lakehouse_id", ""))
+        new = [r for r in rows if r["execution_id"] not in done and r["execution_id"] not in waiting]
         writes = sum(r["workload_type"] == "notebook_write" for r in new)
         out = {"new": len(new), "notebook_writes": writes, "notebook_runs": len(new) - writes,
-               "already": len(rows) - len(new), "shared": 0}
+               "already": len(rows) - len(new), "waiting": sum(r["execution_id"] in waiting for r in rows),
+               "shared": 0, **({"offline": offline} if offline else {})}
         if not new:
             return out
         if not approve:
@@ -280,7 +379,9 @@ class OptimizeMixin:
                 "Confirm to continue.")
             ask.would = out  # type: ignore[attr-defined]
             raise ask
-        return out | {"shared": shared.record_local_executions(new)}
+        sent = self._optimize_write(LOCAL_EXECUTIONS, {"rows": new})
+        return out | {"shared": sent["sent"], "queued": len(new) if sent["queued"] else 0,
+                      **({"error": sent["error"]} if sent.get("error") else {})}
 
     def optimize_set_recommendation(self, recommendation_id: str, state: str, reason: str = "") -> dict[str, Any]:
         """Accept, dismiss, reopen or otherwise move a recommendation on, for everyone using the lakehouse."""

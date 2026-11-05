@@ -7,12 +7,13 @@ the change itself, sent again only after a 429. UDF_Platform is faked by a sessi
 call on a SQLite platform, which can lose its answer after doing the work; no tenant is called."""
 
 import datetime as dt
+import inspect
 import json
 
 import pytest
 import requests
 
-from fabric_desktop.central import core, policy  # noqa: F401  (policy adds its operations)
+from fabric_desktop.central import core, policy, udf  # noqa: F401  (policy adds its operations)
 from fabric_desktop.central.client import FabricPlatform, LocalPlatform
 
 ADMIN, DEV = "ana@contoso.com", "dev@contoso.com"
@@ -35,6 +36,16 @@ class Fabric:
         self.platform, self.who, self.once = LocalPlatform(path, lambda: who["user"]), who, once
         self.script, self.sent = [], []
 
+    @staticmethod
+    def as_the_function_takes(op, body):
+        """The body under the operation's own names, as UDF_Platform's function passes them on: Fabric
+        names each parameter without underscores (udf.fabric_name), and a name it doesn't take fails."""
+        names = {udf.fabric_name(n): n for n in inspect.signature(core.OPERATIONS[op]).parameters if n not in ("db", "by")}
+        unknown = sorted(set(body) - set(names))
+        if unknown:
+            raise core.PlatformError(f"{op} takes no parameter {', '.join(unknown)}")
+        return {names[k]: v for k, v in body.items()}
+
     def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
         op = url.rsplit("/functions/", 1)[1].split("/")[0]
         self.sent.append((op, json))
@@ -48,7 +59,7 @@ class Fabric:
         if step == "timeout":
             raise requests.Timeout("read timed out")
         try:
-            out = self.platform.call(op, **(json or {}))
+            out = self.platform.call(op, **self.as_the_function_takes(op, json or {}))
         except core.PlatformError as exc:
             return response(400, {"status": "Failed", "errors": [{"message": str(exc)}]})
         if step == "lost":
@@ -111,13 +122,13 @@ def test_a_change_goes_through_call_once_and_answers_as_the_operation_does(fabri
     assert out["id"] == "sales" and out["updated_by"] == ADMIN
     [(op, body)] = fabric.sent
     assert op == "call_once" and body["operation"] == "save_domain" and body["args"] == {"domain": {"name": "Sales"}}
-    assert len(body["call_id"]) == 32 and "by" not in body["args"]
+    assert len(body["callId"]) == 32 and "by" not in body["args"]
 
 
 def test_a_change_refused_unread_with_429_is_sent_again_with_the_same_call_id(fabric, client, waits):
     fabric.script = ["429"]
     client.call("save_domain", domain={"name": "Sales"})
-    assert [b["call_id"] for _, b in fabric.sent] == [fabric.sent[0][1]["call_id"]] * 2
+    assert [b["callId"] for _, b in fabric.sent] == [fabric.sent[0][1]["callId"]] * 2
     assert waits == [7.0] and len(audit(fabric, "save domain")) == 1
 
 
@@ -127,7 +138,7 @@ def test_a_change_whose_answer_was_lost_is_made_once(fabric, client, trouble):
     fabric.script = [trouble]
     out = client.call("save_domain", domain={"name": "Sales"})
     assert out["id"] == "sales"
-    assert len({b["call_id"] for _, b in fabric.sent}) == 1 and len(fabric.sent) == 2
+    assert len({b["callId"] for _, b in fabric.sent}) == 1 and len(fabric.sent) == 2
     assert [d["id"] for d in rows(fabric, "domain")] == ["sales"]
     assert len(audit(fabric, "save domain")) == 1
 

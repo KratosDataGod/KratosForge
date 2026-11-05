@@ -106,14 +106,8 @@ def inspect(lake: Any, family: Family = CORE) -> dict[str, Any]:
 
 def retry(fn: Callable[[], Any], attempts: int = 5, backoff: float = 0.5, sleep: Callable[[float], None] = time.sleep) -> Any:
     """Run ``fn`` again after a lost commit race, throttling or a network blip: bounded, with backoff."""
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn()
-        except Exception as exc:
-            if attempt == attempts or not retrying.is_retryable(exc):
-                raise
-            sleep(min(backoff * 2 ** (attempt - 1), 8.0))
-    return None
+    return retrying.retry_call(fn, retrying.is_retryable, attempts,
+                               lambda n: min(backoff * 2 ** (n - 1), 8.0), sleep)
 
 
 def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE) -> pl.DataFrame:

@@ -24,6 +24,7 @@ let items = [item("SemanticModel", SM, "SM_Customer360", "Certified"), item("Rep
   item("Report", "ffffffff-0000-0000-0000-000000000007", "Churn watch", null)];
 let admin = false;
 let ownerEdits = false; // the server says this person owns the product (its rule, not the app's)
+let oldField = false; // a platform not yet repaired after an update names the rule can_edit_terms
 let older = false;
 let lateLists = 0; // lists of another workspace that have answered
 const mocks = {
@@ -33,7 +34,7 @@ const mocks = {
       items: [{ ...item("SemanticModel", SM2, "SM_Orders", "Promoted"), product_id: "ops/orders" }] },
     { ...base, id: "ops/inventory", name: "inventory", project: "ops", ports: ["a", "b", "c", "d"].map(port), items: [] }] }),
   platform_access_reviews: () => ({ every_days: 90, grants: [], due: 0 }),
-  platform_product_trust: () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, can_edit_terms: admin || ownerEdits, terms: [],
+  platform_product_trust: () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, [oldField ? "can_edit_terms" : "can_edit"]: admin || ownerEdits,
     items: [{ item_id: "bbbbbbbb-0000-0000-0000-000000000002", workspace_id: "w", item_type: "Lakehouse", item_name: "LH_Gold", env: "prod", endorsement: null }] }),
   platform_whoami: () => ({ user: "chris@example.com", admin }),
   platform_product_items: () => {
@@ -129,6 +130,18 @@ test("who may add or remove comes from the server's rule, not the owner field sp
     assert.ok(await page().$('.product-offer button:has-text("Remove")'));
   } finally {
     ownerEdits = false;
+  }
+});
+
+test("a platform not yet repaired after an update still lets the owner edit", { skip }, async () => {
+  ownerEdits = true;
+  oldField = true;
+  try {
+    await openProduct();
+    await page().waitForSelector('.product-offer button:has-text("Add a model")');
+  } finally {
+    ownerEdits = false;
+    oldField = false;
   }
 });
 

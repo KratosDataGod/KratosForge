@@ -15,14 +15,16 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: meta.js:confirmDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const ME = "chris@contoso.com";
 const ENGINE = ["app_settings", "save_app_settings", "telemetry_status", "telemetry_new_install_id"];
-const READS = ["app_settings", "telemetry_status", "local_writes", "platform_notify_settings", "optimize_status", "readiness_check", "list_workspaces"];
-const WRITES = ["sign_out", "local_writes_clear", "telemetry_new_install_id", "save_app_settings", "local_writes_reveal"];
+const READS = ["app_settings", "telemetry_status", "local_writes", "platform_notify_settings", "optimize_status", "readiness_check", "list_workspaces", "academy_sandbox_status"];
+const WRITES = ["sign_out", "local_writes_clear", "telemetry_new_install_id", "save_app_settings", "local_writes_reveal", "academy_sandbox_remove_grants"];
 const OLD_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const STAGING = "C:\\Users\\chris\\AppData\\Local\\FabricDesktop\\staging";
 const TPCH = "C:\\Users\\chris\\AppData\\Local\\Temp\\tpch_sf1_k2j4";

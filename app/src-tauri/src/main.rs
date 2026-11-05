@@ -422,6 +422,34 @@ fn python() -> Result<String, String> {
     choose_python(env_override.as_deref(), engine_python(), cfg!(debug_assertions))
 }
 
+/// `--run-schedule <id>`, how Task Scheduler starts a schedule that also runs while you're signed
+/// out of Windows (PB-048). That task keeps the password Windows asked for, and changing it would
+/// ask again, so it runs this exe, whose path an update doesn't change, rather than an engine
+/// folder, which it does. The id is a schedule id (hex) and nothing else.
+fn run_schedule_arg(args: &[String]) -> Option<&str> {
+    match args {
+        [_, flag, id] if flag == "--run-schedule" && (1..=32).contains(&id.len())
+            && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) => Some(id.as_str()),
+        _ => None,
+    }
+}
+
+/// Runs the current engine's `run-schedule`, windowless, in the task's working folder, and returns
+/// its exit code for Task Scheduler's "last result". No window and no single-instance claim: an
+/// open copy of the app isn't involved.
+fn run_schedule(id: &str) -> i32 {
+    let Ok(python) = python() else { return 2 };
+    let pythonw = PathBuf::from(&python).with_file_name("pythonw.exe");
+    let mut cmd = Command::new(if pythonw.exists() { pythonw.into_os_string() } else { python.into() });
+    cmd.args(["-m", "fabric_desktop.cli", "run-schedule", id])
+        .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_window(&mut cmd);
+    cmd.status().ok().and_then(|s| s.code()).unwrap_or(1)
+}
+
 fn hide_window(cmd: &mut Command) {
     #[cfg(windows)]
     {
@@ -615,6 +643,8 @@ impl Sidecar {
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // So a schedule that also runs while signed out can run this exe (run_schedule_arg).
+            .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
             .current_dir(data_dir())
@@ -1347,7 +1377,28 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
-    let mut target = commit.to_ascii_lowercase();
+    let target = download_offered(&app, commit.to_ascii_lowercase(), &dest);
+    let target = match target {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&new); // a partial or unchecked download is never left behind
+            return Err(e);
+        }
+    };
+    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
+    // the download was checked against comes from the same release as the file.
+    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
+        let _ = std::fs::remove_file(&new);
+        return Err(why);
+    }
+    update_guard::hand_over(&mut ExeHandover {
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+    })
+}
+
+/// Downloads the build the channel offers now to `dest`, following it once if it moves on during
+/// the download (update_app). Returns the build downloaded.
+fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<String, String> {
     for attempt in 0..2 {
         let offered = offered_now()?;
         if offered != target {
@@ -1364,14 +1415,13 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
         }
         // The download runs the updater with its own Python, not the engine, so the engine keeps
         // running until the file is here and checked.
-        match stream(&app, updater(&["download-app", &dest, &target])?) {
-            Ok(()) => break,
+        match stream(app, updater(&["download-app", dest, &target])?) {
+            Ok(()) => return Ok(target),
             Err(out) => {
                 let last = out.lines().last().unwrap_or_default().trim().to_string();
                 if last.starts_with("moved ") && attempt == 0 {
                     continue; // republished meanwhile: check the channel again
                 }
-                let _ = std::fs::remove_file(&new);
                 return Err(if last.starts_with("moved ") {
                     "The update channel is being republished. Try again in a few minutes.".into()
                 } else if last.is_empty() {
@@ -1382,15 +1432,7 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
             }
         }
     }
-    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
-    // the download was checked against comes from the same release as the file.
-    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
-        let _ = std::fs::remove_file(&new);
-        return Err(why);
-    }
-    update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
-    })
+    Err("The update channel is being republished. Try again in a few minutes.".into())
 }
 
 // ---- Fabric's own pages (the Monitoring hub, the OneLake catalog), shown in one second webview
@@ -2023,6 +2065,7 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
     let builder = tauri::WebviewWindowBuilder::new(&app, &label, url)
         .title(format!("KratosForge · {title}"))
         .min_inner_size(360.0, 260.0)
+        .zoom_hotkeys_enabled(true)  // Ctrl+= / Ctrl+- / Ctrl+0, as in the main window (tauri.conf.json)
         .always_on_top(on_top.unwrap_or(false))
         .on_navigation(app_page);
     let screens: Vec<_> = app.available_monitors().unwrap_or_default().iter()
@@ -2332,6 +2375,9 @@ fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std
 }
 
 fn main() {
+    if let Some(id) = run_schedule_arg(&std::env::args().collect::<Vec<_>>()) {
+        std::process::exit(run_schedule(id));
+    }
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
     // An organization that turned links off (register_link_scheme: false) gets none: no listener on
@@ -2388,6 +2434,17 @@ mod python_choice_tests {
 
     fn absolute() -> &'static str {
         if cfg!(windows) { r"C:\Python312\python.exe" } else { "/usr/bin/python3" }
+    }
+
+    #[test]
+    fn run_schedule_takes_only_a_schedule_id() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(run_schedule_arg(&args(&["kf.exe", "--run-schedule", "0a1b2c3d4e5f"])), Some("0a1b2c3d4e5f"));
+        for bad in [&["kf.exe", "--run-schedule"][..], &["kf.exe", "--run-schedule", ""], &["kf.exe", "--run-schedule", "../x"],
+                    &["kf.exe", "--run-schedule", "ABC"], &["kf.exe", "--run-schedule", "a b"], &["kf.exe", "--run-schedule", "ab", "more"],
+                    &["kf.exe", "kratosforge://open"], &["kf.exe", "--run-schedule", &"a".repeat(33)]] {
+            assert_eq!(run_schedule_arg(&args(bad)), None, "{bad:?}");
+        }
     }
 
     #[test]

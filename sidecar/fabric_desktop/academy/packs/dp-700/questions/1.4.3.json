@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.4.3",
+  "questions": [
+    {
+      "id": "1.4.3-q1",
+      "type": "single",
+      "stem": "A pipeline must pass a load date to a notebook. How is this done?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write the date to a text file and have the notebook search for it"
+        },
+        {
+          "id": "b",
+          "text": "Mark a notebook cell as the parameters cell and set base parameters with the same names in the Notebook activity"
+        },
+        {
+          "id": "c",
+          "text": "Use a deployment rule"
+        },
+        {
+          "id": "d",
+          "text": "Hard-code the date in the notebook before each run"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Values set as base parameters in the Notebook activity override the variables in the notebook's parameters cell when it runs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/notebook-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.3-q2",
+      "type": "single",
+      "stem": "A Copy activity must write to a folder named for today's date, such as 2026/11/03. Which dynamic expression builds the path?",
+      "options": [
+        {
+          "id": "a",
+          "text": "@formatDateTime(utcNow(), 'yyyy/MM/dd')"
+        },
+        {
+          "id": "b",
+          "text": "GETDATE('yyyy/MM/dd')"
+        },
+        {
+          "id": "c",
+          "text": "=TODAY()"
+        },
+        {
+          "id": "d",
+          "text": "${date:yyyy/MM/dd}"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Pipeline expressions start with @ and use functions such as utcNow() and formatDateTime().",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/expression-language",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.3-q3",
+      "type": "single",
+      "stem": "A notebook must run five other notebooks, some in parallel and some after others, in one Spark session. What should it use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "notebookutils.notebook.runMultiple with a dependency graph"
+        },
+        {
+          "id": "b",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "c",
+          "text": "A loop of %run magic commands in five threads"
+        },
+        {
+          "id": "d",
+          "text": "Five separate pipelines"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "runMultiple runs several notebooks in parallel or in a declared order within the same session.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.3-q4",
+      "type": "single",
+      "stem": "A notebook run by a pipeline must return a row count to the pipeline. How?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write the value to the notebook's markdown"
+        },
+        {
+          "id": "b",
+          "text": "Print the value and parse the logs"
+        },
+        {
+          "id": "c",
+          "text": "Call notebookutils.notebook.exit with the value and read it from the activity's output in the pipeline"
+        },
+        {
+          "id": "d",
+          "text": "It isn't possible"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "notebook.exit ends the notebook with a value that the pipeline reads from the Notebook activity's output with an expression.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

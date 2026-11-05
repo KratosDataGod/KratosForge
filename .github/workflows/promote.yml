@@ -76,6 +76,24 @@ jobs:
               echo "::notice::$SOURCE has no $sbom, so Stable is promoted without it."
             fi
           done
+          # The per-user MSI (docs/enterprise-install.md), when the build has one; a build from before
+          # it goes without. Its SHA-256 is checked against version.json's msi_sha256 below.
+          SBOMS_AND_MSI=()
+          if grep -qx kratosforge.msi <<< "$ASSETS"; then
+            gh release download "$SOURCE" --pattern kratosforge.msi
+            SBOMS_AND_MSI=(kratosforge.msi)
+          else
+            echo "::notice::$SOURCE has no kratosforge.msi, so Stable is promoted without it."
+          fi
+          # The VS Code extension (docs/vscode.md), when the build has it and its version.json gives
+          # its SHA-256 (vsix_sha256, checked below); otherwise Stable goes without it.
+          if grep -qx kratosforge.vsix <<< "$ASSETS" && jq -e '.vsix_sha256 // empty' version.json > /dev/null; then
+            gh release download "$SOURCE" --pattern kratosforge.vsix
+            SBOMS_AND_MSI+=(kratosforge.vsix)
+          else
+            echo "::notice::$SOURCE has no checked kratosforge.vsix, so Stable is promoted without it."
+          fi
+          SBOMS_AND_MSI+=("${SBOMS[@]}")
           COMMIT=$(jq -r .commit version.json)
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The $SOURCE release has no build commit"; exit 1; }
           if [ "$SOURCE" != latest ] && [ "build-${COMMIT::12}" != "$SOURCE" ]; then
@@ -89,6 +107,8 @@ jobs:
           # Stable only gets the exact files the build's version.json names.
           PAIRS=("kratosforge.exe exe_sha256" "fabric-desktop.exe exe_sha256" "fabric-desktop-engine.zip engine_sha256")
           [ ${#UPDATE_ZIP[@]} -eq 0 ] || PAIRS+=("fabric-desktop-engine-update.zip engine_update_sha256")
+          [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.msi "* ]] || PAIRS+=("kratosforge.msi msi_sha256")
+          [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.vsix "* ]] || PAIRS+=("kratosforge.vsix vsix_sha256")
           for pair in "${PAIRS[@]}"; do
             read -r file key <<< "$pair"
             expected=$(jq -r --arg k "$key" '.[$k] // ""' version.json)
@@ -113,7 +133,7 @@ jobs:
           if gh release view stable > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release: while it was missing,
             # Stable PCs fell back to Preview and could be offered an untested build.
-            gh release upload stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS[@]}" --clobber
+            gh release upload stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS_AND_MSI[@]}" --clobber
             # Nor may an earlier build's SBOM stay beside this build's files.
             STABLE_ASSETS=$(gh release view stable --json assets --jq '.assets[].name') \
               || { echo "::warning::Couldn't list stable's files; check by hand that no earlier SBOM is left."; STABLE_ASSETS=""; }
@@ -124,6 +144,14 @@ jobs:
                   || echo "::warning::Couldn't remove the earlier build's $sbom from stable; delete it by hand."
               fi
             done
+            if [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.msi "* ]] && grep -qx kratosforge.msi <<< "$STABLE_ASSETS"; then
+              gh release delete-asset stable kratosforge.msi --yes \
+                || echo "::warning::Couldn't remove the earlier build's kratosforge.msi from stable; delete it by hand."
+            fi
+            if [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.vsix "* ]] && grep -qx kratosforge.vsix <<< "$STABLE_ASSETS"; then
+              gh release delete-asset stable kratosforge.vsix --yes \
+                || echo "::warning::Couldn't remove the earlier build's kratosforge.vsix from stable; delete it by hand."
+            fi
             # A build without an update zip mustn't sit next to an earlier build's (the app only uses
             # one its version.json names, but a stale file there misleads people).
             if [ ${#UPDATE_ZIP[@]} -eq 0 ]; then
@@ -133,7 +161,7 @@ jobs:
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/stable" -f sha="$COMMIT" -F force=true
             gh release edit stable --notes "$NOTES" --latest
           else
-            gh release create stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS[@]}" version.json \
+            gh release create stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS_AND_MSI[@]}" version.json \
               --title "KratosForge (stable)" \
               --notes "$NOTES" \
               --target "$COMMIT" \

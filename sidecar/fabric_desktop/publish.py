@@ -199,7 +199,7 @@ def _files(table: DeltaTable) -> dict[str, int] | None:
     except Exception as exc:  # noqa: BLE001 - only the timing's byte count is missing
         _log.info("Couldn't list the files of %s: %s", table.table_uri, describe(exc))
         return None
-    return dict(zip(paths, sizes))
+    return dict(zip(paths, sizes, strict=True))
 
 
 WRITER = "KratosForge"

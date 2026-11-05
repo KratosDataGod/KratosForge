@@ -2,6 +2,7 @@
 // the zip's files with sizes (a log not written yet says so), Save writes the zip and closes with a toast
 // whose Show in folder reveals it, a folder that can't be written keeps the dialog open with the reason,
 // and axe finds nothing serious in the dialog.
+// axe covers dialogs: settings.js:saveSupportBundle
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");

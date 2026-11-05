@@ -292,12 +292,18 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
     assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
     assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    # The shape Fabric's own getDefinition returns: schema 1.1.0 and a libraries block (probe, 2026-11-03)
+    body = json.loads(parts["definition.json"])
+    assert body["$schema"].endswith("/definition/1.1.0/schema.json")
+    assert body["libraries"] == {"public": [], "private": []}
     key_table = next(f for f in described if f["name"] == "ensure_key_table")
     assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
         ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
     assert key_table["bindings"][1]["alias"] == udf.ALIAS
+    # Fabric refuses a connection binding without an item type it knows (live run 3, 2026-11-03)
+    assert key_table["bindings"][1]["itemType"] == "SqlDbNative"
     assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
-        {"dataType": "str", "name": n} for n in ("name", "business_key", "description", "domain_id")]
+        {"dataType": "str", "name": n} for n in ("name", "businessKey", "description", "domainId")]
     assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
 
 
@@ -958,12 +964,8 @@ def test_moving_sources_to_the_platform_keeps_their_ids_and_reports_clashes(plat
     again = platform.call("adopt_sources", systems=[{"id": 3, "code": "CRM"}])
     assert again["moved"] == [] and again["conflicts"] == ["CRM is id 2 in the platform but 3 in this project"]
     # Only platform admins move sources.
-    db = platform._db().__enter__()
-    try:
-        with pytest.raises(core.PlatformError, match="Only platform admins"):
-            core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
-    finally:
-        db.conn.close()
+    with platform._db() as db, pytest.raises(core.PlatformError, match="Only platform admins"):
+        core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
 
 
 def test_a_project_reads_platform_sources_with_the_platform_ids(svc):
@@ -1541,3 +1543,43 @@ def test_the_refusing_fake_refuses_a_udf_with_no_functions():
     with pytest.raises(FabricError, match="Functions is null or empty") as err:
         check_item("UserDataFunction", empty)
     assert err.value.code == "NullOrEmptyArgument" and UDF_NO_FUNCTIONS in str(err.value)
+
+
+def test_a_parameter_with_an_underscore_is_refused_as_fabric_did():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    code = files["function_app.py"].replace("businessKeys: list", "business_keys: list")
+    with pytest.raises(FabricError, match=r"Function 'issue_keys' \(line \d+\): input parameter 'business_keys' "
+                       r"cannot contain an underscore") as err:
+        check_item("UserDataFunction", {**files, "function_app.py": code})
+    assert err.value.code == "MetadataValidationError"
+
+
+def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
+    from tests.fabric_refusals import UDF_NO_ARTIFACT_TYPE, check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    meta = json.loads(files["resources/functions.json"])
+    for f in meta["functionsMetadata"]:
+        for b in f["bindings"]:
+            if "itemType" in b:
+                b["itemType"] = None
+    files["resources/functions.json"] = json.dumps(meta)
+    with pytest.raises(Exception, match="artifactType") as err:
+        check_item("UserDataFunction", files)
+    assert UDF_NO_ARTIFACT_TYPE in str(err.value)
+
+
+def test_a_data_source_fabric_doesnt_name_is_refused_as_fabric_did():
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    [source] = json.loads(files["definition.json"])["connectedDataSources"]
+    assert source["artifactType"] == "SqlDbNative" and "sourceType" not in source
+    body = json.loads(files["definition.json"])
+    body["connectedDataSources"][0] = {k: v for k, v in source.items() if k != "artifactType"}
+    body["connectedDataSources"][0]["sourceType"] = "SqlDbNative"  # what live run 5 sent
+    files["definition.json"] = json.dumps(body)
+    with pytest.raises(Exception, match="artifactType"):
+        check_item("UserDataFunction", files)

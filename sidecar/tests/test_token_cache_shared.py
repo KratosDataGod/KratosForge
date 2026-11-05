@@ -207,3 +207,13 @@ def test_the_cache_is_on_disk_before_it_is_swapped_in(tmp_path, monkeypatch):
     auth.write_cache(path, "{}")
     assert order == ["fsync", "replace"]
     assert path.exists()
+
+
+@pytest.mark.parametrize("fails", ["fsync", "replace"])
+def test_a_cache_write_that_fails_leaves_no_temporary_copy(tmp_path, monkeypatch, fails):
+    def boom(*_):
+        raise OSError("disk full")
+    monkeypatch.setattr(auth.os if fails == "fsync" else auth.jsonfile, fails, boom)
+    with pytest.raises(OSError):
+        auth.write_cache(tmp_path / "msal_cache.bin", "{}")
+    assert list(tmp_path.iterdir()) == []

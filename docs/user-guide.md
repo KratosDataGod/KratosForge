@@ -26,7 +26,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | Part | Where | What it does |
 | --- | --- | --- |
 | **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
-| **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
+| **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). The arrows appear once you have opened a second page, so there is somewhere to go back to. Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
@@ -54,6 +54,7 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - **Alt+Left** goes back to the page before, and **Alt+Right** forward again, like the arrows at the top left. They don't while you're typing in a box or an editor, or while a dialog is open. **Go back** and **Go forward** are in the command bar too.
 - While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either, unless you untick **Respect Windows' reduced-motion setting** in [Motion and effects](#motion-and-effects).
+- **Ctrl+=** and **Ctrl+-** zoom the whole window in and out, and **Ctrl+0** goes back to 100%; **Ctrl** with the mouse wheel does the same. Pages are checked to fit the default window at 200%: the top bar keeps your account button, and wide tables scroll inside their box.
 - With a Windows contrast theme on (**Settings > Accessibility > Contrast themes**), the app uses the theme's colors. The current page in the rail, the selected tab or option, and a selected notebook cell are drawn in the theme's highlight color, and the focus ring uses it too.
 
 ### Keyboard shortcuts
@@ -70,6 +71,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Alt+Left**, **Alt+Right** | Go back or forward to the page you were on, as the top bar's arrows do (not while typing in a box) |
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
+| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** | Zoom the window in or out, or back to 100% (**Ctrl** and the mouse wheel too) |
 
 Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces; press **Esc**, then **Tab**, to move on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 
@@ -379,13 +381,11 @@ Each entity page also has an **About** card (Preview): description, tags, classi
 - **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Data mesh > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
 - **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
 
-Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
+Products works with no metadata project open. Select a product's name to open its page: its endorsement, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
 
-### Endorsement and business terms (Preview)
+### Endorsement (Preview)
 
-A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
-
-**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
+A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it. The details are in [Endorsement](data-mesh.md#endorsement).
 
 ### Tables, semantic models and reports (Preview)
 
@@ -551,15 +551,17 @@ An incident is one record per problem in an environment: a table whose last run 
 
 **How this works**, from the title bar's info button, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
 
-**The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
+**The list.** Pick the environment from the list (each shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you), **Unassigned**, **SLA at risk** (near or past a target) or **Resolved**; each shows how many it holds. Each row shows the incident's number (`INC-PROD-0042`), its priority (P1 to P4), the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, where it stands against its SLA (for example *Acknowledge overdue 12 min* or *Resolve due in 3 h*), and whether it was escalated.
 
 **Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: the app checks it itself every 10 minutes while it's open, and posts new incidents to its own Teams webhook if one is set (**Settings > Notifications**). **Check *environment* now** checks at once and never posts to Teams. Agents post to the routes their admin set ([agent guide](agent.md#incidents-preview)).
 
 **Likely** is a hint matched from the error text (Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized) with whether a retry alone usually helps. The run's own error is the evidence.
 
-**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+**Report an incident**, beside **Check now**, on a workload's **Incidents** card, or from the command bar, is for a problem people notice that the app can't see, such as wrong numbers in a report. Say what's wrong, add details, pick the environment and how bad it is (P1 to P4, with what that priority means for your SLA). It goes into that environment's shared list with your name and a new number, and closes only when a person resolves it.
 
-**The incident page** shows what happened with its evidence and **Open run**, who is told (owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), and the history: opened, escalated, acknowledged, notes and resolved.
+**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Change priority** (under **More** on the incident page) sets P1 to P4 with a note saying why; after that, checks don't change it. **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+
+**The incident page** shows the number and priority, what happened with its evidence and **Open run**, who is told (priority, when it must be acknowledged and resolved by, owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), **What to do** for that kind of incident, and the timeline: every change with who made it and when.
 
 #### Who's affected (Preview)
 
@@ -567,9 +569,9 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 **Tell them** posts one Teams message through the platform's Teams routes (**Settings > Notifications**, kind *Incident reaching data products*) naming those people and products. The message has the incident's title and the products' names, never its notes. A note on the incident records who was told and when. Telling again only posts when someone new is reached. With no platform Teams route set, nothing is posted: **Copy emails** copies the addresses so you can tell them yourself.
 
-**On a workload's page**, **Incidents** lists its active incidents in every environment.
+**On a workload's page**, **Incidents** lists its active incidents in every environment, with their numbers and priorities, and has **Report an incident** for that workload: its owner, team and criticality come with it.
 
-**Numbers, priorities and SLAs.** Every incident now gets a number (`INC-PROD-0042`), a priority from P1 to P4, a timeline, and SLA targets for acknowledging and resolving it; people can also report a problem the app can't see. The list doesn't show these yet. How they work, and how IT sets its own SLA targets: [Incidents and your service desk](incidents.md).
+**Numbers, priorities and SLAs**: how priorities are set, the default SLA targets, and how IT sets its own, are in [Incidents and your service desk](incidents.md).
 
 ### Agents (Preview)
 
@@ -626,7 +628,7 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 ## Source control (Preview)
 
-**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit (a whole file, or one block of changed lines at a time), make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
+**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit (a whole file, or one block of changed lines at a time), make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and, in words, how many changes you haven't committed yet (for example "main · 3 unsaved changes"). Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
 
 ### Capacity repository
 
@@ -648,7 +650,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
-| **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
+| **Notifications** | **Incident alerts**: send new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, a Power Automate flow (`flow:https://...`) or email (`mailto:a@x;b@y`, through the company mail server), unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels, Power Automate flows or email for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, **Save support bundle** (a zip with the engine's log and where each setting comes from, with the same details taken out, saved to a folder you choose and never sent from the app), the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 | **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
@@ -656,9 +658,15 @@ Anything your organization has set shows "Set by your organization's policy" and
 
 ### Platform notices (Preview)
 
-**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, shortcuts that break or are fixed, data products changed in Prod or deprecated, incidents upstream of your data, and policy exceptions about to end to Teams channels ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is posted once.
+**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, shortcuts that break or are fixed, data products changed in Prod or deprecated, incidents upstream of your data, and policy exceptions about to end to Teams channels, Power Automate flows or email ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is sent once.
 
-- **Add a route** names a channel, takes its Teams webhook, and optionally picks which kinds of notice and which domains it posts. A route named `default` gets everything no other route takes. **Test and save** posts one test message first and saves only if Teams takes it. A route's webhook is shown only as its host. Leave the box empty when editing to keep the address it has. **Remove route** asks first.
+- **Add a route** names it, picks how it sends (**Send by**), and optionally picks which kinds of notice and which domains it sends. A route named `default` gets everything no other route takes. **Test and save** sends one test message first and saves only if it's taken. **Remove route** asks first.
+  - **Teams webhook**: a channel's "Post to a channel when a webhook request is received" workflow.
+  - **Power Automate flow**: a flow that starts "When an HTTP request is received". It gets `title`, `lines`, `text` and `source` as JSON and sends the mail itself, as your tenant allows, so no app registration is needed.
+  - **Email**: up to 20 addresses or distribution lists, sent through the company mail server below.
+
+  A webhook or flow address is shown only as its host, and email addresses only as how many people. Leave the box empty when editing to keep what the route has.
+- **Company mail server** is set once on this PC, and every email route sends through it: the server, its port, the encryption (STARTTLS, required, on 587, or TLS from the start on 465; mail is never sent unencrypted, and the server's certificate is checked against Windows' certificate store), the From address, and an optional user name and password. The password is kept in Windows Credential Manager (as `KratosForge/mail-server`) for your Windows account, never in the app's settings, logs or backups. **Test and save** sends one email first and saves only if the server takes it. **Forget server** removes it and its password; email routes then wait until one is set again.
 - **Quiet hours** (this PC's clock, like `22:00-07:00`) hold notices until they end. **Send during quiet hours anyway** lets warnings, or everything else, through.
 - When notices haven't reached Teams, because quiet hours hold them or Teams didn't answer, the section says how many. They wait on this PC for up to three days.
 
@@ -774,7 +782,7 @@ Setting KratosForge up for an organization, so nobody has to type an app ID: see
 
 ### Audit trail
 
-Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`), requeued (`agent_requeue`) or the queue is pruned from the command line (`agent_prune`), and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`), requeued (`agent_requeue`) or the queue is pruned from the command line (`agent_prune`), and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). The engine also adds a line when your organization's policy file is first seen or changes (`policy_file_seen`, `policy_file_changed`; [what they hold](enterprise-install.md#changes-to-the-policy-file)). Reading, listing, previewing and waiting for results aren't recorded.
 
 Each line says:
 

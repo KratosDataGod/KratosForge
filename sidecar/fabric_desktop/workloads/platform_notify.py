@@ -22,8 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from .. import redact
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
+from .. import redact, sqlitefile
+from . import deliver
+from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
          "product.deprecated", "incident.impact", "product.changed", "exception.ending")
@@ -141,8 +142,10 @@ class PlatformRoute:
         url = str(raw.get("url") or "").strip()
         if not name:
             raise ValueError("every route has a name")
-        if url and not url.startswith("https://"):
-            raise ValueError(f"route {name}: the Teams webhook address starts with https://")
+        try:
+            url = deliver.check(url)
+        except ValueError as exc:
+            raise ValueError(f"route {name}: {exc}") from None
         kinds = tuple(_strs(raw.get("kinds"), f"route {name}: kinds"))
         if bad := [k for k in kinds if k not in KINDS]:
             raise ValueError(f"route {name}: {bad[0]!r} isn't a kind; kinds are {', '.join(KINDS)}")
@@ -184,11 +187,20 @@ class Ledger:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is moved aside and the ledger starts empty. It forgets what was sent
+        # and which breaks are open: an alert already sent may be sent once more, and a fix for a break
+        # posted before isn't posted. Nothing else is lost.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="an alert already sent may be sent once more, and a fix for a break posted before isn't posted")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)")
 
     def _db(self) -> ContextManager[sqlite3.Connection]:
-        return transaction(self.path)
+        return sqlitefile.transaction(self.path)
 
     def get(self, key: str) -> tuple[str, bool] | None:
         with self._db() as db:
@@ -249,7 +261,7 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
         if item["not_before"] > t or route is None or not route.url or route.name in down:
             continue
         when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(item["created"]))
-        first = f"From {when}; Teams couldn't be reached then." if item["attempts"] else f"Held during quiet hours since {when}."
+        first = f"From {when}; it couldn't be sent then." if item["attempts"] else f"Held during quiet hours since {when}."
         try:
             post(route.url, f"Delayed: {item['title']}" if item["attempts"] else item["title"], [first] + item["lines"])
         except Exception as exc:  # noqa: BLE001 - still unreachable: keep it

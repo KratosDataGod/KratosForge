@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 
@@ -176,7 +177,7 @@ def _merge(tree: exp.Merge) -> Change:
             values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
             if not columns or len(columns) != len(values):
                 raise ValueError("INSERT (columns) VALUES (values) needs as many values as columns.")
-            whens.append(When(match, "insert", condition, [(c.name, v) for c, v in zip(columns, values)]))
+            whens.append(When(match, "insert", condition, [(c.name, v) for c, v in zip(columns, values, strict=True)]))
         else:
             raise ValueError(f"WHEN ... THEN {then.sql() if then else ''} isn't supported in MERGE.")
     if not whens:
@@ -268,6 +269,7 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
                                predicate=names.render(change.where) if change.where is not None else None,
                                commit_properties=commit_properties)
         return _result(metrics, updated="num_updated_rows")
+    source = _keeping_values(change, source, names, pa.schema(table.schema().to_arrow()))
     merger = table.merge(source, names.render(change.on), source_alias=change.source_alias,
                          target_alias=change.alias, commit_properties=commit_properties)
     for when in change.whens:
@@ -293,6 +295,70 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
             merger = merger.when_not_matched_by_source_update(sets, condition)
     return _result(merger.execute(), inserted="num_target_rows_inserted", updated="num_target_rows_updated",
                    deleted="num_target_rows_deleted", source="num_source_rows")
+
+
+def _copied(change: Change, names: _Names) -> dict[str, str]:
+    """The source columns a MERGE copies as they are into a table column (INSERT *, UPDATE SET *, and
+    a value that is just a source column), each with the table column it goes into."""
+    pairs: dict[str, str] = {}
+    for when in change.whens:
+        if when.match == "not_matched_by_source":
+            continue  # no source row
+        if when.action in ("insert_all", "update_all"):
+            pairs.update({s: names.target[k] for k, s in names.source.items() if k in names.target})
+        for col, value in when.sets:
+            if not isinstance(value, exp.Column):
+                continue
+            key, qualifier = value.name.lower(), value.table.lower()
+            source_side = qualifier == change.source_alias.lower() or (not qualifier and key not in names.target)
+            if source_side and key in names.source and col.lower() in names.target:
+                pairs[names.source[key]] = names.target[col.lower()]
+    return pairs
+
+
+def _keeping_values(change: Change, source: Any, names: _Names, target: pa.Schema) -> Any:
+    """``source``, stopped where a value it copies into the table would change to fit the column's
+    type (EA-001): delta-rs's MERGE casts quietly, so 2.75 into an INT column became 2 and a timestamp
+    into a DATE column lost its time. A value that comes through the cast and back unchanged is fine
+    ('12' into a whole-number column, 1.0 into one), as is a type that holds every value."""
+    from .localdata.delta import _keeps_values
+    checks = []
+    for src, dst in _copied(change, names).items():
+        have, want = source.schema.field(src).type, target.field(dst).type
+        if not _keeps_values(have, want):
+            checks.append((src, dst, want))
+    if not checks:
+        return source
+
+    def check(batch: Any) -> Any:
+        for src, dst, want in checks:
+            _check_values(change.name, dst, batch.column(src), want)
+        return batch
+    if isinstance(source, pa.Table):
+        return check(source)
+    return pa.RecordBatchReader.from_batches(source.schema, (check(b) for b in source))
+
+
+def _check_values(table: str, column: str, values: Any, want: pa.DataType) -> None:
+    import pyarrow.compute as pc
+    try:
+        cast = values.cast(want, safe=True)
+        back = cast.cast(values.type, safe=False)
+    except pa.ArrowNotImplementedError:
+        return  # a cast Arrow doesn't make: delta-rs answers for it
+    except pa.ArrowInvalid as exc:
+        raise ValueError(_changes(table, column, want, f": {exc}")) from None
+    same = pc.equal(back, values)
+    if pa.types.is_floating(values.type):  # NaN equals nothing, but comes back as NaN
+        same = pc.or_kleene(same, pc.and_(pc.is_nan(back), pc.is_nan(values)))
+    if pc.all(pc.or_kleene(same, pc.is_null(values))).as_py() is False:
+        raise ValueError(_changes(table, column, want, ""))
+
+
+def _changes(table: str, column: str, want: pa.DataType, why: str) -> str:
+    return (f"This MERGE would change values in {column} to fit its type in {table} ({want}){why}: 2.75 in a "
+            "whole-number column would become 2, a timestamp in a date column would lose its time. Nothing was "
+            "changed. Cast the source column to the table's type first.")
 
 
 def _same_columns(change: Change, target: list[str], source: list[str]) -> None:

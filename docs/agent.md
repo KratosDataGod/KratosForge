@@ -167,7 +167,7 @@ fabric-desktop agent status                          # queue counts, next schedu
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
 fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # rebuild it and everything downstream
-fabric-desktop agent requeue job-20261025-020000-ab12cd  # run a dead or failed job again, attempts reset
+fabric-desktop agent requeue job-20261025-020000-ab12cd34ef56  # run a dead or failed job again, attempts reset
 fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 
@@ -183,6 +183,8 @@ fabric-desktop agent prune --dry-run                  # list the finished jobs p
 | `cancelled` | A pipeline cancelled it, or its deadline passed, before it started | Nothing |
 
 **Requeue.** Once you've fixed what made a job `dead` or `failed`, `agent requeue <job id>` puts it back in the queue with its attempts reset to 0. The job records who requeued it (`requeued_by`, your OS user name), and the agent's audit log gets an `agent_requeue` line. A job that is queued, running, succeeded or cancelled is refused. So is one from a Fabric pipeline, since its request already says it finished: submit it again from the pipeline. A job whose schedule has already queued a newer run is refused too.
+
+**Policy file.** The organization's policy file applies to the agent too. At start and then every 15 minutes, the agent compares `policy.json` with what it saw last (`policy-seen.json` in its home) and writes any change to its own audit log: `policy_file_seen` the first time, then `policy_file_changed` with the SHA-256 before and after. These are the same entries the desktop app writes; [Changes to the policy file](enterprise-install.md#changes-to-the-policy-file) says what each one means. Nothing is blocked, and a check that fails is logged and tried again at the next one.
 
 **Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
@@ -229,7 +231,7 @@ A failed run's incident carries a **likely category** matched from the error tex
 
 With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert waits the same way, in `job_alerts.sqlite3`: it goes before the next such alert, or with the next status update (`status_seconds`), marked **Delayed**, and is dropped after three days.
 
-Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped.
+Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped. The variable can hold a Teams webhook address or a Power Automate flow as `flow:https://...` (the flow gets JSON with `title`, `lines`, `text` and `source`). An agent has no company mail server, so a `mailto:` address is logged and skipped: send email from an agent through a flow, or from the app ([incidents](incidents.md#teams-a-flow-or-email)).
 
 ```toml
 [incidents]
@@ -390,7 +392,7 @@ shared = true
 
 ### Taking over from a lost agent (Preview)
 
-With `[pipeline] take_over = true`, an agent takes over a pipeline request (a shared schedule's, or any other) that another agent accepted and then stopped reporting on. That agent counts as lost once its status record in `agents/<name>.json` is past its `stale_after`, plus a minute for clock differences.
+With `[pipeline] take_over = true`, an agent takes over a pipeline request (a shared schedule's, or any other) that another agent accepted and then stopped reporting on. That agent counts as lost once its status record in `agents/<name>.json` is past its `stale_after`, plus a minute for clock differences. In OneLake this is judged on OneLake's clock: the record counts as stale once OneLake last saw it written longer ago than its `stale_after` less its `heartbeat_at`, so a PC whose clock is minutes off neither takes over from a live agent nor waits on a lost one.
 
 - **One agent takes it.** The takeover replaces the request's status file only if it hasn't changed since it was read (`If-Match`), so when several agents try at once, one wins. The status then names the new agent, `taken_over_from`, `taken_over_at`, and `agents`, every agent that has held it.
 - **The whole request runs again.** Tables the lost agent finished are run again. A request whose `deadline` has passed ends `expired` instead of starting again. Before it writes each table, the new agent takes that table's write lease, so it waits for a lease the lost agent still holds to run out.

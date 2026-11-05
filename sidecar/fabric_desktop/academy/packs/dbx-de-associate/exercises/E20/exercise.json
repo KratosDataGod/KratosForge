@@ -1,0 +1,63 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E20",
+  "version": 1,
+  "status": "draft",
+  "title": "Clean bronze orders into a silver table with CREATE OR REPLACE TABLE",
+  "objectives": ["3.1"],
+  "objective_text": "Read a bronze table with SQL, clean nulls, standardize types and write a silver table so a rerun is safe.",
+  "scenario": "The orders feed lands in bronze.orders as text. Finance's daily revenue report reads silver.orders and has been wrong twice this month: amounts with thousands separators went missing, half the dates didn't parse, and a retried load counted some orders twice. The analytics team works in Databricks SQL, so build silver.orders with one SQL statement they can schedule.",
+  "difficulty": 1,
+  "minutes": 20,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "dbsql_lab",
+  "engine_label": "Databricks SQL translated to DuckDB on this PC",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "lesson": "lesson.md",
+  "datasets": [{"name": "bronze.orders", "rows": 13, "size": "small", "seeded": "fixed values in setup.sql"}],
+  "starting_environment": "A table bronze.orders (13 rows, all text columns), an empty silver schema and a starter answer.sql.",
+  "required": [
+    "Drop rows without an order_id.",
+    "order_id and customer_id are trimmed BIGINTs.",
+    "order_date is a DATE read from order_ts, which comes as yyyy-MM-dd HH:mm:ss or MM/dd/yyyy.",
+    "amount is DECIMAL(10,2) with thousands commas removed; a blank amount is NULL.",
+    "status is trimmed and lower case; a blank status is 'unknown'.",
+    "One row per order_id.",
+    "Write silver.orders with columns order_id, customer_id, order_date, amount, status, so that running the SQL again leaves the same table."
+  ],
+  "expected": {"description": "silver.orders has 10 rows, orders 1001 to 1010, each once, with no NULL order_id."},
+  "verifies": [
+    "Your SQL builds a silver table with the right types, keys and rows from a bronze table, on the exercise data and on rows you haven't seen, after translation to DuckDB on this PC.",
+    "Running it twice leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on a SQL warehouse or in a Databricks workspace, so it doesn't show the Delta commit and history CREATE OR REPLACE makes, Photon, or the table in Unity Catalog."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.orders", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.orders", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.orders",
+     "columns": {"order_id": "BIGINT", "customer_id": "BIGINT", "order_date": "DATE", "amount": "DECIMAL(10,2)", "status": "VARCHAR"},
+     "unique": ["order_id"], "not_null": ["order_id"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.orders", "weight": 1, "required": true,
+     "fail": "Running your SQL twice changed silver.orders. INSERT INTO adds the rows again; CREATE OR REPLACE TABLE ... AS SELECT replaces them."}
+  ],
+  "hints": [
+    "Start from SELECT ... FROM bronze.orders WHERE order_id IS NOT NULL and get the columns right before writing anything.",
+    "Pick the date format from the value's shape: CASE WHEN order_ts LIKE '__/__/____' THEN to_date(order_ts, 'MM/dd/yyyy') ELSE to_date(order_ts, 'yyyy-MM-dd HH:mm:ss') END.",
+    "CAST(nullif(replace(trim(amount), ',', ''), '') AS DECIMAL(10,2)) removes the commas and keeps a blank as NULL.",
+    "Trim before lower-casing status, and SELECT DISTINCT drops the rows the load wrote twice.",
+    "Put CREATE OR REPLACE TABLE silver.orders AS in front of the SELECT, so a rerun replaces the table instead of adding to it."
+  ],
+  "explanation": "One CREATE OR REPLACE TABLE silver.orders AS SELECT DISTINCT ... FROM bronze.orders WHERE order_id IS NOT NULL does the whole load. The SELECT trims and casts the ids, picks the date format from the value's shape (two to_date calls in coalesce would fail under ANSI mode on the first value that doesn't fit), strips separators and keeps blank amounts as NULL before the decimal cast, trims and lower-cases the status with a default, and drops the exact duplicates. CREATE OR REPLACE makes the write repeatable: INSERT INTO would double the table on every retry.",
+  "troubleshooting": [
+    "\"cannot be cast to BIGINT because it is malformed\" means a value reached a cast before it was trimmed or cleaned.",
+    "A date parse error means one format is being applied to values in the other format: choose the format per value with CASE.",
+    "If the run-twice check fails, the SQL appends; replace the table instead."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/lakehouse/medallion"],
+  "reset": "Reset rebuilds bronze.orders and the empty silver schema from setup.sql and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

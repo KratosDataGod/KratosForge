@@ -10,6 +10,8 @@
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: meta.js:confirmDialog, shortcuts.js:shortcutDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -177,6 +179,12 @@ const mocks = {
     if (!c) throw new Error("LookupError: That change isn't in the history any more");
     return { ok: true, problems: [] };
   }),
+  // shortcut_service.py shortcut_request_envs: where approving also makes it (shortcut_center.env_twins)
+  shortcut_request_envs: guard("shortcut_request_envs", () => ({ env: "prod", why: "", places: [
+    { env: "dev", workspace_id: "ws-dev", workspace_name: "Sales Dev", lakehouse_id: "lh-silver", lakehouse_name: "LH_Silver",
+      source: { type: "oneLake", workspace_id: "ws-dev", item_id: "lh-bronze", path: "Tables/dbo/orders" }, target_workspace_name: "Sales Dev", target_lakehouse_name: "LH_Bronze" },
+    { env: "test", why: "No Test workspace matches Sales Prod" }] })),
+  platform_decide: guard("platform_decide", ({ id, approve }) => ({ id, status: approve ? "approved" : "declined", next: ["Also made in Dev: Sales Dev / LH_Silver", "Not made in Test: No Test workspace matches Sales Prod"] })),
   shortcut_request: guard("shortcut_request", (p) => ({ id: "rq-new", kind: "shortcut", target: `${p.lakehouse_name}/${p.where}/${p.name}`, status: "waiting" })),
   // estate_service.py: the lakehouse's shortcuts after the change
   create_shortcut: guard("create_shortcut", (p) => {
@@ -367,6 +375,29 @@ test("Requests shows the requests waiting on you, yours, and the shortcut needs"
   assert.match(own[0].replace(/\s+/g, " "), /^Shortcut budget in Sales Dev \/ LH_Silver Budget files for planning ana@contoso\.com .*Waiting Withdraw$/);
   const needs = await page().locator(".sc-need").allInnerTexts();
   assert.deepStrictEqual(needs.map((t) => t.split("\n")[0]), [`prices: ${CROSS.text}`], "a request is listed once, under Waiting on you");
+});
+
+test("Approve on a shortcut request says each environment it's made in first; Cancel sends nothing", { skip }, async () => {
+  await openShortcuts("requests");
+  const waiting = page().locator(".card.pad", { has: page().locator("b", { hasText: /^Waiting on you$/ }) });
+  const from = app.calls.length;
+  await waiting.getByRole("button", { name: "Approve" }).click();
+  const d = dialog("Approve shortcut returns?");
+  await d.waitFor();
+  const text = (await d.innerText()).replace(/\s+/g, " ");
+  assert.match(text, /Prod: Sales Prod \/ LH_Gold, as asked/);
+  assert.match(text, /Dev: Sales Dev \/ LH_Silver, pointing at Sales Dev \/ LH_Bronze/);
+  assert.match(text, /Test: not made\. No Test workspace matches Sales Prod\./);
+  assert.deepStrictEqual(app.calls.slice(from).filter((c) => c.method === "shortcut_request_envs").map((c) => c.params), [{ id: "rq-1" }]);
+  await d.getByRole("button", { name: "Cancel" }).click();
+  await d.waitFor({ state: "detached" });
+  await sleep(300);
+  assert.deepStrictEqual(writes(from), []);
+  await waiting.getByRole("button", { name: "Approve" }).click();
+  await d.getByRole("button", { name: "Make and approve" }).click();
+  await d.waitFor({ state: "detached" });
+  assert.deepStrictEqual(writes(from), [{ method: "platform_decide", params: { id: "rq-1", approve: true, note: "" } }]);
+  assert.match(await toastText(), /^Approved shortcut returns; Also made in Dev: Sales Dev \/ LH_Silver; Not made in Test/);
 });
 
 // Fills New shortcut (or Request a shortcut) with a OneLake target.

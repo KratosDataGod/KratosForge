@@ -237,10 +237,15 @@ def _in_use(path: Path) -> bool:
         db.execute("SELECT count(*) FROM sqlite_master").fetchall()
         db.execute("ROLLBACK")
         return False
-    except sqlite3.Error:
-        return True
+    except sqlite3.Error as exc:
+        # A damaged file isn't in use, it's what the restore is for: it is replaced, and its copy
+        # kept in restore-safety. Anything else (busy, locked, can't read the file) counts as in use.
+        return getattr(exc, "sqlite_errorcode", None) not in _DAMAGED
     finally:
         db.close()
+
+
+_DAMAGED = (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
 
 
 def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, apply: bool = False,

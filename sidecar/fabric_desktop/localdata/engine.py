@@ -34,7 +34,7 @@ from contextlib import contextmanager
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 import pyarrow as pa
@@ -171,7 +171,7 @@ def _empty_select(schema: pa.Schema) -> str:
 
 def file_select(found: Found) -> str:
     if found.format == "delta":
-        return delta_select(found.folder)[0]
+        return delta_select(cast(str, found.folder))[0]  # discovery gives every Delta table its folder
     if found.format == "excel":
         raise ValueError("Excel workbooks are found but can't be read yet: that needs a package the engine "
                          "doesn't ship. Save the sheet as CSV for now.")
@@ -309,9 +309,13 @@ class LocalEngine:
 
     def refresh(self, source_path: str | None = None, force: bool = True) -> dict[str, Any]:
         """Look at the registered folders again; make, change or drop views for what changed."""
-        sources = [self.project.source(source_path)] if source_path else list(self.project.sources)
-        if None in sources:
-            raise KeyError(f"{source_path} is not a registered folder of {self.project.name}.")
+        if source_path:
+            one = self.project.source(source_path)
+            if one is None:
+                raise KeyError(f"{source_path} is not a registered folder of {self.project.name}.")
+            sources = [one]
+        else:
+            sources = list(self.project.sources)
         with self._lock:
             self._open_locked()
             changed = [s.path for s in sources if self._refresh_source(s, force=force)]
@@ -339,7 +343,7 @@ class LocalEngine:
         keep: set[str] = set()
         for table in found.tables:
             key = table.key
-            entry = {"schema": table.schema, "table": table.table, "format": table.format, "source": source.path,
+            entry: dict[str, Any] = {"schema": table.schema, "table": table.table, "format": table.format, "source": source.path,
                      "paths": table.paths if table.files <= 50 else table.paths[:1], "folder": table.folder,
                      "files": table.files, "bytes": table.size, "status": "ok", "error": "", "columns": []}
             if key in others:
@@ -355,7 +359,7 @@ class LocalEngine:
             keep.add(key)
             try:
                 if table.format == "delta":
-                    select, info = delta_select(table.folder)
+                    select, info = delta_select(cast(str, table.folder))
                     entry["delta"] = info
                 else:
                     select = file_select(table)
@@ -406,7 +410,8 @@ class LocalEngine:
         # lists the rest without waiting.
         self.open()
         own = self._lock.acquire(blocking=False)
-        con = self._con if own else self._con.cursor()  # type: ignore[union-attr]
+        held = cast(duckdb.DuckDBPyConnection, self._con)  # open() made it
+        con = held if own else held.cursor()
         try:
             discovered = {k: v for k, v in self.project.catalog.items()}
             out: list[dict[str, Any]] = []
@@ -639,9 +644,10 @@ class LocalEngine:
         n = 0
         if dialect == "spark":
             import sqlglot
+            from sqlglot import exp
             from sqlglot.errors import ParseError
             try:
-                trees = [t for t in sqlglot.parse(sql, read="spark") if t is not None]
+                trees = [cast(exp.Expression, t) for t in sqlglot.parse(sql, read="spark") if t is not None]
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
@@ -663,7 +669,7 @@ class LocalEngine:
                               "kind": "write delta" if write else _kind(text)})
             return steps
         if dialect == "tsql":
-            texts, notes = tsql.translate(sql, self._column_types(con))
+            texts, notes = tsql.translate(sql, self._column_types(con), self._function_names(con))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
             return self._duckdb_steps(con, texts, n)
@@ -717,6 +723,11 @@ class LocalEngine:
                              "registered folders are only read. Copy it into the project first: CREATE TABLE "
                              f"{change.table}_copy USING DELTA AS SELECT * FROM {change.name}")
         return None
+
+    def _function_names(self, con: duckdb.DuckDBPyConnection) -> set[str]:
+        """The upper-case names of the functions and macros the database has, so T-SQL can refuse others by name."""
+        rows = con.execute("SELECT DISTINCT function_name FROM duckdb_functions()").fetchall()
+        return {str(name).upper() for (name,) in rows}
 
     def _column_types(self, con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, dict[str, str]]]:
         """{schema: {table: {column: type}}} for the project's tables and views, temporary ones included,
@@ -937,7 +948,7 @@ class LocalEngine:
                     raise ValueError(f"The query returns {len(incoming)} columns and {name} has {len(table_schema)}"
                                      f" ({', '.join(table_schema.names)}). INSERT matches columns by position; "
                                      "INSERT ... BY NAME matches them by name.")
-                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema)])
+                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema, strict=True)])
                 by_position = True
             problems = delta.fits(incoming, table_schema)
             if problems and w.schema_mode == "merge" and \
@@ -971,11 +982,15 @@ class LocalEngine:
                     pass
             else:
                 folder.mkdir(parents=True, exist_ok=True)
-                mode = "error" if current is None else ("overwrite" if w.mode == "overwrite" else "append")
-                write_deltalake(str(folder), counter.reader, mode=mode, partition_by=partitions or None,
-                                schema_mode=schema_mode,
-                                commit_properties=CommitProperties(custom_metadata={
-                                    "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id}))
+                options: dict[str, Any] = {
+                    "partition_by": partitions or None, "schema_mode": schema_mode,
+                    "commit_properties": CommitProperties(custom_metadata={
+                        "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
+                if current is not None and w.mode == "overwrite":
+                    write_deltalake(str(folder), counter.reader, mode="overwrite", **options)
+                else:
+                    write_deltalake(str(folder), counter.reader, mode="error" if current is None else "append",
+                                    **options)
         except BaseException as exc:
             if not dry_run and current is None and not (folder / "_delta_log").is_dir():
                 _remove_tree(folder, self.tables_dir)  # nothing committed: leave no half-written folder
@@ -1093,7 +1108,7 @@ class LocalEngine:
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
-        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)])
+        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)])
         return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
@@ -1543,7 +1558,7 @@ def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
     table = pa.Table.from_batches(kept, schema=reader.schema)
     columns = [c.to_pylist() for c in table.columns]
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in reader.schema],
-            "rows": [[_json(v) for v in row] for row in zip(*columns)],
+            "rows": [[_json(v) for v in row] for row in zip(*columns, strict=True)],
             "row_count": total if (count or not truncated) else None, "truncated": truncated}
 
 
@@ -1556,6 +1571,6 @@ def _json(value: Any) -> Any:
     return str(value)
 
 
-def _short(exc: Exception) -> str:
+def _short(exc: BaseException) -> str:
     text = str(exc).strip()
     return text.split("\n\nLINE")[0][:1000] or type(exc).__name__

@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .. import sqlitefile
 from .model import CRITICALITY, ROLES, iso, notebook_id, now
 
 SCHEMA_VERSION = 1
@@ -34,7 +35,16 @@ class ManagementStore:
         self.path = Path(path)
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is refused and kept as it is: it holds who owns each workload, what
+        # changed and when, and audit entries not yet sent, which starting again would lose for good.
+        sqlitefile.open_store(self.path, self._first_open, refuse=(
+            "The workloads file on this PC ({path}) can't be read: {reason}. It holds who owns each "
+            "workload, its history and audit entries not yet sent, so the app doesn't replace it. Restore "
+            "it from a backup, or move it away to start again."))
+
+    def _first_open(self) -> None:
         with self._tx() as db:
+            sqlitefile.check(db)
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS meta (name TEXT PRIMARY KEY, value TEXT);
                 CREATE TABLE IF NOT EXISTS assignment (wid TEXT, field TEXT, value TEXT, set_by TEXT, set_at TEXT,
@@ -56,14 +66,8 @@ class ManagementStore:
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        with self._lock:
-            db = sqlite3.connect(self.path, timeout=30)
-            db.row_factory = sqlite3.Row
-            try:
-                yield db
-                db.commit()
-            finally:
-                db.close()
+        with self._lock, sqlitefile.transaction(self.path, rows=True) as db:
+            yield db
 
     # ---- assignments
 

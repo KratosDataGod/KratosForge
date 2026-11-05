@@ -83,7 +83,7 @@ def _spark_types(rel: Any) -> Any:
     if not any(t in _WIDE_INTS for t in types) and not any(nested):
         return rel
     columns = []
-    for name, kind, target in zip(rel.columns, types, nested):
+    for name, kind, target in zip(rel.columns, types, nested, strict=True):
         quoted = '"' + name.replace('"', '""') + '"'
         if target:
             # A sum inside a struct, list or map (struct(sum(x)), collect_list over sums): the same
@@ -398,7 +398,9 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
-    "csv": "a CSV read option this PC doesn't take, a non-UTF-8 encoding, or a mode without a schema (csv_option_refusal)",
+    "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
+                 "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
+                 "(read_option_refusal)"),
 }
 
 _IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
@@ -529,7 +531,7 @@ def _store_assign(data: pa.Table, table: str) -> pa.Table:
     into a whole-number column, true into one, 2.75 into one, 1.1 into a float column."""
     target = {f.name.lower(): f for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
     columns = []
-    for name, column in zip(data.column_names, data.columns):
+    for name, column in zip(data.column_names, data.columns, strict=True):
         field = target.get(name.lower())
         if field is None or column.type.equals(field.type) or not _store_assigns(column.type, field.type):
             columns.append(column)
@@ -597,23 +599,51 @@ _READ_OPTIONS = {"versionasof", "timestampasof"}
 _WHOLE_TYPES = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT")
 
 
-def csv_option_refusal(options: list[tuple[str, Any]], has_schema: bool) -> str | None:
-    """Why this PC's CSV reader refuses ``options`` (name, value; None when the value isn't known before
-    the run), as a phrase after "This PC's Spark", or None when it takes them all. The reader and the
-    check behind Runs on (fabric_run) both use it."""
+# Spark's JSON and Parquet read options this PC honours (LakehouseReader.json and .parquet), by lower-case
+# name (#1669). JSON: multiLine picks JSON Lines (false) or one document per file (true); mode PERMISSIVE
+# reads a malformed line as a row of nulls and FAILFAST stops the read, as in Spark. Parquet: mergeSchema
+# reads every file's columns by name; the rebase modes are taken only as CORRECTED, which is how this PC
+# reads old dates.
+_JSON_OPTION_NAMES = ("multiLine", "mode", "encoding", "charset")
+_PARQUET_OPTION_NAMES = ("mergeSchema", "datetimeRebaseMode", "int96RebaseMode")
+_TAKES = {"csv": _CSV_OPTION_NAMES, "json": _JSON_OPTION_NAMES, "parquet": _PARQUET_OPTION_NAMES}
+
+
+def _utf8(value: Any) -> bool:
+    return str(value).lower().replace("-", "").replace("_", "") == "utf8"
+
+
+def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bool = False) -> str | None:
+    """Why this PC's ``fmt`` reader (csv, json or parquet) refuses ``options`` (name, value; None when the
+    value isn't known before the run), as a phrase after "This PC's Spark", or None when it takes them
+    all. Each option is honoured as Spark does or refused here, never dropped (EA-013, #1669). The
+    reader and the check behind Runs on (fabric_run) both use it."""
+    takes = _TAKES[fmt]
+    known = {n.lower() for n in takes}
+    label = {"csv": "CSV", "json": "JSON", "parquet": "Parquet"}[fmt]
     for name, value in options:
         key = str(name).lower()
-        if key not in _CSV_OPTIONS and key not in _READ_OPTIONS:
-            return (f"doesn't take the CSV option {name!r} (it takes {', '.join(_CSV_OPTION_NAMES)})")
-        if key in ("encoding", "charset") and value is not None and \
-                str(value).lower().replace("-", "").replace("_", "") != "utf8":
-            return f"reads CSV files as UTF-8 only, not {value} (save the file as UTF-8 first)"
+        if key not in known and key not in _READ_OPTIONS and key != "path":  # load() takes the path option
+            return f"doesn't take the {label} option {name!r} (it takes {', '.join(takes)})"
+        if key in ("encoding", "charset") and value is not None and not _utf8(value):
+            return f"reads {label} files as UTF-8 only, not {value} (save the file as UTF-8 first)"
         if key == "mode" and value is not None:
             mode = str(value).upper()
             if mode not in ("PERMISSIVE", "FAILFAST", "DROPMALFORMED"):
-                return f"has no CSV mode {value!r} (Spark's are PERMISSIVE, DROPMALFORMED and FAILFAST)"
-            if mode != "PERMISSIVE" and not has_schema:
+                return f"has no {label} mode {value!r} (Spark's are PERMISSIVE, DROPMALFORMED and FAILFAST)"
+            if fmt == "csv" and mode != "PERMISSIVE" and not has_schema:
                 return f"needs read.schema() for CSV mode {mode}, to say what a malformed value is"
+            if fmt == "json" and mode == "DROPMALFORMED":
+                return ("can't tell a malformed JSON line from a line of nulls, so it doesn't take mode DROPMALFORMED "
+                        "(use PERMISSIVE, where a malformed line is a row of nulls, or FAILFAST)")
+        if key in ("datetimerebasemode", "int96rebasemode") and value is not None and str(value).upper() != "CORRECTED":
+            return (f"reads Parquet dates and times as they are written (CORRECTED), so it doesn't take {name} "
+                    f"{value!r}")
+    if fmt == "json":
+        given = {str(n).lower(): v for n, v in options}
+        if str(given.get("mode") or "").upper() == "PERMISSIVE" and _true(given.get("multiline", False)):
+            return ("reads a multiLine JSON file that is malformed by stopping, so it doesn't take mode PERMISSIVE "
+                    "with multiLine (use FAILFAST, or leave mode out)")
     return None
 
 
@@ -624,6 +654,7 @@ class LakehouseReader:
         self._session = session
         self._format: str | None = None
         self._options: dict[str, Any] = {}
+        self._names: dict[str, str] = {}  # each option's name as the notebook wrote it, for messages
 
     def format(self, fmt: str) -> LakehouseReader:
         self._format = fmt.lower()
@@ -631,7 +662,15 @@ class LakehouseReader:
 
     def option(self, key: str, value: Any) -> LakehouseReader:
         self._options[str(key).lower()] = value
+        self._names[str(key).lower()] = str(key)
         return self
+
+    def _refusal(self, fmt: str) -> None:
+        """Raise when the ``fmt`` reader refuses one of the options given (read_option_refusal)."""
+        named = [(self._names.get(k, k), v) for k, v in self._options.items()]
+        refused = read_option_refusal(fmt, named, getattr(self, "_schema", None) is not None)
+        if refused:
+            raise NotImplementedError(f"This PC's Spark {refused}, so the file wasn't read.")
 
     def options(self, **opts: Any) -> LakehouseReader:
         for k, v in opts.items():
@@ -658,7 +697,7 @@ class LakehouseReader:
         if by_position and len(have) != len(schema.fields):
             raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
         lower = {c.lower(): c for c in have}
-        text_cols = {c for c, t in zip(have, rel.types) if str(t) == "VARCHAR"}
+        text_cols = {c for c, t in zip(have, rel.types, strict=True) if str(t) == "VARCHAR"}
         cols, fits = [], []
         for i, f in enumerate(schema.fields):
             src = have[i] if by_position else lower.get(f.name.lower())
@@ -739,11 +778,12 @@ class LakehouseReader:
             opts.setdefault("sep", sep)
         if inferSchema is not None:
             opts.setdefault("inferSchema", inferSchema)
+        if opts.get("schema") is not None:  # csv(path, schema=s) is read.schema(s), as in Spark
+            self.schema(opts["schema"])
+        opts.pop("schema", None)
         self.options(**{k: v for k, v in opts.items() if v is not None})
         given = self._options
-        refused = csv_option_refusal(list(given.items()), getattr(self, "_schema", None) is not None)
-        if refused:
-            raise NotImplementedError(f"This PC's Spark {refused}, so the file wasn't read.")
+        self._refusal("csv")
         extra: dict[str, Any] = {}
         if given.get("sep", given.get("delimiter")):
             extra["sep"] = str(given.get("sep", given.get("delimiter")))
@@ -758,12 +798,40 @@ class LakehouseReader:
         rel = self._session.conn.read_csv(self._local(path), header=_true(given.get("header", False)), **extra)
         return self._apply(DataFrame(rel, self._session), by_position=True, mode=mode)
 
-    def parquet(self, *paths: str, **_opts: Any) -> DataFrame:
-        files = [self._local(p) for p in paths]
-        return self._apply(DataFrame(self._session.conn.read_parquet(files if len(files) > 1 else files[0]), self._session), False)
+    def _given(self, fmt: str, opts: dict[str, Any]) -> dict[str, Any]:
+        """The reader's options with ``opts`` (keyword arguments to json or parquet) added, refused as
+        read_option_refusal says. A ``schema`` keyword is read.schema(), as in Spark."""
+        if opts.get("schema") is not None:
+            self.schema(opts.pop("schema"))
+        opts.pop("schema", None)
+        self.options(**{k: v for k, v in opts.items() if v is not None})
+        self._refusal(fmt)
+        return self._options
 
-    def json(self, path: str, **_opts: Any) -> DataFrame:
-        return self._apply(DataFrame(self._session.conn.read_json(self._local(path)), self._session), False)
+    def parquet(self, *paths: str, **opts: Any) -> DataFrame:
+        """Spark's Parquet options (#1669): each is honoured, or refused with a message, never dropped."""
+        given = self._given("parquet", opts)
+        files = [self._local(p) for p in paths]
+        if not files:
+            raise ValueError("Give parquet a path: a Tables/ or Files/ path, or a file or folder on this PC.")
+        rel = self._session.conn.read_parquet(files if len(files) > 1 else files[0],
+                                              union_by_name=_true(given.get("mergeschema", False)))
+        return self._apply(DataFrame(rel, self._session), False)
+
+    def json(self, path: str, **opts: Any) -> DataFrame:
+        """Spark's JSON options (#1669): each is honoured, or refused with a message, never dropped.
+        Without multiLine this PC reads JSON Lines and also a file that is one document, which Spark
+        reads only with multiLine true."""
+        given = self._given("json", opts)
+        extra: dict[str, Any] = {}
+        if "multiline" in given:
+            extra["format"] = "auto" if _true(given["multiline"]) else "newline_delimited"
+        if str(given.get("mode") or "").upper() == "PERMISSIVE":
+            # A malformed line is a row of nulls, as in Spark (which also has no _corrupt_record column
+            # unless the schema asks for one, and this PC refuses that option).
+            extra.update(format="newline_delimited", ignore_errors=True)
+        rel = self._session.conn.read_json(self._local(path), **extra)
+        return self._apply(DataFrame(rel, self._session), False)
 
     def text(self, path: str, **_opts: Any) -> DataFrame:
         self._no_schema("text files")
@@ -982,7 +1050,7 @@ class LocalSparkSession(SparkSession):
         cased = {n.lower(): n for n in target}
         safe = local_delta.fabric_schema(source.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
-        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)]))
+        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
         self._one_match_each(change, source)
         result = lakehouse.change_table(change, source)
         affected = result.rows_inserted + result.rows_updated + result.rows_deleted
@@ -1067,7 +1135,7 @@ class LocalSparkSession(SparkSession):
         so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
         rel = df.relation
         exprs, changed = [], False
-        for name, kind in zip(rel.columns, rel.types):
+        for name, kind in zip(rel.columns, rel.types, strict=True):
             text = str(kind)
             wanted = re.sub(r"\bINTEGER\b", "BIGINT", text)
             quoted = '"' + name.replace('"', '""') + '"'

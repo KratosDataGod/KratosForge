@@ -290,6 +290,39 @@ def test_a_run_ends_when_the_engine_goes(tmp_path):
         proc.wait(10)
 
 
+def test_when_the_engine_goes_the_worker_ends_without_library_shutdown(monkeypatch):
+    # On Windows the listener ends the process with TerminateProcess, so DuckDB's shutdown code
+    # can't hold it up while its threads are busy. The real exit is covered by the test above.
+    import io
+    import types
+
+    from fabric_desktop import sql_worker
+    calls = []
+
+    class Stop(Exception):
+        pass
+
+    def exit_(code):
+        calls.append(("exit", code))
+        raise Stop
+    kernel32 = types.SimpleNamespace(GetCurrentProcess=lambda: "this process",
+                                     TerminateProcess=lambda handle, code: calls.append(("terminate", handle, code)))
+    import ctypes
+    monkeypatch.setattr(ctypes, "windll", types.SimpleNamespace(kernel32=kernel32), raising=False)
+    monkeypatch.setattr(sql_worker.os, "_exit", exit_)
+    monkeypatch.setattr(sql_worker, "_engine", io.StringIO('{"value": 1}\n'))
+    monkeypatch.setattr(sql_worker.sys, "platform", "win32")
+    with pytest.raises(Stop):
+        sql_worker._listen()
+    assert calls == [("terminate", "this process", 3), ("exit", 3)]
+    assert sql_worker._replies.get_nowait() == {"value": 1}
+    calls.clear()
+    monkeypatch.setattr(sql_worker.sys, "platform", "linux")
+    with pytest.raises(Stop):
+        sql_worker._end_now(3)
+    assert calls == [("exit", 3)]
+
+
 def test_a_finished_run_ends_its_process_while_the_engine_still_listens(tmp_path):
     # The engine keeps stdin open until the process ends, so the worker must leave on its own.
     job = {"query": "SELECT 42 AS answer", "dialect": "spark", "allow": ["read_only"],
@@ -644,6 +677,13 @@ def test_export_and_import_database_are_refused_as_writes_outside_the_project(lo
     ("SELECT 1 -- ; EXPORT DATABASE 'x'", ""),  # inside a comment
     ("SELECT 1; /* note */ EXPORT DATABASE 'x'", "EXPORT"),
     ("SELECT 'it''s'; EXPORT DATABASE 'x'", "EXPORT"),
+    ("SELECT E'it\\'s'; EXPORT DATABASE 'x'", "EXPORT"),  # a backslash escape in an E'...' string
+    ("SELECT e'a\\\\'; EXPORT DATABASE 'x'", "EXPORT"),  # an escaped backslash, then the closing quote
+    ("SELECT name'x'; EXPORT DATABASE 'x'", "EXPORT"),  # a word ending in e before a quote isn't E'...'
+    ("SELECT $$it's$$; EXPORT DATABASE 'x'", "EXPORT"),  # a quote inside a dollar-quoted string
+    ("SELECT $t$it's; $$ EXPORT$t$; EXPORT DATABASE 'x'", "EXPORT"),  # a tagged one ends at its own tag
+    ("SELECT $t$;EXPORT DATABASE 'x'$t$", ""),  # inside a dollar-quoted string
+    ("SELECT $1; EXPORT DATABASE 'x'", "EXPORT"),  # a parameter, not a dollar quote
     ("SELECT 1 FROM", ""),
 ])
 def test_export_and_import_database_are_found_after_comments_only(query, word):
@@ -651,7 +691,7 @@ def test_export_and_import_database_are_found_after_comments_only(query, word):
 
 
 def test_finding_export_database_stays_linear():
-    for text in (";--" * 50_000, ";/*" * 50_000, "'" * 100_000, ";" * 150_000 + "EXPORT DATABASE 'x'"):
+    for text in (";--" * 50_000, ";/*" * 50_000, "'" * 100_000, "E'\\" * 50_000, "$$" * 75_000, "$a$" * 50_000, ";" * 150_000 + "EXPORT DATABASE 'x'"):
         started = time.perf_counter()
         sql_exec._outside_command(text)
         assert time.perf_counter() - started < 1.0, text[:12]

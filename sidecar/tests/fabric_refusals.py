@@ -8,6 +8,7 @@ calls ``check_item`` before it accepts an item, and ``check_token`` before it ha
 
 from __future__ import annotations
 
+import ast
 import base64
 import json
 from typing import Any
@@ -16,6 +17,17 @@ from fabric_desktop.fabric_api import FabricError
 
 # Live run 2, Run B (2026-10-30): creating a User Data Function whose definition lists no functions.
 UDF_NO_FUNCTIONS = "NullOrEmptyArgument: Invalid Argument: Functions. Functions is null or empty"
+
+# Live run 3 (2026-11-03): a binding in resources/functions.json with no item type.
+UDF_ARTIFACT_TYPES = ("Lakehouse", "LakeWarehouse", "MountedWarehouse", "DataWarehouse", "AzureSql", "SqlDbNative",
+                      "MountedRelationalDatabase", "Warehouse", "Variables", "EventDefinition")
+UDF_NO_ARTIFACT_TYPE = ("UnsupportedArgument: Unsupported Argument: artifactType. Value: is unsupported. Supported "
+                        "values are: " + ", ".join(UDF_ARTIFACT_TYPES))
+
+# Live run 6 (2026-11-04): Fabric's Python code validation of function_app.py refuses an input parameter
+# with an underscore in its name, one line per parameter (MetadataValidationError).
+UDF_UNDERSCORE = ("Python code validation failed: Function '{function}' (line {line}): input parameter '{name}' "
+                  "cannot contain an underscore.")
 
 # Live run 2 (2026-10-30, #1079): Windows sign-in with Microsoft's Fabric CLI client gets no token
 # for Azure SQL or Kusto. WAM says only Status_IncorrectConfiguration; Entra's reason is AADSTS65002.
@@ -41,6 +53,23 @@ def check_item(item_type: str, parts: Any) -> None:
         functions = (json.loads(text) if text else {}).get("functions")
         if not functions:
             raise FabricError(f"POST failed with 400: {UDF_NO_FUNCTIONS}", "NullOrEmptyArgument", 400)
+        # Live runs 3-5 (2026-11-03): a connected data source without an artifactType Fabric knows (we sent
+        # sourceType, which Fabric's ConnectedDataSourceObject doesn't have).
+        for source in (json.loads(text) if text else {}).get("connectedDataSources") or []:
+            if source.get("artifactType") not in UDF_ARTIFACT_TYPES:
+                raise FabricError(f"POST failed with 400: {UDF_NO_ARTIFACT_TYPE}", "UnsupportedArgument", 400)
+        code = _text(parts, "function_app.py")
+        problems = [UDF_UNDERSCORE.format(function=node.name, line=node.lineno, name=arg.arg)
+                    for node in (ast.parse(code).body if code else []) if isinstance(node, ast.FunctionDef)
+                    and any(ast.unparse(d) == "udf.function()" for d in node.decorator_list)
+                    for arg in node.args.args if "_" in arg.arg]
+        if problems:
+            raise FabricError(f"POST failed with 400: {' | '.join(problems)}", "MetadataValidationError", 400)
+        meta = _text(parts, "resources/functions.json")
+        for function in (json.loads(meta) if meta else {}).get("functionsMetadata") or []:
+            for binding in function.get("bindings") or []:
+                if "itemType" in binding and binding["itemType"] not in UDF_ARTIFACT_TYPES:
+                    raise FabricError(f"POST failed with 400: {UDF_NO_ARTIFACT_TYPE}", "UnsupportedArgument", 400)
 
 
 def check_token(resource: str, microsofts_client: bool = True) -> None:

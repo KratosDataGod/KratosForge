@@ -196,3 +196,14 @@ def test_sample_metadata_covers_every_template():
     meta = generate.sample_metadata()
     names = {t["name"] for t in meta["tables"]}
     assert {"Region", "Date", "Product", "Site", "Measures"} <= names
+
+
+def test_a_failed_approval_keeps_the_plan_and_a_second_approval_finds_it_used(svc):
+    got = svc.appstudio_plan("Sales overview", source=model_source())
+    svc.appstudio_create("Sales overview", "blank")  # the plan's name is taken
+    with pytest.raises(ValueError, match="already exists"):
+        svc.appstudio_create_from_plan(got["plan_id"], got["plan"])
+    made = svc.appstudio_create_from_plan(got["plan_id"], got["plan"], "Another name")
+    assert made["valid"]
+    with pytest.raises(ValueError, match="expired"):
+        svc.appstudio_create_from_plan(got["plan_id"], got["plan"], "Third")

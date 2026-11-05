@@ -39,11 +39,12 @@ METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_ch
            "appstudio_restore_version", "appstudio_save_as", "appstudio_export", "appstudio_import",
            "appstudio_preview", "appstudio_connections", "appstudio_connection_save", "appstudio_connection_delete",
            "appstudio_connection_test", "appstudio_plan", "appstudio_create_from_plan"}
-SOURCES_FROM_UI = {"visual", "manual"}
+SOURCES_FROM_UI = {"visual", "manual"}  # an AI change arrives through its own method, after its checks
 MAX_DESCRIPTION = 4000
 MAX_PLANS = 20  # plans waiting for approval, kept in memory only
 PLAN_MINUTES = 60
-_GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")  # an AI change arrives through its own method, after its checks
+_PLANS_LOCK = threading.Lock()  # guards every service's plan store, made once
+_GUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
 
 
 class AppStudioMixin:
@@ -218,10 +219,10 @@ class AppStudioMixin:
     # ---------------------------------------------------------------- generation (AS-10)
 
     def _appstudio_plan_store(self) -> dict[str, dict[str, Any]]:
-        if getattr(self, "_appstudio_plans", None) is None:
-            self._appstudio_plans: dict[str, dict[str, Any]] = {}
-            self._appstudio_plans_lock = threading.Lock()
-        return self._appstudio_plans
+        with _PLANS_LOCK:
+            if getattr(self, "_appstudio_plans", None) is None:
+                self._appstudio_plans: dict[str, dict[str, Any]] = {}
+            return self._appstudio_plans
 
     def _appstudio_metadata(self, source: dict[str, Any] | None, include_expressions: bool) -> tuple[dict[str, Any], dict[str, Any]]:
         """(metadata, spec source) for a plan: a semantic model's sanitized metadata, or the sample fields."""
@@ -257,7 +258,7 @@ class AppStudioMixin:
         plans = self._appstudio_plan_store()
         plan_id = str(uuid.uuid4())
         now = time.monotonic()
-        with self._appstudio_plans_lock:
+        with _PLANS_LOCK:
             for k in [k for k, v in plans.items() if now - v["at"] > PLAN_MINUTES * 60]:
                 del plans[k]
             while len(plans) >= MAX_PLANS:
@@ -272,16 +273,19 @@ class AppStudioMixin:
         """Approve a plan: check it again against the same metadata (the person may have edited it), make the
         specification here and save it as a new project. The plan can be used once."""
         plans = self._appstudio_plan_store()
-        with self._appstudio_plans_lock:
-            kept = plans.get(str(plan_id))
-            if kept is None or time.monotonic() - kept["at"] > PLAN_MINUTES * 60:
-                plans.pop(str(plan_id), None)
-                raise ValueError("That plan has expired. Ask for a new one.")
-        checked = generate.check_plan(plan, kept["metadata"], kept["target"])
-        doc = generate.to_spec(checked["plan"], kept["metadata"], kept["target"], kept["source"], " ".join(str(name).split())[:120])
-        folder = project.create(self._appstudio_root(), doc["name"], doc)
-        with self._appstudio_plans_lock:
-            plans.pop(str(plan_id), None)
+        with _PLANS_LOCK:  # taken out at once, so two approvals of the same plan can't both use it
+            kept = plans.pop(str(plan_id), None)
+        if kept is None or time.monotonic() - kept["at"] > PLAN_MINUTES * 60:
+            raise ValueError("That plan has expired. Ask for a new one.")
+        try:
+            checked = generate.check_plan(plan, kept["metadata"], kept["target"])
+            doc = generate.to_spec(checked["plan"], kept["metadata"], kept["target"], kept["source"],
+                                   " ".join(str(name).split())[:120])
+            folder = project.create(self._appstudio_root(), doc["name"], doc)
+        except Exception:
+            with _PLANS_LOCK:  # nothing was made: the plan can be fixed and approved again
+                plans.setdefault(str(plan_id), kept)
+            raise
         return {**self._appstudio_opened(folder), "left_out": checked["left_out"]}
 
 

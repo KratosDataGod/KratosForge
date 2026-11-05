@@ -12,7 +12,7 @@ never stop a promote. When the platform can't be reached, the latest package on 
 neither can be read, a promote to Prod stops and one to Test or Dev only warns.
 
 What it reads: the project's files on this PC, the platform's catalog (policies, exceptions, catalog
-text, product terms and endorsement) and the run logs the app already reads for Monitor; when a policy
+text and product endorsement) and the run logs the app already reads for Monitor; when a policy
 names notebook or SQL rules, also this PC's notebooks and its schedules (so a notebook a schedule runs
 gets the scheduled-only rules), and its SQL scripts: saved queries and the .sql files of the warehouse
 projects in the repositories opened in Source control. What it writes: ``governance_checks.json`` in the app's data folder, the last result per project, so
@@ -23,7 +23,7 @@ Fabric are never started here.
 Offline (GOV-002): when the platform can't be reached, Check now resolves the policies from the latest
 package on this PC instead, and says which package and how old it is. ``governance_check_from_package``
 (the ``fabric-desktop governance check`` CLI) always does. Either way nothing calls the platform, Fabric or
-OneLake: catalog text, product terms and endorsement, and the run logs aren't read, so the rules that need
+OneLake: catalog text, product endorsement and the run logs aren't read, so the rules that need
 them say unknown, with why.
 """
 
@@ -55,9 +55,9 @@ WARN_ONLY = "Check now stops nothing. A promote stops on a finding of a Block po
 ENVS_HIGH_FIRST = ("prod", "test", "dev")
 # A data product's checklist, from the contract template it follows.
 CHECKLIST = (("ownership.product_owner", "Owner and steward"), ("contract.description", "Description"),
-             ("contract.terms_linked", "Business terms linked"), ("contract.freshness", "Fresh within {within_hours} h"),
+             ("contract.freshness", "Fresh within {within_hours} h"),
              ("contract.endorsed", "Endorsement"))
-_TERMS_RULES = {"contract.terms_linked", "contract.endorsed"}
+_TRUST_RULES = {"contract.endorsed"}
 _LOAD_RULES = {"contract.freshness", "contract.row_count"}
 OFFLINE_TRUST = "Checked offline from the policy package: the platform's catalog wasn't read."
 OFFLINE_LOADS = "Checked offline from the policy package: the run logs weren't read."
@@ -221,9 +221,9 @@ class ChecksMixin:
     # ---- Check now
 
     def _gc_trust(self, product_id: str) -> tuple[dict[str, Any] | None, str]:
-        """A product's terms and endorsement from the catalog, or why they can't be read."""
+        """A product's endorsement from the catalog, or why it can't be read."""
         try:
-            return call_or_repair(self._gc_catalog(), "product_trust", "show endorsement and business terms",
+            return call_or_repair(self._gc_catalog(), "product_trust", "show endorsement",
                                   product_id=product_id), ""
         except LookupError as exc:
             return None, str(exc)
@@ -236,10 +236,10 @@ class ChecksMixin:
     @staticmethod
     def _gc_apply_trust(item: dict[str, Any], trust: dict[str, Any] | None, why: str) -> dict[str, Any]:
         if trust is None:
-            return item | {"terms": None, "terms_reason": why, "endorsement": None, "endorsement_reason": why}
+            return item | {"endorsement": None, "endorsement_reason": why}
         seen = [{"item_name": i.get("item_name") or i.get("item_id"), "endorsement": i.get("endorsement")}
                 for i in trust.get("items") or []]
-        return item | {"terms": [t["term"] for t in trust.get("terms") or []], "endorsement": seen}
+        return item | {"endorsement": seen}
 
     def _gc_runs(self) -> tuple[list[dict[str, Any]], dict[str, str]]:
         data = self.meta_runs_all(limit=5000)  # type: ignore[attr-defined]
@@ -453,7 +453,7 @@ class ChecksMixin:
                 saved = {}
                 problems.append(f"The platform's catalog text couldn't be read, so only the text in the project's files was checked: {describe(exc)}")
         items = entity_items(project, saved) + self._gc_product_items(
-            project, bool(wanted & _LOAD_RULES), bool(wanted & _TERMS_RULES), offline)
+            project, bool(wanted & _LOAD_RULES), bool(wanted & _TRUST_RULES), offline)
         kinds = {found[0].kind for found in map(gc.find_rule, wanted) if found}
         if "notebook" in kinds:
             items += self._gc_notebook_items(problems)
@@ -670,8 +670,6 @@ class ChecksMixin:
 def _passed(rule_id: str, item: dict[str, Any], settings: dict[str, Any]) -> str:
     if rule_id == "ownership.product_owner":
         return f"Owner {item['owner']}, steward {item.get('steward')}." if item.get("steward") else f"Owner {item['owner']}."
-    if rule_id == "contract.terms_linked":
-        return f"{len(item.get('terms') or [])} linked."
     if rule_id == "contract.freshness":
         return f"Last loaded {item['last_load'][:16].replace('T', ' ')} UTC" + (f" in {item['load_env'].title()}." if item.get("load_env") else ".")
     if rule_id == "contract.endorsed":

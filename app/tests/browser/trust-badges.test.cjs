@@ -1,6 +1,5 @@
 // Governance steps 12 and 8: a data product's page shows its endorsement from Fabric's admin tenant
-// scan (unknown until a Fabric admin has scanned) and its business terms linked to Purview
-// (see harness.cjs for how to run it).
+// scan (unknown until a Fabric admin has scanned) (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp } = require("./harness.cjs");
@@ -12,7 +11,6 @@ const page = () => app.page;
 const WS = "aaaaaaaa-0000-0000-0000-000000000001";
 const LH = "bbbbbbbb-0000-0000-0000-000000000002";
 const PID = "crm/customer_360";
-const TERM_URL = "https://purview.microsoft.com/datacatalog/governance/main/catalog/glossary/term/123";
 const product = { id: PID, project: "crm", name: "customer_360", description: "One row per customer", owner: "ana@example.com",
   access: "public", status: "published", version: "1", domain_id: "sales", ports: [{ port: "customers", env: "prod" }], consumers: [],
   can_link: false, why: "Your own product", linked: false };
@@ -22,22 +20,19 @@ const item = { item_id: LH, workspace_id: WS, workspace_name: "CRM Prod", item_t
 let admin = false;
 let older = false;
 let endorsement = null;
-let terms = [];
 let more = [];
-const trust = () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, can_edit_terms: admin,
-  items: [{ ...item, ...(endorsement || {}) }, ...more], terms });
+const trust = () => ({ product_id: PID, name: "customer_360", owner: "ana@example.com", admin, can_edit: admin,
+  items: [{ ...item, ...(endorsement || {}) }, ...more] });
 const mocks = {
   platform_products: () => ({ project: null, products: [product] }),
   platform_product_trust: () => {
-    if (older) throw new Error("LookupError: The platform can't show endorsement and business terms yet: UDF_Platform is older than this app. After an update, a platform admin runs Platform > Settings > Finish or repair once.");
+    if (older) throw new Error("LookupError: The platform can't show endorsement yet: UDF_Platform is older than this app. After an update, a platform admin runs Platform > Settings > Finish or repair once.");
     return trust();
   },
   platform_scan_endorsement: () => {
     endorsement = { endorsement: "Certified", certified_by: "Ana Lopez", scanned_at: new Date(Date.now() - 3 * 3600e3).toISOString(), scanned_by: "chris@example.com" };
     return { workspaces: 1, items: 1, recorded: 1, not_reported: [], trust: trust() };
   },
-  platform_add_product_term: ({ term, url }) => { terms = [...terms, { term, url, added_by: "chris@example.com", added_at: "2026-10-24T10:00:00Z" }]; return trust(); },
-  platform_remove_product_term: ({ term }) => { terms = terms.filter((t) => t.term !== term); return trust(); },
 };
 
 before(async () => {
@@ -63,8 +58,6 @@ test("everyone else sees a grey Endorsement unknown until a Fabric admin has sca
   const text = await page().textContent(".trust-endorsement");
   assert.match(text, /Fabric only shows endorsement to Fabric admins\. Once an admin has scanned, everyone sees the last scan's badge here\./);
   assert.strictEqual(await page().$(".trust-scan"), null, "no Scan now for someone who isn't a platform admin");
-  assert.strictEqual(await page().$('button:has-text("Add a term")'), null);
-  assert.match(await page().textContent(".trust-terms"), /The product's owner or a platform admin adds them/);
   await page().click('.trust-endorsement a:has-text("See it in Fabric")');
   assert.deepStrictEqual(await shellLinks(), [`https://app.fabric.microsoft.com/groups/${WS}/lakehouses/${LH}?experience=fabric-developer`]);
 });
@@ -72,8 +65,7 @@ test("everyone else sees a grey Endorsement unknown until a Fabric admin has sca
 test("the page says how it works, naming every write", { skip }, async () => {
   const how = await page().textContent(".how-it-works");
   assert.match(how, /Scan now writes what the scan read to catalog\.endorsement/);
-  assert.match(how, /Adding or removing a term writes catalog\.product_term/);
-  assert.match(how, /Nothing reads Purview/);
+  assert.match(how, /Nothing changes in Fabric: KratosForge can't set endorsement\./);
   assert.ok(await page().$("h2.trust-name ~ .preview-tag"), "the page shows it is in Preview");
 });
 
@@ -112,36 +104,6 @@ test("items that differ show one Endorsement varies badge, each item's own below
   } finally {
     more = [];
   }
-});
-
-test("Add a term takes only a Purview https link, then lists it with Open in Purview", { skip }, async () => {
-  await page().click('button:has-text("Add a term")');
-  await page().waitForSelector('[role=dialog] >> text="Copy the term\'s address from Purview. KratosForge doesn\'t read Purview."');
-  await page().fill('[aria-label="Term"]', "Active customer");
-  for (const bad of ["http://purview.microsoft.com/term/1", "https://purview.microsoft.com.evil.example/term", "https://user@purview.microsoft.com/t"]) {
-    await page().fill('[aria-label="Link to the term in Purview"]', bad);
-    await page().click('[role=dialog] button:has-text("Add")');
-    assert.match(await page().textContent("[role=dialog] .fail-text"), /an https link on purview\.microsoft\.com or web\.purview\.azure\.com/);
-  }
-  assert.deepStrictEqual(callsOf("platform_add_product_term"), [], "a bad link is never sent");
-  await page().fill('[aria-label="Link to the term in Purview"]', TERM_URL);
-  await page().click('[role=dialog] button:has-text("Add")');
-  await page().waitForSelector('.trust-terms td:has-text("Active customer")');
-  assert.deepStrictEqual(callsOf("platform_add_product_term"), [{ product_id: PID, term: "Active customer", url: TERM_URL }]);
-  await page().click('.trust-terms a:has-text("Open in Purview")');
-  assert.strictEqual((await shellLinks()).pop(), TERM_URL);
-});
-
-test("removing a term asks first, drawn as a danger", { skip }, async () => {
-  await page().click('.trust-terms tr:has-text("Active customer") button:has-text("Remove")');
-  await page().waitForSelector('[role=dialog] >> text="Remove Active customer?"');
-  assert.ok(await page().$(".dialog-actions .danger-solid"));
-  await page().click('.dialog-actions button:has-text("Cancel")');
-  assert.deepStrictEqual(callsOf("platform_remove_product_term"), []);
-  await page().click('.trust-terms tr:has-text("Active customer") button:has-text("Remove")');
-  await page().click(".dialog-actions .danger-solid");
-  await page().waitForSelector('.trust-terms >> text="No business terms yet. Add one with its link in Purview."');
-  assert.deepStrictEqual(callsOf("platform_remove_product_term"), [{ product_id: PID, term: "Active customer" }]);
 });
 
 test("an older UDF_Platform says to run Finish or repair", { skip }, async () => {

@@ -381,13 +381,11 @@ Each entity page also has an **About** card (Preview): description, tags, classi
 - **Ask for data** (above the list) asks a domain's owners for a new data product; **Ask for a change** on a product's page asks its owner for a change. Accepting records the team's reply on **Data mesh > Requests**; nothing is built for you ([Ask for data](data-mesh.md)).
 - **Follow** on a product's page tells you in Teams when a promote to Prod deprecates it, gives it a new version or changes a port's columns; **Following** filters the list to the products you follow. Linking a project to a product follows it for you ([Follow a product](data-mesh.md#follow-a-product-preview)).
 
-Products works with no metadata project open. Select a product's name to open its page: its endorsement and business terms, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
+Products works with no metadata project open. Select a product's name to open its page: its endorsement, checklist and who has access. For a product of the project open on this PC, **Edit definition** opens **Data mesh > Project > Products and links**, where its file is edited.
 
-### Endorsement and business terms (Preview)
+### Endorsement (Preview)
 
-A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
-
-**Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
+A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it. The details are in [Endorsement](data-mesh.md#endorsement).
 
 ### Tables, semantic models and reports (Preview)
 

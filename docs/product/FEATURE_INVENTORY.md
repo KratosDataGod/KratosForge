@@ -190,7 +190,7 @@ on quality.
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
 | [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
-| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh: Home, Domains, Products, Requests and Project tabs (Preview) | Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run. |
+| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh: Home, Domains, Products, Requests and Project tabs (Preview) | Data mesh now holds Home, Domains, Products and Requests (#801-#806); Endorsement live checks wait on Chris's tenant run. |
 
 ### Data Governance and Quality
 
@@ -207,7 +207,7 @@ on quality.
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
 | [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview) | Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1). |
 | [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it |
-| [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
+| [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Fabric's sensitivity labels, don't duplicate them. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it. |
 | [FEAT-GOV-08](#feat-gov-08) | Governance requests | Implemented | Partially Verified | Data mesh > Requests (Preview) | Governance steps 8 and 12 wait on Chris's two read-only PC checks. |
@@ -1492,7 +1492,7 @@ on quality.
 
 ### FEAT-GOV-06
 
-**Sensitive data classification.** Classify columns and carry labels into products and Purview.
+**Sensitive data classification.** Classify columns and carry labels into products.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Missing. **Verification:** Unverified.
@@ -1501,7 +1501,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/central/udf.py`
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-060](PRODUCT_BACKLOG.md#pb-060)
-- **Recommended next action:** Owned by the governance foundation thread; complement Purview, don't duplicate it.
+- **Recommended next action:** Owned by the governance foundation thread; complement Fabric's sensitivity labels, don't duplicate them.
 
 ### FEAT-GOV-07
 
@@ -1570,7 +1570,7 @@ on quality.
 
 ### FEAT-MESH-04
 
-**Data mesh: domains, products, links, glossary.** Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.
+**Data mesh: domains, products, links, glossary.** Domains imported from and created in Fabric, data products with ports, endorsement badges, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
@@ -1579,10 +1579,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/central/service.py`, `app/ui/mesh.js`, `app/ui/meshmap.js`, `sidecar/fabric_desktop/central/trust_service.py`
 - **Tests:** `sidecar/tests/test_platform.py`, `sidecar/tests/test_domain_in_fabric.py`, `sidecar/tests/test_trust_badges.py`, `app/tests/browser/domain-in-fabric.test.cjs`, `app/tests/browser/trust-badges.test.cjs`, `app/tests/browser/follow-product.test.cjs`, `app/tests/browser/data-requests.test.cjs`, `sidecar/tests/test_versioned_contracts.py`, `sidecar/tests/test_entra_groups.py`, `app/tests/browser/access-reviews.test.cjs`, `app/tests/browser/owner-coverage.test.cjs`, `app/tests/browser/mesh-home.test.cjs`, `app/tests/browser/mesh-products.test.cjs`, `app/tests/browser/mesh-requests.test.cjs`, `app/tests/browser/mesh-layout.test.cjs`, `sidecar/tests/test_mesh_home.py`, `app/tests/browser/mesh-members.test.cjs`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
-- **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of KratosForge's own; the built-in glossary becomes a fallback or is retired.
+- **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from an external catalog such as Collibra instead of KratosForge's own; the built-in glossary becomes a fallback or is retired.
 - **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50), [#591](https://github.com/KratosDataGod/KratosForge/pull/591), [#627](https://github.com/KratosDataGod/KratosForge/pull/627), [#642](https://github.com/KratosDataGod/KratosForge/pull/642), [#694](https://github.com/KratosDataGod/KratosForge/pull/694), [#701](https://github.com/KratosDataGod/KratosForge/pull/701), [#749](https://github.com/KratosDataGod/KratosForge/pull/749), [#761](https://github.com/KratosDataGod/KratosForge/pull/761), [#763](https://github.com/KratosDataGod/KratosForge/pull/763), [#765](https://github.com/KratosDataGod/KratosForge/pull/765), [#770](https://github.com/KratosDataGod/KratosForge/pull/770), [#793](https://github.com/KratosDataGod/KratosForge/pull/793), [#801](https://github.com/KratosDataGod/KratosForge/pull/801), [#802](https://github.com/KratosDataGod/KratosForge/pull/802), [#803](https://github.com/KratosDataGod/KratosForge/pull/803), [#804](https://github.com/KratosDataGod/KratosForge/pull/804), [#805](https://github.com/KratosDataGod/KratosForge/pull/805), [#806](https://github.com/KratosDataGod/KratosForge/pull/806), [#814](https://github.com/KratosDataGod/KratosForge/pull/814), [#817](https://github.com/KratosDataGod/KratosForge/pull/817), [#818](https://github.com/KratosDataGod/KratosForge/pull/818), [#824](https://github.com/KratosDataGod/KratosForge/pull/824), [#825](https://github.com/KratosDataGod/KratosForge/pull/825), [#827](https://github.com/KratosDataGod/KratosForge/pull/827), [#828](https://github.com/KratosDataGod/KratosForge/pull/828), [#834](https://github.com/KratosDataGod/KratosForge/pull/834), [#836](https://github.com/KratosDataGod/KratosForge/pull/836), [#844](https://github.com/KratosDataGod/KratosForge/pull/844), [#1031](https://github.com/KratosDataGod/KratosForge/pull/1031), [#1037](https://github.com/KratosDataGod/KratosForge/pull/1037), [#1046](https://github.com/KratosDataGod/KratosForge/pull/1046), [#1737](https://github.com/KratosDataGod/KratosForge/pull/1737), [#1744](https://github.com/KratosDataGod/KratosForge/pull/1744), [#1774](https://github.com/KratosDataGod/KratosForge/pull/1774), [#1775](https://github.com/KratosDataGod/KratosForge/pull/1775), [#1780](https://github.com/KratosDataGod/KratosForge/pull/1780)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.
+- **Recommended next action:** Data mesh now holds Home, Domains, Products and Requests (#801-#806); Endorsement live checks wait on Chris's tenant run.
 
 ### FEAT-MESH-05
 

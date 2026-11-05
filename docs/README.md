@@ -207,7 +207,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Data mesh | Data mesh > Domains, Data mesh > Products, Home, entity page (domains from Fabric, products, links, glossary, About, the map on Home, data products for everyone, following a product) |
 | Platform | Platform, Settings, Data mesh > Surrogate keys (admins, landing zone, business keys, requests) |
 | Workspace, domain and exception requests | Data mesh > Requests > New request: a new workspace, access to a workspace, a domain, an exception to a policy, data from another team; Data mesh > Products > Ask for data ([platform.md](platform.md#requests)) |
-| Endorsement and business terms | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan, and business terms linked to Purview ([data-mesh.md](data-mesh.md#endorsement-and-business-terms)) |
+| Endorsement | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan ([data-mesh.md](data-mesh.md#endorsement)) |
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |

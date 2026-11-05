@@ -15,7 +15,7 @@ a few milliseconds, so a skin switches at once, without reloading, and open work
 
 | Group | Tokens | Used for |
 | --- | --- | --- |
-| Brand and accent | `--accent`, `--accent-dark`, `--accent-soft`, `--accent-soft-2`, `--brand-orange`, `--brand-orange-soft`, `--on-accent` | Primary buttons, selection, the active rail item, text on accent fills |
+| Brand and accent | `--accent`, `--accent-dark`, `--accent-soft`, `--accent-soft-2`, `--brand-orange`, `--brand-orange-soft`, `--rail-active`, `--on-accent` | Primary buttons, selection, the active rail item's stripe (`--rail-active`), text on accent fills |
 | Text | `--text`, `--text-2`, `--muted`, `--muted-2` | Body text, secondary text, hints |
 | Surfaces | `--surface`, `--surface-2`, `--surface-3`, `--surface-3b`, `--canvas`, `--hover`, `--neutral-mark` | Cards, panels, table stripes, the page background, hover |
 | Lines | `--border`, `--border-soft`, `--border-input` | Borders and separators |
@@ -81,6 +81,11 @@ Preview features are shown, and an administrator's policy can lock it.
 | Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
-services, Learn), at most 8 main pages in the rail, and Settings at the bottom. Dark versions of the
+services, Learn), at most 8 main pages in the rail, and Settings at the bottom. In a platform skin, KratosForge's own
+pages (Platform, Optimize and Data mesh) sit together under a "KratosForge" label in the rail, so you can
+see what the app adds to the platform you know. Every skin also keeps the same "where it runs" chip
+beside the notebook's engine, such as "This PC · no Fabric job" (reading or writing OneLake from this PC still uses Fabric
+capacity), and a skin can't hide or change it.
+Dark versions of the
 skins come once the rest of the app's colors are on tokens. Databricks-familiar and
 Snowflake-familiar skins follow.

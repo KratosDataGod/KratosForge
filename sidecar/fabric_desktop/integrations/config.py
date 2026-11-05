@@ -65,12 +65,11 @@ def _script_text(path: Path, command: str, windows: bool = os.name == "nt") -> s
 
 
 def _write_script(path: Path, command: str) -> Path:
+    """Writes the launcher only when its text changed, swapped in whole so a start never reads half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     text = _script_text(path, command)
     if not path.exists() or path.read_text(encoding="utf-8", errors="replace") != text:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(text, encoding="utf-8", newline="")
-        jsonfile.replace(tmp, path)
+        jsonfile.write_text(path, text, newline="")
         if os.name != "nt":
             path.chmod(0o755)
     return path

@@ -62,7 +62,11 @@ def _from_cases(cases: list[Any]) -> tuple[str, str]:
                 note = next(c.note for c in cases if c.function == f) or f"{value!r} here"
                 return status, f"{f}: {note}"
             return status, f"{f}: {value}"
-    return "runs", f"{len(cases)} value check{'s' if len(cases) > 1 else ''}"
+    from . import snowflake_sql
+    labels = dict.fromkeys(f"{n.id} {n.title}" for c in cases for st in snowflake_sql.translate(c.sql).statements
+                           for n in st.notes)
+    checks = f"{len(cases)} value check{'s' if len(cases) > 1 else ''}"
+    return "runs", checks + (f"; labelled {', '.join(labels)}" if labels else "")
 
 
 def _try(sql: str, setup: bool = False) -> tuple[str, str]:

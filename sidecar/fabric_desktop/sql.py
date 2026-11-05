@@ -970,6 +970,12 @@ def spark_name(column: exp.Expression) -> str:
     """The name Spark gives an unnamed selected expression: functions in lower case, each operator in
     parentheses ("(a + 1)", "(NOT a)", "(a IS NULL)", "(- a)") and a decimal's parameters without a space ("DECIMAL(10,2)")."""
     copy = column.copy()
+    for call in list(copy.find_all(exp.ToChar)):   # sqlglot writes to_char(n, fmt) as a CAST for Spark
+        named = exp.Anonymous(this="to_char", expressions=[a for a in (call.this, call.args.get("format")) if a])
+        if call is copy:
+            copy = named
+        else:
+            call.replace(named)
     # Spark writes these its own way: UnaryMinus as "(- x)" and IsNotNull as "(x IS NOT NULL)", which
     # sqlglot reads as NOT (x IS NULL). Innermost first, each operand formatted the same way.
     for unary in reversed(list(copy.find_all(exp.Neg, exp.Not))):

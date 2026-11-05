@@ -88,6 +88,7 @@ function whScriptItems(ref, o, cols, { open, query }) {
   };
   const items = [];
   if (o.type === "U" || o.type === "V") items.push({ label: "Select top 100 rows", icon: "play", action: () => query(full) });
+  if (o.type === "U") items.push({ label: "Table detail", icon: "dataBarVertical", action: () => whTableDetail(ref, o, cols, { open }) });
   const fabric = whFabricSchema(o.schema);
   if (o.type === "U") {
     items.push({ label: "Script as CREATE", icon: "code", action: () => open(`${o.name} (CREATE)`, `${whScriptHeader(ref, "CREATE")}${whCreateTable(o, cols || [])}`) });

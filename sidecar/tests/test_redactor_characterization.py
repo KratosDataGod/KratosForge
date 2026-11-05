@@ -37,9 +37,9 @@ CASES = [
 ]
 
 # What each redactor does with the secret, per case: removed, masked (git/secrets keeps its first
-# characters, then …[hidden]), or kept (the secret is still in the text). Columns: redact.secrets,
-# redact.for_support, redact.walk on a field whose name isn't secret-like (logs and integration
-# results), git/secrets.redact, livetest.scrub.
+# characters, then …[hidden]), or kept (only a URL's user name with no password, which isn't a
+# secret). Columns: redact.secrets, redact.for_support, redact.walk on a field whose name isn't
+# secret-like (logs and integration results), git/secrets.redact, livetest.scrub.
 TODAY = {
     'Bearer header': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Basic header': ('removed', 'removed', 'removed', 'removed', 'removed'),
@@ -48,19 +48,19 @@ TODAY = {
     'URL user:pass': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'URL user only': ('kept', 'removed', 'kept', 'removed', 'kept'),
     'Teams webhook': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'Legacy webhook': ('removed', 'removed', 'removed', 'kept', 'removed'),
+    'Legacy webhook': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'GitHub token': ('removed', 'removed', 'removed', 'masked', 'removed'),
     'Entra client secret': ('removed', 'removed', 'removed', 'masked', 'removed'),
     'AWS key': ('removed', 'removed', 'removed', 'masked', 'removed'),
     'Slack token': ('removed', 'removed', 'removed', 'masked', 'removed'),
     'Databricks token': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'sk- API key': ('kept', 'kept', 'kept', 'masked', 'kept'),
-    'PEM private key': ('removed', 'removed', 'removed', 'kept', 'removed'),
+    'sk- API key': ('removed', 'removed', 'removed', 'masked', 'removed'),
+    'PEM private key': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Connection-string password': ('removed', 'removed', 'removed', 'masked', 'removed'),
     'Storage AccountKey': ('removed', 'removed', 'removed', 'masked', 'removed'),
     'git extraheader': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'Quoted password': ('removed', 'removed', 'removed', 'kept', 'removed'),
-    'Bare token=': ('removed', 'removed', 'removed', 'kept', 'removed'),
+    'Quoted password': ('removed', 'removed', 'removed', 'masked', 'removed'),
+    'Bare token=': ('removed', 'removed', 'removed', 'masked', 'removed'),
 }
 
 REDACTORS = {

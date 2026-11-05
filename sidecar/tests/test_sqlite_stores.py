@@ -113,3 +113,75 @@ def test_a_healthy_local_platform_file_keeps_its_admin(tmp_path):
     platform = LocalPlatform(path, user=lambda: "someone@contoso.com")
     with platform._db() as db:
         assert [a["user_name"] for a in core.list_admins(db)] == ["me@contoso.com"]
+
+
+# sqlitefile.transaction: one helper for a group of changes, used by the workloads file, the outbox and the ledger.
+
+def test_transaction_commits_rolls_back_and_always_closes(tmp_path, monkeypatch):
+    path = tmp_path / "t.sqlite"
+    opened = []
+    real = sqlite3.connect
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: opened.append(real(*a, **k)) or opened[-1])
+    with sqlitefile.transaction(path) as db:
+        db.execute("CREATE TABLE t (v TEXT)")
+        db.execute("INSERT INTO t VALUES ('kept')")
+    with pytest.raises(RuntimeError), sqlitefile.transaction(path) as db:
+        db.execute("INSERT INTO t VALUES ('dropped')")
+        raise RuntimeError("boom")
+    with sqlitefile.transaction(path, rows=True) as db:
+        rows = db.execute("SELECT v FROM t").fetchall()
+    assert [r["v"] for r in rows] == ["kept"]
+    for db in opened:  # each connection was closed, success or not
+        with pytest.raises(sqlite3.ProgrammingError):
+            db.execute("SELECT 1")
+
+
+def test_a_workloads_change_that_fails_part_way_leaves_nothing(tmp_path):
+    from fabric_desktop.workloads.store import ManagementStore
+    store = ManagementStore(tmp_path / "workloads.sqlite")
+    store.assign("w1", {"criticality": "high"}, by="me")
+    with pytest.raises(RuntimeError), store._tx() as db:
+        db.execute("DELETE FROM assignment")
+        raise RuntimeError("boom")
+    assert store.assignments()["w1"]["criticality"]["value"] == "high"
+    assert not store._lock.locked()  # the lock is let go too
+
+
+def test_a_healthy_outbox_and_ledger_keep_their_rows(tmp_path):
+    from fabric_desktop.workloads.notify import Outbox
+    from fabric_desktop.workloads.platform_notify import Ledger
+    box = tmp_path / "outbox.sqlite"
+    Outbox(box).add("New: orders failed", ["boom"], "Teams didn't answer")
+    again = Outbox(box)
+    assert again.set_aside is None and [r["title"] for r in again.pending()] == ["New: orders failed"]
+    assert Ledger(box).set_aside is None
+
+
+def test_a_local_platform_call_that_fails_part_way_leaves_nothing_and_closes(tmp_path, monkeypatch):
+    from fabric_desktop.central import core
+    from fabric_desktop.central.client import LocalPlatform
+    platform = LocalPlatform(tmp_path / "platform.sqlite", user=lambda: "me@contoso.com")
+    opened = []
+    real = sqlite3.connect
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: opened.append(real(*a, **k)) or opened[-1])
+
+    def half_done(db, by=""):
+        db.run(f"INSERT INTO {db.t('catalog', 'admin')} (user_name, added_at, added_by) VALUES (?, ?, ?)",
+               ("someone@contoso.com", "2026-11-05", "someone@contoso.com"))  # written, then the call fails
+        raise RuntimeError("boom")
+
+    monkeypatch.setitem(core.OPERATIONS, "half_done", half_done)
+    with pytest.raises(RuntimeError):
+        platform.call("half_done")
+    with platform._db() as db:
+        assert [a["user_name"] for a in core.list_admins(db)] == ["me@contoso.com"]
+    assert opened and all(_closed(db) for db in opened)
+    assert not platform._lock.locked()
+
+
+def _closed(db: sqlite3.Connection) -> bool:
+    try:
+        db.execute("select 1")
+    except sqlite3.ProgrammingError:
+        return True
+    return False

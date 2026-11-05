@@ -14,7 +14,7 @@ import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import app_settings, http_session, jsonfile, maintenance, risk, xray
+from . import app_settings, http_session, jsonfile, maintenance, redact, risk, xray
 from .auth import FABRIC_SCOPES, POWERBI_DATAFLOW_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
@@ -83,6 +83,10 @@ def _layer_workspaces(project: Any) -> list[tuple[str, Any]]:
             ws = (spaces.get(layer.workspace) or {}).get("id") if layer.workspace else None
             out += [(w, layer) for w in {ws, cfg.get("workspace_id")} if w]
     return out
+
+DISMISS_ID_MAX = 1024  # characters in a dismissed finding's id
+DISMISS_MAX = 5000  # dismissed findings kept on this PC
+
 
 class XRayMixin:
     _xray_state: dict[str, Any] | None = None
@@ -206,13 +210,37 @@ class XRayMixin:
             n_adopted = sum(1 for a in adopted if a.startswith(prefix) and f"/{r['lakehouse_id']}/" in a)
             rows.append(r | {"managed": (r["workspace_id"], r["lakehouse_name"]) in managed, "adopted": n_adopted})
         removed = self._settings().get("xray_removed") or {}  # type: ignore[attr-defined]
+        dismissed = self._settings().get("xray_dismissed") or {}  # type: ignore[attr-defined]
         findings = []
         for f in result.get("findings", []):
-            fix = fixes.get(_finding_id(f))
-            if _finding_id(f) in removed:  # a leftover removed since this scan: nothing to wait for
-                fix = {"state": "fixed", "removed_at": removed[_finding_id(f)]}
-            findings.append(f | {"id": _finding_id(f), "fixed": bool(fix and fix["state"] == "fixed"), "fix": fix})
+            fid = _finding_id(f)
+            fix = fixes.get(fid)
+            if fid in removed:  # a leftover removed since this scan: nothing to wait for
+                fix = {"state": "fixed", "removed_at": removed[fid]}
+            findings.append(f | {"id": fid, "fixed": bool(fix and fix["state"] == "fixed"), "fix": fix,
+                                 "effort": xray.effort_of(f.get("action")), "dismissed": dismissed.get(fid)})
         return result | {"lakehouse_rows": rows, "findings": findings}
+
+    def xray_dismiss(self, finding_id: str, reason: str = "", reopen: bool = False) -> dict[str, Any]:
+        """Dismiss one finding on this PC, with why, or reopen it. It stays dismissed when a later
+        scan finds it again, until it is reopened. Changes nothing in Fabric."""
+        finding_id = str(finding_id or "").strip()
+        if not finding_id:
+            raise ValueError("Which finding? It needs its id.")
+        if len(finding_id) > DISMISS_ID_MAX:
+            raise ValueError("That finding id is too long to be one of X-ray's.")
+        dismissed = dict(self._settings().get("xray_dismissed") or {})  # type: ignore[attr-defined]
+        if reopen:
+            dismissed.pop(finding_id, None)
+        else:
+            reason = redact.secrets(str(reason or "").strip())[:500]
+            dismissed[finding_id] = {"reason": reason,
+                                     "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+            # Bounded: past the cap the oldest dismissals go, so settings can't grow without limit.
+            for old in sorted(dismissed, key=lambda k: str(dismissed[k].get("at") or ""))[:-DISMISS_MAX]:
+                dismissed.pop(old)
+        self._save_settings(xray_dismissed=dismissed)  # type: ignore[attr-defined]
+        return {"id": finding_id, "dismissed": dismissed.get(finding_id)}
 
     def _xray_keep_days(self, workspace_id: str, lakehouse_name: str, table_days: int | None) -> tuple[int, str]:
         """The days of history a VACUUM on this table must keep, and why: the longest of Fabric's

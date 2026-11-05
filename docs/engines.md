@@ -94,7 +94,9 @@ shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
 and DuckDB versions, and from 136 function checks against Snowflake's documented values (below);
-each is a test.
+each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
 Rules 2026.10.6.

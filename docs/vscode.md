@@ -79,7 +79,7 @@ Opening a notebook in VS Code doesn't run anything. Cells you run in VS Code use
 
 ## Run cells from VS Code
 
-Preview. This needs the KratosForge extension for VS Code, which adds **KratosForge · This PC** to VS Code's kernel picker. It isn't on the VS Code Marketplace yet. Download `kratosforge.vsix` from the [Preview release](https://github.com/KratosDataGod/KratosForge/releases/tag/latest), then in VS Code run **Extensions: Install from VSIX…** and pick the file. Each Preview build carries a newer one; installing it the same way updates the extension.
+Preview. This needs the KratosForge extension for VS Code, which adds **KratosForge · This PC** to VS Code's kernel picker. It isn't on the VS Code Marketplace yet. Download `kratosforge.vsix` from the [Preview release](https://github.com/KratosDataGod/KratosForge/releases/tag/latest), then in VS Code run **Extensions: Install from VSIX…** and pick the file. Each Preview build carries a newer one; installing it the same way updates the extension. The file isn't Marketplace-signed; to check it was built by KratosForge's CI from this repository, run `gh attestation verify kratosforge.vsix -R KratosDataGod/KratosForge`.
 
 1. In **Settings > Integrations > VS Code**, turn on **Let VS Code run notebooks**. It's off until you do, and your organization can keep it off (`integrations_editors` in the [policy file](azure-setup.md#4-push-settings-to-everyone)).
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.

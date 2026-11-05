@@ -12,6 +12,8 @@
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: estate.js:grantDialog, estate.js:roleDialog, estate.js:usageImportDialog, meta.js:confirmDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";

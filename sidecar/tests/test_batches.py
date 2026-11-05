@@ -7,6 +7,7 @@ import polars as pl
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake
+from deltalake.exceptions import DeltaError
 from test_large_tables import DAY1, DAY2, Setup, entity, rows
 
 from fabric_desktop.meta import Engine, Project, batches
@@ -214,7 +215,7 @@ def test_a_stream_that_stops_removes_the_files_it_wrote(tmp_path, monkeypatch):
         for i in range(4):
             yield pa.record_batch([pa.array(range(i * 500_000, (i + 1) * 500_000))], schema=schema)
         raise RuntimeError("a check stopped the run")
-    with pytest.raises(Exception):
+    with pytest.raises(DeltaError):
         store.write_stream("LH_Bronze", "dbo", "t", pa.RecordBatchReader.from_batches(schema, batches()), read_version=0)
     assert store.last_cleanup["removed"] >= 1, store.last_cleanup
     assert {p.name for p in folder.glob("*.parquet")} == kept and DeltaTable(str(folder)).version() == 0
@@ -268,7 +269,7 @@ def test_in_onelake_nothing_is_removed_and_files_are_left_for_vacuum(tmp_path, m
         for i in range(4):
             yield pa.record_batch([pa.array(range(i * 500_000, (i + 1) * 500_000))], schema=schema)
         raise RuntimeError("a check stopped the run")
-    with pytest.raises(Exception):
+    with pytest.raises(DeltaError):
         store.write_stream("LH_Bronze", "dbo", "t", pa.RecordBatchReader.from_batches(schema, batches()), read_version=0)
     assert store.last_cleanup["removed"] == 0 and "left for VACUUM" in store.last_cleanup["note"]
     assert len(list(folder.glob("*.parquet"))) > 1 and DeltaTable(str(folder)).version() == 0

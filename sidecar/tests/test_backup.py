@@ -219,3 +219,19 @@ def test_cli(app, tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         main(["restore", str(zip_path)])
     assert "Nothing was changed" in capsys.readouterr().out
+
+
+def test_a_damaged_database_is_backed_up_as_it_is_and_doesnt_stop_the_backup(app, tmp_path):
+    """#1674 (EA-028): backup.py doesn't open a store for use, it copies one. A file SQLite can't read
+    goes into the zip byte for byte, so the person can still hand it to support, and every other file
+    is backed up as usual. A restore then replaces it (test_restore_replaces_a_damaged_database...)."""
+    damaged = b"SQLite format 3\x00" + b"\xff" * 4080
+    (app / "integrations.sqlite").write_bytes(damaged)
+    result = backup.create(tmp_path / "out", app, now=NOW)
+    with zipfile.ZipFile(result["path"]) as z:
+        assert z.read("app/integrations.sqlite") == damaged
+        assert "app/workloads.sqlite" in z.namelist()
+        manifest = json.loads(z.read("manifest.json"))
+    assert {e["path"] for e in manifest["files"]} >= {"app/integrations.sqlite", "app/workloads.sqlite"}
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:  # the healthy one is untouched
+        assert db.execute("select name from w").fetchall() == [("orders",)]

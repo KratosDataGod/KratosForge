@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
+import duckdb
 
 from fabric_desktop.localdata import LocalData
 from fabric_desktop.localdata.tsql import split_batches, translate
@@ -140,7 +141,7 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
 def test_plus_with_a_number_adds_as_numbers(engine):
     r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[2, 14, "Ann  !"]]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.ConversionException):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
@@ -200,7 +201,7 @@ def test_convert_keeps_its_length_and_fails_where_tsql_fails(engine):
     r = tsql(engine, "SELECT CONVERT(VARCHAR(10), day, 120) AS a, CONVERT(INT, '5') AS b, "
                      "TRY_CONVERT(INT, 'x') AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [["2026-10-18", 5, None]]
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.InvalidInputException):
         tsql(engine, "SELECT CONVERT(INT, 'x')")  # an error in T-SQL, not NULL
 
 

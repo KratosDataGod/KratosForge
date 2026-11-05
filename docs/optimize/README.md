@@ -75,6 +75,10 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 - **Race-safe setup.** Two installations setting up the same lakehouse at once end up with one set of tables and one schema version row.
 - **Recoverable migrations.** A migration only adds tables or columns, and each step can safely run again. Its version is recorded only after every step succeeded, so a migration that stopped part way finishes the next time.
 
+## Before a lakehouse is connected
+
+Overview lists this PC's last Estate X-ray findings, most severe first, each with its fix. **Effort** says what the fix asks of you: **Low** is one button that asks first and then runs in Fabric (Optimize, Vacuum), **Medium** is steps you take yourself (open the lakehouse, review access, open the notebook). **Dismiss** asks why and hides the finding on this PC only; it stays dismissed when the next scan finds it again, and **Show dismissed** lets you reopen it. Dismissing changes nothing in Fabric.
+
 ## When the lakehouse can't be reached
 
 When a write to the central lakehouse fails for a reason that passes (no network, throttling, a commit that lost a race with another installation, a dropped upload), what it was writing waits on this PC instead of being lost. Today that covers Estate X-ray findings and shared runs on this PC.

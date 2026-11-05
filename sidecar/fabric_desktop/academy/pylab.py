@@ -117,7 +117,10 @@ def grade(work: Path, script: str, validation: list[dict[str, Any]], data_root: 
           lib_roots: list[Path] | None = None, **limits: Any) -> dict[str, Any]:
     """Run ``script`` in the learner process, then ``validation`` on what it left in ``work``.
     ``{passed, results, run}``. When the script didn't finish, only that is reported: checks of a
-    half-written workspace would only add noise."""
+    half-written workspace would only add noise. A delta_table check always means the v1 process,
+    whatever the caller passed (delta-rs can't run in the AppContainer)."""
+    if not appcontainer_ok({"validation": validation}):
+        limits["appcontainer_ok"] = False
     run = sandbox.run(work, script, data_root, lib_roots=lib_roots, **limits)   # returns after the job has closed
     ran = _ran(run, None)
     if not ran["passed"]:

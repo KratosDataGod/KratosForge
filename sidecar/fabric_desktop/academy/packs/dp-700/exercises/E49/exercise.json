@@ -79,7 +79,7 @@
   ],
   "reset": "Reset puts the broken pipeline.json back.",
   "review_notes": [
-    "Before live: confirm both remediation links load.",
+    "Remediation links checked on 2026-11-05.",
     "A pipeline that hard-codes these three names would pass. A second parameter set needs pipeline_lab support for several runs."
   ]
 }

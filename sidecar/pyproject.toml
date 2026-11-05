@@ -73,10 +73,15 @@ include = ["fabric_desktop*"]
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
 # Academy certification packs (academy/registry.py), one folder per certification.
 "fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
+# Enterprise notebook templates (notebook_templates), one folder per platform, and their released cell hashes.
+"fabric_desktop.notebook_templates" = ["standards.json", "*/*.ipynb"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
-                  "fabric_desktop/academy/packs"]  # exercise answers run with the exercise's spark (pyspark_lab)
+                  "fabric_desktop/academy/packs",  # exercise answers run with the exercise's spark (pyspark_lab)
+                  # Notebook templates run on Fabric, Databricks or Snowflake (spark, dbutils and session are theirs),
+                  # and share one setup cell across kinds; tests/test_notebook_templates.py compiles and checks them.
+                  "fabric_desktop/notebook_templates/*/*.ipynb"]
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
 # import or a name that isn't defined, and bugbear (B), likely bugs such as a duplicate set item or an

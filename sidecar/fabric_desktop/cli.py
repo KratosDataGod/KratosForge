@@ -220,6 +220,26 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("path", nargs="?", help="an .ipynb file in the notebooks folder or a notebooks repository")
     p.add_argument("--path-from-env", metavar="NAME", help="read the file's path from this environment variable")
     p.add_argument("--print", action="store_true", help="print the link instead of opening it")
+    tpl = sub.add_parser("templates", help="enterprise notebook templates: Silver, Gold dimensions and facts "
+                                           "(nothing runs and nothing reaches a platform)")
+    tpl_sub = tpl.add_subparsers(dest="templates_command", required=True)
+    tpl_sub.add_parser("list", help="list the templates for each platform")
+    p = tpl_sub.add_parser("new", help="copy a template to a new notebook file to fill in")
+    p.add_argument("platform", choices=["fabric", "databricks", "snowflake"])
+    p.add_argument("kind", choices=["silver", "gold_dim_type1", "gold_dim_type2", "gold_fact"])
+    p.add_argument("out", help="the new .ipynb file (it must not exist yet)")
+    p = tpl_sub.add_parser("check", help="say whether a notebook still conforms to its template, so the enterprise "
+                                         "can support it, and list each change; exit 1 if it doesn't conform")
+    p.add_argument("path", help="an .ipynb file made from a template")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = tpl_sub.add_parser("handover", help="ask the enterprise to take over a conforming notebook: marks the "
+                                            "notebook and writes the handover record next to it")
+    p.add_argument("path", help="an .ipynb file made from a template")
+    p.add_argument("--domain", required=True, help="the domain handing it over")
+    p.add_argument("--owner", required=True, help="who in the domain owns its parameters")
+    p = tpl_sub.add_parser("accept", help="the enterprise accepts a requested handover; refused if the notebook changed")
+    p.add_argument("path", help="an .ipynb file whose handover was requested")
+    p.add_argument("--by", required=True, help="who in the enterprise accepts it")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -237,6 +257,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_pipeline(args))
     if args.command == "governance":
         raise SystemExit(_governance(args))
+    if args.command == "templates":
+        raise SystemExit(_templates(args))
     if args.command == "nb":
         raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
@@ -588,6 +610,69 @@ def _nb_open(args: argparse.Namespace) -> int:
         print(link)
         return 0
     os.startfile(link)  # type: ignore[attr-defined]  # Windows only
+    return 0
+
+
+def _templates(args: argparse.Namespace) -> int:
+    """Enterprise notebook templates (notebook_templates): list, copy, check and hand over."""
+    from pathlib import Path
+
+    from . import notebook_templates as nt
+    from .jsonfile import write_text
+
+    if args.templates_command == "list":
+        for t in nt.catalog():
+            print(f"{t['platform']:<11} {t['kind']:<15} {t['title']}: {t['description']} (v{t['version']})")
+        return 0
+    if args.templates_command == "new":
+        out = Path(args.out)
+        if out.suffix != ".ipynb":
+            print("The new notebook's name must end in .ipynb")
+            return 2
+        if out.exists():
+            print(f"{out} already exists; pick a new name")
+            return 2
+        write_text(out, nt.path(args.platform, args.kind).read_text(encoding="utf-8"), newline="\n")
+        print(f"Created {out}. Fill in its Parameters cell; leave the cells marked kratosforge:standard as they are.")
+        return 0
+    path = Path(args.path)
+    try:
+        nb = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+            raise ValueError("it isn't a Jupyter notebook (.ipynb) file")
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"Can't read {path}: {exc}")
+        return 2
+    if args.templates_command == "check":
+        result = nt.check(nb)
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        elif result["status"] == "not-a-template":
+            print(f"{path}: not made from a template, so it is domain-owned")
+        else:
+            label = {"conforms": "conforms: the enterprise can support it",
+                     "domain-owned": "domain-owned: the domain supports it"}[result["status"]]
+            print(f"{path}: {result['template']} {result['version']} for {result['platform']}, {label}")
+            for change in result["changes"]:
+                print(f"  - {change}")
+            if result.get("warning"):
+                print(f"  ! {result['warning']}")
+            if result["upgrade_available"]:
+                print(f"  Version {result['latest_version']} of the template is out; copy it and carry your parameters over.")
+        return 0 if result["status"] == "conforms" else 1
+    try:
+        if args.templates_command == "handover":
+            updated, record = nt.handover(nb, args.domain, args.owner, name=path.stem)
+            record_path = path.with_name(f"{path.stem}.handover.json")
+            write_text(record_path, json.dumps(record, indent=2) + "\n", newline="\n")
+            print(f"Handover requested. Send {record_path.name} with the notebook to the enterprise.")
+        else:
+            updated = nt.accept(nb, args.by)
+            print(f"{path.name} is now enterprise-managed.")
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    write_text(path, json.dumps(updated, indent=1, ensure_ascii=False) + "\n", newline="\n")
     return 0
 
 

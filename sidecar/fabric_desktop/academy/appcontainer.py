@@ -316,6 +316,7 @@ def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None
     record = _grants_file(data_root) if data_root else None
     if _granted.get(key) and (record is None or record.exists()):
         return
+    check_grants_keep_out(paths, data_root)   # only when granting: it reads the granted files
     had = jsonfile.read_json(record, {}) if record else {}
     done = set(had.get("paths") or []) if had.get("sid") == cap_string else set()
     if not set(wanted) <= done or not _has_grant(Path(sys.base_prefix), cap_string):
@@ -381,8 +382,102 @@ def revoke_runtime(data_root: Path) -> dict[str, Any]:
 
 # ---- copying the workspace in and out ------------------------------------------------------------
 
-def copy_tree(src: Path, dst: Path) -> None:
-    """Copy the files under ``src`` into ``dst`` (empty), never following a link, within the caps."""
+# ---- DPAPI, a standing rule (docs/academy/grading-sandbox.md, gate 2) ---------------------------
+# An AppContainer process can unseal the person's DPAPI blobs, so nothing sealed may be anywhere it can
+# read. The engine's own sealed files (the sign-in cache, sealed settings, signed-out tasks) live in the
+# data folder, which is never granted; these checks keep it that way and keep sealed files out of the
+# exercise's copy.
+
+# A raw DPAPI blob (version 1, then the DPAPI provider GUID), the same bytes base64-encoded (how sealed
+# settings store it) and the sign-in cache's own header.
+_SEALED_MARKS = (bytes.fromhex("01000000d08c9ddf0115d1118c7a00c04fc297eb"), b"AQAAANCMnd8BFdERjHoAwE/Cl+s",
+                 b"KFDPAPI1\n")
+_SCAN_CHUNK = 1024 * 1024
+
+
+def sealed(path: Path) -> bool:
+    """Whether ``path`` (a file) holds a DPAPI-sealed blob anywhere in it."""
+    keep = max(len(m) for m in _SEALED_MARKS) - 1
+    tail = b""
+    with open(path, "rb") as f:
+        while chunk := f.read(_SCAN_CHUNK):
+            data = tail + chunk
+            if any(m in data for m in _SEALED_MARKS):
+                return True
+            tail = data[-keep:]
+    return False
+
+
+_APP_PACKAGE_TRUSTEES = ("AC", *APP_PACKAGES)   # SDDL's alias for ALL APPLICATION PACKAGES, and both SIDs
+_ACE = re.compile(r"\(([A-Z]+);([A-Z]*);[^;]*;[^;]*;[^;]*;([^)]+)\)")
+
+
+def app_package_aces(path: Path, tree: bool = False) -> list[tuple[str, str, str]]:
+    """The ALL (RESTRICTED) APPLICATION PACKAGES ACEs on ``path`` (and everything under it with
+    ``tree``), as ``(item, type, flags)``: type ``A`` allows, ``D`` denies, and flags hold ``ID`` when
+    inherited. Read from ``icacls /save``, which writes SDDL with SIDs, so it doesn't depend on the
+    language Windows names the groups in, and with each item's path on its own line, spaces and all."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="kf-acl-") as tmp:
+        out = Path(tmp) / "acl.txt"
+        got = _icacls(str(path), "/save", str(out), *(["/T"] if tree else []))
+        if got.returncode != 0 or not out.exists():
+            raise OSError(f"Windows wouldn't read the permissions on {Path(path).name}.")
+        lines = out.read_bytes().decode("utf-16-le", "replace").lstrip("\ufeff").splitlines()
+    found: list[tuple[str, str, str]] = []
+    for item, sddl in zip(lines[0::2], lines[1::2], strict=False):   # a path line, then its SDDL
+        for kind, flags, trustee in _ACE.findall(sddl):
+            if trustee.upper() in _APP_PACKAGE_TRUSTEES and kind in ("A", "D"):
+                found.append((item, kind, flags))
+    return found
+
+
+_sealed_folders_ok: set[str] = set()
+
+
+def check_sealed_folders_closed(data_root: Path | None) -> None:
+    """Refuse (OSError, so the run falls back to the v1 learner process) when a folder that holds the
+    engine's sealed files lets every AppContainer in: an ALL (RESTRICTED) APPLICATION PACKAGES allow on
+    the data folder or the sign-in cache's folder. Checked once per engine start."""
+    from .. import auth
+    for folder in {*([Path(data_root)] if data_root else []), auth.default_cache_path().parent}:
+        key = str(folder)
+        if key in _sealed_folders_ok or not folder.is_dir():
+            continue
+        if any(kind == "A" for _item, kind, _flags in app_package_aces(folder)):
+            raise OSError(f"Every AppContainer can read {folder}, where KratosForge keeps sealed secrets.")
+        _sealed_folders_ok.add(key)
+    # The sealed files themselves too: an explicit allow on a file isn't in its folder's ACL. (Not the
+    # whole folder tree: the cache folder holds the engine.)
+    for file in (*([Path(data_root) / "settings.json"] if data_root else []), auth.default_cache_path()):
+        key = str(file)
+        if key in _sealed_folders_ok or not file.is_file():
+            continue
+        if any(kind == "A" for _item, kind, _flags in app_package_aces(file)):
+            raise OSError(f"Every AppContainer can read {file.name}, which holds sealed secrets.")
+        _sealed_folders_ok.add(key)
+
+
+def check_grants_keep_out(paths: list[tuple[Path, bool]], data_root: Path | None) -> None:
+    """Refuse (OSError, so the run falls back to the v1 learner process) a grant that would let an
+    AppContainer read a sealed file: an inherited grant on the data folder or a folder above it, or a
+    granted file that holds a DPAPI blob."""
+    from .. import auth
+    # The data folder (settings.json's sealed values) and the sign-in cache's folder, even when
+    # data_root names another one.
+    roots = {Path(data_root).resolve()} if data_root else set()
+    roots.add(auth.default_cache_path().resolve().parent)
+    for path, inherit in paths:
+        here = Path(path).resolve()
+        if inherit and any(r == here or here in r.parents for r in roots):
+            raise OSError("The exercise runtime would be able to read KratosForge's data folder.")
+        if here.is_file() and sealed(here):
+            raise OSError(f"{here.name} holds a sealed Windows secret, so the exercise runtime can't read it.")
+
+
+def copy_tree(src: Path, dst: Path, refuse_sealed: bool = False) -> None:
+    """Copy the files under ``src`` into ``dst`` (empty), never following a link, within the caps.
+    ``refuse_sealed``: refuse a file that holds a DPAPI blob (copying into an AppContainer's folder)."""
     names = ws.files_under(src, ".")
     if len(names) > MAX_COPY_FILES:
         raise ws.Refused(f"The exercise folder holds more than {MAX_COPY_FILES:,} files.")
@@ -392,6 +487,9 @@ def copy_tree(src: Path, dst: Path) -> None:
         total += source.stat().st_size
         if total > MAX_COPY_BYTES:
             raise ws.Refused("The exercise folder holds more than 1 GB.")
+        if refuse_sealed and sealed(source):
+            raise ws.Refused(f"{rel} holds a sealed Windows secret (DPAPI), so it can't go into the exercise "
+                             "sandbox. Take it out of the exercise folder.")
         target = dst / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target, follow_symlinks=False)
@@ -587,6 +685,7 @@ class Box:
             with _lock:
                 sweep(self.api)
                 deny_app_packages([ENGINE_PACKAGE])   # before any run: grading/ is never readable
+                check_sealed_folders_closed(data_root)   # DPAPI rule: sealed files stay out of reach
                 self.cap_sid, cap = capability_sid(self.api)
                 grant_runtime(self.api, cap, [Path(p) for p in lib_roots or []], data_root)
                 # Counted in the same hold as the grant, so a removal can't land in between.
@@ -603,7 +702,7 @@ class Box:
         try:
             self.work = self.profile.folder / "work"
             self.work.mkdir()
-            copy_tree(Path(work), self.work)
+            copy_tree(Path(work), self.work, refuse_sealed=True)
             (self.work / ".tmp").mkdir(exist_ok=True)
             boot = self.profile.folder / "boot"
             boot.mkdir()

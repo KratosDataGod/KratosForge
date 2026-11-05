@@ -221,7 +221,20 @@ Before it is turned on by default (Security's musts):
    bare AppContainer process can read it, and then can't once the deny is on.
 2. **DPAPI, a standing rule.** An AppContainer process can unseal the person's DPAPI blobs, so no
    DPAPI-sealed file may ever be in a folder an AppContainer can read: not the workspace, not the
-   profile folder, not anywhere that grants ALL APPLICATION PACKAGES.
+   profile folder, not anywhere that grants ALL APPLICATION PACKAGES. Enforced (2026-11-05):
+   - The workspace is copied into the profile only if no file in it holds a DPAPI blob (a raw blob,
+     its base64 form as sealed settings store it, or the sign-in cache's header); otherwise the run
+     is refused and says which file.
+   - The runtime grant refuses an inherited grant on the data folder, the sign-in cache's folder or
+     any folder above them, and any granted file that holds a DPAPI blob.
+   - Before the first run, the data folder and the sign-in cache's folder are checked for an ALL
+     (RESTRICTED) APPLICATION PACKAGES allow (read as SDDL, so the language Windows names groups in
+     doesn't matter), and so are the sealed files in them. If any has one, runs use the v1 learner process.
+   The folder checks and never granting the data folder are the main controls. The file scan is a
+   second line and finds only those three forms: a base64 blob at another offset, or a DPAPI-NG
+   blob, gets past it. Inherited grants below the data folder are allowed, so the engine's own
+   sealed files (`msal_cache.bin`, `settings.json`) sit directly in the cache folder and the data
+   folder, never in a subfolder; a test fails if a new place starts sealing with DPAPI.
 3. **The guard fails closed.** Done: inside an AppContainer a path in the workspace that has a link
    in it, or a folder that can't be checked, is refused, and `..` is collapsed before any check.
 4. **A way to remove the grants.** Done in Settings (PB-131): Settings > Advanced > Exercise

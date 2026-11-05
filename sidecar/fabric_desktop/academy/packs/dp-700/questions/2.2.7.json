@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.7",
+  "questions": [
+    {
+      "id": "2.2.7-q1",
+      "type": "single",
+      "stem": "Why do gold-layer tables built for reporting often denormalize descriptive attributes into dimension tables?",
+      "options": [
+        {
+          "id": "a",
+          "text": "So that the tables no longer need keys"
+        },
+        {
+          "id": "b",
+          "text": "So that every attribute is stored only once"
+        },
+        {
+          "id": "c",
+          "text": "So that storage use goes down"
+        },
+        {
+          "id": "d",
+          "text": "So that reports need fewer joins and are simpler to query"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Flattening related attributes into one dimension per subject gives a star schema that reporting tools query with few joins. It stores some values more than once, which is the accepted trade-off.",
+      "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.7-q2",
+      "type": "single",
+      "stem": "Product, Subcategory and Category are three normalized tables. For a star schema, what should the Product dimension look like?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The fact table carrying the category names, with no Product dimension"
+        },
+        {
+          "id": "b",
+          "text": "Three dimension tables, each joined to the fact table"
+        },
+        {
+          "id": "c",
+          "text": "A Category table with a list of products in one column"
+        },
+        {
+          "id": "d",
+          "text": "One Product table that also carries each product's subcategory and category names"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A star schema flattens a snowflaked hierarchy into one dimension, so each product row includes its subcategory and category and the fact table joins to one table.",
+      "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.7-q3",
+      "type": "single",
+      "stem": "While flattening Product with Category, some products have no category yet but must still appear in the dimension. Which join keeps them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cross join"
+        },
+        {
+          "id": "b",
+          "text": "Inner join from Product to Category"
+        },
+        {
+          "id": "c",
+          "text": "Left outer join from Product to Category"
+        },
+        {
+          "id": "d",
+          "text": "Right outer join from Product to Category"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A left outer join keeps every product and leaves the category columns empty where there's no match; you can then fill them with a value such as Unknown. An inner join would drop those products.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/from-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.7-q4",
+      "type": "multiple",
+      "stem": "Which two are costs of denormalizing data? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A change to an attribute has to be applied to many rows"
+        },
+        {
+          "id": "b",
+          "text": "Keys are no longer allowed"
+        },
+        {
+          "id": "c",
+          "text": "The data can no longer be stored as Delta"
+        },
+        {
+          "id": "d",
+          "text": "The same value is stored many times, using more storage"
+        },
+        {
+          "id": "e",
+          "text": "Queries need more joins"
+        }
+      ],
+      "answer": [
+        "d",
+        "a"
+      ],
+      "explanation": "Denormalized tables repeat values, so they take more space and an attribute change touches every row that repeats it. They need fewer joins, not more.",
+      "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

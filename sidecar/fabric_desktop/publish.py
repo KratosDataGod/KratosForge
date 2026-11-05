@@ -24,7 +24,7 @@ from deltalake import CommitProperties, DeltaTable, WriterProperties, write_delt
 from . import delta_profile
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
-from .leases import LocalBackend, check_held, onelake_table_lease, table_lease
+from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
 
@@ -128,27 +128,67 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
     returned table has ``skipped`` set."""
     opts = storage_options(storage_token)
     how = resolve_schema_mode(mode, schema_mode)
-    with _lease(ref, storage_token):
-        # One load of the log for the profile check, the write and the new version: delta-rs moves a
-        # table it was handed on to the version it committed. Loaded under the lease, so no other
-        # KratosForge writer can commit in between.
-        table = delta_profile.open_target(ref.uri, opts)
-        if mode == "overwrite" and skip_unchanged and unchanged(table, rows):
-            table.skipped = True  # type: ignore[union-attr]
-            return table  # type: ignore[return-value]
-        meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
-        had = _files(table) if table is not None and mode != "overwrite" else {}
-        check_held()  # the lease is still ours, with time to commit (HD-016)
-        write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
-                        writer_properties=writer_properties(), commit_properties=meta)
-        if table is None:
-            table = DeltaTable(ref.uri, storage_options=opts)
+    committed: DeltaTable | None = None
+    try:
+        with _lease(ref, storage_token):
+            # One load of the log for the profile check, the write and the new version: delta-rs moves a
+            # table it was handed on to the version it committed. Loaded under the lease, so no other
+            # KratosForge writer can commit in between.
+            table = delta_profile.open_target(ref.uri, opts)
+            if mode == "overwrite" and skip_unchanged and unchanged(table, rows):
+                table.skipped = True  # type: ignore[union-attr]
+                return table  # type: ignore[return-value]
+            meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
+            had = _files(table) if table is not None and mode != "overwrite" else {}
+            if table is not None and how != "overwrite":
+                refuse_conversions(data.schema, table, f"{ref.schema}.{ref.table}")
+            # Replacing every row as a predicate makes Delta check for commits since the version loaded
+            # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
+            extra = {"predicate": "true"} if mode == "overwrite" and table is not None else {}
+            check_held()  # the lease is still ours, with time to commit (HD-016)
+            write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
+                            writer_properties=writer_properties(), commit_properties=meta, **extra)
+            committed = table if table is not None else DeltaTable(ref.uri, storage_options=opts)
+            table = committed
+    except LeaseLost:
+        if committed is None:
+            raise
+        # The commit went through and the lease lapsed only after it (EA-006): the rows are in the
+        # table, so report the write as done. Raising would make a rerun write them twice.
+        table = committed
+        table.lease_warning = (f"Wrote {ref.schema}.{ref.table} (Delta version {table.version()}), but its write "  # type: ignore[attr-defined]
+                               f"lease expired while writing, so another writer may have overlapped. Check the "
+                               f"table's history; don't run the write again.")
+        _log.warning("%s", table.lease_warning)  # type: ignore[attr-defined]
     delta_profile.note_after_write(table)
     table.skipped = False  # type: ignore[attr-defined]
     # What this write uploaded: the version's files it didn't have before (all of them, on overwrite).
     now = _files(table)
     table.written_bytes = sum(n for path, n in now.items() if path not in had) if now is not None and had is not None else None  # type: ignore[attr-defined]
     return table
+
+
+def refuse_conversions(source: pa.Schema, table: DeltaTable, name: str) -> None:
+    """Stop a write into an existing table that would change values to fit its column types
+    (localdata.delta.conversions, EA-001), before anything is uploaded or committed."""
+    from .localdata.delta import conversions
+    found = conversions(source, pa.schema(table.schema().to_arrow()))
+    if not found:
+        return
+    what = "; ".join(f"{col} is {_type_label(have)} here but {_type_label(want)} in the table" for col, have, want in found)
+    raise ValueError(f"Writing to {name} would change values to fit its column types ({what}): 2.75 in a whole-number "
+                     "column would become 2, a timestamp in a date column would lose its time. Nothing was written. Cast "
+                     "the column to the table's type first, or replace the table's schema with an overwrite "
+                     "(schema_mode=\"overwrite\").")
+
+
+def _type_label(t: pa.DataType) -> str:
+    from .frames import type_name
+    if pa.types.is_integer(t):
+        return {8: "tinyint", 16: "smallint", 32: "int"}.get(t.bit_width, "bigint")
+    if pa.types.is_floating(t):
+        return "float" if t.bit_width < 64 else "double"
+    return type_name(t)
 
 
 def _files(table: DeltaTable) -> dict[str, int] | None:
@@ -159,7 +199,7 @@ def _files(table: DeltaTable) -> dict[str, int] | None:
     except Exception as exc:  # noqa: BLE001 - only the timing's byte count is missing
         _log.info("Couldn't list the files of %s: %s", table.table_uri, describe(exc))
         return None
-    return dict(zip(paths, sizes))
+    return dict(zip(paths, sizes, strict=True))
 
 
 WRITER = "KratosForge"

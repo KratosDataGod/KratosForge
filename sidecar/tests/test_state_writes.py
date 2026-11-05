@@ -28,6 +28,7 @@ IN_PLACE = {
     "central/entra_service.py:_entra_script": "a generated script the person downloads",
     "dbx_livetest.py:_finish": "the report of a finished live test, written once to its own new folder",
     "environments.py:_run": "pip's constraints file, rewritten before each install and read only by that install",
+    "environments.py:_install": "the approved folder's pins for pip, rewritten before each install and read only by that install",
     "fabric_compute.py:run_bundle": "runs on Fabric as a stand-alone bundle (no engine package there) and writes "
                                     "its result once to a new file named for the request",
     "frames.py:write_xlsx": "a member inside a new xlsx export, not a file on disk",
@@ -37,6 +38,7 @@ IN_PLACE = {
     "livetest.py:_finish": "the report of a finished live test, written once to its own new folder",
     "meta/snapshot.py:restore": "written into a new temporary folder that is checked and then swapped in whole",
     "model_dictionary_service.py:meta_model_dictionary_export": "an export the person asked for",
+    "shortcut_service.py:shortcut_export": "an export the person asked for, to a new file in Downloads",
     "notebook_batch_service.py:notebook_batch_stop": "a stop marker: only whether it exists is read",
     "notebookutils_local.py:_write": "notebookutils.fs.put from the person's own notebook code, as on Fabric",
     "onelake.py:download": "a downloaded file, streamed as it arrives; the caller owns where it goes",

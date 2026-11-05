@@ -60,7 +60,7 @@ Your standard: every Gold table has a classification set, and tables classified 
 | Checked by | `classification.required` |
 | How to fix | Set the classification on the entity's About card (Data mesh > entity > About) |
 
-Check now checks the first half (every Gold table classified); the Restricted-in-Public-product half has no rule yet. Classification here is the catalog's own (Public, Internal, Confidential, Restricted). It is not a Microsoft Purview sensitivity label. Labels, and what Fabric does with them (DLP, downstream inheritance), stay in Purview.
+Check now checks the first half (every Gold table classified); the Restricted-in-Public-product half has no rule yet. Classification here is the catalog's own (Public, Internal, Confidential, Restricted). It is not a Fabric sensitivity label. Labels, and what Fabric does with them (DLP, downstream inheritance), stay with your tenant's own label setup.
 
 ### 3. An ownership policy
 
@@ -79,19 +79,19 @@ The save gate already requires an owner for custom code (see the table below), s
 
 ### 4. From a template: a data contract
 
-Your standard: every published data product in Sales loads within 6 hours, records its row count, and links its business terms in Purview. The built-in **Data contract** template already says most of it.
+Your standard: every published data product in Sales loads within 6 hours and records its row count. The built-in **Data contract** template already says it.
 
 1. **Platform > Governance > Templates**, **Data contract** > **Use**. Give the policy the id `sales-contract` and the name `Sales data contract`. A draft is made from the template's definition:
 
    | Field | Value |
    | --- | --- |
    | Category | Data contract requirements |
-   | Checked by | `contract.freshness, contract.row_count, contract.terms_linked` |
+   | Checked by | `contract.freshness, contract.row_count` |
    | Parameters | `within_hours = 24` (stricter: lower), `min_rows = 1` (stricter: higher) |
 
 2. **Edit draft**: set `within_hours` to `6`, then **Publish** and **Assign** it to the Sales domain.
-3. Open a Sales project and choose **Check this project** > **Check now**. Each published product is checked: when it last loaded (from the run logs), the row count that load recorded, and its business terms (from the platform's catalog). A product that hasn't loaded yet shows **!** with why, never a pass.
-4. The product's page (Data mesh > Products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description, business terms and endorsement.
+3. Open a Sales project and choose **Check this project** > **Check now**. Each published product is checked: when it last loaded and the row count that load recorded (from the run logs). A product that hasn't loaded yet shows **!** with why, never a pass.
+4. The product's page (Data mesh > Products) now shows its **Checklist** from this policy: **Fresh within 6 h**, alongside owner and steward, description and endorsement.
 5. Happy with it? On the policy's page, **Save as template** keeps your version (`sales-contract-template`, tagged **Yours**) so other domains can start from it.
 
 Template changes are recorded in `catalog.policy_template` and **Platform > Audit**; **Use** writes only a policy draft.
@@ -102,16 +102,16 @@ There are three kinds of enforcement, and they differ in what each can stop:
 
 - **KratosForge blocks:** the app refuses its own step (save, run, promote, deploy, shortcut, request approval). This holds for anything done through KratosForge. It can't stop someone working in the Fabric portal directly.
 - **Detect and warn:** the app reads what's in Fabric and reports what breaks the standard, including items made outside the app. It can't prevent them.
-- **Fabric, Purview or Entra only:** only the Microsoft service can enforce it, for everyone. KratosForge can show the state and link to the right place.
+- **Fabric or Entra only:** only the Microsoft service can enforce it, for everyone. KratosForge can show the state and link to the right place.
 
 "Today" means what runs in the current build. "With Block policies" means what a policy set to Block stops today: a promote, while a finding no exception covers stands (Prod also stops when the policies can't be read). "With policies" means rules no checker has yet, or deploy, which Block doesn't stop yet.
 
-| Category | KratosForge blocks | Detect and warn | Fabric, Purview or Entra only |
+| Category | KratosForge blocks | Detect and warn | Fabric or Entra only |
 | --- | --- | --- | --- |
 | **Naming** | Today: entity and key table names must be valid when saved. With Block policies: naming rules on entities stop promote. With policies: at save, and on layers and products | With policies: names of items made in Fabric outside the app | Workspace and item names in the Fabric portal |
 | **Schema** | Today: the save gate checks every column exists upstream and shows what a rename or delete breaks; drift settings per layer decide whether a new column is accepted | Today: schema drift is recorded in `meta.schema_history` and shown for review | Table schemas changed directly in a lakehouse |
-| **Data quality** | Today: checks run before every write and can stop it (`on_fail = "stop"`) or quarantine rows; promote needs a green last run and passing tests | Today: `warn` checks and Table health findings | Materialized lake view constraints, and Microsoft Purview Data Quality where you use it. Neither reads these policies |
-| **Classification** | With Block policies: promote stops when a required classification or a sensitive column's label is missing | With policies: tables without classification, and Restricted tables in open products | Sensitivity labels, label inheritance and DLP (Purview) |
+| **Data quality** | Today: checks run before every write and can stop it (`on_fail = "stop"`) or quarantine rows; promote needs a green last run and passing tests | Today: `warn` checks and Table health findings | Materialized lake view constraints. They don't read these policies |
+| **Classification** | With Block policies: promote stops when a required classification or a sensitive column's label is missing | With policies: tables without classification, and Restricted tables in open products | Sensitivity labels, label inheritance and DLP |
 | **Ownership** | Today: custom code needs an owner and a test at save. With Block policies: promote stops on entities and products without owners. With policies: owners on domains | With policies: items and domains without owners | Workspace roles and item ownership (Fabric) |
 | **Data contracts** | With policies: block a promote that breaks a published product's port (a removed or renamed column) | Today: product deprecations carry a date, and the catalog lists every consumer. With policies: consumers reading outside a link | Access to the tables themselves (OneLake security roles, workspace roles) |
 | **Deployment readiness** | Today: the promote gate (save gate, tests, green last run, and the findings of Block policies no exception covers) and, when set, a separate promoter for Prod; shortcut rules on shortcuts made in the app | Today: Health flags shortcuts that break the rules when made outside the app | Who may write to a workspace (Fabric workspace roles); tenant settings (Fabric admin) |

@@ -1,4 +1,4 @@
-"""Trust badges on a data product (Preview): its endorsement in Fabric, and its business terms.
+"""Trust badges on a data product (Preview): its endorsement in Fabric.
 
 Endorsement (Certified, Promoted, Master data) is set in Fabric, and Fabric shows it through an API
 only to Fabric administrators: Power BI's admin tenant scan. Fabric's Get Item doesn't return it. A
@@ -6,9 +6,6 @@ platform admin who is also a Fabric administrator chooses Scan now; the scan rea
 platform's published products live in, and what it read is kept in the catalog (catalog.endorsement)
 so everyone sees the last scan's badge. KratosForge never sets endorsement, and an item no scan has
 read shows as unknown.
-
-Business terms are a name and a link to the term in Microsoft Purview, typed by the product's owner
-(catalog.product_term). KratosForge's sign-in can't get a Purview token, so nothing here calls Purview.
 
 Product groups: a product's semantic models and reports, picked from Fabric by its owner (catalog.product_item,
 only the item's id, type, workspace id and display name). The scan reads their endorsement too. Nothing
@@ -65,9 +62,9 @@ class TrustMixin:
         return FabricClient(lambda: self.auth._token(POWERBI_TENANT_READ_SCOPES))  # type: ignore[attr-defined]
 
     def platform_product_trust(self, product_id: str) -> dict[str, Any]:
-        """A product's endorsement as the last tenant scan read it, and its business terms. Only reads."""
+        """A product's endorsement as the last tenant scan read it. Only reads."""
         return call_or_repair(self._catalog(), "product_trust",  # type: ignore[attr-defined]
-                              "show endorsement and business terms", product_id=product_id)
+                              "show endorsement", product_id=product_id)
 
     def platform_scan_endorsement(self, product_id: str = "") -> dict[str, Any]:
         """Read endorsement with Fabric's admin tenant scan for every published product's items, and keep
@@ -107,19 +104,6 @@ class TrustMixin:
         if product_id:
             out["trust"] = self.platform_product_trust(product_id)
         return out
-
-    def platform_add_product_term(self, product_id: str, term: str, url: str) -> dict[str, Any]:
-        """Put a business term, with its link in Purview, on a product. Writes catalog.product_term."""
-        core.purview_url(url)  # refused here too, before anything is sent
-        call_or_repair(self._catalog(), "add_product_term", "keep business terms",  # type: ignore[attr-defined]
-                       product_id=product_id, term=term, url=url)
-        return self.platform_product_trust(product_id)
-
-    def platform_remove_product_term(self, product_id: str, term: str) -> dict[str, Any]:
-        """Take a business term off a product (it stays in Purview). Writes catalog.product_term."""
-        call_or_repair(self._catalog(), "remove_product_term", "keep business terms",  # type: ignore[attr-defined]
-                       product_id=product_id, term=term)
-        return self.platform_product_trust(product_id)
 
     # ---- product groups (Preview): a product's semantic models and reports, by Fabric item id
 

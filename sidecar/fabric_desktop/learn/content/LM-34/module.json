@@ -1,0 +1,70 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-34",
+  "kind": "module",
+  "title": "Environments, Git and deployments",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 15,
+  "objectives": [
+    "Keep Dev, Test and Prod as separate workspaces",
+    "Work out what a deployment would change before it runs",
+    "Know why Prod changes only through Git and a deployment"
+  ],
+  "prerequisites": [
+    "LM-06"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "what-changes",
+      "prompt": "dev_items and prod_items list each item and its version. Return what deploying Dev to Prod would change: item, and change as 'add' (only in Dev) or 'update' (a different version), in item order. Items only in Prod are left alone.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter finds new items only. An item in both with a different version changes too.",
+        "LEFT JOIN prod_items on item: no match is 'add'; a match with a different version is 'update'."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "item",
+          "change"
+        ],
+        "rows": [
+          [
+            "nb_clean",
+            "update"
+          ],
+          [
+            "report_new",
+            "add"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

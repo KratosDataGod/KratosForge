@@ -1,0 +1,70 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-27",
+  "kind": "module",
+  "title": "Clustering and file pruning",
+  "path": "databricks",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Say how min and max values per file let a query skip files",
+    "Work out which files a filter must read",
+    "Explain why liquid clustering or Z-ordering makes fewer files match"
+  ],
+  "prerequisites": [
+    "LM-07"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Databricks",
+    "Fabric lakehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "files-read",
+      "prompt": "file_stats has each data file's smallest and largest sold_on. List the files a query for sold_on = 2026-10-15 must open, in file_name order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "A file can hold 15 October whenever its range covers that day, not only when it starts on it.",
+        "WHERE min_date <= DATE '2026-10-15' AND max_date >= DATE '2026-10-15'"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "file_name"
+        ],
+        "rows": [
+          [
+            "f1.parquet"
+          ],
+          [
+            "f2.parquet"
+          ],
+          [
+            "f4.parquet"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://docs.databricks.com/aws/en/delta/clustering"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

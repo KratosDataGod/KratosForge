@@ -23,6 +23,7 @@ import json
 import re
 import time
 import zipfile
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Callable
 
@@ -71,7 +72,7 @@ def code(cells: list[dict[str, Any]], failed: int) -> tuple[list[dict[str, Any]]
             else:
                 counts.append((n, count))
     ran = [c for _, c in counts]
-    if any(b <= a for a, b in zip(ran, ran[1:])):
+    if any(b <= a for a, b in pairwise(ran)):
         notes.append("Cells ran in a different order from the notebook's, or ran again after the failure, so a "
                      "replay in order may not end the same way.")
     return out, notes

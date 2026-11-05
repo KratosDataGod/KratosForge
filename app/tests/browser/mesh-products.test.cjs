@@ -22,7 +22,7 @@ before(async () => {
       { ...base, id: "crm/c360", name: "c360", project: "crm", why: "Your own product" },
       { ...base, id: "ops/stores", name: "stores", project: "ops", why: "Open a metadata project to link" }] }),
     platform_access_reviews: () => ({ every_days: 90, grants: [], due: 0 }),
-    platform_product_trust: ({ product_id }) => ({ product_id, name: product_id, owner: "", admin: false, can_edit_terms: false, items: [], terms: [] }),
+    platform_product_trust: ({ product_id }) => ({ product_id, name: product_id, owner: "", admin: false, can_edit: false, items: [] }),
     platform_whoami: () => ({ user: "chris@contoso.com", admin: false }),
   } });
 });

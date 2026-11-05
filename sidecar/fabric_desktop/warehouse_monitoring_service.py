@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import app_settings, warehouse_monitoring as wm
+from .auth import KUSTO_SCOPES
 from .fabric_api import FabricError
 from .http_session import session
 
@@ -39,7 +40,8 @@ class WarehouseMonitoringMixin:
                 "cluster": wm.cluster((db.get("properties") or {}).get("queryServiceUri"))}
 
     def _wm_query(self, db: dict[str, Any], kql: str) -> dict[str, Any]:
-        return wm.query(session().post, db["cluster"], db["name"], kql, self.auth.kusto_token())  # type: ignore[attr-defined]
+        return wm.query(session().post, db["cluster"], db["name"], kql, self.auth.kusto_token(),  # type: ignore[attr-defined]
+                        refresh=self._refreshed(KUSTO_SCOPES))  # type: ignore[attr-defined]
 
     def wh_monitoring_status(self, workspace_id: str, database_workspace_id: str = "",
                              database_id: str = "") -> dict[str, Any]:

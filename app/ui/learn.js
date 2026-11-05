@@ -1,5 +1,5 @@
 // Learn (Preview, LX-05): the lessons and labs that ship inside the app (learn_service.py), from the
-// approved mockup. Home, Paths, Labs and Best practices, and one module or lab open at a time: its
+// approved mockup. It opens from Academy > Practice (academy.js), which has its rail spot. Home, Paths, Labs and Best practices, and one module or lab open at a time: its
 // lesson, its exercises in a lab on this PC, Run, Check my answer and hints. Labs use data generated
 // here; they never read or write OneLake and never publish to Fabric.
 
@@ -130,11 +130,41 @@ async function learnPractices(body) {
 // default) or Guided. A preference only: checks and policies are the same at every level. With preview
 // features hidden it's always Expert, which adds nothing but Dismiss, and that is Preview too.
 // A subject ("sql" or "notebooks", GD-08) can have its own level; Same follows Learning guidance.
+// A team's default (GD-09, learn/team.py) comes with the open project's policies to the Best practices
+// panels: it applies only where nobody chose a level, neither the person nor the IT policy file.
+const learnTeam = {};  // subject -> { level, policy } from governance_practice_settings, or absent
+
+function learnSetTeam(subject, guidance) {
+  if (guidance?.level) learnTeam[subject] = { level: guidance.level, policy: guidance.policy || "" };
+  else delete learnTeam[subject];
+}
+
+const learnChosen = (key) => ["user", "policy", "environment"].includes(state.settings?.[key]?.source);
+
+// Where the level for a subject comes from: "own" (a subject level), "team", or "overall".
+function learnModeSource(subject = null) {
+  const key = subject ? `learn_mode_${subject}` : null;
+  if (key && LAYOUT_CHOICES[key] && layoutChoice(key) !== "same") return "own";
+  if (subject && learnTeam[subject] && !learnChosen("learn_mode")) return "team";
+  return "overall";
+}
+
 const learnMode = (subject = null) => {
   if (!previewShown()) return "expert";
-  const own = subject && LAYOUT_CHOICES[`learn_mode_${subject}`] ? layoutChoice(`learn_mode_${subject}`) : "same";
-  return own !== "same" ? own : layoutChoice("learn_mode");
+  const from = learnModeSource(subject);
+  if (from === "own") return layoutChoice(`learn_mode_${subject}`);
+  if (from === "team") return learnTeam[subject].level;
+  return layoutChoice("learn_mode");
 };
+
+// The line a Best practices panel shows while the team's level is the one in use, or null.
+function learnTeamNote(subject) {
+  if (!previewShown() || learnModeSource(subject) !== "team") return null;
+  const t = learnTeam[subject];
+  const label = (LAYOUT_CHOICES.learn_mode[2].find(([v]) => v === t.level) || [t.level, t.level])[1];
+  return h("p", { class: "muted-text small learn-team-note" },
+    `Guidance: ${label}, your team's default from ${t.policy || "a policy"}. Choose your own in Settings › Appearance › Layout.`);
+}
 
 function learnGuidancePicker() {
   const key = "learn_mode";
@@ -369,7 +399,7 @@ async function learnPatternDialog(id) {
   const p = all?.[id];
   if (!p) return;
   const body = h("div", { class: "scroll learn-pattern" }, markdown(p.body),
-    p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code" }, p.example),
+    p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code", tabindex: "0", role: "region", "aria-label": "Example code" }, p.example),
       h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(p.example)
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Paste it into a Python cell on this PC. It reads nothing from Fabric."))] : null);
@@ -661,7 +691,7 @@ async function learnReset(m) {
 registerFeature({
   id: "learn",
   preview: true,
-  rail: { label: "Learn", icon: "beaker", order: 80, bottom: true },
+  // Academy took Learn's rail spot (approved mockup, 2026-11-03); Learn opens from Academy > Practice.
   views: { learn: renderLearn },
   commands: [
     { label: "Open Learn", icon: "beaker", keywords: "learn lessons labs training practice tutorial", run: () => { learnPage.open = null; go("learn"); } },

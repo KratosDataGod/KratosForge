@@ -1,0 +1,78 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-32",
+  "kind": "module",
+  "title": "Least privilege in workspaces",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 15,
+  "objectives": [
+    "Know what each Fabric workspace role can do",
+    "Find grants broader than the job needs",
+    "Grant through groups, and keep write access to Prod small"
+  ],
+  "prerequisites": [
+    "LM-06"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "too-broad",
+      "prompt": "Find the grants that let someone outside platform_admins change a Prod workspace: role Admin, Member or Contributor. Return principal, workspace and role, in principal then workspace order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter looks only for Admin, on every workspace, and includes the platform team.",
+        "Join grants to workspaces and keep stage = 'Prod' and role IN ('Admin', 'Member', 'Contributor').",
+        "Leave out principals in platform_admins with NOT EXISTS."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "principal",
+          "workspace",
+          "role"
+        ],
+        "rows": [
+          [
+            "ana",
+            "Sales-Prod",
+            "Admin"
+          ],
+          [
+            "cy",
+            "Finance-Prod",
+            "Member"
+          ],
+          [
+            "dee",
+            "Finance-Prod",
+            "Contributor"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/fundamentals/roles-workspaces"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

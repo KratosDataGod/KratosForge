@@ -12,7 +12,7 @@ never stop a promote. When the platform can't be reached, the latest package on 
 neither can be read, a promote to Prod stops and one to Test or Dev only warns.
 
 What it reads: the project's files on this PC, the platform's catalog (policies, exceptions, catalog
-text, product terms and endorsement) and the run logs the app already reads for Monitor; when a policy
+text and product endorsement) and the run logs the app already reads for Monitor; when a policy
 names notebook or SQL rules, also this PC's notebooks and its schedules (so a notebook a schedule runs
 gets the scheduled-only rules), and its SQL scripts: saved queries and the .sql files of the warehouse
 projects in the repositories opened in Source control. What it writes: ``governance_checks.json`` in the app's data folder, the last result per project, so
@@ -23,7 +23,7 @@ Fabric are never started here.
 Offline (GOV-002): when the platform can't be reached, Check now resolves the policies from the latest
 package on this PC instead, and says which package and how old it is. ``governance_check_from_package``
 (the ``fabric-desktop governance check`` CLI) always does. Either way nothing calls the platform, Fabric or
-OneLake: catalog text, product terms and endorsement, and the run logs aren't read, so the rules that need
+OneLake: catalog text, product endorsement and the run logs aren't read, so the rules that need
 them say unknown, with why.
 """
 
@@ -39,6 +39,7 @@ import requests
 from .. import governance_checks as gc
 from ..filenames import file_stem
 from ..jsonfile import read_json, write_json
+from ..learn.team import GUIDANCE_RULE, team_level
 from ..meta import mesh
 from ..redact import describe
 from . import core
@@ -54,9 +55,9 @@ WARN_ONLY = "Check now stops nothing. A promote stops on a finding of a Block po
 ENVS_HIGH_FIRST = ("prod", "test", "dev")
 # A data product's checklist, from the contract template it follows.
 CHECKLIST = (("ownership.product_owner", "Owner and steward"), ("contract.description", "Description"),
-             ("contract.terms_linked", "Business terms linked"), ("contract.freshness", "Fresh within {within_hours} h"),
+             ("contract.freshness", "Fresh within {within_hours} h"),
              ("contract.endorsed", "Endorsement"))
-_TERMS_RULES = {"contract.terms_linked", "contract.endorsed"}
+_TRUST_RULES = {"contract.endorsed"}
 _LOAD_RULES = {"contract.freshness", "contract.row_count"}
 OFFLINE_TRUST = "Checked offline from the policy package: the platform's catalog wasn't read."
 OFFLINE_LOADS = "Checked offline from the policy package: the run logs weren't read."
@@ -92,12 +93,14 @@ def last_load(runs: list[dict[str, Any]], entities: list[str], unavailable: dict
     partial = ""
     for env in ENVS_HIGH_FIRST:
         here = [latest.get((env, e)) for e in entities]
-        if all(here):
-            rows = [r.get("rows_written") for r in here]
-            return {"last_load": min(str(r["started_at"]) for r in here), "load_env": env,
-                    "last_rows": None if any(x is None for x in rows) else min(int(x) for x in rows)}
+        loaded = [r for r in here if r]
+        if len(loaded) == len(here):
+            rows = [r.get("rows_written") for r in loaded]
+            counts = [x for x in rows if x is not None]
+            return {"last_load": min(str(r["started_at"]) for r in loaded), "load_env": env,
+                    "last_rows": None if len(counts) != len(rows) else min(int(x) for x in counts)}
         if any(here) and not partial:
-            missing = [e for e, r in zip(entities, here) if not r]
+            missing = [e for e, r in zip(entities, here, strict=True) if not r]
             partial = f"{', '.join(missing)} hasn't loaded in {env.title()} yet."
     why = partial or "No successful load is recorded in any run log this PC can read."
     if unavailable:
@@ -189,7 +192,8 @@ class ChecksMixin:
         try:
             resolved = self.governance_resolve()  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the panel still checks with the rules as built
-            return {"settings": {}, "policies": [], "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
+            return {"settings": {}, "policies": [], "guidance": None,
+                    "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
         out: dict[str, dict[str, Any]] = {}
         names: list[str] = []
         for pol in resolved.get("policies") or []:
@@ -208,14 +212,18 @@ class ChecksMixin:
                     out[rid] = {"enabled": was["enabled"], "severity": worse}
             if named:
                 names.append(str(pol.get("name") or pol.get("id") or ""))
-        return {"settings": out, "policies": names, "note": ""}
+        # A team's default guidance level (GD-09, learn/team.py): a preference, never a rule setting.
+        team = team_level(resolved.get("policies") or [], kind,
+                          lambda pol: GUIDANCE_RULE in gc.rule_ids(pol.get("rule")))
+        guidance = {"level": team["level"], "policy": team["policy"]} if team["level"] else None
+        return {"settings": out, "policies": names, "guidance": guidance, "note": " ".join(team["problems"])}
 
     # ---- Check now
 
     def _gc_trust(self, product_id: str) -> tuple[dict[str, Any] | None, str]:
-        """A product's terms and endorsement from the catalog, or why they can't be read."""
+        """A product's endorsement from the catalog, or why it can't be read."""
         try:
-            return call_or_repair(self._gc_catalog(), "product_trust", "show endorsement and business terms",
+            return call_or_repair(self._gc_catalog(), "product_trust", "show endorsement",
                                   product_id=product_id), ""
         except LookupError as exc:
             return None, str(exc)
@@ -228,10 +236,10 @@ class ChecksMixin:
     @staticmethod
     def _gc_apply_trust(item: dict[str, Any], trust: dict[str, Any] | None, why: str) -> dict[str, Any]:
         if trust is None:
-            return item | {"terms": None, "terms_reason": why, "endorsement": None, "endorsement_reason": why}
+            return item | {"endorsement": None, "endorsement_reason": why}
         seen = [{"item_name": i.get("item_name") or i.get("item_id"), "endorsement": i.get("endorsement")}
                 for i in trust.get("items") or []]
-        return item | {"terms": [t["term"] for t in trust.get("terms") or []], "endorsement": seen}
+        return item | {"endorsement": seen}
 
     def _gc_runs(self) -> tuple[list[dict[str, Any]], dict[str, str]]:
         data = self.meta_runs_all(limit=5000)  # type: ignore[attr-defined]
@@ -445,7 +453,7 @@ class ChecksMixin:
                 saved = {}
                 problems.append(f"The platform's catalog text couldn't be read, so only the text in the project's files was checked: {describe(exc)}")
         items = entity_items(project, saved) + self._gc_product_items(
-            project, bool(wanted & _LOAD_RULES), bool(wanted & _TERMS_RULES), offline)
+            project, bool(wanted & _LOAD_RULES), bool(wanted & _TRUST_RULES), offline)
         kinds = {found[0].kind for found in map(gc.find_rule, wanted) if found}
         if "notebook" in kinds:
             items += self._gc_notebook_items(problems)
@@ -457,9 +465,12 @@ class ChecksMixin:
         for pol in resolved["policies"]:
             ids = gc.rule_ids(pol.get("rule"))
             entry: dict[str, Any] = {k: pol.get(k) for k in ("id", "name", "category", "severity", "enforcement", "version")}
-            entry |= {"rules": ids, "checked": 0, "passed": 0, "findings": [], "unknown": [], "not_run": [], "missing": [],
+            retired = gc.retired_rule_ids(pol.get("rule"))
+            entry |= {"rules": ids, "retired": retired, "checked": 0, "passed": 0, "findings": [], "unknown": [], "not_run": [], "missing": [],
                       "exception": pol.get("exception")}
             for rid in ids:
+                if rid == GUIDANCE_RULE:  # a team's guidance level (GD-09): nothing to check
+                    continue
                 found = gc.find_rule(rid)
                 if found is None:
                     entry["missing"].append(rid)
@@ -480,22 +491,29 @@ class ChecksMixin:
             if note:
                 for f in entry["findings"] + entry["unknown"]:
                     f["excepted"] = note
-            entry["status"] = ("not_checked" if not ids or (entry["missing"] and not entry["checked"] and not entry["not_run"])
+            checked_ids = [rid for rid in ids if rid != GUIDANCE_RULE]
+            entry["status"] = ("not_checked" if not checked_ids or (entry["missing"] and not entry["checked"] and not entry["not_run"])
                                else "excepted" if note and entry["findings"]
                                else "findings" if entry["findings"]
                                else "unknown" if entry["unknown"]
                                else "not_run" if entry["not_run"] and not entry["checked"]
                                else "not_checked" if (entry.get("no_items") or entry.get("off")) and not entry["checked"]
                                else "pass")
-            if not ids:
+            if retired and not checked_ids:
+                entry["note"] = f"{_retired_text(retired)} Nothing else in its Checked by field is checked."
+            elif ids and not checked_ids:
+                entry["note"] = "It sets the team's learning guidance level, a preference with nothing to check."
+            elif not ids:
                 entry["note"] = "Its Checked by field names no rule, so nothing checks it yet."
             elif entry["missing"]:
                 entry["note"] = f"No checker on this PC has the rule {', '.join(entry['missing'])}."
             elif entry["status"] == "not_checked" and not entry.get("no_items"):
                 entry["note"] = "Its parameters turn its rules off (enabled = false), so nothing checks it."
             elif entry["status"] == "not_checked":
-                kinds = ", ".join(sorted(set(entry["no_items"])))
-                entry["note"] = f"Check now found nothing for its {kinds} rules to check."
+                empty = ", ".join(sorted(set(entry["no_items"])))
+                entry["note"] = f"Check now found nothing for its {empty} rules to check."
+            if retired and checked_ids:
+                entry["note"] = " ".join(x for x in (entry.get("note"), _retired_text(retired)) if x)
             entry.pop("no_items", None)
             entry.pop("off", None)
             policies.append(entry)
@@ -574,11 +592,11 @@ class ChecksMixin:
             found = [(f"{f['object']}: " if f.get("object") else "") + str(f.get("description") or f.get("rule") or "")
                      for f in pol["findings"]]
             if pol["status"] == "excepted":
-                exc = pol.get("exception") or {}
-                by = f" Approved by {exc['approved_by']}." if exc.get("approved_by") else ""
+                waiver = pol.get("exception") or {}
+                by = f" Approved by {waiver['approved_by']}." if waiver.get("approved_by") else ""
                 out["notes"].append(f"{name}: {len(found)} finding{'s' if len(found) != 1 else ''} let through by an "
-                                    f"exception. {exc.get('note') or ''}{by}".rstrip())
-                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": exc})
+                                    f"exception. {waiver.get('note') or ''}{by}".rstrip())
+                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": waiver})
                 continue
             out["errors"] += [f"{name}: {text}" for text in found[:GATE_LISTED]]
             if len(found) > GATE_LISTED:
@@ -637,9 +655,10 @@ class ChecksMixin:
             item["status"] = "published"  # the checklist is what publishing it would need
         rows = []
         for rid, label in CHECKLIST:
-            checker, rule = gc.find_rule(rid) or (None, None)
-            if checker is None:
+            known = gc.find_rule(rid)
+            if known is None:
                 continue
+            checker, rule = known
             settings = gc.settings_for(rule, source.get("severity") or "", params)
             settings["thresholds"] = {k: v for k, v in settings["thresholds"].items() if k in rule.get("default_thresholds", {})}
             found = [f for f in (checker.check(item, {rid: settings}) or []) if f["rule_id"] == rid]
@@ -653,11 +672,13 @@ class ChecksMixin:
                 "open_project": mine, "problems": problems}
 
 
+def _retired_text(retired: list[str]) -> str:
+    return f"{', '.join(gc.RETIRED_RULES[r] for r in retired)}: retired, no longer checked."
+
+
 def _passed(rule_id: str, item: dict[str, Any], settings: dict[str, Any]) -> str:
     if rule_id == "ownership.product_owner":
         return f"Owner {item['owner']}, steward {item.get('steward')}." if item.get("steward") else f"Owner {item['owner']}."
-    if rule_id == "contract.terms_linked":
-        return f"{len(item.get('terms') or [])} linked."
     if rule_id == "contract.freshness":
         return f"Last loaded {item['last_load'][:16].replace('T', ' ')} UTC" + (f" in {item['load_env'].title()}." if item.get("load_env") else ".")
     if rule_id == "contract.endorsed":

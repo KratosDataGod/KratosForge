@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ContextManager, Iterator
 
-from .. import redact
+from .. import redact, sqlitefile
 from .evaluate import describe
 
 DIGEST_OVER = 5
@@ -123,7 +123,15 @@ class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is moved aside and the outbox starts empty: messages still waiting
+        # in it are kept in the moved file but not sent, and new ones are sent as usual.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="messages still waiting in it aren't sent; new ones are sent as usual")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, "
                        "lines TEXT, attempts INTEGER DEFAULT 0, error TEXT)")
             cols = {r[1] for r in db.execute("PRAGMA table_info(outbox)")}

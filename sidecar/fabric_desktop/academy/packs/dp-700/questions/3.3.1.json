@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3.1",
+  "questions": [
+    {
+      "id": "3.3.1-q1",
+      "type": "single",
+      "stem": "At Fernway, the lakehouse table holds over 100,000 small files. Which command rewrites them into fewer, larger files?",
+      "options": [
+        {
+          "id": "a",
+          "text": "VACUUM"
+        },
+        {
+          "id": "b",
+          "text": "OPTIMIZE"
+        },
+        {
+          "id": "c",
+          "text": "REFRESH"
+        },
+        {
+          "id": "d",
+          "text": "DESCRIBE HISTORY"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "OPTIMIZE compacts small files into larger ones, which speeds up reads. VACUUM removes files no longer referenced by the table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "case": "fernway-telemetry",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.1-q2",
+      "type": "single",
+      "stem": "What is V-Order?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A way to sort pipeline activities"
+        },
+        {
+          "id": "b",
+          "text": "A type of sensitivity label"
+        },
+        {
+          "id": "c",
+          "text": "A write-time optimization of Parquet files that makes reads faster for Fabric engines such as Power BI, SQL and Spark"
+        },
+        {
+          "id": "d",
+          "text": "A kind of shortcut"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "V-Order applies sorting, row group distribution and compression when Parquet files are written, so Fabric engines read them faster. The files stay standard Parquet.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.1-q3",
+      "type": "single",
+      "stem": "What does VACUUM do to a Delta table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It deletes data files no longer referenced by the table and older than the retention period, which limits time travel to that period"
+        },
+        {
+          "id": "b",
+          "text": "It compacts small files"
+        },
+        {
+          "id": "c",
+          "text": "It deletes the table's history and data"
+        },
+        {
+          "id": "d",
+          "text": "It adds statistics"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "VACUUM frees storage by removing old, unreferenced files. Time travel to versions that needed those files stops working.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.1-q4",
+      "type": "single",
+      "stem": "Most queries on a large lakehouse table filter on DeviceId. Which option can improve data skipping for those queries when you optimize the table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Adding a shortcut"
+        },
+        {
+          "id": "b",
+          "text": "VACUUM with a shorter retention"
+        },
+        {
+          "id": "c",
+          "text": "Converting the table to CSV"
+        },
+        {
+          "id": "d",
+          "text": "OPTIMIZE with ZORDER BY (DeviceId)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Z-ordering co-locates related values in the same files, so filters on DeviceId can skip more files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

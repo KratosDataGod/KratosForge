@@ -1,0 +1,60 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E31",
+  "version": 1,
+  "status": "draft",
+  "title": "Quality rules and a quarantine table that loses no rows",
+  "objectives": ["3.7"],
+  "objective_text": "Apply data quality checks in PySpark: name why each bad row fails, keep good rows in silver and the rest in a quarantine table.",
+  "scenario": "The facilities team's temperature dashboard shows gaps, and nobody can say whether the sensors stopped or the pipeline dropped their readings. Split bronze.readings into a silver table of good readings and a quarantine table that says why each other reading was set aside, so that every reading can be accounted for.",
+  "difficulty": 2,
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [{"name": "bronze.readings", "rows": 8, "size": "small", "seeded": "fixed values in setup.sql"}],
+  "starting_environment": "A Delta table bronze.readings (8 readings) in the exercise folder and a starter answer.py.",
+  "required": [
+    "A row's reason is the first rule it breaks: missing_device, missing_time, missing_temperature, then temperature_out_of_range (below -50 or above 60).",
+    "silver.readings has the rows that break no rule, with the bronze columns.",
+    "silver.readings_quarantine has every other row, with the bronze columns and reason.",
+    "Every bronze row is in exactly one table, and running the code again leaves both tables the same."
+  ],
+  "expected": {"description": "silver.readings has readings 1, 2 and 7; the quarantine has 3, 4, 5, 6 and 8 with their reasons."},
+  "verifies": [
+    "Your PySpark splits rows into a valid table and a quarantine with the right reason for each, NULLs included, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves both tables the same."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Databricks workspace, and it isn't a Lakeflow pipeline expectation: it doesn't show expectation metrics in the pipeline event log."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.readings", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.readings_quarantine", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.readings", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.readings_quarantine", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.readings_quarantine", "columns": {"reason": ""},
+     "unique": ["reading_id"], "not_null": ["reading_id", "reason"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.readings", "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.readings_quarantine", "weight": 1, "required": true}
+  ],
+  "hints": [
+    "Build one reason column with F.when(...).when(...): it is NULL when a row breaks no rule.",
+    "Reading 5 has no temperature. A filter on temperature <= 60 and one on its opposite both drop it; check isNull first.",
+    "-50 and 60 are inside the range: out of range is temperature < -50 or > 60.",
+    "valid = checked.filter(reason is NULL) without the reason column; quarantine = checked.filter(reason is not NULL). Overwrite both."
+  ],
+  "explanation": "Compute one reason column with a when chain in rule order, testing NULLs explicitly, so it is NULL exactly for good rows. Split on that column: rows with no reason go to silver.readings without it, and the rest go to the quarantine with it. A pair of filters on a condition and its negation would lose every row where the condition is NULL, such as a missing temperature, because a filter keeps only rows where its condition is true. Treat -50 and 60 as in range, and overwrite both tables so a rerun doesn't duplicate them.",
+  "troubleshooting": [
+    "A reading is in neither table: the split uses a condition and its negation, which both drop NULLs.",
+    "Readings of exactly -50 or 60 are quarantined: the range check excludes its edges.",
+    "silver.readings still has bad rows: it is written from the bronze rows, not the checked ones."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/ldp/expectations"],
+  "reset": "Reset rebuilds bronze.readings from setup.sql, removes the two silver tables and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

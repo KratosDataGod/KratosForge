@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.3.2",
+  "questions": [
+    {
+      "id": "1.3.2-q1",
+      "type": "single",
+      "stem": "You share a lakehouse with a user who has no workspace role. They must query its tables through the SQL analytics endpoint and nothing more. What do you grant?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Build on the default semantic model only"
+        },
+        {
+          "id": "b",
+          "text": "The workspace Contributor role"
+        },
+        {
+          "id": "c",
+          "text": "Read plus Read all with SQL analytics endpoint"
+        },
+        {
+          "id": "d",
+          "text": "Read plus Read all with Apache Spark"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Sharing gives Read on the item. Adding Read all with SQL analytics endpoint lets the user query the tables through T-SQL; Read all with Apache Spark would also open the data to Spark.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.2-q2",
+      "type": "single",
+      "stem": "A data scientist outside the workspace needs to read a lakehouse's files and tables from their own Spark notebooks. Which permission do you add when sharing the lakehouse?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Read all with SQL analytics endpoint"
+        },
+        {
+          "id": "b",
+          "text": "Read all with Apache Spark"
+        },
+        {
+          "id": "c",
+          "text": "Reshare"
+        },
+        {
+          "id": "d",
+          "text": "Build"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Spark permission gives access to the lakehouse's data in OneLake, which Spark reads directly.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.2-q3",
+      "type": "single",
+      "stem": "You share a warehouse with a user and grant no extra permissions. What can they do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Connect to the warehouse, but read only objects they've been granted access to with T-SQL"
+        },
+        {
+          "id": "b",
+          "text": "Nothing; sharing without extra permissions fails"
+        },
+        {
+          "id": "c",
+          "text": "Edit every table"
+        },
+        {
+          "id": "d",
+          "text": "Read every table"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Read lets the user connect. Access to data then comes from the extra sharing permissions or from T-SQL GRANT statements on specific objects.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.2-q4",
+      "type": "multiple",
+      "stem": "Which two statements about item-level sharing are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Shared items can't be read by groups"
+        },
+        {
+          "id": "b",
+          "text": "Sharing an item gives access to that item only, not to the rest of the workspace"
+        },
+        {
+          "id": "c",
+          "text": "Item sharing works only for reports"
+        },
+        {
+          "id": "d",
+          "text": "Item permissions let you give someone less than any workspace role would"
+        },
+        {
+          "id": "e",
+          "text": "Sharing an item makes the user a workspace Viewer"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Item permissions are narrower than workspace roles: they apply to one item and can be limited to, for example, SQL access.",
+      "source": "https://learn.microsoft.com/en-us/fabric/security/permission-model",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

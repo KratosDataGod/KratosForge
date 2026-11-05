@@ -583,7 +583,7 @@ class MetaMixin:
         errors += breaking
         deprecated, link_notes = self._deprecation_gate(project)
         errors += deprecated
-        notes += link_notes
+        notes += link_notes + self._window_gate(project, target)
         git = release.status(project.root)
         unreleased, more = self._release_gate(project, target, git)
         errors += unreleased
@@ -606,6 +606,7 @@ class MetaMixin:
         deprecated, link_notes = self._deprecation_gate(project)
         errors += deprecated
         notes += link_notes
+        window = self._window_gate(project, target)
         git = release.status(project.root)
         unreleased, release_notes = self._release_gate(project, target, git)
         errors += unreleased
@@ -630,6 +631,8 @@ class MetaMixin:
                 result["variable_library"] = f"not updated: {exc}"
         if notes:
             result["breaking"] = notes
+        if window:
+            result["change_window"] = window
         if release_notes:
             result["release"]["notes"] = release_notes
         if policies["excepted"] or policies["notes"]:
@@ -823,6 +826,27 @@ class MetaMixin:
         except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
             return [], [f"couldn't check whether the products this project links to are deprecated ({exc})"]
         return mesh.deprecated_links(project, published, mesh.utc_today())
+
+    def _window_gate(self, project: Project, target: str) -> list[str]:
+        """A warning when this promote changes products other projects read in ``target`` outside the
+        platform's change window (mesh.change_window_notes). Never a block. A platform without a window,
+        or one made before change windows, says nothing; an unreachable one is a note."""
+        if not any(p.status != "draft" for p in project.products.values()):
+            return []
+        try:
+            window = self._catalog().call("change_window")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the platform
+            if isinstance(exc, (LookupError, ValueError)):
+                return []  # an older UDF_Platform: no change window to keep
+            return [f"couldn't check the platform's change window ({exc})"]
+        if not (isinstance(window, dict) and window.get("window")):
+            return []
+        try:
+            published = self._catalog().call("list_products")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            return [f"couldn't check who reads what's changing for the change window ({exc})"]
+        return mesh.change_window_notes(window["window"], project, published, target,
+                                        dt.datetime.now(dt.timezone.utc))
 
     def _product_gate(self, project: Project) -> list[str]:
         """Products other teams read must be documented and owned before they move on."""

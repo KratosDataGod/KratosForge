@@ -14,6 +14,24 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   a ``RemoteAuthorization`` from the person's confirm or the profile's policy (ADR-003). Nothing here
   picks a remote engine on its own, and a cell an engine can't run is never moved to another one:
   the app offers "Run this cell on Python" for that one cell, which the person chooses.
+- ``engine_profiles``, ``engine_discover``, ``engine_connection_save`` and ``engine_connection_remove``
+  are Settings > Connections (Preview): the saved profiles, the CLIs' own profiles and connections,
+  what a Databricks workspace offers (GETs only, so nothing starts or bills), and adding a CLI
+  profile or connection to a profile by name. The host and sign-in are read from the CLI's file
+  here; the app only names which one, so a profile never holds a host or secret the app made up.
+- ``databricks_runs`` and ``databricks_run`` are Monitor > Databricks (Preview): recent job runs and
+  Lakeflow pipeline updates, and one run's tasks and errors (engines/databricks_jobs.py). GETs only.
+- ``databricks_billing`` is Optimize > Cost (Preview): DBUs billed, from system.billing.usage. It runs
+  one query on a SQL warehouse, which may start and bill, so it first answers ``needs_confirm`` with the
+  warehouse's state, and runs only with ``confirmed`` (a RemoteAuthorization for that warehouse).
+  ``databricks_billing_last`` is the last read kept on this PC.
+- ``databricks_sync_*`` is Workspaces > Databricks (Preview): folder pairs between this PC and a
+  workspace folder (engines/databricks_workspace_sync.py). Compare only reads; push never overwrites a
+  file changed in Databricks since the last sync and deletes only with ``confirm_deletes``.
+- ``databricks_bundle_*`` is Source control > Bundles (Preview): validate, plan and deploy a Databricks
+  Asset Bundle with the person's own Databricks CLI, as the connection's CLI profile
+  (engines/databricks_bundles.py). Validate and plan change nothing; deploy plans again, stops if the
+  plan changed, and needs the target's name typed for a plan that deletes or rebuilds, or for production.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -26,6 +44,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +56,12 @@ from .engines.contract import CellRequest, SessionConfig
 from .engines.sessions import SessionManager, SwitchNeeded
 
 METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_select", "engine_state",
-           "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close"}
+           "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close",
+           "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove",
+           "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last",
+           "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
+           "databricks_sync_push", "databricks_sync_pull",
+           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -55,6 +79,36 @@ def cell_request(source: str) -> CellRequest:
     if re.match(r"^%%sql\b", first, re.IGNORECASE) or first.lower() == "%sql":
         return CellRequest(_MAGIC.sub("", source.lstrip(), count=1), "sql", "spark")
     return CellRequest(source, "pyspark" if re.search(r"\bspark\b", source) else "python")
+
+
+_COMPUTE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+_NAME_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
+
+
+def _connection_view(profile_id: str, c: dict[str, Any]) -> dict[str, Any]:
+    """One connection of a profile as Settings shows it: where it points and how it signs in."""
+    cred = c.get("credential") or {}
+    compute = c.get("compute") or {}
+    return {"id": c.get("id", ""), "platform": c.get("platform", ""), "label": c.get("label", ""),
+            "key": f"profile:{profile_id}:{c.get('id', '')}" if c.get("platform") == "databricks" else "",
+            "host": c.get("host", ""), "account": c.get("account", ""), "method": cred.get("method", ""),
+            "cli": cred.get("profile") or cred.get("connection") or "",
+            "warehouse_id": compute.get("warehouse_id", "") or c.get("warehouse", ""),
+            "cluster_id": compute.get("cluster_id", ""), "catalog": c.get("catalog", "") or c.get("database", ""),
+            "schema": c.get("schema", "")}
+
+
+def _kind_for(conns: list[dict[str, Any]]) -> str:
+    """The profile kind its connections make: none is local, one platform is that one, more is hybrid."""
+    used = {c.get("platform") for c in conns}
+    return "local" if not used else (used.pop() if len(used) == 1 else "hybrid")  # type: ignore[return-value]
+
+
+def _new_id(existing: set[str]) -> str:
+    while True:
+        pid = "p-" + uuid.uuid4().hex[:12]
+        if pid not in existing:
+            return pid
 
 
 class _Job:
@@ -164,6 +218,310 @@ class EnginesMixin:
         if conn is None:
             raise ValueError(f"The profile {profile.get('name')!r} has no connection {parts[2]!r}.")
         return conn, profile.get("execution") or {}, str(profile.get("name") or profile["id"])
+
+    # ---- Settings > Connections (Preview)
+
+    def engine_profiles(self) -> dict[str, Any]:
+        """The saved profiles with their connections, which one is active, and the Databricks CLI's
+        profiles and Snowflake CLI's connections that could be added. References only: hosts,
+        accounts, compute IDs and CLI names. Read-only and offline."""
+        store = self._profiles()
+        active = store.active()
+        rows: list[dict[str, Any]] = []
+        listed = store.list()
+        if not any(p.get("id") == "default" for p in listed):
+            listed.insert(0, {"id": "default"})
+        for p in listed:
+            pid = str(p.get("id") or "")
+            try:
+                profile = store.load(pid)
+            except connprofiles.ProfileError as exc:
+                rows.append({"id": pid, "name": str(p.get("name") or pid), "kind": "", "active": pid == active,
+                             "connections": [], "problems": exc.problems})
+                continue
+            rows.append({"id": profile["id"], "name": profile.get("name") or profile["id"], "kind": profile.get("kind", ""),
+                         "active": profile["id"] == active, "problems": [],
+                         "connections": [_connection_view(profile["id"], c) for c in profile.get("connections") or []]})
+        databricks = connprofiles.databricks_cli_profiles()
+        snowflake = connprofiles.snowflake_cli_connections()
+        return {"profiles": rows, "active": active,
+                "databricks_cli": {k: databricks.get(k) for k in ("path", "found", "profiles", "error") if k in databricks},
+                "snowflake_cli": {k: snowflake.get(k) for k in ("path", "found", "default", "connections", "notes", "error")
+                                  if k in snowflake}}
+
+    def _discovery_client(self, connection: dict[str, Any]) -> Any:
+        from .engines import databricks_auth, databricks_sql
+        return databricks_sql.Client(databricks_auth.provider_for(connection))
+
+    def engine_discover(self, connection: str, catalogs: bool = True) -> dict[str, Any]:
+        """What a Databricks workspace offers you: who you're signed in as, warehouses, clusters and
+        whether Databricks Connect can use each, and Unity Catalog. Every request is a GET, so
+        nothing starts and nothing bills DBUs. ``connection`` is a key from engine_connections."""
+        from .engines import databricks_auth, databricks_discovery
+        conn, _, _ = self._connection(connection)
+        try:
+            client = self._discovery_client(conn)
+        except databricks_auth.DatabricksAuthError as exc:
+            return {"schema": databricks_discovery.SCHEMA, "host": conn.get("host", ""), "signed_in": False,
+                    "parts": {}, "suggested": {"warehouse_id": "", "cluster_id": ""},
+                    "error": redact.secrets(str(exc))}
+        return redact.walk(databricks_discovery.Discovery(client, catalogs=bool(catalogs)).run())
+
+    def _runs_reader(self, connection: str) -> Any:
+        from .engines import databricks_jobs
+        conn, _, _ = self._connection(connection)
+        return databricks_jobs.Runs(self._discovery_client(conn))
+
+    def databricks_runs(self, connection: str, days: int = 1, mine: bool = True) -> dict[str, Any]:
+        """Job runs and Lakeflow pipeline updates of the last ``days`` days, newest first, from the
+        workspace of ``connection`` (a key from engine_connections). ``mine`` keeps the signed-in
+        person's own. Every request is a GET: nothing starts and nothing bills DBUs."""
+        from .engines import databricks_auth, databricks_discovery, databricks_sql
+        try:
+            reader = self._runs_reader(connection)
+            who = ""
+            if mine:
+                me = databricks_discovery._object(reader.client.get("/api/2.0/preview/scim/v2/Me"), "the signed-in user")
+                who = str(me.get("userName") or "")
+            out = reader.list(days=int(days), mine=who)
+        except databricks_auth.DatabricksAuthError as exc:
+            return {"signed_in": False, "error": redact.secrets(str(exc)), "rows": []}
+        except (databricks_sql.DatabricksError, databricks_discovery.OddReply) as exc:
+            return {"signed_in": True, "error": "Couldn't read who you're signed in as: " + redact.secrets(str(exc)), "rows": []}
+        return redact.walk(out | {"user": who})
+
+    def databricks_run(self, connection: str, run_id: str) -> dict[str, Any]:
+        """One job run with its tasks, the failed ones' errors and notebook paths, and its parameters."""
+        return redact.walk(self._runs_reader(connection).run(str(run_id)))
+
+    def _billing_root(self) -> Path:
+        from .service import data_dir
+        return Path(data_dir()) / "databricks-billing"
+
+    def databricks_billing(self, connection: str, warehouse_id: str = "", days: int = 7,
+                           confirmed: bool = False) -> dict[str, Any]:
+        """DBUs billed in the last ``days`` days by job, pipeline, warehouse and cluster. Without
+        ``confirmed`` nothing runs: the answer says which warehouse would run the query and its state
+        (a GET). With it, the query runs on that warehouse under a confirmed authorization."""
+        from .engines import databricks_auth, databricks_billing, databricks_discovery, databricks_sql
+        conn, policy, profile = self._connection(connection)
+        warehouse = warehouse_id or str((conn.get("compute") or {}).get("warehouse_id") or "")
+        if not warehouse:
+            raise ValueError("Pick a SQL warehouse to read billing with.")
+        if not _COMPUTE_ID.fullmatch(warehouse):
+            raise ValueError("That warehouse id isn't one Databricks gives (letters, digits, - . and _).")
+        databricks_billing.query(int(days))   # refuses a number of days it doesn't offer
+        # The profile's execution policy first, as for any remote cell: "never" refuses before anything,
+        # "policy" with this engine allowed runs without asking, and otherwise the person confirms.
+        try:
+            standing = auth.from_policy(policy, profile, registry.DATABRICKS_SQL.id, warehouse)
+        except auth.RemoteNotAuthorized as exc:
+            return {"ok": False, "refused": True, "error": str(exc)}
+        if standing is None and not confirmed:
+            try:
+                info = databricks_discovery.warehouse_row(self._discovery_client(conn).warehouse(warehouse))
+            except (databricks_auth.DatabricksAuthError, databricks_sql.DatabricksError, databricks_discovery.OddReply) as exc:
+                return {"needs_confirm": True, "warehouse": {"id": warehouse}, "error": redact.secrets(str(exc))}
+            return {"needs_confirm": True, "warehouse": info}
+        signer = getattr(self, "_auth", None)
+        who = ""
+        if signer is not None and hasattr(signer, "signed_in_user"):
+            who = signer.signed_in_user() or ""
+        authorization = standing or auth.confirmed(registry.DATABRICKS_SQL.id, warehouse, who or "this PC's user")
+        try:
+            result = databricks_billing.read(self._engine_adapter(registry.DATABRICKS_SQL.id), conn, warehouse,
+                                             int(days), authorization)
+        except databricks_auth.DatabricksAuthError as exc:
+            return {"ok": False, "error": redact.secrets(str(exc))}
+        if result.get("ok"):
+            databricks_billing.save(self._billing_root(), str(conn.get("host") or ""), result)
+        return redact.walk(result)
+
+    def databricks_billing_last(self, connection: str) -> dict[str, Any]:
+        """The last billing read for this connection's workspace, kept on this PC; empty when none."""
+        from .engines import databricks_billing
+        conn, _, _ = self._connection(connection)
+        return databricks_billing.last(self._billing_root(), str(conn.get("host") or "")) or {}
+
+    def _sync_pairs(self) -> Any:
+        from .engines import databricks_workspace_sync as wsync
+        from .service import data_dir
+        return wsync.Pairs(Path(data_dir()) / "databricks-sync" / "pairs.json")
+
+    def _sync_client(self, pair: dict[str, Any]) -> Any:
+        conn, _, _ = self._connection(str(pair.get("connection") or ""))
+        return self._discovery_client(conn)
+
+    def databricks_sync_pairs(self) -> dict[str, Any]:
+        """The synced folder pairs on this PC (no files read)."""
+        pairs = self._sync_pairs().all()["pairs"]
+        return {"pairs": [{"id": pid, "name": p.get("name", ""), "connection": p.get("connection", ""), "local": p.get("local", ""),
+                           "remote": p.get("remote", ""), "synced": len(p.get("files") or {})} for pid, p in sorted(pairs.items())]}
+
+    def databricks_sync_pair_save(self, name: str, connection: str, local: str, remote: str) -> dict[str, Any]:
+        """Pair a folder on this PC with a workspace folder. Nothing is read or written in Databricks."""
+        from .engines import databricks_workspace_sync as wsync
+        self._connection(connection)   # a connection this PC has
+        pair = wsync.new_pair(name, connection, local, remote)
+        store = self._sync_pairs()
+        if any(p.get("local") == pair["local"] and p.get("remote") == pair["remote"] for p in store.all()["pairs"].values()):
+            raise ValueError("Those two folders are already paired.")
+        pair_id = "s-" + uuid.uuid4().hex[:10]
+        store.put(pair_id, pair)
+        return {"id": pair_id}
+
+    def databricks_sync_pair_remove(self, pair: str) -> dict[str, Any]:
+        """Forget a pair. No file is touched on this PC or in Databricks."""
+        self._sync_pairs().get(pair)
+        self._sync_pairs().remove(pair)
+        return {"removed": pair}
+
+    def databricks_sync_compare(self, pair: str) -> dict[str, Any]:
+        """What pushing would do, file by file. GETs only."""
+        from .engines import databricks_workspace_sync as wsync
+        p = self._sync_pairs().get(pair)
+        return redact.walk(wsync.compare(self._sync_client(p), p))
+
+    def databricks_sync_push(self, pair: str, files: list[str], deletes: list[str] | None = None,
+                             confirm_deletes: bool = False) -> dict[str, Any]:
+        """Write ``files`` to the workspace folder as you; delete ``deletes`` there only with
+        ``confirm_deletes``. Compares again first, so a file changed in Databricks is never overwritten."""
+        from .engines import databricks_workspace_sync as wsync
+        store = self._sync_pairs()
+        p = store.get(pair)
+        out = wsync.push(self._sync_client(p), p, [str(f) for f in files or []], [str(d) for d in deletes or []],
+                         bool(confirm_deletes))
+        store.put(pair, p | {"files": out.pop("files")})
+        return redact.walk(out)
+
+    def databricks_sync_pull(self, pair: str, files: list[str]) -> dict[str, Any]:
+        """Bring workspace changes to this PC for files unchanged here since the last sync."""
+        from .engines import databricks_workspace_sync as wsync
+        store = self._sync_pairs()
+        p = store.get(pair)
+        out = wsync.pull(self._sync_client(p), p, [str(f) for f in files or []])
+        store.put(pair, p | {"files": out.pop("files")})
+        return redact.walk(out)
+
+    # ---- Source control > Bundles (Preview)
+
+    def _bundle_profile(self, connection: str) -> str:
+        """The Databricks CLI profile a connection signs in with: bundles run the CLI as that profile."""
+        conn, _, _ = self._connection(connection)
+        cred = conn.get("credential") or {}
+        if conn.get("platform") != "databricks" or cred.get("method") != "cli-profile" or not cred.get("profile"):
+            raise ValueError("Bundles run with the Databricks CLI: pick a connection that signs in with a CLI profile.")
+        return str(cred["profile"])
+
+    def _bundle_runner(self) -> Any:
+        import subprocess
+        return getattr(self, "_bundle_run", None) or subprocess.run
+
+    def databricks_bundle_targets(self, folder: str) -> dict[str, Any]:
+        """The bundle's name and targets from databricks.yml in ``folder``. Reads that file only."""
+        from .engines import databricks_bundles
+        return databricks_bundles.targets(folder)
+
+    # A bundle that runs commands on this PC (scripts hooks, artifact builds, Python code) answers
+    # needs_confirm with the commands and their digest; ``allow_commands`` is that digest once seen.
+
+    def databricks_bundle_validate(self, folder: str, target: str, connection: str,
+                                   allow_commands: str = "") -> dict[str, Any]:
+        """``databricks bundle validate``: problems in the files. Changes nothing in Databricks."""
+        from .engines import databricks_bundles
+        return databricks_bundles.validate(folder, target, self._bundle_profile(connection), self._bundle_runner(),
+                                           str(allow_commands or ""))
+
+    def databricks_bundle_plan(self, folder: str, target: str, connection: str,
+                               allow_commands: str = "") -> dict[str, Any]:
+        """What deploying ``target`` would create, update, delete or rebuild. Changes nothing in Databricks."""
+        from .engines import databricks_bundles
+        return databricks_bundles.plan(folder, target, self._bundle_profile(connection), self._bundle_runner(),
+                                       str(allow_commands or ""))
+
+    def databricks_bundle_deploy(self, folder: str, target: str, connection: str, digest: str,
+                                 typed: str = "", allow_commands: str = "") -> dict[str, Any]:
+        """Deploy ``target`` as the connection's CLI profile, if the plan is still the one with
+        ``digest``. A plan that deletes or rebuilds, or a production target, needs ``typed`` == target.
+        Deploying runs no job or pipeline."""
+        from .engines import databricks_bundles
+        return databricks_bundles.deploy(folder, target, self._bundle_profile(connection), str(digest or ""),
+                                         str(typed or ""), self._bundle_runner(), str(allow_commands or ""))
+
+    def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
+                               snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",
+                               catalog: str = "", schema: str = "", label: str = "", replace: str = "") -> dict[str, Any]:
+        """Add a connection to ``profile`` (or a new profile called ``profile_name``) that signs in
+        with a Databricks CLI profile or a Snowflake CLI connection, named here and read from the
+        CLI's own file: its host or account comes from there, never from the app. ``replace`` names
+        a connection of the profile to change instead. The profile is validated, so no value that
+        looks like a secret is ever written."""
+        if bool(databricks_cli) == bool(snowflake_cli):
+            raise ValueError("Pick one Databricks CLI profile or one Snowflake CLI connection.")
+        for what, value in (("warehouse", warehouse_id), ("cluster", cluster_id)):
+            if value and not _COMPUTE_ID.fullmatch(value):
+                raise ValueError(f"That {what} id isn't one Databricks gives (letters, digits, - . and _).")
+        for what, value in (("catalog", catalog), ("schema", schema), ("label", label)):
+            if value and not _NAME_TEXT.fullmatch(value):
+                raise ValueError(f"The {what} must be one line of up to 255 characters.")
+        if databricks_cli:
+            entry = next((p for p in connprofiles.databricks_cli_profiles().get("profiles") or []
+                          if p.get("name") == databricks_cli), None)
+            if entry is None or not entry.get("host"):
+                raise ValueError(f"There's no Databricks CLI profile {databricks_cli!r} with a workspace on this PC.")
+            conn = connprofiles.connection_from_cli_profile(entry)
+            conn["compute"] = {"warehouse_id": warehouse_id, "cluster_id": cluster_id, "serverless": False}
+            conn |= {"catalog": catalog, "schema": schema}
+        else:
+            entry = next((c for c in connprofiles.snowflake_cli_connections().get("connections") or []
+                          if c.get("name") == snowflake_cli), None)
+            if entry is None:
+                raise ValueError(f"There's no Snowflake CLI connection {snowflake_cli!r} on this PC.")
+            conn = connprofiles.connection_from_cli_connection(entry)
+        conn["label"] = label
+        store = self._profiles()
+        if profile:
+            data = store.load(profile)
+        else:
+            if not profile_name.strip():
+                raise ValueError("Name the new profile.")
+            existing = {str(p.get("id")) for p in store.list()}
+            data = {"id": _new_id(existing), "name": profile_name.strip(), "kind": "local", "connections": []}
+        if replace and not any(c.get("id") == replace for c in data.get("connections") or []):
+            raise ValueError(f"The profile has no connection {replace!r} to change.")
+        conns = [c for c in data.get("connections") or [] if c.get("id") != replace] if replace else \
+            list(data.get("connections") or [])
+        taken = {str(c.get("id")) for c in conns}
+        base, n = conn["id"], 2
+        while conn["id"] in taken:
+            conn["id"] = f"{base[:36]}-{n}"
+            n += 1
+        conns.append(conn)
+        data["connections"] = conns
+        data["kind"] = _kind_for(conns)
+        if data.get("validation"):
+            data["validation"] = {"status": "not_checked", "checked_at": None, "problems": []}
+        saved = store.save(data)
+        return {"profile": saved["id"], "connection": conn["id"], "key": f"profile:{saved['id']}:{conn['id']}"}
+
+    def engine_connection_remove(self, profile: str, connection: str) -> dict[str, Any]:
+        """Take one connection out of a profile. The CLI's own profile or connection stays as it is."""
+        store = self._profiles()
+        data = store.load(profile)
+        conns = [c for c in data.get("connections") or [] if c.get("id") != connection]
+        if len(conns) == len(data.get("connections") or []):
+            raise ValueError(f"The profile has no connection {connection!r}.")
+        data["connections"] = conns
+        data["kind"] = _kind_for(conns)
+        for key in ("defaults",):
+            if (data.get(key) or {}).get("connection") == connection:
+                data[key]["connection"] = ""
+        for section in ("environments", "deploy"):
+            for mapping in (data.get(section) or {}).values():
+                if isinstance(mapping, dict):
+                    mapping.pop(connection, None)
+        store.save(data)
+        return {"profile": profile, "removed": connection}
 
     # ---- before choosing
 

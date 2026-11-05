@@ -22,8 +22,11 @@ def svc(tmp_path, monkeypatch):
     return s
 
 
-def publish(svc, template, pid):
+def publish(svc, template, pid, extra_rule=""):
     svc.governance_template_use(template, id=pid)
+    if extra_rule:
+        d = svc.governance_policy(pid)["draft"]["definition"]
+        svc.governance_save_draft(pid, dict(d, rule=f"{d['rule']}, {extra_rule}"))
     svc.governance_publish(pid)
     svc.governance_assign(pid, "enterprise")
 
@@ -348,7 +351,7 @@ def test_max_age_refuses_an_old_package(svc, tmp_path, capsys):
 def test_the_offline_check_and_the_cli_call_nothing_outside_this_pc(svc, tmp_path, monkeypatch, capsys):
     mark_pii(svc)
     publish(svc, "sensitive-columns-labelled", "labels")
-    publish(svc, "data-contract", "contract")
+    publish(svc, "data-contract", "contract", extra_rule="contract.endorsed")
     svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "status": "published",
                            "access": "public", "ports": [{"name": "customers", "entity": "gold.dim_customer"}]})
     svc.governance_package_export(out=str(tmp_path / "policies.json"))
@@ -358,7 +361,7 @@ def test_the_offline_check_and_the_cli_call_nothing_outside_this_pc(svc, tmp_pat
     contract = next(p for p in out["policies"] if p["id"] == "contract")
     reasons = {f["rule_id"]: f["description"] for f in contract["unknown"]}
     assert reasons["contract.freshness"] == "Checked offline from the policy package: the run logs weren't read."
-    assert reasons["contract.terms_linked"] == "Checked offline from the policy package: the platform's catalog wasn't read."
+    assert reasons["contract.endorsed"] == "Checked offline from the policy package: the platform's catalog wasn't read."
     capsys.readouterr()
     with pytest.raises(SystemExit) as stop:
         cli.main(["governance", "check", "--package", str(tmp_path / "policies.json"), "--project", str(tmp_path / "crm")])

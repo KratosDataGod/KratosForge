@@ -151,7 +151,8 @@ def test_setup_puts_the_database_and_its_functions_in_one_keys_workspace(monkeyp
     [(_, _, sql, _), (_, _, fn, definition)] = fabric.saved
     assert (sql, fn) == ("SQL_Keys", "UDF_Keys")
     [source] = json.loads(definition["definition.json"])["connectedDataSources"]
-    assert source == {"alias": udf.ALIAS, "artifactId": "SQLDatabase-id", "workspaceId": "ws-keys", "sourceType": "SqlDbNative"}
+    assert source == {"alias": udf.ALIAS, "artifactId": "SQLDatabase-id", "artifactType": "SqlDbNative",
+                      "workspaceId": "ws-keys"}
     assert calls == [("ws-keys", "UserDataFunction-id")]
     assert "you're its first admin" in out["steps"][-1]["detail"]
 

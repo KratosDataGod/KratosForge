@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "7.1",
+  "questions": [
+    {
+      "id": "7.1-q1",
+      "type": "single",
+      "stem": "What happens to the data files when you drop a Unity Catalog managed table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They move to an external location"
+        },
+        {
+          "id": "b",
+          "text": "They stay in place forever"
+        },
+        {
+          "id": "c",
+          "text": "They become a view"
+        },
+        {
+          "id": "d",
+          "text": "Unity Catalog deletes them after a recovery period (7 days by default), during which UNDROP can restore the table"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A dropped managed table is recoverable for 7 days by default; after that a purge deletes its data files.",
+      "source": "https://docs.databricks.com/aws/en/tables/managed",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.1-q2",
+      "type": "single",
+      "stem": "What happens to the data files when you drop an external table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They stay at their storage path; only the table metadata is removed"
+        },
+        {
+          "id": "b",
+          "text": "They are converted to CSV"
+        },
+        {
+          "id": "c",
+          "text": "Unity Catalog deletes them"
+        },
+        {
+          "id": "d",
+          "text": "They are moved to the metastore root"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "External tables point at data you manage, so dropping the table leaves the files.",
+      "source": "https://docs.databricks.com/aws/en/tables/external",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.1-q3",
+      "type": "single",
+      "stem": "Which clause makes a new table external?",
+      "options": [
+        {
+          "id": "a",
+          "text": "USING DELTA"
+        },
+        {
+          "id": "b",
+          "text": "COMMENT"
+        },
+        {
+          "id": "c",
+          "text": "LOCATION with a cloud storage path"
+        },
+        {
+          "id": "d",
+          "text": "CLUSTER BY"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Giving a LOCATION path creates an external table over that path.",
+      "source": "https://docs.databricks.com/aws/en/tables/external",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.1-q4",
+      "type": "single",
+      "stem": "Which kind of table does Databricks recommend for most new tables in Unity Catalog?",
+      "options": [
+        {
+          "id": "a",
+          "text": "External"
+        },
+        {
+          "id": "b",
+          "text": "Hive metastore table"
+        },
+        {
+          "id": "c",
+          "text": "Managed"
+        },
+        {
+          "id": "d",
+          "text": "Temporary view"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Managed tables get automatic maintenance and lifecycle management.",
+      "source": "https://docs.databricks.com/aws/en/tables/managed",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.1-q5",
+      "type": "single",
+      "stem": "How can you turn an existing external Delta table into a managed table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "GRANT MANAGE ON t"
+        },
+        {
+          "id": "b",
+          "text": "DROP TABLE t and hope"
+        },
+        {
+          "id": "c",
+          "text": "ALTER TABLE t ADD LOCATION"
+        },
+        {
+          "id": "d",
+          "text": "ALTER TABLE t SET MANAGED"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "SET MANAGED converts an external table to a managed table.",
+      "source": "https://docs.databricks.com/aws/en/tables/convert-to-managed",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

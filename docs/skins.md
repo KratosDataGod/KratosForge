@@ -28,3 +28,59 @@ matter.
 
 157 colors are still written straight into rules (rarely used shades). A test in
 `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a token, or adds one to `:root`.
+
+## Skin files
+
+A skin is a small JSON file, checked by `fabric_desktop/skins.py` whether it ships with the app or someone
+imports it. It holds two things:
+
+- **appearance**: the color mode it starts in, its density, and colors for the tokens above, for light and dark.
+- **workflow**: the order of the left rail's pages, by page id, and short labels for them.
+
+```json
+{
+  "schema": "fabric-desktop.skin/1",
+  "id": "my-team",
+  "name": "My team",
+  "version": "1.0.0",
+  "targets": [{"platform": "fabric", "reviewed": "2026-11-03", "basis": "Fabric documentation, November 2026"}],
+  "appearance": {"color_mode": "light", "density": "compact", "tokens": {"light": {"--accent": "#0f6c5c"}}},
+  "workflow": {"rail": ["workspaces", "home", "create"], "labels": {"metadata": "Catalog"}}
+}
+```
+
+`targets` says which platform's experience the skin follows and when it was last compared with that
+platform's documentation, so a skin that has drifted can be found and reviewed.
+
+What a skin file can't do, because the check refuses it:
+
+- Hold anything but those keys. An unknown key is refused, not ignored.
+- Hold code, CSS text or images, or load anything. A token value is a color like `#1b3664` and nothing
+  else, and text in a skin (its name, description and labels) is only ever shown as text: no link in it
+  is followed or loaded.
+- Set an engine, a connection, a credential, a permission or anything about a project. Those live
+  elsewhere (Settings > Connections, the engine picker) and a skin can't reach them.
+- Make text unreadable. Text colors must reach 4.5:1 contrast on the surfaces they sit on.
+- Be larger than 64 KB.
+
+Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
+(`skin` follows the skin's own mode, or `light` or `dark`). See
+[the settings file](azure-setup.md).
+
+## Choosing a skin (Preview)
+
+**Settings > Appearance > Skin** shows one card per built-in skin. Choosing one changes the colors and
+the order of the left rail at once. Nothing else changes: the page you're on, open notebooks and their
+unsaved edits, editors, selections, connections and engines stay exactly as they were, and the switch
+calls the engine only to save the setting. The choice is kept for the next start. The card shows while
+Preview features are shown, and an administrator's policy can lock it.
+
+| Skin | What it changes |
+|---|---|
+| KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
+| Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
+
+Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
+services, Learn), at most 8 main pages in the rail, and Settings at the bottom. Dark versions of the
+skins come once the rest of the app's colors are on tokens. Databricks-familiar and
+Snowflake-familiar skins follow.

@@ -1,6 +1,7 @@
 """The headless agent: config, unattended sign-in, the durable queue, table leases, and real runs."""
 
 import json
+import re
 import sqlite3
 import time
 import threading
@@ -924,3 +925,11 @@ def test_a_lease_file_being_deleted_reads_as_busy_not_an_error(tmp_path, monkeyp
         return real(self)
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
     assert backend.read("LH/dbo.t").data == b"{}"
+
+
+def test_job_ids_made_in_the_same_second_carry_48_random_bits(tmp_path):
+    """200 jobs in one second with 24 random bits collided about once in 800 runs (UNIQUE constraint failed)."""
+    q = JobQueue(tmp_path / "q.sqlite3", clock=lambda: 1_700_000_000.0)
+    ids = [q.enqueue("meta", {"i": i})["id"] for i in range(200)]
+    assert len(set(ids)) == 200
+    assert all(re.fullmatch(r"job-\d{8}-\d{6}-[0-9a-f]{12}", i) for i in ids), ids[:3]

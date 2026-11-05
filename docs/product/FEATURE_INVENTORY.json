@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "5f8144f7aa292b93840f8da13a4180ee04bbb8a1",
-    "date": "2026-11-03",
+    "commit": "03d2b53aa5560c88062d3148d9041cf57d0c9b42",
+    "date": "2026-11-04",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -35,7 +35,11 @@
       "Acceptance of PB-119 and PB-005 recorded (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ).",
       "Product check 2026-11-02 23:42 at 9367abf78eceb8613402e4aa718372675fd52c9a: 58 PRs merged after 32cbd98f; 7 were product data, docs audit and operations PRs and the other 51 were linked by number or title. PB-014, PB-125 and PB-126 moved to In review; other rows were not re-read.",
       "Acceptance of PB-084, PB-014, PB-125 and PB-126 recorded (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f).",
-      "Product check 2026-11-03 11:42 at 5f8144f7aa292b93840f8da13a4180ee04bbb8a1: 35 PRs merged after 9367abf7; 5 were product data, docs audit and queue PRs and the other 30 were linked by number or title. New PB-127 (Fabric App Studio) records AS work already merged; other rows were not re-read."
+      "Product check 2026-11-03 11:42 at 5f8144f7aa292b93840f8da13a4180ee04bbb8a1: 35 PRs merged after 9367abf7; 5 were product data, docs audit and queue PRs and the other 30 were linked by number or title. New PB-127 (Fabric App Studio) records AS work already merged; other rows were not re-read.",
+      "Product check 2026-11-03 23:42 at 9b7848ebef0ae7337f9a6575c18256aae114df66: 55 PRs merged after 5f8144f7; 2 were product data PRs and the other 53 were linked by number or title. New PB-128 (Academy), PB-129 (platform skins) and PB-130 (data product promises) record work already merged; PB-040 and PB-123 moved to In progress because their work started merging; other rows were not re-read.",
+      "Product check 2026-11-04 11:42 at 1ca71e38abe68aee101715050bd72b47b09dcfd8: 13 PRs merged after 9b7848eb; 2 were product data and docs audit PRs and the other 11 were linked by number. PB-016's package source recorded as decided; new PB-131 (remove Academy's runtime access grants on uninstall).",
+      "Product check 2026-11-04 23:42 at 03d2b53aa5560c88062d3148d9041cf57d0c9b42: 16 PRs merged after 1ca71e38; 1 was a product data PR and the other 15 were linked by number. PB-131 moved to In review.",
+      "Acceptance of PB-131 recorded (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv); retitled because Security chose no uninstall step."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -279,7 +283,12 @@
         987,
         1131,
         1147,
-        1290
+        1290,
+        1756,
+        1759,
+        1770,
+        1772,
+        1773
       ]
     },
     {
@@ -606,7 +615,10 @@
         1584,
         1589,
         1636,
-        1637
+        1637,
+        1734,
+        1811,
+        1821
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -1022,7 +1034,10 @@
         "Favorites and pins are local only",
         "No 'New workspace' outside metadata and platform flows"
       ],
-      "next_action": "Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them."
+      "next_action": "Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them.",
+      "prs": [
+        1758
+      ]
     },
     {
       "id": "FEAT-FAB-03",
@@ -1178,7 +1193,8 @@
         1718,
         1721,
         1727,
-        1728
+        1728,
+        1736
       ]
     },
     {
@@ -1503,7 +1519,8 @@
         737,
         739,
         740,
-        741
+        741,
+        1798
       ],
       "limitations": [
         "No authoring or deploy of Data Factory items yet (DF-8, DF-10)",
@@ -1720,6 +1737,13 @@
       "next_action": "Owned by the Git-native program (Phase 2).",
       "backlog": [
         "PB-040"
+      ],
+      "prs": [
+        1740,
+        1761,
+        1762,
+        1763,
+        1766
       ]
     },
     {
@@ -2087,7 +2111,8 @@
         30,
         635,
         702,
-        1493
+        1493,
+        1767
       ],
       "next_action": "The Parameters bar now applies to Fabric and side by side runs (#635), which closes Chris's 2026-10-23 'later' ask.",
       "backlog": [
@@ -2332,7 +2357,12 @@
         1649,
         1703,
         1705,
-        1720
+        1720,
+        1731,
+        1732,
+        1745,
+        1787,
+        1792
       ]
     },
     {
@@ -3078,7 +3108,7 @@
         "Fabric runtime list is documented, not queried"
       ],
       "workstream": "Prove (FD-109)",
-      "next_action": "Reproducible environments wait on the package-source decision (FD-109).",
+      "next_action": "Package source is decided (IT wheel folder, then PyPI if policy allows; #1765). Next: Fabric Environment items and drift shown before a run (PB-016).",
       "backlog": [
         "PB-016"
       ]
@@ -3887,7 +3917,8 @@
         725,
         726,
         748,
-        788
+        788,
+        1755
       ]
     },
     {
@@ -4113,6 +4144,7 @@
       "prs": [
         41,
         678,
+        799,
         1452,
         1454
       ],
@@ -4169,7 +4201,10 @@
       "prs": [
         957,
         1231,
-        1553
+        1553,
+        1737,
+        1744,
+        1800
       ]
     },
     {
@@ -4413,7 +4448,7 @@
     {
       "id": "FEAT-GOV-06",
       "name": "Sensitive data classification",
-      "description": "Classify columns and carry labels into products and Purview.",
+      "description": "Classify columns and carry labels into products.",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
       "status": "Missing",
@@ -4432,7 +4467,7 @@
         "preview": false
       },
       "workstream": "Enterprise governance foundation",
-      "next_action": "Owned by the governance foundation thread; complement Purview, don't duplicate it.",
+      "next_action": "Owned by the governance foundation thread; complement Fabric's sensitivity labels, don't duplicate them.",
       "backlog": [
         "PB-060"
       ]
@@ -4548,7 +4583,10 @@
         1354,
         1418,
         1567,
-        1716
+        1716,
+        1754,
+        1813,
+        1819
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -4681,7 +4719,7 @@
     {
       "id": "FEAT-MESH-04",
       "name": "Data mesh: domains, products, links, glossary",
-      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.",
+      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -4812,7 +4850,7 @@
       },
       "limitations": [
         "Fabric domain import needs Tenant.Read.All and its shape is unverified",
-        "Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of KratosForge's own; the built-in glossary becomes a fallback or is retired"
+        "Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from an external catalog such as Collibra instead of KratosForge's own; the built-in glossary becomes a fallback or is retired"
       ],
       "prs": [
         48,
@@ -4846,9 +4884,14 @@
         844,
         1031,
         1037,
-        1046
+        1046,
+        1737,
+        1744,
+        1774,
+        1775,
+        1780
       ],
-      "next_action": "Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.",
+      "next_action": "Data mesh now holds Home, Domains, Products and Requests (#801-#806); Endorsement live checks wait on Chris's tenant run.",
       "backlog": [
         "PB-052"
       ]
@@ -5363,7 +5406,11 @@
         682,
         770,
         842,
-        1336
+        1336,
+        1735,
+        1799,
+        1800,
+        1802
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -5416,7 +5463,8 @@
         579,
         704,
         735,
-        1299
+        1299,
+        1741
       ],
       "next_action": "Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup."
     },
@@ -5524,7 +5572,8 @@
         "Direction change (Chris's unit testing, 2026-10-18, item 36, decided 10:10Z): Monitor > Cost moves to the Optimize page's Cost and savings tab, without Fabric's Monitoring hub underneath"
       ],
       "prs": [
-        117
+        117,
+        1742
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
       "next_action": "Calibrate against the Capacity Metrics app and label every number (PB-050)",
@@ -6012,7 +6061,9 @@
         792,
         1406,
         1435,
-        1692
+        1692,
+        1747,
+        1762
       ],
       "workstream": "Git-native development",
       "next_action": "Capacity repository drift report against Fabric (#696, Preview); Fabric workspace Git (FEAT-FAB-12) still planned."
@@ -6929,7 +6980,8 @@
       "prs": [
         421,
         539,
-        1481
+        1481,
+        1765
       ],
       "workstream": "Notebook runtime",
       "next_action": "Implementation review of PR #421, #539; run on a tenant before the Preview tag comes off."
@@ -7246,7 +7298,8 @@
         1145,
         1146,
         1180,
-        1443
+        1443,
+        1746
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Implementation review of PR #371."
@@ -7661,7 +7714,8 @@
         598,
         1186,
         1464,
-        1513
+        1513,
+        1722
       ],
       "workstream": "Developer profile",
       "next_action": "Proof Forged from Prove, Journey and Achievements tabs (KF-DX-002); implementation review of #598."
@@ -7895,7 +7949,9 @@
         1529,
         1531,
         1535,
-        1545
+        1545,
+        1738,
+        1816
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8112,7 +8168,8 @@
         800,
         813,
         1063,
-        1116
+        1116,
+        1818
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
@@ -8327,7 +8384,38 @@
         1677,
         1684,
         1687,
-        1713
+        1713,
+        1771,
+        1776,
+        1777,
+        1778,
+        1779,
+        1781,
+        1782,
+        1783,
+        1784,
+        1785,
+        1786,
+        1788,
+        1790,
+        1791,
+        1793,
+        1794,
+        1795,
+        1796,
+        1797,
+        1801,
+        1804,
+        1806,
+        1807,
+        1808,
+        1809,
+        1812,
+        1814,
+        1815,
+        1817,
+        1820,
+        1823
       ],
       "backlog": [
         "PB-119",

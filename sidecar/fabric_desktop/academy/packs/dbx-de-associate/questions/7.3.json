@@ -1,0 +1,164 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "7.3",
+  "questions": [
+    {
+      "id": "7.3-q1",
+      "type": "single",
+      "stem": "What does a row filter do on a Unity Catalog table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sorts the rows"
+        },
+        {
+          "id": "b",
+          "text": "Hides columns"
+        },
+        {
+          "id": "c",
+          "text": "Applies a function at query time so each user only sees the rows the function allows"
+        },
+        {
+          "id": "d",
+          "text": "Deletes rows from storage"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A row filter is a SQL function evaluated per row at query time that decides which rows are returned.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/filters-and-masks/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.3-q2",
+      "type": "single",
+      "stem": "What does a column mask do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Removes the column from storage"
+        },
+        {
+          "id": "b",
+          "text": "Renames the column"
+        },
+        {
+          "id": "c",
+          "text": "Encrypts the whole table file"
+        },
+        {
+          "id": "d",
+          "text": "Returns a masked value for a column for users the function chooses"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A column mask is a function that returns either the real value or a masked one at query time.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/filters-and-masks/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.3-q3",
+      "type": "single",
+      "stem": "Which statement adds a mask function to the phone column of the patients table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "CREATE MASK mask_phone ON patients"
+        },
+        {
+          "id": "b",
+          "text": "ALTER TABLE patients ALTER COLUMN phone SET MASK mask_phone"
+        },
+        {
+          "id": "c",
+          "text": "ALTER TABLE patients SET ROW FILTER mask_phone ON (phone)"
+        },
+        {
+          "id": "d",
+          "text": "GRANT MASK ON patients.phone"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "ALTER COLUMN ... SET MASK attaches a mask function to a column.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/filters-and-masks/",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.3-q4",
+      "type": "single",
+      "stem": "Each Fernhill regional analyst may see only their region's rows. Which feature fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A row filter on the region column"
+        },
+        {
+          "id": "b",
+          "text": "A view per analyst in Excel"
+        },
+        {
+          "id": "c",
+          "text": "REVOKE SELECT from the analysts"
+        },
+        {
+          "id": "d",
+          "text": "A column mask on the name column"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A row filter decides per user which rows they see, here based on region.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/filters-and-masks/",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.3-q5",
+      "type": "single",
+      "stem": "Inside a mask function, what checks whether the current user is in the care team group?",
+      "options": [
+        {
+          "id": "a",
+          "text": "is_account_group_member('care_team')"
+        },
+        {
+          "id": "b",
+          "text": "input_file_name()"
+        },
+        {
+          "id": "c",
+          "text": "uuid()"
+        },
+        {
+          "id": "d",
+          "text": "current_date()"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "is_account_group_member() returns true when the current user belongs to the named account group.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/is_account_group_member",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

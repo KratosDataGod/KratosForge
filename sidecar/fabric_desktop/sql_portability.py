@@ -133,8 +133,9 @@ def _alias_clash(select: exp.Select) -> bool:
     column."""
     aliases = {e.alias for e in select.expressions if isinstance(e, exp.Alias)}
     qualify = select.args.get("qualify")
-    return bool(qualify) and any(c.table and c.name in aliases for w in qualify.find_all(exp.Window)
-                                 for c in w.find_all(exp.Column))
+    if not qualify:
+        return False
+    return any(c.table and c.name in aliases for w in qualify.find_all(exp.Window) for c in w.find_all(exp.Column))
 
 
 def _qualify_last(select: exp.Select) -> exp.Select | str:

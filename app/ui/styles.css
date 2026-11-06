@@ -2860,6 +2860,32 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .as-ready li { display: flex; gap: 6px; align-items: flex-start; }
 .as-ready li.ok { color: var(--ok-3); }
 .as-ready li.todo { color: var(--warn); }
+.as-conn-split { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .as-conn-split { grid-template-columns: 1fr; } }
+.as-conn-list h2, .as-conn-form h2 { margin-top: 0; }
+.as-conn-rows { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.as-conn { display: flex; flex-direction: column; gap: 4px; }
+.as-conn-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.as-conn .row { flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.as-conn-form { display: flex; flex-direction: column; gap: 12px; }
+.as-conn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.as-conn-grid[hidden], .as-conn-grid .field[hidden] { display: none; }
+.as-consent { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.as-consent legend { font-weight: 600; padding: 0 6px; }
+.as-consent .check, .as-conn-form > .check { align-items: flex-start; }
+.as-consent .check input, .as-conn-form > .check input { margin-top: 3px; }
+.as-limits summary { cursor: pointer; font-weight: 600; }
+.as-limits .as-conn-grid { margin-top: 8px; }
+.as-publish { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+.as-publish .callout { margin-bottom: 0; align-items: flex-start; }
+.as-publish .callout p, .as-publish .callout ul { margin: 4px 0 0; }
+.as-publish .callout.warn { background: var(--warn-soft-9); color: var(--warn-ink-2); }
+.as-publish .callout.error { background: var(--danger-soft); color: var(--danger-ink); }
+.as-publish .callout.ok { background: var(--ok-soft); color: var(--ok-3); }
+.as-publish .as-facts dd.field { display: block; }
+.as-publish .as-facts dd input, .as-publish .as-facts dd select { width: 100%; box-sizing: border-box; }
+.as-warnings summary { cursor: pointer; }
+.as-warnings ul { margin: 6px 0 0; padding-left: 20px; }
 
 /* Academy (academy.js, ACD-007/008). Colors come from the tokens on :root; status is never color alone. */
 .academy-body { display: flex; flex-direction: column; gap: 16px; }

@@ -1,11 +1,1 @@
-[
-  "dataops.js:quarantinePanel",
-  "fabricstep.js:insertVOrderCell",
-  "governance.js:governancePolicy",
-  "mesh.js:keysPlatformCard",
-  "platform.js:platformGlossaryTab",
-  "platform.js:requestTable",
-  "shortcuts.js:renderShortcuts",
-  "whproject.js:whProjectDeploy",
-  "whproject.js:whProjectImport"
-]
+[]

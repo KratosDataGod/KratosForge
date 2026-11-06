@@ -84,6 +84,18 @@ def parse(text: str) -> tuple[dict[str, list[str]] | None, str | None]:
     return out, None
 
 
+def changed(questions: list[dict[str, Any]], checked: dict[str, list[str]], answers: dict[str, list[str]]) -> bool:
+    """Whether any answer the learner already checked is different now. Trying answers until the count
+    moves can find the key, so a pass after that isn't independent (Security read)."""
+    kinds = {q["id"]: q["type"] for q in questions}
+    for qid, before in checked.items():
+        now = answers.get(qid) or []
+        same = now == before if kinds.get(qid) == "order" else sorted(now) == sorted(before)
+        if qid in kinds and not same:
+            return True
+    return False
+
+
 def check_problems(c: dict[str, Any]) -> list[str]:
     """What's wrong with one check's fields, in words (for exercises.problems)."""
     if c.get("kind") != "quiz_score" or "min_correct" not in c:

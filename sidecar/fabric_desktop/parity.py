@@ -97,6 +97,22 @@ def _a(platform: str, id_: str, label: str, **cells: Cell) -> Area:
     return Area(platform, id_, label, {**_NO_SKIN, **cells})
 
 
+# The Databricks- and Snowflake-familiar skins (skins.py, Preview) change the whole app's accent and the
+# rail's order and names, so every area looks partly familiar; the pages keep KratosForge's own layout.
+_SKIN_LOOK = {
+    "databricks": Cell("partial", ("test_skins.py",), note="The Databricks-familiar skin (Preview) gives a blue "
+                       "accent and Databricks' page names on the rail; pages keep KratosForge's own layout."),
+    "snowflake": Cell("partial", ("test_skins.py",), note="The Snowflake-familiar skin (Preview) gives a blue "
+                      "accent and Snowsight's page names on the rail; pages keep KratosForge's own layout."),
+}
+
+
+def _skinned(platform: str, id_: str, label: str, workflow: Cell | None = None, **cells: Cell) -> Area:
+    """An area of a platform a built-in skin targets: its look is partial, its workflow missing unless
+    a rail page named as on that platform holds this area's work."""
+    return Area(platform, id_, label, {"visual": _SKIN_LOOK[platform], "workflow": workflow or MISSING, **cells})
+
+
 AREAS: tuple[Area, ...] = (
     # Microsoft Fabric
     _a("fabric", "workspaces", "Workspaces and items",
@@ -127,47 +143,50 @@ AREAS: tuple[Area, ...] = (
        cloud_api=Cell("built", ("test_capacity.py",))),
     _a("fabric", "governance", "Security and governance"),
     # Azure Databricks
-    _a("databricks", "connect", "Sign-in and workspace discovery",
+    _skinned("databricks", "connect", "Sign-in and workspace discovery",
        cloud_api=Cell("built", ("test_connprofiles.py", "test_databricks_discovery.py", "test_databricks_discovery_replies.py",
                                  "test_databricks_auth_errors.py", "test_databricks_auth_replies.py", "test_databricks_host.py",
                                  "test_databricks_profile_host.py", "test_databricks_credman.py"),
                       note="Against fakes of the CLI and APIs; no live run yet.")),
-    _a("databricks", "sql", "SQL warehouses and the SQL editor",
+    _skinned("databricks", "sql", "SQL warehouses and the SQL editor",
        cloud_api=Cell("built", ("test_databricks_sql.py", "test_databricks_sql_errors.py", "test_databricks_sql_cancel.py"),
                       note="Against fakes of the SQL Statement API; no live run yet."),
        local=Cell("partial", ("test_databricks_sql_parity.py",),
                   note="Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.")),
-    _a("databricks", "notebooks", "Notebooks, Spark and dbutils",
+    _skinned("databricks", "notebooks", "Notebooks, Spark and dbutils",
        cloud_api=Cell("built", ("test_dbconnect.py", "test_databricks_workspace_sync.py", "test_databricks_sync_service.py"),
                       note="Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced "
                            "with a workspace folder (Preview); against fakes, no live run yet."),
        local=Cell("partial", ("test_dbutils.py", "test_dbutils_parity.py", "test_spark_api.py", "test_spark_api_parity.py"),
                   note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.")),
-    _a("databricks", "unity", "Unity Catalog"),
-    _a("databricks", "jobs", "Jobs and Lakeflow pipelines",
+    _skinned("databricks", "unity", "Unity Catalog"),
+    _skinned("databricks", "jobs", "Jobs and Lakeflow pipelines",
+       workflow=Cell("partial", ("test_skins.py", "test_databricks_runs_service.py"),
+                     note="The skin names Monitor \"Jobs and pipelines\" and puts it where Databricks does; "
+                          "inside it, runs are read, not created or started."),
        cloud_api=Cell("partial", ("test_databricks_jobs.py", "test_databricks_runs_service.py"),
                       note="Monitor > Databricks (Preview) reads job runs and Lakeflow updates with their tasks and errors; "
                            "jobs aren't created or started here. Against fakes, no live run yet.")),
-    _a("databricks", "compute", "Compute"),
-    _a("databricks", "bundles", "Asset bundles and deployment",
+    _skinned("databricks", "compute", "Compute"),
+    _skinned("databricks", "bundles", "Asset bundles and deployment",
        cloud_api=Cell("partial", ("test_databricks_bundles.py", "test_databricks_bundles_service.py"),
                       note="Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; "
                            "bundle run and destroy aren't offered. Against a fake CLI, no live run yet.")),
-    _a("databricks", "cost", "Cost and DBU",
+    _skinned("databricks", "cost", "Cost and DBU",
        cloud_api=Cell("partial", ("test_databricks_billing.py",),
                       note="Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; "
                            "no budgets or alerts. Against fakes, no live run yet.")),
     # Snowflake
-    _a("snowflake", "connect", "Sign-in, roles and warehouses", cloud_api=MISSING),
-    _a("snowflake", "worksheets", "SQL worksheets",
+    _skinned("snowflake", "connect", "Sign-in, roles and warehouses", cloud_api=MISSING),
+    _skinned("snowflake", "worksheets", "SQL worksheets",
        cloud_api=MISSING,
        local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py"),
                   note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime.")),
-    _a("snowflake", "objects", "Databases, schemas and object browser"),
-    _a("snowflake", "snowpark", "Snowpark", local=MISSING),
-    _a("snowflake", "loading", "Stages and data loading"),
-    _a("snowflake", "tasks", "Streams, tasks and dynamic tables"),
-    _a("snowflake", "history", "Query history, profiling and credits"),
+    _skinned("snowflake", "objects", "Databases, schemas and object browser"),
+    _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
+    _skinned("snowflake", "loading", "Stages and data loading"),
+    _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
+    _skinned("snowflake", "history", "Query history, profiling and credits"),
 )
 
 
@@ -192,8 +211,12 @@ def docs_table() -> str:
                   "| --- |" + " --- |" * len(LEVELS)]
         for a in (x for x in AREAS if x.platform == pid):
             lines.append(f"| {a.label} | " + " | ".join(_SHOW[a.cell(lv).status] for lv in LEVELS) + " |")
-        notes = [(a.label, LEVELS[lv], a.cell(lv)) for a in AREAS if a.platform == pid for lv in LEVELS
-                 if a.cell(lv).note or a.cell(lv).live]
+        areas = [a for a in AREAS if a.platform == pid]
+        shared = {lv for lv in LEVELS if len(areas) > 1 and areas[0].cell(lv).note
+                  and all(a.cell(lv) == areas[0].cell(lv) for a in areas)}
+        notes = [("Every area", LEVELS[lv], areas[0].cell(lv)) for lv in LEVELS if lv in shared]
+        notes += [(a.label, LEVELS[lv], a.cell(lv)) for a in areas for lv in LEVELS
+                  if lv not in shared and (a.cell(lv).note or a.cell(lv).live)]
         if notes:
             lines += ["", "Notes:", ""]
             lines += [f"- **{area}, {lv}:** " + " ".join(x for x in (c.note, f"Live: {c.live}." if c.live else "") if x)

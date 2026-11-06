@@ -90,9 +90,9 @@ def test_measures_stay_separate(cert):
     assert m["troubleshooting"] == ["dp-700/E37"] and m["independent"] == [] and m["guided"] == []
 
 
-def test_hints_or_the_explanation_make_it_not_independent(cert):
+def test_hints_the_explanation_or_changed_answers_make_it_not_independent(cert):
     challenge = {**exercises.get(PACK, "E36"), "mode": "challenge"}
-    for kw in ({"hints_used": 2}, {"explanation_seen": True}):
+    for kw in ({"hints_used": 2}, {"explanation_seen": True}, {"answers_changed": True}):
         profile = progress.empty()
         progress.add(profile, progress.from_academy(_passed("E36"), challenge, cert, **kw))
         assert _state(profile, "2.2.8")["measures"]["independent"] == []

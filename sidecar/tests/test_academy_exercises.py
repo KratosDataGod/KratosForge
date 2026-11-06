@@ -9,7 +9,7 @@ import shutil
 import duckdb
 import pytest
 
-from fabric_desktop.academy import configlab, exercises, pipelab, pylab, pyspark_lab, registry, workspace
+from fabric_desktop.academy import configlab, exercises, pipelab, pylab, pyspark_lab, quizlab, registry, workspace
 
 PACK = "dp-700"
 
@@ -18,7 +18,7 @@ def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
     assert exercises.ids(PACK) == ["E12", "E19", "E21", "E22", "E23", "E24", "E25", "E32", "E33", "E35", "E36",
                                    "E37", "E38", "E39", "E43", "E44", "E48", "E49", "E50", "E51", "E53", "E56", "E57",
-                                   "E58", "E59", "E63", "E64"]
+                                   "E58", "E59", "E61", "E62", "E63", "E64"]
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))
@@ -49,6 +49,9 @@ def test_the_starter_does_not_pass_yet(tmp_path):
             pylab.prepare(work, folder, ex, (folder / ex["starter"]).read_text(encoding="utf-8"))
             res = pylab.grade(work, ex["starter"], ex["validation"], data_root, appcontainer_ok=pylab.appcontainer_ok(ex))
             assert not res["passed"], eid
+            continue
+        if ex["adapter"] == quizlab.ADAPTER:   # a quiz starts with no answers
+            assert not ex.get("starter"), eid
             continue
         if ex["adapter"] == configlab.ADAPTER:   # the starter settings document, checked like any answer
             starter = (registry.ROOT / PACK / "exercises" / eid / ex["starter"]).read_text(encoding="utf-8")

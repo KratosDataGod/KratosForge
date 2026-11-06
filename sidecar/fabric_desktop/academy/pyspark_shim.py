@@ -201,7 +201,7 @@ def _alias_pyspark(spark: AcademySession) -> None:
     import duckdb.experimental.spark.sql.types as types
     sys.modules.update({"pyspark": spark_pkg, "pyspark.sql": spark_sql, "pyspark.sql.functions": functions,
                         "pyspark.sql.types": types, "pyspark.sql.window": spark_compat.window_module})
-    spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
+    spark_compat.sql_names(spark_sql)  # Row, Column, GroupedData, Window
     AcademySession.builder = _Builder(spark)  # type: ignore[assignment]
     spark_sql.SparkSession = AcademySession  # type: ignore[misc,assignment]
 

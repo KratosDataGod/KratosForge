@@ -112,7 +112,7 @@ def _run(kernel: Any, source: str) -> tuple[dict[str, Any] | None, str]:
     try:
         return outcome(kernel.namespace.pop(VALUE, None) if expression else None, printed), ""
     except Exception as exc:  # noqa: BLE001  # silent-ok: a value this PC can't collect is a status
-        return None, f"{type(exc).__name__}: {exc}".splitlines()[0][:160]
+        return None, _clean(f"{type(exc).__name__}: {exc}".splitlines()[0])[:160]
 
 
 # A temporary directory an example made (tempfile's tmpXXXXXXXX), named the same in every run.

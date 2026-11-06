@@ -1116,6 +1116,10 @@ class LocalSparkSession(SparkSession):
             return DataFrame(self.conn.from_arrow(arrow), self)
         if isinstance(schema, str) and _DDL.search(schema):  # "id int, name string", as in PySpark
             schema = ddl_schema(schema)
+        if schema is None and isinstance(data, (list, tuple)) and data:
+            fields = getattr(data[0], "__fields__", None)  # Row(name=..., age=...): its names, as Spark infers them
+            if isinstance(fields, list) and fields and all(isinstance(f, str) for f in fields):
+                schema = list(fields)
         if verifySchema:  # verifySchema=False skips the check, as in Spark
             check_not_null(data, schema)
         # DuckDB 1.x's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
@@ -1478,7 +1482,7 @@ def _alias_pyspark() -> None:
     sys.modules.update({"pyspark": spark_pkg, "pyspark.sql": spark_sql,
                         "pyspark.sql.functions": functions, "pyspark.sql.types": types,
                         "pyspark.sql.window": spark_compat.window_module})
-    spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
+    spark_compat.sql_names(spark_sql)  # Row, Column, GroupedData, Window
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
     spark_sql.SparkSession = LocalSparkSession  # type: ignore[misc,assignment]
     LocalSparkSession.builder = _Builder()  # type: ignore[assignment]

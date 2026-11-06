@@ -365,11 +365,6 @@
  "fabric_desktop/warehouse.py": {
   "arg-type": 3
  },
- "fabric_desktop/warehouse_compare.py": {
-  "arg-type": 1,
-  "index": 2,
-  "var-annotated": 1
- },
  "fabric_desktop/warehouse_project_service.py": {
   "arg-type": 1,
   "assignment": 2

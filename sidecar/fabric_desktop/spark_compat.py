@@ -417,6 +417,163 @@ def count(col: Any) -> Column:
     return _sql("count(*)") if isinstance(col, str) and col == "*" else _count(col)
 
 
+def _arg(value: Any) -> str:
+    """DuckDB SQL for a function argument: a name is a column, as in PySpark; a number is a literal."""
+    return _col_sql(value) if isinstance(value, str) else _operand_sql(value)
+
+
+def _text(value: str) -> str:
+    """A Python string as a DuckDB string literal."""
+    return str(duckdb.ConstantExpression(str(value)))
+
+
+def bool_and(col: Any) -> Column:
+    return _sql(f"bool_and({_arg(col)})")
+
+
+def every(col: Any) -> Column:
+    return bool_and(col)
+
+
+def bool_or(col: Any) -> Column:
+    return _sql(f"bool_or({_arg(col)})")
+
+
+def some(col: Any) -> Column:
+    return bool_or(col)
+
+
+def count_if(col: Any) -> Column:
+    return _sql(f"CAST(coalesce(count_if({_arg(col)}), 0) AS BIGINT)")
+
+
+def bit_and(col: Any) -> Column:
+    return _sql(f"bit_and({_arg(col)})")
+
+
+def bit_or(col: Any) -> Column:
+    return _sql(f"bit_or({_arg(col)})")
+
+
+def bit_xor(col: Any) -> Column:
+    return _sql(f"bit_xor({_arg(col)})")
+
+
+def _positive_log(col: Any, sql: str, above: str = "0") -> Column:
+    """A logarithm, NULL where Spark's is (at or below ``above``); DuckDB's stops the query there."""
+    x = f"CAST({_arg(col)} AS DOUBLE)"
+    return _sql(f"(CASE WHEN {x} > {above} THEN {sql.format(x=x)} END)")
+
+
+def ln(col: Any) -> Column:
+    return _positive_log(col, "ln({x})")
+
+
+def log(arg1: Any, arg2: Any = None) -> Column:
+    """``log(col)`` is the natural logarithm; ``log(base, col)`` the logarithm in ``base``. NULL at or
+    below zero, as in Spark."""
+    if arg2 is None:
+        return ln(arg1)
+    base = f"CAST({_arg(arg1)} AS DOUBLE)"
+    return _positive_log(arg2, f"(CASE WHEN {base} > 0 THEN ln({{x}}) / ln({base}) END)")
+
+
+def log10(col: Any) -> Column:
+    return _positive_log(col, "log10({x})")
+
+
+def log2(col: Any) -> Column:
+    return _positive_log(col, "(ln({x}) / ln(2.0))")  # Spark's: log(x) / log(2)
+
+
+def log1p(col: Any) -> Column:
+    # ln(1 + x), accurate for a tiny x too: ln(u) * x / (u - 1) with u = 1 + x
+    return _positive_log(col, "(CASE WHEN 1 + {x} = 1 THEN {x} ELSE ln(1 + {x}) * {x} / ((1 + {x}) - 1) END)", "-1")
+
+
+def pow(col1: Any, col2: Any) -> Column:  # noqa: A001 - PySpark's name
+    return _sql(f"pow(CAST({_arg(col1)} AS DOUBLE), CAST({_arg(col2)} AS DOUBLE))")
+
+
+def power(col1: Any, col2: Any) -> Column:
+    return pow(col1, col2)
+
+
+def factorial(col: Any) -> Column:
+    """n! as a BIGINT, NULL below 0 or above 20, as in Spark."""
+    x = _arg(col)
+    return _sql(f"(CASE WHEN {x} BETWEEN 0 AND 20 THEN CAST(factorial(CAST({x} AS INTEGER)) AS BIGINT) END)")
+
+
+def bin(col: Any) -> Column:  # noqa: A001 - PySpark's name
+    """The value as a whole number in binary; a negative one in 64-bit two's complement, as in Spark."""
+    return _sql(f"bin(CAST(trunc({_arg(col)}) AS BIGINT))")
+
+
+def locate(substr: str, str: Any, pos: int = 1) -> Column:  # noqa: A002 - PySpark's name
+    """The 1-based place of ``substr`` in ``str`` from ``pos`` on, 0 when it isn't there, as in Spark."""
+    s, pos = _arg(str), int(pos)
+    if pos < 1 or substr == "":  # Spark: 0 before the first character; an empty substr is found at 1
+        return _sql(f"(CASE WHEN {s} IS NOT NULL THEN {0 if pos < 1 else 1} END)")
+    found = f"instr(substring({s}, {pos}), {_text(substr)})"
+    return _sql(f"CAST((CASE WHEN {found} = 0 THEN 0 ELSE {found} + {pos - 1} END) AS INTEGER)")
+
+
+def substring_index(str: Any, delim: str, count: int) -> Column:  # noqa: A002 - PySpark's name
+    """The text before the ``count``-th ``delim`` (after it, counting from the end, when negative)."""
+    s, count = _arg(str), int(count)
+    if count == 0 or delim == "":
+        return _sql(f"(CASE WHEN {s} IS NOT NULL THEN '' END)")
+    parts = f"string_split({s}, {_text(delim)})"
+    picked = f"{parts}[1:{count}]" if count > 0 else f"{parts}[{count}:]"
+    return _sql(f"array_to_string({picked}, {_text(delim)})")
+
+
+def translate(srcCol: Any, matching: str, replace: str) -> Column:  # noqa: N803 - PySpark's name
+    return _sql(f"translate({_arg(srcCol)}, {_text(matching)}, {_text(replace)})")
+
+
+def char_length(str: Any) -> Column:  # noqa: A002 - PySpark's name
+    return _sql(f"CAST(length(CAST({_arg(str)} AS VARCHAR)) AS INTEGER)")
+
+
+def character_length(str: Any) -> Column:  # noqa: A002
+    return char_length(str)
+
+
+def split(str: Any, pattern: str, limit: int = -1) -> Column:  # noqa: A002 - PySpark's name
+    """``str`` split around matches of the regex ``pattern``; with ``limit`` above 0, at most that many
+    parts, the last holding the rest, as in Spark. An empty pattern splits into characters."""
+    s, limit = _arg(str), int(limit)
+    if pattern == "":
+        chars = f"string_split({s}, '')"
+        return _sql(chars if limit <= 0 else f"{chars}[1:{limit}]")
+    parts = f"regexp_split_to_array({s}, {_text(pattern)})"
+    if limit <= 0:
+        return _sql(parts)
+    seps = f"regexp_extract_all({s}, {_text(pattern)})"
+    before = (f"coalesce(list_sum(list_transform({parts}[1:{limit - 1}], lambda kf_p: length(kf_p))), 0) + "
+              f"coalesce(list_sum(list_transform({seps}[1:{limit - 1}], lambda kf_p: length(kf_p))), 0)")
+    return _sql(f"(CASE WHEN {s} IS NULL THEN NULL WHEN len({parts}) <= {limit} THEN {parts} "
+                f"ELSE list_concat({parts}[1:{limit - 1}], [substring({s}, CAST({before} + 1 AS BIGINT))]) END)")
+
+
+def _seeded(seed: int, salt: int) -> str:
+    """A number in [0, 1) for each row, the same each run for a seed: the row's place hashed with it."""
+    return f"(CAST(hash(row_number() OVER (), {int(seed)}, {salt}) >> 11 AS DOUBLE) / 9007199254740992.0)"
+
+
+def rand(seed: int | None = None) -> Column:
+    """Uniform in [0, 1). A seed gives the same numbers each run on this PC (not Spark's numbers)."""
+    return _sql("random()" if seed is None else _seeded(seed, 0))
+
+
+def randn(seed: int | None = None) -> Column:
+    """Standard normal. A seed gives the same numbers each run on this PC (not Spark's numbers)."""
+    u1, u2 = ("(1.0 - random())", "random()") if seed is None else (f"(1.0 - {_seeded(seed, 1)})", _seeded(seed, 2))
+    return _sql(f"(sqrt(-2.0 * ln({u1})) * cos(2.0 * pi() * {u2}))")
+
+
 FUNCTIONS = {name: obj for name, obj in list(globals().items())
              if callable(obj) and not name.startswith("_") and getattr(obj, "__module__", "") == __name__
              and name not in ("spark_expr", "install")}
@@ -1223,6 +1380,22 @@ def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None
     return _frame(self, picked.project(cols))
 
 
+_KEEP_ROW = "__fd_keep"
+
+
+def _row_filter(fn: Any) -> Any:
+    """DataFrame.filter and where, also on a row's place (a seeded rand, monotonically_increasing_id),
+    which this PC numbers with a window: DuckDB refuses one in WHERE, so it's worked out first."""
+    def filter(self: DataFrame, condition: Any) -> DataFrame:  # noqa: A001 - PySpark's name
+        if isinstance(condition, Column) and "row_number() OVER ()" in str(condition.expr):
+            cols = ", ".join(_col_sql(c) for c in self.columns)
+            numbered = self.relation.project(f"*, ({condition.expr}) AS {_KEEP_ROW}")
+            return _frame(self, numbered.filter(_KEEP_ROW).project(cols))
+        return cast(DataFrame, fn(self, condition))
+    filter.__doc__ = fn.__doc__
+    return filter
+
+
 def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
     return self.distinct().exceptAll(other)
 
@@ -1635,8 +1808,9 @@ def install() -> None:
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
-        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
-                    "add_months", "months_between", "element_at", "to_date", "to_timestamp") or not hasattr(F, name):
+        if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
+                    "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
+                    "split", "rand") or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]
@@ -1683,6 +1857,7 @@ def install() -> None:
     DataFrame.dropDuplicates = DataFrame.drop_duplicates = _drop_duplicates(DataFrame.dropDuplicates)  # type: ignore[method-assign]
     DataFrame.sample = _sample  # type: ignore[attr-defined]
     DataFrame.subtract = _subtract  # type: ignore[attr-defined]
+    DataFrame.filter = DataFrame.where = _row_filter(DataFrame.filter)  # type: ignore[method-assign]
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]
     DataFrame.join = _same_self(DataFrame.join)  # type: ignore[method-assign]
     DataFrame.crossJoin = _same_self(DataFrame.crossJoin)  # type: ignore[method-assign]

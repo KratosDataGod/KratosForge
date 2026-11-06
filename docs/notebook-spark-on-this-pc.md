@@ -55,6 +55,14 @@ is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL,
 `add_months(d, 1)`; Spark's names differ for literals (it drops their quotes) and add defaults such as
 `months_between`'s `roundOff`.
 
+These `F` functions work as in Spark, with Spark's names, types and NULLs: `bool_and`, `every`, `bool_or`, `some`,
+`count_if`, `bit_and`, `bit_or` and `bit_xor`; `log` (one argument is the natural logarithm), `ln`, `log2`, `log10`
+and `log1p`, NULL at or below zero where DuckDB's would stop the cell; `pow` and `power` (a double), `factorial`
+(NULL below 0 or above 20) and `bin`; `locate`, `substring_index`, `translate`, `char_length` and
+`character_length`; and `split` with a `limit` (at most that many parts, the last holding the rest).
+`rand(seed)` and `randn(seed)` give the same numbers each run for a seed, also in `filter`, but not the
+numbers Spark gives, which depend on how Spark splits the data. `format_string` and `conv` aren't there yet.
+
 ### DataFrame: 81 of 102
 
 | Method | On this PC |

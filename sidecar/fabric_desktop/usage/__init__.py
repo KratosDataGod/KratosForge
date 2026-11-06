@@ -132,16 +132,16 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
                                          f"{i.get('imported_at', '')[:10]}, for the same workspaces, so the same use would "
                                          "count twice. Remove that import first, or export a period that doesn't overlap."}
     periods = [measure(r)["period"] for r in kept]
-    starts = [ms.parse_time(p["start"]) for p in periods if p["start"]]
-    ends = [ms.parse_time(p["end"]) for p in periods if p["end"]]
+    starts = [t for p in periods if p["start"] and (t := ms.parse_time(p["start"]))]
+    ends = [t for p in periods if p["end"] and (t := ms.parse_time(p["end"]))]
     cu_rows = [r["cu"] for r in kept if r.get("cu")]
     total = ms.total(cu_rows, "fabric_capacity_cu", ms.CU_HOURS) if cu_rows else None
     billing = Counter({True: "billable", False: "non_billable", None: "not_stated"}[r.get("billable")] for r in kept)
     notes = [f"Times without a time zone are read as {opts.tz or 'UTC'}: the export doesn't say which zone it uses."
              if layout.timed else "Each row is a total for the whole period you entered."]
     if fit["private"]:
-        why = {reader.normal(k): v for k, v in provider.private.items()}
-        notes += [f"Not stored: the {h} column. {why.get(reader.normal(h), '')}".strip() for h in fit["private"]]
+        reasons = {reader.normal(k): v for k, v in provider.private.items()}
+        notes += [f"Not stored: the {h} column. {reasons.get(reader.normal(h), '')}".strip() for h in fit["private"]]
     if decimal:
         notes.append(f"Numbers read with {'a point' if decimal == '.' else 'a comma'} as the decimal mark.")
     if order:

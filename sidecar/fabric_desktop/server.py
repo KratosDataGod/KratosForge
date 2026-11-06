@@ -303,8 +303,9 @@ def handle(service: Service, line: str) -> dict:
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            if net_trust.certificate_refused(exc):  # one line that says what to do, then the detail
-                text = f"{net_trust.HINT} ({text})"
+            hint = net_trust.explain(exc)  # a certificate, proxy or timeout: one line that says what to do
+            if hint:
+                text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}
     if audit.audited(method):
         seconds = time.monotonic() - started

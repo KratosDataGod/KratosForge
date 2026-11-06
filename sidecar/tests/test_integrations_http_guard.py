@@ -219,6 +219,16 @@ def serving(tmp_path, monkeypatch):
     monkeypatch.setattr("fabric_desktop.service.data_dir", lambda: root)
     monkeypatch.setattr(uvicorn, "Server", Server)
     monkeypatch.setattr(peer, "checked", lambda: False)
+
+    # serve() sets its own authorizer and audit on the registry; give it a fresh one, not the process-wide
+    # default other tests use.
+    def fresh():
+        from fabric_desktop.integrations.capabilities import register_core
+        from fabric_desktop.integrations.registry import Registry
+        reg = Registry()
+        register_core(reg)
+        return reg
+    monkeypatch.setattr("fabric_desktop.integrations.registry.default_registry", fresh)
     return root
 
 

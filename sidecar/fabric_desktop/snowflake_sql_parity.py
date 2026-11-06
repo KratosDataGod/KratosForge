@@ -174,6 +174,19 @@ CASES: tuple[Case, ...] = (
        "SELECT parse_json('{\"a\": 1.5}'):a::varchar", "1.5", page="../../user-guide/querying-semistructured"),
     _c("TO_VARCHAR (a JSON string)", "Conversion", "SELECT to_varchar(parse_json('{\"a\": \"Pine\"}'):a)", "Pine",
        page="to_char"),
+    _c("PARSE_JSON path (brackets cast to a string)", "Semi-structured",
+       "SELECT v['salesperson']['name']::string FROM (SELECT parse_json('{\"salesperson\": {\"name\": "
+       "\"Frank Beasley\"}}') AS v)", "Frank Beasley", page="../../user-guide/querying-semistructured"),
+    # Snowflake's "Considerations for semi-structured data", NULL values: TO_CHAR of a JSON null is NULL.
+    _c("TO_VARCHAR (a JSON null)", "Conversion", "SELECT to_char(parse_json('{ \"a\": null }'):a)", None,
+       page="../../user-guide/semistructured-considerations"),
+    # [i] is 0-based on an ARRAY and on a VARIANT holding one (Snowflake's "Querying semi-structured data").
+    _c("PARSE_JSON path ([1] on a stored array)", "Semi-structured",
+       "SELECT v[1]::int FROM (SELECT parse_json('[10, 20, 30]') AS v)", 20,
+       page="../../user-guide/querying-semistructured"),
+    _c("ARRAY_CONSTRUCT ([i] with an index column)", "Semi-structured",
+       "SELECT a[i] FROM (SELECT array_construct(10, 20, 30) AS a, 2 AS i)", 30,
+       page="../../user-guide/querying-semistructured"),
     _c("ARRAY_SIZE", "Semi-structured", "SELECT array_size(array_construct(1, 2, 3))", 3),
     _c("ARRAY_CONTAINS", "Semi-structured", "SELECT array_contains(2::variant, array_construct(1, 2))", True),
     _c("ARRAY_TO_STRING", "Semi-structured", "SELECT array_to_string(array_construct('a', 'b'), ',')", "a,b"),

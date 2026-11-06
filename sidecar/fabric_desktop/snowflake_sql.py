@@ -492,33 +492,77 @@ _TEXT_TYPES = {exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.DataType.T
                exp.DataType.Type.NVARCHAR, exp.DataType.Type.NCHAR}
 
 
+def _is_json(node: exp.Expression) -> bool:
+    return node.type is not None and node.type.this == exp.DataType.Type.JSON
+
+
 def _json_valued(node: exp.Expression) -> bool:
-    """Is ``node`` DuckDB JSON whatever the data: a path (v:a, which becomes ->) or PARSE_JSON, maybe in
-    parentheses?"""
+    """Is ``node`` DuckDB JSON whatever the data: a path (v:a, which becomes ->), PARSE_JSON, a column or
+    bracket that _type_values found JSON, or [...] on one of those, maybe in parentheses?"""
     while isinstance(node, exp.Paren):
         node = node.this
-    return isinstance(node, (exp.JSONExtract, exp.ParseJSON))
+    if isinstance(node, (exp.JSONExtract, exp.ParseJSON)) or _is_json(node):
+        return True
+    return isinstance(node, exp.Bracket) and _json_valued(node.this)
 
 
 def _json_text(value: exp.Expression, to: exp.DataType) -> exp.Expression:
-    """CAST(value AS to) for a JSON ``value``, with a JSON string unquoted; other values as before."""
-    is_string = exp.EQ(this=exp.Anonymous(this="json_type", expressions=[value.copy()]),
-                       expression=exp.Literal.string("VARCHAR"))
+    """CAST(value AS to) for a JSON ``value``: a JSON string unquoted, JSON null as SQL NULL (Snowflake's
+    "To convert a JSON null value to a SQL NULL value, cast it as a string"), anything else as before."""
+    def kind_is(name: str) -> exp.Expression:
+        return exp.EQ(this=exp.Anonymous(this="json_type", expressions=[value.copy()]),
+                      expression=exp.Literal.string(name))
     text = exp.JSONExtractScalar(this=value.copy(), expression=exp.Literal.string("$"))
-    return exp.Cast(this=exp.Case().when(is_string, text).else_(exp.Cast(this=value.copy(), to=to.copy())),
-                    to=to.copy())
+    case = exp.Case().when(kind_is("VARCHAR"), text).when(kind_is("NULL"), exp.Null())
+    return exp.Cast(this=case.else_(exp.Cast(this=value.copy(), to=to.copy())), to=to.copy())
 
 
 def _rewrite_json_text(statement: exp.Expression) -> None:
     """SFX-012: v:a::string is the string itself in Snowflake ('Pine'), where DuckDB's cast of JSON to text
-    keeps the JSON quotes ('"Pine"'). A JSON string is read with ->> '$'; numbers, objects, arrays and JSON
-    null are cast as before."""
+    keeps the JSON quotes ('"Pine"'), and JSON null cast to text is SQL NULL. Numbers, objects and arrays
+    are cast as before."""
     for node in list(statement.find_all(exp.Cast)):
         if node.to.this in _TEXT_TYPES and _json_valued(node.this):
             node.replace(_json_text(node.this, node.to))
     for node in list(statement.find_all(exp.ToChar)):
         if node.args.get("format") is None and _json_valued(node.this):
             node.replace(_json_text(node.this, exp.DataType.build("VARCHAR")))
+
+
+def _type_values(statement: exp.Expression) -> None:
+    """SFX-012 and SFX-013 need to know which values are JSON. sqlglot's type inference, run on a qualified
+    copy so the SQL itself isn't changed, tells a column read from PARSE_JSON (in a subquery or WITH) or
+    an integer column; the types found are copied onto the same nodes here.
+
+    SFX-013: [i] is 0-based in Snowflake, on an ARRAY and on JSON alike. DuckDB's JSON is 0-based too but
+    its lists are 1-based, and sqlglot adds 1 only when it can tell the value is a list and the index an
+    integer (a column it can't type is taken for a list). So v[0] stays [0] on JSON, and l[i] becomes
+    l[i + 1] on a list."""
+    kinds = (exp.Bracket, exp.Cast, exp.ToChar)
+    mine = [n for n in statement.find_all(*kinds)]
+    if not mine:
+        return
+    from sqlglot.optimizer.annotate_types import annotate_types
+    from sqlglot.optimizer.qualify import qualify
+    try:
+        typed = annotate_types(qualify(statement.copy(), dialect="snowflake", validate_qualify_columns=False,
+                                       identify=False), dialect="snowflake")
+    except SqlglotError:
+        return
+    theirs = [n for n in typed.find_all(*kinds)]
+    if [type(n) for n in theirs] != [type(n) for n in mine]:
+        return
+    wanted = (exp.DataType.Type.JSON, exp.DataType.Type.ARRAY)
+    for m, t in zip(mine, theirs, strict=True):
+        if m.this.type is None and t.this.type is not None and t.this.type.this in wanted:
+            m.this.type = t.this.type.copy()
+        if isinstance(m, exp.Bracket) and len(m.expressions) == len(t.expressions) == 1 \
+                and m.expressions[0].type is None and t.expressions[0].type is not None \
+                and t.expressions[0].type.this in exp.DataType.INTEGER_TYPES:
+            m.expressions[0].type = t.expressions[0].type.copy()
+    for m in reversed(mine):  # v['arr'][0]: [...] on JSON is JSON too, inner first
+        if isinstance(m, exp.Bracket) and m.this.type is None and _json_valued(m.this):
+            m.this.type = exp.DataType.build("JSON")
 
 
 # DuckDB's typeof -> Snowflake's TYPEOF, where the name is the same whatever the value.
@@ -800,8 +844,13 @@ CATALOG = (
     ("SFX-010", "Rewritten", "a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
                 "worked out twice, which matters only when it isn't deterministic."),
-    ("SFX-012", "Rewritten", "A JSON value cast to text (v:a::string, TO_VARCHAR(v:a), PARSE_JSON(...)::varchar) "
-                "gives a string without its JSON quotes, as in Snowflake: DuckDB's cast keeps them."),
+    ("SFX-012", "Rewritten", "A JSON value cast to text (v:a::string, v['a']::string, TO_VARCHAR(v:a), "
+                "PARSE_JSON(...)::varchar) gives a string without its JSON quotes, and JSON null gives SQL NULL, as "
+                "in Snowflake: DuckDB's cast keeps the quotes and writes 'null'. A table's column whose type the "
+                "statement doesn't show is cast as written."),
+    ("SFX-013", "Rewritten", "[i] on a value read from PARSE_JSON stays 0-based, and [i] with an integer column on "
+                "an ARRAY becomes 1-based, as DuckDB needs. Where the type can't be told from the statement (a "
+                "table's column), [i] is taken for an ARRAY."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -856,6 +905,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_ratio_to_report(tree)
         _rewrite_haversine(tree)
         _rewrite_typeof(tree)
+        _type_values(tree)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
         sql = _duck(tree)

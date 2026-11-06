@@ -89,6 +89,10 @@ REFUSED_SHORT = {"commit": "SFp", "merge": "sSF", "revert": "sS", "cherry-pick":
                  "branch": "", "switch": "", "log": "", "diff": "", "show": "", "ls-files": ""}
 _MESSAGE_OPTIONS = ("-m", "--message")
 _MESSAGE_SUBCOMMANDS = ("commit", "merge", "tag", "stash")   # elsewhere -m is a flag (log -m, branch -m)
+_STRATEGY_OPTION = ("merge", "revert", "cherry-pick")   # -X <option> for the merge strategy (-Xtheirs)
+# Real options that read like a prefix of a refused one (--text, --textconv). Git refuses abbreviations here
+# (GIT_TEST_DISALLOW_ABBREVIATED_OPTIONS), so these whole names are only ever themselves.
+_WHOLE_OPTIONS = frozenset({"--text", "--edit"})
 _MARKERS = re.compile(r"^(<{7}|>{7})( |$)|^={7}$", re.MULTILINE)
 _SHORT_NAME = re.compile(r"(?i)^git~\d+$")   # an 8.3 short name Windows can give .git
 _BAD_PATH_CHARS = re.compile(r"[\x00-\x1f:*?\"<>|]")
@@ -159,7 +163,7 @@ def _check_git(argv: list[str]) -> None:
         if arg.startswith("--"):
             name = arg.split("=", 1)[0]
             # Git takes an unambiguous prefix of a long option (--fil for --file), so a prefix is refused too.
-            if len(name) > 2 and any(r.startswith(name) for r in REFUSED):
+            if len(name) > 2 and name not in _WHOLE_OPTIONS and any(r.startswith(name) for r in REFUSED):
                 hit = next(r for r in REFUSED if r.startswith(name))
                 raise Refused(f"git {sub} {hit} isn't run here: it reaches outside the repository, runs another program or signs.")
         elif arg.startswith("-") and len(arg) > 1:
@@ -169,11 +173,14 @@ def _check_git(argv: list[str]) -> None:
                 glued = flags[len(letters):]
                 if takes_message and "m" in letters:   # -m"text", -am"text": what follows m is the message
                     letters, glued = letters.split("m", 1)[0], ""
+                elif sub in _STRATEGY_OPTION and "X" in letters:   # -Xtheirs: what follows X is its value
+                    letters, after = letters.split("X", 1)
+                    glued = after + glued
                 bad = [f for f in letters if f in short]
                 if bad:
                     raise Refused(f"git {sub} -{bad[0]} isn't run here: it signs, reads a file, picks a merge program or asks interactively.")
-                for n in range(1, len(letters) + 1):   # -O/etc/x: what follows any flag letter may be its value
-                    rest = letters[n:] + glued
+                # -O/etc/x: what follows any flag letter may be its value (and -X's value is glued)
+                for rest in [letters[n:] + glued for n in range(1, len(letters) + 1)] + [glued]:
                     if rest and not _arg_ok(rest):
                         raise Refused(f"{arg!r} points outside the repository or at .gitattributes; use other paths inside it.")
                 continue

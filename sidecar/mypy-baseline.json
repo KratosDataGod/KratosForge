@@ -178,11 +178,6 @@
   "assignment": 1,
   "attr-defined": 1
  },
- "fabric_desktop/localdata/tsql.py": {
-  "arg-type": 1,
-  "assignment": 3,
-  "return-value": 1
- },
  "fabric_desktop/meta/compare.py": {
   "operator": 2
  },

@@ -1,0 +1,10 @@
+# E06: make the copy retry 3 times, on feature/retry, and bring main's change in.
+# A line starting with git runs that Git command. To change a file, write its whole new content
+# between "write <path>" and "end". Run shows what each line did.
+#
+# 1. Switch to feature/retry.
+# 2. Set retry to 3 in Ingest.DataPipeline/pipeline-content.json, then add and commit it.
+# 3. Merge main into feature/retry. Main changed the same lines, so expect a conflict.
+# 4. Resolve it so the file keeps BOTH changes, then add and commit to finish the merge.
+git status
+git log --oneline --all

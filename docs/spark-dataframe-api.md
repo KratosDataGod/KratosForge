@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 84 |
-| Differs | 9 |
+| Runs | 89 |
+| Differs | 10 |
 | Refused | 15 |
-| Fails | 55 |
+| Fails | 49 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -147,10 +147,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `asc_nulls_first` | Runs |  |
 | `asc_nulls_last` | Runs |  |
 | `astype` | Not checked |  |
-| `between` | Fails | `df.select(df.name, df.age.between(2, 4)).show()`: TypeError: 'Column' object is not callable |
-| `bitwiseAND` | Fails | `df.select(df.a.bitwiseAND(df.b)).collect()`: TypeError: 'Column' object is not callable |
-| `bitwiseOR` | Fails | `df.select(df.a.bitwiseOR(df.b)).collect()`: TypeError: 'Column' object is not callable |
-| `bitwiseXOR` | Fails | `df.select(df.a.bitwiseXOR(df.b)).collect()`: TypeError: 'Column' object is not callable |
+| `between` | Runs |  |
+| `bitwiseAND` | Runs |  |
+| `bitwiseOR` | Runs |  |
+| `bitwiseXOR` | Runs |  |
 | `cast` | Runs |  |
 | `contains` | Runs |  |
 | `desc` | Runs |  |
@@ -158,7 +158,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc_nulls_last` | Runs |  |
 | `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
 | `endswith` | Runs |  |
-| `eqNullSafe` | Fails | `df1.select( df1['value'] == 'foo', df1['value'].eqNullSaf...`: TypeError: 'Column' object is not callable |
+| `eqNullSafe` | Differs | `df1.select( df1['value'] == 'foo', df1['value'].eqNullSaf...`: {"printed": "+---------------------------------------------------+---- here, {"printed": "+-------------+---------------+----------------+\n\|(value in Spark |
 | `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
 | `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "+--------------------------------------+----------------- here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
 | `ilike` | Runs |  |
@@ -171,7 +171,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `over` | Runs |  |
 | `rlike` | Runs |  |
 | `startswith` | Runs |  |
-| `substr` | Fails | `df.select(df.name.substr(1, 3).alias("col")).collect()`: TypeError: 'Column' object is not callable |
+| `substr` | Runs |  |
 | `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------------------- in Spark |
 | `withField` | Fails | `df.withColumn('a', df['a'].withField('b', lit(3))).select...`: TypeError: 'Column' object is not callable |
 

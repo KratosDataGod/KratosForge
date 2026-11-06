@@ -341,6 +341,27 @@ other checks are skipped. `exercises.problems()` refuses a Python exercise witho
 `solution.py`, two wrong answers, plain file names in `files`, or with `uses` (a Learn SQL lab).
 `exercises.self_test()` runs the reference and each wrong answer in a fresh workspace of its own.
 
+## `pyspark_lab`: notebookutils and streaming (DP-700 E20, E26, E42)
+
+A PySpark exercise's `spark` comes from the generated `kf_learner` package (`academy/learner_pkg.py`).
+Besides Delta tables under `tables/`, it gives the answer what Fabric notebooks use for orchestration
+and streaming, all inside the workspace and all in the v1 learner process (the shim uses delta-rs):
+
+| Module | What the answer gets |
+| --- | --- |
+| `notebookutils_lab.py` | `notebookutils` (and `mssparkutils`): `notebook.run`, `exit`, `runMultiple`, `validateDAG` over the exercise's `notebooks/*.py` (Fabric's `.py` format; arguments set after the parameters cell, a run depth of 10); `fs` over `Files/` only, refusing links; `runtime.context`. Credentials, Key Vault, lakehouse items and mounts raise "isn't in an Academy exercise". |
+| `pyspark_stream.py` | `spark.readStream` from a Delta table or a `Files/` folder (csv, json, parquet) and `df.writeStream` to a table, `foreachBatch` or the console, always as `availableNow`. `checkpointLocation` must be under `Files/`. |
+| `pyspark_delta.py` | `delta.tables.DeltaTable`: `forName`, `merge` (run by delta-rs), `update`, `delete`, `history`. |
+| `notebook_dag.py` | runMultiple's DAG rules, shared with the notebooks' own notebookutils, so the two can't drift. |
+
+An exercise lists the notebooks (`notebooks`: `.py` files in its folder, copied to `notebooks/`) and
+data files (`files`, copied to `Files/` or `Files/<files_folder>/`) the answer starts with; every run,
+reference and hidden included, gets the same ones. `exercises.problems()` refuses a notebook that
+isn't a plain `.py` name and a `files_folder` that isn't a plain folder path. A notebook another one
+runs is the exercise's own file, run in the same learner process with the same limits, so a child
+notebook has no more reach than the answer. What a pass shows stays honest: the stream ran as
+`availableNow` on DuckDB's PySpark API and delta-rs, not on Spark.
+
 ## `pipeline_lab` (ACD-012)
 
 `academy/pipelab.py`. The learner's answer is a pipeline file (`starter: pipeline.json`) or a

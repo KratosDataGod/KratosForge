@@ -40,6 +40,7 @@ import sqlglot
 from sqlglot import ErrorLevel, exp
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
+from sqlglot.helper import seq_get
 from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
@@ -122,7 +123,11 @@ class KfTSQL(TSQL):
 
     class Parser(TSQL.Parser):  # type: ignore[misc,valid-type]  # as Tokenizer above
         # FORMAT is kept as written until its value's type is known (tsql_format).
-        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build}
+        # SQUARE is a float in T-SQL; sqlglot reads it as POWER(x, 2), which keeps an integer's type and
+        # refuses a decimal (_power).
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+                     "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
+                                                    expression=exp.Literal.number(2))}
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -225,6 +230,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.qualify import qualify
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
+             exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
@@ -270,6 +276,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
+        elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
+            notes += _same_type(node, info.this.type)
         elif isinstance(node, tsql_format.TsqlFormat):
             tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.Concat, exp.ConcatWs)):
@@ -338,9 +346,7 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
     """``POWER(x, y)`` has x's type in T-SQL: an integer base gives an integer, cut toward zero
     (``POWER(2, -1)`` is 0), and a result too big for that type is an error. A decimal base keeps the
     decimal's scale, which isn't carried here, so it is refused rather than answered differently."""
-    first = node.this.this if isinstance(node.this, exp.Neg) else node.this
-    written_decimal = isinstance(first, exp.Literal) and not first.is_string and "." in first.name \
-        and "e" not in first.name.lower()  # 2.0 is a decimal in T-SQL, 2e0 a float
+    written_decimal = _written_decimal(node.this)
     if _is(base, _INTEGERS - {exp.DataType.Type.BIT}) and not written_decimal:
         assert base is not None
         big = base.this == exp.DataType.Type.BIGINT  # tinyint and smallint give an int, as T-SQL's POWER does
@@ -352,6 +358,33 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
     elif _unknown(base):
         return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
                 "point, and T-SQL gives the first argument's type (an integer base gives an integer)."]
+    return []
+
+
+def _written_decimal(node: exp.Expression) -> bool:
+    """``2.0`` is a decimal in T-SQL and ``2e0`` a float; sqlglot types both as a float."""
+    first = node.this if isinstance(node, exp.Neg) else node
+    return isinstance(first, exp.Literal) and not first.is_string and "." in first.name \
+        and "e" not in first.name.lower()
+
+
+def _same_type(node: exp.Expression, arg: exp.DataType | None) -> list[str]:
+    """``CEILING``, ``FLOOR``, ``DEGREES`` and ``RADIANS`` give their argument's type in T-SQL: ``CEILING(5)`` is the
+    integer 5 and ``DEGREES(1)`` the integer 57 (cut toward zero), where DuckDB gives a float. ``DEGREES`` and
+    ``RADIANS`` of a decimal keep the decimal's scale, which isn't carried here, so they are refused."""
+    name = "DEGREES" if isinstance(node, exp.Degrees) else "RADIANS"
+    if isinstance(node, (exp.Degrees, exp.Radians)) and (
+            _written_decimal(node.this) or _is(arg, {exp.DataType.Type.DECIMAL, exp.DataType.Type.MONEY,
+                                                     exp.DataType.Type.SMALLMONEY})):
+        raise ValueError(_NOT_YET + f"{name} of a decimal keeps the decimal's scale in T-SQL, which isn't mapped "
+                         "yet. Cast the argument to FLOAT.")
+    if _is(arg, _INTEGERS - {exp.DataType.Type.BIT}) and not _written_decimal(node.this):
+        assert arg is not None
+        inner = node.copy() if isinstance(node, (exp.Ceil, exp.Floor)) else exp.Trunc(this=node.copy())
+        node.replace(exp.Cast(this=inner, to=arg.copy()))
+    elif _unknown(arg):
+        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
+                "gives the argument's type (an integer gives an integer)."]
     return []
 
 

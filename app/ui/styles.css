@@ -67,6 +67,10 @@
   --code-ref: #1d4f2f;
   --code-comment: #5f6b5f;
   --code-number: #0b7a3e;
+  --code-keyword: #0f4fa8;
+  --code-string: #a3420f;
+  --code-function: #6b3fa0;
+  --code-builtin: #0e6f8a;
   --text-disabled: #a19f9d;
   --bar-neutral: #9e9e9e;
 }
@@ -288,7 +292,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-edit { background: var(--surface); }
 .cm-tooltip-autocomplete .cm-completionIcon { width: 1em; }
 .cm-panels { font-size: 12px; }
-.kw { color: #0f4fa8; } .str { color: #a3420f; } .fn { color: #6b3fa0; } .cm { color: var(--code-comment); } .num { color: var(--code-number); } .bi { color: #0e6f8a; }
+.kw { color: var(--code-keyword); } .str { color: var(--code-string); } .fn { color: var(--code-function); } .cm { color: var(--code-comment); } .num { color: var(--code-number); } .bi { color: var(--code-builtin); }
 .md-h { color: var(--accent-dark); font-weight: 600; }
 
 .md-view { padding: 8px 16px; color: var(--text-2); line-height: 1.5; }

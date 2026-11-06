@@ -534,11 +534,9 @@ class PlatformMixin:
         return self._catalog().call("list_admins")
 
     def _each_platform(self, op: str, **kwargs: Any) -> list[dict[str, Any]]:
-        """Run one change on every environment's platform (admins and key tables live in each).
-        The catalog's goes first, so a refusal there stops the rest."""
+        """Run one change on every environment's platform (key tables live in each), reporting each.
+        The catalog's goes first, so a refusal there stops the rest. Admins: _admin_change."""
         envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
-        if self._keys_config().get("shared") and op != "ensure_key_table":
-            envs.append(("keys", self._shared_keys()))  # admins of the shared keys database too
         done = []
         for i, (env, client) in enumerate(envs):
             try:
@@ -549,16 +547,45 @@ class PlatformMixin:
                 done.append({"env": env, "ok": False, "message": str(exc)})
         return done
 
+    def _admin_change(self, op: str, **kwargs: Any) -> None:
+        """Claim, add or remove a platform admin in every environment's platform (each keeps its own
+        admins), the catalog's first. A refusal there stops it with nothing changed. A platform that
+        doesn't take the change afterwards is said, never passed over: the admins list shows the
+        catalog's, so someone removed there could stay an admin of Prod unseen. A platform where the
+        person is already not an admin counts as done, so running the removal again reaches the rest."""
+        envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
+        if self._keys_config().get("shared"):
+            envs.append(("keys", self._shared_keys()))  # admins of the shared keys database too
+        changed: list[str] = []
+        already: list[Exception] = []
+        failed: list[str] = []
+        for i, (env, client) in enumerate(envs):
+            try:
+                client.call(op, **kwargs)
+                changed.append(env.title())
+            except Exception as exc:  # noqa: BLE001 - every platform is tried; the ones that failed are said
+                if op == "remove_admin" and "isn't a platform admin" in str(exc):
+                    already.append(exc)
+                elif i == 0 and not already:
+                    raise
+                else:
+                    failed.append(f"{env.title()} ({exc})")
+        if failed:
+            done = f"Done in {', '.join(changed)}, but not" if changed else "Not done"
+            raise RuntimeError(f"{done} in {'; '.join(failed)}. Do it again once that platform answers.")
+        if already and not changed:
+            raise already[0]  # an admin nowhere
+
     def platform_claim_admin(self) -> dict[str, Any]:
-        self._each_platform("claim_admin")
+        self._admin_change("claim_admin")
         return self.platform_whoami()
 
     def platform_add_admin(self, user: str) -> list[dict[str, Any]]:
-        self._each_platform("add_admin", user=user)
+        self._admin_change("add_admin", user=user)
         return self.platform_admins()
 
     def platform_remove_admin(self, user: str) -> list[dict[str, Any]]:
-        self._each_platform("remove_admin", user=user)
+        self._admin_change("remove_admin", user=user)
         return self.platform_admins()
 
     def platform_key_tables(self, env: str = "dev") -> dict[str, Any]:

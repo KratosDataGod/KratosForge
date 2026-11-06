@@ -121,7 +121,10 @@ def outline(text: str, limit: int = 200) -> dict[str, Any]:
         else:
             rows.append([path or "(document)", json.dumps(here, ensure_ascii=False)[:200]])
 
-    walk(doc, "")
+    try:
+        walk(doc, "")
+    except RecursionError:
+        raise ValueError("The settings document is nested too deeply to list.") from None
     return {"columns": ["setting", "value"], "rows": rows[:limit], "more": len(rows) > limit}
 
 

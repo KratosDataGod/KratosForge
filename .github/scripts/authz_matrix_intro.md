@@ -39,6 +39,3 @@ Checked by hand on 2026-11-06, alongside the tables:
 - Undo on Shortcuts > Changes now runs the shortcut rules a new shortcut does.
 - Claiming, adding and removing a platform admin now names any environment's platform that didn't take the change, and a second removal finishes it.
 - The local API offers only the permissions in `permissions.OFFERED`. Every capability that changes something outside the calling tool's own executions asks the person each time.
-- Two calls differ from similar ones. Neither lets anyone past Fabric's rights; both are listed for a decision:
-  - `xray_vacuum` (one table, and "Vacuum all") starts a Fabric table maintenance job without the capacity risk check that `xray_optimize` runs again in the engine. The organization's `allow_fabric_runs` policy still stops it (`fabric_api.run_item_job`).
-  - `meta_restore` puts a Test or Prod table back to an earlier Delta version without the workspace role check that `meta_rollback` and `meta_promote` make first (`_duties_gate`). Fabric's OneLake permissions still decide whether the write is allowed.

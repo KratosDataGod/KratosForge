@@ -367,11 +367,6 @@
   "method-assign": 1,
   "union-attr": 1
  },
- "fabric_desktop/sql_format.py": {
-  "misc": 2,
-  "valid-type": 2,
-  "var-annotated": 1
- },
  "fabric_desktop/sql_worker.py": {
   "assignment": 1,
   "misc": 1

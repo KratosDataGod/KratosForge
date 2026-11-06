@@ -196,15 +196,15 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
+| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `format` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
 | `jdbc` | Not checked |  |
 | `json` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
-| `load` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
-| `option` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
-| `options` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
+| `load` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
+| `option` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
+| `options` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'orc' to <temp dir> on this PC. |
-| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
+| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `schema` | Refused | `spark.read.schema("col0 INT, col1 DOUBLE")`: NotImplementedError: On this PC, give read.schema() a StructType. A DDL string isn't supported. |
 | `table` | Differs | `spark.read.table('tblA').show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\ here, {"printed": "+---+\n\| id\|\n+---+\n\|  0\|\n\|  1\|\n\|  2\|\n\|  3\|\n\|  4\|\n\| in Spark |
 | `text` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'text' to <temp dir> on this PC. |
@@ -214,17 +214,17 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | Method | Status | Note |
 | --- | --- | --- |
 | `bucketBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
-| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
-| `format` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
+| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
+| `format` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `insertInto` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `jdbc` | Not checked |  |
 | `json` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
-| `mode` | Fails | `with tempfile.TemporaryDirectory() as d: # Overwrite the ...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
+| `mode` | Fails | `with tempfile.TemporaryDirectory() as d: # Overwrite the ...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing a CSV file on this PC. Leave it out, or run the cell in Fabric. |
 | `options` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing a CSV file on this PC. Leave it out, or run the cell in Fabric. |
 | `orc` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'orc' |
-| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
-| `partitionBy` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
+| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
+| `partitionBy` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `save` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
 | `saveAsTable` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `sortBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |

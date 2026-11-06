@@ -123,9 +123,15 @@ _TEMP = re.compile(r"[^\s\"']*[\\/]tmp[a-z0-9_]{8}\b")
 _PACKAGES = re.compile(r"\s*\(?[^\s\"'()]*(?:site|dist)-packages[\\/][^\s\"'()]*\)?")
 
 
+# The operating system's own words after a file DuckDB can't open ("Is a directory" on Linux, "Access
+# is denied." on Windows): the same failure, worded per machine.
+_OS_REASON = re.compile(r'(IO Error: Cannot open file "[^"]*"): .*$')
+
+
 def _clean(text: str) -> str:
-    """An error's text with this machine's paths left out, so the page is the same on every machine."""
-    return _TEMP.sub("<temp dir>", _PACKAGES.sub("", text))
+    """An error's text with this machine's paths and the OS's wording left out, so the page is the
+    same on every machine."""
+    return _OS_REASON.sub(r"\1", _TEMP.sub("<temp dir>", _PACKAGES.sub("", text)))
 
 
 def _expression(source: str) -> bool:

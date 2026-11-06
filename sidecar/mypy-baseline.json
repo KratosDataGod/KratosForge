@@ -259,9 +259,6 @@
  "fabric_desktop/orchestration/mashup.py": {
   "union-attr": 1
  },
- "fabric_desktop/orchestration/runner.py": {
-  "union-attr": 4
- },
  "fabric_desktop/pipeline_script.py": {
   "dict-item": 1
  },

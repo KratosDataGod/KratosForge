@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.1"
+RULES_VERSION = "2026.11.2"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -183,6 +183,18 @@ _COMMANDS = {
 }
 
 
+# Context functions that describe the Snowflake account, session or client (SFN-014).
+_ACCOUNT_FUNCTIONS = frozenset({
+    "CURRENT_ACCOUNT", "CURRENT_ACCOUNT_NAME", "CURRENT_AVAILABLE_ROLES", "CURRENT_CLIENT", "CURRENT_IP_ADDRESS",
+    "CURRENT_ORGANIZATION_NAME", "CURRENT_REGION", "CURRENT_ROLE_TYPE", "CURRENT_SECONDARY_ROLES", "CURRENT_SESSION",
+    "CURRENT_STATEMENT", "CURRENT_TRANSACTION", "CURRENT_WAREHOUSE", "LAST_QUERY_ID"})
+
+
+def _function_name(node: exp.Func) -> str:
+    """The name Snowflake SQL calls ``node`` by."""
+    return (node.name if isinstance(node, exp.Anonymous) else node.sql_name()).upper()
+
+
 def _not_translatable(statement: exp.Expression) -> Note | None:
     """Why ``statement`` runs only in Snowflake, or None."""
     if isinstance(statement, exp.Command):
@@ -234,6 +246,10 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, exp.Var) and str(node.name).startswith("@"):
             return _refuse("SFN-008", "Stages", "A stage is a Snowflake file location; a session on this PC reads "
                            "no files.")
+        if isinstance(node, exp.Func) and _function_name(node) in _ACCOUNT_FUNCTIONS:
+            return _refuse("SFN-014", f"{_function_name(node)}: Snowflake account and session",
+                           "It reads the Snowflake account, session or client running the query; this PC has none.",
+                           f"{_DOCS}/functions-context")
         if isinstance(node, exp.Dot) and node.sql("snowflake").upper().startswith("SNOWFLAKE.CORTEX."):
             return _refuse("SFN-012", "Cortex AI functions", "Cortex runs models in Snowflake.")
         if isinstance(node, exp.Cast) and node.to.this == exp.DataType.Type.TIMESTAMPTZ \
@@ -791,6 +807,10 @@ CATALOG = (
     ("SFN-012", "Runs only in Snowflake", "Cortex AI functions."),
     ("SFN-013", "Runs only in Snowflake", "TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a "
                 "time zone name."),
+    ("SFN-014", "Runs only in Snowflake", "Context functions about the Snowflake account, session or client: "
+                "CURRENT_ACCOUNT, CURRENT_ACCOUNT_NAME, CURRENT_AVAILABLE_ROLES, CURRENT_CLIENT, CURRENT_IP_ADDRESS, "
+                "CURRENT_ORGANIZATION_NAME, CURRENT_REGION, CURRENT_ROLE_TYPE, CURRENT_SECONDARY_ROLES, "
+                "CURRENT_SESSION, CURRENT_STATEMENT, CURRENT_TRANSACTION, CURRENT_WAREHOUSE and LAST_QUERY_ID."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

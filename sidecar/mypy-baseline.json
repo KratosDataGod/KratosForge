@@ -129,9 +129,6 @@
  "fabric_desktop/http_session.py": {
   "arg-type": 1
  },
- "fabric_desktop/incident_desk.py": {
-  "dict-item": 2
- },
  "fabric_desktop/integrations/app_service.py": {
   "assignment": 1,
   "has-type": 1
@@ -181,11 +178,6 @@
   "assignment": 1,
   "attr-defined": 1
  },
- "fabric_desktop/localdata/tsql.py": {
-  "arg-type": 1,
-  "assignment": 3,
-  "return-value": 1
- },
  "fabric_desktop/meta/compare.py": {
   "operator": 2
  },
@@ -207,11 +199,6 @@
  },
  "fabric_desktop/meta/promote.py": {
   "arg-type": 1
- },
- "fabric_desktop/meta/release.py": {
-  "arg-type": 1,
-  "assignment": 1,
-  "var-annotated": 1
  },
  "fabric_desktop/meta/store.py": {
   "return-value": 2,
@@ -273,9 +260,6 @@
  "fabric_desktop/pipeline_service.py": {
   "attr-defined": 4
  },
- "fabric_desktop/profiling.py": {
-  "arg-type": 3
- },
  "fabric_desktop/prove_service.py": {
   "assignment": 1,
   "type-var": 1
@@ -321,11 +305,6 @@
   "assignment": 1,
   "method-assign": 1,
   "union-attr": 1
- },
- "fabric_desktop/sql_format.py": {
-  "misc": 2,
-  "valid-type": 2,
-  "var-annotated": 1
  },
  "fabric_desktop/sql_worker.py": {
   "assignment": 1,

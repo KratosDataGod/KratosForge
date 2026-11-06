@@ -373,7 +373,11 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
-          python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
+          # The engine's own wheel is built against a hashed build backend, not one pip fetches unchecked.
+          python -m pip install --only-binary=:all: --require-hashes -r .github\requirements\engine-build.txt
+          if ($LASTEXITCODE) { throw "The engine's build backend did not match its pinned hash" }
+          python -m pip wheel --no-build-isolation --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
+          if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
           # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
           # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
           # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
@@ -418,16 +422,6 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-      - name: List every package in the engine (SBOM)
-        shell: pwsh
-        run: |
-          python -m pip install --quiet cyclonedx-bom==7.5.0
-          cyclonedx-py environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: sbom-engine
-          path: sbom-engine.cdx.json
-          if-no-files-found: error
       - name: Zip the engine
         id: zip
         shell: pwsh
@@ -455,6 +449,22 @@ jobs:
           path: |
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
+          if-no-files-found: error
+      # After the zips and their hashes, so no third-party tool runs on the engine folder between
+      # signing and hashing. The tool comes from a hashed file into its own venv, and only reads the folder.
+      - name: List every package in the engine (SBOM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m venv "$env:RUNNER_TEMP\sbom"
+          & "$env:RUNNER_TEMP\sbom\Scripts\python.exe" -m pip install --quiet --only-binary=:all: --require-hashes -r .github\requirements\sbom.txt
+          if ($LASTEXITCODE) { throw "The SBOM tool did not match its pinned hashes" }
+          & "$env:RUNNER_TEMP\sbom\Scripts\cyclonedx-py.exe" environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
+          if ($LASTEXITCODE) { exit 1 }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-engine
+          path: sbom-engine.cdx.json
           if-no-files-found: error
 
   shell:

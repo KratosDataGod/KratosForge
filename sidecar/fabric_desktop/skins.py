@@ -278,9 +278,10 @@ DATABRICKS: dict[str, Any] = {
                  "basis": "Azure Databricks documentation (workspace browser, Catalog Explorer, Jobs and pipelines), November 2026"}],
     "appearance": {"color_mode": "light", "tokens": {
         "light": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#e8eef8",
-                  "--accent-soft-2": "#eef2f9", "--canvas": "#f4f5f7", "--border": "#dde1e6"},
+                  "--accent-soft-2": "#eef2f9", "--rail-active": "#3b63b0", "--canvas": "#f4f5f7",
+                  "--border": "#dde1e6"},
         "dark": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#2b3038",
-                 "--accent-soft-2": "#262b32", "--on-accent": "#ffffff",
+                 "--accent-soft-2": "#262b32", "--rail-active": "#3b63b0", "--on-accent": "#ffffff",
                  "--text": "#e6e8eb", "--text-2": "#c3c8ce", "--muted": "#a9b0b8", "--muted-2": "#8b939c",
                  "--surface": "#23272e", "--surface-2": "#1f2328", "--surface-3": "#2b3038", "--surface-3b": "#262b32",
                  "--canvas": "#1b1e23", "--hover": "#2b3038", "--border": "#3d434b", "--border-soft": "#2e333a",
@@ -298,7 +299,7 @@ SNOWFLAKE: dict[str, Any] = {
                  "basis": "Snowflake documentation (Snowsight worksheets, data, monitoring), November 2026"}],
     "appearance": {"color_mode": "light", "tokens": {"light": {
         "--accent": "#1660a8", "--accent-dark": "#0e4479", "--accent-soft": "#e6f0fa", "--accent-soft-2": "#eef4fb",
-        "--canvas": "#f4f7fb", "--border": "#dbe4ee", "--border-input": "#c6d3e1",
+        "--rail-active": "#1660a8", "--canvas": "#f4f7fb", "--border": "#dbe4ee", "--border-input": "#c6d3e1",
     }}},
     "workflow": {"rail": ["home", "onelake", "create", "monitor", "workspaces", "platform", "optimize", "metadata"],
                  "labels": {"home": "Worksheets", "onelake": "Data", "create": "Load and create",

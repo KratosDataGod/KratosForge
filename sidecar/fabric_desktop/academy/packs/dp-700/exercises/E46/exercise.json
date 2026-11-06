@@ -1,0 +1,133 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E46",
+  "title": "Alerts: Activator rules for warm and silent freezers",
+  "objectives": [
+    "3.1.4"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Model an Activator item: pick the object ID, write a stateful rule that alerts once and starts a pipeline, and a heartbeat rule for devices that go quiet.",
+  "scenario": "Freezer telemetry streams into Fabric. Store staff are flooded with emails, one per warm reading, about whole stores rather than freezers, at the wrong threshold, and nobody notices a freezer that stops sending.",
+  "engine_label": "A model of an Activator item's object and rules, checked on this PC",
+  "verifies": [
+    "Your object and rules watch each freezer, alert once when it turns warm, start the incident pipeline and catch silence, as the Activator overview describes objects, rules and actions, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That Activator fires anything: no events flow and nothing is sent.",
+    "The exact names and options of Activator's conditions in the editor.",
+    "Alerts set up from a pipeline's own failure notifications."
+  ],
+  "expected": {
+    "description": "Object ID FreezerId; rule 1 TempC becomes greater than -15 with a Teams message and Run pipeline; rule 2 no data for 10 minutes, email to maintenance."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Activator isn't watching each freezer on its own.",
+      "pass": "Each freezer is its own object.",
+      "rules": [
+        {
+          "path": "object.id_column",
+          "equals": "FreezerId",
+          "why": "Events are grouped into objects by a shared identifier; the column you pick is the object ID."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The warm-freezer rule won't alert as the store needs.",
+      "pass": "A freezer that turns warm alerts the channel once and starts the pipeline.",
+      "rules": [
+        {
+          "path": "rules.0.property",
+          "equals": "TempC"
+        },
+        {
+          "path": "rules.0.condition.kind",
+          "equals": "becomes",
+          "why": "A stateless rule judges each event alone; a stateful rule such as BECOMES fires on entering the new state, not on every reading in it."
+        },
+        {
+          "path": "rules.0.condition.operator",
+          "equals": "greater than"
+        },
+        {
+          "path": "rules.0.condition.value",
+          "equals": -15
+        },
+        {
+          "path": "rules.0.actions",
+          "count": 1,
+          "where": {
+            "type": "Teams message",
+            "to": "Store operations channel"
+          }
+        },
+        {
+          "path": "rules.0.actions",
+          "count": 1,
+          "where": {
+            "type": "Run pipeline",
+            "to": "Log incident"
+          },
+          "why": "An Activator action can start Fabric items such as pipelines."
+        },
+        {
+          "path": "rules.0.actions",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A freezer that goes silent won't be noticed.",
+      "pass": "Ten minutes of silence emails maintenance.",
+      "rules": [
+        {
+          "path": "rules",
+          "count": 2
+        },
+        {
+          "path": "rules.1.condition.kind",
+          "equals": "no data",
+          "why": "Rules can detect the absence of data (a heartbeat)."
+        },
+        {
+          "path": "rules.1.condition.minutes",
+          "equals": 10
+        },
+        {
+          "path": "rules.1.actions",
+          "count": 1,
+          "where": {
+            "type": "Send email",
+            "to": "maintenance@contoso.example"
+          }
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which column identifies one freezer?",
+    "A stateless rule judges each event. Which kind fires once on a change?",
+    "How do you notice a device that stops sending?"
+  ],
+  "explanation": "Activator groups events into objects by an ID column, so alerts are per freezer. A stateless rule judges each event alone and matches every warm reading; a stateful rule such as BECOMES fires when a freezer enters the warm state. Rules can also watch for the absence of data. Actions include Teams messages, email, and starting Fabric items such as pipelines.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (activator-introduction): objects grouped by an ID column; stateless rules judge each event, stateful rules (BECOMES, INCREASES, DECREASES, EXIT RANGE) keep state per object and fire on entry into a new state; absence of data (heartbeat); actions include pipelines and other Fabric items, Teams messages and email."
+  ]
+}

@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-05 23:42 UTC, main a7631920.** Covers the PRs merged from #135 to #1900.
+**Product check of 2026-11-06 11:42 UTC, main de881016.** Covers the PRs merged from #135 to #1953.
 
 ## Summary
 
+- Morning check, 2026-11-06: 46 PRs merged after a7631920. 2 were product data and docs audit PRs; the other
+  44 were linked. Platform skins recorded their end-to-end demonstration with mocked cloud parts and check
+  keyboard, axe and reduced motion in every skin (PB-129). Axe now runs on every dialog with an empty baseline,
+  and a Narrator checklist is ready for the Windows pass (PB-063). Notebooks gained df.show(), cube, rollup and
+  more Column helpers as in Spark 3.5, with a PySpark API coverage list (PB-103); T-SQL functions on this PC
+  have a generated page (PB-106). The MSI's silent install and detection are documented (PB-124).
 - Evening check, 2026-11-05: 78 PRs merged after 7c7ed9e2. 1 was a product data PR; the other 77 were linked.
   App Studio can plan an app from a description, apply asked-for changes as one undoable step and publish a
   Power BI report behind a check and a typed confirm (PB-127). The Databricks-familiar and Snowflake-familiar skins

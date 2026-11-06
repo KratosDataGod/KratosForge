@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "a7631920de1b2b3e3666d5144e649152ac0680c1",
-    "date": "2026-11-05",
+    "commit": "de881016b9d097538645ee3b7e4c66f5d8dee369",
+    "date": "2026-11-06",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -41,7 +41,8 @@
       "Product check 2026-11-04 23:42 at 03d2b53aa5560c88062d3148d9041cf57d0c9b42: 16 PRs merged after 1ca71e38; 1 was a product data PR and the other 15 were linked by number. PB-131 moved to In review.",
       "Acceptance of PB-131 recorded (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv); retitled because Security chose no uninstall step.",
       "Product check 2026-11-05 11:42 at 7c7ed9e275bc2549b7a9cfdfb883feb3b201bde6: 6 PRs merged after 03d2b53a; 2 were product data PRs, #1828 updated its own rows, and the other 3 were linked to PB-128.",
-      "Product check 2026-11-05 23:42 at a7631920de1b2b3e3666d5144e649152ac0680c1: 78 PRs merged after 7c7ed9e2; 1 was a product data PR and the other 77 were linked by title; other rows were not re-read."
+      "Product check 2026-11-05 23:42 at a7631920de1b2b3e3666d5144e649152ac0680c1: 78 PRs merged after 7c7ed9e2; 1 was a product data PR and the other 77 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-06 11:42 at de881016b9d097538645ee3b7e4c66f5d8dee369: 46 PRs merged after a7631920; 2 were product data and docs audit PRs and the other 44 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -304,7 +305,13 @@
         1847,
         1879,
         1891,
-        1896
+        1896,
+        1904,
+        1921,
+        1922,
+        1923,
+        1924,
+        1925
       ]
     },
     {
@@ -460,7 +467,13 @@
         1855,
         1856,
         1858,
-        1876
+        1876,
+        1878,
+        1884,
+        1886,
+        1888,
+        1890,
+        1930
       ],
       "workstream": "Enterprise readiness (FD-139)",
       "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
@@ -640,7 +653,8 @@
         1637,
         1734,
         1811,
-        1821
+        1821,
+        1908
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -2400,7 +2414,13 @@
         1853,
         1860,
         1866,
-        1880
+        1880,
+        1905,
+        1906,
+        1919,
+        1927,
+        1928,
+        1941
       ]
     },
     {
@@ -2927,7 +2947,10 @@
         1852,
         1869,
         1898,
-        1900
+        1900,
+        1912,
+        1913,
+        1939
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -7447,7 +7470,8 @@
         1382,
         1383,
         1399,
-        1451
+        1451,
+        1936
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go.",
@@ -8003,7 +8027,9 @@
         1738,
         1816,
         1863,
-        1864
+        1864,
+        1929,
+        1933
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8477,7 +8503,13 @@
         1844,
         1848,
         1850,
-        1877
+        1877,
+        1910,
+        1915,
+        1916,
+        1917,
+        1918,
+        1926
       ],
       "backlog": [
         "PB-119",

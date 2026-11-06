@@ -12,8 +12,8 @@ question format (academy/exam.py) with short ids::
 
 ``view`` is what the screen gets before the learner checks: stems and options only, never the answers,
 explanations or sources. The learner's answer is ``answers.json`` in the workspace, ``{"q1": ["b"]}``.
-``grade`` scores it with the exam engine's own all-or-nothing rule and says which questions aren't right
-yet, never what the right answer is. ``review`` (the explanation, shown after a pass or on request, which
+``grade`` scores it with the exam engine's own all-or-nothing rule and says how many are right and which
+aren't answered yet; never which answered ones are wrong, or what the right answer is. ``review`` (the explanation, shown after a pass or on request, which
 then counts against an independent pass) gives each answer, why and its source page.
 
 Checks (``validation``):
@@ -93,19 +93,17 @@ def check_problems(c: dict[str, Any]) -> list[str]:
 
 
 def score(questions: list[dict[str, Any]], answers: dict[str, list[str]], min_correct: int | None = None) -> dict[str, Any]:
+    """How many are right. A failed check names only the unanswered questions, never which answered ones
+    are wrong (Security read), so Check can't be used to find the key one question at a time."""
     kind = "quiz_score"
-    right = [q["id"] for q in questions if exam._correct(q, answers.get(q["id"]))]
+    right = sum(1 for q in questions if exam._correct(q, answers.get(q["id"])))
     need = len(questions) if min_correct is None else min(int(min_correct), len(questions))
-    not_yet = [q["id"] for q in questions if q["id"] not in right]
-    said = f"{len(right)} of {len(questions)} right"
-    if len(right) >= need:
-        return {"kind": kind, "passed": True, "detail": f"{said}.", "right": right}
-    unanswered = [qid for qid in not_yet if not answers.get(qid)]
+    said = f"{right} of {len(questions)} right"
+    if right >= need:
+        return {"kind": kind, "passed": True, "detail": f"{said}."}
+    unanswered = [q["id"] for q in questions if not answers.get(q["id"])]
     tail = f" Not answered yet: {', '.join(unanswered)}." if unanswered else ""
-    wrong = [qid for qid in not_yet if qid not in unanswered]
-    if wrong:
-        tail = f" Not right yet: {', '.join(wrong)}.{tail}"
-    return {**_no(kind, f"{said}; you need {need}.{tail}"), "right": right}
+    return _no(kind, f"{said}; you need {need}.{tail}")
 
 
 def grade(text: str, ex: dict[str, Any], questions: list[dict[str, Any]]) -> dict[str, Any]:

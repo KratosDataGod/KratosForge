@@ -1,0 +1,132 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E51",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a notebook append fails after the source schema changed",
+  "objectives": [
+    "3.2.3"
+  ],
+  "objective_text": "Read the error from a failing notebook append, find the schema change behind it, and fix the load so today's batch lands with yesterday's rows untouched and the new column kept.",
+  "scenario": "A notebook appends each day's orders to silver.orders. Today it fails at the write. Overnight the source system renamed amount to order_amount and started sending a channel column, which sales wants to keep. Yesterday's rows have to stay as they are.",
+  "prerequisites": [
+    "LM-08"
+  ],
+  "minutes": 25,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "silver.orders",
+      "rows": 3,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "bronze.orders_batch",
+      "rows": 3,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "Delta tables silver.orders (loaded yesterday) and bronze.orders_batch (today, new schema) in the exercise folder, and the failing notebook as answer.py.",
+  "fault": {
+    "summary": "The source renamed amount to order_amount and added channel, so the batch's columns no longer match silver.orders and a plain append is refused.",
+    "planted": [
+      {
+        "where": "bronze.orders_batch",
+        "what": "amount arrives as order_amount (a double), and a new channel column"
+      },
+      {
+        "where": "answer.py, the write",
+        "what": "write.mode(\"append\") with no column mapping and no schema evolution"
+      }
+    ],
+    "symptom": "The append stops with a schema mismatch error: the batch has five columns and the table has four."
+  },
+  "required": [
+    "Yesterday's rows are still in silver.orders, unchanged.",
+    "Today's rows are added with their amount in the amount column, as decimal(10,2).",
+    "silver.orders gains a channel column; yesterday's rows have no channel (null)."
+  ],
+  "expected": {
+    "description": "silver.orders has 6 rows: orders 1 to 3 with no channel, and orders 4 to 6 with their amount and channel."
+  },
+  "verifies": [
+    "After your notebook runs, silver.orders holds yesterday's rows unchanged and today's rows with the right amount and channel, on the exercise data and on data you haven't seen, on this PC.",
+    "amount is still a decimal, and order_id and amount are never empty."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Fabric notebook. The error you see here comes from delta-rs and is worded differently from Spark's, though both refuse the same append.",
+    "That a rerun is safe: appending the same batch twice would add it twice. Making the daily load rerunnable is another exercise (E22, MERGE).",
+    "How Fabric shows the failure (the notebook's cell output and the Spark monitoring pages)."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "data": "practice",
+      "weight": 2,
+      "required": true,
+      "pass": "silver.orders holds yesterday's rows and today's, as they should be.",
+      "fail": "silver.orders doesn't match: check that yesterday's rows are still there and that today's have an amount."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "data": "hidden",
+      "weight": 2,
+      "required": true,
+      "pass": "The fix also works on data you haven't seen.",
+      "fail": "The fix doesn't hold on other data: avoid relying on these exact rows."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.orders",
+      "columns": {
+        "order_id": "",
+        "order_date": "DATE",
+        "amount": "DECIMAL",
+        "status": "",
+        "channel": ""
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id",
+        "amount"
+      ],
+      "weight": 1,
+      "required": true,
+      "pass": "The columns, types and keys are right.",
+      "fail": "A column, a type or a key is off: see the detail."
+    }
+  ],
+  "hints": [
+    "Read the error, then compare the columns: spark.read.table(\"silver.orders\").columns and the batch's columns.",
+    "Two things changed: one column has a new name, and one is new. Rename the first back with withColumnRenamed, and cast it to silver's type.",
+    "A new column can be added by the append itself: .option(\"mergeSchema\", \"true\") with mode(\"append\"). Overwriting would lose yesterday's rows."
+  ],
+  "explanation": "A Delta table refuses an append whose columns don't match its schema, which protects it from a source that changes without warning. The fix depends on what changed. A renamed column is the same data under a new name, so map it back; schema evolution would add order_amount as a second column and leave amount empty for every new row. A genuinely new column that the business wants is what mergeSchema is for: the append adds it, and earlier rows read it as null. Overwriting, with or without overwriteSchema, would make the error go away by deleting yesterday's data.",
+  "troubleshooting": [
+    "Today's rows have no amount and the table has an order_amount column: mergeSchema added the renamed column; rename it back first.",
+    "Yesterday's rows are gone: the write overwrites; use append.",
+    "There's no channel column: append with mergeSchema instead of dropping it."
+  ],
+  "remediation": [
+    "LM-08",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset rebuilds silver.orders and bronze.orders_batch from setup.sql and puts the failing notebook back.",
+  "parity": null,
+  "review_notes": [
+    "delta-rs casts a double to the table's decimal(10,2) during a mergeSchema append, so a missing cast isn't a planted wrong answer; the solution casts anyway, as a Spark notebook should.",
+    "Not graded for idempotency: the daily append isn't rerunnable by design, and does_not_verify says so."
+  ]
+}

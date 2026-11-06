@@ -42,7 +42,13 @@ class OptimizeMixin:
 
     @property
     def optimize_outbox(self) -> Outbox:
-        return Outbox(self.root / "optimize" / "outbox.sqlite")
+        """One Outbox per engine: opening it checks the whole file (sqlitefile.check), so it isn't
+        reopened on every call."""
+        path = self.root / "optimize" / "outbox.sqlite"
+        box = getattr(self, "_optimize_outbox", None)
+        if box is None or box.path != path:
+            box = self._optimize_outbox = Outbox(path)
+        return box
 
     def _optimize_allowed(self) -> None:
         if not app_settings.value("allow_optimize_lakehouse"):

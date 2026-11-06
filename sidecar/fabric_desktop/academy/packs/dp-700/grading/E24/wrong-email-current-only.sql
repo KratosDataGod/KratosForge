@@ -1,0 +1,18 @@
+-- Updates the email on the current row only; 101's closed row keeps the old address.
+UPDATE dim_customer AS d
+SET email = c.email
+FROM customer_changes AS c
+WHERE d.customer_id = c.customer_id AND d.is_current AND d.email <> c.email;
+
+UPDATE dim_customer AS d
+SET valid_to = c.changed_on, is_current = false
+FROM customer_changes AS c
+WHERE d.customer_id = c.customer_id AND d.is_current AND d.city <> c.city;
+
+INSERT INTO dim_customer
+SELECT (SELECT max(customer_key) FROM dim_customer) + row_number() OVER (ORDER BY c.customer_id),
+       c.customer_id, c.city, c.email, c.changed_on, NULL, true
+FROM customer_changes AS c
+WHERE NOT EXISTS (SELECT 1 FROM dim_customer AS d WHERE d.customer_id = c.customer_id AND d.is_current);
+
+SELECT * FROM dim_customer ORDER BY customer_key;

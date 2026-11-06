@@ -14,16 +14,18 @@ can't say which keys differ.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.dataset as pads
 
 from .. import side_by_side
 from ..verify import DEFAULTS
 from .project import SCD2_COLUMNS, SYSTEM_COLUMNS, Entity
 from ..duckdb_rows import one_row
+
+if TYPE_CHECKING:  # pyarrow.dataset (and the pandas it loads) costs about 0.2 s at engine start
+    import pyarrow.dataset as pads
 
 SAMPLE = 20
 # Above this many rows on either side, compare counts, totals and a checksum instead of every row.
@@ -133,6 +135,8 @@ def _projected(data: pads.Dataset, columns: list[str]) -> pa.RecordBatchReader:
 
 def _current_rows(data: pads.Dataset) -> Any:
     """The dataset filter for current rows (Type 2 tables keep old versions), or None for all rows."""
+    import pyarrow.dataset as pads
+
     return pads.field("is_current") == True if "is_current" in data.schema.names else None  # noqa: E712
 
 

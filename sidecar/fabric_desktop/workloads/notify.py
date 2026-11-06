@@ -14,10 +14,9 @@ import datetime as dt
 import json
 import sqlite3
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Iterator
+from typing import Any, Callable, ContextManager
 
 from .. import redact, sqlitefile
 from .evaluate import describe
@@ -105,20 +104,6 @@ def single(url: str) -> Routing:
     return Routing([Route(DEFAULT_ROUTE, url)] if url else [])
 
 
-@contextmanager
-def transaction(path: Path) -> Iterator[sqlite3.Connection]:
-    """A connection to the SQLite file at path: commits on success, rolls back on error, then closes.
-
-    ``with sqlite3.connect(...)`` alone commits or rolls back but leaves the connection open, and an
-    open handle keeps the file locked on Windows."""
-    db = sqlite3.connect(path, timeout=30)
-    try:
-        with db:
-            yield db
-    finally:
-        db.close()
-
-
 class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
@@ -141,7 +126,7 @@ class Outbox:
                 db.execute("ALTER TABLE outbox ADD COLUMN not_before REAL DEFAULT 0")
 
     def _db(self) -> ContextManager[sqlite3.Connection]:
-        return transaction(self.path)
+        return sqlitefile.transaction(self.path)
 
     def add(self, title: str, lines: list[str], error: str, route: str = DEFAULT_ROUTE,
             not_before: float = 0.0) -> None:

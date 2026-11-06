@@ -184,6 +184,8 @@ fabric-desktop agent prune --dry-run                  # list the finished jobs p
 
 **Requeue.** Once you've fixed what made a job `dead` or `failed`, `agent requeue <job id>` puts it back in the queue with its attempts reset to 0. The job records who requeued it (`requeued_by`, your OS user name), and the agent's audit log gets an `agent_requeue` line. A job that is queued, running, succeeded or cancelled is refused. So is one from a Fabric pipeline, since its request already says it finished: submit it again from the pipeline. A job whose schedule has already queued a newer run is refused too.
 
+**Policy file.** The organization's policy file applies to the agent too. At start and then every 15 minutes, the agent compares `policy.json` with what it saw last (`policy-seen.json` in its home) and writes any change to its own audit log: `policy_file_seen` the first time, then `policy_file_changed` with the SHA-256 before and after. These are the same entries the desktop app writes; [Changes to the policy file](enterprise-install.md#changes-to-the-policy-file) says what each one means. Nothing is blocked, and a check that fails is logged and tried again at the next one.
+
 **Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
 ### Status records

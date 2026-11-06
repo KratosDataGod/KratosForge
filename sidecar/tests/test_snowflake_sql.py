@@ -476,8 +476,8 @@ def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
 
 
 @pytest.mark.parametrize("code, want", [
-    ("""select typeof(parse_json('{"a": 1.912e2}'):a)""", "DECIMAL or DOUBLE"),  # DuckDB writes 191.2
-    ("""select typeof(parse_json('{"a": 10}'):a)""", "INTEGER"),
+    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "DECIMAL or DOUBLE"),  # 191.2 here
+    ("""select typeof(v:a) from (select parse_json('{"a": 10}') as v)""", "INTEGER"),
     ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
 ])
 def test_typeof_never_gives_a_confident_wrong_name(code, want):
@@ -491,3 +491,44 @@ def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
     assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
     assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
     assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()
+
+
+@pytest.mark.parametrize("code, want", [
+    ("""select typeof(parse_json('{"a": 1.912e2}'):a)""", "DOUBLE"),
+    ("""select typeof(parse_json('{"a": [1, {"b": 191.2}]}'):a[1].b)""", "DECIMAL"),
+    ("""select typeof(parse_json('{"a": 10}'):a)""", "INTEGER"),
+    ("""select typeof(parse_json('{"a": null}'):a)""", "NULL_VALUE"),
+    ("""select typeof(parse_json('{"a": "x"}'):a)""", "VARCHAR"),
+    ("""select typeof(parse_json('{"a": 1}'):A)""", None),  # path keys are case-sensitive: no such key
+    ("""select typeof(get_path(parse_json('{"a": [true]}'), 'a[0]'))""", "BOOLEAN"),
+])
+def test_typeof_of_a_path_into_json_written_in_the_query_is_exact(code, want):
+    (report,) = sf.translate(code).statements
+    assert "SFD-007" not in [n.id for n in report.notes]
+    assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
+
+
+def test_typeof_of_json_snowflake_wont_parse_falls_back_instead_of_crashing():
+    for code in ("""select typeof(parse_json('{"a": NaN}'):a)""", """select typeof(parse_json('[Infinity]')[0])""",
+                 """select typeof(parse_json('{"a": 1, "a": 2}'):a)"""):
+        (report,) = sf.translate(code).statements
+        assert report.verdict != "not_translatable" and "SFD-007" in [n.id for n in report.notes]
+
+
+@pytest.mark.parametrize("code", ["select 1/0", "select 1/0.0", "select 1/0e5",
+                                  "select iff(b = 0 and c, 0, a / b) from (select 1 as a, 0 as b, false as c)", "select a / b from (select 1 as a, 0 as b)",
+                                  "select 1 / (a - 1) from (select 1 as a)"])
+def test_dividing_by_zero_stops_as_in_snowflake(code):
+    with pytest.raises(duckdb.Error, match="Division by zero"):
+        duckdb.connect().execute(sf.translate(code).duckdb_sql).fetchall()
+
+
+@pytest.mark.parametrize("code, want", [
+    ("select 7/2", 3.5), ("select div0(1, 0)", 0), ("select div0null(1, null)", 0), ("select div0(null, 0)", None),
+    ("select a / b from (select 1 as a, null as b)", None), ("select a / b from (select 1 as a, 4 as b)", 0.25),
+])
+def test_division_that_snowflake_answers_still_answers(code, want):
+    sql = sf.translate(code).duckdb_sql
+    assert duckdb.connect().execute(sql).fetchone()[0] == want
+    if code == "select 7/2":
+        assert "ERROR" not in sql.upper()  # a divisor written as a non-zero number needs no check

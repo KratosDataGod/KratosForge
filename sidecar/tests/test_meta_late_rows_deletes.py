@@ -573,7 +573,7 @@ def test_a_retry_after_a_commit_conflict_shows_one_deletes_step(tmp_path, monkey
         eng = s.engine(DAY2)
         real, tries = eng._write_once, []
 
-        def lost_race(e, df, res, backfill):
+        def lost_race(e, df, res, backfill, *, eng=eng, real=real, tries=tries):
             tries.append(1)
             if len(tries) == 1:  # compares, then another writer commits first
                 eng._gone_keys(e, df, backfill, res)

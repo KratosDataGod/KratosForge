@@ -1,0 +1,136 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E32",
+  "version": 1,
+  "status": "draft",
+  "title": "PySpark: clean, cast and join raw orders",
+  "objectives": [
+    "2.2.6"
+  ],
+  "objective_text": "Turn raw text orders into a typed Silver table with PySpark: tidy and filter on status, cast each column, drop incomplete and duplicate rows, and add each product's category with a left join.",
+  "scenario": "Orders land in the Bronze lakehouse as text, straight from a CSV export: statuses in any case with stray spaces, some rows without a date or a quantity, and a few orders sent twice. Sales wants a Silver orders table with real types, one row per completed order and each product's category, including orders for products that aren't in the product list yet.",
+  "prerequisites": [
+    "LM-08"
+  ],
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "bronze.raw_orders",
+      "rows": 9,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "bronze.products",
+      "rows": 3,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "Delta tables bronze.raw_orders and bronze.products in the exercise folder, and a starter answer.py.",
+  "required": [
+    "Only completed orders, whatever the case of status or the spaces around it.",
+    "order_id and qty are integers, order_date is a date and amount is a decimal.",
+    "No row without an order_date or a qty, and one row per order_id.",
+    "category comes from bronze.products; an order whose product isn't there keeps its row with category 'unknown'.",
+    "amount is qty times unit_price.",
+    "Write silver.orders with order_id, order_date, product_id, category, qty, amount, so that running the code again leaves the same table."
+  ],
+  "expected": {
+    "description": "silver.orders has 5 rows: orders 1, 2, 5, 7 and 8, once each; order 5's category is unknown."
+  },
+  "verifies": [
+    "Your PySpark cleans, casts, deduplicates and left-joins the exercise data and rows you haven't seen, on this PC.",
+    "silver.orders has the columns asked for, one row per order_id and no missing key values.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Fabric notebook, so it doesn't show how Spark plans the join, how it behaves on large tables, or Spark's own casting rules for text it can't parse.",
+    "That the table is a lakehouse table in OneLake: here it's a Delta table in the exercise folder on this PC.",
+    "The SQL and KQL parts of the objective, which other exercises cover."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "data": "practice",
+      "weight": 2,
+      "required": true,
+      "pass": "silver.orders holds the right rows for the practice data.",
+      "fail": "silver.orders doesn't match: check the status filter, the missing values and the join."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "data": "hidden",
+      "weight": 2,
+      "required": true,
+      "pass": "It also works on data you haven't seen.",
+      "fail": "It doesn't hold on other data: avoid relying on these exact rows."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.orders",
+      "columns": {
+        "order_id": "INTEGER",
+        "order_date": "DATE",
+        "product_id": "",
+        "category": "",
+        "qty": "INTEGER",
+        "amount": "DECIMAL"
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id",
+        "order_date",
+        "qty",
+        "category",
+        "amount"
+      ],
+      "weight": 1,
+      "required": true,
+      "pass": "The columns, types and keys are right.",
+      "fail": "A column, a type or a key is off: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it twice leaves the same table.",
+      "fail": "A second run changed the table: write with overwrite."
+    }
+  ],
+  "hints": [
+    "F.lower(F.trim(F.col(\"status\"))) turns ' Complete ' into 'complete'; filter on that.",
+    "F.col(\"qty\").cast(\"int\") and .cast(\"date\") give real types; a missing value stays null, so filter with isNotNull() after casting.",
+    "dropDuplicates([\"order_id\"]) keeps one row per order.",
+    "how=\"left\" keeps order 5, whose product isn't listed; F.coalesce(F.col(\"category\"), F.lit(\"unknown\")) labels it.",
+    "Write with mode(\"overwrite\") so a rerun replaces the table."
+  ],
+  "explanation": "Clean before you cast and filter: trim and lower status so every spelling of 'complete' matches, cast each text column to its type, then drop rows that still lack a date or a quantity. Remove the duplicate order before the join so it can't multiply, left-join products so an order for an unlisted product stays, and label its category instead of leaving it null. Compute amount from the typed columns and overwrite the table, so a rerun gives the same Silver table.",
+  "troubleshooting": [
+    "Order 2 or 8 is missing: status still has spaces or capitals; trim and lower it before filtering.",
+    "Order 5 is missing: the join is inner; use a left join.",
+    "Order 7 appears twice: drop duplicates on order_id.",
+    "The table doubles on a second run: write with mode(\"overwrite\")."
+  ],
+  "remediation": [
+    "LM-08",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset rebuilds the bronze tables from setup.sql, removes silver.orders and puts the starter back.",
+  "parity": null,
+  "review_notes": [
+    "The raw data has missing values but no unparseable text, because DuckDB's CAST raises an error where Spark (with ANSI mode off) returns null. The does_not_verify line says Spark's casting rules aren't shown."
+  ]
+}

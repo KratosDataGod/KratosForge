@@ -245,6 +245,17 @@ def test_the_session_sets_nothing_after_it_connects(monkeypatch, tmp_path):
     assert spark.conn.execute("SELECT current_setting('default_null_order')").fetchone()[0].lower() == "nulls_first_on_asc_last_on_desc"
 
 
+def test_a_join_on_a_text_key_runs(tmp_path):
+    """delta-rs reads text as string_view, and DuckDB pushes a join's key filter into the Arrow scan as
+    is_in, which pyarrow can't run on string_view: the session reads plain strings instead."""
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA b; CREATE TABLE b.o AS SELECT * FROM (VALUES (1, 'P1'), (2, 'P2'), "
+                                  "(3, 'P9')) t(id, p); CREATE TABLE b.p AS SELECT * FROM (VALUES ('P1', 'x'), ('P2', 'y')) t(p, c)")
+    spark = pyspark_shim.AcademySession(tmp_path)
+    joined = spark.read.table("b.o").join(spark.read.table("b.p"), on="p", how="inner")
+    assert sorted(r[0] for r in joined.select("id").collect()) == [1, 2]
+    assert str(pyspark_shim.read_delta(pyspark_shim.table_path(tmp_path, "b.p")).schema.field("p").type) == "string"
+
+
 # ---- reading what the answer left: checked before the engine opens it
 
 def _bronze(tmp_path):

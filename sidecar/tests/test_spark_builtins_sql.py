@@ -221,8 +221,6 @@ def test_a_selected_call_keeps_the_name_spark_gives_it():
     ("SELECT count_min_sketch(col, 0.5d, 0.5d, 1) FROM VALUES (1) AS tab(col)", "sketch"),
     ("SELECT make_ym_interval(1, 2)", "year-month"),
     ("SELECT sentences('Hi there! Good morning.')", "locale"),
-    ("SELECT try_to_number('454', '999')", "format"),
-    ("SELECT to_varchar(454, '999')", "format"),
 ])
 def test_what_cant_give_sparks_value_is_refused_by_name(query, match):
     with pytest.raises(ValueError, match=f"this PC.*{match}|{match}.*this PC"):
@@ -287,3 +285,275 @@ def test_dataframe_to_date_reads_the_format_too():
     con = duckdb.connect()
     got = con.execute(f"SELECT {query} FROM (VALUES ('2026-03-02'), ('2026-03-02 10:11:12')) AS v(t)").fetchall()
     assert got == [(None,), (dt.date(2026, 3, 2),)]
+
+
+# Spark's number format patterns (spark_number_format), with Apache Spark 3.5's values.
+@pytest.mark.parametrize("query, want, kind", [
+    ("SELECT to_number('454', '999')", Decimal("454"), "decimal(3,0)"),
+    ("SELECT to_number('454.00', '000.00')", Decimal("454.00"), "decimal(5,2)"),
+    ("SELECT to_number('12,454', '99,999')", Decimal("12454"), "decimal(5,0)"),
+    ("SELECT to_number('$78.12', '$99.99')", Decimal("78.12"), "decimal(4,2)"),
+    ("SELECT to_number('12,454.8-', '99,999.9S')", Decimal("-12454.8"), "decimal(6,1)"),
+    ("SELECT to_number('045', '000')", Decimal("45"), "decimal(3,0)"),
+    ("SELECT to_number('<45>', '999PR')", Decimal("-45"), "decimal(3,0)"),
+    ("SELECT to_number('45-', '999MI')", Decimal("-45"), "decimal(3,0)"),
+    ("SELECT to_number('1,24', '9,999')", Decimal("124"), "decimal(4,0)"),
+    ("SELECT to_number(' 45', '999')", Decimal("45"), "decimal(3,0)"),
+    ("SELECT to_number('.5', '9.9')", Decimal("0.5"), "decimal(2,1)"),
+    ("SELECT to_number('1.5', '9.99')", Decimal("1.50"), "decimal(3,2)"),
+    ("SELECT try_to_number('abc', '999')", None, "decimal(3,0)"),
+    ("SELECT try_to_number('45', '000')", None, "decimal(3,0)"),   # a run starting with 0 needs every digit
+    ("SELECT try_to_number('12454', '99,999')", None, "decimal(5,0)"),
+    ("SELECT try_to_number('$78.12', '$99.99')", Decimal("78.12"), "decimal(4,2)"),
+])
+def test_to_number_reads_sparks_number_formats(query, want, kind):
+    assert one(query) == want
+    assert one(f"SELECT typeof(x) FROM ({query}) AS t(x)") == kind
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT to_number('454', '99')",
+    "SELECT to_number('abc', '999')",
+    "SELECT to_number('', '999')",        # Spark stops on an input with no digits, try_to_number too
+    "SELECT try_to_number('', '999')",
+])
+def test_to_number_stops_where_spark_does(query):
+    with pytest.raises(duckdb.Error, match="to_number"):
+        sql.run(query)
+
+
+@pytest.mark.parametrize("fmt", ["", "abc", "9,", "9,,9", "$9$", "9.9.9", "99S9", "S9S", "9$", "PR999", "9.9,9"])
+def test_a_number_format_spark_refuses_is_refused(fmt):
+    with pytest.raises(ValueError, match="number format"):
+        sql.run(f"SELECT try_to_number('1', '{fmt}')")
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_char(454, '999')", "454"),
+    ("SELECT to_char(454.00, '000D00')", "454.00"),
+    ("SELECT to_char(12454, '99G999')", "12,454"),
+    ("SELECT to_char(78.12, '$99.99')", "$78.12"),
+    ("SELECT to_char(-12454.8, '99G999D9S')", "12,454.8-"),
+    ("SELECT to_char(454, '99')", "##"),
+    ("SELECT to_char(4, '999')", "  4"),
+    ("SELECT to_char(4, '000')", "004"),
+    ("SELECT to_char(-4, 'S999')", "  -4"),
+    ("SELECT to_char(-4, '999MI')", "  4-"),
+    ("SELECT to_char(-4, '999PR')", "  <4>"),
+    ("SELECT to_char(4.567, '9.99')", "#.##"),
+    ("SELECT to_char(0.5, '9.9')", "0.5"),
+    ("SELECT to_char(4, '9.99')", "4.00"),
+    ("SELECT to_char(1234567, '9,999,999')", "1,234,567"),
+    ("SELECT to_char(CAST(7 AS BIGINT), '999')", "  7"),
+    ("SELECT to_varchar(454, '999')", "454"),
+    ("SELECT to_char(CAST(NULL AS INT), '999')", None),
+])
+def test_to_char_writes_sparks_number_formats(query, want):
+    assert one(query) == want
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_char(4.5D, '9.9')", "4.5"),                  # Spark: a double through DECIMAL(30,15)
+    ("SELECT to_char(CAST(5e-19 AS DOUBLE), '9.99')", "0.00"),  # read through a wider decimal first
+    ("SELECT to_char(CAST(1e20 AS DOUBLE), '9.99')", None),    # beyond DECIMAL(30,15): NULL, as in Spark
+    ("SELECT to_char(CAST('NaN' AS DOUBLE), '9.9')", None),
+    ("SELECT to_char(CAST(-2.5 AS FLOAT), '9.99S')", "2.50-"),
+    ("SELECT to_char('12.5', '99.9')", "12.5"),               # text is read as DECIMAL(38,18)
+    ("SELECT to_char('x', '99.9')", None),
+    ("SELECT to_char(-12454.8, '99g999d9s')", "12,454.8-"),   # Spark reads the format in upper case
+    ("SELECT to_number('45-', '99mi')", Decimal("-45")),
+])
+def test_to_char_writes_doubles_text_and_lower_case_formats_as_spark_does(query, want):
+    assert one(query) == want
+
+
+def test_to_char_of_another_type_is_refused_by_name():
+    with pytest.raises(duckdb.Error, match="to_char.*this PC"):
+        sql.run("SELECT to_char(DATE '2024-01-01', '9.9')")
+
+
+def test_to_char_is_named_as_spark_names_it():
+    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, '999')"]
+
+
+def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():
+    # Spark joins adjacent literals, so '9''9' is the format '99' (Apache Spark 3.5.3).
+    assert one("SELECT try_to_number('12', '9''9')") == Decimal("12")
+    assert one("SELECT to_char(12, '9''9')") == "12"
+    with pytest.raises(ValueError, match="number format 'A9' isn't valid"):
+        sql.run("SELECT try_to_number('1', 'a''9')")
+
+
+# ---- binary literals written X '..', bitmaps, and tumbling time windows (Spark 3.5's values)
+
+def test_a_hex_literal_with_a_space_reads_as_spark_reads_it():
+    assert rows("SELECT hex(X '1010'), hex(x  'ff'), hex(X'10'), 'X' 'a'") == [("1010", "FF", "10", "Xa")]
+    with pytest.raises(ValueError, match="Could not read the query"):
+        sql.run("SELECT X 'zz'")  # not hex: the error names the query as written
+
+
+def test_bitmap_count_and_bitmap_or_agg():
+    assert one("SELECT bitmap_count(X '1010')") == 2
+    assert rows("SELECT bitmap_count(X''), bitmap_count(NULL)") == [(0, None)]
+    assert one("SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)") == "700000"
+    # Spark's bitmap is 4096 bytes: shorter ones are ORed into its first bytes, and NULLs are skipped.
+    assert rows("SELECT octet_length(bitmap_or_agg(c)), substring(hex(bitmap_or_agg(c)), 1, 4) "
+                "FROM VALUES (CAST(NULL AS BINARY)), (X'01'), (X'0102') t(c)") == [(4096, "0102")]
+    assert one("SELECT bitmap_count(bitmap_or_agg(m)) FROM (SELECT bitmap_construct_agg(c) m FROM VALUES (1), (2) t(c) "
+               "UNION ALL SELECT bitmap_construct_agg(c) FROM VALUES (2), (3) t(c))") == 3
+
+
+_TIMES = "VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b)"
+
+
+def test_window_groups_rows_into_tumbling_windows():
+    t = dt.datetime
+    assert rows(f"SELECT a, window.start, window.end, count(*) as cnt FROM {_TIMES} "
+                "GROUP by a, window(b, '5 minutes') ORDER BY a, start") == [
+        ("A1", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), 2), ("A1", t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 10), 1),
+        ("A2", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), 1)]
+    assert rows(f"SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, "
+                f"count(*) as cnt FROM {_TIMES} GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)") == [
+        ("A1", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 4, 59, 999999), 2),
+        ("A1", t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 10), t(2021, 1, 1, 0, 9, 59, 999999), 1),
+        ("A2", t(2021, 1, 1, 0, 0), t(2021, 1, 1, 0, 5), t(2021, 1, 1, 0, 4, 59, 999999), 1)]
+    # window(...) first in GROUP BY, an 'interval ...' duration, and HAVING
+    assert rows(f"SELECT window.start, count(*) FROM {_TIMES} GROUP BY window(b, 'interval 5 minutes') "
+                "HAVING count(*) > 1") == [(t(2021, 1, 1, 0, 0), 3)]
+    # a selected window is a struct named window; rows whose time is NULL or not a time are skipped, as in Spark
+    result = sql.run("SELECT window(b, '1 hour') FROM VALUES ('2021-01-01 10:30:00'), (NULL), ('junk') t(b)")
+    assert result.column_names == ["window"]
+    assert result.to_pylist() == [{"window": {"start": t(2021, 1, 1, 10, 0), "end": t(2021, 1, 1, 11, 0)}}]
+
+
+@pytest.mark.parametrize("query, match", [
+    ("SELECT window(b, '10 minutes', '5 minutes') FROM VALUES ('2021-01-01') t(b)", "sliding"),
+    ("SELECT window(b, '1 month') FROM VALUES ('2021-01-01') t(b)", "duration"),
+    ("SELECT window(b, d) FROM VALUES ('2021-01-01', '5 minutes') t(b, d)", "duration"),
+    ("SELECT session_window(b, '5 minutes') FROM VALUES ('2021-01-01') t(b)", "session windows"),
+])
+def test_windows_this_pc_cant_match_are_refused(query, match):
+    with pytest.raises(ValueError, match=f"this PC.*{match}|{match}.*this PC"):
+        sql.run(query)
+
+
+def test_window_counts_from_1970_utc_in_the_sessions_time_zone():
+    from fabric_desktop import spark_local
+    spark_local._alias_pyspark()
+    spark = spark_local.session()
+    zone = spark.conf.get("spark.sql.session.timeZone")
+    spark.conf.set("spark.sql.session.timeZone", "America/Los_Angeles")
+    try:
+        got = spark.sql("SELECT window(b, '1 day') AS w FROM VALUES ('2021-01-01 10:00:00'), ('2021-03-14 10:00:00') t(b)").collect()
+    finally:
+        spark.conf.set("spark.sql.session.timeZone", zone)
+    t = dt.datetime
+    # a day's window starts at 00:00 UTC (16:00 the day before in Los Angeles) and lasts 86,400 seconds,
+    # also on 14 March 2021, when Los Angeles moved its clocks forward
+    assert [tuple(r.w) for r in got] == [(t(2020, 12, 31, 16, 0), t(2021, 1, 1, 16, 0)),
+                                        (t(2021, 3, 13, 16, 0), t(2021, 3, 14, 17, 0))]
+
+
+
+
+# parse_url, with the values Apache Spark 3.5 gave (it reads the text with java.net.URI, and a URL
+# URI refuses is NULL).
+@pytest.mark.parametrize("url, part, want", [
+    ("http://spark.apache.org/path?query=1", "HOST", "spark.apache.org"),
+    ("http://spark.apache.org/path?query=1", "FILE", "/path?query=1"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "AUTHORITY", "user:pw@www.example.com:8080"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "USERINFO", "user:pw"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "REF", "frag"),
+    ("https://user:pw@www.example.com:8080/a/b.html?x=1&y=2&x=3#frag", "PROTOCOL", "https"),
+    ("http://host", "PATH", ""),
+    ("http://host?q", "FILE", "?q"),
+    ("file:///tmp/x.txt", "HOST", None),
+    ("file:///tmp/x.txt", "PATH", "/tmp/x.txt"),
+    ("mailto:someone@example.com", "PROTOCOL", "mailto"),
+    ("mailto:someone@example.com", "PATH", None),
+    ("/rel/path?q=1#f", "QUERY", "q=1"),
+    ("//host/p?x=1", "HOST", "host"),
+    ("http://my_host/p", "HOST", None),           # not a host name: URI reads it as a registry authority
+    ("http://my_host/p", "AUTHORITY", "my_host"),
+    ("http://999.1.1.1/p", "HOST", None),
+    ("http://10.0.0.1:80/p", "HOST", "10.0.0.1"),
+    ("http://host:/p", "AUTHORITY", "host:"),
+    ("http://user@/p", "USERINFO", None),
+    ("http://host/p%20a", "PATH", "/p%20a"),
+    ("http://host/é", "PATH", "/é"),
+    ("http://h/p?k=v#x?y", "REF", "x?y"),
+    ("abfss://c@acct.dfs.core.windows.net/path/x", "USERINFO", "c"),
+    ("http://host/p a", "HOST", None),            # URI refuses these, so Spark gives NULL
+    ("http://host/p%zz", "PATH", None),
+    ("http://host/p[1]", "PATH", None),
+    ("http://host/p#a#b", "REF", None),
+    ("1http://x", "PATH", None),
+    ("http:", "PROTOCOL", None),
+    ("http://h/p?x=1", "host", None),             # the part is case-sensitive
+])
+def test_parse_url_gives_sparks_value(url, part, want):
+    assert one(f"SELECT parse_url('{url}', '{part}')") == want
+
+
+@pytest.mark.parametrize("url, key, want", [
+    ("http://h/p?x=1&y=2&x=3", "x", "1"),
+    ("http://h/p?ak=1&k=2", "k", "2"),
+    ("http://h/p?K=1", "k", None),
+    ("http://h/p?k=v=w", "k", "v=w"),
+    ("http://h/p?=1&k=", "k", ""),
+    ("http://h/p?axb=1", "a.b", "1"),             # Spark reads the key as a pattern; . matches any one
+    ("http://h/p?k-1=v&k_2=w", "k-1", "v"),
+    ("mailto:x?k=1", "k", None),
+])
+def test_parse_url_query_key_gives_sparks_value(url, key, want):
+    assert one(f"SELECT parse_url('{url}', 'QUERY', '{key}')") == want
+
+
+def test_parse_url_of_a_column_and_nulls():
+    got = rows("SELECT parse_url(u, 'HOST') FROM VALUES ('http://a.com/x'), (NULL), ('http://b.org') AS t(u)")
+    assert got == [("a.com",), (None,), ("b.org",)]
+    assert one("SELECT parse_url('http://h/p?x=1', NULL)") is None
+    assert one("SELECT parse_url('http://h/p?x=1', 'QUERY', NULL)") is None
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT parse_url('http://[::1]:80/p', 'HOST')",
+    "SELECT parse_url('http://h/p?a[]=1', 'QUERY', 'a[]')",
+])
+def test_parse_url_refuses_what_could_differ_by_name(query):
+    with pytest.raises(duckdb.Error, match="parse_url.*this PC"):
+        sql.run(query)
+
+
+# EXTRACT and date_part as Spark 3.5 answers them: 2019-08-12 is a Monday, the day of the week counts
+# from Sunday = 1 (ISO from Monday = 1), seconds keep their fraction as decimal(8,6), the other fields
+# are int, and Spark's TIMESTAMP (read as TIMESTAMPTZ) is read in the session's zone, UTC.
+@pytest.mark.parametrize("query, want, kind", [
+    ("SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')", 2019, "int"),
+    ("SELECT extract(HOUR FROM CAST('2019-08-12 23:00:00' AS TIMESTAMP))", 23, "int"),
+    ("SELECT extract(DOW FROM DATE '2019-08-12')", 2, "int"),
+    ("SELECT extract(DAYOFWEEK FROM TIMESTAMP '2019-08-18 10:00:00')", 1, "int"),
+    ("SELECT extract(DOW_ISO FROM DATE '2019-08-18')", 7, "int"),
+    ("SELECT extract(SECONDS FROM TIMESTAMP '2019-10-01 00:00:01.000001')", Decimal("1.000001"), "decimal(8,6)"),
+    ("SELECT extract(S FROM TIMESTAMP '2019-10-01 00:00:59.999999')", Decimal("59.999999"), "decimal(8,6)"),
+    ("SELECT extract(SECOND FROM DATE '2019-10-01')", Decimal("0"), "decimal(8,6)"),
+    ("SELECT extract(WEEK FROM DATE '2019-08-12')", 33, "int"),
+    ("SELECT extract(YEAR FROM '2019-08-12')", 2019, "int"),
+    ("SELECT extract(YEAR FROM 'not a date')", None, "int"),
+    ("SELECT date_part('DOW', DATE '2019-08-12')", 2, "int"),
+    ("SELECT datepart('SECONDS', TIMESTAMP '2019-10-01 00:00:01.000001')", Decimal("1.000001"), "decimal(8,6)"),
+    ("SELECT date_part('YEAR', TIMESTAMP '2019-10-01 00:00:01')", 2019, "int"),
+])
+def test_extract_and_date_part_give_sparks_value_and_type(query, want, kind):
+    assert one(query) == want
+    assert one(f"SELECT typeof(x) FROM ({query}) AS t(x)") == kind  # Spark's typeof
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')", 1460073600),
+    ("SELECT to_unix_timestamp('04/08/2016 01:02:03', 'MM/dd/yyyy HH:mm:ss')", 1460077323),
+    ("SELECT to_unix_timestamp('2016-04-08 10:11:12')", 1460110272),
+    ("SELECT to_unix_timestamp('2016/04/08', 'yyyy-MM-dd')", None),
+])
+def test_to_unix_timestamp_reads_its_format_as_unix_timestamp_does(query, want):
+    assert one(query) == want

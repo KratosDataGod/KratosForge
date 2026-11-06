@@ -23,8 +23,9 @@ from typing import Any
 from . import credman, sealed_settings
 from .dataops_service import post_teams
 from .redact import secrets
+from .sqlitefile import transaction
 from .workloads import deliver
-from .workloads.notify import Outbox, transaction
+from .workloads.notify import Outbox
 from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open",

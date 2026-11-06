@@ -17,7 +17,7 @@ There is no installer, store or package feed. The product is two files published
 | `fabric-desktop-engine-update.zip` | Only the engine's own files (`fabric_desktop`, its dist-info and launcher, and `engine.json`), a few MB. A PC whose installed engine has the same runtime key (the same Python and packages) updates from this instead of the whole engine (`app/src-tauri/src/engine_patch.rs`) | CI `engine` job on Windows |
 | `version.json` | The build's commit, What's new notes, 30 days of history, the SHA-256 of the exe, engine and engine update, and the engine's runtime key (`.github/scripts/engine_runtime.py`) | CI `release` job |
 | SBOMs | `sbom-app.cdx.json`, `sbom-engine.cdx.json` (CycloneDX) | CI `sbom-app` and `engine` jobs |
-| `kratosforge.vsix` | The KratosForge extension for VS Code (`vscode/`), version `0.1.<run number>` so a newer file updates an installed one. Preview and per-build releases only; Promote doesn't copy it to Stable yet | CI `vscode-extension` job, `npm run package` |
+| `kratosforge.vsix` | The KratosForge extension for VS Code (`vscode/`), version `0.1.<run number>` so a newer file updates an installed one. On Preview and each per-build release; its SHA-256 is `vsix_sha256` in `version.json`, and Promote copies it to Stable after checking it | CI `vscode-extension` job, `npm run package` |
 
 The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and started in CI but not published anywhere. The docs site is published to GitHub Pages by `docs.yml` on every merge that touches `docs/`.
 

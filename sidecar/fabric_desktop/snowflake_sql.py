@@ -556,7 +556,7 @@ _AS_KINDS: dict[str, tuple[tuple[str, ...], str | None]] = {
 _DECIMAL_FAMILY = frozenset({"IS_DECIMAL", "AS_DECIMAL", "AS_NUMBER"})
 
 
-def _with_value(template: str, value: exp.Expression) -> exp.Expression:
+def _with_value(template: str, value: exp.Expression) -> exp.Expr:
     """``template`` (DuckDB SQL) with every __sf_v replaced by a copy of ``value``'s tree."""
     tree = sqlglot.parse_one(template, read="duckdb")
     for column in list(tree.find_all(exp.Column)):

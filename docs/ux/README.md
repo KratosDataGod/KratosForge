@@ -13,6 +13,7 @@ This folder is the user experience and simplicity oversight for KratosForge. It 
 | [Backlog and PR specifications](backlog.md) | The top 20 simplification opportunities (UX-001 to UX-020), grouped into focused pull requests |
 | [Action-first experience](action-first.md) | The action-first standard, review checklist, measured baseline and backlog (AF-n) |
 | [Usability release gates and PR reviews](release-review.md) | The UX review format for the Release Manager, the usability gates, and reviews of open pull requests |
+| [Narrator checklist](narrator-checklist.md) | The 20-minute Narrator pass on Windows (EA-030): what to listen for on each rail page, the main dialogs and the messages that appear on their own |
 
 ## How this audit was done
 

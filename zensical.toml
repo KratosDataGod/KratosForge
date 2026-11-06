@@ -101,6 +101,7 @@ nav = [
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
     { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },
     { "Running pipelines on your PC" = "orchestration/local-runs.md" },
+    { "Local pipeline coverage" = "orchestration/coverage.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Tenant smoke test" = "product/smoke-test/README.md" },

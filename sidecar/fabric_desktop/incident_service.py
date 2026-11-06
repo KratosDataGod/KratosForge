@@ -78,7 +78,7 @@ class IncidentMixin:
     def _agent_records(self) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
         """Each environment's agent status records, and whether each environment could be read."""
         by_env: dict[str, list[dict[str, Any]]] = {}
-        envs = []
+        envs: list[dict[str, Any]] = []
         for env in ENVIRONMENTS:
             try:
                 by_env[env] = read_status(self._incident_log(env).backend)
@@ -155,7 +155,7 @@ class IncidentMixin:
     def incidents_summary(self, workload: str = "") -> dict[str, Any]:
         """Active incidents per environment, for the environment chips and a workload's page. With
         ``workload``, only that workload's. An environment that can't be read says so."""
-        envs = []
+        envs: list[dict[str, Any]] = []
         for env in ENVIRONMENTS:
             try:
                 items = self._incident_log(env).active()

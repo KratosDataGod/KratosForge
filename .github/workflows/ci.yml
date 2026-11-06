@@ -114,8 +114,13 @@ jobs:
         if: env.RUN_TESTS == 'true'
       # One worker per core (pytest-xdist); loadfile keeps each test file in one worker, since some
       # files share module-level state. --durations lists the slowest tests, so slow ones stay visible.
+      # On Windows the default temp folder is on the C: drive, where a SQLite commit measured about
+      # 100 ms against under 2 ms in the runner's own temp folder on D:, so tests use that one.
       - run: python -m pytest -q -n auto --dist loadfile --durations=25
         if: env.RUN_TESTS == 'true'
+        env:
+          TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
+          TEMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
         if: env.RUN_TESTS == 'true'

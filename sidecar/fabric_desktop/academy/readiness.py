@@ -6,7 +6,8 @@ number:
 
     knowledge         assessment items answered correctly, of those answered (academy.assessment rows)
     guided            guided exercises passed
-    independent       challenge exercises passed with at most one hint and the explanation closed
+    independent       challenge exercises passed with at most one hint, the explanation closed and (a quiz)
+                      no checked answer changed before the pass
     troubleshooting   broken environments repaired
     platform_verified exercises passed in the learner's own workspace on the platform (FABRIC VERIFIED,
                       DATABRICKS VERIFIED)
@@ -104,7 +105,7 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
             elif mode == "troubleshoot":
                 a["troubleshooting"].add(eid)
             elif mode == "challenge" and int(detail.get("hints_used") or 0) <= INDEPENDENT_MAX_HINTS \
-                    and not detail.get("explanation_seen"):
+                    and not detail.get("explanation_seen") and not detail.get("answers_changed"):
                 a["independent"].add(eid)
     out = []
     for o in objs:

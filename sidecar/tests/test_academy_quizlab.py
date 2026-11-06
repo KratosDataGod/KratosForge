@@ -221,3 +221,29 @@ def test_start_answer_check_explain_and_reset(svc):
 def test_other_exercises_carry_no_quiz(svc, monkeypatch):
     monkeypatch.undo()
     assert AcademyMixin.academy_exercise(svc, "dp-700", "E37")["quiz"] is None
+
+
+def test_changed_compares_like_the_scoring_rule():
+    assert not quizlab.changed(QUESTIONS, {"q2": ["a", "b"]}, {"q2": ["b", "a"]})   # a pick set, any order
+    assert quizlab.changed(QUESTIONS, {"q3": ["b", "c", "a"]}, {"q3": ["c", "b", "a"]})   # an order is an order
+    assert quizlab.changed(QUESTIONS, {"q1": ["a"]}, {"q1": ["b"]})
+    assert quizlab.changed(QUESTIONS, {"q1": ["a"]}, {})
+    assert not quizlab.changed(QUESTIONS, {"zz": ["a"]}, {})
+
+
+def test_changing_a_checked_answer_makes_the_pass_not_independent(svc):
+    svc.academy_start(PACK, EID)
+    # Answer q1 only, check, then answer the rest: q1 never changed, so the pass is independent.
+    assert not svc.academy_validate(PACK, EID, json.dumps({"q1": ["b"]}))["passed"]
+    res = svc.academy_validate(PACK, EID, json.dumps(KEY))
+    assert res["passed"] and not res["answers_changed"] and "answers_changed" not in svc.rows[-1]["detail"]
+
+    svc.academy_reset(PACK, EID)
+    # A wrong answer checked, then changed until the count moves: the pass still counts, but not as independent.
+    assert not svc.academy_validate(PACK, EID, json.dumps({**KEY, "q1": ["a"]}))["passed"]
+    res = svc.academy_validate(PACK, EID, json.dumps(KEY))
+    assert res["passed"] and res["answers_changed"] and svc.rows[-1]["detail"]["answers_changed"] is True
+    # Sticky until Reset, even after a later pass.
+    assert svc.academy_validate(PACK, EID, json.dumps(KEY))["answers_changed"]
+    svc.academy_reset(PACK, EID)
+    assert not lab.state(svc.root, PACK, EID).get("answers_changed")

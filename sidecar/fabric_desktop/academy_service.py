@@ -85,7 +85,8 @@ class AcademyMixin:
         if result["passed"]:
             try:
                 row = progress.from_academy(result, exercises.get(pid, eid), registry.certification(pid),
-                                            hints_used=result["hints_used"], explanation_seen=result["explanation_seen"])
+                                            hints_used=result["hints_used"], explanation_seen=result["explanation_seen"],
+                                            answers_changed=result.get("answers_changed", False))
                 self._progress_record(row)  # type: ignore[attr-defined]
                 result["recorded"] = row is not None
             except Exception as exc:  # noqa: BLE001 - the profile must never change the validation's result

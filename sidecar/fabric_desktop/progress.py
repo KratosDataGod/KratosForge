@@ -249,11 +249,12 @@ def from_fix(rule_id: str, area: str, compared: dict[str, Any], runs: dict[str, 
 
 
 def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification: dict[str, Any], hints_used: int = 0,
-                 explanation_seen: bool = False, origin: str = "live") -> dict[str, Any] | None:
+                 explanation_seen: bool = False, origin: str = "live", answers_changed: bool = False) -> dict[str, Any] | None:
     """The evidence row for an Academy exercise whose validation all passed (ACD-006, rules v4), or None.
     Only published exercises count. The row keeps the certification and the version of its study guide,
     the objectives, the exercise's verification class and mode, hints used and whether the explanation was
-    open; never the answer or the data. Passing again on the same day adds nothing; on a later day it adds
+    open, and for a quiz whether checked answers were changed before the pass; never the answer or the data.
+    Passing again on the same day adds nothing; on a later day it adds
     a row, which is what retention reads. Rows are never changed when a new study guide version comes out."""
     if not result.get("passed") or exercise.get("status") != "live" or not result.get("results"):
         return None
@@ -267,7 +268,8 @@ def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification
             "detail": {"certification": pack, "certification_version": certification["version"],
                        "objectives": [str(o) for o in exercise.get("objectives") or []], "class": exercise["class"],
                        "mode": exercise["mode"], "hints_used": max(0, int(hints_used)),
-                       "explanation_seen": bool(explanation_seen), "checks": kinds},
+                       "explanation_seen": bool(explanation_seen), "checks": kinds,
+                       **({"answers_changed": True} if answers_changed else {})},
             "measurement": None, "dimensions": list(EVENT_DIMENSIONS["academy.exercise"]),
             "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 

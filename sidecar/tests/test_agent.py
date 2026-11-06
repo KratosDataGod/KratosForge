@@ -509,6 +509,22 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
             pass
 
 
+def test_a_lease_change_windows_keeps_refusing_leaves_the_lease_and_no_temporary_file(tmp_path, monkeypatch):
+    from fabric_desktop import leases
+    backend = LocalBackend(tmp_path / "leases")
+    etag = backend.create("LH_Silver/dbo.orders", b"agent-a")
+
+    def refused(src, dst):
+        raise PermissionError("[WinError 32] The process cannot access the file")
+    monkeypatch.setattr(leases.os, "replace", refused)
+    monkeypatch.setattr(leases.time, "sleep", lambda s: None)
+    with pytest.raises(PermissionError):
+        backend.replace("LH_Silver/dbo.orders", b"agent-a renewed", etag)
+    monkeypatch.undo()
+    assert not [p.name for p in (tmp_path / "leases").rglob("*.tmp")]
+    assert backend.read("LH_Silver/dbo.orders").data == b"agent-a"
+
+
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
     backend = LocalBackend(tmp_path / "leases")
     order, waiting = [], threading.Event()
@@ -866,15 +882,17 @@ def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatc
     assert Engine(project, store).run("bronze.orders").status == "ok"
     e = project.entities["bronze.orders"]
     lh = project.layer(e.layer).lakehouse
-    real_read, raced = store.read_at, []
+    # A full load replaces every row, so it reads only the table's schema and version (schema_at).
+    real_read, raced = store.schema_at, []
     first = real_read(lh, e.schema, e.table)[1]
 
     def read_then_other_writer_commits(lakehouse, schema, table):
         out = real_read(lakehouse, schema, table)
         if table == e.table and not raced:
             raced.append(True)
-            other = out[0].head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
-            store.write(lakehouse, schema, table, pl.concat([out[0], other], how="diagonal_relaxed"))
+            rows = store.read(lakehouse, schema, table)
+            other = rows.head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
+            store.write(lakehouse, schema, table, pl.concat([rows, other], how="diagonal_relaxed"))
         return out
     real_write, outcomes = store.write, []
 
@@ -887,7 +905,7 @@ def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatc
         if table == e.table and "read_version" in kw:
             outcomes.append(("ok", kw["read_version"], v))
         return v
-    monkeypatch.setattr(store, "read_at", read_then_other_writer_commits)
+    monkeypatch.setattr(store, "schema_at", read_then_other_writer_commits)
     monkeypatch.setattr(store, "write", write)
     monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda s: None)
     res = Engine(project, store).run("bronze.orders")

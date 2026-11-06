@@ -1,0 +1,51 @@
+{
+  "_about": "A model of the GRANT SELECT statements on the HR warehouse. grants maps each role to the tables it may SELECT from and the columns it gets: [\"*\"] for every column, a list of names for column-level security, or no entry for no access to that table.",
+  "warehouse": "HR",
+  "tables": {
+    "Employees": [
+      "EmployeeID",
+      "FullName",
+      "Department",
+      "Email",
+      "HireDate",
+      "Salary",
+      "BankAccount"
+    ],
+    "SalaryHistory": [
+      "EmployeeID",
+      "EffectiveDate",
+      "Salary"
+    ]
+  },
+  "needs": {
+    "HRManagers": "Everything in both tables.",
+    "Analysts": "Headcount and tenure reports from Employees. Must never see Salary, BankAccount or anything in SalaryHistory.",
+    "PayrollApp": "Only EmployeeID, Salary and BankAccount from Employees. Nothing else."
+  },
+  "grants": {
+    "HRManagers": {
+      "Employees": [
+        "*"
+      ],
+      "SalaryHistory": [
+        "*"
+      ]
+    },
+    "Analysts": {
+      "Employees": [
+        "EmployeeID",
+        "FullName",
+        "Department",
+        "Email",
+        "HireDate"
+      ]
+    },
+    "PayrollApp": {
+      "Employees": [
+        "EmployeeID",
+        "Salary",
+        "BankAccount"
+      ]
+    }
+  }
+}

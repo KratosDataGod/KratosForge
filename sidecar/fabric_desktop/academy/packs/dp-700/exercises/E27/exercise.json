@@ -1,0 +1,49 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [
+    "LM-06",
+    "LM-23"
+  ],
+  "id": "E27",
+  "title": "Lakehouse, warehouse, eventhouse or SQL database: choose the store",
+  "objectives": [
+    "2.2.1"
+  ],
+  "objective_text": "Choose the Fabric data store for five workloads by their data, language and transaction needs, and say why.",
+  "scenario": "Northgate is moving five workloads into Fabric: machine telemetry, an order-entry app, finance reporting, a data science project and a set of read-only SQL users.",
+  "minutes": 15,
+  "verifies": [
+    "You can pick the right tool or store for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can build it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 5 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-lakehouse-warehouse"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-06."
+  ]
+}

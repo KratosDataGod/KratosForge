@@ -200,6 +200,25 @@ def test_the_last_good_read_is_shown_as_cached_then_stale(svc, project, monkeypa
     assert next(s for s in page["sources"] if "Test" in s["source"])["state"] == "stale"
 
 
+def test_a_cached_read_whose_time_cant_be_read_is_read_again_or_shown_stale(svc, project, monkeypatch):
+    _test_env(svc, project)
+    signed_in(svc)
+    name = sorted(project.entities)[0]
+    runs = [{"run_id": "r1", "entity": name, "status": "ok", "started_at": "2026-10-16T06:00:00+00:00", "seconds": 1}]
+    _inject(svc, monkeypatch, "test", runs)
+    everything(svc, refresh=True)
+    payload = svc.workload_store.cache_get("meta:proj:test")["payload"]
+    svc.workload_store.cache_put("meta:proj:test", payload, collected_at="not a time")
+    page = everything(svc)  # not a refresh: a cached read with no usable time isn't trusted as fresh
+    assert next(s for s in page["sources"] if "Test" in s["source"])["state"] == "live"
+    svc.workload_store.cache_put("meta:proj:test", payload, collected_at="not a time")
+    _inject(svc, monkeypatch, "test", error=ConnectionError("Failed to establish a new connection"))
+    page = everything(svc)
+    obs = next(s for s in page["sources"] if "Test" in s["source"])
+    assert obs["state"] == "stale" and obs["age_seconds"] is None
+    assert by_name(page)[name]["health"] == "healthy"
+
+
 # --------------------------------------------------------------------------- notebooks and Fabric items
 
 

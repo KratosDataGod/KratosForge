@@ -256,11 +256,13 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-116](PRODUCT_BACKLOG.md#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | 4 | 1 | 3 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | none | Fabric and Databricks unified development |
 | [PB-130](PRODUCT_BACKLOG.md#pb-130) | Data product promises, status and change windows | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-002 | Data mesh |
 
-### P3 (19 items)
+### P3 (21 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-118](PRODUCT_BACKLOG.md#pb-118) | Databricks notebook conversion says what it could not carry over | 3 | 1 | 2 | 2 | 3 | 2 | 2 | 2.2 | 2.0 | 1.76 | none | S | Medium | none | Fabric and Databricks unified development |
+| [PB-132](PRODUCT_BACKLOG.md#pb-132) | Choose a skin's colors and rail separately | 3 | 1 | 2 | 3 | 4 | 3 | 2 | 2.5 | 2.5 | 1.75 | none | M | Medium | none | Platform skins |
+| [PB-133](PRODUCT_BACKLOG.md#pb-133) | Import and export skins in Settings | 3 | 1 | 2 | 3 | 4 | 3 | 2 | 2.5 | 2.5 | 1.75 | none | S | Medium | none | Platform skins |
 | [PB-092](PRODUCT_BACKLOG.md#pb-092) | Shared workload ownership | 2 | 1 | 4 | 2 | 3 | 3 | 2 | 2.45 | 2.5 | 1.72 | none | M | Medium | none | Workload management |
 | [PB-107](PRODUCT_BACKLOG.md#pb-107) | Data Factory program | 4 | 4 | 4 | 4 | 5 | 5 | 3 | 4.15 | 4.0 | 1.66 | none | XL | Medium | PB-037 | Build full Data Factory experience |
 | [PB-100](PRODUCT_BACKLOG.md#pb-100) | Fuller What's new dialog | 2 | 1 | 2 | 1 | 2 | 1 | 1 | 1.65 | 1.0 | 1.65 | none | S | Medium | none | Fuller What's new dialog |

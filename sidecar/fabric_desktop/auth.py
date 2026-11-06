@@ -27,13 +27,17 @@ from urllib.parse import urlsplit
 
 import msal
 
-from . import dpapi, jsonfile
+from . import dpapi, http_session, jsonfile
 from .leases import _file_lock
 from .redact import describe
 
 _log = logging.getLogger(__name__)
 
 AUTHORITY = "https://login.microsoftonline.com/organizations"
+# Seconds MSAL waits for each sign-in call to Entra (MSAL's own default is to wait forever, so a
+# proxy that swallows the call hung sign-in with no message). The browser or Windows prompt itself
+# isn't bounded by this: only the calls MSAL makes.
+SIGN_IN_TIMEOUT = http_session.DEFAULT_TIMEOUT
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
 MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
@@ -371,12 +375,13 @@ class Authenticator:
         if self.microsoft and _broker_available():
             try:
                 self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
-                                                        enable_broker_on_windows=True)
+                                                        enable_broker_on_windows=True, timeout=SIGN_IN_TIMEOUT)
                 self.broker = True
             except Exception as exc:  # noqa: BLE001  # the broker's runtime failed to load: sign in with the browser
                 _log.warning("Windows sign-in broker didn't start; using the browser: %s", describe(exc))
         if not self.broker:
-            self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache)
+            self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
+                                                    timeout=SIGN_IN_TIMEOUT)
 
     def scopes_for(self, scopes: list[str]) -> list[str]:
         """What to ask for: the narrow scopes for an organization's own app; for Microsoft's app,

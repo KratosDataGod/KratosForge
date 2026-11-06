@@ -227,3 +227,42 @@ def test_some_addresses_refused_still_counts_as_sent_so_nobody_gets_it_twice(mon
     monkeypatch.setattr(FakeSMTP, "send_message", lambda self, msg, from_addr=None, to_addrs=None: {"bad@contoso.com": (550, b"no")})
     deliver.send_email(MAIL, "pw", ["a@contoso.com", "bad@contoso.com", "c@contoso.com"], "t", [], smtp=Lib)
     assert "refused 1 of 3 addresses" in caplog.text and "bad@contoso.com" not in caplog.text
+
+
+# ---- the remaining error paths and bounds
+
+def test_a_flow_that_answers_badly_raises_so_the_outbox_keeps_the_message():
+    class Http:
+        def post(self, url, json=None, timeout=None, allow_redirects=True):
+            return type("R", (), {"status_code": 302})()  # a redirect isn't followed: not sent
+
+    with pytest.raises(RuntimeError, match="^The flow answered 302$"):
+        deliver.post_flow("https://prod-1.westus.logic.azure.com/w", "t", ["l"], http=Http())
+
+
+def test_an_untrusted_certificate_sends_nothing_and_says_so():
+    FakeSMTP.fail = ssl.SSLCertVerificationError("self-signed certificate")
+    with pytest.raises(RuntimeError, match="certificate isn't trusted by Windows, so nothing was sent"):
+        deliver.send_email(MAIL, "pw", ["a@contoso.com"], "t", [], smtp=Lib)
+
+
+def test_an_email_shows_twenty_lines_and_says_how_many_more():
+    msg = deliver.email("kf@contoso.com", ["a@contoso.com"], "Subject\nBcc: x@evil.com", [f"line {n}" for n in range(25)])
+    body = msg.get_content()
+    assert "line 19" in body and "line 20" not in body and "and 5 more in KratosForge" in body
+    assert msg["Subject"] == "Subject Bcc: x@evil.com" and msg["To"] == "kf@contoso.com"  # one line: no header added
+    assert len(deliver.flow_body("t", ["x" * 600] * 25)["lines"]) == 20
+    assert all(len(line) <= deliver.LINE_MAX for line in deliver.flow_body("t", ["x" * 600])["lines"])
+
+
+def test_a_port_that_isnt_a_usable_number_is_refused_and_a_broken_mailto_labels_as_email():
+    for port, says in (("smtp", "The port is a number, such as 587"), (70000, "from 1 to 65535"), (0, None)):
+        raw = {"host": "smtp.contoso.com", "port": port, "sender": "a@contoso.com"}
+        if says is None:  # 0 or empty means the default
+            assert deliver.MailServer.parse(raw).port == 587
+        else:
+            with pytest.raises(ValueError, match=says):
+                deliver.MailServer.parse(raw)
+    assert deliver.label("mailto:not-an-address") == "Email"
+    assert deliver.label("mailto:a@contoso.com;b@contoso.com") == "2 people; set the company mail server to send"
+    assert deliver.label("mailto:a@contoso.com", MAIL) == "1 person, through smtp.contoso.com"

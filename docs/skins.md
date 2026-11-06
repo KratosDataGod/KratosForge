@@ -27,11 +27,11 @@ are kept apart for that reason; they can be merged when a design review agrees t
 matter.
 
 A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-soft-4`, `--warn-soft-5`, `--warn-soft-7` to `--warn-soft-9`, `--warn-ink-2`,
-`--ok-ink`, `--danger-ink`, `--code-ref` and others) holds shades that more than one rule shared. They
+`--ok-ink`, `--danger-ink`, `--code-ref`, the syntax colors (`--code-keyword`, `--code-string`, `--code-function`, `--code-comment`, `--code-number`, `--code-builtin`), `--text-disabled`, `--bar-neutral` and others) holds shades that more than one rule shared. They
 are not in the table above, so a skin can't set them yet; dark mode will need them added once the
 near-duplicates among them are merged.
 
-74 colors are still written straight into rules (shades used once, the splash screen and the
+50 colors are still written straight into rules (shades used once, the splash screen and the
 celebration effects). A test in `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a
 token, or adds one to `:root`.
 
@@ -85,8 +85,8 @@ Preview features are shown, and an administrator's policy can lock it.
 |---|---|
 | KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
 | Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
-| Databricks-familiar | A blue accent, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. A dark version follows the mockup and shows once dark mode lands. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
-| Snowflake-familiar | A blue accent and light surfaces, and Worksheets, Data, Load and create and Monitoring at the top of the rail, in that order, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
+| Databricks-familiar | A blue accent, with the active rail item's stripe in the same blue, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. A dark version follows the mockup and shows once dark mode lands. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
+| Snowflake-familiar | A blue accent and light surfaces, with the active rail item's stripe in the same blue, and Worksheets, Data, Load and create and Monitoring at the top of the rail, in that order, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
 services, Learn), at most 8 main pages in the rail, and Settings at the bottom. In a platform skin, KratosForge's own

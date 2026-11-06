@@ -28,6 +28,7 @@ Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -539,6 +540,8 @@ class LiveTest:
         uri, opts = self.table_access(ref)
         change = delta_dml.parse("MERGE INTO dbo.livetest_merge AS t USING s ON t.id = s.id "
                                  "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *")
+        if change is None:
+            raise RuntimeError("The test's MERGE statement couldn't be read")
         source = pa.table({"id": [2, 4], "amount": [200, 40]})
         # The same lease the write path takes on this table, so no other KratosForge writer overlaps.
         with leases.table_lease(self.lease_backend(), "dbo", "livetest_merge", owner=f"live test {self.run_id}"):
@@ -694,7 +697,7 @@ class LiveTest:
             if kind not in ("lakehouse", *ITEM_KINDS) or resource.get("workspace_id") != self.workspace_id or not ours:
                 continue  # never delete what this run didn't name (fdlt_<run id>, fdlt_<run id>_*)
             check = self._check(f"cleanup.{kind}", f"Delete {kind} {resource['name']}",
-                                lambda r=resource: self._delete(r))
+                                functools.partial(self._delete, resource))
             if check.status == "passed":
                 self.ledger.remove(resource)
             done.append(check)

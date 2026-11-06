@@ -101,8 +101,8 @@ function renderNotebook() {
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   // A skin that places the notebook's commands (skins.js, actions.js skinCommandGroup) gets its group
-  // where Run all, Save and Publish are; everything else on the Home ribbon stays as it is, and Publish's
-  // options (which workspace) stay one click away at the end.
+  // where Run all, Save and Publish are; everything else on the Home ribbon stays as it is. Publish's
+  // workspace choice goes with Publish, on the bar or under More.
   const skinGroup = skinCommandGroup({ view: "notebook", nb, busy });
   const toolbars = {
     home: [skinGroup || runAllBtn, skinGroup ? h("div", { class: "sep" }) : null, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
@@ -115,9 +115,7 @@ function renderNotebook() {
       vscodeButton(nb),
       ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
         "Schedule this notebook and see its recent runs (also on the Run tab)"),
-      skinGroup ? h("button", { class: "tool outline", "aria-label": "Publish options", title: "Publish options",
-        onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("publish", 16), icon("chevronDown", 14))
-        : h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
+      skinGroup ? null : h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
           { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
         h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
           onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))].filter(Boolean),

@@ -212,9 +212,19 @@ function skinCommandGroup(ctx = actionContext()) {
     { "data-action": s.action.id, "aria-disabled": s.available ? null : "true", title: s.available ? null : s.reason,
       "aria-description": s.available ? null : s.reason });
   const rest = all.filter((s) => !ids.includes(s.action.id));
+  // An action with options keeps them beside it: a split chevron on the bar (split), or the items that
+  // follow it under More (moreAfter), as Publish keeps "Change publish workspace".
+  const placedButton = (s, i) => {
+    const b = button(s, i === 0 ? "tool primary" : "tool", rec && i === 0 ? rec.label : undefined);
+    if (!s.action.split || !s.available) return b;
+    const label = `${actionLabel(s.action)} options`;
+    return h("div", { class: "split" }, b, h("button", { class: "tool split-more", "aria-label": label, title: label,
+      "aria-haspopup": "menu", onclick: (e) => showMenu(e.currentTarget, s.action.split(ctx)) }, icon("chevronDown", 14)));
+  };
+  const moreItems = () => rest.flatMap((s) => [button(s, "tool"), ...(s.available && s.action.moreAfter ? s.action.moreAfter(ctx) : [])]);
   return h("div", { class: "skin-commands row", role: "group", "aria-label": "Notebook commands" },
-    ...ids.map((id, i) => button(byId.get(id), i === 0 ? "tool primary" : "tool", rec && i === 0 ? rec.label : undefined)),
-    rest.length ? btn("More", "chevronDown", (e) => showMenu(e.currentTarget, rest.map((s) => button(s, "tool"))), "tool outline",
+    ...ids.map((id, i) => placedButton(byId.get(id), i)),
+    rest.length ? btn("More", "chevronDown", (e) => showMenu(e.currentTarget, moreItems()), "tool outline",
       { "aria-haspopup": "menu", "data-skin-more": true }) : null);
 }
 

@@ -35,7 +35,9 @@ async function openIn(skin, cells = [code("c1", "a = 1"), code("c2", "b = a + 1"
   }, { skin, cells });
   await page().waitForSelector(".ribbon .toolbar button");
 }
-const group = () => page().$$eval(".ribbon .skin-commands > button", (bs) => bs.map((b) => b.textContent.trim()));
+// A placed command is a button, or the first button of a split (Publish keeps its chevron on the bar).
+const PLACED = ".ribbon .skin-commands > button, .ribbon .skin-commands > .split > button:first-child";
+const group = () => page().$$eval(PLACED, (bs) => bs.map((b) => b.textContent.trim()));
 const more = async () => {
   await page().click(".ribbon .skin-commands [data-skin-more]");
   const items = await page().$$eval("#menu button", (bs) => bs.map((b) => b.textContent.trim()));
@@ -69,7 +71,7 @@ for (const [skin, drawn] of [
     await shot(skin);
     // None can be hidden: placed and under More, the group holds every notebook command once.
     const all = await page().evaluate(() => actionsFor({ view: "notebook", nb: state.notebook, busy: false }).map((s) => s.action.id));
-    const ids = await page().$$eval(".ribbon .skin-commands > button[data-action]", (bs) => bs.map((b) => b.dataset.action));
+    const ids = await page().$$eval(PLACED, (bs) => bs.filter((b) => b.dataset.action).map((b) => b.dataset.action));
     const under = await page().evaluate(async () => {
       document.querySelector(".ribbon .skin-commands [data-skin-more]").click();
       const got = [...document.querySelectorAll("#menu [data-action]")].map((b) => b.dataset.action);
@@ -79,11 +81,20 @@ for (const [skin, drawn] of [
     assert.deepStrictEqual([...ids, ...under].sort(), [...all].sort());
     assert.deepStrictEqual(under, all.filter((id) => !ids.includes(id)), "More keeps the order they're defined in");
     assert.ok((await more()).includes("Run in Fabric"), "Run in Fabric keeps its own name under More");
-    // Everything right of the group stays: Cancel, Runs on, Check, Add data items, Share, Schedule, and Publish's options.
+    // Everything right of the group stays: Cancel, Runs on, Check, Add data items, Share and Schedule.
     for (const name of ["Cancel", "Check", "Add data items", "Share", "Schedule"]) {
       assert.ok(await page().$(`.ribbon .toolbar > button:has-text("${name}")`), name);
     }
-    assert.ok(await page().$('.ribbon .toolbar > button[aria-label="Publish options"]'));
+    // Publish keeps its options: its chevron when placed, Change publish workspace after it under More.
+    assert.strictEqual(await page().$('.ribbon .toolbar > button[aria-label="Publish options"]'), null, "no orphan chevron");
+    if (ids.includes("notebook.publish")) {
+      await page().click('.ribbon .skin-commands .split button[aria-label="Publish to OneLake options"]');
+      assert.ok((await page().$$eval("#menu button", (bs) => bs.map((b) => b.textContent.trim()))).includes("Change workspace..."));
+      await page().keyboard.press("Escape");
+    } else {
+      const items = await more();
+      assert.strictEqual(items[items.indexOf("Publish to OneLake") + 1], "Change publish workspace...");
+    }
     assert.strictEqual(await page().$('.ribbon .toolbar > button[data-save]'), null, "Save isn't on the ribbon twice");
     if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".ribbon"), []);
   });

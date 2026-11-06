@@ -208,10 +208,17 @@ def test_the_notebook_commands_a_skin_can_place_are_the_apps_own():
     app = _app_notebook_actions()
     assert set(skins.NOTEBOOK_COMMANDS) == set(app) and len(app) == 9
     for cmd, why in skins.NOTEBOOK_COMMANDS.items():
-        # A skin may rename only a low or moderate command that doesn't use capacity.
-        fixed = "spendsCapacity: true" in app[cmd] or 'risk: "high"' in app[cmd]
+        # A skin may rename only a low or moderate command that stays on this PC.
+        fixed = "spendsCapacity: true" in app[cmd] or 'risk: "high"' in app[cmd] or 'where: "fabric"' in app[cmd]
         assert bool(why) == fixed, cmd
-    assert skins.NOTEBOOK_COMMANDS["notebook.run_in_fabric"]
+    assert skins.NOTEBOOK_COMMANDS["notebook.run_in_fabric"] == "it uses capacity"
+    assert skins.NOTEBOOK_COMMANDS["notebook.publish"] == "it writes to Fabric"
+
+
+def test_the_engine_knows_each_notebook_commands_own_label():
+    app = _app_notebook_actions()
+    own = {cmd: re.search(r'label: "([^"]+)"', text).group(1) for cmd, text in app.items()}
+    assert skins.NOTEBOOK_LABELS == own
 
 
 def _commands(**notebook):
@@ -231,6 +238,26 @@ def test_a_skin_that_breaks_the_command_rules_is_refused_with_every_reason():
     assert "commands.notebook.bar has 5 commands; at most 3" in problems
     assert "commands.notebook.bar names notebook.export, which isn't a notebook command" in problems
     assert "commands.notebook.labels can't rename notebook.run_in_fabric: it uses capacity" in problems
+
+
+def test_publish_keeps_its_own_name():
+    assert "commands.notebook.labels can't rename notebook.publish: it writes to Fabric" in _problems(
+        _commands(primary="notebook.run_all", labels={"notebook.publish": "Save"}))
+
+
+@pytest.mark.parametrize("labels, problem", [
+    # Another command's own name, in any case: Save would read as Publish.
+    ({"notebook.save": "publish to onelake"}, "commands.notebook.labels notebook.save can't take notebook.publish's name"),
+    ({"notebook.run_cell": "Run all"}, "commands.notebook.labels notebook.run_cell can't take notebook.run_all's name"),
+    ({"notebook.run_cell": "Go", "notebook.save": "GO"}, "commands.notebook.labels gives notebook.run_cell and notebook.save the same name"),
+])
+def test_a_label_cant_make_one_command_read_as_another(labels, problem):
+    assert problem in _problems(_commands(primary="notebook.run_all", labels=labels))
+
+
+def test_a_command_may_keep_its_own_name():
+    m = _commands(primary="notebook.run_all", labels={"notebook.save": "Save the notebook"})
+    assert skins.parse(skins.dump(m), skins.BASE) == m
 
 
 @pytest.mark.parametrize("notebook, problem", [

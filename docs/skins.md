@@ -92,8 +92,10 @@ notebooks put them. It sets `workflow.commands.notebook`:
 - **primary** is the solid button, and **bar** holds up to 3 more, in the skin's order.
 - **More** lists every notebook command the skin didn't place, in the order the app defines them. A skin
   can't hide a command.
-- **labels** rename a command, in 40 characters or fewer. Only a low or moderate command that doesn't use
-  capacity can be renamed, so Run in Fabric always keeps its name.
+- **labels** rename a command, in 40 characters or fewer. Only a low or moderate command that stays on
+  this PC can be renamed, so Publish to OneLake and Run in Fabric always keep their names. A label can't
+  be another command's own name, or a name the skin gives another command (case doesn't matter), so a
+  renamed command never reads as a different one.
 - The ids are the notebook's 9 commands: `notebook.run_all`, `notebook.run_cell`,
   `notebook.restart_run_all`, `notebook.validate`, `notebook.save`, `notebook.publish`,
   `notebook.run_in_fabric`, `notebook.go_failed` and `notebook.pin`. A test keeps the engine's list equal
@@ -106,7 +108,9 @@ What stays the same in every skin:
 - After a failed run, Go to the failed cell takes the primary slot. The skin's primary moves beside it
   and its last bar command drops into More, so the group never grows.
 - Everything else on the Home ribbon stays where it is: Cancel, the engine, Check, Add data items,
-  Share, Schedule and Publish's options.
+  Share and Schedule.
+- Publish keeps its options. On the bar it has its chevron, as on KratosForge's ribbon; under More,
+  Change publish workspace follows it.
 - The command bar (Ctrl+K) lists the skin's primary and bar commands first, under the skin's names. A
   command's own name still finds it.
 

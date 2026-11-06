@@ -22,7 +22,8 @@ Rules ``validate`` enforces, each with a reason a person can act on:
   is the app's to check, since pages are registered in the UI (features.js).
 - Commands (``workflow.commands.notebook``): a primary and at most ``MAX_BAR`` more, by id from
   ``NOTEBOOK_COMMANDS`` only. Whatever a skin doesn't place stays under More, so none can be hidden,
-  and a skin may rename only a low or moderate command that doesn't use capacity (never Run in Fabric).
+  and a skin may rename only a low or moderate command that stays on this PC (never Publish or Run in
+  Fabric), never to another command's name or to a name it gives another command.
 - At most ``MAX_BYTES`` of JSON.
 """
 
@@ -71,13 +72,23 @@ WORKFLOW_KEYS = {"rail", "labels", "commands"}
 MAX_RAIL = 12  # the app still shows at most 8 main pages (features.js RAIL_LIMIT); the rest go below
 # The notebook's commands a skin may place (workflow.commands.notebook), as actions.js defines them
 # (test_skins.py keeps this equal to the app's defineAction calls). The value says why a skin can't
-# rename one, or is None: a skin may rename only a low or moderate command that doesn't use capacity.
+# rename one, or is None: a skin may rename only a low or moderate command that stays on this PC.
 NOTEBOOK_COMMANDS: dict[str, str | None] = {
     "notebook.pin": None, "notebook.run_all": None, "notebook.run_cell": None,
     "notebook.restart_run_all": None, "notebook.validate": None, "notebook.save": None,
-    "notebook.publish": None, "notebook.run_in_fabric": "it uses capacity", "notebook.go_failed": None,
+    "notebook.publish": "it writes to Fabric", "notebook.run_in_fabric": "it uses capacity",
+    "notebook.go_failed": None,
+}
+# Each command's own label (test_skins.py keeps these equal to the app's). A skin's label can't be one
+# of them, so a renamed command never reads as another one.
+NOTEBOOK_LABELS: dict[str, str] = {
+    "notebook.pin": "Pin to Home or unpin", "notebook.run_all": "Run all",
+    "notebook.run_cell": "Run the selected cell", "notebook.restart_run_all": "Restart the kernel and run all",
+    "notebook.validate": "Validate", "notebook.save": "Save the notebook", "notebook.publish": "Publish to OneLake",
+    "notebook.run_in_fabric": "Run in Fabric", "notebook.go_failed": "Go to the failed cell",
 }
 COMMAND_VIEWS = {"notebook": NOTEBOOK_COMMANDS}
+COMMAND_LABELS = {"notebook": NOTEBOOK_LABELS}
 COMMAND_KEYS = {"primary", "bar", "labels"}
 MAX_BAR = 3
 
@@ -188,13 +199,23 @@ def _commands(commands: Any, problems: list[str]) -> None:
         if not isinstance(labels, dict):
             problems.append(f"{where}.labels must be an object of command id: label")
             continue
+        own = {text.casefold(): cmd for cmd, text in COMMAND_LABELS[view].items()}
+        taken: dict[str, str] = {}
         for cmd, label in labels.items():
             if not _command_id(cmd, f"{where}.labels", view, known, problems):
                 continue
             if known[cmd]:
                 problems.append(f"{where}.labels can't rename {cmd}: {known[cmd]}")
-            else:
-                _text(label, f"{where}.labels {cmd}", 40, problems)
+                continue
+            _text(label, f"{where}.labels {cmd}", 40, problems)
+            if not isinstance(label, str):
+                continue
+            key = label.strip().casefold()
+            if own.get(key, cmd) != cmd:
+                problems.append(f"{where}.labels {cmd} can't take {own[key]}'s name")
+            elif key in taken:
+                problems.append(f"{where}.labels gives {taken[key]} and {cmd} the same name")
+            taken.setdefault(key, cmd)
 
 
 def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:

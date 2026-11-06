@@ -252,10 +252,6 @@
  "fabric_desktop/orchestration/copyjob_build.py": {
   "var-annotated": 1
  },
- "fabric_desktop/orchestration/definition.py": {
-  "arg-type": 2,
-  "union-attr": 1
- },
  "fabric_desktop/orchestration/mashup.py": {
   "union-attr": 1
  },

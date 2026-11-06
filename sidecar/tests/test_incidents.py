@@ -200,6 +200,37 @@ def test_a_missed_freshness_promise_is_a_late_signal():
     assert evaluate.signals("sales", {"a": spec}, [old], "test", now=now) == []  # not promised in Test
 
 
+def test_a_product_promise_broken_by_lateness_or_rejected_rows_is_one_promise_signal():
+    now = dt.datetime(2026, 10, 16, 9, 0).astimezone()
+    old = run("a", "ok", "r1", started=(now - dt.timedelta(days=3)).isoformat()) | {"rows_read": 1000, "quarantined": 50}
+    promises = {"a": [{"product": "Sales", "envs": ["prod"], "within_hours": 24},
+                      {"product": "Finance", "envs": ["prod"], "max_rejected_pct": 2},
+                      {"product": "Ops", "envs": ["test"], "within_hours": 1}]}  # not promised in Prod
+    [s] = evaluate.signals("sales", {"a": {}}, [old], "prod", now=now, promises=promises)
+    assert s["kind"] == "promise" and s["evidence"]["products"] == ["Sales", "Finance"]
+    assert s["title"] == "Sales, Finance broke their promise in Prod (a)"
+    late, rejected = s["evidence_id"].split("|")
+    assert late.startswith("late:2026-10-13") and rejected == "rejected:r1"
+    assert any("5.0 % of rows rejected in the newest load, promised under 2 %" in r for r in s["evidence"]["reasons"])
+    # within the limit, and a load that read nothing, say nothing
+    fine = old | {"quarantined": 10}
+    assert evaluate.promise_signal("a", promises["a"][1:2], [fine], "prod", now) is None
+    assert evaluate.promise_signal("a", promises["a"][1:2], [old | {"rows_read": 0}], "prod", now) is None
+    [one] = [evaluate.promise_signal("a", promises["a"][1:2], [old], "prod", now)]
+    assert one["title"] == "Finance broke its promise in Prod (a)"
+
+
+def test_a_table_late_on_its_own_promise_names_the_products_it_lets_down_once():
+    now = dt.datetime(2026, 10, 16, 9, 0).astimezone()
+    old = run("a", "ok", "r1", started=(now - dt.timedelta(days=3)).isoformat())
+    spec = {"freshness": {"within_hours": 26, "envs": ["prod"]}}
+    promises = {"a": [{"product": "Sales", "envs": ["prod"], "within_hours": 24},
+                      {"product": "Weekly", "envs": ["prod"], "within_hours": 24 * 7}]}  # not late for this one
+    got = evaluate.signals("sales", {"a": spec}, [old], "prod", now=now, promises=promises)
+    assert [s["kind"] for s in got] == ["late"]  # one cause, one incident: no second "promise" signal
+    assert got[0]["evidence"]["promise_products"] == ["Sales"]
+
+
 # ---------------------------------------------------------------------------- objectives
 
 
@@ -255,6 +286,30 @@ def test_many_changes_at_once_become_one_digest():
     assert len(messages([change() for _ in range(3)], "agent etl-01")) == 3
     [(title, lines)] = messages([change() for _ in range(5)] + [change("recovered")] * 2, "agent etl-01")
     assert title == "5 new problems, 2 recovered (agent etl-01)" and len(lines) == 7
+
+
+def test_a_digest_counts_escalations_and_no_changes_send_nothing():
+    assert messages([], "agent etl-01") == []
+    [(title, lines)] = messages([change() for _ in range(5)] + [change("escalated")], "agent etl-01")
+    assert title == "5 new problems, 1 escalated (agent etl-01)" and len(lines) == 6
+
+
+def test_waiting_messages_keep_their_place_when_their_route_is_gone_or_down(tmp_path):
+    clock = Clock()
+    outbox = Outbox(tmp_path / "alerts.sqlite3", clock)
+    outbox.add("old team", ["x"], "down", route="team-a")
+    outbox.add("first", ["x"], "down", route="team-b")
+    outbox.add("second", ["x"], "down", route="team-b")
+    tries = []
+
+    def post(url, title, lines):
+        tries.append(title)
+        raise ConnectionError("no network")
+    # team-a was removed and there's no default: its message waits for one; team-b is down, so after
+    # its first message fails the second isn't tried this time
+    out = send([], Routing([Route("team-b", "https://b.example/hook")]), outbox, "agent etl-01", post)
+    assert tries == ["Delayed: first"] and out["sent"] == 0
+    assert [(i["title"], i["attempts"]) for i in outbox.pending()] == [("old team", 1), ("first", 2), ("second", 1)]
 
 
 def test_teams_unreachable_queues_and_the_next_try_sends_them_marked_delayed(tmp_path):

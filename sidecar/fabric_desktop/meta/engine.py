@@ -262,6 +262,13 @@ class HookContext:
         self.notes.append(str(message))
 
 
+def new_run_id() -> str:
+    """A run's id: when it started, to the second, then 48 random bits. Every entity run gets its own,
+    and several start in the same second, so the random part has to be wide enough never to repeat:
+    the run log, its run detail and the data-quality results are found by this id."""
+    return f"r-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:12]}"
+
+
 class Engine:
     # Batch ids start with this; the Fabric runner uses "fabric-" so the app can tell where a run ran.
     batch_prefix = "b-"
@@ -389,7 +396,7 @@ class Engine:
     def check_deployed(self) -> None:
         if self.store.env == "dev":
             return
-        deps = self.store.meta("deployments").filter(pl.col("env") == self.store.env)
+        deps = self.store.meta_where("deployments", pl.col("env") == self.store.env)
         deployed = deps["version"][-1] if deps.height else None
         if deployed != self.project.version:
             raise GateError("promote", [f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
@@ -403,7 +410,7 @@ class Engine:
         if name not in self.project.entities:
             raise KeyError(f"no entity named {name}")
         self.project.purge_code()
-        self.run_id = f"r-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
+        self.run_id = new_run_id()
         e = self.project.entities[name]
         res = RunResult(self.run_id, name, "ok")
         started = time.perf_counter()
@@ -1503,7 +1510,14 @@ class Engine:
             why = done
         # The version read is the one the commit is made against: if another writer (the app, an
         # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
-        existing, read_version = self.store.read_at(lh, e.schema, e.table)
+        existing: pl.DataFrame | None = None
+        if e.mode in ("scd1", "scd2", "incremental") or backfill == "replay":
+            existing, read_version = self.store.read_at(lh, e.schema, e.table)
+            before = None if existing is None else existing.schema
+        else:
+            # A plain replace keeps none of the table's rows: only its schema (for the type check below)
+            # and the version the commit is made against are needed, so its rows aren't read into memory.
+            before, read_version = self.store.schema_at(lh, e.schema, e.table)
         if e.mode == "scd1":
             out, info = scd1_merge(existing, df, e)
         elif e.mode == "scd2":
@@ -1533,7 +1547,7 @@ class Engine:
             out = out.with_columns(pl.col("is_deleted").fill_null(False))
         if why:
             info = f"{info}; {why}"
-        self._refuse_type_changes(e, None if existing is None else existing.schema, out.schema)
+        self._refuse_type_changes(e, before, out.schema)
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
                                    read_version=read_version)
         res.rows_written, res.delta_version = live, version

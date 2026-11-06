@@ -78,7 +78,12 @@ test("a job run opens its tasks with the failed task's error, and Open in Databr
   await page().locator(".dbx-runs button", { hasText: "nightly_sales" }).click();
   await page().locator(".dbx-detail .dbx-tasks").waitFor();
   assert.deepStrictEqual(app.calls.find((c) => c.method === "databricks_run").params, { connection: "cli:dev", run_id: "11" });
-  const tasks = await page().locator(".dbx-tasks li").allTextContents();
+  // Read the tasks in one go once both are drawn: a redraw from the filter test's last fetch can
+  // land between the panel appearing and a separate read, leaving the list empty for a moment.
+  const tasks = await (await page().waitForFunction(() => {
+    const items = [...document.querySelectorAll(".dbx-tasks li")].map((li) => li.textContent);
+    return items.length >= 2 && items;
+  })).jsonValue();
   assert.match(tasks[0], /bronze: Succeeded, 3 min\/Repos\/sales\/bronze/);
   assert.match(tasks[1], /gold_kpis: Failed.*AnalysisException: column revenue_usd cannot be resolved\./);
   assert.match(await page().locator(".dbx-detail").textContent(), /run_date2026-11-02/);

@@ -45,7 +45,7 @@ def test_a_function_marked_as_running_gives_the_references_value(cov):
 
 def test_a_refused_function_stops_the_activity_by_name(cov):
     refused = [r["name"] for r in cov["functions"] if r["status"] == "refused"]
-    assert "xpath" in refused and "ticks" in refused
+    assert "xpath" in refused and "ticks" not in refused
     for name in refused:
         with pytest.raises(evaluate.ExpressionError, match=rf"{name}\(\) isn't supported in local runs yet"):
             evaluate.call(name, [], evaluate.Scope())
@@ -70,3 +70,8 @@ def test_an_example_that_raises_fails_rather_than_differs(cov):
             assert not str(r["got"]).startswith("error:"), r["name"]
         if r["status"] == "fails":
             assert str(r["got"]).startswith("error:"), r["name"]
+
+
+def test_every_note_is_for_a_listed_function_with_an_example():
+    names = {n for ns in coverage.FUNCTIONS.values() for n in ns}
+    assert set(coverage.NOTES) <= names & set(coverage.EXAMPLES)

@@ -81,3 +81,68 @@ def test_an_entity_s_page_and_a_run_s_detail_read_no_meta_table_whole(tmp_path, 
     assert [r["run_id"] for r in page["runs"]] == want_runs["run_id"].head(10).to_list()
     assert detail["run_id"] == run_id and detail["entity"] == "silver.orders"
     assert len(detail["dq"]) == min(want_dq.height, 100)
+
+
+# ----------------------------------------------------------------------------- deployments and the other meta tables
+
+
+def test_the_promote_gate_reads_only_its_own_environments_deployments(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from fabric_desktop.meta.engine import Engine, GateError
+    from fabric_desktop.meta.store import LocalStore, Store
+    store = LocalStore(tmp_path, "test")
+    for env, version in (("test", "1.0.0"), ("prod", "0.9.0"), ("test", "1.1.0")):
+        store.meta_append("deployments", [{"env": env, "version": version}])
+    whole, meta = [], Store.meta
+    monkeypatch.setattr(Store, "meta", lambda self, table: whole.append(table) or meta(self, table))
+    engine = Engine.__new__(Engine)
+    engine.store, engine.project = store, SimpleNamespace(version="1.1.0")
+    engine.check_deployed()  # test is on 1.1.0, its latest deployment
+    engine.project = SimpleNamespace(version="1.0.0")
+    try:
+        engine.check_deployed()
+        raise AssertionError("an older project passed the gate")
+    except GateError as exc:
+        assert "test is on metadata 1.1.0" in str(exc)
+    assert whole == []
+
+
+def test_meta_where_matches_meta_then_filter_even_when_rows_share_a_time(tmp_path):
+    """Several rows written with the same time keep meta()'s order, on this PC's read and on the
+    dataset read OneLake uses, so the latest deployment is the same either way."""
+    import datetime as dt
+
+    from deltalake import DeltaTable
+
+    from fabric_desktop.meta.store import META_LAKEHOUSE, LocalStore, lazy
+    store = LocalStore(tmp_path, "dev")
+    at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc).isoformat()
+    for i in range(12):
+        store.meta_append("deployments", [{"env": ("prod", "test")[i % 2], "version": f"v{i}", "at": at}])
+        store.meta_append("schema_history", [{"entity": f"e{i % 3}", "run_id": f"r{i}", "change": "added", "at": at}])
+        store.meta_append("restores", [{"entity": f"e{i % 3}", "at": at}])
+    for table, where in (("deployments", pl.col("env") == "prod"), ("schema_history", pl.col("entity") == "e1"),
+                         ("restores", pl.col("entity") == "e2"), ("entities", pl.col("version") == "v1"),
+                         ("release_files", pl.col("version") == "v1")):
+        assert store.meta_where(table, where).equals(store.meta(table).filter(where)), table
+    uri = store.uri(META_LAKEHOUSE, "meta", "deployments")
+    on_onelake = lazy(DeltaTable(uri), uri, {}).filter(pl.col("env") == "prod").collect().sort("at", maintain_order=True)
+    assert on_onelake.equals(store.meta("deployments").filter(pl.col("env") == "prod"))
+
+
+def test_runs_started_in_the_same_second_never_share_an_id(monkeypatch):
+    """Each entity run gets its own id, and a run of every entity starts several in one second. With
+    16 random bits two of them shared an id, and a run's detail then showed the other entity's run."""
+    import datetime as dt
+
+    from fabric_desktop.meta import engine
+
+    class Frozen(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 11, 6, 14, 57, 54)
+    monkeypatch.setattr(engine.dt, "datetime", Frozen)
+    ids = [engine.new_run_id() for _ in range(5000)]
+    assert len(set(ids)) == len(ids)
+    assert all(i.startswith("r-20261106-145754-") for i in ids)

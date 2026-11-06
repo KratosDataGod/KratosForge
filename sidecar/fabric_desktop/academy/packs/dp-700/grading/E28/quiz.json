@@ -1,0 +1,117 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A business analyst who already shapes data in Power Query wants to clean, merge and profile three spreadsheets, with no code. Which tool fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Spark notebook, with the same steps written in PySpark"
+        },
+        {
+          "id": "b",
+          "text": "A Spark job definition that runs every hour"
+        },
+        {
+          "id": "c",
+          "text": "A T-SQL script in a warehouse that reads the spreadsheets"
+        },
+        {
+          "id": "d",
+          "text": "Dataflow Gen2"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Dataflow Gen2 is listed for data ingestion, transformation, wrangling and profiling. Its interface is Power Query, its skill set ETL, M and SQL, and its personas include business analysts. It needs no code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "Data engineers who write PySpark must apply complex transformation logic to large Delta tables in a lakehouse. Which tool fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline copy activity with a column mapping"
+        },
+        {
+          "id": "b",
+          "text": "T-SQL run against the lakehouse's SQL analytics endpoint"
+        },
+        {
+          "id": "c",
+          "text": "Dataflow Gen2, with one query for each Delta table"
+        },
+        {
+          "id": "d",
+          "text": "A Spark notebook"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Spark is the code option, written in Scala, Python, Spark SQL or R, for data engineers and integrators. It covers ingestion, transformation, processing and profiling.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "A team that works in T-SQL must transform staging tables into a star schema and load it with INSERT and CREATE TABLE AS SELECT. Where does that T-SQL run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In a Dataflow Gen2 query, written as T-SQL"
+        },
+        {
+          "id": "b",
+          "text": "In a KQL queryset over an eventhouse"
+        },
+        {
+          "id": "c",
+          "text": "In a lakehouse's SQL analytics endpoint"
+        },
+        {
+          "id": "d",
+          "text": "In a warehouse"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A warehouse takes T-SQL loads (COPY INTO, INSERT, CREATE TABLE AS SELECT) and has full DML. The SQL analytics endpoint has no DML.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-lakehouse-warehouse"
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "stem": "Which two of these does the decision guide list as no code or low code?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dataflow Gen2"
+        },
+        {
+          "id": "b",
+          "text": "The pipeline copy activity"
+        },
+        {
+          "id": "c",
+          "text": "Spark notebooks"
+        },
+        {
+          "id": "d",
+          "text": "Spark job definitions"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "The guide lists the copy activity, Copy job, Dataflow Gen2 and Eventstream as no code or low code, and Spark (notebooks and Spark job definitions) as code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+    }
+  ]
+}

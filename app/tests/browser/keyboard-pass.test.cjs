@@ -243,6 +243,28 @@ for (const [view, button, title] of DIALOGS) {
   });
 }
 
+// EA-030 (docs/ux/narrator-checklist.md section 2): a screen reader user finds where they are by the page's
+// level 1 heading (Narrator's H key), so every rail page has exactly one, and so does each OneLake tab.
+// Read from Chromium's accessibility tree, which is what Narrator reads, so a hidden heading counts.
+test("every rail page, and each OneLake tab, has exactly one level 1 heading", { skip }, async (t) => {
+  const rail = await page().evaluate(() => [...railFeatures(), ...railFeatures(true)]
+    .map((f) => ({ name: f.rail.label, view: Object.keys(f.views || {})[0], open: `go("${Object.keys(f.views || {})[0]}")` })));
+  const tabs = ["catalog", "shortcuts", "access"].map((tab) => ({ name: `OneLake: ${tab}`, open: `catalogPage.tab = "${tab}"; go("onelake")` }));
+  for (const r of [...rail, ...tabs]) {
+    await t.test(r.name, async () => {
+      await page().evaluate((open) => { closeDialog(); go("home"); (0, eval)(open); }, r.open);
+      await settle();
+      const cdp = await page().context().newCDPSession(page());
+      const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+      await cdp.detach();
+      const h1 = nodes.filter((n) => !n.ignored && n.role?.value === "heading"
+        && n.properties?.some((p) => p.name === "level" && p.value.value === 1)).map((n) => n.name?.value);
+      assert.strictEqual(h1.length, 1, `${r.name}: level 1 headings ${JSON.stringify(h1)}`);
+    });
+  }
+  assert.deepStrictEqual(app.errors, []);
+});
+
 test("the whole pass sent no write to the engine", { skip }, async () => {
   assert.deepStrictEqual(app.calls.map((c) => c.method).filter(looksLikeWrite), []);
 });

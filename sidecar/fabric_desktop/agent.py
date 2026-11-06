@@ -537,7 +537,13 @@ class Agent:
     def step(self) -> None:
         """One pass of the loop; ``run_forever`` calls it every ``poll_seconds``."""
         for job_id in self.queue.recover():
-            self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
+            job = self.queue.get(job_id)
+            if job and job["state"] == "dead":  # its worker stopped on every attempt (say, a run that takes the agent down)
+                self.log.error("job gave up: its worker stopped on every attempt",
+                               extra=fields(job_id=job_id, error=job["error"]))
+                self._alert(job, job["error"] or "")
+            else:
+                self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
         self.tick_schedules()
         if self.mailbox and self.clock() - self._mailbox_at >= self.config.pipeline.poll_seconds:
             self._mailbox_at = self.clock()

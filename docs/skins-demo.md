@@ -56,7 +56,7 @@ Two known items, not new findings:
   warehouse work (SF-02, [engines.md](engines.md)).
 - QUALIFY isn't flagged for Fabric Warehouse because Warehouse supports it. It is flagged only for SQL
   database (SYN-010). A Spark rewrite that put LIMIT before a QUALIFY filter, seen while preparing this
-  page, is fixed separately.
+  page, is being fixed separately (#1905).
 
 The recording (MP4, 22 seconds) and the screenshots are kept with the project's files, under
 `skins/demo/2026-11-05/`.

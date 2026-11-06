@@ -103,9 +103,6 @@
  "fabric_desktop/fabric_environment.py": {
   "assignment": 1
  },
- "fabric_desktop/fabric_pipeline_runs_service.py": {
-  "union-attr": 3
- },
  "fabric_desktop/fabric_run.py": {
   "assignment": 1,
   "union-attr": 1

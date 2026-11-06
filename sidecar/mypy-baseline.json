@@ -412,12 +412,6 @@
   "arg-type": 1,
   "assignment": 2
  },
- "fabric_desktop/widgets.py": {
-  "assignment": 2,
-  "exit-return": 1,
-  "has-type": 1,
-  "misc": 2
- },
  "fabric_desktop/workloads/evaluate.py": {
   "union-attr": 1
  },

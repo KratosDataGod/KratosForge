@@ -118,7 +118,7 @@ def problems(git: dict[str, Any]) -> list[str]:
 
 def engine() -> dict[str, Any]:
     """The engine and the package versions its results depend on, with one hash over them."""
-    packages = {}
+    packages: dict[str, str | None] = {}
     for name in ENGINE_PACKAGES:
         try:
             packages[name] = md.version(name)
@@ -170,8 +170,10 @@ def deployment_columns(body: dict[str, Any]) -> dict[str, Any]:
 
 def verified(receipt: str | None, rid: str | None) -> bool:
     """Whether a stored receipt still hashes to the id recorded beside it."""
+    if not receipt:
+        return False
     try:
-        return bool(receipt) and receipts.receipt_id(json.loads(receipt)) == rid
+        return receipts.receipt_id(json.loads(receipt)) == rid
     except (ValueError, KeyError, TypeError):
         return False
 
@@ -183,7 +185,7 @@ def rollback_record(project: Project, env: str, version: str, current: dict[str,
     entities = [{"name": e.name, "path": e.path.relative_to(project.root).as_posix(),
                  "sha256": hashlib.sha256(e.path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()}
                 for e in project.entities.values()]
-    code = {"repo": bool(earlier.get("commit")), "commit": earlier.get("commit"), "branch": earlier.get("branch"),
+    code: dict[str, Any] = {"repo": bool(earlier.get("commit")), "commit": earlier.get("commit"), "branch": earlier.get("branch"),
             "dirty": earlier.get("dirty"), "pushed": earlier.get("pushed"), "uncommitted": []}
     return receipts.new_receipt(
         "release",

@@ -1045,6 +1045,159 @@ def _has_struct(dt: Any) -> bool:
     return False
 
 
+# DataFrame.show as Spark 3.5 prints it (Dataset.showString): +---+ borders, cells as Spark casts them to
+# text for display (NULL, true, [1, 2], {a -> 1}, 1.0E20), right-aligned unless truncate is off, East
+# Asian wide characters two columns wide. DuckDB's own show draws its box table instead.
+_WIDE = re.compile("[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︐-︙︰-﹯"
+                   "＀-｠￠-￦]")
+_ESCAPES = str.maketrans({"\n": "\\n", "\r": "\\r", "\t": "\\t", "\f": "\\f", "\b": "\\b", "\x0b": "\\v",
+                          "\x07": "\\a"})
+
+
+def _half_width(text: str) -> int:
+    return len(text) + len(_WIDE.findall(text))
+
+
+def _java_double(value: float, digits: str | None = None) -> str:
+    """``value`` as Java's Double.toString writes it: 1.0, 1.0E20, 1.0E-4, NaN, Infinity. ``digits`` are
+    the significant digits to write (a float's shortest), else the shortest that read back as the double."""
+    import decimal
+    if value != value:
+        return "NaN"
+    if value in (float("inf"), float("-inf")):
+        return "Infinity" if value > 0 else "-Infinity"
+    sign = "-" if str(value).startswith("-") else ""
+    if value == 0:
+        return f"{sign}0.0"
+    number = decimal.Decimal(digits or repr(abs(value)))
+    figures = "".join(map(str, number.as_tuple().digits)).lstrip("0").rstrip("0") or "0"
+    power = number.adjusted()
+    if -3 <= power < 7:
+        if power >= 0:
+            whole, frac = figures[:power + 1].ljust(power + 1, "0"), figures[power + 1:]
+        else:
+            whole, frac = "0", "0" * (-power - 1) + figures
+        return f"{sign}{whole}.{frac or '0'}"
+    return f"{sign}{figures[0]}.{figures[1:] or '0'}E{power}"
+
+
+def _java_float(value: float) -> str:
+    """A FloatType value as Java's Float.toString writes it: the shortest digits that read back as the
+    same 32-bit float, not the double DuckDB hands Python."""
+    import struct
+    if value != value or value in (float("inf"), float("-inf")) or value == 0:
+        return _java_double(value)
+    single = struct.unpack("f", struct.pack("f", value))[0]
+    for places in range(0, 9):
+        text = f"{abs(single):.{places}e}"
+        try:
+            same = struct.unpack("f", struct.pack("f", float(text)))[0] == abs(single)
+        except OverflowError:  # silent-ok: rounded past the largest float, so more digits are needed
+            same = False
+        if same:
+            return _java_double(value, text)
+    return _java_double(value)
+
+
+def _interval(value: Any) -> str:
+    """A day-time interval as Spark displays one: INTERVAL '1 02:03:04.5' DAY TO SECOND."""
+    micros = value.days * 86_400_000_000 + value.seconds * 1_000_000 + value.microseconds
+    sign, micros = ("-", -micros) if micros < 0 else ("", micros)
+    days, rest = divmod(micros, 86_400_000_000)
+    hours, rest = divmod(rest, 3_600_000_000)
+    minutes, rest = divmod(rest, 60_000_000)
+    seconds, fraction = divmod(rest, 1_000_000)
+    text = f"{sign}{days} {hours:02d}:{minutes:02d}:{seconds:02d}"
+    if fraction:
+        text += f".{fraction:06d}".rstrip("0")
+    return f"INTERVAL '{text}' DAY TO SECOND"
+
+
+def _pretty(value: Any, data_type: Any) -> str:
+    """One value as Spark's show writes it (ToPrettyString)."""
+    import datetime
+    import decimal
+    from duckdb.experimental.spark.sql import types as T
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(data_type, T.FloatType) and isinstance(value, float):
+        return _java_float(value)
+    if isinstance(value, float):
+        return _java_double(value)
+    if isinstance(value, decimal.Decimal):
+        return format(value, "f")
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "[" + " ".join(f"{b:02X}" for b in bytes(value)) + "]"
+    if isinstance(value, datetime.datetime):
+        text = value.replace(tzinfo=None).isoformat(sep=" ")  # a TIMESTAMPTZ is already in the session's zone
+        return text.rstrip("0") if "." in text else text
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return _interval(value)
+    if isinstance(data_type, T.MapType) and isinstance(value, dict):
+        return "{" + ", ".join(f"{_pretty(k, data_type.keyType)} -> {_pretty(v, data_type.valueType)}"
+                               for k, v in value.items()) + "}"
+    if isinstance(data_type, T.StructType):
+        values = list(value.values()) if isinstance(value, dict) else list(value)
+        return "{" + ", ".join(_pretty(v, f.dataType) for v, f in zip(values, data_type.fields, strict=False)) + "}"
+    if isinstance(value, (list, tuple)):
+        element = getattr(data_type, "elementType", None)
+        return "[" + ", ".join(_pretty(v, element) for v in value) + "]"
+    return str(value)
+
+
+def show_string(df: DataFrame, n: int = 20, truncate: bool | int = True, vertical: bool = False) -> str:
+    """What ``df.show(n, truncate, vertical)`` prints in Spark 3.5."""
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise TypeError(f"Argument `n` should be an int, got {type(n).__name__}.")
+    if not isinstance(truncate, (bool, int)):
+        raise TypeError(f"Argument `truncate` should be a bool or an int, got {type(truncate).__name__}.")
+    if not isinstance(vertical, bool):
+        raise TypeError(f"Argument `vertical` should be a bool, got {type(vertical).__name__}.")
+    width = (20 if truncate else 0) if isinstance(truncate, bool) else truncate
+    n = max(n, 0)
+    fields = df.schema.fields
+    taken = df.limit(n + 1).collect()
+    more = len(taken) > n
+
+    def cell(value: Any, data_type: Any) -> str:
+        text = _pretty(value, data_type).translate(_ESCAPES)
+        if width > 0 and len(text) > width:
+            text = text[:width] if width < 4 else text[:width - 3] + "..."
+        return text
+
+    rows = [[f.name for f in fields]] + [[cell(v, f.dataType) for v, f in zip(r, fields, strict=True)] for r in taken[:n]]
+    out: list[str] = []
+    if not vertical:
+        widths = [max(3, *(_half_width(r[i]) for r in rows)) for i in range(len(fields))]
+
+        def line(row: list[str]) -> str:
+            pad = [w - _half_width(c) + len(c) for c, w in zip(row, widths, strict=True)]
+            return "|" + "|".join(c.rjust(p) if width > 0 else c.ljust(p) for c, p in zip(row, pad, strict=True)) + "|"
+        sep = "+" + "+".join("-" * w for w in widths) + "+"
+        out += [sep, line(rows[0]), sep, *(line(r) for r in rows[1:]), sep]
+    else:
+        names, data = rows[0], rows[1:]
+        name_width = max([3, *(_half_width(c) for c in names)])
+        data_width = max([3, *(_half_width(c) for r in data for c in r)])
+        for i, row in enumerate(data):
+            out.append(f"-RECORD {i}".ljust(name_width + data_width + 5, "-"))
+            out += [f" {name.ljust(name_width - _half_width(name) + len(name))} | "
+                    f"{c.ljust(data_width - _half_width(c) + len(c))} " for name, c in zip(names, row, strict=True)]
+    if vertical and not rows[1:]:
+        out.append("(0 rows)")
+    elif more:
+        out.append(f"only showing top {n} {'row' if n == 1 else 'rows'}")
+    return "\n".join(out) + "\n"
+
+
+def _show(self: DataFrame, n: int = 20, truncate: bool | int = True, vertical: bool = False) -> None:
+    print(show_string(self, n, truncate, vertical))
+
+
 def _collect_structs_as_rows(collect: Any) -> Any:
     def collect_rows(self: DataFrame) -> list[Any]:
         rows = collect(self)
@@ -1153,6 +1306,7 @@ def install() -> None:
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]
+    DataFrame.show = _show  # type: ignore[method-assign]
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]

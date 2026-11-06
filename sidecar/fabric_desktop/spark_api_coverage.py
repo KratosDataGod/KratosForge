@@ -157,10 +157,29 @@ def check(method: dict[str, Any], kernel: Any) -> tuple[str, str]:
             continue
         if got is None:
             return ("refused" if _refusal(error) else "fails"), f"`{_short(example['source'])}`: {error}"
+        if not _ORDERED.search(example["source"]):  # no set order: a table's rows compare in any order
+            got, want = _any_order(got), _any_order(want)
         if got != want:
             return "differs", (f"`{_short(example['source'])}`: {json.dumps(got)[:70]} here, "
                                f"{json.dumps(want)[:70]} in Spark")
     return "runs", ""
+
+
+# An example that sets its rows' order; any other shows them in the order its engine happens to give.
+_ORDERED = re.compile(r"\b(orderBy|sort|sortWithinPartitions)\(")
+
+
+def _any_order(result: dict[str, Any]) -> dict[str, Any]:
+    """``result`` with each printed table's rows (the lines between its second and last +---+ border)
+    in sorted order."""
+    text = result.get("printed")
+    if not text:
+        return result
+    lines = text.split("\n")
+    borders = [i for i, line in enumerate(lines) if len(line) > 1 and set(line) <= {"+", "-"}]
+    for start, end in zip(borders[1::3], borders[2::3], strict=False):  # each table: top, under the header, bottom
+        lines[start + 1:end] = sorted(lines[start + 1:end])
+    return {**result, "printed": "\n".join(lines)}
 
 
 def _short(source: str) -> str:

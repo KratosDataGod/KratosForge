@@ -118,6 +118,7 @@ nav = [
   { "Servers" = [
     { "Headless agent" = "agent.md" },
     { "Incidents and your service desk" = "incidents.md" },
+    { "Runbook: agent alerts and incidents" = "agent-runbook.md" },
   ] },
   { "Project" = [
     { "Why KratosForge" = "why-kratosforge.md" },

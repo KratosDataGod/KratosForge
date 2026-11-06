@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import sqlglot
-from sqlglot import exp
+from sqlglot import exp, transforms
 from sqlglot.errors import ErrorLevel, ParseError, UnsupportedError
 
 from . import snowflake_sql, sqlcompat
@@ -89,11 +89,144 @@ def _rules(rewritten: str, target: str) -> tuple[str, list[str]]:
     return grade, reasons
 
 
+_QUALIFY_ONLY_INSIDE: dict[str, bool] = {}
+_TAIL = ("order", "limit", "offset", "fetch")
+QUALIFY_NOTE = "QUALIFY is rewritten as a filter in an outer query."
+QUALIFY_STAR_NOTE = ("With SELECT *, the rewrite also returns its helper column (_w), so the result has one "
+                     "column more than written. Select the columns by name to match it.")
+QUALIFY_TAIL_NOTE = ("QUALIFY is rewritten as a filter in an outer query, with ORDER BY, LIMIT and OFFSET moved "
+                     "outside it so that they still apply after the filter, as written.")
+
+
+def _drops_qualify(dialect: str) -> bool:
+    """Does sqlglot write QUALIFY for ``dialect`` as a subquery filter (sqlglot's eliminate_qualify)?"""
+    if dialect not in _QUALIFY_ONLY_INSIDE:
+        probe = sqlglot.parse_one("SELECT a FROM t QUALIFY a = 1")
+        _QUALIFY_ONLY_INSIDE[dialect] = "QUALIFY" not in probe.sql(dialect=dialect).upper()
+    return _QUALIFY_ONLY_INSIDE[dialect]
+
+
+def _output_names(select: exp.Select) -> dict[str, exp.Expr] | None:
+    """Each output column's identifier by its lower-cased name, or None when one has no name or two
+    share one."""
+    out: dict[str, exp.Expr] = {}
+    for e in select.expressions:
+        ident = e.args.get("alias") if isinstance(e, exp.Alias) else e.this if isinstance(e, exp.Column) else None
+        if not isinstance(ident, exp.Identifier) or ident.name.lower() in out:
+            return None
+        out[ident.name.lower()] = e
+    return out
+
+
+def _same_column(key: exp.Column, projected: exp.Expr) -> bool:
+    """Does ORDER BY ``key`` name the output column ``projected``? An unqualified name always does
+    (an output name comes first in ORDER BY); a qualified one only when it selects that very column."""
+    if not key.table:
+        return True
+    return isinstance(projected, exp.Column) and projected.name.lower() == key.name.lower() \
+        and projected.table.lower() == key.table.lower()
+
+
+def _alias_clash(select: exp.Select) -> bool:
+    """Does a window in QUALIFY name a table's column that shares its name with an output alias?
+    sqlglot's eliminate_qualify swaps such a column for the aliased expression, which reads another
+    column."""
+    aliases = {e.alias for e in select.expressions if isinstance(e, exp.Alias)}
+    qualify = select.args.get("qualify")
+    if not qualify:
+        return False
+    return any(c.table and c.name in aliases for w in qualify.find_all(exp.Window) for c in w.find_all(exp.Column))
+
+
+def _qualify_last(select: exp.Select) -> exp.Select | str:
+    """``select`` without QUALIFY, filtered in an outer query that then applies ORDER BY, LIMIT, OFFSET
+    and FETCH, or the reason that can't be done safely.
+
+    sqlglot's eliminate_qualify wraps the SELECT in a subquery that filters on the window function but
+    leaves LIMIT and ORDER BY inside it, so rows are cut before the filter: a wrong answer, not an error.
+    Here the tail is taken off first and put on the outer query."""
+    inner = select.copy()
+    for k in _TAIL:
+        inner.set(k, None)
+    star = inner.is_star
+    names = None if star else _output_names(inner)
+    if not star and names is None:
+        return ("QUALIFY with ORDER BY, LIMIT or OFFSET is rewritten here only when every selected column has a "
+                "name of its own. Give each column a distinct name, or test it there.")
+    order = select.args.get("order")
+    hidden: list[str] = []
+    if order:
+        order = order.copy()
+        for ordered in order.expressions:
+            key = ordered.this
+            if isinstance(key, exp.Literal) and not key.is_string:
+                continue  # ORDER BY 1: the outer query selects the same columns in the same order
+            if isinstance(key, exp.Column) and not isinstance(key.this, exp.Star):
+                if star and not key.table:
+                    continue
+                projected = (names or {}).get(key.name.lower())
+                if projected is not None and _same_column(key, projected):
+                    ordered.set("this", exp.column(key.this.copy()))
+                    continue
+            if star:
+                return ("QUALIFY with SELECT * is rewritten here only when ORDER BY names plain columns. Select the "
+                        "columns by name, or test it there.")
+            hidden.append(f"_o{len(hidden) + 1}")
+            inner.select(exp.alias_(key.copy(), hidden[-1]), copy=False)
+            ordered.set("this", exp.column(hidden[-1]))
+    outer = transforms.eliminate_qualify(inner)
+    if not isinstance(outer, exp.Select):
+        return "QUALIFY couldn't be rewritten here. Test it there."
+    if hidden:  # ORDER BY reads them from the subquery; they aren't returned
+        outer.set("expressions", [e for e in outer.expressions if e.alias_or_name not in hidden])
+    for k in _TAIL:
+        part = order if k == "order" else select.args.get(k)
+        if part is not None:
+            outer.set(k, part.copy())
+    return outer
+
+
+def _move_qualify_tails(tree: exp.Expr) -> tuple[exp.Expr, bool, str | None]:
+    """``tree`` with every QUALIFY's ORDER BY and LIMIT moved after its filter (see _qualify_last),
+    whether any moved, and the reason when one can't be."""
+    tree = tree.copy()
+    moved_any = False
+    # Innermost first: an outer SELECT is rebuilt from a copy, which must already carry its inner rewrites.
+    for select in reversed(list(tree.find_all(exp.Select))):
+        if not select.args.get("qualify"):
+            continue
+        if _alias_clash(select):
+            return tree, moved_any, ("A window in QUALIFY names a table's column that has the same name as an "
+                                     "output alias, which the rewrite would read as the alias. Rename the alias, "
+                                     "or test it there.")
+        if not any(select.args.get(k) for k in _TAIL):
+            continue
+        moved = _qualify_last(select)
+        if isinstance(moved, str):
+            return tree, moved_any, moved
+        moved_any = True
+        if select is tree:
+            tree = moved
+        else:
+            select.replace(moved)
+    return tree, moved_any, None
+
+
 def _statement(n: int, tree: exp.Expr, source: str, target: str) -> Finding:
     src, tgt = PLATFORMS[source]["sqlglot"], PLATFORMS[target]["sqlglot"]
     written = tree.sql(dialect=src)
     if isinstance(tree, exp.Command):
         return Finding(n, "unverified", None, ("sqlglot keeps this statement only as text, so it can't be checked.",))
+    qualify_notes: list[str] = []
+    qualifies = [s for s in tree.find_all(exp.Select) if s.args.get("qualify")]
+    if qualifies and _drops_qualify(tgt):
+        star = any(s.is_star for s in qualifies)
+        tree, moved, problem = _move_qualify_tails(tree)
+        if problem:
+            return Finding(n, "unverified", None, (problem,))
+        qualify_notes.append(QUALIFY_TAIL_NOTE if moved else QUALIFY_NOTE)
+        if star:
+            qualify_notes.append(QUALIFY_STAR_NOTE)
     try:
         rewritten = tree.sql(dialect=tgt, unsupported_level=ErrorLevel.RAISE)
     except UnsupportedError as exc:
@@ -103,11 +236,14 @@ def _statement(n: int, tree: exp.Expr, source: str, target: str) -> Finding:
     same = rewritten == written
     grade = "compatible" if same else "translated"
     reasons: list[str] = []
+    if QUALIFY_STAR_NOTE in qualify_notes:
+        grade = "partial"
     rules = PLATFORMS[target]["rules"]
     if rules:
         found, reasons = _rules(rewritten, rules)
-        if found != "compatible":
+        if _RANK[found] > _RANK[grade]:
             grade = found
+        reasons = qualify_notes + reasons
     else:
         if not same and _normal(rewritten, tgt) is None:
             return Finding(n, "unverified", rewritten, ("The rewrite doesn't read back as "
@@ -117,6 +253,7 @@ def _statement(n: int, tree: exp.Expr, source: str, target: str) -> Finding:
             grade = "unverified"
             reasons.append(f"Not checked: {', '.join(unknown)} (a function sqlglot doesn't know, passed through as is).")
         reasons.append(f"{PLATFORMS[target]['label']} has no rules of its own here; only the rewrite was checked.")
+        reasons = qualify_notes + reasons
     return Finding(n, grade, None if same else rewritten, tuple(reasons))
 
 

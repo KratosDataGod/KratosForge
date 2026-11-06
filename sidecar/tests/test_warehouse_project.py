@@ -156,6 +156,16 @@ def test_a_write_that_fails_leaves_no_temp_file(svc, repo, monkeypatch):
     assert sorted(p.name for p in (repo / "WH_Gold.Warehouse" / "dbo" / "Views").iterdir()) == ["vw_Sales.sql"]
 
 
+def test_saved_and_created_files_have_lf_endings_on_every_os(svc, repo):
+    svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
+    project = repo / "WH_Gold.Warehouse"
+    opened = svc.wh_project_read(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql")
+    svc.wh_project_save(str(repo), "WH_Gold.Warehouse", "dbo/Views/vw_Sales.sql", "SELECT 1\n-- two\n", expect=opened["version"])
+    assert (project / "dbo" / "Views" / "vw_Sales.sql").read_bytes() == b"SELECT 1\n-- two\n"
+    for f in (project / ".platform", project / "WH_Gold.sqlproj"):
+        assert b"\r\n" not in f.read_bytes() and b"\n" in f.read_bytes()
+
+
 def test_paths_stay_inside_the_project(svc, repo, tmp_path):
     svc.wh_project_write(str(repo), objs(("view", "dbo", "vw_Sales", VIEW)), create="WH_Gold")
     for bad in ("../outside.sql", "/etc/passwd", "dbo/../../x.sql", "dbo/Views/vw_Sales.txt", "dbo\\Views\\vw_Sales.sql", "CON.sql"):

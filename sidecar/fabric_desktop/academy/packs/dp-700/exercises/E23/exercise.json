@@ -1,0 +1,81 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E23",
+  "version": 1,
+  "status": "draft",
+  "title": "Prepare a customer dimension: surrogate keys and an Unknown member",
+  "objectives": [
+    "2.1.2"
+  ],
+  "objective_text": "Build a dimension with one row per business key, a surrogate key the warehouse owns, conformed values, and an Unknown member that facts can point at when the key is missing.",
+  "scenario": "The sales team's report groups revenue by customer region, but the staging table has a customer loaded twice and regions typed three different ways. Facts that arrive with no customer currently vanish from the report. Build dim_customer so every fact has a row to join to.",
+  "prerequisites": [
+    "LAB-03"
+  ],
+  "minutes": 20,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your SQL ran on this PC with DuckDB and produced the expected dimension rows.",
+    "dim_customer has one row per customer, a unique surrogate key, and an Unknown member with key 0."
+  ],
+  "does_not_verify": [
+    "That the same statements run in a Fabric Warehouse: T-SQL has no CREATE OR REPLACE TABLE, and an IDENTITY column is the usual way to make keys there.",
+    "How the dimension behaves in a Direct Lake semantic model."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "dim_customer": {
+        "columns": [
+          "customer_key",
+          "customer_id",
+          "name",
+          "region"
+        ],
+        "unique": [
+          "customer_key"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over dim_customer, ordered by customer_key."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The dimension has the right rows and keys.",
+      "fail": "Compare your rows with the requirements: one row per customer, regions from ref_region, and the Unknown member first."
+    },
+    {
+      "kind": "table_shape",
+      "table": "dim_customer",
+      "unique": [
+        "customer_key"
+      ],
+      "not_null": [
+        "customer_key",
+        "region"
+      ],
+      "pass": "Every key is unique and every row has a region.",
+      "fail": "A key appears twice or a region is empty."
+    }
+  ],
+  "hints": [
+    "Start with one row per customer_id. The repeated customer is the same in every column except loaded_at.",
+    "Look the region up in ref_region with lower(region), and use coalesce for the customer with no region.",
+    "row_number() OVER (ORDER BY customer_id) gives keys 1, 2, 3...; add the Unknown member with UNION ALL as key 0, customer_id -1."
+  ],
+  "explanation": "A dimension keeps its own surrogate key so facts don't depend on the source system's ids, and so a missing or unknown customer still has a row (key 0) to join to. Deduplicate before you number rows, conform the values through a lookup table instead of string fixes scattered in reports, and default a missing attribute to 'Unknown' so a report never shows a blank group.",
+  "remediation": [
+    "LAB-03",
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-dimension-tables"
+  ],
+  "reset": "Reset restores stg_customers and ref_region and drops dim_customer.",
+  "parity": null
+}

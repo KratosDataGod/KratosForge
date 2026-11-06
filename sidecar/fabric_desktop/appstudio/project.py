@@ -261,8 +261,26 @@ def redo(path: str | os.PathLike[str]) -> dict[str, Any]:
 def history(path: str | os.PathLike[str], limit: int = 100) -> list[dict[str, Any]]:
     """The newest ``limit`` history entries, newest first, without the operations themselves."""
     folder = _dir(path)
-    keep = ("seq", "at", "kind", "source", "note", "changed", "of", "version", "kept_as")
+    keep = ("seq", "at", "kind", "source", "note", "changed", "of", "version", "kept_as",
+            "state", "workspace_id", "report_id", "name", "replaced")
     return [{k: e[k] for k in keep if k in e} for e in reversed(_history(folder)[-max(1, min(int(limit), 500)):])]
+
+
+def publish_history(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    """Every publish entry (publish.py), oldest first."""
+    return [e for e in _history(_dir(path)) if e.get("kind") == "publish"]
+
+
+def record_publish(path: str | os.PathLike[str], state: str, workspace_id: str, report_id: str, name: str,
+                   replaced: bool = False, note: str = "") -> None:
+    """Add a publish entry to history.jsonl: ``started``, ``done`` or ``failed``, with ids and the report's
+    name only. It isn't a change, so Undo doesn't step over it."""
+    if state not in ("started", "done", "failed"):
+        raise ProjectError("A publish is started, done or failed.")
+    folder = _dir(path)
+    _append(folder, {"seq": len(_history(folder)) + 1, "at": _now(), "kind": "publish", "state": state,
+                     "workspace_id": workspace_id, "report_id": report_id, "name": redact.one_line(name, 256),
+                     "replaced": bool(replaced), "note": redact.one_line(note, 300)})
 
 
 # ---------------------------------------------------------------- versions

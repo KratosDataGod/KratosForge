@@ -154,6 +154,14 @@ applied to the rewritten SQL, and Snowflake SQL on DuckDB gets the Snowflake lab
 them only the rewrite is checked, and the report says so. Anything only Snowflake has (streams, tasks,
 stages, time travel and the rest) is unsupported everywhere else.
 
+QUALIFY becomes a filter in an outer query on Spark SQL, Fabric Warehouse and PostgreSQL. When the
+query also has ORDER BY, LIMIT or OFFSET, those move to the outer query too, so they still apply after
+the filter, as written. When that can't be done safely, the grade is unverified and the reason says
+why: a selected column with no name, or two with the same name; SELECT * sorted by an expression; or a
+window that names a table's column with the same name as an output alias. With SELECT * the rewrite
+also returns its helper column `_w`, so the grade is partial.
+Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not the only one.
+
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.
 

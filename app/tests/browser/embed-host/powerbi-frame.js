@@ -19,7 +19,11 @@
     window.received.push(req);
     // Something other than the SDK's own requests (a forged host command) is noted and ignored.
     if (!req.method || !req.url) return;
-    if (req.url === "/report/load" && failEvent) {
+    if (req.url === "/report/load" && /[?&]fail=load\b/.test(location.search)) {
+      // Power BI refusing the load request itself: the SDK rejects a promise nobody awaits.
+      answer(req, 403, { message: "LoadReportFailed", detailedMessage: "Forbidden", errorCode: "403", level: 6,
+        technicalDetails: { requestId: "req-load" }, accessToken: "leaked-token" });
+    } else if (req.url === "/report/load" && failEvent) {
       answer(req, 202, {});
       setTimeout(() => event("error", { message: "LoadReportFailed", detailedMessage: "Fail to initialize - Could not resolve cluster",
         errorCode: "403", level: 6, technicalDetails: { requestId: "req-1129", accessToken: "leaked-token" } }), 10);

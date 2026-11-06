@@ -296,7 +296,7 @@ def graph(cells: list[dict[str, Any]]) -> dict[str, Any]:
         edges: dict[tuple[Any, str], dict[str, Any]] = {}
 
         def edge(src: dict[str, Any], kind: str, via: str, how: str = "detected") -> None:
-            e = edges.setdefault((src["cell_id"], kind), {"cell_id": src["cell_id"], "n": src["n"], "kind": kind,
+            e = edges.setdefault((src["cell_id"], kind), {"cell_id": src["cell_id"], "n": src["n"], "kind": kind,  # noqa: B023 - edge() is called only within this cell's iteration
                                                           "via": [], "source": how})
             if via and via not in e["via"]:
                 e["via"].append(via)

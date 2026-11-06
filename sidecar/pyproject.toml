@@ -95,7 +95,7 @@ select = ["E9", "F", "B"]
 "fabric_desktop/central/policy.py" = ["B023"]
 
 # CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
-# in mypy-baseline.json, and only new ones fail.
+# in mypy-baseline/ (one file per module), and only new ones fail.
 [tool.mypy]
 files = ["fabric_desktop"]
 exclude = ["^fabric_desktop/academy/packs/"]  # exercise answers run with the exercise's spark (pyspark_lab)

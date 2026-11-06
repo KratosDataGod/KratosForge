@@ -360,9 +360,18 @@ def test_idle_connections_cant_hold_more_than_a_few_engine_threads(paired):
     try:
         time.sleep(0.5)
         assert threading.active_count() - before <= MAX_CONNECTIONS
-        over = idle[-1]
-        reply = over.recv(4096)
-        assert reply.startswith(b"HTTP/1.0 503") and b'"busy"' in reply
+        # Which connections got a slot depends on accept order and timing, so look at every one:
+        # the refused ones are answered 503 at once, the served ones stay silent until they time out.
+        import select
+        replies, pending = [], list(idle)
+        deadline = time.monotonic() + 3
+        while pending and time.monotonic() < deadline:
+            ready, _, _ = select.select(pending, [], [], 0.2)
+            for s in ready:
+                pending.remove(s)
+                replies.append(s.recv(4096))
+        busy = [r for r in replies if r.startswith(b"HTTP/1.0 503") and b'"busy"' in r]
+        assert len(busy) >= MAX_CONNECTIONS, (len(busy), len(replies), [r[:20] for r in replies if r not in busy])
     finally:
         for s in idle:
             s.close()

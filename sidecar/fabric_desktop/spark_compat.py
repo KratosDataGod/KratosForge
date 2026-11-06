@@ -506,6 +506,69 @@ def _order_of(c: Any) -> str:
     return vars(c).get("_fd_order", "ASC NULLS FIRST") if isinstance(c, Column) else "ASC NULLS FIRST"
 
 
+# A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
+_RELATION = re.compile(r"\bunnamed_relation_[0-9a-f]+\.")
+
+
+def _spark_text(value: Any) -> str:
+    """``value`` as Spark writes it inside a generated column name: a column by its name, a string as
+    is, None as NULL, a double as Java writes it."""
+    if isinstance(value, Column):
+        return _RELATION.sub("", value.expr.get_name())
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return _java_double(value)
+    return str(value)
+
+
+def _operand_sql(value: Any) -> str:
+    """``value`` as DuckDB SQL: a column's own expression, or a literal (NaN and infinities spelled out,
+    which DuckDB's constant would print as NULL)."""
+    if isinstance(value, Column):
+        return _col_sql(value)
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return f"CAST('{value!r}' AS DOUBLE)"
+    return str(duckdb.ConstantExpression(value))
+
+
+def _between(self: Column, lowerBound: Any, upperBound: Any) -> Column:  # noqa: N803 - PySpark's names
+    """Column.between: lower <= x <= upper, both ends included, named as Spark names it."""
+    me, lo, hi = _operand_sql(self), _operand_sql(lowerBound), _operand_sql(upperBound)
+    name = f"(({_spark_text(self)} >= {_spark_text(lowerBound)}) AND ({_spark_text(self)} <= {_spark_text(upperBound)}))"
+    return _sql(f"(({me} >= {lo}) AND ({me} <= {hi}))").alias(name)
+
+
+def _substr(self: Column, startPos: Any, length: Any) -> Column:  # noqa: N803 - PySpark's names
+    """Column.substr: ``length`` characters from 1-based ``startPos`` (Spark's substring), both ints or
+    both Columns, as PySpark requires."""
+    ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (startPos, length))
+    if not ints and not (isinstance(startPos, Column) and isinstance(length, Column)):
+        raise TypeError(f"startPos and length must both be ints or both be Columns, got "
+                        f"{type(startPos).__name__} and {type(length).__name__}")
+    name = f"substring({_spark_text(self)}, {_spark_text(startPos)}, {_spark_text(length)})"
+    if ints:
+        return _call(f"substring({{0}}, {startPos}, {length})", self).alias(name)
+    return _call("substring({0}, {1}, {2})", self, startPos, length).alias(name)
+
+
+def _bitwise(operator: str) -> Any:
+    """Column.bitwiseAND, bitwiseOR and bitwiseXOR, named as Spark names them: (a & b)."""
+    sql = {"&": "({a} & {b})", "|": "({a} | {b})", "^": "xor({a}, {b})"}[operator]
+
+    def bitwise(self: Column, other: Any) -> Column:
+        text = sql.format(a=_operand_sql(self), b=_operand_sql(other))
+        return _sql(text).alias(f"({_spark_text(self)} {operator} {_spark_text(other)})")
+    return bitwise
+
+
+def _eq_null_safe(self: Column, other: Any) -> Column:
+    """Column.eqNullSafe: equal, with NULL equal to NULL (Spark's <=>), never NULL itself."""
+    text = f"({_operand_sql(self)} IS NOT DISTINCT FROM {_operand_sql(other)})"
+    return _sql(text).alias(f"({_spark_text(self)} <=> {_spark_text(other)})")
+
 def _get_item(self: Column, key: Any) -> Column:
     """``col.getItem(key)`` and ``col[key]``: a whole number is an array's 0-based position (NULL
     outside the array, as Spark gives without ANSI mode); text is a map's key or a struct's field."""
@@ -1349,6 +1412,15 @@ def install() -> None:
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
     Column.getItem = _get_item  # type: ignore[attr-defined]
+    Column.between = _between  # type: ignore[attr-defined]
+    Column.substr = _substr  # type: ignore[attr-defined]
+    Column.bitwiseAND = _bitwise("&")  # type: ignore[attr-defined]
+    Column.bitwiseOR = _bitwise("|")  # type: ignore[attr-defined]
+    Column.bitwiseXOR = _bitwise("^")  # type: ignore[attr-defined]
+    Column.eqNullSafe = _eq_null_safe  # type: ignore[attr-defined]
+    # Spark's other names for alias and cast, calling whatever alias and cast are by then
+    Column.name = lambda self, *names, **kw: self.alias(*names, **kw)  # type: ignore[attr-defined]
+    Column.astype = lambda self, dataType: self.cast(dataType)  # type: ignore[attr-defined]
     Column.getField = _get_field  # type: ignore[attr-defined]
     Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
     Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]

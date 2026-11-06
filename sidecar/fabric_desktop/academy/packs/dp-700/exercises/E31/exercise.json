@@ -113,11 +113,14 @@
     {
       "kind": "config_matches",
       "fail": "Last night's rows will still be there tomorrow.",
-      "pass": "Each run runs a script on the landing table before it writes.",
+      "pass": "Each run clears the landing table before it writes.",
       "rules": [
         {
           "path": "destination.pre_copy_script",
-          "contains": "sales_landing",
+          "one_of": [
+            "DELETE FROM dbo.sales_landing",
+            "TRUNCATE TABLE dbo.sales_landing"
+          ],
           "why": "A pre-copy script runs before each write; use it to clean up the preloaded data. Insert appends to whatever is there."
         }
       ]

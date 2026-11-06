@@ -1,5 +1,5 @@
 {
-  "_about": "A model of one copy activity in a pipeline. source and destination.existing_columns are facts about the files and the table; change the settings around them. table_option is \"Use existing\" or \"Auto create table\". mapping lists {source, destination} column pairs (empty means the default mapping). Under settings, staging location is \"Workspace\" or \"External\"; an External location names a connection.",
+  "_about": "A model of one copy activity in a pipeline. source and destination.existing_columns are facts about the files and the table; change the settings around them. table_option is \"Use existing\" or \"Auto create table\". mapping lists {source, destination} column pairs (empty means the default mapping). Under settings, staging location is \"Workspace\" or \"External\"; an External location names a connection. pre_copy_script is null or one of destination.script_choices, copied exactly.",
   "needs": [
     "Each night's files land in the existing Warehouse table dbo.sales_landing, whose column names the reports already use.",
     "The landing table holds only the latest night's rows; downstream jobs read all of it.",
@@ -35,7 +35,13 @@
       "Amount",
       "Quantity"
     ],
-    "pre_copy_script": "DELETE FROM dbo.sales_landing"
+    "pre_copy_script": "DELETE FROM dbo.sales_landing",
+    "script_choices": [
+      "DELETE FROM dbo.sales_landing",
+      "TRUNCATE TABLE dbo.sales_landing",
+      "SELECT COUNT(*) FROM dbo.sales_landing",
+      "DELETE FROM dbo.sales_landing WHERE SoldAt < DATEADD(day, -30, CAST(GETDATE() AS date))"
+    ]
   },
   "mapping": [],
   "settings": {

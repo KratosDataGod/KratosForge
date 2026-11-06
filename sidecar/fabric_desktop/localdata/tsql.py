@@ -87,6 +87,8 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
+                parts.replace(_timefromparts(parts))
             _converts(tree)
             notes += _types(tree, schema)
             notes += _likes(tree)
@@ -750,6 +752,9 @@ def _gaps(tree: exp.Expression) -> None:
             else:
                 inner = exp.TryCast if isinstance(node, exp.TryCast) else exp.Cast
                 node.set("this", inner(this=value, to=exp.DataType.build("DECIMAL(38, 10)")))
+    if any(True for _ in tree.find_all(exp.OpenJSON)):
+        raise ValueError(_NOT_YET + "OPENJSON isn't mapped yet. JSON_VALUE and JSON_QUERY read one value or object "
+                         "from JSON text.")
     for rounded in list(tree.find_all(exp.Round)):
         mode = rounded.args.get("truncate")
         if mode is None:
@@ -805,6 +810,37 @@ def _quotename(args: list[exp.Expression]) -> exp.Expression:
         expression=exp.Literal.string(right), safe=False)
     return exp.Case(ifs=[exp.If(this=exp.GT(this=exp.Length(this=text.copy()), expression=exp.Literal.number(128)),
                                 true=exp.Null())], default=quoted)
+
+
+def _timefromparts(node: exp.TimeFromParts) -> exp.Expression:
+    """``TIMEFROMPARTS(hour, minute, seconds, fractions, precision)``: fractions are tenths, hundredths and so
+    on of a second, by the precision, which T-SQL needs written in the query. DuckDB's time keeps
+    microseconds, so precision 7 runs here only with fractions written in the query that end in 0."""
+    precision = node.args.get("precision")
+    if not (isinstance(precision, exp.Literal) and not precision.is_string and precision.name.isdigit()
+            and int(precision.name) <= 7):
+        raise ValueError(_NOT_YET + "TIMEFROMPARTS's precision has to be a whole number from 0 to 7 written in the query.")
+    places = int(precision.name)
+    fractions = node.args.get("fractions") or exp.Literal.number(0)
+    written = isinstance(fractions, exp.Literal) and not fractions.is_string and fractions.name.isdigit()
+    if written and int(fractions.name) >= 10 ** places:
+        raise ValueError(f"TIMEFROMPARTS's fractions ({fractions.name}) don't fit a precision of {places}.")
+    if places == 7 and not (written and int(fractions.name) % 10 == 0):
+        raise ValueError(_NOT_YET + "TIMEFROMPARTS with precision 7 needs fractions written in the query that end "
+                         "in 0: times here keep microseconds.")
+    micros: exp.Expression = (exp.Literal.number(int(fractions.name) // 10) if places == 7 else
+                              exp.Mul(this=exp.Cast(this=fractions.copy(), to=exp.DataType.build("BIGINT")),
+                                      expression=exp.Literal.number(10 ** (6 - places))))
+    if not written:  # fractions from a column or an expression: stop as T-SQL does, never carry into the seconds
+        f = exp.Cast(this=fractions.copy(), to=exp.DataType.build("BIGINT"))
+        micros = exp.Case(ifs=[exp.If(this=exp.or_(exp.LT(this=f, expression=exp.Literal.number(0)),
+                                                   exp.GTE(this=f.copy(), expression=exp.Literal.number(10 ** places))),
+                                      true=exp.Anonymous(this="ERROR", expressions=[exp.Literal.string(
+                                          f"TIMEFROMPARTS's fractions don't fit a precision of {places}.")]))],
+                          default=micros)
+    seconds = exp.Add(this=exp.Cast(this=node.args["sec"].copy(), to=exp.DataType.build("DOUBLE")),
+                      expression=exp.Div(this=exp.paren(micros), expression=exp.Literal.number(1000000.0)))
+    return exp.Anonymous(this="MAKE_TIME", expressions=[node.args["hour"].copy(), node.args["min"].copy(), exp.paren(seconds)])
 
 
 def _whole_literal(node: exp.Expression, what: str, low: int, high: int) -> int:

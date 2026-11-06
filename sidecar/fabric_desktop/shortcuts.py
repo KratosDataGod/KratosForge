@@ -65,6 +65,18 @@ def target(source: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("A shortcut points at OneLake, ADLS Gen2 or Amazon S3.")
 
 
+def source(rest_target: dict[str, Any]) -> dict[str, Any]:
+    """The dialog's source for a REST target, the other way from ``target``: a definition kept in the
+    shortcut history is checked against the platform's rules as one picked in the dialog is."""
+    d = describe({"target": rest_target or {}})
+    key = next((k for k in TARGETS if k in (rest_target or {})), "")
+    if key == "oneLake":
+        return {"type": key, "workspace_id": d["workspace_id"] or "", "item_id": d["item_id"] or "",
+                "path": d["target_path"] or ""}
+    return {"type": key, "location": d.get("location") or "", "subpath": d.get("subpath") or "",
+            "connection_id": d.get("connection_id") or ""}
+
+
 def same_target(a: dict[str, Any], b: dict[str, Any]) -> bool:
     """Whether two REST targets point at the same place: the same kind, ids and connection in any case,
     and the same paths exactly (they're case-sensitive in OneLake, ADLS and S3); slashes at either end

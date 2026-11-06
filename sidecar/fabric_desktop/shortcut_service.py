@@ -510,6 +510,7 @@ class ShortcutMixin:
                    "name": b["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
             if now(b) is not None:
                 raise RuntimeError(f"Not undone: there's a shortcut at {where(b)} again, so nothing was changed.")
+            self._sc_undo_guard(api, b, c)
             api.create_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"], b["target"])
             self._all_shortcuts = None
             problem = self._sc_log("added", ref, None, b, f"Recreated (undo of change {change_id})")
@@ -521,6 +522,7 @@ class ShortcutMixin:
             if not same(current, (c.get("after") or {}).get("target")):
                 raise RuntimeError(f"Not undone: {where(b)} " + ("is gone" if current is None else "points somewhere else")
                                    + " since that change, so nothing was changed.")
+            self._sc_undo_guard(api, b, c)
             if current is not None:
                 api.delete_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"])
             try:
@@ -548,6 +550,22 @@ class ShortcutMixin:
         else:
             raise ValueError("Only an added, removed or repointed shortcut can be undone")
         return {"ok": True, "problems": [problem] if problem else []}
+
+    def _sc_undo_guard(self, api: Any, d: dict[str, Any], c: dict[str, Any]) -> None:
+        """Undoing a removal or a repoint makes a shortcut again, so the platform's shortcut rules apply as
+        they do to making one: a rule saved since (only admins make shortcuts, no Dev reading Prod, only
+        the allowed connections) stops it, and nothing is changed."""
+        src = shortcuts_mod.source(d.get("target") or {})
+        target_ws = ""
+        if src["type"] == "oneLake" and src.get("workspace_id"):
+            try:  # the name places a workspace the project doesn't list in its environment
+                target_ws = str(api.get_workspace(src["workspace_id"]).get("displayName") or "")
+            except Exception as exc:  # noqa: BLE001 - the ids still decide when the project lists them
+                _log.info("Couldn't read the name of the undo's target workspace: %s", describe(exc))
+        try:
+            self._sc_guard(d["workspace_id"], src, str(c.get("workspace_name") or ""), target_ws)
+        except PermissionError as exc:
+            raise PermissionError(f"Not undone: {exc}. Nothing was changed.") from exc
 
     # ---- requests
 

@@ -135,6 +135,8 @@ def test_write_line_numbers_and_comments():
     ("git diff -O/etc/passwd", "points outside the repository"),
     ("git log -pO../x", "points outside the repository"),
     ("git diff -OC:/x", "points outside the repository"),
+    ("git merge -sXtheirs f", "-s isn't run here"),
+    ("git merge -X../x f", "points outside the repository"),
     ("git add ../outside.txt", "points outside the repository"),
     ("git add /etc/passwd", "points outside the repository"),
     ("git add C:/Windows/win.ini", "points outside the repository"),
@@ -164,8 +166,21 @@ def test_refused_sessions_say_why(session, said):
 
 def test_flags_named_like_refused_options_still_run():
     for line in ("git log -m main", "git branch -m old new", "git stash push -m wip", "git commit --signoff -m x",
-                 "git log --first-parent", "git merge --no-ff feature/days", "git log -3", "git log --stat"):
+                 "git log --first-parent", "git merge --no-ff feature/days", "git log -3", "git log --stat",
+                 "git merge -Xtheirs feature/days", "git merge -X theirs feature/days", "git cherry-pick -Xours HEAD",
+                 "git diff --text", "git commit --edit -m x"):
         assert gitlab.parse(line), line
+
+
+def test_a_run_folder_that_cant_be_removed_keeps_runs_result(svc, monkeypatch):
+    svc.academy_start(PACK, EID)
+
+    def locked(path):
+        raise PermissionError(13, "in use by another process")
+
+    monkeypatch.setattr(lab.git_ops, "remove_clone", locked)
+    got = svc.academy_run(PACK, EID, STARTER)
+    assert got["rows"][0][1] == "git status"
 
 
 def test_git_itself_refuses_abbreviated_options(folder, tmp_path):

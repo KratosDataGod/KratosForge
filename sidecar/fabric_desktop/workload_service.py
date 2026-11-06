@@ -626,6 +626,9 @@ class WorkloadMixin:
                 outcome = self.run_pc_schedule_now(schedule_id)  # type: ignore[attr-defined]
                 record = store.update_action(record["id"], ref={"schedule_id": schedule_id})
             elif action == "cancel":
+                # Only a run this workload shows as running: an empty or old job id went to Fabric as asked
+                if not any(a["action"] == action and a.get("job_id") == job_id for a in self._wl_available(w)):
+                    raise PermissionError(f"That isn't a running job of {w['name']}.")
                 loc = next(x for x in w["deployments"] if x["location"]["kind"] == "fabric")["location"]
                 outcome = self.cancel_fabric_run(loc["workspace_id"], loc["item_id"], job_id)  # type: ignore[attr-defined]
                 record = store.update_action(record["id"], ref={"job_id": job_id},

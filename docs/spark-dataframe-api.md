@@ -20,8 +20,8 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 89 |
-| Differs | 10 |
+| Runs | 93 |
+| Differs | 6 |
 | Refused | 15 |
 | Fails | 49 |
 | Not checked | 24 |
@@ -158,21 +158,21 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc_nulls_last` | Runs |  |
 | `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
 | `endswith` | Runs |  |
-| `eqNullSafe` | Differs | `df1.select( df1['value'] == 'foo', df1['value'].eqNullSaf...`: {"printed": "+---------------------------------------------------+---- here, {"printed": "+-------------+---------------+----------------+\n\|(value in Spark |
+| `eqNullSafe` | Runs |  |
 | `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
-| `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "+--------------------------------------+----------------- here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
+| `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |
 | `isNull` | Runs |  |
 | `isin` | Runs |  |
 | `like` | Runs |  |
 | `name` | Not checked |  |
-| `otherwise` | Differs | `df.select(df.name, sf.when(df.age > 3, 1).otherwise(0)).s...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------+\n\| name\|CAS in Spark |
+| `otherwise` | Runs |  |
 | `over` | Runs |  |
 | `rlike` | Runs |  |
 | `startswith` | Runs |  |
 | `substr` | Runs |  |
-| `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------------------- in Spark |
+| `when` | Runs |  |
 | `withField` | Fails | `df.withColumn('a', df['a'].withField('b', lit(3))).select...`: TypeError: 'Column' object is not callable |
 
 ## GroupedData

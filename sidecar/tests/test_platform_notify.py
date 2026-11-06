@@ -248,3 +248,35 @@ def test_one_damaged_notice_row_doesnt_hide_the_rest(svc):
     shown = {n["kind"]: n["open"] for n in svc.platform_notify_open()["open"]}
     assert shown == {"request.waiting": {"view": "platform", "tab": "requests"},
                      "shortcut.broken": {"view": "shortcuts", "tab": "health"}}
+
+
+# ---- the remaining error paths and bounds
+
+def test_events_of_the_wrong_shape_are_refused_with_what_is_wrong():
+    with pytest.raises(ValueError, match="an event is an object"):
+        validate(["request.waiting"])
+    with pytest.raises(ValueError, match="to is an object"):
+        event(to=["ana@contoso.com"])
+    with pytest.raises(ValueError, match="to.people is a list of strings"):
+        event(to={"people": "ana@contoso.com"})
+    assert event(to={"people": [" ana@contoso.com ", "  "]})["to"]["people"] == ["ana@contoso.com"]
+
+
+def test_an_event_no_route_takes_is_skipped_and_says_why(tmp_path):
+    routing, outbox, ledger = setup(tmp_path, PlatformRoute("shortcuts", HOOK, kinds=("shortcut.broken",)))
+    posts = Posts()
+    out = send([event()], routing, outbox, ledger, posts, NOON)
+    assert posts == [] and out["events"] == [{"dedupe": "request.waiting:r1", "result": "skipped",
+                                                "reason": "no route matches and no default route is set"}]
+
+
+def test_a_notice_waiting_longer_than_it_keeps_trying_is_dropped_not_sent(tmp_path):
+    from fabric_desktop.workloads.notify import KEEP_TRYING
+    t = [NOON.timestamp()]
+    routing, ledger = PlatformRouting([PlatformRoute("default", HOOK)]), Ledger(tmp_path / "o.sqlite")
+    outbox = Outbox(tmp_path / "o.sqlite", clock=lambda: t[0])
+    outbox.add("old", ["x"], "Teams didn't answer")
+    t[0] += KEEP_TRYING + 1
+    posts = Posts()
+    send([], routing, outbox, ledger, posts, NOON)
+    assert posts == [] and outbox.pending() == []

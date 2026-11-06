@@ -483,7 +483,7 @@ class MetaMixin:
         releases kept their files runs this folder, which must then be on that release."""
         if env == "dev":
             return project
-        deps = store.meta("deployments").filter(pl.col("env") == env)
+        deps = store.meta_where("deployments", pl.col("env") == env)
         if not deps.height or deps["version"][-1] == project.version:
             return project
         try:

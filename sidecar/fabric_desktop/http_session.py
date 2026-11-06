@@ -33,6 +33,19 @@ class _NoCookies(RequestsCookieJar):
         return None
 
 
+def _adapter() -> type[HTTPAdapter]:
+    """requests' own adapter, or the one that signs in to a proxy with Windows when the policy
+    file turns that on (proxy_sign_in.py, Preview). A policy that can't be read leaves it off."""
+    try:
+        from . import proxy_sign_in
+
+        if proxy_sign_in.enabled():
+            return proxy_sign_in.WindowsSignInAdapter
+    except Exception:  # silent-ok: the setting is optional; a bad policy file must not stop every request
+        return HTTPAdapter
+    return HTTPAdapter
+
+
 class _Session(requests.Session):
     """A pooled session with a default timeout. It keeps no cookies, so nothing one response sets
     is sent with a later request for another workspace, tenant or person."""
@@ -41,7 +54,7 @@ class _Session(requests.Session):
         super().__init__()
         self.cookies = _NoCookies()
         # max_retries=0: urllib3 must not repeat requests on its own; retrying.send_with_retry decides.
-        adapter = HTTPAdapter(pool_connections=POOL_SIZE, pool_maxsize=POOL_SIZE, max_retries=0)
+        adapter = _adapter()(pool_connections=POOL_SIZE, pool_maxsize=POOL_SIZE, max_retries=0)
         self.mount("https://", adapter)
         self.mount("http://", adapter)
 

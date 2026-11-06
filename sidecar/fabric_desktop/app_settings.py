@@ -261,6 +261,11 @@ TYPES.update({"notebook_package_folder": str, "allow_pypi_packages": bool})
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
 TYPES.update({"allow_dbconnect_install": bool, "dbconnect_index_url": str})
+# Windows sign-in to a proxy that answers 407 (proxy_sign_in.py): Preview, off unless IT turns it
+# on. Policy only.
+# proxy_windows_sign_in_hosts names the proxies allowed to receive that sign-in; none named, none do.
+DEFAULTS.update({"proxy_windows_sign_in": False, "proxy_windows_sign_in_hosts": []})
+TYPES.update({"proxy_windows_sign_in": bool, "proxy_windows_sign_in_hosts": list})
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",

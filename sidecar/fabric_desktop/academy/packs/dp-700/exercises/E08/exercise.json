@@ -1,0 +1,107 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E08",
+  "version": 1,
+  "status": "draft",
+  "title": "A warehouse as a database project: add a table and a view, and catch a breaking change",
+  "objectives": [
+    "1.2.2"
+  ],
+  "objective_text": "Add a table and a view to a warehouse's database project, one .sql file per object, check that every object still builds, and keep a teammate's change from breaking an existing view on deploy.",
+  "scenario": "The Sales warehouse is kept as a database project: one file per object under dbo/Tables and dbo/Views. You're adding stores so sales can be reported by region. The change set you're about to ship also carries a teammate's edit that drops DimProduct.Category, which vw_SalesByCategory still reads and reports depend on.",
+  "prerequisites": [
+    "LM-23"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "sqlproj_lab",
+  "engine_label": "The project's T-SQL read and built in DuckDB on this PC",
+  "lesson": "lesson.md",
+  "starter": "changes.sql",
+  "files": [
+    "dimproduct.sql",
+    "factsales.sql",
+    "seed.sql",
+    "vw_category.sql"
+  ],
+  "project": {
+    "dbo/Tables/DimProduct.sql": "dimproduct.sql",
+    "dbo/Tables/FactSales.sql": "factsales.sql",
+    "dbo/Views/vw_SalesByCategory.sql": "vw_category.sql"
+  },
+  "seed": "seed.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your change set puts each object in its own file in the project's folders, every table and view in the project builds, a deploy would only add objects, and vw_SalesByRegion returns the right sales per region, checked on this PC."
+  ],
+  "does_not_verify": [
+    "A build with the SQL project tools or a deploy to a Fabric Warehouse: the T-SQL is read and built in DuckDB, which isn't the Warehouse engine, and stored procedures are read but not run.",
+    "Deployment pipelines and Git integration in Fabric, which move the project between workspaces."
+  ],
+  "expected": {
+    "description": "Two new files (dbo/Tables/DimStore.sql, dbo/Views/vw_SalesByRegion.sql); the teammate's DimProduct change left out; North 615.00, South 635.00."
+  },
+  "validation": [
+    {
+      "kind": "project_builds",
+      "fail": "Some file doesn't define one object in its place, or a table or view doesn't build.",
+      "pass": "Every file defines one object in its place, and every table and view builds."
+    },
+    {
+      "kind": "objects_present",
+      "fail": "The new table or view is missing, or a column is.",
+      "pass": "dbo.DimStore and dbo.vw_SalesByRegion are in the project.",
+      "objects": [
+        {
+          "kind": "table",
+          "schema": "dbo",
+          "name": "DimStore",
+          "columns": [
+            "StoreKey",
+            "StoreName",
+            "Region"
+          ]
+        },
+        {
+          "kind": "view",
+          "schema": "dbo",
+          "name": "vw_SalesByRegion"
+        },
+        {
+          "kind": "view",
+          "schema": "dbo",
+          "name": "vw_SalesByCategory"
+        }
+      ]
+    },
+    {
+      "kind": "deploy_safe",
+      "fail": "Deploying this would drop or rebuild something the warehouse already has.",
+      "pass": "A deploy only adds: nothing is dropped and no table is rebuilt."
+    },
+    {
+      "kind": "result_matches",
+      "query": "SELECT Region, Sales FROM dbo.vw_SalesByRegion",
+      "fail": "vw_SalesByRegion doesn't give the right sales per region.",
+      "pass": "vw_SalesByRegion gives the right sales per region."
+    }
+  ],
+  "hints": [
+    "Run lists each file, whether it builds and what a deploy would do. Look at the rows for DimProduct and vw_SalesByCategory.",
+    "A table goes in dbo/Tables/<Name>.sql and a view in dbo/Views/<Name>.sql, one object per file.",
+    "The teammate's file removes a column a view still uses, so a deploy would have to rebuild DimProduct and the view would break. Take that section out of your change set; it isn't yours to ship.",
+    "Deleting vw_SalesByCategory would make the build pass by dropping something reports use."
+  ],
+  "explanation": "A database project describes the warehouse as one file per object, so a change is a set of file edits that can be built and compared before anything is deployed. Building catches a view that reads a column that no longer exists; comparing with the warehouse catches a change that would drop or rebuild an existing table. The teammate's edit fails both, so it stays out of this change set until the view is moved to the new design. Your own change only adds a table and a view, which is safe to deploy.",
+  "remediation": [
+    "LM-23",
+    "https://learn.microsoft.com/fabric/data-warehouse/git-integration"
+  ],
+  "reset": "Reset puts the starter change set back; the project and its sample rows come from the exercise.",
+  "review_notes": [
+    "Category moving out of DimProduct is a planned change the teammate will finish later; the exercise is about not shipping it half-done.",
+    "Checked on Microsoft Learn 2026-11-06: a warehouse connected to Git is committed as a database project, shown as individual .sql files, and deployed with DacFx-based incremental schema deployment (data-warehouse/git-integration). The dbo/Tables and dbo/Views folders are the SDK-style project layout; the page shows them only in a screenshot."
+  ]
+}

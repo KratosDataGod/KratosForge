@@ -1,0 +1,158 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E06",
+  "version": 1,
+  "status": "draft",
+  "title": "Put a workspace under Git: commit on a branch and resolve a conflict in a pipeline definition",
+  "objectives": [
+    "1.2.1"
+  ],
+  "objective_text": "Work on a branch of a workspace's Git repository: commit a change to a pipeline's definition, merge main in, and resolve the conflict so both changes survive.",
+  "scenario": "The Ingest workspace is connected to Git, so each item is a folder of text files in the repository. You're making the copy activity retry 3 times on feature/retry. Meanwhile a teammate gave the same activity a two-hour timeout on main, on the very next line of the same file. Before your branch can go back, it has to carry both changes.",
+  "prerequisites": [],
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "git_lab",
+  "engine_label": "Git on this PC, in a repository made for this exercise",
+  "lesson": "lesson.md",
+  "starter": "session.git",
+  "files": [
+    "main-timeout.json",
+    "readme-retry.md",
+    "readme-v1.md",
+    "v1.json"
+  ],
+  "repo": {
+    "commits": [
+      {
+        "branch": "main",
+        "message": "Add the Ingest pipeline",
+        "files": {
+          "Ingest.DataPipeline/pipeline-content.json": "v1.json",
+          "README.md": "readme-v1.md"
+        }
+      },
+      {
+        "branch": "feature/retry",
+        "from": "main",
+        "message": "Start retry work",
+        "files": {
+          "README.md": "readme-retry.md"
+        }
+      },
+      {
+        "branch": "main",
+        "message": "Give the copy two hours",
+        "files": {
+          "Ingest.DataPipeline/pipeline-content.json": "main-timeout.json"
+        }
+      }
+    ],
+    "head": "main"
+  },
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your Git session, run with Git on this PC, leaves feature/retry with your commit and main merged in, the merge finished, and a pipeline definition that keeps both changes with no conflict markers. main is untouched."
+  ],
+  "does_not_verify": [
+    "Fabric's Source control pane: connecting a workspace, committing from it, or updating it from Git. Here you use Git directly on the files Fabric would write.",
+    "That Fabric accepts the definition: only the fields this exercise changes are checked, and the file is a cut-down pipeline definition.",
+    "Pull requests and branch policies in Azure DevOps or GitHub."
+  ],
+  "expected": {
+    "description": "feature/retry: your retry commit plus a merge commit (or a rebase) containing main; the definition has timeout 0.02:00:00 and retry 3."
+  },
+  "validation": [
+    {
+      "kind": "repo_matches",
+      "fail": "The work isn't finished on feature/retry yet.",
+      "pass": "feature/retry has your commit and main merged in, with the merge finished.",
+      "rules": [
+        {
+          "clean": true,
+          "why": "A merge isn't done until its result is committed."
+        },
+        {
+          "branch": "feature/retry",
+          "exists": true
+        },
+        {
+          "ref": "feature/retry",
+          "since": "main",
+          "count_min": 1,
+          "why": "Your retry change belongs on feature/retry."
+        },
+        {
+          "ancestor": "main",
+          "of": "feature/retry",
+          "why": "Main's two-hour timeout has to be merged in."
+        }
+      ]
+    },
+    {
+      "kind": "repo_matches",
+      "fail": "The pipeline definition on feature/retry doesn't keep both changes.",
+      "pass": "The definition keeps the two-hour timeout and 3 retries, with no conflict markers.",
+      "rules": [
+        {
+          "conflict_markers": false
+        },
+        {
+          "file": "Ingest.DataPipeline/pipeline-content.json",
+          "ref": "feature/retry",
+          "json": [
+            {
+              "path": "properties.activities.0.policy.retry",
+              "equals": 3
+            },
+            {
+              "path": "properties.activities.0.policy.timeout",
+              "equals": "0.02:00:00",
+              "why": "Main's timeout change must survive the merge."
+            },
+            {
+              "path": "properties.activities.0.name",
+              "equals": "Copy orders"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "repo_matches",
+      "fail": "main changed; the retry work belongs on its branch until it's reviewed.",
+      "pass": "main is as it was.",
+      "rules": [
+        {
+          "file": "Ingest.DataPipeline/pipeline-content.json",
+          "ref": "main",
+          "json": [
+            {
+              "path": "properties.activities.0.policy.retry",
+              "equals": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "git switch feature/retry first, so your commit doesn't land on main.",
+    "After git merge main, git status names the conflicted file. Open it with a write block: rewrite the whole file as it should end up.",
+    "Keep both: main's \"timeout\": \"0.02:00:00\" and your \"retry\": 3. Then git add the file and git commit to finish the merge.",
+    "-X ours or -X theirs would end the conflict by throwing one side's change away."
+  ],
+  "explanation": "With Git integration a workspace's items are text files, so two people changing the same item is an ordinary Git conflict. Git can merge changes on different lines by itself, but changes on neighbouring lines of the same file need a person to decide. Resolving means writing the file as it should be, here with main's timeout and your retries, and committing the merge. Picking one side with -X ours or -X theirs makes the conflict go away by silently losing the other person's change.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration",
+    "https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process",
+    "https://learn.microsoft.com/fabric/cicd/git-integration/source-code-format"
+  ],
+  "reset": "Reset rebuilds the repository from the exercise's history and puts the starter session back.",
+  "review_notes": [
+    "The pipeline file is cut down to the fields the exercise uses; Fabric's real pipeline-content.json carries more.",
+    "Checked on Microsoft Learn 2026-11-06: item folders are named {display name}.{type} (source-code-format), the pipeline definition part is pipeline-content.json, retry is an integer (default 0), and the definition page's examples write timeout as d.hh:mm:ss. Conflicts on the same item are partly resolved in Git (git-integration-process)."
+  ]
+}

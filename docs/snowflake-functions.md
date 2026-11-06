@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 133 |
-| Differs | 19 |
-| Refused | 48 |
-| Fails | 63 |
-| Not checked | 232 |
+| Runs | 136 |
+| Differs | 21 |
+| Refused | 69 |
+| Fails | 41 |
+| Not checked | 228 |
 | **All** | **495** |
 
 ## String and binary
@@ -406,34 +406,34 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `APPROX_COUNT_DISTINCT` | Runs | 1 value check |
-| `HLL` | Fails | DuckDB has no HLL, and the rules don't rewrite it |
-| `HLL_ACCUMULATE` | Fails | DuckDB has no HLL_ACCUMULATE, and the rules don't rewrite it |
-| `HLL_COMBINE` | Fails | DuckDB has no HLL_COMBINE, and the rules don't rewrite it |
-| `HLL_ESTIMATE` | Fails | DuckDB has no HLL_ESTIMATE, and the rules don't rewrite it |
-| `HLL_EXPORT` | Fails | DuckDB has no HLL_EXPORT, and the rules don't rewrite it |
-| `HLL_IMPORT` | Fails | DuckDB has no HLL_IMPORT, and the rules don't rewrite it |
-| `DATASKETCHES_HLL` | Fails | DuckDB has no DATASKETCHES_HLL, and the rules don't rewrite it |
-| `DATASKETCHES_HLL_ACCUMULATE` | Fails | DuckDB has no DATASKETCHES_HLL_ACCUMULATE, and the rules don't rewrite it |
-| `DATASKETCHES_HLL_COMBINE` | Fails | DuckDB has no DATASKETCHES_HLL_COMBINE, and the rules don't rewrite it |
-| `DATASKETCHES_HLL_ESTIMATE` | Fails | DuckDB has no DATASKETCHES_HLL_ESTIMATE, and the rules don't rewrite it |
-| `APPROXIMATE_JACCARD_INDEX` | Fails | Binder Error: Aggregate with only constant parameters has to be bound in the root subquery |
-| `APPROXIMATE_SIMILARITY` | Fails | Binder Error: Aggregate with only constant parameters has to be bound in the root subquery |
-| `MINHASH` | Not checked |  |
-| `MINHASH_COMBINE` | Fails | Binder Error: Aggregate with only constant parameters has to be bound in the root subquery |
-| `APPROX_TOP_K` | Refused | Not rewritten for DuckDB. APPROX_TOP_K cannot be transpiled to DuckDB due to incompatible return types. . |
-| `APPROX_TOP_K_ACCUMULATE` | Fails | DuckDB has no APPROX_TOP_K_ACCUMULATE, and the rules don't rewrite it |
-| `APPROX_TOP_K_COMBINE` | Fails | DuckDB has no APPROX_TOP_K_COMBINE, and the rules don't rewrite it |
-| `APPROX_TOP_K_ESTIMATE` | Fails | DuckDB has no APPROX_TOP_K_ESTIMATE, and the rules don't rewrite it |
-| `APPROX_PERCENTILE` | Fails | Binder Error: APPROXIMATE QUANTILE parameter list cannot be NULL |
-| `APPROX_PERCENTILE_ACCUMULATE` | Fails | DuckDB has no APPROX_PERCENTILE_ACCUMULATE, and the rules don't rewrite it |
-| `APPROX_PERCENTILE_COMBINE` | Fails | DuckDB has no APPROX_PERCENTILE_COMBINE, and the rules don't rewrite it |
-| `APPROX_PERCENTILE_ESTIMATE` | Fails | DuckDB has no APPROX_PERCENTILE_ESTIMATE, and the rules don't rewrite it |
-| `BITMAP_BIT_POSITION` | Not checked |  |
-| `BITMAP_BUCKET_NUMBER` | Not checked |  |
-| `BITMAP_CONSTRUCT_AGG` | Not checked |  |
-| `BITMAP_COUNT` | Fails | DuckDB has no BITMAP_COUNT, and the rules don't rewrite it |
-| `BITMAP_OR_AGG` | Fails | DuckDB has no BITMAP_OR_AGG, and the rules don't rewrite it |
+| `APPROX_COUNT_DISTINCT` | Runs | 1 value check; labelled SFD-010 Approximate answers use DuckDB's estimators |
+| `HLL` | Runs | 2 value checks; labelled SFD-010 Approximate answers use DuckDB's estimators |
+| `HLL_ACCUMULATE` | Refused | HLL_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_COMBINE` | Refused | HLL_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_ESTIMATE` | Refused | HLL_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_EXPORT` | Refused | HLL_EXPORT: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_IMPORT` | Refused | HLL_IMPORT: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `DATASKETCHES_HLL` | Differs | DATASKETCHES_HLL (docs example): SFD-010: DuckDB's estimate is 4.0, where Snowflake's sketch gives 4.00000003. |
+| `DATASKETCHES_HLL_ACCUMULATE` | Refused | DATASKETCHES_HLL_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `DATASKETCHES_HLL_COMBINE` | Refused | DATASKETCHES_HLL_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `DATASKETCHES_HLL_ESTIMATE` | Refused | DATASKETCHES_HLL_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROXIMATE_JACCARD_INDEX` | Refused | APPROXIMATE_SIMILARITY: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROXIMATE_SIMILARITY` | Refused | APPROXIMATE_SIMILARITY: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `MINHASH` | Refused | MINHASH: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `MINHASH_COMBINE` | Refused | MINHASH_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K` | Refused | APPROX_TOP_K: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K_ACCUMULATE` | Refused | APPROX_TOP_K_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K_COMBINE` | Refused | APPROX_TOP_K_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K_ESTIMATE` | Refused | APPROX_TOP_K_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_PERCENTILE` | Differs | APPROX_PERCENTILE (docs example, 0.1): SFD-010: DuckDB's approx_quantile gives 1.0. |
+| `APPROX_PERCENTILE_ACCUMULATE` | Refused | APPROX_PERCENTILE_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_PERCENTILE_COMBINE` | Refused | APPROX_PERCENTILE_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_PERCENTILE_ESTIMATE` | Refused | APPROX_PERCENTILE_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `BITMAP_BIT_POSITION` | Runs | 3 value checks |
+| `BITMAP_BUCKET_NUMBER` | Runs | 3 value checks |
+| `BITMAP_CONSTRUCT_AGG` | Refused | BITMAP_CONSTRUCT_AGG: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `BITMAP_COUNT` | Refused | BITMAP_COUNT: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `BITMAP_OR_AGG` | Refused | BITMAP_OR_AGG: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
 
 ## Window
 

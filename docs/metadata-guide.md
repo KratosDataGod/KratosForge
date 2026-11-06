@@ -309,8 +309,8 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 - In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that.
 - In **Dev on this PC**, **Compact** does the same with delta-rs, without V-Order.
   - If a write on this PC stops part way, for example because the app was closed, it can leave files that no commit names. Table health lists them.
-  - Compact removes unfinished files after an hour, and other files no commit names once they're older than the layer's history days. That includes any file placed in the table folder by hand.
-  - A table folder that contains a linked folder (a symbolic link or a junction) keeps those files. There, Compact vacuums only the files a commit removed.
+  - Compact removes unfinished files after an hour, and data files that no commit names once they're older than the layer's history days.
+  - Compact only touches files named the way Delta names them. Anything else in the folder stays, such as a note or a CSV someone put there. Compact never goes into a linked folder (a symbolic link or a junction).
 
 ## 7. Environments and promote
 

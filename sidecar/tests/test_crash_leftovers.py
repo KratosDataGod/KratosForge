@@ -10,6 +10,7 @@ its published one. The table itself stays at its last good version in each case.
 import os
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 import polars as pl
@@ -35,16 +36,16 @@ def _stopped_writes(tmp_path: Path) -> tuple[str, dict[str, Path]]:
     log = root / "_delta_log"
     left = {
         # killed after a data file was in place, before the commit: no version names it
-        "old_orphan": root / "part-00000-dead-0001-c000.snappy.parquet",
-        "new_orphan": root / "part-00000-dead-0002-c000.snappy.parquet",
+        "old_orphan": root / f"part-00000-{uuid.uuid4()}-c000.snappy.parquet",
+        "new_orphan": root / f"part-00000-{uuid.uuid4()}-c000.snappy.parquet",
         # killed while a data file was still under its staging name
-        "staged_data": root / "part-00000-dead-0003-c000.snappy.parquet#1",
+        "staged_data": root / f"part-00000-{uuid.uuid4()}-c000.snappy.parquet#1",
         # killed mid commit: the commit written under its staging name, never linked
         "staged_commit": log / "00000000000000000002.json#1",
         # killed after the link, before the staged copy was removed
         "linked_copy": log / "00000000000000000001.json#1",
         # a write under way right now: just staged
-        "live_staged": root / "part-00000-live-0004-c000.snappy.parquet#1",
+        "live_staged": root / f"part-00000-{uuid.uuid4()}-c000.snappy.parquet#1",
     }
     for name in ("old_orphan", "new_orphan", "staged_data", "live_staged"):
         shutil.copy(committed[0], left[name])
@@ -83,7 +84,7 @@ def test_health_on_this_pc_reports_what_stopped_writes_left(tmp_path):
 def test_compact_removes_what_stopped_writes_left_and_nothing_a_write_still_needs(tmp_path):
     uri, left = _stopped_writes(tmp_path)
     result = maintenance.compact_local(uri, days=7)
-    assert result["staged_removed"] == 3
+    assert result["staged_removed"] == 3 and result["unnamed_removed"] == 1
     assert not left["staged_data"].exists() and not left["staged_commit"].exists() and not left["linked_copy"].exists()
     assert not left["old_orphan"].exists()  # past the 7 days of history kept
     # A data file no commit names yet may belong to a long write still under way: it stays as long
@@ -94,7 +95,7 @@ def test_compact_removes_what_stopped_writes_left_and_nothing_a_write_still_need
     # Version 2 was never published, so the next write takes it.
     write_deltalake(uri, pl.DataFrame({"id": [5]}).to_arrow(), mode="append")
     assert _rows(uri) == [1, 2, 3, 4, 5]
-    assert maintenance.leftovers(uri) == [Path(left["new_orphan"]).name]
+    assert maintenance.leftovers(uri) == [left["new_orphan"].name]
 
 
 def test_a_healthy_local_table_reports_no_leftovers(tmp_path):
@@ -124,16 +125,31 @@ def test_compact_never_deletes_through_a_linked_folder(tmp_path):
     uri, left = _stopped_writes(tmp_path)
     outside = tmp_path / "outside"
     outside.mkdir()
-    kept = [outside / "precious.parquet", outside / "notes.txt", outside / "part-00000-x-c000.snappy.parquet#1"]
+    kept = [outside / f"part-00000-{uuid.uuid4()}-c000.snappy.parquet", outside / "notes.txt",
+            outside / f"part-00000-{uuid.uuid4()}-c000.snappy.parquet#1"]
     for p in kept:
         p.write_text("not the table's")
         _age(p, 30 * 24)
     _link_folder(Path(uri) / "linked", outside)
     assert all(not p.startswith("linked") for p in maintenance.leftovers(uri))
-    result = maintenance.compact_local(uri, days=7)
+    maintenance.compact_local(uri, days=7)
     assert all(p.exists() for p in kept)
-    assert "linked folder" in result["note"]
-    # The table's own staged leftovers still go; data files no commit names wait for a table with no link.
-    assert not left["staged_data"].exists() and not left["staged_commit"].exists()
-    assert left["old_orphan"].exists()
+    # The table's own leftovers still go.
+    assert not left["staged_data"].exists() and not left["staged_commit"].exists() and not left["old_orphan"].exists()
     assert _rows(uri) == [1, 2, 3, 4]
+
+
+def test_files_that_aren_t_the_table_s_are_never_reported_or_removed(tmp_path):
+    uri, left = _stopped_writes(tmp_path)
+    root = Path(uri)
+    (root / "p=1").mkdir()
+    foreign = [root / "notes.txt", root / "desktop.ini", root / "p=1" / "data.csv", root / "p=1" / "part-x.parquet",
+               root / "copy of part.parquet", root / "readme.md#1", root / "_delta_log" / "notes.json#1"]
+    for p in foreign:
+        p.write_text("someone else's")
+        _age(p, 30 * 24)
+    found = maintenance.leftovers(uri)
+    assert not {p.relative_to(root).as_posix() for p in foreign} & set(found)
+    maintenance.compact_local(uri, days=7)
+    assert all(p.exists() for p in foreign)
+    assert not left["old_orphan"].exists() and not left["staged_data"].exists()

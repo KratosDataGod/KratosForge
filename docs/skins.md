@@ -31,7 +31,7 @@ A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-sof
 are not in the table above, so a skin can't set them yet; dark mode will need them added once the
 near-duplicates among them are merged.
 
-74 colors are still written straight into rules (shades used once, the splash screen and the
+58 colors are still written straight into rules (shades used once, the splash screen and the
 celebration effects). A test in `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a
 token, or adds one to `:root`.
 

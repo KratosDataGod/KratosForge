@@ -114,7 +114,7 @@ class _Cell(ast.NodeVisitor):
         local = {a.arg for a in args.posonlyargs + args.args + args.kwonlyargs}
         local |= {a.arg for a in (args.vararg, args.kwarg) if a is not None}
         self.scopes.append(local)
-        body = node.body if isinstance(node.body, list) else [node.body]
+        body: list[Any] = node.body if isinstance(node.body, list) else [node.body]  # a lambda's is one expression
         # Names assigned anywhere in the function are local to it.
         for n in ast.walk(ast.Module(body=body, type_ignores=[])):
             if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
@@ -147,7 +147,7 @@ class _Cell(ast.NodeVisitor):
             self.visit(e)
         self.scopes.pop()
 
-    def visit_ListComp(self, node: ast.ListComp) -> None:
+    def visit_ListComp(self, node: ast.ListComp | ast.SetComp | ast.GeneratorExp) -> None:
         self.visit_comprehension_scope(node, [node.elt])
 
     visit_SetComp = visit_GeneratorExp = visit_ListComp
@@ -279,7 +279,7 @@ def graph(cells: list[dict[str, Any]]) -> dict[str, Any]:
     last_def: dict[str, dict[str, Any]] = {}
     last_write: dict[tuple[str, str], dict[str, Any]] = {}
     later_defs: dict[str, list[int]] = {}
-    infos = []
+    infos: list[dict[str, Any] | None] = []
     for n, c in enumerate(cells, 1):
         if c.get("type") == "markdown" or not (c.get("source") or "").strip():
             infos.append(None)
@@ -290,9 +290,10 @@ def graph(cells: list[dict[str, Any]]) -> dict[str, Any]:
         for name in info["defines"]:
             later_defs.setdefault(name, []).append(n)
     ids = {c.get("cell_id"): n for n, c in enumerate(cells, 1)}
-    for c, info in zip(cells, infos, strict=True):
-        if info is None:
+    for c, analyzed in zip(cells, infos, strict=True):
+        if analyzed is None:
             continue
+        info = analyzed
         edges: dict[tuple[Any, str], dict[str, Any]] = {}
 
         def edge(src: dict[str, Any], kind: str, via: str, how: str = "detected") -> None:
@@ -315,9 +316,10 @@ def graph(cells: list[dict[str, Any]]) -> dict[str, Any]:
             if src is not None:
                 edge(src, r["kind"], r["name"])
         for dep in ((c.get("meta") or {}).get("depends_on") or []):
-            n = ids.get(dep)
-            if n is not None and n < info["n"] and infos[n - 1] is not None:
-                edge(infos[n - 1], "declared", "", "declared")
+            k = ids.get(dep)
+            declared = infos[k - 1] if k is not None and k < info["n"] else None
+            if declared is not None:
+                edge(declared, "declared", "", "declared")
         info["upstream"] = sorted(edges.values(), key=lambda e: e["n"])
         info["unresolved"] = unresolved
         for name in info["defines"]:

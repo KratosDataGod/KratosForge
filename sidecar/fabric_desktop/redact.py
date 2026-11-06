@@ -67,6 +67,12 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     # A Databricks OAuth secret (a service principal's client secret: dose + 32 hex).
     (re.compile(r"\bdose[0-9a-f]{32}\b"), REMOVED),
+    # A GitLab personal, project or group access token (with a routable token's dotted parts),
+    # and an npm access token.
+    (re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*"), REMOVED),
+    (re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"), REMOVED),
+    # A Slack incoming webhook or workflow trigger: anyone with the address can post to the channel.
+    (re.compile(r"(?i)(?:https?://)?\bhooks\.slack\.com/(?:services|workflows|triggers)/[^\s\"'<>]+"), REMOVED),
     # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
     # line. Before the quoted-value rules, so a key inside quotes is still found by its BEGIN line.
     (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),

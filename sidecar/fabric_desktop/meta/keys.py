@@ -32,7 +32,7 @@ import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 
@@ -41,6 +41,7 @@ from ..redact import one_line
 
 if TYPE_CHECKING:
     from .project import Entity, Project
+    from ..central.client import PlatformKeys
     from .store import Dtype, Store
 
 KEYS_LAKEHOUSE = "LH_Keys"
@@ -383,8 +384,8 @@ def _issue(service: Any, kt: KeyTable, bks: pl.Series) -> tuple[pl.DataFrame, di
                          schema={"__bk": pl.String, "__sk": pl.Int32})
     new = found.filter(pl.col("__sk") != UNKNOWN_KEY).sort("__sk").tail(inserted)["__sk"] if inserted else None
     stats = {"inserted": inserted, "existing": len(wanted) - inserted,
-             "first": int(new.min()) if new is not None and len(new) else None,
-             "last": int(new.max()) if new is not None and len(new) else None}
+             "first": int(cast(int, new.min())) if new is not None and len(new) else None,
+             "last": int(cast(int, new.max())) if new is not None and len(new) else None}
     return found.filter(pl.col("__sk") != UNKNOWN_KEY), stats
 
 
@@ -413,7 +414,7 @@ def assign(store: Store, project: Project, e: Entity, df: pl.DataFrame) -> tuple
 
 def lookup(store: Store, kt: KeyTable, value: str) -> dict[str, Any] | None:
     if is_service(store):
-        return store.lookup(kt.name, value)
+        return cast("PlatformKeys", store).lookup(kt.name, value)
     hit = _keys_for(store, kt, [value.strip()])[0]
     if not hit.height:
         return None
@@ -423,7 +424,7 @@ def lookup(store: Store, kt: KeyTable, value: str) -> dict[str, Any] | None:
 
 def key_stats(store: Store, kt: KeyTable) -> dict[str, Any]:
     if is_service(store):
-        return store.stats(kt.name)
+        return cast("PlatformKeys", store).stats(kt.name)
     if not store.exists(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table):
         return {"created": False, "keys": 0, "next": 1}
     # Counted from the Delta log, all at one version: only the Unknown member row is read.
@@ -607,7 +608,7 @@ def sync(project: Project, store: Store) -> dict[str, Any]:
         created, missing = [], []
         for kt in project.key_tables.values():
             try:
-                if store.ensure(kt.name, kt.bk, kt.spec.get("description", "")):
+                if cast("PlatformKeys", store).ensure(kt.name, kt.bk, kt.spec.get("description", "")):
                     created.append(kt.name)
             except PlatformError:
                 missing.append(kt.name)

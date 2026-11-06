@@ -101,8 +101,10 @@ def _drop_body(rfile: BinaryIO, headers: dict[str, list[str]]) -> None:
     if any("chunked" in v.lower() for v in headers.get("transfer-encoding", [])):
         total = 0
         while True:
-            size_line = rfile.readline(1024)
-            size = int(size_line.split(b";")[0].strip() or b"0", 16)
+            digits = rfile.readline(1024).split(b";")[0].strip()
+            if not digits or len(digits) > 8 or any(c not in b"0123456789abcdefABCDEF" for c in digits):
+                raise ProxySignInError("the proxy's sign-in page wasn't readable")
+            size = int(digits, 16)
             total += size
             if total > MAX_BODY:
                 raise ProxySignInError("the proxy's sign-in page was too long")
@@ -334,7 +336,8 @@ if sys.platform == "win32":
                 keep = ctypes.create_string_buffer(challenge, len(challenge))
                 in_buffer = _Buffer(len(challenge), _TOKEN, ctypes.cast(keep, ctypes.c_void_p))
                 in_desc = _BufferDesc(0, 1, ctypes.pointer(in_buffer))
-            new_context = _Handle()
+            # Later rounds pass the same handle as phContext and phNewContext, as SSPI expects.
+            new_context = self._context if self._context is not None else _Handle()
             attributes = wintypes.ULONG()
             status = _initialize(ctypes.byref(self._credentials), ctypes.byref(self._context) if self._context else None,
                                  self._target, _FLAGS, 0, _NATIVE, ctypes.byref(in_desc) if in_desc else None, 0,

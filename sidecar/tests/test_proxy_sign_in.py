@@ -279,6 +279,13 @@ def test_the_proxys_offer_is_read_as_windows_sends_it():
         proxy_sign_in.offer(["NTLM !!!"])
 
 
+@pytest.mark.parametrize("size", [b"-5", b"zz", b"", b"123456789"])
+def test_a_407_page_with_a_bad_chunk_size_is_refused(size):
+    import io
+    with pytest.raises(ProxySignInError, match="wasn't readable"):
+        proxy_sign_in._drop_body(io.BytesIO(size + b"\r\nxxxxx\r\n0\r\n\r\n"), {"transfer-encoding": ["chunked"]})
+
+
 def test_it_is_off_unless_the_policy_file_turns_it_on(monkeypatch, tmp_path):
     monkeypatch.setenv("ProgramData", str(tmp_path))
     assert app_settings.value("proxy_windows_sign_in") is False

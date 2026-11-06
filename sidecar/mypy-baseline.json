@@ -304,11 +304,6 @@
   "assignment": 1,
   "var-annotated": 1
  },
- "fabric_desktop/meta/restore.py": {
-  "arg-type": 1,
-  "operator": 4,
-  "union-attr": 1
- },
  "fabric_desktop/meta/store.py": {
   "return-value": 2,
   "union-attr": 1

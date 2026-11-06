@@ -32,6 +32,8 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: dataops.js:columnLineage, df-dataflows.js:dfRunInFabric, meta.js:metaRiskGate, meta.js:readSourceDialog
 // axe covers dialogs: governance.js:policyDialog, prove.js:showScorecard, xray.js:vacuumAll, optimize.js:optimizeMove
 // axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
+// axe covers dialogs: optimize.js:optimizeSyncDetails, meta.js:profileEntity, platform.js:confirmCopyJob, product-items.js:productItemDialog
+// axe covers dialogs: whmonitor.js:whMonitorBuild, xray.js:stagingDialog, optimize.js:optimizeCreateFlow, meta.js:moveSourcesToPlatform
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -52,6 +54,14 @@ before(async () => {
   app = await openApp({
     engine: ["app_settings", "profile_get"],  // the profile as a new person's engine makes it
     mocks: {
+      xray_staging_preview: () => ({ ok: true, lakehouse_name: "LH_Staging", kept: "LH_Staging_2", quiet_days: 30, created: "2026-09-01T00:00:00Z",
+        last_write: "2026-10-01T00:00:00Z", files: 12, bytes: 40960, dataflows: [{ name: "Orders flow", ok: true, last_refresh: "2026-11-04T00:00:00Z" }] }),
+      meta_profile: () => ({ rows: 1200, seconds: 0.4, suggestions: [{ id: "s1", kind: "not_null", rule: "order_id is never empty", toml: "" }],
+        columns: [{ name: "order_id", type: "BIGINT", nulls: 0, null_pct: 0, distinct: 1200, min: 1, max: 1200, issues: [], top: [] }] }),
+      list_items: () => [{ id: "wh1", displayName: "WH_Sales", type: "Warehouse" }, { id: "sm1", displayName: "Sales model", type: "SemanticModel" }],
+      platform_status: () => ({ landing: { central: false } }),
+      optimize_status: () => ({ default_name: "FabricDesktop_Central" }),
+      meta_sources_move: () => ({ moved: ["sap"], conflicts: [{ code: "crm", id: 4, why: "the platform uses id 4 for another source" }] }),
       git_platform_deploy: () => ({ commit: "0123456789abcdef", catalog_env: "prod", labels: {}, plan_id: "p1", steps: [], stops: [],
         removable: [], blocked: [], notes: ["Platform admins only."] }),
       meta_lineage: () => ({ columns: { order_id: { how: "copied", label: "direct" }, total: { how: "derived", label: "computed" } } }),
@@ -248,6 +258,28 @@ const CASES = [
   ["meta.js:ossieImportDialog", "Import from Ossie", () => { ossieImportDialog({ name: "Sales model", existing: true, workspace_name: "Sales Dev" }, null); }],
   ["platform.js:confirmApproval", "Pick a capacity for Sales Dev", () => { confirmApproval({ kind: "workspace", target: "Sales Dev", detail: {} }); }],
   ["git.js:gitPlatformDeploy", "Deploy the platform repository", () => { gitPlatformDeploy("C:/repos/platform"); }],
+  // Batch 7: the last dialogs, several opened from a step before them (next() presses that step's main button).
+  ["optimize.js:optimizeSyncDetails", "Sync with the lakehouse", () => {
+    optimizeSyncDetails({ pending: 3, pending_rows: 120, oldest: "2026-11-05T09:00:00Z", last_sync: "2026-11-05T08:00:00Z" }); }],
+  ["meta.js:profileEntity", "Profile silver.orders", () => { profileEntity("silver.orders"); }, "#dialog-root .dialog.wide .scroll"],
+  ["platform.js:confirmCopyJob", "Approve source erp?", () => {
+    confirmCopyJob({ target: "erp", detail: { owner: "erp-team@contoso.com",
+      copy: { connection_name: "ERP SQL", times: ["02:00"], tables: [{ table: "dbo.orders", folder: "orders", mode: "incremental", column: "modified_at" }] } } }); }],
+  ["product-items.js:productItemDialog", "Add a semantic model", () => {
+    productItemDialog({ id: "p1" }, { type: "SemanticModel", title: "Semantic models", dialog: "Add a semantic model", word: "semantic model" }, () => {}); }],
+  ["whmonitor.js:whMonitorBuild", "Build monitoring views in Sales Dev?", () => {
+    sqlPage.whMonitor = { item: "wh1", status: { database: "monitoring", querysets: {} } };
+    whMonitorBuild({ workspace_id: "w1", workspace_name: "Sales Dev" }); }],
+  ["xray.js:stagingDialog", "Remove LH_Staging", () => {
+    stagingDialog({ id: "f1", workspace_id: "w1", lakehouse_id: "l1", lakehouse_name: "LH_Staging", workspace_name: "Sales Dev" }, null, null); }, "#dialog-root .dialog table"],
+  ["optimize.js:optimizeCreateFlow", "Create an optimization lakehouse", async () => {
+    optimizeCreateFlow();
+    await new Promise((r) => setTimeout(r, 300));
+    document.querySelector("#dialog-root .dialog .tool.primary").click(); }, "#dialog-root .dialog input"],
+  ["meta.js:moveSourcesToPlatform", "Some sources weren't moved", async () => {
+    moveSourcesToPlatform([{ code: "sap", id: 3 }, { code: "crm", id: 4 }], "dev", () => {});
+    await new Promise((r) => setTimeout(r, 300));
+    document.querySelector("#dialog-root .dialog .tool.primary").click(); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

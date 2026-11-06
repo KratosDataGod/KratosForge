@@ -3,17 +3,9 @@
   "fabricstep.js:insertVOrderCell",
   "governance.js:governancePolicy",
   "mesh.js:keysPlatformCard",
-  "meta.js:moveSourcesToPlatform",
-  "meta.js:profileEntity",
-  "optimize.js:optimizeCreateFlow",
-  "optimize.js:optimizeSyncDetails",
-  "platform.js:confirmCopyJob",
   "platform.js:platformGlossaryTab",
   "platform.js:requestTable",
-  "product-items.js:productItemDialog",
   "shortcuts.js:renderShortcuts",
-  "whmonitor.js:whMonitorBuild",
   "whproject.js:whProjectDeploy",
-  "whproject.js:whProjectImport",
-  "xray.js:stagingDialog"
+  "whproject.js:whProjectImport"
 ]

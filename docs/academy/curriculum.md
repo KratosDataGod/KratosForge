@@ -8,8 +8,8 @@ the app generates on this PC, so the same seed always gives the same data and th
 starter, an independently runnable reference solution, validation rules, and a CI test that runs
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
 content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
-solution and planted wrong answers: E06, E08, E12, E17, E19, E21, E22, E23, E24, E25, E27, E28, E32, E33, E35,
-E36, E37, E38, E39, E40, E43, E44, E48, E49, E50, E51, E53, E56, E57, E58, E59, E61, E62, E63, E64.
+solution and planted wrong answers: one file per built exercise in `sidecar/tests/academy_pins/dp-700`, which a
+test keeps equal to the pack.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).

@@ -55,7 +55,7 @@ is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL,
 `add_months(d, 1)`; Spark's names differ for literals (it drops their quotes) and add defaults such as
 `months_between`'s `roundOff`.
 
-### DataFrame: 79 of 102
+### DataFrame: 81 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -77,7 +77,7 @@ is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL,
 | `createTempView` | Works |
 | `crossJoin` | Works |
 | `crosstab` | Not yet on this PC |
-| `cube` | Not yet on this PC |
+| `cube` | Works |
 | `describe` | Works |
 | `distinct` | Works |
 | `drop` | Works |
@@ -122,7 +122,7 @@ is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL,
 | `repartition` | Accepted, does nothing on one PC |
 | `repartitionByRange` | Accepted, does nothing on one PC |
 | `replace` | Works |
-| `rollup` | Not yet on this PC |
+| `rollup` | Works |
 | `sameSemantics` | Not yet on this PC |
 | `sample` | Works |
 | `sampleBy` | Not yet on this PC |

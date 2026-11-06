@@ -85,8 +85,8 @@ Preview features are shown, and an administrator's policy can lock it.
 |---|---|
 | KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
 | Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
-| Databricks-familiar | A blue accent, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. A dark version follows the mockup and shows once dark mode lands. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
-| Snowflake-familiar | A blue accent and light surfaces, and Worksheets, Data, Load and create and Monitoring at the top of the rail, in that order, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
+| Databricks-familiar | A blue accent, with the active rail item's stripe in the same blue, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. A dark version follows the mockup and shows once dark mode lands. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
+| Snowflake-familiar | A blue accent and light surfaces, with the active rail item's stripe in the same blue, and Worksheets, Data, Load and create and Monitoring at the top of the rail, in that order, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
 services, Learn), at most 8 main pages in the rail, and Settings at the bottom. In a platform skin, KratosForge's own

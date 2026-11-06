@@ -129,3 +129,20 @@ def test_meta_where_matches_meta_then_filter_even_when_rows_share_a_time(tmp_pat
     uri = store.uri(META_LAKEHOUSE, "meta", "deployments")
     on_onelake = lazy(DeltaTable(uri), uri, {}).filter(pl.col("env") == "prod").collect().sort("at", maintain_order=True)
     assert on_onelake.equals(store.meta("deployments").filter(pl.col("env") == "prod"))
+
+
+def test_runs_started_in_the_same_second_never_share_an_id(monkeypatch):
+    """Each entity run gets its own id, and a run of every entity starts several in one second. With
+    16 random bits two of them shared an id, and a run's detail then showed the other entity's run."""
+    import datetime as dt
+
+    from fabric_desktop.meta import engine
+
+    class Frozen(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 11, 6, 14, 57, 54)
+    monkeypatch.setattr(engine.dt, "datetime", Frozen)
+    ids = [engine.new_run_id() for _ in range(5000)]
+    assert len(set(ids)) == len(ids)
+    assert all(i.startswith("r-20261106-145754-") for i in ids)

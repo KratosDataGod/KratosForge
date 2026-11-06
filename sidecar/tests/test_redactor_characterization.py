@@ -33,6 +33,9 @@ CASES = [
  ("Storage AccountKey", "AccountKey=" + J(["A" * 20, "b" * 24]) + "==;", J(["A" * 20, "b" * 24]) + "=="),
  ("git extraheader", "http.extraheader=AUTHORIZATION: basic " + J(["Zm9vOmJh", "cg=="]), J(["Zm9vOmJh", "cg=="])),
  ("Quoted password", "{'password': '" + J(["correct horse", " battery"]) + "'}", J(["correct horse", " battery"])),
+ ("GitLab token", "push with " + J(["gl", "pat-", "aB3dE5fG7hJ9kL1mN2pQ"]), J(["gl", "pat-", "aB3dE5fG7hJ9kL1mN2pQ"])),
+ ("npm token", "_authToken " + J(["np", "m_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"]), J(["np", "m_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"])),
+ ("Slack webhook", "post to https://hooks.slack.com/services/" + J(["T0123ABCD/", "B0456EFGH/", "aBcDeFgHiJkLmNoPqRsTuVwX"]), J(["T0123ABCD/", "B0456EFGH/", "aBcDeFgHiJkLmNoPqRsTuVwX"])),
  ("Bare token=", "GET /x?token=" + J(["abc123", "XYZ789"]) + "&y=1", J(["abc123", "XYZ789"])),
 ]
 
@@ -43,24 +46,27 @@ CASES = [
 TODAY = {
     'Bearer header': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Basic header': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'JWT': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'SAS sig': ('removed', 'removed', 'removed', 'masked', 'removed'),
+    'JWT': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'SAS sig': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'URL user:pass': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'URL user only': ('kept', 'removed', 'kept', 'removed', 'kept'),
+    'URL user only': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Teams webhook': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Legacy webhook': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'GitHub token': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'Entra client secret': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'AWS key': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'Slack token': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'Databricks token': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'sk- API key': ('removed', 'removed', 'removed', 'masked', 'removed'),
+    'GitHub token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Entra client secret': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'AWS key': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Slack token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Databricks token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'sk- API key': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'PEM private key': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'Connection-string password': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'Storage AccountKey': ('removed', 'removed', 'removed', 'masked', 'removed'),
+    'Connection-string password': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Storage AccountKey': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'git extraheader': ('removed', 'removed', 'removed', 'removed', 'removed'),
-    'Quoted password': ('removed', 'removed', 'removed', 'masked', 'removed'),
-    'Bare token=': ('removed', 'removed', 'removed', 'masked', 'removed'),
+    'Quoted password': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'GitLab token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'npm token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Slack webhook': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Bare token=': ('removed', 'removed', 'removed', 'removed', 'removed'),
 }
 
 REDACTORS = {
@@ -103,10 +109,11 @@ def test_the_walkers_are_one_walker():
     assert logs._redacted(value) == core.redact_result(value) == redact.walk(value)
 
 
-def test_placeholders_differ():
-    text = "Authorization: Bearer " + J(["abcDEF123", "ghiJKL456"])
-    assert redact.secrets(text).endswith("Bearer [removed]")
-    assert git_secrets.redact(text).endswith("Bearer ***")
+def test_git_messages_use_the_shared_redactor():
+    # git/secrets.redact is redact.secrets: same output, same [removed] placeholder, nothing masked.
+    for _name, text, _secret in CASES:
+        assert git_secrets.redact(text) == redact.secrets(text)
+    assert git_secrets.redact(None) == git_secrets.redact("") == ""
 
 
 def test_livetest_scrub_also_cuts_to_2000_characters():
@@ -121,3 +128,34 @@ def test_the_audit_page_shows_this_table():
     shown = [tuple(c.split(" (")[0] for c in r[1:]) for r in rows[2:]]  # "removed (as an email)" is removed
     assert rows[0] == ["Input", *REDACTORS]
     assert shown == list(TODAY.values()), "docs/audits/REDACTORS.md and TODAY list the same outcomes, in the same order"
+
+
+# One sample per pre-commit detection pattern in git/secrets.PATTERNS: the shared redactor removes
+# whatever that scan would find, so moving git messages onto it lost nothing.
+GIT_SAMPLES = [
+    J(["-----BEGIN RSA ", "PRIVATE KEY-----\nMIIB\n-----END RSA ", "PRIVATE KEY-----"]),
+    "AccountKey=" + "A" * 44 + "==",
+    "?a=1&sig=" + "A" * 24,
+    "Password=" + J(["Sup3r", "S3cret"]) + ";",
+    J(["gh", "p_", "A" * 36]),
+    J(["abc", "8Q~", "x" * 34]),
+    J(["AK", "IA", "ABCDEFGHIJKLMNOP"]),
+    J(["xo", "xb-", "1234567890-ab"]),
+    J(["da", "pi", "0" * 32]),
+    J(["s", "k-", "a" * 24]),
+    J(["eyJ", "a" * 12, ".eyJ", "b" * 12, ".", "c" * 12]),
+    "https://x.webhook.office.com/webhookb2/" + J(["abc@def", "/IncomingWebhook/x/y"]),
+    "password = '" + J(["long pass", " phrase"]) + "'",
+    "?x=1&refresh_token=" + "a" * 12,
+    "&code=" + "a" * 12,
+    "secret_key = '" + J(["abcd1234", "efgh"]) + "'",
+    "auth_token='" + J(["abcd1234", "efgh"]) + "'",
+]
+
+
+@pytest.mark.parametrize("text", GIT_SAMPLES)
+def test_the_shared_redactor_removes_whatever_the_git_scan_finds(text):
+    found = [m.groupdict().get("s") or m.group(0) for _k, p, _f in git_secrets.PATTERNS for m in p.finditer(text)]
+    assert found, "each sample is one the pre-commit scan detects"
+    out = redact.secrets(text)
+    assert not [s for s in found if s in out], out

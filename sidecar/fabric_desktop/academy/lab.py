@@ -20,7 +20,11 @@ what it leaves (academy/pylab.py), so nothing an earlier run left behind can mak
 
 Settings exercises (``config_model``) keep the learner's settings document (the starter, such as
 ``settings.json``) and ``state.json`` in the exercise folder. Nothing runs: Run lists the settings the
-document holds, and Check reads it as data against the exercise's rules (academy/configlab.py). A quiz
+document holds, and Check reads it as data against the exercise's rules (academy/configlab.py). Git
+exercises (``git_lab``) keep the learner's session (the starter, such as ``session.git``): Run and Check
+each replay it with real Git in a fresh repository built from the exercise's history (academy/gitlab.py).
+Database-project exercises (``sqlproj_lab``) keep the learner's change set (such as ``changes.sql``); Run and
+Check apply it to the exercise's project as text and build it in memory (academy/sqlprojlab.py). A quiz
 (``quiz``) keeps the learner's picks in ``answers.json``; its questions and answer key stay in the pack's
 ``grading/`` folder and the screen gets the questions only (academy/quizlab.py).
 
@@ -33,6 +37,7 @@ replace the target, which is checked first.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -43,10 +48,13 @@ from typing import Any
 import duckdb
 
 from .. import jsonfile
+from ..git import ops as git_ops
 from ..learn import checks
 from ..learn import labs as learn_labs
-from . import configlab, dbsql_lab, exercises, pylab, quizlab, registry, sandbox
+from . import configlab, dbsql_lab, exercises, gitlab, pylab, quizlab, registry, sandbox, sqlprojlab
 from . import workspace as ws
+
+_log = logging.getLogger(__name__)
 
 DB_FILE = "lab.duckdb"
 ANSWER_FILE = "answer.sql"
@@ -54,9 +62,11 @@ STATE_FILE = "state.json"
 RUN_DIR = "run"        # python_lab: where Run runs the script
 CHECK_DIR = "check"    # python_lab: made fresh for every Check
 # Adapters with a workspace on this PC (lab.start and the rest).
-LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER, quizlab.ADAPTER)
-# Adapters whose answer is the exercise's own starter file (a script or a settings document), not answer.sql.
-STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER)
+LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER, quizlab.ADAPTER, gitlab.ADAPTER,
+                sqlprojlab.ADAPTER)
+# Adapters whose answer is the exercise's own starter file (a script, a settings document, a Git session or a
+# database project's change set), not answer.sql.
+STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER)
 
 
 MAX_ANSWER_BYTES = 1024 * 1024
@@ -157,7 +167,7 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     elif ex["adapter"] == quizlab.ADAPTER:
         if not _exists(folder, quizlab.ANSWER_FILE):
             _write(folder, quizlab.ANSWER_FILE, "{}")
-    elif ex["adapter"] == configlab.ADAPTER:
+    elif ex["adapter"] in (configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER):
         if not _exists(folder, ex["starter"]):
             _write(folder, ex["starter"], exercises.file_text(pack_id, exercise_id, ex["starter"]))
     else:
@@ -215,6 +225,14 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
         _started(root, pack_id, exercise_id)
         began = time.perf_counter()
         return {**configlab.outline(str(sql), min(max(1, int(limit)), 1000)), "ms": round((time.perf_counter() - began) * 1000)}
+    if adapter == gitlab.ADAPTER:   # the session replayed in a fresh repository in run/, removed afterwards
+        return _run_git(root, pack_id, exercise_id, str(sql), limit)
+    if adapter == sqlprojlab.ADAPTER:   # the project after the change set, built in memory; nothing on disk
+        ex = _lab_exercise(pack_id, exercise_id)
+        _started(root, pack_id, exercise_id)
+        began = time.perf_counter()
+        got = sqlprojlab.run(_exercise_folder(pack_id, exercise_id), ex, str(sql), min(max(1, int(limit)), 1000))
+        return {**got, "ms": round((time.perf_counter() - began) * 1000)}
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     limit = min(max(1, int(limit)), 1000)
@@ -258,6 +276,27 @@ def _run_python(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[s
     return {"status": got["status"], "exit_code": got["exit_code"], "stdout": got["stdout"][-20_000:],
             "stderr": got["stderr"][-20_000:], "seconds": got["seconds"], "runs_as": got["runs_as"],
             "ms": round(got["seconds"] * 1000)}
+
+
+def _run_git(root: Path, pack_id: str, exercise_id: str, text: str, limit: int) -> dict[str, Any]:
+    ex = _lab_exercise(pack_id, exercise_id)
+    folder = _started(root, pack_id, exercise_id)
+    if len(text.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That session is over 1 MB; an exercise answer is much smaller.")
+    began = time.perf_counter()
+    left = ws.inside(folder, RUN_DIR, must_exist=False)
+    if os.path.lexists(left):   # what an earlier run couldn't remove; refused when it is a link
+        ws.inside(folder, RUN_DIR)
+        git_ops.remove_clone(left)
+    work = _fresh_dir(folder, RUN_DIR)
+    try:
+        got = gitlab.run(work, _exercise_folder(pack_id, exercise_id), ex, text, min(max(1, int(limit)), 1000))
+    finally:
+        try:   # Git keeps its objects read-only, which Windows won't delete as they are
+            git_ops.remove_clone(work)
+        except OSError as exc:   # a locked file: keep Run's own result; the next Run clears what's left
+            _log.warning("The exercise's run folder couldn't be removed yet: %s", exc)
+    return {**got, "ms": round((time.perf_counter() - began) * 1000)}
 
 
 def _check_python(root: Path, pack_id: str, exercise_id: str, ex: dict[str, Any], answer: str) -> list[dict[str, Any]]:
@@ -354,6 +393,11 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         results = _check_python(root, pack_id, exercise_id, ex, answer)
     elif ex["adapter"] == configlab.ADAPTER:
         results = _with_messages(ex, configlab.grade(answer, ex)["results"])
+    elif ex["adapter"] == gitlab.ADAPTER:   # replayed in a fresh repository of its own, outside the workspace
+        results = _with_messages(ex, gitlab.grade(answer, _exercise_folder(pack_id, exercise_id), ex)["results"])
+    elif ex["adapter"] == sqlprojlab.ADAPTER:   # read as text and built in memory against the reference
+        results = _with_messages(ex, sqlprojlab.grade(answer, _exercise_folder(pack_id, exercise_id),
+                                                      _grading_folder(pack_id, exercise_id), ex)["results"])
     elif ex["adapter"] == quizlab.ADAPTER:
         questions = quizlab.load(_grading_folder(pack_id, exercise_id))
         results = _with_messages(ex, quizlab.grade(answer, ex, questions)["results"])

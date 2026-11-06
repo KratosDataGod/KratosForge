@@ -111,7 +111,7 @@ class EstateMixin:
         except TableNotFoundError:
             versions = []
         try:
-            restores = json.loads(store.meta("restores").filter(pl.col("entity") == name).reverse().head(10).write_json())
+            restores = json.loads(store.meta_where("restores", pl.col("entity") == name).reverse().head(10).write_json())
         except Exception:  # noqa: BLE001 - the versions are what matter
             restores = []
         return {"entity": name, "env": env, "retention_days": days, "layer": e.layer, "versions": versions,

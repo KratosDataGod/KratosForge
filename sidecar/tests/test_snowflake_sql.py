@@ -182,6 +182,8 @@ def test_sfx004_object_construct_star_is_refused():
     ("select date_trunc('month', ts) from t", "SFD-006"),
     ("select dateadd(week, 1, ts) from t", "SFD-006"),
     ("select typeof(v) from t", "SFD-007"),
+    ("select l[i] from t", "SFD-009"),
+    ("select v['a']::string from t", "SFD-009"),
 ])
 def test_each_known_difference_is_named(code, note):
     (report,) = sf.translate(code).statements
@@ -588,3 +590,48 @@ def test_nested_is_and_as_calls_are_all_rewritten_and_the_value_is_read_once():
     assert row == (True, 5)
     sql = sf.translate("SELECT is_integer(parse_json(col)) FROM t").duckdb_sql
     assert sql.upper().count("JSON(COL)") == 1 and "LAMBDA" in sql.upper()
+def test_a_json_string_cast_to_text_loses_its_quotes_and_json_null_is_sql_null():
+    import duckdb
+    t = sf.translate("SELECT v:a::string, v:n::string, v:o::varchar, v:z::string, to_varchar(v:a), v:a, "
+                     "'x'::string FROM (SELECT parse_json('{\"a\": \"Pine\", \"n\": 1.5, \"o\": {\"k\": 1}, "
+                     "\"z\": null}') AS v)")
+    assert t.statements[0].verdict == "translated"
+    row = duckdb.connect().execute(t.duckdb_sql).fetchone()
+    assert row[:6] == ("Pine", "1.5", '{"k":1}', None, "Pine", '"Pine"') and row[6] == "x"
+
+
+def test_brackets_index_json_from_zero_and_lists_from_an_integer_column():
+    import duckdb
+    t = sf.translate("SELECT v[0], v['k'][1]::string, l[0], l[i], x[0] FROM (SELECT parse_json('[\"a\"]') AS v, "
+                     "parse_json('{\"k\": [1, \"b\"]}') AS w, array_construct(10, 20) AS l, 1 AS i, "
+                     "array_construct(7) AS x)")
+    sql = t.duckdb_sql
+    assert "v[0]" in sql and "l[1]" in sql and "l[i + 1]" in sql and "x[1]" in sql
+    t = sf.translate("SELECT w['k'][1]::string, l[i] FROM (SELECT parse_json('{\"k\": [1, \"b\"]}') AS w, "
+                     "array_construct(10, 20) AS l, 1 AS i)")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ("b", 20)
+
+
+def test_a_column_whose_type_the_statement_does_not_show_is_left_as_written():
+    sql = sf.translate("SELECT v['a']::string, x[0] FROM t").duckdb_sql
+    assert sql == "SELECT CAST(v['a'] AS TEXT), x[1] FROM t"
+    (report,) = sf.translate("SELECT v['a']::string, x[0] FROM t").statements
+    assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-009"]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT m['k'] FROM t",                                   # a string key alone reads the same on JSON and MAP
+    "SELECT id::string FROM t",                               # no brackets
+    "SELECT v:a::string FROM t",                              # a path is JSON whatever the column is
+    "SELECT parse_json('[5,6]')[0]",
+    "SELECT l[1] FROM (SELECT array_construct(10, 20) AS l)",
+    "WITH s AS (SELECT parse_json('{\"a\": \"P\"}') AS v) SELECT v['a']::string FROM s",
+])
+def test_brackets_whose_value_type_is_known_raise_no_note(code):
+    assert "SFD-009" not in [n.id for n in sf.translate(code).statements[0].notes]
+
+
+@pytest.mark.parametrize("code", ["SELECT l[0] FROM t", "SELECT (v['a'])::varchar FROM t",
+                                  "SELECT to_varchar(v['a']) FROM t", "SELECT v['a'][0] FROM t"])
+def test_brackets_on_a_column_of_unknown_type_are_labelled(code):
+    assert "SFD-009" in [n.id for n in sf.translate(code).statements[0].notes]

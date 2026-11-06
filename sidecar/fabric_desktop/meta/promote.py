@@ -18,7 +18,7 @@ def promote_checks(project: Project, source: Store, target_env: str, today: dt.d
     errors = validate(project, today)
     version = project.version
     if source.env != "dev":
-        deps = source.meta("deployments").filter(pl.col("env") == source.env)
+        deps = source.meta_where("deployments", pl.col("env") == source.env)
         if not deps.height or deps["version"][-1] != version:
             errors.append(f"{source.env} is not on metadata {version}; promote it to {source.env} first")
     log = source.meta("run_log")

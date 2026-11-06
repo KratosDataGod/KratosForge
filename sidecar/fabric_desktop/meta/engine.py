@@ -389,7 +389,7 @@ class Engine:
     def check_deployed(self) -> None:
         if self.store.env == "dev":
             return
-        deps = self.store.meta("deployments").filter(pl.col("env") == self.store.env)
+        deps = self.store.meta_where("deployments", pl.col("env") == self.store.env)
         deployed = deps["version"][-1] if deps.height else None
         if deployed != self.project.version:
             raise GateError("promote", [f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "

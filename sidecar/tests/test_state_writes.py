@@ -41,6 +41,8 @@ IN_PLACE = {
     "shortcut_service.py:shortcut_export": "an export the person asked for, to a new file in Downloads",
     "notebook_batch_service.py:notebook_batch_stop": "a stop marker: only whether it exists is read",
     "notebookutils_local.py:_write": "notebookutils.fs.put from the person's own notebook code, as on Fabric",
+    "academy/notebookutils_lab.py:put": "notebookutils.fs.put from a learner's exercise code, in the exercise's "
+                                         "Files/ folder, as on Fabric",
     "onelake.py:download": "a downloaded file, streamed as it arrives; the caller owns where it goes",
     "proof_runtime.py:save": "runs in the notebook's kernel (on Fabric or this PC) and writes a proof side's log once",
     "prove_service.py:replay_bundle_open": "named by the hash of its own bytes, so writing it again writes the same file",

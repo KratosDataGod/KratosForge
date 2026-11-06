@@ -129,13 +129,13 @@ def test_the_result_label_is_honest():
 
 # ---- the learner package (Security read, 2026-11-03)
 
-def test_the_package_is_its_sources_with_only_the_shims_parent_imports_changed(tmp_path):
+def test_the_package_is_its_sources_with_only_parent_imports_changed(tmp_path):
     learner_pkg.build(tmp_path)
     pkg = tmp_path / learner_pkg.PACKAGE
     assert sorted(p.name for p in pkg.glob("*.py")) == sorted(["__init__.py", *learner_pkg.SOURCES])
     for name, src in learner_pkg.SOURCES.items():
         built, original = (pkg / name).read_text(encoding="utf-8"), src.read_text(encoding="utf-8")
-        if name == "pyspark_shim.py":
+        if name in learner_pkg.REWRITES:
             assert "from .." not in built and built.count("\n") == original.count("\n")
         else:
             assert built == original

@@ -123,14 +123,14 @@ test("Model connections keep where the key is, and Remove asks first", { skip },
   assert.ok(await form.locator("select[aria-label='Where the key is kept']").isHidden(), "Ollama needs no key");
   await form.locator("select[aria-label='Provider']").selectOption("anthropic");
   await form.locator("input[aria-label='Key name']").fill("my-claude");
-  assert.match(await form.textContent(), /Kept as credman:KratosForge\/my-claude/);
+  assert.match(await form.textContent(), /keeps only where the key is, never the key: Windows Credential Manager \(KratosForge\/my-claude\)/);
   await form.locator("input[aria-label='Connection name']").fill("My Claude");
   await form.locator("input[aria-label='Model']").fill("claude-sonnet-5-5");
   await form.locator(".check", { hasText: "App context" }).locator("input").check();
   await form.locator("button", { hasText: "Save connection" }).click();
   await page().locator(".as-conn", { hasText: "My Claude" }).waitFor();
   const row = await page().locator(".as-conn", { hasText: "My Claude" }).textContent();
-  assert.match(row, /Default[\s\S]*Anthropic Claude · claude-sonnet-5-5[\s\S]*app context allowed[\s\S]*Key: credman:KratosForge\/my-claude/);
+  assert.match(row, /Default[\s\S]*Anthropic Claude · claude-sonnet-5-5[\s\S]*app context allowed[\s\S]*Key: Windows Credential Manager \(KratosForge\/my-claude\)/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "appstudio-connections.png") });
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#view"), []);
   await page().locator("button[aria-label='Remove My Claude']").click();

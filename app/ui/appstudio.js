@@ -428,6 +428,13 @@ async function renderAppStudioConnections() {
 
 const AS_KEYLESS = new Set(["ollama"]);
 
+// A key reference as people read it: where the key is, in words.
+function appStudioKeyText(ref) {
+  if (!ref) return "none needed";
+  if (ref.startsWith("env:")) return `environment variable ${ref.slice(4)}`;
+  return `Windows Credential Manager (${ref.replace(/^credman:/, "")})`;
+}
+
 function appStudioProviderLabel(got, id) {
   return got.providers.find((p) => p.id === id)?.label || id;
 }
@@ -457,7 +464,7 @@ function appStudioConnectionList(got) {
         refused ? h("span", { class: "as-chip warn" }, "Policy stops it") : isDefault ? h("span", { class: "as-chip ok" }, "Default") : null),
       h("div", { class: "small" }, `${appStudioProviderLabel(got, c.provider)} · ${c.model}`),
       h("div", { class: "muted-text small" }, sends),
-      h("div", { class: "muted-text small" }, `Key: ${c.key_ref || "none needed"}`),
+      h("div", { class: "muted-text small" }, `Key: ${appStudioKeyText(c.key_ref)}`),
       c.usage?.requests ? h("div", { class: "muted-text small" }, `This month: ${c.usage.requests} request${c.usage.requests === 1 ? "" : "s"}, ${(c.usage.input_tokens + c.usage.output_tokens).toLocaleString()} tokens`) : null,
       refused ? h("ul", { class: "as-ready" }, c.refused.map((t) => h("li", { class: "todo" }, icon("warning", 14), t))) : null,
       h("div", { class: "row" },
@@ -514,9 +521,11 @@ function appStudioConnectionForm(got) {
     deploymentField.hidden = provider.value !== "azure-openai";
     keyFields.hidden = AS_KEYLESS.has(provider.value);
     const r = appStudioKeyRef(keyKind.value, keyName.value);
+    const where = r ? appStudioKeyText(r) : keyKind.value === "env" ? "an environment variable" : "Windows Credential Manager";
     keyHelp.textContent = AS_KEYLESS.has(provider.value) ? "Ollama on this PC doesn't use a key."
-      : keyKind.value === "env" ? `Kept as ${r || "env:KRATOSFORGE_<NAME>"}. The variable must start KRATOSFORGE_ or be the provider's own key name, such as ANTHROPIC_API_KEY.`
-        : `Kept as ${r || "credman:KratosForge/<name>"}. Add the key in Windows Credential Manager (Generic credential, address KratosForge/${keyName.value.trim() || "<name>"}), with the key as its password.`;
+      : `App Studio keeps only where the key is, never the key: ${where}. ` + (keyKind.value === "env"
+        ? "The variable's name must start KRATOSFORGE_ or be the provider's own, such as ANTHROPIC_API_KEY."
+        : `Add the key in Windows Credential Manager as a Generic credential, address KratosForge/${keyName.value.trim() || "<name>"}, with the key as its password.`);
   };
   [provider, keyKind].forEach((el) => el.addEventListener("change", sync));
   keyName.addEventListener("input", sync);
@@ -601,8 +610,8 @@ async function appStudioPublishDialog(got) {
     fill(pane,
       note ? h("div", { class: "callout", role: "status" }, icon("info", 20), h("span", {}, note)) : null,
       h("dl", { class: "as-facts" },
-        h("dt", {}, "Workspace"), h("dd", {}, c.ready ? ws : c.workspace_name || "—"),
-        h("dt", {}, "Report name"), h("dd", {}, name),
+        h("dt", {}, "Workspace"), h("dd", { class: "field" }, c.ready ? ws : c.workspace_name || "—"),
+        h("dt", {}, "Report name"), h("dd", { class: "field" }, name),
         h("dt", {}, "Bound to"), h("dd", {}, c.model?.name ? `${c.model.name} (semantic model)` : "No semantic model yet"),
         h("dt", {}, "Writes"), h("dd", {}, c.conflict ? "Replaces one report's definition. Nothing else in Fabric changes." : "One new report. Nothing else in Fabric changes.")),
       c.problems.length ? h("div", { class: "callout error", role: "alert" }, icon("error", 20), h("div", {}, h("b", {}, "Can't publish yet"),
@@ -613,7 +622,7 @@ async function appStudioPublishDialog(got) {
         h("span", {}, `The last publish (${c.unfinished.at ? dateTimeText(c.unfinished.at) : "earlier"}) didn't finish. Check the workspace; a report it left behind is listed as this project's, so publishing again replaces it.`)) : null,
       conflict,
       c.ready ? h("label", { class: "field" }, `Type the workspace's name to publish: ${c.confirm_text}`, confirm) : null,
-      h("p", { class: "muted-text small" }, "Publishing writes to Fabric. Building and previewing here use no capacity; viewing the report uses the workspace's."));
+      h("p", { class: "muted-text small" }, "Publishing writes to Fabric. Building and previewing here use no capacity; viewing the report uses the workspace's capacity."));
     act.textContent = "";
     act.append(icon("publish", 16), c.ready ? (c.conflict ? "Replace and publish" : "Publish") : "Check again");
     act.className = c.conflict ? "tool danger-solid" : "tool primary";

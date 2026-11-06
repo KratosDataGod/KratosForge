@@ -2882,7 +2882,8 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .as-publish .callout.warn { background: var(--warn-soft-9); color: var(--warn-ink-2); }
 .as-publish .callout.error { background: var(--danger-soft); color: var(--danger-ink); }
 .as-publish .callout.ok { background: var(--ok-soft); color: var(--ok-3); }
-.as-publish .as-facts dd input, .as-publish .as-facts dd select { width: 100%; }
+.as-publish .as-facts dd.field { display: block; }
+.as-publish .as-facts dd input, .as-publish .as-facts dd select { width: 100%; box-sizing: border-box; }
 .as-warnings summary { cursor: pointer; }
 .as-warnings ul { margin: 6px 0 0; padding-left: 20px; }
 

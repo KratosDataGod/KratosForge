@@ -189,7 +189,7 @@ class LocalBackend:
             try:
                 tmp.write_bytes(data)
                 _while_shared(lambda: os.replace(tmp, self._path(key)))
-            except BaseException:  # a full disk or a failed rename: the file stays as it was, and no copy is left
+            except BaseException:  # a full disk, or a rename Windows kept refusing: the file stays as it was, no copy is left
                 tmp.unlink(missing_ok=True)
                 raise
             return self._etag(data)

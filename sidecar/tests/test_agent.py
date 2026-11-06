@@ -509,6 +509,22 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
             pass
 
 
+def test_a_lease_change_windows_keeps_refusing_leaves_the_lease_and_no_temporary_file(tmp_path, monkeypatch):
+    from fabric_desktop import leases
+    backend = LocalBackend(tmp_path / "leases")
+    etag = backend.create("LH_Silver/dbo.orders", b"agent-a")
+
+    def refused(src, dst):
+        raise PermissionError("[WinError 32] The process cannot access the file")
+    monkeypatch.setattr(leases.os, "replace", refused)
+    monkeypatch.setattr(leases.time, "sleep", lambda s: None)
+    with pytest.raises(PermissionError):
+        backend.replace("LH_Silver/dbo.orders", b"agent-a renewed", etag)
+    monkeypatch.undo()
+    assert not [p.name for p in (tmp_path / "leases").rglob("*.tmp")]
+    assert backend.read("LH_Silver/dbo.orders").data == b"agent-a"
+
+
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
     backend = LocalBackend(tmp_path / "leases")
     order, waiting = [], threading.Event()

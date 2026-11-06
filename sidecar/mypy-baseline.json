@@ -208,10 +208,6 @@
  "fabric_desktop/meta/promote.py": {
   "arg-type": 1
  },
- "fabric_desktop/meta/store.py": {
-  "return-value": 2,
-  "union-attr": 1
- },
  "fabric_desktop/meta/varlib.py": {
   "operator": 1
  },

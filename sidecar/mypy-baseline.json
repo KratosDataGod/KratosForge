@@ -113,11 +113,6 @@
   "valid-type": 1,
   "var-annotated": 1
  },
- "fabric_desktop/envprofile.py": {
-  "attr-defined": 1,
-  "union-attr": 2,
-  "var-annotated": 2
- },
  "fabric_desktop/estate_service.py": {
   "assignment": 2,
   "union-attr": 1

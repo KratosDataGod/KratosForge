@@ -8,8 +8,8 @@ the app generates on this PC, so the same seed always gives the same data and th
 starter, an independently runnable reference solution, validation rules, and a CI test that runs
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
 content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
-solution and planted wrong answers: E12, E19, E21, E22, E23, E24, E25, E32, E33, E35, E36, E37, E38, E39, E43,
-E44, E48, E49, E50, E51, E53, E56, E57, E58, E59, E61, E62, E63, E64.
+solution and planted wrong answers: E09, E12, E14, E18, E19, E21, E22, E23, E24, E25, E29, E32, E33, E35, E36,
+E37, E38, E39, E43, E44, E48, E49, E50, E51, E53, E56, E57, E58, E59, E61, E62, E63, E64.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).
@@ -44,7 +44,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E11 | Share a lakehouse: Read, ReadData, ReadAll and the SQL endpoint | 1.3.2 | C | SIM +FV | config | 15 | LM-24 |
 | E12 | Row-level security: a predicate that shows each region its rows | 1.3.3 | G | LV +FV | duckdb | 25 | |
 | E13 | Column- and object-level security: GRANT and DENY that hide salary | 1.3.3 | C | SIM +FV | config | 20 | |
-| E14 | OneLake data access roles for folders and tables | 1.3.3 | C | SIM +FV | config | 20 | LM-24 |
+| E14 | OneLake security roles for folders and tables | 1.3.3 | C | SIM +FV | config | 20 | LM-24 |
 | E15 | Dynamic data masking: pick the mask for each column, who sees what | 1.3.4 | G | SIM +FV | config | 15 | |
 | E16 | Sensitivity labels and endorsement: promote, certify, label inheritance | 1.3.5, 1.3.6 | G | KO +FV | quiz | 15 | Governance |
 | E17 | Pipeline or notebook: eight scenarios, choose and justify | 1.4.1, 2.2.2 | G | KO | quiz | 15 | LM-08 |

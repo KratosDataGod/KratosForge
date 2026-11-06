@@ -17,12 +17,46 @@ on:
         default: ""
 
 jobs:
-  promote:
+  approve:
     runs-on: ubuntu-latest
     # Stable reaches every PC that hasn't chosen Preview, so a promote waits here until a reviewer
     # set on this environment (Settings > Environments > stable > Required reviewers) approves it.
+    # This job holds no concurrency group: a job waiting for approval would hold release-assets
+    # the whole time and stop every Preview publish, and with it main's CI, until someone decided.
     environment: stable
-    # Waits for a Preview publish in progress, so it never copies a half-replaced release.
+    permissions:
+      contents: read
+    outputs:
+      signing: ${{ steps.read.outputs.signing }}
+      build: ${{ steps.read.outputs.build }}
+    steps:
+      # "The build now on Preview" is read once, here, right after approval, and passed on as its
+      # commit. So the promote job moves Stable to the build that was approved, even when Preview
+      # has moved on since or the promote job alone is run again.
+      - id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD: ${{ inputs.build }}
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' }}
+        run: |
+          echo "signing=$SIGNING" >> "$GITHUB_OUTPUT"
+          BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]')
+          if [ -z "$BUILD" ]; then
+            gh release download latest --pattern version.json --output preview-version.json
+            BUILD=$(jq -r .commit preview-version.json)
+            echo "$BUILD" | grep -Eq '^[0-9a-f]{40}$' || { echo "The latest release has no build commit"; exit 1; }
+            echo "::notice::The build now on Preview is $BUILD; this promote moves Stable to it."
+          fi
+          # Checked again in full by the promote job; here only kept to one safe line.
+          [[ "$BUILD" =~ ^[0-9A-Za-z-]{1,64}$ ]] || { echo "build must be a commit or a build-<sha> tag, not \"$BUILD\""; exit 1; }
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+
+  promote:
+    needs: approve
+    runs-on: ubuntu-latest
+    # Only after approval: waits for a Preview publish in progress, so it never copies a
+    # half-replaced release, and a Preview publish waits for it the same way.
     concurrency:
       group: release-assets
       cancel-in-progress: false
@@ -33,8 +67,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NOTES: ${{ inputs.notes }}
-          BUILD: ${{ inputs.build }}
-          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' }}
+          BUILD: ${{ needs.approve.outputs.build }}
+          SIGNING: ${{ needs.approve.outputs.signing }}
         run: |
           BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]' | tr 'A-F' 'a-f')
           WANT=""

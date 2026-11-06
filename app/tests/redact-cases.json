@@ -96,6 +96,11 @@
     {"level": "secrets", "in": "SECRET_KEY = \"abcd1234efgh\" and secret-key=xyz9876", "out": "SECRET_KEY = \"[removed]\" and secret-key=[removed]"},
     {"level": "secrets", "in": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x", "out": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x"},
     {"level": "secrets", "in": "abfss://token1@github.com/x and wasbs://u@evil.example/y", "out": "abfss://[removed]@github.com/x and wasbs://[removed]@evil.example/y"},
-    {"level": "secrets", "in": "abfss://token1@onelake.dfs.fabric.microsoft.com.evil.com/x and abfss://token1@x.dfs.core.windows.net.evil.com/y", "out": "abfss://[removed]@onelake.dfs.fabric.microsoft.com.evil.com/x and abfss://[removed]@x.dfs.core.windows.net.evil.com/y"}
+    {"level": "secrets", "in": "abfss://token1@onelake.dfs.fabric.microsoft.com.evil.com/x and abfss://token1@x.dfs.core.windows.net.evil.com/y", "out": "abfss://[removed]@onelake.dfs.fabric.microsoft.com.evil.com/x and abfss://[removed]@x.dfs.core.windows.net.evil.com/y"},
+    {"level": "secrets", "in": ["push failed with token glpat-", "aB3dE5fG7hJ9kL1mN2pQ at line 3"], "out": "push failed with token [removed] at line 3"},
+    {"level": "secrets", "in": ["//registry.npmjs.org/:_authToken=npm_A", "1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"], "out": "//registry.npmjs.org/:_authToken=[removed]"},
+    {"level": "secrets", "in": ["posted npm_A", "1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 done"], "out": "posted [removed] done"},
+    {"level": "secrets", "in": ["Couldn't post to https://hooks.slack.com/services/T0", "123ABCD/B0456EFGH/aBcDeFgHiJkLmNoPqRsTuVwX (404)"], "out": "Couldn't post to [removed] (404)"},
+    {"level": "secrets", "in": "see https://api.slack.com/messaging/webhooks and npm_modules/ and glpat-short", "out": "see https://api.slack.com/messaging/webhooks and npm_modules/ and glpat-short"}
   ]
 }

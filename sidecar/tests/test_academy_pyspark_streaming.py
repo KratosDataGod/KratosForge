@@ -148,6 +148,13 @@ except NotImplementedError as e:
     assert out[0] == "['archive', 'landing', 'out'] hi there True" and out[1] == "absent"
 
 
+def test_runtime_context_prints_as_json_and_names_the_running_notebook(tmp_path):
+    work = _work(tmp_path, {"notebooks/who.py": b"notebookutils.notebook.exit(notebookutils.runtime.context['currentNotebookName'])\n"})
+    answer = ("import json\nctx = notebookutils.runtime.context\nprint(json.loads(json.dumps(ctx))['currentNotebookName'])\n"
+              "print(notebookutils.notebook.run('who'), json.loads(json.dumps(ctx))['currentNotebookName'], ctx['isLocal'])\n")
+    assert _ok(pyspark_lab.run_reference(work, answer)).split() == ["answer", "who", "answer", "True"]
+
+
 def test_fs_refuses_a_link_under_files(tmp_path):
     work = _work(tmp_path, LANDING)
     try:

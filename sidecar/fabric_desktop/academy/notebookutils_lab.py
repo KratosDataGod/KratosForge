@@ -155,6 +155,7 @@ class Utils:
         if not any(p for p, _s, _c in parts):
             ns.update(args)
         self._running.append(file.stem)
+        self.runtime.context._refresh()   # json.dumps reads the dict's own storage, not __getitem__
         try:
             for is_params, start, source in parts:
                 exec(compile("\n" * (start - 1) + source, f"{NOTEBOOKS}/{file.name}", "exec"), ns)  # noqa: S102
@@ -164,6 +165,7 @@ class Utils:
             return None if done.value is None else str(done.value)
         finally:
             self._running.pop()
+            self.runtime.context._refresh()
         return None
 
     @staticmethod
@@ -273,41 +275,52 @@ class Utils:
 
 
 class _Context(dict):
-    """``runtime.context``: what a Fabric notebook reads about itself, for this exercise."""
+    """``runtime.context``: what a Fabric notebook reads about itself, for this exercise. A dict (so
+    json.dumps prints it, as learners do), refreshed on every read, since the running notebook changes."""
 
     def __init__(self, utils: Utils):
         super().__init__()
         self._utils = utils
+        self._refresh()
 
-    def _now(self) -> dict[str, Any]:
+    def _refresh(self) -> None:
         running = self._utils._running
-        return {"currentNotebookName": running[-1] if running else "answer", "isLocal": True,
-                "isReferenceRun": bool(running), "isForPipeline": False, "currentWorkspaceName": "Academy exercise",
-                "defaultLakehouseName": "exercise"}
+        super().clear()
+        super().update({"currentNotebookName": running[-1] if running else "answer", "isLocal": True,
+                        "isReferenceRun": bool(running), "isForPipeline": False,
+                        "currentWorkspaceName": "Academy exercise", "defaultLakehouseName": "exercise"})
 
     def __getitem__(self, key: str) -> Any:
-        return self._now()[key]
+        self._refresh()
+        return super().__getitem__(key)
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._now().get(key, default)
+        self._refresh()
+        return super().get(key, default)
 
     def keys(self) -> Any:
-        return self._now().keys()
+        self._refresh()
+        return super().keys()
 
     def items(self) -> Any:
-        return self._now().items()
+        self._refresh()
+        return super().items()
+
+    def values(self) -> Any:
+        self._refresh()
+        return super().values()
 
     def __iter__(self) -> Any:
-        return iter(self._now())
-
-    def __len__(self) -> int:
-        return len(self._now())
+        self._refresh()
+        return super().__iter__()
 
     def __contains__(self, key: object) -> bool:
-        return key in self._now()
+        self._refresh()
+        return super().__contains__(key)
 
     def __repr__(self) -> str:
-        return repr(self._now())
+        self._refresh()
+        return super().__repr__()
 
 
 def install(work: Path, namespace: Callable[[], dict[str, Any]]) -> types.ModuleType:

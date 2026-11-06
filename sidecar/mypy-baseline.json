@@ -190,9 +190,6 @@
   "assignment": 3,
   "return-value": 1
  },
- "fabric_desktop/maintenance.py": {
-  "var-annotated": 3
- },
  "fabric_desktop/meta/compare.py": {
   "operator": 2
  },

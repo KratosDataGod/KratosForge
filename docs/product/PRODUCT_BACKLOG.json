@@ -2653,7 +2653,8 @@
       "evidence": [
         "support_bundle.py has no RPC or UI",
         "Smoke: CLI wrote about.json and CONTENTS.txt",
-        "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup"
+        "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup",
+        "Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920"
       ],
       "features": [
         "FEAT-SHL-11"
@@ -2686,7 +2687,9 @@
         "priority": "P2"
       },
       "prs": [
-        1177
+        1177,
+        1679,
+        1870
       ]
     },
     {
@@ -2701,7 +2704,8 @@
         "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
         "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet",
         "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7",
-        "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7"
+        "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7",
+        "Axe cases for the dialogs people open most and a guard that fails when a new dialog has none (#1673, #1854, #1855, #1856, #1858, #1876); every rail page reflows at 320 px and stays whole at 200% (#1681) on main at a7631920"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2749,7 +2753,13 @@
         1339,
         1640,
         1690,
-        1717
+        1717,
+        1841,
+        1854,
+        1855,
+        1856,
+        1858,
+        1876
       ],
       "issues": [
         880,
@@ -4663,6 +4673,8 @@
         1559,
         1560,
         1561,
+        1563,
+        1564,
         1567,
         1569,
         1570,
@@ -4711,7 +4723,25 @@
         1758,
         1764,
         1767,
-        1789
+        1789,
+        1831,
+        1835,
+        1838,
+        1849,
+        1857,
+        1859,
+        1861,
+        1862,
+        1865,
+        1873,
+        1874,
+        1875,
+        1882,
+        1883,
+        1885,
+        1889,
+        1894,
+        1899
       ],
       "issues": [
         910,
@@ -4829,7 +4859,8 @@
         "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
         "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here",
         "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
-        "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb"
+        "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb",
+        "Spark SQL on this PC: extract, date_part, to_unix_timestamp, parse_url, binary literals, bitmap functions, tumbling window(), number formats and hash()/xxhash64() give Spark's values (#1845, #1851, #1853, #1860, #1866, #1880); type-checked compatibility layer (#1568) on main at a7631920"
       ],
       "features": [
         "FEAT-NB-04",
@@ -4958,12 +4989,19 @@
         1537,
         1544,
         1565,
+        1568,
         1697,
         1731,
         1732,
         1745,
         1787,
-        1792
+        1792,
+        1845,
+        1851,
+        1853,
+        1860,
+        1866,
+        1880
       ]
     },
     {
@@ -5020,7 +5058,9 @@
       "prs": [
         1708,
         1726,
-        1733
+        1733,
+        1833,
+        1834
       ]
     },
     {
@@ -5068,7 +5108,8 @@
         1735,
         1799,
         1800,
-        1802
+        1802,
+        1867
       ]
     },
     {
@@ -5079,7 +5120,8 @@
       "capability": "Owned and specified by the 'Build full warehouse development experience' thread (WH-01..21, SF-01..06); not restated here. Phases: connect and query, templates and saved work, build and deploy from Git, manage data, then Snowflake.",
       "evidence": [
         "Chris's go 2026-10-24 18:16Z for phases 1-2",
-        "WH-01/02/03/04/05/04b/08 merged as #636-#641, #645"
+        "WH-01/02/03/04/05/04b/08 merged as #636-#641, #645",
+        "Local T-SQL answers as T-SQL for text compares, float text, CONVERT and FORMAT styles, LEFT/RIGHT/TRANSLATE errors and CONCAT (#1622, #1632, #1633, #1635, #1852, #1898), the refused list in the docs is checked by a test (#1869), queries about 3x faster (#1900); Warehouse table detail with profile, a read at a past time and a clone script (#755) on main at a7631920"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -5135,6 +5177,7 @@
         743,
         745,
         747,
+        755,
         774,
         783,
         787,
@@ -5146,7 +5189,16 @@
         985,
         1112,
         1181,
-        1641
+        1622,
+        1632,
+        1633,
+        1635,
+        1641,
+        1852,
+        1869,
+        1893,
+        1898,
+        1900
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5455,7 +5507,8 @@
         742,
         754,
         795,
-        1707
+        1707,
+        1832
       ],
       "mandatory": "none",
       "computed": {
@@ -5964,14 +6017,17 @@
         1746,
         1747,
         1760,
-        1816
+        1816,
+        1863,
+        1864
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
       "evidence": [
         "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4",
         "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb",
-        "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a"
+        "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a",
+        "Snowflake on this PC: divide by zero stops as in Snowflake and a generated, CI-checked function coverage list (#1863, #1864) on main at a7631920"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6013,12 +6069,14 @@
         1126,
         1134,
         1135,
+        1136,
         1642
       ],
       "problem": "Reports and semantic models can't be viewed or tested inside the app.",
       "capability": "An isolated Power BI embed host frame with its own policy, tokens kept in memory, and no service principal secrets.",
       "evidence": [
-        "PBE-02 design proposed (docs/architecture/power-bi-embedding.md); PBE-03 host frame and PBE-04 engine calls merged; no screen yet on main at 02118fa4"
+        "PBE-02 design proposed (docs/architecture/power-bi-embedding.md); PBE-03 host frame and PBE-04 engine calls merged; no screen yet on main at 02118fa4",
+        "Workspaces > Power BI and Embed Studio (PBE-06, #1136, Preview) on main at a7631920"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -6165,7 +6223,8 @@
         "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7",
         "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7",
         "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb",
-        "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a"
+        "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a",
+        "Audit re-scored to 64 after the P1 data-integrity fixes (#1846); one transaction helper for the workloads file, outbox, ledger and local platform file (EA-028, #1839, #1872); pages get only the Tauri permissions they use and commands answer only the app's own page (#1768, #1769); the previous build is kept until the new engine answers (#1596); updates remove partial downloads (#1836); redaction covers more key shapes and the five redactors are characterized (#1887, #1892) on main at a7631920"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6219,6 +6278,7 @@
         1592,
         1593,
         1594,
+        1596,
         1597,
         1598,
         1599,
@@ -6251,7 +6311,15 @@
         1714,
         1723,
         1734,
-        1811
+        1768,
+        1769,
+        1811,
+        1836,
+        1839,
+        1846,
+        1872,
+        1887,
+        1892
       ],
       "issues": [],
       "computed": {
@@ -6380,7 +6448,11 @@
         1721,
         1727,
         1728,
-        1736
+        1736,
+        1842,
+        1868,
+        1871,
+        1897
       ],
       "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
       "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
@@ -6390,7 +6462,8 @@
         "First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one",
         "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
         "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)",
-        "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb"
+        "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb",
+        "AS-06 model connections behind the organization's AI policy (#1842), AS-10 describe an app and approve a plan into a project (#1868), AS-11 ask for a change and apply it as one undoable step (#1871), AS-13 publish as a Power BI report behind a check and a typed confirm (#1897) on main at a7631920"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -6464,7 +6537,14 @@
         1821,
         1823,
         1824,
-        1825
+        1825,
+        1827,
+        1840,
+        1843,
+        1844,
+        1848,
+        1850,
+        1877
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6476,7 +6556,8 @@
         "PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38",
         "Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it.",
         "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a",
-        "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2"
+        "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2",
+        "Exercise scripts run in the AppContainer by default on Windows (#1827); DP-700 exercises on DuckDB, pipelines, Delta and broken environments (#1840, #1844, #1848, #1850, #1877) and checks that nothing else changed (#1843) on main at a7631920"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6523,7 +6604,12 @@
         1770,
         1772,
         1773,
-        1816
+        1816,
+        1837,
+        1847,
+        1879,
+        1891,
+        1896
       ],
       "problem": "Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.",
       "capability": "One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.",
@@ -6532,7 +6618,8 @@
         "Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb",
         "A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration",
         "Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)",
-        "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a"
+        "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a",
+        "Databricks-familiar and Snowflake-familiar skins (#1879, Preview), a KratosForge label over the app's own pages and an engine chip saying 'This PC · no Fabric job' (#1847), capabilities by engine generated into docs/capabilities.md (#1837), tokens for shared shades and the rail stripe (#1891, #1896) on main at a7631920"
       ],
       "features": [
         "FEAT-SHL-04",

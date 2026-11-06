@@ -12,6 +12,8 @@ import re
 from pathlib import PurePosixPath
 from typing import Any, Iterable
 
+from .. import redact as _redact
+
 MAX_SCAN_BYTES = 2_000_000
 
 # (kind, pattern, remediation); group "s" is the secret itself when the pattern has one.
@@ -142,25 +144,12 @@ def _joined(v: Any) -> str:
 
 # ---- redaction of messages
 
-_URL_USERINFO = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<user>[^/@\s:]*)(?::[^/@\s]*)?@", re.I)
-_BEARER = re.compile(r"(?i)\b(authorization:\s*(?:bearer|basic)\s+|bearer\s+)[A-Za-z0-9._~+/=-]{8,}")
-_EXTRAHEADER = re.compile(r"(?i)(extraheader\s*=?\s*)\S.*")
-# A private key's body, between its BEGIN line and its END line (or the end of the text when cut off).
-_PRIVATE_KEY_BODY = re.compile(r"(-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----)(?:[\s\S]*?(-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----)|[\s\S]*)")
-
 
 def redact(text: str | None) -> str:
-    """``text`` with credentials removed: URL passwords and user names, tokens, keys."""
-    if not text:
-        return text or ""
-    text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}***@", text)
-    text = _BEARER.sub(lambda m: m.group(1) + "***", text)
-    text = _EXTRAHEADER.sub(lambda m: m.group(1) + "***", text)
-    text = _PRIVATE_KEY_BODY.sub(lambda m: m.group(1) + "***" + (m.group(2) or ""), text)
-    for _, pattern, _ in PATTERNS:
-        if "s" in pattern.groupindex:
-            text = pattern.sub(lambda m: m.group(0).replace(m.group("s"), mask(m.group("s"))), text)
-    return text
+    """``text`` with credentials removed, by the app's one redactor (redact.secrets): URL user info
+    (a user name alone too, where Git remotes carry tokens), tokens, keys, passwords. A message
+    shows ``[removed]`` in place of each; only a finding from scan_text keeps a masked prefix."""
+    return _redact.secrets(text) if text else ""
 
 
 def redact_all(values: Iterable[str]) -> list[str]:

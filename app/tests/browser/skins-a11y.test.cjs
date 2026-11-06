@@ -5,8 +5,9 @@
 //   because the colors are the skin's.
 // - keyboard: Tab goes through the rail in the order it is drawn. The "KratosForge" group label is a
 //   heading, never a Tab stop. Enter on a rail item opens its page.
-// - reduced motion: with the system asking for less motion, switching skins starts no animation or
-//   transition that lasts longer than the stylesheet's 0.01 ms floor.
+// - reduced motion: with the system asking for less motion, a rule that transitions (the fold chevron)
+//   is cut to the stylesheet's 0.01 ms floor in every skin, and switching skins starts no animation or
+//   transition that lasts longer than that floor.
 // keyboard-pass.test.cjs walks every page's whole window in the default skin. A skin doesn't change
 // a page's controls, so that pass isn't repeated per skin.
 const { test, before, after } = require("node:test");
@@ -98,7 +99,7 @@ for (const skin of SKINS) {
   });
 }
 
-test("with reduced motion asked for, switching skins starts no animation or transition a person could see", { skip }, async () => {
+test("with reduced motion asked for, every skin cuts transitions short and switching skins shows no motion", { skip }, async () => {
   await page().evaluate(() => go("home"));
   await settle();
   // The stylesheet's reduced-motion rule cuts every transition and animation to 0.01 ms (styles.css), so
@@ -114,6 +115,15 @@ test("with reduced motion asked for, switching skins starts no animation or tran
   assert.strictEqual(await page().evaluate(() => document.documentElement.dataset.motionOverride), undefined);
   for (const skin of ["fabric", "databricks", "snowflake", "kratosforge"]) {
     await useSkin(skin);
+    // A rule that does transition (the fold chevron, 0.15 s) is cut to the 0.01 ms floor in this skin.
+    const chevron = await page().evaluate(() => {
+      const box = h("button", { class: "fold-toggle" }, h("span", { class: "chev" }, ">"));
+      document.body.append(box);
+      const d = getComputedStyle(box.firstChild).transitionDuration;
+      box.remove();
+      return d;
+    });
+    assert.ok(parseFloat(chevron) <= 0.00001 || chevron === "0.01ms", `${skin}: the fold chevron still takes ${chevron}`);
     const moving = await page().evaluate(() => [...window.__skinMotion.splice(0),
       ...document.getAnimations().filter((a) => a.playState === "running" && (a.effect?.getComputedTiming().duration || 0) > 0.01)
         .map((a) => a.animationName || a.transitionProperty || "animation")]);

@@ -113,10 +113,6 @@
  "fabric_desktop/git/capacity_files.py": {
   "index": 1
  },
- "fabric_desktop/git/platform_files.py": {
-  "arg-type": 1,
-  "assignment": 2
- },
  "fabric_desktop/git_service.py": {
   "var-annotated": 1
  },

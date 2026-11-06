@@ -9,7 +9,7 @@ starter, an independently runnable reference solution, validation rules, and a C
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
 content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
 solution and planted wrong answers: E12, E19, E21, E22, E23, E24, E25, E32, E33, E35, E36, E37, E38, E39, E43,
-E48, E49, E56, E57, E58, E59, E63, E64.
+E44, E48, E49, E51, E56, E57, E58, E59, E63, E64.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).

@@ -1,0 +1,48 @@
+-- A run history like the one the monitoring hub lists: 14 days of pipeline and notebook runs, made up and the
+-- same every time. run_id is an opaque id, as it is in Fabric, so it says nothing about order.
+CREATE TABLE run_history AS
+SELECT md5(item_name || CAST(start_time AS VARCHAR)) AS run_id, item_name, item_type, status, start_time, end_time,
+       'etl@example.com' AS submitted_by, error_message
+FROM (VALUES
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-14 02:31:00', TIMESTAMP '2026-10-14 02:31:00' + INTERVAL 12 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-15 02:31:00', TIMESTAMP '2026-10-15 02:31:00' + INTERVAL 12 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-16 02:31:00', TIMESTAMP '2026-10-16 02:31:00' + INTERVAL 14 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-17 02:31:00', TIMESTAMP '2026-10-17 02:31:00' + INTERVAL 12 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-18 02:31:00', TIMESTAMP '2026-10-18 02:31:00' + INTERVAL 13 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Failed', TIMESTAMP '2026-10-19 02:31:00', TIMESTAMP '2026-10-19 02:31:00' + INTERVAL 1 MINUTE, 'Copy data ''Copy orders'': the source connection timed out after 60 seconds.'),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-20 02:31:00', TIMESTAMP '2026-10-20 02:31:00' + INTERVAL 12 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Failed', TIMESTAMP '2026-10-21 02:31:00', TIMESTAMP '2026-10-21 02:31:00' + INTERVAL 1 MINUTE, 'Copy data ''Copy orders'': the source connection timed out after 60 seconds.'),
+  ('Ingest orders', 'Data pipeline', 'Canceled', TIMESTAMP '2026-10-22 02:31:00', TIMESTAMP '2026-10-22 02:31:00' + INTERVAL 2 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Failed', TIMESTAMP '2026-10-23 02:31:00', TIMESTAMP '2026-10-23 02:31:00' + INTERVAL 1 MINUTE, 'Copy data ''Copy orders'': the source connection timed out after 60 seconds.'),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-24 02:31:00', TIMESTAMP '2026-10-24 02:31:00' + INTERVAL 13 MINUTE, NULL),
+  ('Ingest orders', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-25 02:31:00', TIMESTAMP '2026-10-25 02:31:00' + INTERVAL 17 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-14 02:52:00', TIMESTAMP '2026-10-14 02:52:00' + INTERVAL 8 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-15 02:52:00', TIMESTAMP '2026-10-15 02:52:00' + INTERVAL 8 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-16 02:52:00', TIMESTAMP '2026-10-16 02:52:00' + INTERVAL 9 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-17 02:52:00', TIMESTAMP '2026-10-17 02:52:00' + INTERVAL 8 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-18 02:52:00', TIMESTAMP '2026-10-18 02:52:00' + INTERVAL 8 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-19 02:52:00', TIMESTAMP '2026-10-19 02:52:00' + INTERVAL 9 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-20 02:52:00', TIMESTAMP '2026-10-20 02:52:00' + INTERVAL 8 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Succeeded', TIMESTAMP '2026-10-21 02:52:00', TIMESTAMP '2026-10-21 02:52:00' + INTERVAL 8 MINUTE, NULL),
+  ('Ingest customers', 'Data pipeline', 'Failed', TIMESTAMP '2026-10-22 02:52:00', TIMESTAMP '2026-10-22 02:52:00' + INTERVAL 40 MINUTE, 'Copy data ''Copy customers'': the source table ''crm.Customer'' doesn''t exist.'),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-14 03:45:00', TIMESTAMP '2026-10-14 03:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-15 03:45:00', TIMESTAMP '2026-10-15 03:45:00' + INTERVAL 21 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-16 03:45:00', TIMESTAMP '2026-10-16 03:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-17 03:45:00', TIMESTAMP '2026-10-17 03:45:00' + INTERVAL 19 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-18 03:45:00', TIMESTAMP '2026-10-18 03:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-19 03:45:00', TIMESTAMP '2026-10-19 03:45:00' + INTERVAL 22 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-20 03:45:00', TIMESTAMP '2026-10-20 03:45:00' + INTERVAL 21 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-21 03:45:00', TIMESTAMP '2026-10-21 03:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform sales', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-22 03:45:00', TIMESTAMP '2026-10-22 03:45:00' + INTERVAL 48 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-14 04:45:00', TIMESTAMP '2026-10-14 04:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-15 04:45:00', TIMESTAMP '2026-10-15 04:45:00' + INTERVAL 21 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-16 04:45:00', TIMESTAMP '2026-10-16 04:45:00' + INTERVAL 19 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-17 04:45:00', TIMESTAMP '2026-10-17 04:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-18 04:45:00', TIMESTAMP '2026-10-18 04:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-19 04:45:00', TIMESTAMP '2026-10-19 04:45:00' + INTERVAL 95 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-20 04:45:00', TIMESTAMP '2026-10-20 04:45:00' + INTERVAL 20 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-21 04:45:00', TIMESTAMP '2026-10-21 04:45:00' + INTERVAL 21 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-22 04:45:00', TIMESTAMP '2026-10-22 04:45:00' + INTERVAL 22 MINUTE, NULL),
+  ('Transform stock', 'Notebook', 'Succeeded', TIMESTAMP '2026-10-23 04:45:00', TIMESTAMP '2026-10-23 04:45:00' + INTERVAL 33 MINUTE, NULL)
+) AS t(item_name, item_type, status, start_time, end_time, error_message)
+ORDER BY run_id;

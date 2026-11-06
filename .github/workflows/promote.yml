@@ -44,11 +44,13 @@ jobs:
         run: |
           echo "signing=$SIGNING" >> "$GITHUB_OUTPUT"
           echo "approved_at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
-          # Which build Stable names now. The promote job moves Stable only if it still names this one.
+          # Which build Stable names now. The promote job moves Stable only if it still names this one,
+          # as published then.
           if gh release view stable > /dev/null 2>&1; then
             gh release download stable --pattern version.json --output stable-version.json
-            STABLE_BEFORE=$(jq -r '.commit // ""' stable-version.json)
-            echo "$STABLE_BEFORE" | grep -Eq '^[0-9a-f]{40}$' || { echo "The stable release has no build commit"; exit 1; }
+            # Its commit and publish time, so even a rollback that ends on this same build counts as a change.
+            STABLE_BEFORE=$(jq -r '"\(.commit // "")@\(.published // "")"' stable-version.json)
+            echo "$STABLE_BEFORE" | grep -Eq '^[0-9a-f]{40}@[0-9]*$' || { echo "The stable release has no build commit"; exit 1; }
           else
             STABLE_BEFORE=none
           fi
@@ -95,7 +97,7 @@ jobs:
           fi
           if gh release view stable > /dev/null 2>&1; then
             gh release download stable --pattern version.json --output stable-now.json
-            STABLE_NOW=$(jq -r '.commit // ""' stable-now.json)
+            STABLE_NOW=$(jq -r '"\(.commit // "")@\(.published // "")"' stable-now.json)
             rm -f stable-now.json
           else
             STABLE_NOW=none

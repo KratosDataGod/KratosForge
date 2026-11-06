@@ -120,6 +120,21 @@ def test_write_line_numbers_and_comments():
     ("git merge -s custom feature", "-s isn't run here"),
     ("git merge --strategy=custom feature", "--strategy isn't run here"),
     ("git add -p", "-p isn't run here"),
+    # -m is a value only for commit, merge, tag and stash; elsewhere it's a flag and the next argument is checked.
+    ("git log -m --output=/tmp/x", "--output isn't run here"),
+    ("git show -m --ext-diff HEAD", "--ext-diff isn't run here"),
+    ("git log -m /etc/passwd", "points outside the repository"),
+    ("git commit -m --output=x", "--output isn't run here"),
+    # Git takes an unambiguous prefix of a long option.
+    ("git diff --fil=x", "--file isn't run here"),
+    ("git log --outp=/tmp/x", "--output isn't run here"),
+    ("git commit --templ=x", "--template isn't run here"),
+    ("git tag --sig v1", "--sign isn't run here"),
+    ("git merge --strat=x f", "--strategy isn't run here"),
+    # A value glued to a short option is checked as a path.
+    ("git diff -O/etc/passwd", "points outside the repository"),
+    ("git log -pO../x", "points outside the repository"),
+    ("git diff -OC:/x", "points outside the repository"),
     ("git add ../outside.txt", "points outside the repository"),
     ("git add /etc/passwd", "points outside the repository"),
     ("git add C:/Windows/win.ini", "points outside the repository"),
@@ -145,6 +160,34 @@ def test_refused_sessions_say_why(session, said):
     with pytest.raises(gitlab.Refused, match=None) as err:
         gitlab.parse(session)
     assert said in str(err.value) and str(err.value).startswith("Line "), str(err.value)
+
+
+def test_flags_named_like_refused_options_still_run():
+    for line in ("git log -m main", "git branch -m old new", "git stash push -m wip", "git commit --signoff -m x",
+                 "git log --first-parent", "git merge --no-ff feature/days", "git log -3", "git log --stat"):
+        assert gitlab.parse(line), line
+
+
+def test_git_itself_refuses_abbreviated_options(folder, tmp_path):
+    dest = tmp_path / "run"
+    dest.mkdir()
+    repo = gitlab.build(dest, folder, EX)
+    code, out = gitlab._git(repo, ["log", "--onel"])
+    assert code != 0, out
+
+
+def test_only_command_line_configuration_applies(folder, tmp_path):
+    """No system, global or ProgramData configuration: every setting Git sees came from the lab's -c options,
+    or from the repository the lab made."""
+    dest = tmp_path / "run"
+    dest.mkdir()
+    repo = gitlab.build(dest, folder, EX)
+    code, out = gitlab._git(repo, ["config", "--list", "--show-origin", "--show-scope"])
+    assert code == 0, out
+    scopes = {line.split("\t", 1)[0] for line in out.splitlines() if line.strip()}
+    assert scopes <= {"command", "local"}, out
+    local = [l for l in out.splitlines() if l.startswith("local")]
+    assert all(l.split("\t")[-1].startswith("core.") for l in local), local   # only what git init wrote
 
 
 def test_a_message_may_say_anything():

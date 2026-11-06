@@ -81,13 +81,14 @@ SUBCOMMANDS = frozenset({"status", "add", "rm", "mv", "restore", "commit", "bran
 REFUSED = frozenset({"--output", "--no-index", "--ext-diff", "--textconv", "--exec", "--upload-pack",
                      "--receive-pack", "--template", "--pathspec-from-file", "--gpg-sign", "--file", "--strategy",
                      "--sign", "--local-user", "--git-dir", "--work-tree", "--config-env", "--exec-path",
-                     "--interactive", "--patch", "--edit-description", "--signoff-by"})
+                     "--interactive", "--patch", "--edit-description"})
 # Short options refused for some subcommands: -s and -S sign or pick a strategy (a program named
 # git-merge-<name>), -F reads a message from a file, -u names a signing key, -i and -p go interactive.
 REFUSED_SHORT = {"commit": "SFp", "merge": "sSF", "revert": "sS", "cherry-pick": "sS", "tag": "sSuF", "stash": "p",
                  "add": "ip", "reset": "p", "restore": "p", "checkout": "p", "rm": "", "mv": "", "status": "",
                  "branch": "", "switch": "", "log": "", "diff": "", "show": "", "ls-files": ""}
 _MESSAGE_OPTIONS = ("-m", "--message")
+_MESSAGE_SUBCOMMANDS = ("commit", "merge", "tag", "stash")   # elsewhere -m is a flag (log -m, branch -m)
 _MARKERS = re.compile(r"^(<{7}|>{7})( |$)|^={7}$", re.MULTILINE)
 _SHORT_NAME = re.compile(r"(?i)^git~\d+$")   # an 8.3 short name Windows can give .git
 _BAD_PATH_CHARS = re.compile(r"[\x00-\x1f:*?\"<>|]")
@@ -143,26 +144,39 @@ def _check_git(argv: list[str]) -> None:
     if sub not in SUBCOMMANDS:
         raise Refused(f"git {sub} isn't part of this lab. It runs: {', '.join(sorted(SUBCOMMANDS))}.")
     short = REFUSED_SHORT.get(sub, "")
+    takes_message = sub in _MESSAGE_SUBCOMMANDS
     after_message = False
     for arg in argv[1:]:
-        if after_message:   # a commit message is text, not a path
+        if after_message and not arg.startswith("-"):   # a commit message is text, not a path
             after_message = False
             continue
-        if arg in _MESSAGE_OPTIONS:
+        after_message = False
+        if takes_message and arg in _MESSAGE_OPTIONS:
             after_message = True
             continue
-        if arg.startswith("--message="):
+        if takes_message and arg.startswith("--message="):
             continue
-        name = arg.split("=", 1)[0]
-        if arg.startswith("--") and name in REFUSED:
-            raise Refused(f"git {sub} {name} isn't run here: it reaches outside the repository, runs another program or signs.")
-        if arg.startswith("-") and not arg.startswith("--") and len(arg) > 1:
+        if arg.startswith("--"):
+            name = arg.split("=", 1)[0]
+            # Git takes an unambiguous prefix of a long option (--fil for --file), so a prefix is refused too.
+            if len(name) > 2 and any(r.startswith(name) for r in REFUSED):
+                hit = next(r for r in REFUSED if r.startswith(name))
+                raise Refused(f"git {sub} {hit} isn't run here: it reaches outside the repository, runs another program or signs.")
+        elif arg.startswith("-") and len(arg) > 1:
             flags = arg[1:]
-            # -m"text" and -mtext carry the message; anything after m in a cluster is the message.
-            flags = flags.split("m", 1)[0] if "m" in flags and sub in ("commit", "merge", "tag", "stash") else flags
-            bad = [f for f in flags if f in short] if not flags[:1].isdigit() else []
-            if bad:
-                raise Refused(f"git {sub} -{bad[0]} isn't run here: it signs, reads a file, picks a merge program or asks interactively.")
+            if not flags[0].isdigit():   # -3 (log -n 3) is a number, not flags
+                letters = re.match(r"[A-Za-z]*", flags).group()   # type: ignore[union-attr]
+                glued = flags[len(letters):]
+                if takes_message and "m" in letters:   # -m"text", -am"text": what follows m is the message
+                    letters, glued = letters.split("m", 1)[0], ""
+                bad = [f for f in letters if f in short]
+                if bad:
+                    raise Refused(f"git {sub} -{bad[0]} isn't run here: it signs, reads a file, picks a merge program or asks interactively.")
+                for n in range(1, len(letters) + 1):   # -O/etc/x: what follows any flag letter may be its value
+                    rest = letters[n:] + glued
+                    if rest and not _arg_ok(rest):
+                        raise Refused(f"{arg!r} points outside the repository or at .gitattributes; use other paths inside it.")
+                continue
         if not _arg_ok(arg):
             raise Refused(f"{arg!r} points outside the repository or at .gitattributes; use other paths inside it.")
 
@@ -230,7 +244,7 @@ def _environment(repo: Path, home: Path) -> dict[str, str]:
     env = {k: os.environ[k] for k in keep if k in os.environ}
     env.update({
         "HOME": str(home), "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home),
-        "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(home / "gitconfig"),
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1", "GIT_TEST_DISALLOW_ABBREVIATED_OPTIONS": "1", "GIT_CONFIG_GLOBAL": str(home / "gitconfig"),
         "GIT_DIR": str(repo / ".git"), "GIT_WORK_TREE": str(repo), "GIT_CEILING_DIRECTORIES": str(repo.parent),
         "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": ":", "GIT_SEQUENCE_EDITOR": ":", "GIT_PAGER": "cat", "PAGER": "cat",
         "GIT_LITERAL_PATHSPECS": "1", "GIT_MERGE_AUTOEDIT": "no", "LC_ALL": "C", "LANGUAGE": "C",

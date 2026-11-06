@@ -29,7 +29,7 @@ import duckdb
 
 from ..learn import checks
 from ..learn import content as learn_content
-from . import pipelab, pylab, registry, validators
+from . import configlab, pipelab, pylab, registry, validators
 
 SCHEMA = "kratosforge/academy-exercise@1"
 MODES = ("guided", "challenge", "troubleshoot")
@@ -44,7 +44,9 @@ ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "
                                               "dbsql_lab": ("result_matches", "table_shape", "integrity", "idempotent"),
                                               "pyspark_lab": ("result_matches", "table_shape", "idempotent"),
                                               **{a: pylab.CHECKS for a in pylab.ADAPTERS},
-                                              pipelab.ADAPTER: pipelab.CHECKS}
+                                              pipelab.ADAPTER: pipelab.CHECKS, configlab.ADAPTER: configlab.CHECKS}
+# Adapters that check a model of the service, so a pass is SIMULATED and never more.
+MODEL_ADAPTERS = {configlab.ADAPTER: "simulated"}
 # Adapters whose answers are SQL files checked in DuckDB (dbsql_lab after translation).
 SQL_ADAPTERS = ("duckdb_lab", "dbsql_lab")
 # The reference solution's file and the planted wrong answers' pattern, by adapter (SQL unless named).
@@ -194,6 +196,8 @@ def self_test(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
         return pylab.self_test(_folder(pack_id, root) / exercise_id, _grading(pack_id, exercise_id, root), ex)
     if ex["adapter"] == pipelab.ADAPTER:   # parsed and run as data on the local runner (ACD-012)
         return pipelab.self_test(_folder(pack_id, root) / exercise_id, _grading(pack_id, exercise_id, root), ex)
+    if ex["adapter"] == configlab.ADAPTER:   # a settings document checked as data; nothing runs
+        return configlab.self_test(_grading(pack_id, exercise_id, root), ex)
     if ex["adapter"] == "dbsql_lab":
         from . import dbsql_lab   # it imports this module
         return dbsql_lab.self_test(pack_id, exercise_id, root)
@@ -201,8 +205,8 @@ def self_test(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
         from . import pyspark_lab   # it imports this module
         return pyspark_lab.self_test(pack_id, exercise_id, root)
     if ex["adapter"] != "duckdb_lab":
-        raise ValueError(f"{exercise_id}: only duckdb_lab, dbsql_lab, pyspark_lab, python_lab, delta_lab and "
-                         "pipeline_lab exercises can be self-tested so far")
+        raise ValueError(f"{exercise_id}: only duckdb_lab, dbsql_lab, pyspark_lab, python_lab, delta_lab, "
+                         "pipeline_lab and config_model exercises can be self-tested so far")
     ref = reference(pack_id, exercise_id, root)
     return {"solution": grade(ref["setup"], ex["validation"], ref["solution"], ref["solution"]),
             "wrong": {name: grade(ref["setup"], ex["validation"], sql, ref["solution"]) for name, sql in ref["wrong"].items()}}
@@ -235,6 +239,9 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
             out.append(f"{eid}: a {other['adapter']} exercise is {other['label']}")
         if other is not plat and (ex["class"] == other["verified"] or ex["adapter"] == other["adapter"]):
             out.append(f"{eid}: a {plat['name']} pack can't hold {other['name']} exercises")
+    if ex["adapter"] in MODEL_ADAPTERS and ex["class"] != MODEL_ADAPTERS[ex["adapter"]]:
+        out.append(f"{eid}: a {ex['adapter']} exercise is {LABELS[MODEL_ADAPTERS[ex['adapter']]]}: it checks a model, "
+                   "and nothing runs")
     if ex["class"] == "local_verified" and ex["adapter"] not in EXECUTING:
         out.append(f"{eid}: LOCAL VERIFIED needs an adapter that runs the learner's work ({', '.join(EXECUTING)})")
     for other in registry.PLATFORMS.values():
@@ -273,6 +280,8 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
             out += [f"{eid}: {p}" for c in ex["validation"] for p in pylab.check_problems(c)]
         if ex["adapter"] == pipelab.ADAPTER:
             out += [f"{eid}: {p}" for c in ex["validation"] for p in pipelab.check_problems(c)]
+        if ex["adapter"] == configlab.ADAPTER:
+            out += [f"{eid}: {p}" for c in ex["validation"] for p in configlab.check_problems(c)]
         for c in ex["validation"]:
             need = {"table_shape": ("table",), "integrity": ("child", "column", "parent"),
                     "idempotent": ("table",), "unchanged": ("tables",), "no_findings": ("rules",)}.get(c.get("kind"), ())
@@ -322,7 +331,7 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
             if m.group(2) not in [e["id"] for e in lab["exercises"]]:
                 out.append(f"{eid}: uses {ex['uses']}, which isn't a Learn exercise")
         out += [f"{eid}: with uses, {k} comes from the Learn lab" for k in ("setup", "starter") if ex.get(k)]
-        if ex.get("adapter") in (*pylab.ADAPTERS, pipelab.ADAPTER):
+        if ex.get("adapter") in (*pylab.ADAPTERS, pipelab.ADAPTER, configlab.ADAPTER):
             out.append(f"{eid}: uses reuses a Learn SQL lab, so it's only for duckdb_lab exercises")
     elif ex.get("adapter") == pipelab.ADAPTER:
         if not str(ex.get("starter") or "").endswith(".json"):
@@ -331,6 +340,13 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
             out.append(f"{eid}: mocks and children map activity names and pipeline keys to what stands in for them")
         if not (grading / "solution.json").is_file():
             out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/solution.json")
+        if len(list(grading.glob("wrong-*.json")) if grading.is_dir() else []) < 2:
+            out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/wrong-*.json) that validation must fail")
+    elif ex.get("adapter") == configlab.ADAPTER:
+        if not str(ex.get("starter") or "").endswith(".json"):
+            out.append(f"{eid}: a config_model exercise starts from a JSON settings document (starter: settings.json)")
+        if not (grading / "solution.json").is_file():
+            out.append(f"{eid}: needs a reference settings document at grading/{eid}/solution.json")
         if len(list(grading.glob("wrong-*.json")) if grading.is_dir() else []) < 2:
             out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/wrong-*.json) that validation must fail")
     elif ex.get("adapter") in pylab.ADAPTERS:

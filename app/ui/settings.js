@@ -117,7 +117,7 @@ function redactReport(text, level = "support") {
     .replace(/(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+/gi, "$1[removed]")
     .replace(/([?&#]code=)[^&\s"'<>#]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
-    .replace(/\b(?!(?:abfss?|wasbs?):\/\/)([a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+@/gi, "$1[removed]@")
+    .replace(/\b(?!(?:abfss?|wasbs?):\/\/[^/\s:@"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com\b|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net\b))([a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+@/gi, "$1[removed]@")
     .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
     .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")

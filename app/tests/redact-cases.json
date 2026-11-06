@@ -94,6 +94,7 @@
     {"level": "secrets", "in": ["fatal: unable to access 'https://", "ghp_", "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "@github.com/a/b.git/'"], "out": "fatal: unable to access 'https://[removed]@github.com/a/b.git/'"},
     {"level": "secrets", "in": "clone ssh://git@ssh.dev.azure.com/v3/org/p/r", "out": "clone ssh://[removed]@ssh.dev.azure.com/v3/org/p/r"},
     {"level": "secrets", "in": "SECRET_KEY = \"abcd1234efgh\" and secret-key=xyz9876", "out": "SECRET_KEY = \"[removed]\" and secret-key=[removed]"},
-    {"level": "secrets", "in": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x", "out": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x"}
+    {"level": "secrets", "in": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x", "out": "read abfss://Sales@onelake.dfs.fabric.microsoft.com/lh.Lakehouse/Tables/t and wasbs://raw@acct.blob.core.windows.net/x"},
+    {"level": "secrets", "in": "abfss://token1@github.com/x and wasbs://u@evil.example/y", "out": "abfss://[removed]@github.com/x and wasbs://[removed]@evil.example/y"}
   ]
 }

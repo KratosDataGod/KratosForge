@@ -45,9 +45,10 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A user name alone, since Git remotes carry a token there too (https://<token>@github.com/...).
-    # Not storage addresses (abfss://workspace@onelake..., wasbs://container@account...), where the
-    # part before @ names a container.
-    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://)([a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
+    # Not storage addresses on a storage host (abfss://workspace@onelake..., wasbs://container@acct.blob
+    # .core.windows.net), where the part before @ names a container.
+    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com\b|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net\b))"
+                r"([a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
     # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).
     (re.compile(r"(?i)https://(?:[A-Za-z0-9.\-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)"

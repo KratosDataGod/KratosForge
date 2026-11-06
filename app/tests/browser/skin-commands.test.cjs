@@ -123,6 +123,17 @@ test("a placed command that can't run stays in place, focusable, and says why wh
   await page().evaluate(() => { state.notebook.compute = "local"; });
 });
 
+test("a keyboard user keeps their place when a run starts and ends", { skip }, async () => {
+  await openIn("fabric");
+  for (const sel of ['[data-action="notebook.run_cell"]', "[data-skin-more]"]) {
+    await page().focus(`.ribbon .skin-commands ${sel}`);
+    for (const k of ["busy", "idle"]) {
+      await page().evaluate((k) => setKernel(k), k);
+      assert.ok(await page().evaluate((sel) => document.activeElement?.matches(`.skin-commands ${sel}`), sel), `${sel} after ${k}`);
+    }
+  }
+});
+
 test("the command bar lists the skin's commands first, under its names, and still finds them by their own", { skip }, async () => {
   await openIn("databricks");
   const actions = await page().evaluate(() => paletteItems("").filter((i) => i.group === "Actions").map((i) => i.label));

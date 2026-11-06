@@ -232,5 +232,13 @@ function skinCommandGroup(ctx = actionContext()) {
 function refreshSkinCommandGroup() {
   const old = document.querySelector(".skin-commands");
   const next = old && skinCommandGroup();
-  if (next) old.replaceWith(next);
+  if (!next) return;
+  // Keep a keyboard user's place: focus the same command (or More, or a split's chevron) in the new group.
+  const had = old.contains(document.activeElement) ? document.activeElement : null;
+  const sel = !had ? null : had.dataset.action ? `[data-action="${CSS.escape(had.dataset.action)}"]`
+    : had.hasAttribute("data-skin-more") ? "[data-skin-more]"
+    : had.getAttribute("aria-label") ? `[aria-label="${CSS.escape(had.getAttribute("aria-label"))}"]` : null;
+  old.replaceWith(next);
+  if (sel) (next.querySelector(sel) || next.querySelector("button"))?.focus();
+  else if (had) next.querySelector("button")?.focus();
 }

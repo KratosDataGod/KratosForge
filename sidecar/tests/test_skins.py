@@ -288,3 +288,9 @@ def test_the_built_in_skins_place_the_notebook_commands_as_drawn(skin_id, primar
 
 def test_the_kratosforge_skin_places_no_commands():
     assert "commands" not in skins.KRATOSFORGE["workflow"]
+
+
+@pytest.mark.parametrize("skin_id", ["databricks", "snowflake"])
+def test_the_databricks_and_snowflake_skins_mark_the_active_page_in_their_accent(skin_id):
+    for mode, tokens in skins.BUILT_IN[skin_id]["appearance"]["tokens"].items():
+        assert tokens["--rail-active"] == tokens["--accent"], mode

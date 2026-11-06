@@ -462,9 +462,6 @@
  "fabric_desktop/workload_service.py": {
   "operator": 2
  },
- "fabric_desktop/workloads/evaluate.py": {
-  "union-attr": 1
- },
  "fabric_desktop/workloads/platform_notify.py": {
   "index": 1
  },

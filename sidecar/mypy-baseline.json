@@ -72,11 +72,6 @@
   "arg-type": 1,
   "assignment": 1
  },
- "fabric_desktop/costs.py": {
-  "arg-type": 2,
-  "no-redef": 1,
-  "union-attr": 1
- },
  "fabric_desktop/cpu_cap.py": {
   "syntax": 1
  },

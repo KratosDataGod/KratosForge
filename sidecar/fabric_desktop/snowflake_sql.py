@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.1"
+RULES_VERSION = "2026.11.4"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -488,6 +488,39 @@ def _rewrite_haversine(statement: exp.Expression) -> None:
             f"cos({lat1}) * cos({lat2}) * power(sin(({lon2} - {lon1}) / 2), 2))))", read="duckdb"))
 
 
+_TEXT_TYPES = {exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.DataType.Type.CHAR,
+               exp.DataType.Type.NVARCHAR, exp.DataType.Type.NCHAR}
+
+
+def _json_valued(node: exp.Expression) -> bool:
+    """Is ``node`` DuckDB JSON whatever the data: a path (v:a, which becomes ->) or PARSE_JSON, maybe in
+    parentheses?"""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    return isinstance(node, (exp.JSONExtract, exp.ParseJSON))
+
+
+def _json_text(value: exp.Expression, to: exp.DataType) -> exp.Expression:
+    """CAST(value AS to) for a JSON ``value``, with a JSON string unquoted; other values as before."""
+    is_string = exp.EQ(this=exp.Anonymous(this="json_type", expressions=[value.copy()]),
+                       expression=exp.Literal.string("VARCHAR"))
+    text = exp.JSONExtractScalar(this=value.copy(), expression=exp.Literal.string("$"))
+    return exp.Cast(this=exp.Case().when(is_string, text).else_(exp.Cast(this=value.copy(), to=to.copy())),
+                    to=to.copy())
+
+
+def _rewrite_json_text(statement: exp.Expression) -> None:
+    """SFX-012: v:a::string is the string itself in Snowflake ('Pine'), where DuckDB's cast of JSON to text
+    keeps the JSON quotes ('"Pine"'). A JSON string is read with ->> '$'; numbers, objects, arrays and JSON
+    null are cast as before."""
+    for node in list(statement.find_all(exp.Cast)):
+        if node.to.this in _TEXT_TYPES and _json_valued(node.this):
+            node.replace(_json_text(node.this, node.to))
+    for node in list(statement.find_all(exp.ToChar)):
+        if node.args.get("format") is None and _json_valued(node.this):
+            node.replace(_json_text(node.this, exp.DataType.build("VARCHAR")))
+
+
 # DuckDB's typeof -> Snowflake's TYPEOF, where the name is the same whatever the value.
 _TYPEOF_NAMES = {**{t: "INTEGER" for t in ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT",
                                            "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT")},
@@ -767,6 +800,8 @@ CATALOG = (
     ("SFX-010", "Rewritten", "a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
                 "worked out twice, which matters only when it isn't deterministic."),
+    ("SFX-012", "Rewritten", "A JSON value cast to text (v:a::string, TO_VARCHAR(v:a), PARSE_JSON(...)::varchar) "
+                "gives a string without its JSON quotes, as in Snowflake: DuckDB's cast keeps them."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -821,6 +856,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_ratio_to_report(tree)
         _rewrite_haversine(tree)
         _rewrite_typeof(tree)
+        _rewrite_json_text(tree)
         _rewrite_division(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:

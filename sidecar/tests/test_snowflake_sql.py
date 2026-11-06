@@ -532,3 +532,13 @@ def test_division_that_snowflake_answers_still_answers(code, want):
     assert duckdb.connect().execute(sql).fetchone()[0] == want
     if code == "select 7/2":
         assert "ERROR" not in sql.upper()  # a divisor written as a non-zero number needs no check
+
+
+def test_a_json_string_cast_to_text_loses_its_quotes_and_nothing_else_changes():
+    import duckdb
+    t = sf.translate("SELECT v:a::string, v:n::string, v:o::varchar, v:z::string, to_varchar(v:a), v:a, "
+                     "'x'::string FROM (SELECT parse_json('{\"a\": \"Pine\", \"n\": 1.5, \"o\": {\"k\": 1}, "
+                     "\"z\": null}') AS v)")
+    assert t.statements[0].verdict == "translated"
+    row = duckdb.connect().execute(t.duckdb_sql).fetchone()
+    assert row[:6] == ("Pine", "1.5", '{"k":1}', "null", "Pine", '"Pine"') and row[6] == "x"

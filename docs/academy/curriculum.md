@@ -66,7 +66,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E28 | Dataflow Gen2, notebook or T-SQL: choose the transformation tool | 2.2.2 | G | KO | quiz | 15 | |
 | E29 | Shortcuts: a table shortcut, a folder shortcut, and a chain to avoid | 2.2.3 | C | SIM +FV | config | 20 | LM-24 |
 | E30 | Mirroring: what replicates, how fast, and how to query it | 2.2.4 | G | KO +FV | quiz | 15 | |
-| E31 | Copy activity design: staging, schema mapping and fault tolerance | 2.2.5 | C | SIM +FV | pipeline | 25 | Copy jobs |
+| E31 | Copy activity design: staging, schema mapping and fault tolerance | 2.2.5 | C | SIM +FV | config | 25 | Copy jobs |
 | E32 | PySpark: clean, cast and join raw orders | 2.2.6 | G | LV +FV | pyspark | 25 | LM-08 |
 | E33 | Spark SQL: the same transformation in SQL | 2.2.6 | C | LV +FV | duckdb | 20 | |
 | E34 | KQL: summarize, extend and project event data | 2.2.6, 2.3.4 | G | KO +FV | quiz | 20 | |

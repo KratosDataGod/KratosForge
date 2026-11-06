@@ -3,6 +3,9 @@ answer, and grade the tables it leaves.
 
 A workspace holds ``tables/<schema>/<table>/`` Delta tables built from the exercise's ``setup.sql``
 (run in an in-memory DuckDB, one Delta table per table in a non-``main`` schema) and ``answer.py``.
+An exercise can also give the answer other notebooks to run with notebookutils (``notebooks``: ``.py``
+files copied to ``notebooks/``) and data files (``files``: copied to ``Files/``, or to
+``Files/<files_folder>/``), for orchestration and streaming exercises; every run gets the same ones.
 The answer runs in its own process with ``spark`` from the generated ``kf_learner`` package
 (learner_pkg.py, pyspark_shim.py): DuckDB's PySpark API on this PC, not Apache Spark.
 
@@ -26,6 +29,7 @@ in a plain ``python -I`` process with the same package, the way CI proves an exe
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -62,7 +66,9 @@ from kf_learner import pyspark_shim
 spark = pyspark_shim.session(sys.argv[2])
 code = open(os.path.join(sys.argv[2], "answer.py"), encoding="utf-8").read()
 try:
-    exec(compile(code, "answer.py", "exec"), {"__name__": "__main__", "spark": spark})
+    exec(compile(code, "answer.py", "exec"), pyspark_shim.namespace(spark))
+    rc = 0
+except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the notebook, not as an error
     rc = 0
 except BaseException:
     traceback.print_exc(limit=3)
@@ -72,8 +78,15 @@ os._exit(rc)
 """
 
 
-def prepare(work: Path, setup_sql: str) -> list[str]:
-    """Build the exercise's Delta tables under ``work/tables`` from ``setup_sql``; returns their names."""
+def prepare(work: Path, setup_sql: str, assets: dict[str, bytes] | None = None) -> list[str]:
+    """Build the exercise's Delta tables under ``work/tables`` from ``setup_sql`` and write its
+    ``assets`` (``{"notebooks/clean.py": b"..."}``); returns the tables' names."""
+    for rel, blob in (assets or {}).items():
+        (Path(work) / rel).parent.mkdir(parents=True, exist_ok=True)
+        target = ws.inside(work, rel, must_exist=False)   # its folders exist now, so none of them is a link
+        if os.path.lexists(target) and not target.is_file():
+            raise ws.Refused(f"{rel} isn't a plain file; reset the exercise.")
+        jsonfile.write_bytes(target, blob)
     con = duckdb.connect(":memory:")
     try:
         con.execute("SET enable_external_access = false")
@@ -88,6 +101,31 @@ def prepare(work: Path, setup_sql: str) -> list[str]:
     finally:
         con.close()
     return names
+
+
+_FOLDER = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$")
+
+
+def asset_problems(ex: dict[str, Any]) -> list[str]:
+    """What's wrong with an exercise's ``notebooks``, ``files`` and ``files_folder``, in words."""
+    out = []
+    notebooks, files = ex.get("notebooks") or [], ex.get("files") or []
+    if not isinstance(notebooks, list) or not isinstance(files, list):
+        return ["notebooks and files are lists of file names in the exercise's folder"]
+    out += [f"notebook {n!r} is a .py file named like a notebook (clean_orders.py)" for n in notebooks
+            if not (isinstance(n, str) and n.endswith(".py") and _FOLDER.match(n[:-3]))]
+    folder = ex.get("files_folder")
+    if folder is not None and not (isinstance(folder, str) and all(_FOLDER.match(p) for p in folder.split("/"))):
+        out.append("files_folder is a folder under Files/, like landing or landing/orders")
+    return out
+
+
+def assets(ex: dict[str, Any], folder: Path) -> dict[str, bytes]:
+    """The exercise's notebooks and data files, by where they go in the workspace."""
+    out = {f"notebooks/{n}": (folder / n).read_bytes() for n in ex.get("notebooks") or []}
+    sub = [p for p in str(ex.get("files_folder") or "").split("/") if p]
+    out.update({"/".join(["Files", *sub, n]): (folder / n).read_bytes() for n in ex.get("files") or []})
+    return out
 
 
 def _package_dir() -> Path:
@@ -122,7 +160,9 @@ from kf_learner import pyspark_shim
 spark = pyspark_shim.session(os.getcwd())
 code = open("answer.py", encoding="utf-8").read()
 try:
-    exec(compile(code, "answer.py", "exec"), {"__name__": "__main__", "spark": spark})
+    exec(compile(code, "answer.py", "exec"), pyspark_shim.namespace(spark))
+    rc = 0
+except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the notebook, not as an error
     rc = 0
 except BaseException:
     traceback.print_exc(limit=3)
@@ -254,16 +294,17 @@ def _check_result(kind: str, passed: bool, detail: str) -> dict[str, Any]:
 
 
 def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solution: str,
-          runner: Runner) -> dict[str, Any]:
-    """Run ``answer`` (and ``solution`` for the expected rows) on fresh copies of the exercise's tables and
-    apply ``ex["validation"]``. Each check says what it found; ``score`` is the share that passed."""
+          runner: Runner, files: dict[str, bytes] | None = None) -> dict[str, Any]:
+    """Run ``answer`` (and ``solution`` for the expected rows) on fresh copies of the exercise's tables
+    (and its notebooks and data ``files``, ``assets()``) and apply ``ex["validation"]``. Each check says
+    what it found; ``score`` is the share that passed."""
     with tempfile.TemporaryDirectory(prefix="kf-academy-") as tmp:
         base = Path(tmp)
 
         def fresh(tag: str, sql: str) -> Path:
             w = base / tag
             w.mkdir()
-            prepare(w, sql)
+            prepare(w, sql, files)
             return w
 
         practice = fresh("answer", setup)
@@ -343,7 +384,7 @@ def reference(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     ex = exercises.get(pack_id, exercise_id, root)
     grading = root / pack_id / "grading" / exercise_id
     hidden = grading / "hidden.sql"
-    return {"setup": exercises.file_text(pack_id, exercise_id, ex["setup"], root),
+    return {"assets": assets(ex, root / pack_id / "exercises" / exercise_id),"setup": exercises.file_text(pack_id, exercise_id, ex["setup"], root),
             "starter": exercises.file_text(pack_id, exercise_id, ex["starter"], root) if ex.get("starter") else "",
             "hidden": hidden.read_text(encoding="utf-8") if hidden.is_file() else None,
             "solution": (grading / "solution.py").read_text(encoding="utf-8"),
@@ -354,7 +395,8 @@ def self_test(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     """The reference solution must pass and every planted wrong answer must fail."""
     ex = exercises.get(pack_id, exercise_id, root)
     ref = reference(pack_id, exercise_id, root)
-    run = lambda answer: grade(ex, ref["setup"], ref["hidden"], answer, ref["solution"], run_reference)  # noqa: E731
+    run = lambda answer: grade(ex, ref["setup"], ref["hidden"], answer, ref["solution"], run_reference,  # noqa: E731
+                               ref["assets"])
     return {"solution": run(ref["solution"]), "wrong": {n: run(code) for n, code in ref["wrong"].items()}}
 
 

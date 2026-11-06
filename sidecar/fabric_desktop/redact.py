@@ -44,6 +44,11 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)([?&#]code=)[^&\s\"'<>#]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
+    # A user name alone, since Git remotes carry a token there too (https://<token>@github.com/...).
+    # Not storage addresses on a storage host (abfss://workspace@onelake..., wasbs://container@acct.blob
+    # .core.windows.net), where the part before @ names a container.
+    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s\"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s\"'<>]|$)))"
+                r"([a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
     # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).
     (re.compile(r"(?i)https://(?:[A-Za-z0-9.\-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)"
@@ -62,6 +67,12 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     # A Databricks OAuth secret (a service principal's client secret: dose + 32 hex).
     (re.compile(r"\bdose[0-9a-f]{32}\b"), REMOVED),
+    # A GitLab personal, project or group access token (with a routable token's dotted parts),
+    # and an npm access token.
+    (re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*"), REMOVED),
+    (re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"), REMOVED),
+    # A Slack incoming webhook or workflow trigger: anyone with the address can post to the channel.
+    (re.compile(r"(?i)(?:https?://)?\bhooks\.slack\.com/(?:services|workflows|triggers)/[^\s\"'<>]+"), REMOVED),
     # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
     # line. Before the quoted-value rules, so a key inside quotes is still found by its BEGIN line.
     (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),
@@ -70,17 +81,17 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end. With a
     # closing quote the value runs to it, across lines; without one it stops at the end of its line,
     # so one stray quote doesn't blank the rest of a report.
-    (re.compile(r"(?i)(\"(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
-    (re.compile(r"(?i)('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)(\"(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\"\s*:\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     # An unquoted name with a quoted value (password="two words", token='a b'): the value runs to its
     # closing quote too, so the generic rule below doesn't stop at the first space.
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
     # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).
     (re.compile(r"(?i)\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token"
-                r"|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
+                r"|api[_-]?key|secret(?:[_-]?key)?)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
 ]
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
 # "sas" only at either end (sas_url, blob_sas), so names that merely contain the letters stay.

@@ -83,7 +83,9 @@ def status(p: dict[str, Any], runs: list[dict[str, Any]], now: dt.datetime) -> d
     if last_ok is None:
         out["status"], out["reasons"] = "never", ["never loaded here"]
         return out
-    done = _parse(last_ok.get("started_at")) + dt.timedelta(seconds=float(last_ok.get("seconds") or 0))
+    started = _parse(last_ok.get("started_at"))
+    assert started is not None  # the run log records when every run started
+    done = started + dt.timedelta(seconds=float(last_ok.get("seconds") or 0))
     out["last_ok"] = done.isoformat()
     age = (now - done).total_seconds() / 3600
     out["age_hours"] = round(age, 2)

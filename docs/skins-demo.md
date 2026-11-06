@@ -41,25 +41,22 @@ The test also checks that the page threw no errors during the whole session.
 
 ## Limitations found
 
-These were seen in this run or read in the code. None is fixed by this page.
+These were seen in this run. None is fixed by this page.
 
 1. **Snowflake isn't a target on the SQL page.** The page checks SQL against the Fabric engines and DuckDB
    only, so step 4 checks Snowflake-style SQL against Fabric Warehouse, not as Snowflake SQL. The engine
    already has a Snowflake portability report (`sql_portability.py`), but no screen calls it.
-2. **Fabric Warehouse wasn't warned about QUALIFY.** In step 4, `sql_analyze` reported only LIMIT for the
-   query above. QUALIFY isn't T-SQL. This was seen, not traced; the SQL rules owner should check it.
-3. **The portability report's Spark rewrite of QUALIFY with LIMIT changes the order.** Run directly in the
-   engine, `sql_portability.portability(<the query above>, "snowflake")` rewrote it for Spark with
-   `LIMIT 10` inside the subquery, before the `ROW_NUMBER() = 1` filter. It graded that "translated", with
-   no reason given. Applying the limit first can return different rows. This was seen in the engine's
-   output, not in the app.
-4. **A notebook can't run Snowflake SQL cells.** The DuckDB engine can translate Snowflake SQL
-   (`engines/local_sql.py`), but the notebook only ever asks for Spark SQL (`%%sql`) or Python
-   (`engines_service.cell_request`). This was read in the code.
-5. **Cost and savings doesn't count SQL page runs.** It showed 0 runs after step 2. The SQL page's runs on
+2. **Cost and savings doesn't count SQL page runs.** It showed 0 runs after step 2. The SQL page's runs on
    this PC aren't part of its figures.
-6. **"An existing project" is an open notebook and a SQL tab on a mocked lakehouse.** It is not a project
+3. **"An existing project" is an open notebook and a SQL tab on a mocked lakehouse.** It is not a project
    folder opened from disk.
+
+Two known items, not new findings:
+- Running Snowflake SQL cells from a notebook is a documented gap: the Snowflake screens come with the
+  warehouse work (SF-02, [engines.md](engines.md)).
+- QUALIFY isn't flagged for Fabric Warehouse because Warehouse supports it. It is flagged only for SQL
+  database (SYN-010). A Spark rewrite that put LIMIT before a QUALIFY filter, seen while preparing this
+  page, is fixed separately.
 
 The recording (MP4, 22 seconds) and the screenshots are kept with the project's files, under
 `skins/demo/2026-11-05/`.

@@ -128,11 +128,11 @@ class DataOpsMixin:
     def _deployed_entities(self, project: Any, env: str) -> dict[str, str] | None:
         """{name: config text} as promote last copied them to ``env``; None if it never was."""
         store = self._store(project, env)  # type: ignore[attr-defined]
-        deps = store.meta("deployments").filter(pl.col("env") == env)
+        deps = store.meta_where("deployments", pl.col("env") == env)
         if not deps.height:
             return None
         version = deps["version"][-1]
-        rows = store.meta("entities").filter(pl.col("version") == version)
+        rows = store.meta_where("entities", pl.col("version") == version)
         return {r["name"]: r["config"] for r in rows.iter_rows(named=True)}
 
     def meta_diff(self, against: str = "head") -> dict[str, Any]:
@@ -190,7 +190,7 @@ class DataOpsMixin:
             problem = str(exc)
         history = []
         try:
-            h = store.meta("schema_history").filter(pl.col("entity") == name).reverse()
+            h = store.meta_where("schema_history", pl.col("entity") == name).reverse()
             history = _rows(h, 10)
         except Exception as exc:
             _log.info("No schema history for this entity: %s", describe(exc))

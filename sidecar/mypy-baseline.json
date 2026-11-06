@@ -14,11 +14,6 @@
  "fabric_desktop/best_practice_checkers.py": {
   "arg-type": 1
  },
- "fabric_desktop/calibration.py": {
-  "arg-type": 2,
-  "return-value": 1,
-  "union-attr": 1
- },
  "fabric_desktop/capacity_history_service.py": {
   "list-item": 1
  },

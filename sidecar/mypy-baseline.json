@@ -150,11 +150,6 @@
  "fabric_desktop/git/capacity_files.py": {
   "index": 1
  },
- "fabric_desktop/git/ops.py": {
-  "assignment": 2,
-  "index": 1,
-  "valid-type": 2
- },
  "fabric_desktop/git/platform_files.py": {
   "arg-type": 1,
   "assignment": 2

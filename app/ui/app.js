@@ -522,8 +522,10 @@ function navMove(step) {
   const entry = nav.stack[i];
   navFields(entry.view).forEach(([o, k], n) => { if (o) o[k] = entry.values[n]; });
   closeMenu();
+  const from = state.view;
   state.view = entry.view;
   render();
+  if (entry.view !== from) focusPage();
   return true;
 }
 function navBack() { return navMove(-1); }
@@ -585,8 +587,32 @@ function go(view) {
   if (POP_OUT && view === "fabric") { popOutOpenInFabric(fabricPage.page); return; }
   closeMenu();
   navPush(view);
+  const from = state.view;
   state.view = view;
   render();
+  if (view !== from) focusPage();
+}
+
+// After a page change a screen reader hears the new page (EA-030): focus goes to the page's heading,
+// which it reads, unless the page already put focus somewhere of its own (a notebook's cell) or a
+// dialog or the command bar is open. A page whose heading isn't drawn yet takes focus itself and its
+// rail name is announced. The rail is redrawn on every page change, so without this focus was lost.
+// Pages redraw when their data arrives; setView keeps focus on the new heading while it was on the old.
+function focusPage() {
+  const view = document.getElementById("view");
+  if (!view?.querySelector || view.contains(document.activeElement)) return;
+  if (document.getElementById("dialog-root")?.childElementCount || document.getElementById("palette")) return;
+  if (focusHeading(view)) return;
+  view.focus({ preventScroll: true });
+  const name = document.querySelector("#rail .rail-item[aria-current=page]")?.textContent.trim();
+  if (name) announce(name);
+}
+function focusHeading(view) {
+  const heading = view.querySelector("h1");
+  if (!heading) return false;
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+  return true;
 }
 
 function renderChrome() {
@@ -686,8 +712,11 @@ function render() {
 function setView(...children) {
   document.body.classList.remove("fabric-full");  // only the Fabric portal tab fills the window
   const view = document.getElementById("view");
+  const at = document.activeElement;
+  const onPage = at === view || (at?.tagName === "H1" && view.contains(at));  // where focusPage put it
   view.replaceChildren(...children);
   viewTransition(view);  // motion.js: only when the page itself changed
+  if (onPage && (!document.activeElement || document.activeElement === document.body)) focusHeading(view) || view.focus({ preventScroll: true });
 }
 
 // The shared look for a part of a page that is still being read (UX-020): a small spinner and the

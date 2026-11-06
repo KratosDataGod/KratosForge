@@ -1587,6 +1587,7 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .search:focus-within, .palette-input:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .view:focus { outline: none; }
+#view h1[tabindex="-1"]:focus { outline: none; }  /* focus moved here on a page change for screen readers; not a control */
 .skip-link { position: absolute; left: 8px; top: -48px; z-index: 50; padding: 8px 12px; border-radius: 4px; background: var(--accent); color: var(--on-accent); }
 .skip-link:focus { top: 8px; }
 @media (prefers-reduced-motion: reduce) {  /* unless the person chose motion anyway (motion.js applyMotion) */

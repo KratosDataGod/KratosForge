@@ -287,10 +287,6 @@
   "arg-type": 1,
   "return-value": 1
  },
- "fabric_desktop/replay.py": {
-  "assignment": 2,
-  "call-overload": 1
- },
  "fabric_desktop/risk_service.py": {
   "index": 2
  },

@@ -16,9 +16,9 @@ PACK = "dp-700"
 
 def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
-    assert exercises.ids(PACK) == ["E12", "E19", "E21", "E22", "E23", "E24", "E25", "E32", "E33", "E35", "E36",
-                                   "E37", "E38", "E39", "E43", "E44", "E48", "E49", "E50", "E51", "E53", "E56", "E57",
-                                   "E58", "E59", "E61", "E62", "E63", "E64"]
+    assert exercises.ids(PACK) == ["E05", "E12", "E16", "E19", "E21", "E22", "E23", "E24", "E25", "E30", "E32",
+                                   "E33", "E34", "E35", "E36", "E37", "E38", "E39", "E43", "E44", "E48", "E49",
+                                   "E50", "E51", "E53", "E56", "E57", "E58", "E59", "E61", "E62", "E63", "E64"]
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))

@@ -24,3 +24,11 @@ def test_grouping_id_without_columns_outside_agg_stops_with_a_message():
     out = run("from pyspark.sql import functions as F\nspark.range(2).select(F.grouping_id()).show()")
     assert out["status"] == "error"
     assert "grouping_id() without columns works only in agg" in str(out["outputs"])
+
+
+def test_grouping_under_a_plain_group_by_is_refused_as_in_spark():
+    out = run("from pyspark.sql import functions as F\n"
+              "df = spark.createDataFrame([(1, 'a')], ['n', 'k'])\n"
+              "df.groupBy('k').agg(F.grouping('k')).show()")
+    assert out["status"] == "error"
+    assert "can only be used with GroupingSets/Cube/Rollup" in str(out["outputs"])

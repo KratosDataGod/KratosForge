@@ -627,6 +627,9 @@ def _grouped_agg(fn: Any) -> Any:
     def agg(self: GroupedData, *exprs: Any) -> DataFrame:
         if len(exprs) == 1 and isinstance(exprs[0], dict):
             exprs = tuple(_dict_agg(self._df, exprs[0]))
+        if not self._grouping._type and any(_is_grouping(e) for e in exprs):
+            from duckdb.experimental.spark.errors import AnalysisException
+            raise AnalysisException("grouping()/grouping_id() can only be used with GroupingSets/Cube/Rollup")
         if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
             return _agg(self._df, *exprs)
         exprs = tuple(_all_grouping_id(self, e) for e in exprs)
@@ -639,6 +642,15 @@ _GROUPING_ID_ALL = "grouping_id()"  # F.grouping_id() with no columns: every gro
 # What F.grouping_id() holds until agg knows the grouping columns: used anywhere else, it stops the query.
 _GROUPING_ID_MARK = ("CAST(error('grouping_id() without columns works only in agg after groupBy, cube or rollup')"
                      " AS BIGINT)")
+
+
+def _is_grouping(expr: Any) -> bool:
+    """Whether ``expr`` uses grouping() or grouping_id(), which Spark allows only under cube or rollup
+    (DuckDB gives 0 under a plain GROUP BY)."""
+    if not isinstance(expr, Column):
+        return False
+    text = str(expr.expr)
+    return "GROUPING(" in text.upper() or text == str(_sql(_GROUPING_ID_MARK).expr)
 
 
 def _all_grouping_id(grouped: GroupedData, expr: Any) -> Any:
@@ -673,6 +685,7 @@ def _grouping_sets(kind: str) -> Any:
         return GroupedData(Grouping(*columns, special=kind) if columns else Grouping(), self)
     grouped.__name__ = kind
     return grouped
+
 
 def _dict_agg(df: DataFrame, spec: dict[str, str]) -> list[Column]:
     """Spark's {column: function} form, its columns named as Spark names them (``avg(x)``, also for

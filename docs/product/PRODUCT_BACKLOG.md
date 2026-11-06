@@ -68,7 +68,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [SQL, Python, and Notebook Development](#sql-python-and-notebook-development) | 0 | 1 | 6 | 5 | 12 |
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 4 | 9 |
-| [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 1 | 1 | 6 | 3 | 11 |
+| [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 1 | 1 | 6 | 5 | 13 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 3 | 1 | 5 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 2 | 16 |
@@ -76,7 +76,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 8 | 2 | 0 | 13 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **7** | **33** | **60** | **19** | **119** |
+| **Total** | **7** | **33** | **60** | **21** | **121** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -665,7 +665,9 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | Accepted |
 | [PB-121](#pb-121) | Power BI embedding (Embed Studio) | P3 | Power BI embedding (PBE) | L | In progress |
 | [PB-127](#pb-127) | Fabric App Studio | P3 | Fabric App Studio (AS) | L | In progress |
-| [PB-129](#pb-129) | Platform skins and experience parity | P0 | Platform skins | L | In review |
+| [PB-129](#pb-129) | Platform skins and experience parity | P0 | Platform skins | L | Accepted |
+| [PB-132](#pb-132) | Choose a skin's colors and rail separately | P3 | Platform skins | M | Proposed |
+| [PB-133](#pb-133) | Import and export skins in Settings | P3 | Platform skins | S | Proposed |
 
 ### PB-018
 
@@ -826,11 +828,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-129
 
-**Platform skins and experience parity** · P0 (score 1.82) · L · confidence Medium · In review
+**Platform skins and experience parity** · P0 (score 1.82) · L · confidence Medium · Accepted
 
 - **Problem:** Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.
 - **Proposed capability:** One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.
-- **Current-state evidence:** Go: Chris's Platform Skins and Experience Parity brief of 2026-11-03 13:41 UTC, set as P0 (Platform skins thread cmsg_018T4o2pQdpbLBNhHpgVNNGp2RXWZE4bjmFwbEhenXh44y); Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb; A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration; Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain); Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a; Databricks-familiar and Snowflake-familiar skins (#1879, Preview), a KratosForge label over the app's own pages and an engine chip saying 'This PC · no Fabric job' (#1847), capabilities by engine generated into docs/capabilities.md (#1837), tokens for shared shades and the rail stripe (#1891, #1896) on main at a7631920; End-to-end demonstration with mocked cloud parts (#1904); keyboard, axe and reduced-motion checks in every built-in skin (#1922); parity levels updated for the Fabric, Databricks and Snowflake looks (#1921, #1923); warning and ok shades on tokens (#1924, #1925) on main at de881016; Implementation review docs/product/reviews/PB-129-skins.md recommends Accept with documented limitations: appearance and workflow come in one skin, no Import skin screen yet, and the demonstration mocks the cloud parts
+- **Current-state evidence:** Go: Chris's Platform Skins and Experience Parity brief of 2026-11-03 13:41 UTC, set as P0 (Platform skins thread cmsg_018T4o2pQdpbLBNhHpgVNNGp2RXWZE4bjmFwbEhenXh44y); Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb; A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration; Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain); Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a; Databricks-familiar and Snowflake-familiar skins (#1879, Preview), a KratosForge label over the app's own pages and an engine chip saying 'This PC · no Fabric job' (#1847), capabilities by engine generated into docs/capabilities.md (#1837), tokens for shared shades and the rail stripe (#1891, #1896) on main at a7631920; End-to-end demonstration with mocked cloud parts (#1904); keyboard, axe and reduced-motion checks in every built-in skin (#1922); parity levels updated for the Fabric, Databricks and Snowflake looks (#1921, #1923); warning and ok shades on tokens (#1924, #1925) on main at de881016; Implementation review docs/product/reviews/PB-129-skins.md recommends Accept with documented limitations: appearance and workflow come in one skin, no Import skin screen yet, and the demonstration mocks the cloud parts; Implementation review docs/product/reviews/PB-129-skins.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv); limitations: appearance and workflow come in one skin; no Import skin screen yet; the demonstration mocks the cloud parts. Mix and match and the Import skin screen follow as their own items
 - **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
 - **Dependencies:** none
 - **Owner:** Platform skins (Chris's Platform Skins brief, 2026-11-03 13:41Z (P0))
@@ -842,6 +844,37 @@ review moves it to Accepted; a merge alone does neither.
     - Switching skins keeps open work, connections and execution settings
     - Every skin keeps local-first, multi-engine, optimization, training and deployment features reachable
     - The end-to-end demonstration in the brief is recorded, with mocked parts named
+
+### PB-132
+
+**Choose a skin's colors and rail separately** · P3 (score 1.75) · M · confidence Medium · Proposed
+
+- **Problem:** A skin bundles appearance and workflow, so a person can't pair one platform's navigation with another's colors.
+- **Proposed capability:** Appearance (colors) and workflow (rail order and labels) can be chosen separately in Settings > Appearance, alongside the color mode.
+- **Current-state evidence:** Follow-up named in PB-129's acceptance (2026-11-06); not started
+- **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
+- **Dependencies:** none
+- **Owner:** Platform skins (PB-129 acceptance limitations)
+- **Acceptance criteria:**
+    - Appearance and workflow are separate settings, and any pair works
+    - Switching either keeps open work, connections and execution settings
+    - Both persist across restarts
+
+### PB-133
+
+**Import and export skins in Settings** · P3 (score 1.75) · S · confidence Medium · Proposed
+
+- **Problem:** Skin validation exists in the engine, but people can only choose the four built-in skins.
+- **Proposed capability:** Settings > Appearance can import a skin file through skins.parse and export the current skin; a refused file says why.
+- **Current-state evidence:** Follow-up named in PB-129's acceptance (2026-11-06); not started
+- **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
+- **Dependencies:** none
+- **Owner:** Platform skins (PB-129 acceptance limitations)
+- **Acceptance criteria:**
+    - Import goes through skins.parse and refuses anything the validator refuses, saying why
+    - An imported skin can't change credentials, permissions, engine behaviour or project data
+    - Export writes a file that imports again unchanged
+    - Reset to defaults removes imported skins
 
 ## Enterprise Shared Services
 

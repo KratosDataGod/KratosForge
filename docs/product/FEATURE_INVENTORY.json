@@ -42,7 +42,8 @@
       "Acceptance of PB-131 recorded (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv); retitled because Security chose no uninstall step.",
       "Product check 2026-11-05 11:42 at 7c7ed9e275bc2549b7a9cfdfb883feb3b201bde6: 6 PRs merged after 03d2b53a; 2 were product data PRs, #1828 updated its own rows, and the other 3 were linked to PB-128.",
       "Product check 2026-11-05 23:42 at a7631920de1b2b3e3666d5144e649152ac0680c1: 78 PRs merged after 7c7ed9e2; 1 was a product data PR and the other 77 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-06 11:42 at de881016b9d097538645ee3b7e4c66f5d8dee369: 46 PRs merged after a7631920; 2 were product data and docs audit PRs and the other 44 were linked by title; other rows were not re-read."
+      "Product check 2026-11-06 11:42 at de881016b9d097538645ee3b7e4c66f5d8dee369: 46 PRs merged after a7631920; 2 were product data and docs audit PRs and the other 44 were linked by title; other rows were not re-read.",
+      "Acceptance of PB-129 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv)."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },

@@ -109,6 +109,14 @@ def open_table(uri: str, options: dict[str, str] | None, version: int | None = N
         return None
 
 
+def _at(loaded: DeltaTable | None, uri: str, options: dict[str, str] | None, version: int | None) -> DeltaTable:
+    """The table at ``version`` (None: the latest): ``loaded`` when that is the table as loaded at that
+    version, else loaded again. Raises TableNotFoundError when there's none."""
+    if loaded is not None and (version is None or loaded.version() == version):
+        return loaded
+    return DeltaTable(uri, storage_options=options, version=version)
+
+
 def lazy(table: DeltaTable, uri: str, options: dict[str, str] | None) -> pl.LazyFrame:
     """``table`` as a LazyFrame, so a filter or column list is applied while reading: files whose
     statistics rule them out are skipped and unused columns are never loaded."""
@@ -261,13 +269,19 @@ class Store:
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
         data = df.to_arrow()
-        safe = self._delta_safe(uri, schema, table, data.schema, mode == "append")
+        # The log is loaded once for the type checks, the profile check, the write and the new version:
+        # delta-rs moves a table it was handed on to the version it committed. On OneLake every load
+        # is a round trip per commit file.
+        current = open_table(uri, self.options())
+        safe = self._delta_safe(uri, schema, table, data.schema, mode == "append", current)
         if safe != data.schema:
             data = data.cast(safe)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
-        delta_profile.check_target(uri, self.options())
-        target: Any = uri
+        if current is not None:
+            delta_profile.check_table(current)
+        # An append goes through the table as loaded: delta-rs commits it on top of any commit made since.
+        target: Any = current if mode == "append" and current is not None else uri
         extra: dict[str, Any] = {}
         if mode == "overwrite" and read_version is not False:
             if read_version is None:
@@ -275,7 +289,7 @@ class Store:
             else:
                 # Replacing every row as a predicate against the version read makes Delta check for
                 # commits since then (a plain overwrite doesn't).
-                target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
+                target = _at(current, uri, self.options(), int(read_version))
                 extra["predicate"] = "true"
         try:
             how = extra.get("mode", mode)
@@ -287,7 +301,7 @@ class Store:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
+        return self._committed(uri, target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options()))
 
     def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
                      metadata: dict[str, str] | None = None, read_version: int | None = None) -> int:
@@ -301,11 +315,11 @@ class Store:
             rows = pa.RecordBatchReader.from_batches(safe, (b.cast(safe) for b in rows))
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
-        delta_profile.check_target(uri, self.options())
+        current = delta_profile.open_target(uri, self.options())
         target: Any = uri
         extra: dict[str, Any] = {"mode": "error"}
         if read_version is not None:
-            target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
+            target = _at(current, uri, self.options(), int(read_version))
             extra = {"mode": "overwrite", "predicate": "true"}
         self.last_cleanup = None
         before: set[str] | None = None
@@ -334,15 +348,24 @@ class Store:
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
+        return self._committed(uri, target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options()))
 
-    def _delta_safe(self, uri: str, schema: str, table: str, columns: pa.Schema, append: bool) -> pa.Schema:
+    def _delta_safe(self, uri: str, schema: str, table: str, columns: pa.Schema, append: bool,
+                    loaded: DeltaTable | None | bool = False) -> pa.Schema:
         """``columns`` with each type delta-rs can't write made Fabric-safe, or a plain error naming the
-        table and column (localdata.delta.delta_safe), before anything is written (#954)."""
+        table and column (localdata.delta.delta_safe), before anything is written (#954). ``loaded`` is
+        the table as the write already loaded it (None: there's none), so its log isn't loaded again;
+        False (the default) loads it here, once."""
         from ..localdata import delta as local_delta
+        held: list[DeltaTable | None] = [] if loaded is False else [loaded]  # type: ignore[list-item]
+
+        def table_now() -> DeltaTable | None:
+            if not held:
+                held.append(open_table(uri, self.options()))
+            return held[0]
 
         def existing() -> dict[str, pa.DataType]:
-            current = open_table(uri, self.options())
+            current = table_now()
             return {} if current is None else \
                 {f.name.lower(): f.type for f in pa.schema(current.schema().to_arrow())}
         try:
@@ -352,17 +375,18 @@ class Store:
         if append:
             # An append or a MERGE keeps the table's types, and delta-rs would cast to them without a
             # word (EA-001): stop one that would change values, as write_table does.
-            current = open_table(uri, self.options())
+            current = table_now()
             if current is not None:
                 from ..publish import refuse_conversions
                 refuse_conversions(safe, current, f"{schema}.{table}")
         return safe
 
-    def _merge_source(self, uri: str, schema: str, table: str, df: pl.DataFrame) -> pa.Table:
+    def _merge_source(self, uri: str, schema: str, table: str, df: pl.DataFrame,
+                      loaded: DeltaTable | None | bool = False) -> pa.Table:
         """``df`` as Arrow a MERGE can take: types made Fabric-safe as for an append, so a TIME column
-        stops with a plain message and a UInt32 isn't narrowed to INT (#954)."""
+        stops with a plain message and a UInt32 isn't narrowed to INT (#954). ``loaded`` as for _delta_safe."""
         data = df.to_arrow()
-        safe = self._delta_safe(uri, schema, table, data.schema, True)
+        safe = self._delta_safe(uri, schema, table, data.schema, True, loaded)
         return data.cast(safe) if safe != data.schema else data
 
     # ---- files a write that didn't commit left behind (PB-067)
@@ -515,9 +539,12 @@ class Store:
         in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
-        data = self._merge_source(uri, schema, table, df)
-        delta_profile.check_target(uri, self.options())
-        target = DeltaTable(uri, storage_options=self.options(), version=read_version)
+        # One load of the log for the type checks, the profile check, the MERGE and the new version (see write).
+        current = open_table(uri, self.options())
+        data = self._merge_source(uri, schema, table, df, current)
+        if current is not None:
+            delta_profile.check_table(current)
+        target = _at(current, uri, self.options(), read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
         bounds = " AND ".join(_key_bounds(df, prune or on))
@@ -539,7 +566,7 @@ class Store:
         else:
             merger = merger.when_matched_update_all().when_not_matched_insert_all()
         metrics = merger.execute()
-        return self._committed(uri, DeltaTable(uri, storage_options=self.options())), metrics
+        return self._committed(uri, target), metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
         try:

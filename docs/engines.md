@@ -28,6 +28,8 @@ refuses to register an engine that claims more than it has an adapter and tests 
 Which Spark SQL built-in functions a notebook can use on this PC is in
 [Spark functions on this PC](spark-functions.md): every Spark 3.5 built-in, each checked against
 Apache Spark's own value for its documented example, and kept current by CI.
+The PySpark DataFrame API (DataFrame, Column, GroupedData, reader and writer methods) is listed the
+same way in [PySpark DataFrame API on this PC](spark-dataframe-api.md).
 
 ### Compatibility matrix
 
@@ -75,7 +77,9 @@ engine says what to change instead of running.
 
 Warehouse T-SQL runs on this PC's DuckDB engine after translation. What it refuses, by name, is the
 "Refused, not half-translated" list in [Local data: T-SQL](local-data.md#t-sql); a test runs a query
-for each item in that list and fails when the list and the code differ (#1666).
+for each item in that list and fails when the list and the code differ (#1666). [T-SQL functions on this PC](tsql-functions.md) lists every T-SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 ## Snowflake SQL on this PC (Preview)
 

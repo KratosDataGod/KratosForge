@@ -111,3 +111,13 @@ def test_placeholders_differ():
 
 def test_livetest_scrub_also_cuts_to_2000_characters():
     assert len(livetest.scrub("x" * 5000)) == 2000
+
+
+def test_the_audit_page_shows_this_table():
+    from pathlib import Path
+    page = (Path(__file__).resolve().parents[2] / "docs" / "audits" / "REDACTORS.md").read_text(encoding="utf-8")
+    table = page.split("## What each one does with the secret", 1)[1].split("\n## ", 1)[0]
+    rows = [[c.strip() for c in line.strip("|").split("|")] for line in table.splitlines() if line.startswith("| ")]
+    shown = [tuple(c.split(" (")[0] for c in r[1:]) for r in rows[2:]]  # "removed (as an email)" is removed
+    assert rows[0] == ["Input", *REDACTORS]
+    assert shown == list(TODAY.values()), "docs/audits/REDACTORS.md and TODAY list the same outcomes, in the same order"

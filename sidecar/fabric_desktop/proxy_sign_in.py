@@ -9,7 +9,8 @@ account (SSPI, through ctypes). No password is read, typed, kept or logged, and 
 
 Where a token goes:
 - Only to the proxy requests already chose for the request (HTTPS_PROXY or the Windows proxy
-  setting), and only in the CONNECT that asks it for a tunnel. The token is made for that proxy's
+  setting), only when IT named that proxy in ``proxy_windows_sign_in_hosts``, and only in the
+  CONNECT that asks it for a tunnel. The token is made for that proxy's
   name (``HTTP/<proxy host>``) and for no other host.
 - Never to the server at the far end: a 407 or 401 that comes back inside the tunnel is the
   server's, and it reaches the caller as it is, unanswered.
@@ -37,6 +38,7 @@ from urllib3.util import connection as urllib3_connection
 from urllib3.util.url import parse_url
 
 POLICY_KEY = "proxy_windows_sign_in"
+POLICY_HOSTS_KEY = "proxy_windows_sign_in_hosts"
 # Proxy-Authenticate schemes answered, in the order preferred, and the SSPI package for each.
 PACKAGES = {"negotiate": "Negotiate", "ntlm": "NTLM"}
 MAX_ROUNDS = 4  # NTLM takes three CONNECTs on one connection; Kerberos one or two.
@@ -64,6 +66,15 @@ def enabled() -> bool:
     from . import app_settings
 
     return sys.platform == "win32" and app_settings.value(POLICY_KEY) is True
+
+
+def allowed_hosts() -> frozenset[str]:
+    """The proxies IT allows to receive a Windows sign-in (lower case). A proxy not named here
+    gets none, so a changed proxy setting can't collect the account's NTLM answer."""
+    from . import app_settings
+
+    hosts = app_settings.value(POLICY_HOSTS_KEY)
+    return frozenset(h.strip().lower() for h in hosts if isinstance(h, str) and h.strip()) if isinstance(hosts, list) else frozenset()
 
 
 def _response(rfile: BinaryIO) -> tuple[str, int, dict[str, list[str]]]:
@@ -225,8 +236,10 @@ class WindowsSignInAdapter(HTTPAdapter):
     """requests' adapter, except that an https request through an http:// proxy goes through a
     tunnel opened by ``open_tunnel``. Everything else is requests' own handling."""
 
-    def __init__(self, *args: Any, new_context: ContextFactory | None = None, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, new_context: ContextFactory | None = None,
+                 allowed: frozenset[str] | None = None, **kwargs: Any) -> None:
         self._new_context = new_context
+        self._allowed = allowed_hosts() if allowed is None else frozenset(h.lower() for h in allowed)
         self._pools: dict[tuple[Any, ...], HTTPSConnectionPool] = {}
         super().__init__(*args, **kwargs)
 
@@ -237,6 +250,8 @@ class WindowsSignInAdapter(HTTPAdapter):
         parsed = parse_url(prepend_scheme_if_needed(proxy, "http"))
         if parsed.scheme != "http" or not parsed.host or parsed.auth:
             return None  # an https:// proxy, or one with a user name: requests decides
+        if parsed.host.lower() not in self._allowed:
+            return None  # a proxy IT didn't name gets no sign-in
         return parsed.host, parsed.port or 80
 
     def get_connection_with_tls_context(self, request: Any, verify: Any, proxies: dict[str, str] | None = None,

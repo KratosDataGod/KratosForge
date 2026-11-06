@@ -171,7 +171,7 @@ def clean_network(monkeypatch, company_ca):
 
 def _session(windows: FakeWindows) -> requests.Session:
     s = requests.Session()
-    s.mount("https://", WindowsSignInAdapter(new_context=windows, max_retries=0))
+    s.mount("https://", WindowsSignInAdapter(new_context=windows, allowed=frozenset({"127.0.0.1"}), max_retries=0))
     return s
 
 
@@ -262,12 +262,23 @@ def test_the_servers_certificate_is_still_checked_through_the_tunnel(clean_netwo
 
 
 def test_plain_http_and_proxies_with_a_user_name_keep_requests_own_handling():
-    adapter = WindowsSignInAdapter(new_context=FakeWindows())
+    adapter = WindowsSignInAdapter(new_context=FakeWindows(), allowed=frozenset({"Proxy"}))
     assert adapter._tunnel_proxy("https://api.fabric.microsoft.com/v1", {"https": "http://proxy:8080"}) == ("proxy", 8080)
     assert adapter._tunnel_proxy("http://intranet/x", {"http": "http://proxy:8080"}) is None
     assert adapter._tunnel_proxy("https://a/", {"https": "http://user:pw@proxy:8080"}) is None
     assert adapter._tunnel_proxy("https://a/", {"https": "https://proxy:8443"}) is None
     assert adapter._tunnel_proxy("https://a/", {}) is None
+
+
+def test_a_proxy_it_didnt_name_gets_no_sign_in(clean_network, site, monkeypatch, tmp_path):
+    proxy, windows = clean_network(scripted("NTLM")), FakeWindows()
+    s = requests.Session()
+    s.mount("https://", WindowsSignInAdapter(new_context=windows, allowed=frozenset({"proxy.contoso.com"}), max_retries=0))
+    with pytest.raises(requests.exceptions.ProxyError):
+        s.get(site, timeout=10)
+    assert windows.started == [] and all(a is None for _, a in proxy.authorizations)
+    monkeypatch.setenv("ProgramData", str(tmp_path))
+    assert proxy_sign_in.allowed_hosts() == frozenset()  # none named in policy: none get a sign-in
 
 
 def test_the_proxys_offer_is_read_as_windows_sends_it():
@@ -347,7 +358,7 @@ def test_windows_signs_in_to_a_proxy_that_windows_checks(clean_network, site):
     check, results = _windows_proxy_check()
     proxy = clean_network(check, scheme="Negotiate")
     s = requests.Session()
-    s.mount("https://", WindowsSignInAdapter(max_retries=0))  # the real SspiContext
+    s.mount("https://", WindowsSignInAdapter(allowed=frozenset({"127.0.0.1"}), max_retries=0))  # the real SspiContext
     r = s.get(site, timeout=20)
     assert r.status_code == 200, (r.status_code, [hex(x) for x in results])
     assert results[-1] == 0  # SEC_E_OK: Windows accepted the account's sign-in

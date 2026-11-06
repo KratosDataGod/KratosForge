@@ -27,9 +27,12 @@ def test_the_names_spark_s_pyspark_sql_has_import():
 def test_a_dataframe_from_rows_reads_as_spark_s():
     status, text = run("from pyspark.sql import Row\n"
                        "df = spark.createDataFrame([Row(name='Alice', age=2), Row(name='Bob', age=5)])\n"
-                       "print(sorted(df.columns), sorted((r['name'], r['age']) for r in df.collect()))\n"
+                       "print(df.columns, sorted((r['name'], r['age']) for r in df.collect()))\n"
+                       "P = Row('name', 'age')\n"
+                       "print(spark.createDataFrame([P('Ann', 3)]).columns)\n"
                        "r = Row(name='Tom', age=14)\n"
                        "print(r.name, r['age'], r.asDict())")
     assert status == "ok", text
-    assert "['age', 'name'] [('Alice', 2), ('Bob', 5)]" in text
+    assert "['name', 'age'] [('Alice', 2), ('Bob', 5)]" in text
+    assert "['name', 'age']\n" in text  # Row("name", "age") as a factory, as PySpark's docs use it
     assert "Tom 14 {'name': 'Tom', 'age': 14}" in text

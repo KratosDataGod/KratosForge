@@ -1118,8 +1118,8 @@ class LocalSparkSession(SparkSession):
             schema = ddl_schema(schema)
         if schema is None and isinstance(data, (list, tuple)) and data:
             fields = getattr(data[0], "__fields__", None)  # Row(name=..., age=...): its names, as Spark infers them
-            if isinstance(fields, list) and fields and all(isinstance(f, str) for f in fields):
-                schema = list(fields)
+            if isinstance(fields, (list, tuple)) and fields and all(isinstance(f, str) for f in fields):
+                schema = list(fields)  # a tuple (a Row itself) when the Row came from Row("name", "age")
         if verifySchema:  # verifySchema=False skips the check, as in Spark
             check_not_null(data, schema)
         # DuckDB 1.x's own createDataFrame refuses samplingRatio and verifySchema=False; both only change

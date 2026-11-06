@@ -68,10 +68,6 @@
  "fabric_desktop/comments_service.py": {
   "union-attr": 1
  },
- "fabric_desktop/connprofiles.py": {
-  "arg-type": 1,
-  "assignment": 1
- },
  "fabric_desktop/costs.py": {
   "arg-type": 2,
   "no-redef": 1,
@@ -98,16 +94,6 @@
  },
  "fabric_desktop/editor_service.py": {
   "var-annotated": 1
- },
- "fabric_desktop/engines/databricks_sql.py": {
-  "assignment": 1
- },
- "fabric_desktop/engines/local_python.py": {
-  "var-annotated": 1
- },
- "fabric_desktop/engines/local_sql.py": {
-  "arg-type": 1,
-  "misc": 1
  },
  "fabric_desktop/environments.py": {
   "valid-type": 1,
@@ -215,10 +201,6 @@
  },
  "fabric_desktop/leases.py": {
   "attr-defined": 4
- },
- "fabric_desktop/livetest.py": {
-  "arg-type": 1,
-  "misc": 1
  },
  "fabric_desktop/localdata/delta.py": {
   "arg-type": 1
@@ -334,9 +316,6 @@
  "fabric_desktop/pipeline_service.py": {
   "attr-defined": 4
  },
- "fabric_desktop/platformtest.py": {
-  "assignment": 1
- },
  "fabric_desktop/profiling.py": {
   "arg-type": 3
  },
@@ -381,10 +360,6 @@
   "arg-type": 1,
   "var-annotated": 1
  },
- "fabric_desktop/smoketest.py": {
-  "assignment": 1,
-  "misc": 2
- },
  "fabric_desktop/snowflake_sql.py": {
   "assignment": 1,
   "return-value": 1
@@ -416,14 +391,6 @@
  },
  "fabric_desktop/tenant_history_service.py": {
   "var-annotated": 1
- },
- "fabric_desktop/usage/__init__.py": {
-  "assignment": 1,
-  "attr-defined": 1,
-  "type-var": 2
- },
- "fabric_desktop/usage/metrics_app.py": {
-  "assignment": 1
  },
  "fabric_desktop/validate_service.py": {
   "index": 1

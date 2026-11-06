@@ -361,10 +361,6 @@
  "fabric_desktop/scorecard.py": {
   "arg-type": 1
  },
- "fabric_desktop/semantic.py": {
-  "arg-type": 4,
-  "assignment": 1
- },
  "fabric_desktop/server.py": {
   "union-attr": 1
  },

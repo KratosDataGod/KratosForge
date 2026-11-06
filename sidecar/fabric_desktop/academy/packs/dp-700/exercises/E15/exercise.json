@@ -1,0 +1,127 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E15",
+  "title": "Dynamic data masking: pick the mask for each column, and who sees what",
+  "objectives": [
+    "1.3.4"
+  ],
+  "mode": "guided",
+  "minutes": 15,
+  "prerequisites": [],
+  "objective_text": "Choose a dynamic data masking function for each sensitive column, decide who gets UNMASK, and spot the column that masking alone can't protect.",
+  "scenario": "Call-center agents query the Customers table in a warehouse to help callers. They need to confirm who is calling without seeing full personal details. Their leads handle disputes and need the real values.",
+  "engine_label": "A model of a warehouse table's masking settings, checked on this PC",
+  "verifies": [
+    "Your masks, UNMASK list and salary choice match what each column's need calls for, using the four masking functions a warehouse offers, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the masks work in a Fabric Warehouse: no T-SQL runs here. In Fabric each mask is an ALTER COLUMN ... ADD MASKED WITH (FUNCTION = '...') change.",
+    "The exact masked output for each data type.",
+    "Workspace Admins, Members and Contributors, who see unmasked data by default."
+  ],
+  "expected": {
+    "description": "Email email(), CardNumber partial(0, padding, 4), Gender default(), BirthMonth random(1, 12), UNMASK for SupportLeads only, Salary protected by column-level security."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A column's mask doesn't fit what agents may see.",
+      "pass": "Each column has the mask its need calls for.",
+      "rules": [
+        {
+          "path": "masks.Email.function",
+          "equals": "email",
+          "why": "email() shows the first letter and a constant suffix, such as aXXX@XXXX.com."
+        },
+        {
+          "path": "masks.CardNumber.function",
+          "equals": "partial",
+          "why": "partial(prefix, padding, suffix) keeps the first and last characters you choose."
+        },
+        {
+          "path": "masks.CardNumber.prefix",
+          "equals": 0,
+          "why": "No leading digits are shown."
+        },
+        {
+          "path": "masks.CardNumber.suffix",
+          "equals": 4,
+          "why": "Only the last four digits are shown."
+        },
+        {
+          "path": "masks.CardNumber.padding",
+          "present": true
+        },
+        {
+          "path": "masks.Gender.function",
+          "equals": "default",
+          "why": "default() masks the whole value."
+        },
+        {
+          "path": "masks.BirthMonth.function",
+          "equals": "random",
+          "why": "random(start, end) replaces a number with a random value in the range."
+        },
+        {
+          "path": "masks.BirthMonth.start",
+          "equals": 1
+        },
+        {
+          "path": "masks.BirthMonth.end",
+          "equals": 12
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The wrong people see real values.",
+      "pass": "Only SupportLeads see unmasked values.",
+      "rules": [
+        {
+          "path": "unmask",
+          "contains": "SupportLeads",
+          "why": "They handle disputes with real values."
+        },
+        {
+          "path": "unmask",
+          "not_contains": "Agents",
+          "why": "UNMASK would show agents every masked value."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Masking alone won't keep Salary from agents who can query.",
+      "pass": "Salary is kept out of reach, not just masked.",
+      "rules": [
+        {
+          "path": "salary_protection",
+          "equals": "column-level security",
+          "why": "A masked column can still be filtered on, so WHERE Salary > 99999 reveals the range. Leave it out of the agents' grants instead."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "There are four masking functions: default, email, random and partial (custom string).",
+    "For the card number, which of prefix and suffix keeps the last digits?",
+    "Can someone learn a masked value without seeing it? Think about WHERE."
+  ],
+  "explanation": "Dynamic data masking hides values in query results from users without UNMASK (or CONTROL), and leaves the stored data alone. email() keeps the first letter, partial() keeps the leading and trailing characters you choose, default() hides the whole value and random() swaps a number for one in a range. Masking isn't access control: a user who can query a masked column can still filter on it, so a WHERE on Salary reveals its range. Salary has to be left out of the agents' grants with column-level security instead.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (dynamic-data-masking): the four functions with their examples, UNMASK or CONTROL to see unmasked data, Admin/Member/Contributor have CONTROL by design, and the warning not to rely on masking alone, with the WHERE Salary example."
+  ]
+}

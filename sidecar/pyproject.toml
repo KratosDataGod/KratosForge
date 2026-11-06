@@ -112,3 +112,6 @@ testpaths = ["tests"]
 # more; the engine reads relations there (duckdb_rows.for_arrow, #1489), and a new reader that doesn't
 # fails the 2.0 run.
 filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]
+# These take the exercise runtime's access off the shared Python install for the whole machine, so
+# another xdist worker's running exercise would lose its Python. CI runs them in a serial step of their own.
+markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist"]

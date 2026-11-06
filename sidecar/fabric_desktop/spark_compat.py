@@ -505,7 +505,7 @@ def _order_of(c: Any) -> str:
 
 
 # A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
-_RELATION = re.compile(r"\bunnamed_relation_[0-9a-f]+\.")
+_RELATION = re.compile(r'"?\bunnamed_relation_[0-9a-f]+"?\.')  # quoted on DuckDB 2.0
 # A quoted identifier ("name", quoted as a keyword) or a string literal ('x') in DuckDB's name, read
 # left to right in one pass so a quote inside one never pairs with the next: Spark writes each bare.
 _QUOTED = re.compile(r'"((?:[^"]|"")*)"|\'((?:[^\']|\'\')*)\'')
@@ -741,8 +741,8 @@ def _text_method_named(template: str, fn: Any) -> Any:
     return method
 
 
-# A plain column, as DuckDB writes one: relation.name, "name" or name.
-_PLAIN_COLUMN = re.compile(r'^(?:unnamed_relation_[0-9a-f]+\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
+# A plain column, as DuckDB writes one: relation.name ("relation"."name" on DuckDB 2.0), "name" or name.
+_PLAIN_COLUMN = re.compile(r'^(?:"?unnamed_relation_[0-9a-f]+"?\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
 # Spark's SQL name for a type, from its simpleString (DuckDB's spells some types Spark's long way).
 _TYPE_SQL = {"integer": "INT", "long": "BIGINT", "short": "SMALLINT", "byte": "TINYINT"}
 
@@ -786,6 +786,22 @@ _FUNCTION_DEFAULTS = {"round": (1, "0"), "bround": (1, "0"), "split": (2, "-1"),
                       "from_unixtime": (1, "yyyy-MM-dd HH:mm:ss")}
 
 
+def _aliased(col: Column) -> bool:
+    """Whether ``col`` was given a name with alias (by spark_compat's own function): DuckDB's name for
+    an expression can differ from its SQL text without one (DuckDB 2.0 names count(*) count_star())."""
+    return bool(vars(col).get("_fd_alias", False))
+
+
+def _alias_marked(fn: Any) -> Any:
+    """Column.alias, marking the Column it gives as aliased (see _aliased)."""
+    def alias(self: Column, *names: Any, **kwargs: Any) -> Column:
+        out = fn(self, *names, **kwargs)
+        out._fd_alias = True
+        return cast(Column, out)
+    alias.__doc__ = fn.__doc__
+    return alias
+
+
 def _function_named(name: str, fn: Any) -> Any:
     """An F function whose Column carries Spark's name: the function over its arguments' names."""
     try:
@@ -797,8 +813,7 @@ def _function_named(name: str, fn: Any) -> Any:
         out = fn(*args, **kwargs)
         if not isinstance(out, Column):
             return out
-        if ("_fd_name" not in vars(out) and out.expr.get_name() != str(out.expr)
-                and not _PLAIN_COLUMN.match(str(out.expr))):  # named by the function itself (spark_compat's own)
+        if "_fd_name" not in vars(out) and _aliased(out):  # named by the function itself (spark_compat's own)
             return _named(out, out.expr.get_name())  # already Spark's text: unquoting it again would pair its quotes
         # otherwise its own name, also over one a function it calls gave (nvl over coalesce)
         try:
@@ -1624,6 +1639,7 @@ def install() -> None:
                     "add_months", "months_between", "element_at", "to_date", "to_timestamp") or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
+    Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]
     Column.over = _over  # type: ignore[attr-defined]
     Column.getItem = _get_item  # type: ignore[attr-defined]
     Column.between = _between  # type: ignore[attr-defined]

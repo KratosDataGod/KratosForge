@@ -581,3 +581,10 @@ def test_the_decimal_family_is_labelled_and_the_rest_is_not():
 def test_variant_types_that_cannot_be_rewritten_are_refused_by_name(sql, rule):
     t = sf.translate(sql)
     assert not t.runnable and t.statements[0].notes[0].id == rule
+
+
+def test_nested_is_and_as_calls_are_all_rewritten_and_the_value_is_read_once():
+    row, st = _one("SELECT is_integer(as_integer(parse_json('5'))), as_integer(as_object(parse_json('{\"a\": 5}')):a)")
+    assert row == (True, 5)
+    sql = sf.translate("SELECT is_integer(parse_json(col)) FROM t").duckdb_sql
+    assert sql.upper().count("JSON(COL)") == 1 and "LAMBDA" in sql.upper()

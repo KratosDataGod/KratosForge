@@ -557,10 +557,11 @@ _DECIMAL_FAMILY = frozenset({"IS_DECIMAL", "AS_DECIMAL", "AS_NUMBER"})
 
 
 def _with_value(template: str, value: exp.Expression) -> exp.Expr:
-    """``template`` (DuckDB SQL) with every __sf_v replaced by a copy of ``value``'s tree."""
-    tree = sqlglot.parse_one(template, read="duckdb")
+    """``template`` (DuckDB SQL) applied to ``value``: __sf_v is a lambda's parameter, so the value is worked
+    out once a row however often the template names it."""
+    tree = sqlglot.parse_one(f"list_transform([__sf_arg], lambda __sf_v: {template})[1]", read="duckdb")
     for column in list(tree.find_all(exp.Column)):
-        if column.name == "__sf_v" and not column.table:
+        if column.name == "__sf_arg" and not column.table:
             column.replace(value.copy())
     return tree
 
@@ -584,7 +585,8 @@ def _decimal_type(name: str, args: list[exp.Expression]) -> str:
 
 def _rewrite_variant_types(statement: exp.Expression) -> None:
     """SFX-011: IS_<type> and AS_<type> test and read a VARIANT's type as Snowflake names it (_KIND)."""
-    for node in list(statement.find_all(exp.Anonymous)):
+    # Innermost first: a call inside another's argument is rewritten before that argument is copied.
+    for node in reversed(list(statement.find_all(exp.Anonymous))):
         name = str(node.this).upper()
         if name not in _IS_KINDS and name not in _AS_KINDS:
             continue

@@ -326,7 +326,7 @@ the known differences in more detail.
 | `AS_NUMBER` | Runs |  | 1 value check; labelled SFD-008 A JSON fraction counts as a decimal |
 | `AS_DOUBLE` | Runs |  | 1 value check |
 | `AS_REAL` | Runs |  | 1 value check |
-| `AS_INTEGER` | Runs |  | 2 value checks |
+| `AS_INTEGER` | Runs |  | 3 value checks |
 | `AS_OBJECT` | Runs |  | 2 value checks |
 | `AS_TIME` | Runs |  | 1 value check |
 | `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
@@ -344,7 +344,7 @@ the known differences in more detail.
 | `IS_DECIMAL` | Differs |  | IS_DECIMAL (vartab): SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
 | `IS_DOUBLE` | Runs |  | 3 value checks |
 | `IS_REAL` | Runs |  | 2 value checks |
-| `IS_INTEGER` | Runs |  | 3 value checks |
+| `IS_INTEGER` | Runs |  | 4 value checks |
 | `IS_NULL_VALUE` | Runs |  | 2 value checks |
 | `IS_OBJECT` | Runs |  | 1 value check |
 | `IS_TIME` | Runs |  | 1 value check |

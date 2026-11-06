@@ -6639,7 +6639,7 @@
     {
       "id": "PB-129",
       "title": "Platform skins and experience parity",
-      "state": "In review",
+      "state": "Accepted",
       "owner": "Platform skins",
       "category": "Fabric Integration and Deployment",
       "effort": "L",
@@ -6672,7 +6672,8 @@
         "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a",
         "Databricks-familiar and Snowflake-familiar skins (#1879, Preview), a KratosForge label over the app's own pages and an engine chip saying 'This PC · no Fabric job' (#1847), capabilities by engine generated into docs/capabilities.md (#1837), tokens for shared shades and the rail stripe (#1891, #1896) on main at a7631920",
         "End-to-end demonstration with mocked cloud parts (#1904); keyboard, axe and reduced-motion checks in every built-in skin (#1922); parity levels updated for the Fabric, Databricks and Snowflake looks (#1921, #1923); warning and ok shades on tokens (#1924, #1925) on main at de881016",
-        "Implementation review docs/product/reviews/PB-129-skins.md recommends Accept with documented limitations: appearance and workflow come in one skin, no Import skin screen yet, and the demonstration mocks the cloud parts"
+        "Implementation review docs/product/reviews/PB-129-skins.md recommends Accept with documented limitations: appearance and workflow come in one skin, no Import skin screen yet, and the demonstration mocks the cloud parts",
+        "Implementation review docs/product/reviews/PB-129-skins.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv); limitations: appearance and workflow come in one skin; no Import skin screen yet; the demonstration mocks the cloud parts. Mix and match and the Import skin screen follow as their own items"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -6812,6 +6813,95 @@
         "cost": 2.0,
         "score": 1.84,
         "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-132",
+      "title": "Choose a skin's colors and rail separately",
+      "state": "Proposed",
+      "owner": "Platform skins",
+      "category": "Fabric Integration and Deployment",
+      "effort": "M",
+      "prs": [],
+      "problem": "A skin bundles appearance and workflow, so a person can't pair one platform's navigation with another's colors.",
+      "capability": "Appearance (colors) and workflow (rail order and labels) can be chosen separately in Settings > Appearance, alongside the color mode.",
+      "evidence": [
+        "Follow-up named in PB-129's acceptance (2026-11-06); not started"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-EXT-05"
+      ],
+      "source_refs": [
+        "PB-129 acceptance limitations"
+      ],
+      "acceptance": [
+        "Appearance and workflow are separate settings, and any pair works",
+        "Switching either keeps open work, connections and execution settings",
+        "Both persist across restarts"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 2,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.5,
+        "cost": 2.5,
+        "score": 1.75,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-133",
+      "title": "Import and export skins in Settings",
+      "state": "Proposed",
+      "owner": "Platform skins",
+      "category": "Fabric Integration and Deployment",
+      "effort": "S",
+      "prs": [],
+      "problem": "Skin validation exists in the engine, but people can only choose the four built-in skins.",
+      "capability": "Settings > Appearance can import a skin file through skins.parse and export the current skin; a refused file says why.",
+      "evidence": [
+        "Follow-up named in PB-129's acceptance (2026-11-06); not started"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-EXT-05"
+      ],
+      "source_refs": [
+        "PB-129 acceptance limitations"
+      ],
+      "acceptance": [
+        "Import goes through skins.parse and refuses anything the validator refuses, saying why",
+        "An imported skin can't change credentials, permissions, engine behaviour or project data",
+        "Export writes a file that imports again unchanged",
+        "Reset to defaults removes imported skins"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 2,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.5,
+        "cost": 2.5,
+        "score": 1.75,
+        "priority": "P3"
       }
     }
   ]

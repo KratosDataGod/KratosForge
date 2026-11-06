@@ -185,8 +185,9 @@ def rollback_record(project: Project, env: str, version: str, current: dict[str,
     entities = [{"name": e.name, "path": e.path.relative_to(project.root).as_posix(),
                  "sha256": hashlib.sha256(e.path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()}
                 for e in project.entities.values()]
-    code: dict[str, Any] = {"repo": bool(earlier.get("commit")), "commit": earlier.get("commit"), "branch": earlier.get("branch"),
-            "dirty": earlier.get("dirty"), "pushed": earlier.get("pushed"), "uncommitted": []}
+    code: dict[str, Any] = {"repo": bool(earlier.get("commit")), "commit": earlier.get("commit"),
+                            "branch": earlier.get("branch"), "dirty": earlier.get("dirty"),
+                            "pushed": earlier.get("pushed"), "uncommitted": []}
     return receipts.new_receipt(
         "release",
         project={"name": project.local_data.parent.name, "metadata_version": version,

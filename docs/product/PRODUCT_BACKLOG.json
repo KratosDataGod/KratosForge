@@ -6639,7 +6639,7 @@
     {
       "id": "PB-129",
       "title": "Platform skins and experience parity",
-      "state": "In progress",
+      "state": "In review",
       "owner": "Platform skins",
       "category": "Fabric Integration and Deployment",
       "effort": "L",
@@ -6671,7 +6671,8 @@
         "Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)",
         "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a",
         "Databricks-familiar and Snowflake-familiar skins (#1879, Preview), a KratosForge label over the app's own pages and an engine chip saying 'This PC · no Fabric job' (#1847), capabilities by engine generated into docs/capabilities.md (#1837), tokens for shared shades and the rail stripe (#1891, #1896) on main at a7631920",
-        "End-to-end demonstration with mocked cloud parts (#1904); keyboard, axe and reduced-motion checks in every built-in skin (#1922); parity levels updated for the Fabric, Databricks and Snowflake looks (#1921, #1923); warning and ok shades on tokens (#1924, #1925) on main at de881016"
+        "End-to-end demonstration with mocked cloud parts (#1904); keyboard, axe and reduced-motion checks in every built-in skin (#1922); parity levels updated for the Fabric, Databricks and Snowflake looks (#1921, #1923); warning and ok shades on tokens (#1924, #1925) on main at de881016",
+        "Implementation review docs/product/reviews/PB-129-skins.md recommends Accept with documented limitations: appearance and workflow come in one skin, no Import skin screen yet, and the demonstration mocks the cloud parts"
       ],
       "features": [
         "FEAT-SHL-04",

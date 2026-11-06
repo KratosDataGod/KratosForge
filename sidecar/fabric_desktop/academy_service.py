@@ -14,7 +14,7 @@ import logging
 from typing import Any
 
 from . import progress
-from .academy import appcontainer, exercises, lab, readiness, registry, sandbox
+from .academy import appcontainer, exercises, lab, quizlab, readiness, registry, sandbox
 from .learn import content as learn_content
 from .redact import describe
 
@@ -60,6 +60,7 @@ class AcademyMixin:
                 "lesson": lesson, "remediation": list(ex.get("remediation") or []), "reset": ex["reset"],
                 "verification": exercises.label(ex), "hints": len(ex.get("hints") or []),
                 "checks": [c["kind"] for c in ex["validation"]],
+                "quiz": quizlab.view(quizlab.load(lab._grading_folder(pid, eid))) if ex["adapter"] == quizlab.ADAPTER else None,
                 "workspace": lab.state(self.root, pid, eid) if ex["adapter"] in lab.LAB_ADAPTERS else None}  # type: ignore[attr-defined]
 
     def academy_start(self, pack_id: str, exercise_id: str) -> dict[str, Any]:

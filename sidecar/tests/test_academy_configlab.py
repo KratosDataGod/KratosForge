@@ -242,3 +242,26 @@ def test_run_on_a_broken_document_says_why(svc):
     svc.academy_start(PACK, EID)
     with pytest.raises(ValueError, match="isn't valid JSON"):
         svc.academy_run(PACK, EID, "{")
+
+
+def test_outline_of_a_document_nested_near_the_parser_limit_says_why():
+    import sys
+    deep = "[" * 900 + "]" * 900
+    assert configlab.parse(deep)[1] is None
+    old = sys.getrecursionlimit()
+    sys.setrecursionlimit(600)
+    try:
+        with pytest.raises(ValueError, match="nested too deeply to list"):
+            configlab.outline(deep)
+    finally:
+        sys.setrecursionlimit(old)
+
+
+def test_true_is_never_one():
+    assert not v.config_matches({"on": 1}, [{"path": "on", "equals": True}])["passed"]
+    assert not v.config_matches({"on": 0}, [{"path": "on", "one_of": [False]}])["passed"]
+    assert v.config_matches({"on": True}, [{"path": "on", "equals": True}])["passed"]
+    assert v.config_matches({"n": 2.0}, [{"path": "n", "equals": 2}])["passed"]
+    rule = {"path": "flags", "where": {"enabled": True}, "count": 1}
+    assert not v.config_matches({"flags": [{"enabled": 1}]}, [rule])["passed"]
+    assert v.config_matches({"flags": [{"enabled": True}, {"enabled": 0}]}, [rule])["passed"]

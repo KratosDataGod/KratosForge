@@ -103,7 +103,7 @@ the learner's process never gets.
 | `pipeline_lab` | `orchestration/runner.py` | Engine process; only local adapters and the exercise's mocks; no Copy, no Fabric calls |
 | `config_model` | `academy/configlab.py` over `validators.config_matches` | No code runs; a JSON settings document is checked as data. A pass is SIMULATED |
 | `git_lab`, `sqlproj_lab` | `git_service.py`, `warehouse_project_service.py` | Git and file checks in the workspace |
-| `quiz` | exam engine (ACD-013) | No code |
+| `quiz` | `academy/quizlab.py` over the exam engine's question rules (ACD-013) | No code. Questions and key in `grading/<id>/quiz.json`; the screen gets stems and options only. A pass is KNOWLEDGE ONLY |
 | `fabric` | `prove_service.py` confirm and risk check, `fabric_api.py` | Fabric, in the learner's own workspace, with their own identity (ACD-014) |
 
 | Validator | Checks |

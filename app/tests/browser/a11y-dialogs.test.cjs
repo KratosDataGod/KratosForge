@@ -34,6 +34,9 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
 // axe covers dialogs: optimize.js:optimizeSyncDetails, meta.js:profileEntity, platform.js:confirmCopyJob, product-items.js:productItemDialog
 // axe covers dialogs: whmonitor.js:whMonitorBuild, xray.js:stagingDialog, optimize.js:optimizeCreateFlow, meta.js:moveSourcesToPlatform
+// axe covers dialogs: dataops.js:quarantinePanel, fabricstep.js:insertVOrderCell, governance.js:governancePolicy, mesh.js:keysPlatformCard
+// axe covers dialogs: platform.js:platformGlossaryTab, platform.js:requestTable, shortcuts.js:renderShortcuts
+// axe covers dialogs: whproject.js:whProjectDeploy, whproject.js:whProjectImport
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -43,6 +46,10 @@ const AT = "2026-11-04T09:30:00Z";
 const PLACES = { places: [{ root: null, label: "This PC" }, { root: "C:/repos/sales", label: "sales" }] };
 const CELLS = [{ type: "code", cell_id: "c1", source: "df = spark.read.table('orders')", meta: {} },
   { type: "markdown", cell_id: "c2", source: "# Orders", meta: {} }];
+const POLICY_DEF = { description: "Tables use snake_case", severity: "medium", enforcement: "warn", mandatory: false, scopes: ["enterprise", "domain"], params: {} };
+const POLICY = { id: "pol1", name: "Table names", status: "published", category: "naming", owner: "Data office", current_version: 1, draft: null, history: [],
+  versions: [{ version: 1, status: "published", published_at: AT, published_by: "ana@contoso.com", intact: true, hash: "abc" }],
+  current: { version: 1, status: "published", published_at: AT, published_by: "ana@contoso.com", definition: POLICY_DEF } };
 const PROJECT = {
   path: "C:/mesh", name: "Mesh", environments: {}, templates: { bronze_csv: "CSV files to bronze", silver_merge: "Merge into silver" },
   layers: [{ name: "bronze", lakehouse: "LH_Bronze" }, { name: "silver", lakehouse: "LH_Silver" }],
@@ -96,6 +103,18 @@ before(async () => {
       notebook_publish_check: () => ({ changed: true, item_id: "i1", published_at: "2026-11-03T16:00:00Z",
         fabric: [{ kind: "changed", position: 1, diff: ["-x = 1", "+x = 2"] }], mine: [{ kind: "changed", position: 2 }] }),
       notebook_fabric_check: () => ({ here: null, taken: false, cells: 4, lakehouse: { name: "LH_Bronze" }, notes: ["2 cells use %run, which runs here as a plain cell."] }),
+      notebook_vorder_cell: () => ({ candidates: ["dbo.orders"] }),
+      meta_replay: () => ({ status: "ok", rows_written: 2, held: 0, downstream: ["gold.sales"] }),
+      governance_policy: () => POLICY,
+      governance_overview: () => ({ me: { admin: true, domains_owned: [] }, options: { categories: { naming: "Naming" } } }),
+      meta_keys_to_platform: () => ({ ok: false, tables: [{ table: "keys.customer", match: false, differ: ["42", "43"] }] }),
+      platform_glossary: () => [{ term: "Active customer", definition: "Bought something in the last 12 months", domain_id: null, owner: "Data office" }],
+      sql_start: () => ({ state: "completed", id: "e1" }),
+      sql_page: () => ({ columns: ["name"], rows: [], has_next: false }),
+      wh_project_write: () => ({ counts: { added: 1, changed: 0, same: 0, skipped: 0 }, skipped: [], changed: [] }),
+      wh_project_deploy_plan: () => ({ environment: "dev", branch: "main", commit: "abc1234def", gated: false,
+        changes: [{ action: "create", kind: "table", schema: "dbo", name: "orders", offered: true, ticked: true, why: "new in the project",
+          sql: "CREATE TABLE dbo.orders (id int);" }] }),
       notebook_details: () => [{ name: "Daily sales", compute: "local", cells: 2 }, { name: "Orders", compute: "local", cells: 5 }],
     },
   });
@@ -109,6 +128,19 @@ before(async () => {
     gitPage.info = { installed: true, clone_folder: "C:/repos",
       kinds: { notebooks: { label: "Notebooks", holds: "Notebooks and SQL.", for: "For a team's notebooks." },
         metadata: { label: "Metadata project", holds: "Entities and layers.", for: "For Data mesh." } } };
+    // Batch 8: a host for a card or tab drawn outside its page, a press on a button by its words, and a wait.
+    window.__host = () => {
+      document.getElementById("a11y-host")?.remove();
+      return document.body.appendChild(Object.assign(document.createElement("div"), { id: "a11y-host" }));
+    };
+    window.__press = (words, root = document) => {
+      const b = [...root.querySelectorAll("button")].find((x) => x.textContent.trim().startsWith(words));
+      if (!b) throw new Error(`No button "${words}"`);
+      b.click();
+    };
+    window.__until = async (fn) => {
+      for (let i = 0; i < 50 && !fn(); i++) await new Promise((r) => setTimeout(r, 100));
+    };
     // The update check the shell answers (lib.rs check_for_update).
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async (cmd, args) => (cmd === "check_for_update"
@@ -280,6 +312,70 @@ const CASES = [
     moveSourcesToPlatform([{ code: "sap", id: 3 }, { code: "crm", id: 4 }], "dev", () => {});
     await new Promise((r) => setTimeout(r, 300));
     document.querySelector("#dialog-root .dialog .tool.primary").click(); }],
+  // Batch 8: dialogs opened from inside a page.
+  ["dataops.js:quarantinePanel", "Replayed", async () => {
+    const host = __host();
+    host.append(quarantinePanel({ name: "silver.orders" }, { env: "dev", total: 1, columns: ["order_id"], editable: [], checks: { order_id: "not null" },
+      rows: [{ _qid: "q1", _check: "order_id not null", _loaded_at: "2026-11-04", order_id: null }] }));
+    host.querySelector('input[aria-label="Select row q1"]').click();
+    __press("Replay selected", host); }],
+  ["fabricstep.js:insertVOrderCell", "Insert V-Order cell", () => {
+    const nb = state.notebook;
+    state.nbTables.l1 = ["dbo.orders", "dbo.customers"];
+    state.notebook = { ...nb, lakehouse: { workspace_id: "w1", lakehouse_id: "l1", name: "LH_Silver" } };
+    insertVOrderCell(nb.cells[0]);
+    state.notebook = nb; }],
+  ["governance.js:governancePolicy", "Deprecate Table names?", async () => {
+    const was = [state.view, platformPage.tab];
+    state.view = "platform"; platformPage.tab = "governance";
+    Object.assign(govPage, { open: "pol1", sub: "definition", version: null });
+    const host = __host();
+    await governancePolicy(host, "pol1");
+    [state.view, platformPage.tab] = was;
+    govPage.open = null;
+    __press("Deprecate", host); }],
+  ["mesh.js:keysPlatformCard", "Keys not switched", async () => {
+    __host().append(keysPlatformCard({ platform: false, platform_available: true, env: "dev" }, () => {}));
+    __press("Move keys", document.getElementById("a11y-host"));
+    await __until(() => document.querySelector("#dialog-root .dialog .tool.primary"));
+    document.querySelector("#dialog-root .dialog .tool.primary").click();
+    await __until(() => document.querySelector('#dialog-root .dialog[aria-label="Keys not switched"]')); }],
+  ["platform.js:platformGlossaryTab", "New glossary term", async () => {
+    const was = [state.view, platformPage.tab, platformPage.me];
+    state.view = "platform"; platformPage.tab = "glossary"; platformPage.me = { admin: true, domains_owned: [] };
+    const host = __host();
+    await platformGlossaryTab(host);
+    __press("New term", host);
+    [state.view, platformPage.tab, platformPage.me] = was; }],
+  ["platform.js:requestTable", "Decline key table supplier?", () => {
+    const host = __host();
+    host.append(requestTable([{ id: "r1", kind: "key_table", target: "supplier", status: "waiting", can_decide: true,
+      requested_by: "ben@contoso.com", requested_at: "2026-11-04T09:30:00Z", reason: "For the supplier dimension" }], () => {}));
+    __press("Decline", host); }],
+  ["shortcuts.js:renderShortcuts", "Repoint 1 shortcut", async () => {
+    const was = [state.view, catalogPage.tab, catalogPage.data];
+    state.view = "onelake"; catalogPage.tab = "shortcuts";
+    catalogPage.data = { workspaces: [{ id: "w1", displayName: "Sales Dev" }],
+      items: [{ type: "Lakehouse", item_id: "l1", workspace_id: "w1", name: "LH_Silver", workspace_name: "Sales Dev" }] };
+    Object.assign(scPage, { view: "health", selected: null, checkedOnce: true, loadedOnce: true, data: { admin: false, checked_at: "2026-11-05T08:00:00Z",
+      counts: { total: 1, broken: 1, unreachable: 0, not_checked: 0 }, needs: [], requests: [], problems: [], errors: {},
+      rows: [{ id: "s1", name: "orders", path: "Tables/orders", full_path: "Tables/orders", kind: "table", health: "broken", health_detail: "The target lakehouse is gone",
+        target_type: "OneLake", target: "LH_Old", target_path: "Tables/orders", item_id: "gone1", workspace_id: "w9", host_workspace_id: "w1", lakehouse_id: "l1",
+        workspace_name: "Sales Dev", lakehouse_name: "LH_Silver", target_workspace_name: "Old workspace", used_by: [], risks: [] }] } });
+    await renderShortcuts();
+    __press("Repoint all to another lakehouse");
+    [state.view, catalogPage.tab, catalogPage.data] = was;
+    scPage.data = null; }],
+  ["whproject.js:whProjectDeploy", "Deploy WH_Sales", () => {
+    const ref = { kind: "warehouse", workspace_id: "w1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Sales" };
+    sqlWarehouseOk.add(sqlRefKey(ref));
+    sqlPage.catalog = { key: sqlRefKey(ref), state: "done", objects: [], cols: {} };
+    whProjectDeploy(ref, { repo: "C:/repos/wh", repo_label: "wh", folder: "WH_Sales" }); }],
+  ["whproject.js:whProjectImport", "Import WH_Sales into WH_Sales", () => {
+    const ref = { kind: "warehouse", workspace_id: "w1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Sales" };
+    sqlWarehouseOk.add(sqlRefKey(ref));
+    sqlPage.catalog = { key: sqlRefKey(ref), state: "done", objects: [], cols: {} };
+    whProjectImport(ref, { repo: "C:/repos/wh", folder: "WH_Sales" }, () => {}); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

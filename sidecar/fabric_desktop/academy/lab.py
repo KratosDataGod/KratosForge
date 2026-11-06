@@ -20,7 +20,9 @@ what it leaves (academy/pylab.py), so nothing an earlier run left behind can mak
 
 Settings exercises (``config_model``) keep the learner's settings document (the starter, such as
 ``settings.json``) and ``state.json`` in the exercise folder. Nothing runs: Run lists the settings the
-document holds, and Check reads it as data against the exercise's rules (academy/configlab.py).
+document holds, and Check reads it as data against the exercise's rules (academy/configlab.py). A quiz
+(``quiz``) keeps the learner's picks in ``answers.json``; its questions and answer key stay in the pack's
+``grading/`` folder and the screen gets the questions only (academy/quizlab.py).
 
 Learner code writes in its workspace (ACD-005), so every file the engine reads or writes
 there goes through academy/workspace.py: the path stays inside the folder and no part of it may be a
@@ -43,7 +45,7 @@ import duckdb
 from .. import jsonfile
 from ..learn import checks
 from ..learn import labs as learn_labs
-from . import configlab, dbsql_lab, exercises, pylab, registry, sandbox
+from . import configlab, dbsql_lab, exercises, pylab, quizlab, registry, sandbox
 from . import workspace as ws
 
 DB_FILE = "lab.duckdb"
@@ -52,7 +54,7 @@ STATE_FILE = "state.json"
 RUN_DIR = "run"        # python_lab: where Run runs the script
 CHECK_DIR = "check"    # python_lab: made fresh for every Check
 # Adapters with a workspace on this PC (lab.start and the rest).
-LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER)
+LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER, quizlab.ADAPTER)
 # Adapters whose answer is the exercise's own starter file (a script or a settings document), not answer.sql.
 STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER)
 
@@ -109,6 +111,8 @@ def _lab_exercise(pack_id: str, exercise_id: str) -> dict[str, Any]:
 
 
 def _answer_file(ex: dict[str, Any]) -> str:
+    if ex["adapter"] == quizlab.ADAPTER:
+        return quizlab.ANSWER_FILE
     return str(ex["starter"]) if ex["adapter"] in STARTER_ADAPTERS else ANSWER_FILE
 
 
@@ -124,6 +128,10 @@ def _fresh_dir(folder: Path, name: str) -> Path:
 
 def _exercise_folder(pack_id: str, exercise_id: str) -> Path:
     return registry.ROOT / pack_id / "exercises" / exercise_id
+
+
+def _grading_folder(pack_id: str, exercise_id: str) -> Path:
+    return registry.ROOT / pack_id / "grading" / exercise_id
 
 
 def _state(folder: Path) -> dict[str, Any]:
@@ -146,6 +154,9 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
         if not _exists(folder, ex["starter"]):
             _write(folder, ex["starter"], starter)
         pylab.prepare(_fresh_dir(folder, RUN_DIR), _exercise_folder(pack_id, exercise_id), ex, starter)
+    elif ex["adapter"] == quizlab.ADAPTER:
+        if not _exists(folder, quizlab.ANSWER_FILE):
+            _write(folder, quizlab.ANSWER_FILE, "{}")
     elif ex["adapter"] == configlab.ADAPTER:
         if not _exists(folder, ex["starter"]):
             _write(folder, ex["starter"], exercises.file_text(pack_id, exercise_id, ex["starter"]))
@@ -198,6 +209,8 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     adapter = exercises.get(pack_id, exercise_id)["adapter"]
     if adapter in pylab.ADAPTERS:
         return _run_python(root, pack_id, exercise_id, sql)
+    if adapter == quizlab.ADAPTER:
+        raise ValueError("A quiz has nothing to run; answer the questions and check your work.")
     if adapter == configlab.ADAPTER:   # nothing runs: the settings the checks will read, as rows
         _started(root, pack_id, exercise_id)
         began = time.perf_counter()
@@ -341,6 +354,8 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         results = _check_python(root, pack_id, exercise_id, ex, answer)
     elif ex["adapter"] == configlab.ADAPTER:
         results = _with_messages(ex, configlab.grade(answer, ex)["results"])
+    elif ex["adapter"] == quizlab.ADAPTER:
+        results = _with_messages(ex, quizlab.grade(answer, ex, quizlab.load(_grading_folder(pack_id, exercise_id)))["results"])
     elif ex["adapter"] == "dbsql_lab":
         results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
                                       connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),
@@ -378,7 +393,10 @@ def explanation(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     if not (st.get("last") or {}).get("passed"):
         st["explanation_seen"] = True
         _write_state(folder, st)
-    return {"text": ex["explanation"], "remediation": list(ex.get("remediation") or [])}
+    out = {"text": ex["explanation"], "remediation": list(ex.get("remediation") or [])}
+    if ex["adapter"] == quizlab.ADAPTER:   # each question's answer, why and its page
+        out["questions"] = quizlab.review(quizlab.load(_grading_folder(pack_id, exercise_id)))
+    return out
 
 
 def reset(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:

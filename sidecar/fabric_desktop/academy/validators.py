@@ -212,13 +212,18 @@ def _say(value: Any) -> str:
     return "a different value"
 
 
+def _same(a: Any, b: Any) -> bool:
+    """Equal as JSON values: true is never 1 and false never 0, as Python's == would have it."""
+    return a == b and isinstance(a, bool) == isinstance(b, bool)
+
+
 def _count_problem(path: str, value: Any, rule: dict[str, Any]) -> str | None:
     """``count``, ``count_min``, ``count_max`` on a list: how many entries match ``where`` (all of its
     fields equal; every entry when there's no ``where``). Order in the list never matters."""
     if not isinstance(value, list):
         return f"{path} is {_say(value)}; it should be a list."
     where = rule.get("where") or {}
-    n = sum(1 for item in value if all(isinstance(item, dict) and item.get(k, _MISSING) == want
+    n = sum(1 for item in value if all(isinstance(item, dict) and _same(item.get(k, _MISSING), want)
                                        for k, want in where.items()))
     which = (" with " + " and ".join(f"{k} {_say(w)}" for k, w in where.items())) if where else ""
     things = "entry" if n == 1 else "entries"
@@ -252,9 +257,9 @@ def config_matches(doc: Any, rules: list[dict[str, Any]]) -> dict[str, Any]:
             if said:
                 return _no(kind, f"{said}{why}")
             continue
-        if "equals" in rule and value != rule["equals"]:
+        if "equals" in rule and not _same(value, rule["equals"]):
             return _no(kind, f"{path} is {_say(value)}; it should be {_say(rule['equals'])}.{why}")
-        if "one_of" in rule and value not in rule["one_of"]:
+        if "one_of" in rule and not any(_same(value, o) for o in rule["one_of"]):
             return _no(kind, f"{path} is {_say(value)}; it should be one of {', '.join(map(_say, rule['one_of']))}.{why}")
         for bound, bad in (("min", lambda v, b: v < b), ("max", lambda v, b: v > b)):
             if bound in rule:

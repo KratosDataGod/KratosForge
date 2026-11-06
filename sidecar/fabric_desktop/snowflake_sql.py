@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.2"
+RULES_VERSION = "2026.11.3"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -142,6 +142,15 @@ SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
                 "Don't branch on TYPEOF's text for those values in code meant for both; TYPEOF(PARSE_JSON(...)) "
                 "and TYPEOF of a cast are named as in Snowflake.", f"{_DOCS}/functions/typeof")
 
+SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
+                "Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written "
+                "with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL "
+                "and AS_NUMBER take any JSON number with a fraction or exponent as a decimal: for 1.912e2 they give "
+                "TRUE and a number here, where Snowflake gives FALSE and NULL. A VARIANT made with TO_VARIANT keeps "
+                "its type and is exact.",
+                "Write JSON numbers meant as DOUBLE without an exponent check, or cast before testing.",
+                f"{_DOCS}/functions/is_decimal")
+
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
 
 
@@ -188,6 +197,9 @@ _ACCOUNT_FUNCTIONS = frozenset({
     "CURRENT_ACCOUNT", "CURRENT_ACCOUNT_NAME", "CURRENT_AVAILABLE_ROLES", "CURRENT_CLIENT", "CURRENT_IP_ADDRESS",
     "CURRENT_ORGANIZATION_NAME", "CURRENT_REGION", "CURRENT_ROLE_TYPE", "CURRENT_SECONDARY_ROLES", "CURRENT_SESSION",
     "CURRENT_STATEMENT", "CURRENT_TRANSACTION", "CURRENT_WAREHOUSE", "LAST_QUERY_ID"})
+
+
+_VARIANT_TIME_ZONES = frozenset({"IS_TIMESTAMP_LTZ", "IS_TIMESTAMP_TZ", "AS_TIMESTAMP_LTZ", "AS_TIMESTAMP_TZ"})
 
 
 def _function_name(node: exp.Func) -> str:
@@ -246,6 +258,10 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, exp.Var) and str(node.name).startswith("@"):
             return _refuse("SFN-008", "Stages", "A stage is a Snowflake file location; a session on this PC reads "
                            "no files.")
+        if isinstance(node, exp.Func) and _function_name(node) in _VARIANT_TIME_ZONES:
+            return _refuse("SFN-015", f"{_function_name(node)}: VARIANT timestamps with a time zone",
+                           "DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell "
+                           "TIMESTAMP_LTZ from TIMESTAMP_TZ.", f"{_DOCS}/functions/is")
         if isinstance(node, exp.Func) and _function_name(node) in _ACCOUNT_FUNCTIONS:
             return _refuse("SFN-014", f"{_function_name(node)}: Snowflake account and session",
                            "It reads the Snowflake account, session or client running the query; this PC has none.",
@@ -504,6 +520,94 @@ def _rewrite_haversine(statement: exp.Expression) -> None:
             f"cos({lat1}) * cos({lat2}) * power(sin(({lon2} - {lon1}) / 2), 2))))", read="duckdb"))
 
 
+# SFX-011: the type a VARIANT holds, in Snowflake's words. A Snowflake VARIANT is DuckDB JSON (PARSE_JSON) or
+# a DuckDB VARIANT (TO_VARIANT, a cast); variant_typeof names both once cast to VARIANT. A JSON number with a
+# fraction or exponent is DOUBLE in DuckDB, where Snowflake has DECIMAL or DOUBLE: that is NUMBER (SFD-008).
+_KIND_OF = "variant_typeof(CAST(__sf_v AS VARIANT))"
+_KIND = (f"CASE WHEN __sf_v IS NULL THEN NULL "
+         f"WHEN {_KIND_OF} LIKE 'INT%' OR {_KIND_OF} LIKE 'UINT%' OR {_KIND_OF} LIKE 'DECIMAL(%, 0)' THEN 'INTEGER' "
+         f"WHEN {_KIND_OF} LIKE 'DECIMAL%' THEN 'DECIMAL' "
+         f"WHEN {_KIND_OF} IN ('DOUBLE', 'FLOAT') THEN CASE WHEN typeof(__sf_v) = 'VARIANT' THEN 'DOUBLE' "
+         f"ELSE 'NUMBER' END "
+         f"WHEN {_KIND_OF} LIKE 'BOOL%' THEN 'BOOLEAN' "
+         f"WHEN {_KIND_OF} = 'VARCHAR' THEN 'VARCHAR' "
+         f"WHEN {_KIND_OF} LIKE 'ARRAY%' THEN 'ARRAY' "
+         f"WHEN {_KIND_OF} LIKE 'OBJECT%' THEN 'OBJECT' "
+         f"WHEN {_KIND_OF} = 'VARIANT_NULL' THEN 'NULL_VALUE' "
+         f"WHEN {_KIND_OF} = 'DATE' THEN 'DATE' "
+         f"WHEN {_KIND_OF} LIKE 'TIME\\_%' ESCAPE '\\' THEN 'TIME' "
+         f"WHEN {_KIND_OF} LIKE 'TIMESTAMP%TZ' THEN 'TIMESTAMP_TZ' "
+         f"WHEN {_KIND_OF} LIKE 'TIMESTAMP%' THEN 'TIMESTAMP_NTZ' "
+         f"WHEN {_KIND_OF} = 'BLOB' THEN 'BINARY' ELSE {_KIND_OF} END")
+_INTEGER, _NUMBERS = ("INTEGER",), ("INTEGER", "DECIMAL", "NUMBER", "DOUBLE")
+_DECIMALS = ("INTEGER", "DECIMAL", "NUMBER")
+# IS_<type>: the kinds that answer TRUE (Snowflake's IS_ pages).
+_IS_KINDS = {"IS_INTEGER": _INTEGER, "IS_DECIMAL": _DECIMALS, "IS_DOUBLE": _NUMBERS, "IS_REAL": _NUMBERS,
+             "IS_BOOLEAN": ("BOOLEAN",), "IS_CHAR": ("VARCHAR",), "IS_VARCHAR": ("VARCHAR",),
+             "IS_ARRAY": ("ARRAY",), "IS_OBJECT": ("OBJECT",), "IS_BINARY": ("BINARY",), "IS_DATE": ("DATE",),
+             "IS_DATE_VALUE": ("DATE",), "IS_TIME": ("TIME",), "IS_TIMESTAMP_NTZ": ("TIMESTAMP_NTZ",)}
+# AS_<type>: the kinds it returns and the DuckDB type it returns them as (None: the VARIANT itself).
+_AS_KINDS: dict[str, tuple[tuple[str, ...], str | None]] = {
+    "AS_INTEGER": (_INTEGER, "DECIMAL(38, 0)"), "AS_DOUBLE": (_NUMBERS, "DOUBLE"), "AS_REAL": (_NUMBERS, "DOUBLE"),
+    "AS_CHAR": (("VARCHAR",), "VARCHAR"), "AS_VARCHAR": (("VARCHAR",), "VARCHAR"),
+    "AS_BOOLEAN": (("BOOLEAN",), "BOOLEAN"), "AS_ARRAY": (("ARRAY",), None), "AS_OBJECT": (("OBJECT",), None), "AS_BINARY": (("BINARY",), "BLOB"),
+    "AS_DATE": (("DATE",), "DATE"), "AS_TIME": (("TIME",), "TIME"), "AS_TIMESTAMP_NTZ": (("TIMESTAMP_NTZ",), "TIMESTAMP"),
+    "AS_DECIMAL": (_DECIMALS, "DECIMAL"), "AS_NUMBER": (_DECIMALS, "DECIMAL")}
+_DECIMAL_FAMILY = frozenset({"IS_DECIMAL", "AS_DECIMAL", "AS_NUMBER"})
+
+
+def _with_value(template: str, value: exp.Expression) -> exp.Expr:
+    """``template`` (DuckDB SQL) applied to ``value``: __sf_v is a lambda's parameter, so the value is worked
+    out once a row however often the template names it."""
+    tree = sqlglot.parse_one(f"list_transform([__sf_arg], lambda __sf_v: {template})[1]", read="duckdb")
+    for column in list(tree.find_all(exp.Column)):
+        if column.name == "__sf_arg" and not column.table:
+            column.replace(value.copy())
+    return tree
+
+
+def _decimal_type(name: str, args: list[exp.Expression]) -> str:
+    """DECIMAL(p, s) for AS_DECIMAL(v [, p [, s]]); Snowflake's defaults are 38 and 0."""
+    sizes = []
+    for a in args:
+        if not (isinstance(a, exp.Literal) and not a.is_string and a.name.isdigit()):
+            raise _Untranslatable(_refuse("SFX-011", f"{name} with a computed precision or scale",
+                                          "Precision and scale are rewritten only when they are numbers.",
+                                          f"{_DOCS}/functions/as_decimal-number"))
+        sizes.append(int(a.name))
+    precision, scale = (sizes + [38, 0][len(sizes):])[:2]
+    if not 1 <= precision <= 38 or not 0 <= scale <= precision:
+        raise _Untranslatable(_refuse("SFX-011", f"{name} precision and scale",
+                                      "Precision is 1 to 38 and scale 0 to the precision.",
+                                      f"{_DOCS}/functions/as_decimal-number"))
+    return f"DECIMAL({precision}, {scale})"
+
+
+def _rewrite_variant_types(statement: exp.Expression) -> None:
+    """SFX-011: IS_<type> and AS_<type> test and read a VARIANT's type as Snowflake names it (_KIND)."""
+    # Innermost first: a call inside another's argument is rewritten before that argument is copied.
+    for node in reversed(list(statement.find_all(exp.Anonymous))):
+        name = str(node.this).upper()
+        if name not in _IS_KINDS and name not in _AS_KINDS:
+            continue
+        args = list(node.expressions)
+        if not args or (name not in ("AS_DECIMAL", "AS_NUMBER") and len(args) != 1) or len(args) > 3:
+            raise _Untranslatable(_refuse("SFX-011", name, f"{name} takes one VARIANT"
+                                          + (" and an optional precision and scale." if name.startswith("AS_D")
+                                             or name == "AS_NUMBER" else "."), f"{_DOCS}/functions/is"))
+        value = args[0]
+        if name in _IS_KINDS:
+            kinds = ", ".join(f"'{k}'" for k in _IS_KINDS[name])
+            node.replace(_with_value(f"(({_KIND}) IN ({kinds}))", value))
+            continue
+        kinds_t, to = _AS_KINDS[name]
+        if to == "DECIMAL":
+            to = _decimal_type(name, args[1:])
+        kinds = ", ".join(f"'{k}'" for k in kinds_t)
+        read = "__sf_v" if to is None else f"CAST(CAST(__sf_v AS VARIANT) AS {to})"
+        node.replace(_with_value(f"(CASE WHEN ({_KIND}) IN ({kinds}) THEN {read} END)", value))
+
+
 # DuckDB's typeof -> Snowflake's TYPEOF, where the name is the same whatever the value.
 _TYPEOF_NAMES = {**{t: "INTEGER" for t in ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT",
                                            "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT")},
@@ -747,6 +851,8 @@ def _differences(statement: exp.Expression) -> list[Note]:
         notes.append(SFD_DATE)
     if any(not _typeof_known(n) for n in statement.find_all(exp.Typeof)):
         notes.append(SFD_TYPEOF)
+    if any(str(n.this).upper() in _DECIMAL_FAMILY for n in statement.find_all(exp.Anonymous)):
+        notes.append(SFD_NUMBER)
     return notes
 
 
@@ -783,6 +889,11 @@ CATALOG = (
     ("SFX-010", "Rewritten", "a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
                 "worked out twice, which matters only when it isn't deterministic."),
+    ("SFX-011", "Rewritten", "IS_<type> and AS_<type> (INTEGER, DECIMAL, NUMBER, DOUBLE, REAL, BOOLEAN, CHAR, "
+                "VARCHAR, ARRAY, OBJECT, BINARY, DATE, DATE_VALUE, TIME, TIMESTAMP_NTZ) test and read the type a "
+                "VARIANT holds, as Snowflake names it: a PARSE_JSON value by its JSON type, a TO_VARIANT value by "
+                "the type it was made from. AS_<type> gives NULL for any other type. A JSON integer too big for 64 "
+                "bits is DOUBLE here."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -791,6 +902,7 @@ CATALOG = (
     ("SFD-005", "Runs, with a difference: " + SFD_FLATTEN.title, SFD_FLATTEN.reason),
     ("SFD-006", "Runs, with a difference: " + SFD_DATE.title, SFD_DATE.reason),
     ("SFD-007", "Runs, with a difference: " + SFD_TYPEOF.title, SFD_TYPEOF.reason),
+    ("SFD-008", "Runs, with a difference: " + SFD_NUMBER.title, SFD_NUMBER.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -811,6 +923,8 @@ CATALOG = (
                 "CURRENT_ACCOUNT, CURRENT_ACCOUNT_NAME, CURRENT_AVAILABLE_ROLES, CURRENT_CLIENT, CURRENT_IP_ADDRESS, "
                 "CURRENT_ORGANIZATION_NAME, CURRENT_REGION, CURRENT_ROLE_TYPE, CURRENT_SECONDARY_ROLES, "
                 "CURRENT_SESSION, CURRENT_STATEMENT, CURRENT_TRANSACTION, CURRENT_WAREHOUSE and LAST_QUERY_ID."),
+    ("SFN-015", "Runs only in Snowflake", "IS_TIMESTAMP_LTZ, IS_TIMESTAMP_TZ, AS_TIMESTAMP_LTZ and AS_TIMESTAMP_TZ: "
+                "DuckDB keeps one kind of timestamp with a time zone."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -841,6 +955,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_ratio_to_report(tree)
         _rewrite_haversine(tree)
         _rewrite_typeof(tree)
+        _rewrite_variant_types(tree)
         _rewrite_division(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:

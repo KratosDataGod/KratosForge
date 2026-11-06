@@ -273,9 +273,6 @@
  "fabric_desktop/pipeline_service.py": {
   "attr-defined": 4
  },
- "fabric_desktop/profiling.py": {
-  "arg-type": 3
- },
  "fabric_desktop/prove_service.py": {
   "assignment": 1,
   "type-var": 1

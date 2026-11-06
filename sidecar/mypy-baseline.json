@@ -2,10 +2,6 @@
  "fabric_desktop/advisor.py": {
   "assignment": 2
  },
- "fabric_desktop/agent.py": {
-  "attr-defined": 1,
-  "operator": 1
- },
  "fabric_desktop/agent_config.py": {
   "type-var": 1
  },

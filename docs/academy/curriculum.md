@@ -9,7 +9,7 @@ starter, an independently runnable reference solution, validation rules, and a C
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
 content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
 solution and planted wrong answers: E12, E19, E21, E22, E23, E24, E25, E32, E33, E35, E36, E37, E38, E39, E43,
-E48, E49, E56, E57, E58, E59, E63, E64.
+E48, E49, E50, E53, E56, E57, E58, E59, E63, E64.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).
@@ -106,7 +106,7 @@ validation checks both the fix and that nothing else changed.
 | E50 | A Dataflow Gen2 loads nothing: a destination type mismatch and a broken step | 3.2.2 | SIM | config | 20 | Dataflow reader |
 | E51 | A notebook append fails: schema drift on a Delta table | 3.2.3 | LV | pyspark | 25 | LM-22 |
 | E52 | A notebook runs out of memory: collect() on a large table and a skewed join | 3.2.3, 3.3.5 | LV | pyspark | 25 | |
-| E53 | An eventhouse drops rows: an ingestion mapping that doesn't match | 3.2.4 | SIM | config | 20 | |
+| E53 | An eventhouse loads empty rows: an ingestion mapping that doesn't match | 3.2.4 | SIM | config | 20 | |
 | E54 | An eventstream loses events: a schema change at the source | 3.2.5 | SIM | config | 20 | |
 | E55 | T-SQL errors: read the messages, fix conversion, divide-by-zero and MERGE faults | 3.2.6 | SIM | quiz + sqlproj | 25 | LAB-09 |
 | E56 | A slow lakehouse table: thousands of small files and no statistics | 3.3.1 | LV +FV | delta | 25 | LM-25 |

@@ -27,11 +27,11 @@ are kept apart for that reason; they can be merged when a design review agrees t
 matter.
 
 A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-soft-4`, `--warn-soft-5`, `--warn-soft-7` to `--warn-soft-9`, `--warn-ink-2`,
-`--ok-ink`, `--danger-ink`, `--code-ref` and others) holds shades that more than one rule shared. They
+`--ok-ink`, `--danger-ink`, `--code-ref`, the syntax colors (`--code-keyword`, `--code-string`, `--code-function`, `--code-comment`, `--code-number`, `--code-builtin`), `--text-disabled`, `--bar-neutral` and others) holds shades that more than one rule shared. They
 are not in the table above, so a skin can't set them yet; dark mode will need them added once the
 near-duplicates among them are merged.
 
-58 colors are still written straight into rules (shades used once, the splash screen and the
+50 colors are still written straight into rules (shades used once, the splash screen and the
 celebration effects). A test in `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a
 token, or adds one to `:root`.
 

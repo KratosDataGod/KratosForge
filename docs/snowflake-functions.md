@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 132 |
+| Runs | 133 |
 | Differs | 19 |
 | Refused | 48 |
 | Fails | 63 |
-| Not checked | 233 |
+| Not checked | 232 |
 | **All** | **495** |
 
 ## String and binary
@@ -229,7 +229,7 @@ the known differences in more detail.
 | `CAST` | Not checked | `SELECT CAST('1' AS INTEGER)` |  |
 | `TRY_CAST` | Runs |  | 1 value check |
 | `TO_CHAR` | Not checked |  |  |
-| `TO_VARCHAR` | Runs |  | 1 value check |
+| `TO_VARCHAR` | Runs |  | 3 value checks |
 | `TO_BINARY` | Not checked |  |  |
 | `TRY_TO_BINARY` | Not checked |  |  |
 | `TO_DECFLOAT` | Fails |  | DuckDB has no TO_DECFLOAT, and the rules don't rewrite it |
@@ -269,7 +269,7 @@ the known differences in more detail.
 | `ARRAY_APPEND` | Not checked |  |  |
 | `ARRAY_CAT` | Runs |  | 1 value check |
 | `ARRAY_COMPACT` | Not checked |  |  |
-| `ARRAY_CONSTRUCT` | Not checked |  |  |
+| `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
 | `ARRAY_CONSTRUCT_COMPACT` | Not checked |  |  |
 | `ARRAY_CONTAINS` | Runs |  | 1 value check |
 | `ARRAY_DISTINCT` | Not checked |  |  |
@@ -547,7 +547,7 @@ the known differences in more detail.
 | `ILIKE ANY` | Not checked | `SELECT 'ABC' ILIKE ANY ('x%', 'a%')` |  |
 | `REGEXP` | Not checked | `SELECT 'abc' REGEXP 'a.c'` |  |
 | `IS DISTINCT FROM` | Not checked | `SELECT 1 IS DISTINCT FROM NULL` |  |
-| `Path (v:a)` | Runs |  | 1 value check |
+| `Path (v:a)` | Runs |  | 5 value checks |
 | `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
 | `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
 | `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |

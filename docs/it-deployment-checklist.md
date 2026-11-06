@@ -12,6 +12,7 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 - [ ] Pick an update model. Self-updating is the default. Managed means `"auto_update": false`, and you deploy each build ([update models](enterprise-install.md#pick-an-update-model)).
 - [ ] Download `kratosforge.exe` from the Stable release and check it ([deploy](enterprise-install.md#deploy), [check a download](install.md#check-a-download-yourself)).
+- [ ] Or assign `kratosforge.msi` per user, with the silent install, uninstall and detection values in [Silent install, uninstall and detection](enterprise-install.md#silent-install-uninstall-and-detection).
 - [ ] Package it per user as a Win32 app (Intune) or an application (Configuration Manager). No administrator rights are needed at run time, and the engine goes to `%LOCALAPPDATA%\FabricDesktop\engine` for each Windows user ([what you are deploying](enterprise-install.md#what-you-are-deploying)).
 
 ## Policy file

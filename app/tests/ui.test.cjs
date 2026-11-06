@@ -5903,13 +5903,19 @@ test("every dialog has an axe case, or is in the baseline that only shrinks", ()
   const openers = dialogOpeners();
   const browser = path.join(__dirname, "browser");
   const covered = new Map();
+  const noAxe = [];
   for (const name of fs.readdirSync(browser).filter((f) => f.endsWith(".cjs"))) {
-    for (const m of fs.readFileSync(path.join(browser, name), "utf8").matchAll(/^\s*\/\/ axe covers dialogs: (.+)$/gm)) {
+    const src = fs.readFileSync(path.join(browser, name), "utf8");
+    const tags = [...src.matchAll(/^\s*\/\/ axe covers dialogs: (.+)$/gm)];
+    // A tag only counts in a file that runs axe: the harness's axeFindings, or axe.run directly.
+    if (tags.length && !/\baxeFindings\(|\baxe\.run\(/.test(src.replace(/^\s*\/\/.*$/gm, ""))) noAxe.push(name);
+    for (const m of tags) {
       for (const key of m[1].split(",").map((s) => s.trim()).filter(Boolean)) covered.set(key, name);
     }
   }
   const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "a11y-dialog-baseline.json"), "utf8"));
   const problems = [
+    ...noAxe.map((f) => `${f} names dialogs for axe but never runs axe`),
     ...[...openers].filter((k) => k.endsWith(":(top level)")).map((k) => `${k}: showDialog outside a function, so the guard can't name it`),
     ...[...covered].filter(([k]) => !openers.has(k)).map(([k, f]) => `${f} names ${k}, which doesn't open a dialog (renamed or removed?)`),
     ...[...openers].filter((k) => !covered.has(k) && !baseline.includes(k)).map((k) => `${k} opens a dialog that no browser test runs axe on`),

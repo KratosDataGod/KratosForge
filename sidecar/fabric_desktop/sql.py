@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import logging
 import re
 from typing import Any, Callable, Iterator, cast
 
@@ -24,6 +25,10 @@ from sqlglot.tokens import TokenType
 
 from . import spark_builtins_sql, sql_dialects
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
+
+# sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
+# handler of its own, Python prints that to stderr, so it showed in a notebook cell's output.
+logging.getLogger("sqlglot").addHandler(logging.NullHandler())
 
 # View names stay unique on a connection even after superseded ones are dropped (superseded).
 _VIEW_NAMES = itertools.count()

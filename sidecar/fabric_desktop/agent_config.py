@@ -252,6 +252,18 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     if len(kinds) != 1:
         errors.append(f"{where}: give exactly one of every_minutes, daily or weekly")
         return None
+    value = raw[kinds[0]]
+    if kinds[0] == "every_minutes" and (isinstance(value, bool) or not isinstance(value, int)):
+        # int() would make 1.5 one minute and true every minute: a schedule quietly not the one written
+        errors.append(f"{where}: every_minutes is a whole number of at least 1, like 60")
+        return None
+    if kinds[0] == "weekly" and not (isinstance(value, dict) and isinstance(value.get("days", []), list)):
+        errors.append(f"{where}: weekly is {{ days = [\"Monday\"], times = [\"06:00\"] }}")
+        return None
+    times = value.get("times", []) if kinds[0] == "weekly" else value
+    if kinds[0] != "every_minutes" and not isinstance(times, list):  # list("06:00") is five one-letter "times"
+        errors.append(f"{where}: times are a list, like [\"06:00\"]")
+        return None
     try:
         if kinds[0] == "every_minutes":
             fabric_cfg = schedule_configuration("cron", every_minutes=raw["every_minutes"])
@@ -263,7 +275,7 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
             weekly = raw["weekly"] or {}
             fabric_cfg = schedule_configuration("weekly", times=list(weekly.get("times", [])),
                                                 weekdays=list(weekly.get("days", [])))
-            schedule = {"kind": "weekly", "times": list(weekly.get("times", [])), "weekdays": list(weekly.get("days", []))}
+            schedule = {"kind": "weekly", "times": list(weekly.get("times", [])), "weekdays": fabric_cfg["weekdays"]}
     except (ValueError, TypeError) as exc:
         errors.append(f"{where}: {exc}")
         return None

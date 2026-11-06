@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import time
+from pathlib import Path
 from typing import Any, cast
 
 from deltalake import DeltaTable
@@ -21,6 +23,11 @@ SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is 
 VERSIONS_BEFORE_VACUUM = 30
 RETENTION_HOURS = 7 * 24 + 1  # Fabric's default retention is 7 days
 LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next checkpoint
+# delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
+# place, so a write stopped part way leaves files under that staging name. One untouched this long
+# belongs to a write that has stopped: a live one finishes a file and publishes it in one go.
+_STAGED = re.compile(r"#\d+$")
+STALE_STAGED_HOURS = 1
 
 
 def _when(ms: Any) -> str | None:
@@ -95,12 +102,21 @@ def health(uri: str, options: dict[str, str] | None = None, local: bool = False)
         advice.append("No V-Order since the last write: Direct Lake and the SQL endpoint read V-Ordered files faster")
     if since_vacuum >= VERSIONS_BEFORE_VACUUM:
         advice.append(f"{since_vacuum} versions since the last VACUUM: old files still take up storage")
+    left: list[str] = []
+    if local:
+        left = leftovers(uri, table)
+        if left:
+            days = kept_days(table.metadata().configuration) or RETENTION_HOURS // 24
+            n = len(left)
+            advice.append(f"{n} file{'' if n == 1 else 's'} ({_mb(_size(uri, left))}) left by writes that stopped part way. "
+                          f"Compact removes the unfinished ones, and the rest once they're older than the "
+                          f"{days} days of history the table keeps")
     return {"exists": True, "version": version, "files": files, "bytes": total,
             "avg_file_bytes": total // files if files else 0, "v_ordered": v_ordered,
             "last_optimize": _when(last_optimize.get("timestamp")) if last_optimize else None,
             "last_vacuum": _when(last_vacuum.get("timestamp")) if last_vacuum else None,
             "last_write": _when(last_write.get("timestamp")) if last_write else None,
-            "versions_since_vacuum": since_vacuum, "advice": advice,
+            "versions_since_vacuum": since_vacuum, "leftover_files": len(left), "advice": advice,
             "status": "needs_maintenance" if advice else "healthy"}
 
 
@@ -158,6 +174,72 @@ def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
     set_retention(uri, days)
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
-    removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)
+    # full: also the data files no version of the log names (a write stopped before its commit), once
+    # they're as old as the history kept, so a write still under way never loses one.
+    removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
+                           full=True)
+    staged = _remove_staged(uri)
     return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
-            "vacuumed": len(removed)}
+            "vacuumed": len(removed), "staged_removed": staged}
+
+
+def _stale_staged(uri: str) -> list[Path]:
+    """Files under a table folder on this PC still under delta-rs's staging name, untouched for
+    STALE_STAGED_HOURS: data files and log commits a stopped write never put in place."""
+    cutoff = time.time() - STALE_STAGED_HOURS * 3600
+    out = []
+    for p in Path(uri).rglob("*"):
+        try:
+            if _STAGED.search(p.name) and p.is_file() and p.stat().st_mtime < cutoff:
+                out.append(p)
+        except OSError:  # silent-ok: gone meanwhile
+            continue
+    return out
+
+
+def _remove_staged(uri: str) -> int:
+    """Delete the stale staged files (_stale_staged). No reader or later write ever opens one: a commit
+    is only ever read under its own name, and a data file only once a commit names it."""
+    removed = 0
+    for p in _stale_staged(uri):
+        try:
+            p.unlink()
+            removed += 1
+        except FileNotFoundError:  # silent-ok: removed meanwhile
+            continue
+    return removed
+
+
+def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
+    """What writes stopped part way left in a table folder on this PC, as paths relative to it: data
+    files no version of the log names, and stale staged files (_stale_staged). Only files untouched
+    for STALE_STAGED_HOURS, so a write still under way isn't counted. Nothing is deleted."""
+    table = table or DeltaTable(uri)
+    # A full VACUUM's dry run lists every file the log doesn't keep; the plain one only those a commit
+    # removed. What's in the first and not the second, no commit ever named.
+    kept_by_none = set(table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False, full=True))
+    removed = set(table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False))
+    root = Path(uri)
+    cutoff = time.time() - STALE_STAGED_HOURS * 3600
+    out = {p.relative_to(root).as_posix() for p in _stale_staged(uri)}
+    for rel in kept_by_none - removed:
+        try:
+            if (root / rel).stat().st_mtime < cutoff:
+                out.add(rel)
+        except OSError:  # silent-ok: gone meanwhile
+            continue
+    return sorted(out)
+
+
+def _size(uri: str, paths: list[str]) -> int:
+    total = 0
+    for rel in paths:
+        try:
+            total += (Path(uri) / rel).stat().st_size
+        except OSError:  # silent-ok: gone meanwhile
+            continue
+    return total
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1024 / 1024:.1f} MB"

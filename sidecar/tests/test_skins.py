@@ -154,6 +154,8 @@ def test_the_fabric_skin_is_light_and_orders_the_rail_without_hiding_a_page():
     fabric = skins.BUILT_IN["fabric"]
     assert fabric["targets"][0]["platform"] == "fabric" and fabric["appearance"]["color_mode"] == "light"
     assert set(fabric["workflow"]["rail"]) == set(skins.KRATOSFORGE["workflow"]["rail"])  # reordered, nothing removed
+    # Fabric's own order, which docs/parity.md's workflow cells for Fabric rely on.
+    assert fabric["workflow"]["rail"][:5] == ["home", "create", "workspaces", "onelake", "monitor"]
     assert skins.contrast(fabric["appearance"]["tokens"]["light"]["--accent"], "#ffffff") >= skins.CONTRAST_MIN
 
 

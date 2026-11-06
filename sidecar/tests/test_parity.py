@@ -68,3 +68,12 @@ def test_a_note_every_area_shares_is_shown_once():
     table = parity.docs_table()
     assert table.count("Databricks-familiar skin (Preview)") == 1
     assert "- **Every area, Visual familiarity:** The Databricks-familiar skin" in table
+
+
+def test_the_fabric_skin_raises_looks_and_only_the_workflows_its_rail_places():
+    areas = [a for a in parity.AREAS if a.platform == "fabric"]
+    assert {a.cell("visual").status for a in areas} == {"partial"}
+    assert all("pages keep KratosForge's own layout" in a.cell("visual").note for a in areas)
+    workflow = {a.id for a in areas if a.cell("workflow").status != "missing"}
+    assert workflow == {"workspaces", "lakehouse", "monitoring"}  # Workspaces, OneLake and Monitor sit where Fabric puts them
+    assert {a.cell("workflow").status for a in areas if a.id in workflow} == {"partial"}

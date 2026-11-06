@@ -37,6 +37,19 @@ function skinRailSort(list) {
   return order.length ? [...list].sort((a, b) => at(a) - at(b)) : list;
 }
 
+// KratosForge's own pages, which no platform has. In a platform skin they sit together under a
+// "KratosForge" label, so a developer sees what the app adds to the platform they know (mockup v7).
+const KRATOSFORGE_PAGES = ["platform", "optimize", "metadata"];
+
+// The rail's buttons, with the "KratosForge" label before the first of those pages in a platform skin.
+function skinRailChildren(list, item) {
+  const items = list.map(item);
+  if ((currentSkin()?.id || "kratosforge") === "kratosforge") return items;
+  const at = list.findIndex((f) => KRATOSFORGE_PAGES.includes(f.id));
+  if (at < 0 || list.slice(at).some((f) => !KRATOSFORGE_PAGES.includes(f.id))) return items;
+  return [...items.slice(0, at), h("div", { class: "rail-group-label", role: "heading", "aria-level": "2" }, "KratosForge"), ...items.slice(at)];
+}
+
 function skinRailLabel(f) {
   return currentSkin()?.workflow?.labels?.[f.id] || f.rail.label;
 }

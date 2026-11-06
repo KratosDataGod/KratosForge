@@ -1,0 +1,123 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E22",
+  "version": 1,
+  "status": "draft",
+  "title": "Incremental MERGE into a Delta table",
+  "objectives": [
+    "2.1.1"
+  ],
+  "objective_text": "Load a day's changes into a Delta table with MERGE: update the rows that changed, insert the new ones, and make a retried load change nothing.",
+  "scenario": "silver_orders is a Delta table loaded once a day. Day 2's file holds every order that changed since day 1, plus new orders. The current job appends it, so changed orders appear twice, and a retry doubles everything again.",
+  "prerequisites": [
+    "LM-11",
+    "LM-21"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "delta_lab",
+  "engine_label": "Python with delta-rs and Polars on this PC",
+  "lesson": "lesson.md",
+  "starter": "load_orders.py",
+  "files": [
+    "orders_day1.csv",
+    "orders_day2.csv"
+  ],
+  "verifies": [
+    "Your script ran on this PC and left a Delta table whose log shows a WRITE then a MERGE, with one row per order and day 2's changes applied, even after the retry."
+  ],
+  "does_not_verify": [
+    "Spark's MERGE INTO in a Fabric notebook: this used delta-rs. The Delta log format is the same, but the API, performance and concurrency rules differ.",
+    "Writing to OneLake or a lakehouse's Tables folder."
+  ],
+  "datasets": [],
+  "expected": {
+    "table": "tables/silver_orders",
+    "rows": 5
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error; read its output."
+    },
+    {
+      "kind": "delta_table",
+      "path": "tables/silver_orders",
+      "operations": [
+        "WRITE",
+        "MERGE"
+      ],
+      "operations_in_order": true,
+      "versions_min": 2,
+      "pass": "The table's history shows the first write and then a MERGE.",
+      "fail": "Look at the table's history: day 2 should be a MERGE, not another WRITE."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/silver_orders.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "unique",
+          "column": "order_id"
+        },
+        {
+          "rule": "row_count",
+          "equals": 5
+        },
+        {
+          "rule": "accepted",
+          "column": "status",
+          "values": [
+            "open",
+            "cancelled",
+            "complete"
+          ]
+        },
+        {
+          "rule": "not_null",
+          "columns": [
+            "order_id",
+            "status",
+            "amount"
+          ]
+        }
+      ],
+      "pass": "One row per order, five orders.",
+      "fail": "Count the orders and look for duplicates in the snapshot."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/silver_orders.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "range",
+          "column": "amount",
+          "min": 10,
+          "max": 50
+        },
+        {
+          "rule": "row_count",
+          "equals": 5
+        }
+      ],
+      "pass": "Amounts are in range.",
+      "fail": "An amount is outside what day 1 and day 2 sent."
+    }
+  ],
+  "hints": [
+    "Appending adds day 2's changed orders beside the old versions. Which Delta operation updates rows that exist and inserts the rest?",
+    "DeltaTable(TABLE).merge(source, predicate='t.order_id = s.order_id', source_alias='s', target_alias='t').",
+    "Chain .when_matched_update_all() and .when_not_matched_insert_all(), then .execute(). Run it twice: the second run matches every row and changes nothing."
+  ],
+  "explanation": "MERGE compares each source row with the target on a key and decides per row: update when it matches, insert when it doesn't. That makes an incremental load idempotent, so a retry leaves the same table. Appending duplicates every changed row, and overwriting with day 2 loses the orders that didn't change. In a Fabric notebook the same load is MERGE INTO in Spark SQL or DeltaTable.merge in PySpark; the Delta log records it as a MERGE either way.",
+  "remediation": [
+    "LM-11",
+    "LM-21",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset removes the table and the snapshot and puts the starter script back."
+}

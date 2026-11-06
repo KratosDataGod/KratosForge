@@ -199,7 +199,7 @@ def test_registered_folders_are_only_read(local, engine, tmp_path):
     local.add_source(engine.project.id, str(outside))
     with pytest.raises(ValueError, match="registered folders are only read"):
         engine.write_delta("theirs", "SELECT 9 AS id", mode="append")
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.CatalogException):
         engine.execute("INSERT INTO theirs SELECT 9")  # a view: DuckDB refuses it
     assert DeltaTable(str(outside / "theirs")).version() == 1
     # They can be read as they were, and copied into the project.

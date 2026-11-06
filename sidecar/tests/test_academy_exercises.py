@@ -6,16 +6,18 @@ from __future__ import annotations
 import json
 import shutil
 
+import duckdb
 import pytest
 
-from fabric_desktop.academy import exercises, registry
+from fabric_desktop.academy import exercises, pipelab, pylab, pyspark_lab, registry, workspace
 
 PACK = "dp-700"
 
 
 def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
-    assert exercises.ids(PACK) == ["E21", "E36", "E37"]
+    assert exercises.ids(PACK) == ["E12", "E19", "E21", "E22", "E23", "E24", "E25", "E32", "E33", "E35", "E36",
+                                   "E37", "E38", "E39", "E43", "E48", "E49", "E56", "E57", "E58", "E59", "E63", "E64"]
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))
@@ -28,9 +30,30 @@ def test_reference_passes_and_every_wrong_answer_fails(eid):
         assert all(c["detail"] for c in r["results"])
 
 
-def test_the_starter_does_not_pass_yet():
+def test_the_starter_does_not_pass_yet(tmp_path):
     for eid in exercises.ids(PACK):
         ex = exercises.get(PACK, eid)
+        if ex["adapter"] == pipelab.ADAPTER:   # the starter pipeline, run as the learner's answer
+            folder = registry.ROOT / PACK / "exercises" / eid
+            work = tmp_path / eid
+            work.mkdir()
+            shutil.copy(folder / ex["starter"], work / ex["starter"])
+            assert not pipelab.grade(work, ex, folder)["passed"], eid
+            continue
+        if ex["adapter"] in pylab.ADAPTERS:   # the starter script, run in the learner process
+            folder = registry.ROOT / PACK / "exercises" / eid
+            data_root = tmp_path / f"{eid}-data"
+            work = workspace.workspace_dir(data_root, "starter", eid)
+            work.mkdir(parents=True)
+            pylab.prepare(work, folder, ex, (folder / ex["starter"]).read_text(encoding="utf-8"))
+            res = pylab.grade(work, ex["starter"], ex["validation"], data_root, appcontainer_ok=pylab.appcontainer_ok(ex))
+            assert not res["passed"], eid
+            continue
+        if ex["adapter"] == "pyspark_lab":   # the starter code, graded like any answer
+            ref = pyspark_lab.reference(PACK, eid)
+            res = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], ref["starter"], ref["solution"], pyspark_lab.run_reference)
+            assert not res["passed"], eid
+            continue
         ref = exercises.reference(PACK, eid)
         assert not exercises.grade(ref["setup"], ex["validation"], ref["starter"], ref["solution"])["passed"], eid
 
@@ -139,3 +162,48 @@ def test_uses_must_name_a_real_learn_exercise(broken):
 def test_raw_html_in_a_lesson_is_caught(broken):
     found = broken("E36", {}, {"exercises/E36/lesson.md": "# Hi\n\n<script>alert(1)</script>\n"})
     assert any("raw HTML" in p for p in found)
+
+
+SETUP = """CREATE TABLE src (id INTEGER, v INTEGER); INSERT INTO src VALUES (1, 10), (2, 20);
+CREATE TABLE log (run VARCHAR, status VARCHAR); INSERT INTO log VALUES ('r1', 'failed');
+CREATE TABLE out (id INTEGER, v INTEGER);"""
+FIX = "INSERT INTO out SELECT * FROM src;\nSELECT * FROM out ORDER BY id;"
+KEEP = [{"kind": "unchanged", "tables": ["src", "log"]}]
+
+
+def test_unchanged_passes_when_only_the_target_changes():
+    res = exercises.grade(SETUP, KEEP, FIX, FIX)
+    assert res["passed"], res
+    assert "Nothing else changed" in res["results"][0]["detail"]
+
+
+@pytest.mark.parametrize(("answer", "said"), [
+    ("DELETE FROM log;\n" + FIX, "log went from 1 to 0 rows"),
+    ("UPDATE src SET v = 0 WHERE id = 1;\n" + FIX, "src has 2 rows as before, but some of them changed"),
+    ("INSERT INTO src VALUES (1, 10);\n" + FIX, "src went from 2 to 3 rows"),
+    ("DROP TABLE log;\n" + FIX, "log is gone"),
+])
+def test_unchanged_fails_an_answer_that_touches_a_protected_table(answer, said):
+    res = exercises.grade(SETUP, KEEP, answer, FIX)
+    assert not res["passed"]
+    assert said in res["results"][0]["detail"]
+
+
+def test_unchanged_leaves_the_lab_as_it_was():
+    con = duckdb.connect(":memory:")
+    con.execute(SETUP)
+    r = exercises.run_check(con, KEEP[0], "DELETE FROM log;", FIX)
+    assert not r["passed"]
+    assert con.execute("SELECT count(*) FROM log").fetchone() == (1,)   # rolled back
+
+
+def test_no_findings_reads_the_answer_without_running_it():
+    rule = [{"kind": "no_findings", "rules": ["SQ002"]}]
+    wrapped = "SELECT count(*) FROM src WHERE year(d) = 2026"   # src has no column d: it would fail if run
+    assert not exercises.grade(SETUP, rule, wrapped, FIX)["passed"]
+    assert exercises.grade(SETUP, rule, "SELECT count(*) FROM src WHERE d >= DATE '2026-01-01'", FIX)["passed"]
+
+
+def test_unchanged_and_no_findings_need_their_fields(broken):
+    assert any("check unchanged needs tables" in p for p in broken("E36", {"validation": [{"kind": "unchanged"}]}))
+    assert any("check no_findings needs rules" in p for p in broken("E36", {"validation": [{"kind": "no_findings"}]}))

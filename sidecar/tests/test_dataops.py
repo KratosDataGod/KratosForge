@@ -449,3 +449,46 @@ def test_a_dropped_connection_to_teams_is_sent_once(monkeypatch):
     with pytest.raises(requests.ConnectionError):
         dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
     assert len(sent) == 1
+
+
+# EA-028: the quarantine rewrite's commit-race retry, pinned before it moved onto retrying.retry_call.
+class _QuarantineRace:
+    """Fakes _quarantine_at: each read sees the table at a newer version; the first ``lose`` writes
+    lose the commit race."""
+
+    def __init__(self, lose: int, error: type[BaseException] | None = None):
+        from deltalake.exceptions import CommitFailedError
+        self.error = error or CommitFailedError
+        self.lose, self.reads, self.writes = lose, 0, []
+        outer = self
+
+        class Store:
+            def write(self, lh, schema, table, df, mode, read_version):
+                outer.writes.append((df["_qid"].to_list(), read_version))
+                if len(outer.writes) <= outer.lose:
+                    raise outer.error("another writer committed first")
+
+        self.store = Store()
+
+    def _quarantine_at(self, project, name, env):
+        self.reads += 1
+        q = pl.DataFrame({"_qid": ["a", "b", "c"], "x": [1, 2, 3]})
+        return self.store, "lh", "t", q, self.reads
+
+
+def test_quarantine_drop_rereads_and_retries_a_lost_commit_up_to_five_times():
+    from deltalake.exceptions import CommitFailedError
+    from fabric_desktop.dataops_service import DataOpsMixin
+
+    race = _QuarantineRace(lose=4)
+    DataOpsMixin._drop_from_quarantine(race, None, "E", "dev", {"b"})
+    assert race.reads == 5 and [v for _, v in race.writes] == [1, 2, 3, 4, 5]  # each try against a fresh read
+    assert race.writes[-1][0] == ["a", "c"]
+    race = _QuarantineRace(lose=5)
+    with pytest.raises(CommitFailedError):
+        DataOpsMixin._drop_from_quarantine(race, None, "E", "dev", {"b"})
+    assert race.reads == 5
+    race = _QuarantineRace(lose=1, error=PermissionError)
+    with pytest.raises(PermissionError):  # anything but a lost commit fails at once
+        DataOpsMixin._drop_from_quarantine(race, None, "E", "dev", {"b"})
+    assert race.reads == 1

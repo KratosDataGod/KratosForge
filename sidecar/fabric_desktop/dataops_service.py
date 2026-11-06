@@ -16,9 +16,8 @@ from typing import Any
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.compute  # noqa: F401 - pa.compute
 
-from . import http_session
+from . import http_session, retrying
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -41,7 +40,9 @@ def _rows_in(table: Any) -> int:
     """Rows in a Delta table from its log's file statistics, or by counting the files when a writer left them out."""
     actions = pa.table(table.get_add_actions(flatten=True))
     if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
-        return int(pa.compute.sum(actions.column("num_records")).as_py() or 0)
+        import pyarrow.compute as pc  # here, not at the top: it adds about 30 ms to every engine start
+
+        return int(pc.sum(actions.column("num_records")).as_py() or 0)
     return table.to_pyarrow_dataset().count_rows()
 
 
@@ -230,18 +231,18 @@ class DataOpsMixin:
         """Remove rows by id (and add ``add``), committed against the version read, so rows a run
         quarantines meanwhile are kept: on a conflict it reads the table again and retries."""
         from deltalake.exceptions import CommitFailedError
-        for attempt in range(5):
+
+        def once() -> None:
             store, lh, table, q, version = self._quarantine_at(project, name, env)
             if q is None:
                 return
             rest = q.filter(~pl.col("_qid").is_in(list(ids)))
             out = pl.concat([rest, add], how="diagonal_relaxed") if add is not None else rest
-            try:
-                store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
-                return
-            except CommitFailedError:
-                if attempt == 4:
-                    raise
+            store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
+
+        # A lost commit race is tried again at once (5 tries), against a fresh read each time.
+        retrying.retry_call(once, lambda exc: isinstance(exc, CommitFailedError), 5, lambda n: 0.0,
+                            sleep=lambda s: None)
 
     def meta_quarantine(self, name: str, env: str = "dev", limit: int = 500) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]

@@ -1,0 +1,140 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "troubleshoot",
+  "id": "E50",
+  "title": "Broken: a Dataflow Gen2 stops loading after two small edits",
+  "objectives": [
+    "3.2.2"
+  ],
+  "objective_text": "Read a Dataflow Gen2 query's applied steps against its data destination, find the step that names a column that isn't there and the type that no longer matches, and fix the query without changing the destination.",
+  "scenario": "The Orders dataflow appends to silver_orders every night. Yesterday someone edited two steps: they set amount to Text 'to be safe', and added a step to drop the ingest_file column. Since then nothing new reaches silver_orders. The destination uses a fixed schema, because reports depend on its types.",
+  "prerequisites": [],
+  "minutes": 20,
+  "engine_label": "A model of a Dataflow Gen2 query and its data destination, checked on this PC",
+  "starter": "settings.json",
+  "fault": {
+    "summary": "Removed columns names Ingest_File, which doesn't exist because Power Query column names are case-sensitive, and amount is changed to Text while the fixed-schema destination expects a decimal number.",
+    "planted": [
+      {
+        "where": "steps, Removed columns",
+        "what": "columns [\"Ingest_File\"] where the source column is ingest_file"
+      },
+      {
+        "where": "steps, Changed column type",
+        "what": "amount set to Text; the destination column is Decimal number"
+      }
+    ],
+    "symptom": "The Removed columns step errors because it can't find Ingest_File, and the query's schema no longer matches the destination's fixed schema."
+  },
+  "verifies": [
+    "Your query removes the right column by its exact name and gives each column the destination's type, with the destination left as it was, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the dataflow publishes or refreshes in Fabric: nothing runs, and no Power Query (M) is evaluated here.",
+    "Error codes and messages in the refresh history: the model describes the faults, it doesn't reproduce Fabric's errors.",
+    "Destinations with automatic settings or a dynamic schema, which change the table instead of refusing a mismatch."
+  ],
+  "expected": {
+    "description": "Changed column type sets amount to Decimal number; Removed columns lists only ingest_file; the destination is unchanged."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The Removed columns step still can't do its job.",
+      "pass": "Removed columns removes the load's file name, by its exact name.",
+      "rules": [
+        {
+          "path": "steps",
+          "count": 4
+        },
+        {
+          "path": "steps.3.columns",
+          "contains": "ingest_file",
+          "why": "Column names in Power Query are case-sensitive: Ingest_File isn't ingest_file."
+        },
+        {
+          "path": "steps.3.columns",
+          "not_contains": "Ingest_File"
+        },
+        {
+          "path": "steps.3.columns",
+          "not_contains": "region"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The query's columns still don't match the destination's fixed schema.",
+      "pass": "Every column's type matches the destination.",
+      "rules": [
+        {
+          "path": "steps.2.types.amount",
+          "equals": "Decimal number",
+          "why": "The destination stores amount as a decimal number."
+        },
+        {
+          "path": "steps.2.types.order_id",
+          "equals": "Whole number"
+        },
+        {
+          "path": "steps.2.types.order_date",
+          "equals": "Date"
+        },
+        {
+          "path": "steps.2.types.region",
+          "equals": "Text"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The destination changed; fix the query to fit it instead.",
+      "pass": "The destination is as it was: append, fixed schema, the same columns.",
+      "rules": [
+        {
+          "path": "destination.update_method",
+          "equals": "Append",
+          "why": "Replace would drop the rows already loaded on every refresh."
+        },
+        {
+          "path": "destination.schema",
+          "equals": "fixed"
+        },
+        {
+          "path": "destination.columns.amount",
+          "equals": "Decimal number"
+        },
+        {
+          "path": "destination.columns.region",
+          "equals": "Text"
+        },
+        {
+          "path": "destination.table",
+          "equals": "silver_orders"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Compare source_columns with every column name a step uses. Is each one spelled exactly the same, including capitals?",
+    "Compare the Changed column type step with destination.columns, column by column.",
+    "The destination is append with a fixed schema on purpose: changing it to Replace or changing its column types would make the error go away by changing the table everyone reads."
+  ],
+  "explanation": "Two different faults stop the same load. A step that names a column the query doesn't have fails, and Power Query matches column names exactly, so Ingest_File isn't ingest_file. And a destination with a fixed schema accepts only a query whose columns match it, so amount as Text can't go into a Decimal number column. Fix the query: correct the column name in Removed columns and give amount the destination's type. Changing the destination would also stop the errors, but switching to Replace drops the loaded rows on every refresh, and changing a column's type breaks the reports that read it.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
+    "https://learn.microsoft.com/fabric/data-factory/create-first-dataflow-gen2"
+  ],
+  "reset": "Reset puts the original settings.json back.",
+  "review_notes": [
+    "The Fabric docs say a fixed-schema destination fails at publish when the query schema doesn't match, and that schema options only apply to Replace; the lesson says the query no longer matches, not which screen shows it.",
+    "Type names follow the Power Query editor's labels (Whole number, Decimal number, Text, Date)."
+  ]
+}

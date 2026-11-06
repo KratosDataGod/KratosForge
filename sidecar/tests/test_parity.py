@@ -53,3 +53,18 @@ def test_nothing_claims_snowflake_runs_on_this_pc():
     cell = next(a for a in parity.AREAS if a.platform == "snowflake" and a.id == "worksheets").cell("local")
     assert cell.status == "partial" and "Not a Snowflake runtime" in cell.note
     assert all(a.cell("equivalence").status == "not_assessed" for a in parity.AREAS if a.platform != "fabric")
+
+
+def test_the_databricks_and_snowflake_skins_raise_looks_but_not_workflow_without_a_page():
+    for pid in ("databricks", "snowflake"):
+        areas = [a for a in parity.AREAS if a.platform == pid]
+        assert {a.cell("visual").status for a in areas} == {"partial"}
+        assert all("pages keep KratosForge's own layout" in a.cell("visual").note for a in areas)
+    workflow = {(a.platform, a.id) for a in parity.AREAS if a.platform != "fabric" and a.cell("workflow").status != "missing"}
+    assert workflow == {("databricks", "jobs")}  # Monitor, named "Jobs and pipelines", holds the job runs
+
+
+def test_a_note_every_area_shares_is_shown_once():
+    table = parity.docs_table()
+    assert table.count("Databricks-familiar skin (Preview)") == 1
+    assert "- **Every area, Visual familiarity:** The Databricks-familiar skin" in table

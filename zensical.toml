@@ -207,6 +207,7 @@ nav = [
       { "Remediation backlog" = "audits/REMEDIATION_BACKLOG.md" },
       { "Architecture decisions" = "audits/ARCHITECTURE_DECISIONS.md" },
       { "Redactors" = "audits/REDACTORS.md" },
+      { "Supply chain" = "audits/SUPPLY_CHAIN.md" },
     ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },

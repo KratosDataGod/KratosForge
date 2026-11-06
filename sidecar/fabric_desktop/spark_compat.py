@@ -979,6 +979,17 @@ window_module.Window = Window  # type: ignore[attr-defined]
 window_module.WindowSpec = WindowSpec  # type: ignore[attr-defined]
 
 
+def sql_names(spark_sql: Any) -> None:
+    """The names ``from pyspark.sql import ...`` gives in Spark that DuckDB's pyspark.sql lacks: Row
+    (DuckDB keeps it in types), Column and GroupedData, and Window."""
+    from duckdb.experimental.spark.sql import column, group
+    from duckdb.experimental.spark.sql import types as spark_types
+    spark_sql.Row = spark_types.Row
+    spark_sql.Column = column.Column
+    spark_sql.GroupedData = group.GroupedData
+    spark_sql.Window = Window
+
+
 def spark_type_name(dt: Any) -> str:
     """``dt`` as Spark's ``DataType.simpleString()`` writes it, which is what ``DataFrame.dtypes`` shows:
     int, timestamp, timestamp_ntz. DuckDB 1.x's Spark API says integer and timestamptz, and DuckDB 2.0

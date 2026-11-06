@@ -1,0 +1,112 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "parity": null,
+  "id": "E26",
+  "title": "Streaming load pattern: availableNow with a checkpoint into Bronze",
+  "objectives": [
+    "2.1.3",
+    "2.3.3"
+  ],
+  "mode": "guided",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Fix a Structured Streaming load into Bronze so that its checkpoint and trigger(availableNow=True) make each run take only new files, with the right column types.",
+  "scenario": "Order files land in Files/landing/orders once a day, and a stream loads them into bronze.orders. Someone named the checkpoint folder after the time the load starts, so every run, including a rerun after a failure, loads every old file again. Finance also noticed amount arrives as text.",
+  "datasets": [
+    {
+      "name": "Files/landing/orders",
+      "rows": 5,
+      "size": "small",
+      "seeded": "two fixed JSON Lines files"
+    }
+  ],
+  "files": [
+    "orders-2026-11-01.json",
+    "orders-2026-11-02.json"
+  ],
+  "files_folder": "landing/orders",
+  "starting_environment": "Two JSON Lines files in Files/landing/orders and the duplicating stream as answer.py.",
+  "required": [
+    "bronze.orders holds each order from the landing files once, however many times the load runs.",
+    "order_id is an integer, customer is text and amount is a double."
+  ],
+  "expected": {
+    "description": "bronze.orders has orders 1 to 5, once each."
+  },
+  "verifies": [
+    "After your load runs, and again after it runs a second time, bronze.orders holds each landed order once, with the right types, on this PC."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in Fabric: every stream here runs as availableNow, taking what has arrived and stopping. A stream left running with a processingTime trigger isn't shown.",
+    "New files arriving between runs: the files are fixed, so the second run finds nothing new.",
+    "Running the stream in production, which Fabric's guidance puts in a Spark job definition with a retry policy."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "bronze.orders",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "bronze.orders holds every landed order.",
+      "fail": "bronze.orders doesn't hold the landed orders: read the whole folder."
+    },
+    {
+      "kind": "table_shape",
+      "table": "bronze.orders",
+      "weight": 1,
+      "required": true,
+      "columns": {
+        "order_id": "INT",
+        "customer": "VARCHAR",
+        "amount": "DOUBLE"
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id",
+        "amount"
+      ],
+      "pass": "The columns and types are right.",
+      "fail": "A column or type is off: set it in the schema."
+    },
+    {
+      "kind": "idempotent",
+      "table": "bronze.orders",
+      "weight": 2,
+      "required": true,
+      "pass": "A second run added nothing: the checkpoint remembered the files.",
+      "fail": "A second run changed bronze.orders: a rerun must skip files it already loaded."
+    }
+  ],
+  "hints": [
+    "Run it twice and compare the row counts. What does the stream use to remember the files it took?",
+    "The checkpointLocation is where the stream remembers which files it has taken. It must be the same folder on every run.",
+    "A file stream's columns and types come from the schema you give it.",
+    ".trigger(availableNow=True) takes everything that has arrived, writes it and stops."
+  ],
+  "explanation": "A file stream with a checkpoint remembers which files it has processed, so a rerun or the next day's run takes only new files. trigger(availableNow=True) processes what's available and then stops, which suits a scheduled Bronze load. The checkpoint folder has to stay the same between runs: a new one each run forgets everything and reloads every file. File streams need an explicit schema, which also fixes the column types.",
+  "troubleshooting": [
+    "A second run doubles the rows: the checkpointLocation changes on each run, so the stream forgets what it loaded.",
+    "amount is text: set DoubleType for it in the schema."
+  ],
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+    "https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html"
+  ],
+  "reset": "Reset removes bronze.orders and the checkpoint, and puts the starter back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (lakehouse-streaming-data): format(\"delta\")-style sinks with option(\"checkpointLocation\", \"Files/checkpoint\") and toTable; production streams in Spark job definitions with a retry policy. trigger(availableNow=True) is from Apache Spark's guide; Fabric's page doesn't mention it.",
+    "No hidden data: the files are the same on every run, so the checks are practice data, types and rerun safety.",
+    "The PySpark lab reads files only as streams (spark.read reads Delta tables), so the starter is a stream with the two faults rather than a batch load."
+  ]
+}

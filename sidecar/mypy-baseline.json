@@ -121,10 +121,6 @@
   "arg-type": 1,
   "assignment": 2
  },
- "fabric_desktop/git/repo.py": {
-  "assignment": 3,
-  "var-annotated": 1
- },
  "fabric_desktop/git_service.py": {
   "var-annotated": 1
  },

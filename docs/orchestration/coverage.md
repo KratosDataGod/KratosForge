@@ -44,10 +44,11 @@ This page lists every Data Factory pipeline activity type the local runner knows
 
 ## Expression functions
 
-88 functions: 50 runs, 2 differs, 6 not checked, 30 refused.
+88 functions: 50 runs, 0 differs, 2 fails, 6 not checked, 30 refused.
 
 - **runs:** it gives the reference's value for the reference's own example.
 - **differs:** it runs but gives another value for that example, so check results that use it in Fabric.
+- **fails:** the reference's own example stops with an error here, so an expression like it fails the activity.
 - **not checked:** it runs, but its value changes from run to run, or it reads the run itself, so there is no value to compare.
 - **refused:** the activity stops with `<name>() isn't supported in local runs yet`. Nothing runs with a guessed value.
 
@@ -138,7 +139,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `mul` | runs | `mul(1, 2)` | 2 |  |
 | `rand` | refused |  |  |  |
 | `range` | runs | `range(1, 4)` | [1, 2, 3, 4] |  |
-| `sub` | differs | `sub(10.3, .3)` | 10 | "error: unexpected '.'" |
+| `sub` | fails | `sub(10.3, .3)` | 10 | "error: unexpected '.'" |
 
 ### Date
 
@@ -155,7 +156,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `dayOfMonth` | refused |  |  |  |
 | `dayOfWeek` | refused |  |  |  |
 | `dayOfYear` | refused |  |  |  |
-| `formatDateTime` | differs | `formatDateTime('03/15/2018 12:00:00', 'yyyy-MM-ddTHH:mm:ss')` | "2018-03-15T12:00:00" | "error: '03/15/2018 12:00:00' isn't a date and time this PC can read (use ISO 8601)" |
+| `formatDateTime` | fails | `formatDateTime('03/15/2018 12:00:00', 'yyyy-MM-ddTHH:mm:ss')` | "2018-03-15T12:00:00" | "error: '03/15/2018 12:00:00' isn't a date and time this PC can read (use ISO 8601)" |
 | `getFutureTime` | refused |  |  |  |
 | `getPastTime` | refused |  |  |  |
 | `startOfDay` | runs | `startOfDay('2018-03-15T13:30:30Z')` | "2018-03-15T00:00:00.0000000Z" |  |

@@ -62,3 +62,11 @@ def test_the_page_is_up_to_date(cov):
 
 def test_the_page_is_in_the_docs_site():
     assert '"orchestration/coverage.md"' in (ROOT / "zensical.toml").read_text(encoding="utf-8")
+
+
+def test_an_example_that_raises_fails_rather_than_differs(cov):
+    for r in cov["functions"]:
+        if r["status"] == "differs":
+            assert not str(r["got"]).startswith("error:"), r["name"]
+        if r["status"] == "fails":
+            assert str(r["got"]).startswith("error:"), r["name"]

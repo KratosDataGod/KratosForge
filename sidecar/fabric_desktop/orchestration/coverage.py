@@ -19,6 +19,7 @@ with the value the reference gives:
 
     runs           it gives the reference's value for the example
     differs        it runs and gives another value: check results that use it in Fabric
+    fails          the reference's own example stops with an error here
     not checked    its value changes from run to run (guid, rand, utcNow), so there is no value check
     refused        the evaluator stops the activity with "<name>() isn't supported in local runs yet"
 """
@@ -116,7 +117,7 @@ VARYING = frozenset({"guid", "rand", "utcNow"})
 
 ACTIVITY_STATUS = {"local": "runs locally", "simulated": "simulated", "static": "refused", "cloud": "Fabric only",
                    "unsupported": "refused"}
-FUNCTION_STATUSES = ("runs", "differs", "not checked", "refused")
+FUNCTION_STATUSES = ("runs", "differs", "fails", "not checked", "refused")
 
 
 def _canonical(value: Any) -> str:
@@ -145,7 +146,8 @@ def _function_row(category: str, name: str) -> dict[str, Any]:
     try:
         got: Any = evaluate.evaluate("@" + example, evaluate.Scope())
     except evaluate.ExpressionError as exc:
-        got = f"error: {exc}"
+        row["got"], row["status"] = f"error: {exc}", "fails"
+        return row
     row["got"] = got
     row["status"] = "runs" if _canonical(got) == _canonical(expected) else "differs"
     return row
@@ -215,6 +217,8 @@ def markdown(cov: dict[str, list[dict[str, Any]]]) -> str:
         "",
         "- **runs:** it gives the reference's value for the reference's own example.",
         "- **differs:** it runs but gives another value for that example, so check results that use it in Fabric.",
+        "- **fails:** the reference's own example stops with an error here, so an expression like it fails the "
+        "activity.",
         "- **not checked:** it runs, but its value changes from run to run, or it reads the run itself, so there "
         "is no value to compare.",
         "- **refused:** the activity stops with `<name>() isn't supported in local runs yet`. Nothing runs with "

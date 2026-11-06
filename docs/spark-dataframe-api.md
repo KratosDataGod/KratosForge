@@ -47,16 +47,16 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `createOrReplaceGlobalTempView` | Fails | `df3 = spark.sql("SELECT * FROM global_temp.people")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `createOrReplaceTempView` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
 | `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
-| `crossJoin` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `crossJoin` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
 | `cube` | Fails | `df.cube("name", df.age).count().orderBy("name", "age").sh...`: AttributeError: 'DataFrame' object has no attribute 'cube' |
 | `describe` | Differs | `df.describe(['age']).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-------+----+\n\|summary\| age\|\n+-------+----+\n\|  count\| in Spark |
 | `distinct` | Runs |  |
-| `drop` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `dropDuplicates` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `drop` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `dropDuplicates` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `dropDuplicatesWithinWatermark` | Not checked |  |
 | `drop_duplicates` | Not checked |  |
-| `dropna` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `dropna` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `dtypes` | Runs |  |
 | `exceptAll` | Differs | `df1.exceptAll(df2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+---+---+\n\| C1\| C2\|\n+---+---+\n\|  a\|  1\|\n\|  a\|  1\|\n\|  in Spark |
 | `explain` | Not checked |  |
@@ -76,20 +76,20 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `isEmpty` | Fails | `df_non_empty = spark.createDataFrame(["a"], 'STRING')`: PySparkValueError: Provided column names and number of columns in the DataFrame don't match |
 | `isLocal` | Runs |  |
 | `isStreaming` | Fails | `df = spark.readStream.format("rate").load()`: ValueError: readStream.load needs a path. |
-| `join` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `join` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `limit` | Differs | `df.limit(1).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+----+\n\|age\|name\|\n+---+----+\n\| 14\| Tom\|\n+---+---- in Spark |
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
-| `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental |
+| `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
 | `melt` | Not checked |  |
 | `na` | Differs | `df.na.fill(2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+---+\n\| c1\| c2\|\n+---+---+\n\|  1\|  2\|\n+---+---+"} in Spark |
-| `observe` | Fails | `from pyspark.sql import Observation`: ImportError: cannot import name 'Observation' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sq |
+| `observe` | Fails | `from pyspark.sql import Observation`: ImportError: cannot import name 'Observation' from 'duckdb.experimental.spark.sql' |
 | `offset` | Differs | `df.offset(1).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\| 23\|Alice\|\n\| 16\| in Spark |
 | `orderBy` | Differs | `df.sort(asc("age")).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\|  2\|Alice\|\n\|  5\| in Spark |
 | `pandas_api` | Runs |  |
 | `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
 | `printSchema` | Differs | `df.printSchema()`: {"printed": "root\n \|-- age: bigint (nullable = true)\n \|-- name: stri here, {"printed": "root\n \|-- age: long (nullable = true)\n \|-- name: string in Spark |
-| `randomSplit` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `randomSplit` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
 | `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
@@ -143,27 +143,27 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | Method | Status | Note |
 | --- | --- | --- |
 | `alias` | Fails | `df.select(df.age.alias("age3", metadata={'max': 99})).sch...`: TypeError: Column.alias() got an unexpected keyword argument 'metadata' |
-| `asc` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `asc_nulls_first` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `asc_nulls_last` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `asc` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `asc_nulls_first` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `asc_nulls_last` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `astype` | Not checked |  |
 | `between` | Fails | `df.select(df.name, df.age.between(2, 4)).show()`: TypeError: 'Column' object is not callable |
-| `bitwiseAND` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `bitwiseOR` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `bitwiseXOR` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `bitwiseAND` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `bitwiseOR` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `bitwiseXOR` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `cast` | Runs |  |
 | `contains` | Runs |  |
-| `desc` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `desc_nulls_first` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `desc_nulls_last` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `dropFields` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `desc` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `desc_nulls_first` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `desc_nulls_last` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `dropFields` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `endswith` | Runs |  |
-| `eqNullSafe` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `getField` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `eqNullSafe` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `getField` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
 | `ilike` | Runs |  |
-| `isNotNull` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
-| `isNull` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `isNotNull` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
+| `isNull` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `isin` | Runs |  |
 | `like` | Runs |  |
 | `name` | Not checked |  |
@@ -173,15 +173,15 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `startswith` | Runs |  |
 | `substr` | Fails | `df.select(df.name.substr(1, 3).alias("col")).collect()`: TypeError: 'Column' object is not callable |
 | `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-----+-------------------------------------------------- in Spark |
-| `withField` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `withField` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 
 ## GroupedData
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental |
-| `apply` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental |
-| `applyInPandas` | Fails | `from pyspark.sql.functions import pandas_udf, ceil`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental |
+| `agg` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `apply` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `applyInPandas` | Fails | `from pyspark.sql.functions import pandas_udf, ceil`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
 | `applyInPandasWithState` | Fails | `from pyspark.sql.streaming.state import GroupStateTimeout`: ModuleNotFoundError: No module named 'pyspark.sql.streaming.state'; 'pyspark.sql.streaming' is not a package |
 | `avg` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
 | `cogroup` | Not checked |  |
@@ -189,7 +189,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `max` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
 | `mean` | Not checked |  |
 | `min` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
-| `pivot` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `pivot` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `sum` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
 
 ## DataFrameReader
@@ -213,7 +213,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `bucketBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experim |
+| `bucketBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
 | `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
 | `format` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
 | `insertInto` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
@@ -227,14 +227,14 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `partitionBy` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>": Is a directory |
 | `save` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
 | `saveAsTable` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
-| `sortBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experim |
+| `sortBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
 | `text` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'text' |
 
 ## DataFrameNaFunctions
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `drop` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' (/tmp/claude-0/venv/lib/python3.13/site-packages/duckdb/experimental/spark/sql/__init |
+| `drop` | Fails | `from pyspark.sql import Row`: ImportError: cannot import name 'Row' from 'duckdb.experimental.spark.sql' |
 | `fill` | Differs | `df.na.fill(50).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+------+-----+----+\n\|age\|height\| name\|bool\|\n+---+-- in Spark |
 | `replace` | Differs | `df.na.replace(10, 20).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+----+------+-----+\n\| age\|height\| name\|\n+----+------+-- in Spark |
 

@@ -108,7 +108,7 @@ def _run(kernel: Any, source: str) -> tuple[dict[str, Any] | None, str]:
     if result["status"] != "ok":
         error: dict[str, Any] = next((o for o in result["outputs"] if o.get("type") == "error"), {})
         text = f"{error.get('ename', '')}: {error.get('evalue', '')}".strip(": ") or result["status"]
-        return None, _TEMP.sub("<temp dir>", (text.splitlines() or [text])[0])[:160]
+        return None, _clean((text.splitlines() or [text])[0])[:160]
     try:
         return outcome(kernel.namespace.pop(VALUE, None) if expression else None, printed), ""
     except Exception as exc:  # noqa: BLE001  # silent-ok: a value this PC can't collect is a status
@@ -117,6 +117,15 @@ def _run(kernel: Any, source: str) -> tuple[dict[str, Any] | None, str]:
 
 # A temporary directory an example made (tempfile's tmpXXXXXXXX), named the same in every run.
 _TEMP = re.compile(r"[^\s\"']*[\\/]tmp[a-z0-9_]{8}\b")
+
+
+# Where Python's packages are installed, as an ImportError names it: it differs from machine to machine.
+_PACKAGES = re.compile(r"\s*\(?[^\s\"'()]*(?:site|dist)-packages[\\/][^\s\"'()]*\)?")
+
+
+def _clean(text: str) -> str:
+    """An error's text with this machine's paths left out, so the page is the same on every machine."""
+    return _TEMP.sub("<temp dir>", _PACKAGES.sub("", text))
 
 
 def _expression(source: str) -> bool:

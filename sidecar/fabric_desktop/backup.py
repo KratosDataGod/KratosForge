@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import shutil
 import sqlite3
 import tempfile
@@ -33,6 +34,8 @@ from typing import Any
 
 from .redact import secrets
 from . import jsonfile
+
+_log = logging.getLogger(__name__)
 
 SCHEMA = "fabric-desktop-backup@1"
 MANIFEST = "manifest.json"
@@ -252,7 +255,12 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
             now: datetime | None = None) -> dict[str, Any]:
     """What restoring ``zip_path`` writes; with ``apply`` it writes it, after copying each file it
     replaces, and moving a replaced database's ``-wal``/``-shm``/``-journal``, into
-    ``restore-safety``. Without ``apply`` nothing changes."""
+    ``restore-safety``. Without ``apply`` nothing changes.
+
+    Every file is written beside its target and checked before any file here changes, and a restore
+    that stops part way (a refused swap, a full disk) puts back the files it already swapped, so the
+    folder is as it was or as the backup has it. If the PC itself stops part way, the files it had
+    replaced are in ``restore-safety``."""
     manifest, problems = validate(zip_path)
     if problems:
         raise BackupError("This backup can't be restored:\n- " + "\n- ".join(problems))
@@ -279,31 +287,65 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                               + "\n- ".join(busy) + "\nClose KratosForge and stop the agent, "
                               "then run the restore again.")
         moved = False
-        for item in plan:
-            dest = Path(item["to"])
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest.with_name(dest.name + ".restoring")
-            with z.open(item["path"]) as src:
-                tmp.write_bytes(src.read())
-            if _sha256(tmp) != hashes[item["path"]]:
-                tmp.unlink()
-                raise BackupError(f"{item['path']} didn't write correctly to {dest}; the restore stopped there. "
-                                  f"Files it already replaced are in {safety}.")
-            keep = safety / item["path"]
-            if item["replaces"]:
-                keep.parent.mkdir(parents=True, exist_ok=True)
-                keep.write_bytes(dest.read_bytes())
-            if item["path"] in databases:  # a stale WAL would bring back what the backup doesn't hold
-                for suffix in SQLITE_COMPANIONS:
-                    companion = dest.with_name(dest.name + suffix)
-                    if companion.exists():
-                        keep.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.move(companion, keep.with_name(keep.name + suffix))
-                        moved = True
-            jsonfile.replace(tmp, dest)
+        staged: list[Path] = []
+        swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]] = []
+        try:
+            # 1. Every file written beside its target and checked, before any file here changes.
+            for item in plan:
+                dest = Path(item["to"])
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                tmp = dest.with_name(dest.name + ".restoring")
+                staged.append(tmp)
+                with z.open(item["path"]) as src:
+                    tmp.write_bytes(src.read())
+                if _sha256(tmp) != hashes[item["path"]]:
+                    raise BackupError(f"{item['path']} didn't write correctly to {dest}; nothing was changed.")
+            # 2. A copy of every file it replaces, kept in restore-safety.
+            for item in plan:
+                if item["replaces"]:
+                    keep = safety / item["path"]
+                    keep.parent.mkdir(parents=True, exist_ok=True)
+                    keep.write_bytes(Path(item["to"]).read_bytes())
+            # 3. The swaps. If one fails, the files already swapped are put back as they were.
+            for item, tmp in zip(plan, staged, strict=True):
+                dest, keep = Path(item["to"]), safety / item["path"]
+                aside: list[tuple[Path, Path]] = []
+                swapped.append((dest, keep if item["replaces"] else None, aside))
+                if item["path"] in databases:  # a stale WAL would bring back what the backup doesn't hold
+                    for suffix in SQLITE_COMPANIONS:
+                        companion = dest.with_name(dest.name + suffix)
+                        if companion.exists():
+                            keep.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(companion, keep.with_name(keep.name + suffix))
+                            aside.append((companion, keep.with_name(keep.name + suffix)))
+                            moved = True
+                jsonfile.replace(tmp, dest)
+        except BaseException:
+            _put_back(swapped, staged)
+            raise
     kept = moved or any(i["replaces"] for i in plan)
     result.update(applied=True, safety=str(safety) if kept else None)
     return result
+
+
+def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], staged: list[Path]) -> None:
+    """Undo a restore that stopped part way: each file it swapped in goes back to its copy in
+    restore-safety (or away, if the restore added it), with any database companions it moved, and no
+    ``.restoring`` file is left. The copies stay in restore-safety."""
+    for dest, keep, aside in reversed(swapped):
+        try:
+            if dest.with_name(dest.name + ".restoring").exists():
+                pass  # not swapped yet: only its companions moved
+            elif keep is not None:
+                jsonfile.write_bytes(dest, keep.read_bytes())
+            else:
+                dest.unlink(missing_ok=True)
+            for companion, kept in aside:
+                shutil.move(kept, companion)
+        except OSError:
+            _log.warning("restore: couldn't put %s back; its copy is in restore-safety", dest, exc_info=True)
+    for tmp in staged:
+        tmp.unlink(missing_ok=True)
 
 
 def describe(result: dict[str, Any]) -> str:

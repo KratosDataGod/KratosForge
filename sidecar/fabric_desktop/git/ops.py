@@ -8,6 +8,7 @@ it fast-forwards, or merges when the person chose Merge.
 
 from __future__ import annotations
 
+import builtins  # Operations.list hides the builtin in its class's annotations
 import datetime as dt
 import os
 import re
@@ -156,7 +157,7 @@ class Operations:
 
     # ---- running
 
-    def _start(self, kind: str, repo: Repository | None, args: list[str], cwd: Path | None = None,
+    def _start(self, kind: str, repo: Repository | None, args: builtins.list[str], cwd: Path | None = None,
                target: str | None = None, after: Callable[[bool], None] | None = None,
                result: Callable[[], dict[str, Any]] | None = None) -> dict[str, Any]:
         root = str(repo.root) if repo else target
@@ -164,7 +165,7 @@ class Operations:
             raise GitError("Another Git operation is still running in this repository. Wait for it or cancel it.",
                            kind="busy")
         cmd = cli.command(cwd or (repo.root if repo else None), args)
-        op = {"id": uuid.uuid4().hex[:12], "kind": kind, "repo": root, "status": "running", "phase": "Starting",
+        op: dict[str, Any] = {"id": uuid.uuid4().hex[:12], "kind": kind, "repo": root, "status": "running", "phase": "Starting",
               "percent": None, "message": "", "details": "", "started_at": _now(), "finished_at": None,
               "result": None, "error_kind": None, "remote": True}
         with self._lock:
@@ -184,7 +185,7 @@ class Operations:
             if op_id in self._ops:
                 self._ops[op_id].update(fields)
 
-    def _run(self, op_id: str, cmd: list[str], after: Callable[[bool], None] | None,
+    def _run(self, op_id: str, cmd: builtins.list[str], after: Callable[[bool], None] | None,
              result: Callable[[], dict[str, Any]] | None) -> None:
         tail: list[str] = []
         ok = False
@@ -243,7 +244,7 @@ class Operations:
             return
         if code == 0:
             ok = True
-            res: dict[str, Any] = {}
+            res: dict[str, Any] | None = {}
             try:
                 res = result() if result else {}
             except GitError as exc:

@@ -25,7 +25,8 @@ _KEYS = {"criticality", "success_rate", "runs", "envs"}
 
 def objective(spec: dict[str, Any], criticality: str | None = None) -> dict[str, Any] | None:
     """The success objective an entity declares, or one from ``criticality`` (assigned elsewhere)."""
-    o = spec.get("objectives") if isinstance(spec.get("objectives"), dict) else {}
+    declared = spec.get("objectives")
+    o = declared if isinstance(declared, dict) else {}
     crit = o.get("criticality") or criticality
     rate = o.get("success_rate", DEFAULT_RATE.get(crit) if crit else None)
     if rate is None:

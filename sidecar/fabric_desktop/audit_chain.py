@@ -163,7 +163,7 @@ def verify(folder: Path) -> dict[str, Any]:
             try:
                 entry = json.loads(line)
                 stored = entry.pop("hash")
-            except (ValueError, KeyError, AttributeError):
+            except (ValueError, KeyError, AttributeError, TypeError):  # TypeError: a JSON array
                 problems.append(f"{path.name} line {number}: not an audit line")
                 continue
             if entry.get("prev") != prev:

@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 44 |
-| Differs | 48 |
+| Runs | 82 |
+| Differs | 9 |
 | Refused | 15 |
-| Fails | 56 |
+| Fails | 57 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -31,7 +31,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Differs | `df.agg({"age": "max"}).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+--------+\n\|max(age)\|\n+--------+\n\|       5\|\n+-------- in Spark |
+| `agg` | Differs | `df.agg(sf.min(df.age)).show()`: {"printed": "+------------------------------------------+\n\|min(unname here, {"printed": "+--------+\n\|min(age)\|\n+--------+\n\|       2\|\n+-------- in Spark |
 | `alias` | Fails | `joined_df.select( "df_as1.name", "df_as2.name", "df_as2.a...`: BinderException: Binder Error: Referenced table "df_as1" not found! |
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
@@ -39,7 +39,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `colRegex` | Fails | `df.select(df.colRegex("`(Col1)?+.+`")).show()`: AttributeError: 'DataFrame' object has no attribute 'colRegex' |
 | `collect` | Runs |  |
-| `columns` | Differs | `df.select(selected_cols).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-----+-----+\n\| name\|state\|\n+-----+-----+\n\|  Tom\|   CA in Spark |
+| `columns` | Fails | `for col_name in df.columns: df = df.withColumn(col_name, ...`: BinderException: Binder Error: No function matches the given name and argument types 'upper(BIGINT)'. You might need to add explicit type casts. |
 | `corr` | Runs |  |
 | `count` | Runs |  |
 | `cov` | Runs |  |
@@ -47,45 +47,45 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `createOrReplaceGlobalTempView` | Fails | `df3 = spark.sql("SELECT * FROM global_temp.people")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `createOrReplaceTempView` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
 | `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
-| `crossJoin` | Differs | `df.crossJoin(df2.select("height")).select("age", "name", ...`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
+| `crossJoin` | Runs |  |
 | `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
 | `cube` | Fails | `df.cube("name", df.age).count().orderBy("name", "age").sh...`: AttributeError: 'DataFrame' object has no attribute 'cube' |
-| `describe` | Differs | `df.describe(['age']).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-------+----+\n\|summary\| age\|\n+-------+----+\n\|  count\| in Spark |
+| `describe` | Differs | `df.describe(['age', 'weight', 'height']).show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
 | `distinct` | Runs |  |
-| `drop` | Differs | `df.drop('age').show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-----+\n\| name\|\n+-----+\n\|  Tom\|\n\|Alice\|\n\|  Bob\|\n+-- in Spark |
-| `dropDuplicates` | Differs | `df.dropDuplicates().show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-----+---+------+\n\| name\|age\|height\|\n+-----+---+------ in Spark |
+| `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
+| `dropDuplicates` | Runs |  |
 | `dropDuplicatesWithinWatermark` | Not checked |  |
 | `drop_duplicates` | Not checked |  |
-| `dropna` | Differs | `df.na.drop().show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+------+-----+\n\|age\|height\| name\|\n+---+------+----- in Spark |
+| `dropna` | Runs |  |
 | `dtypes` | Runs |  |
-| `exceptAll` | Differs | `df1.exceptAll(df2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+---+---+\n\| C1\| C2\|\n+---+---+\n\|  a\|  1\|\n\|  a\|  1\|\n\|  in Spark |
+| `exceptAll` | Runs |  |
 | `explain` | Not checked |  |
-| `fillna` | Differs | `df.na.fill(50).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+------+-----+----+\n\|age\|height\| name\|bool\|\n+---+-- in Spark |
-| `filter` | Differs | `df.filter(df.age > 3).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+----+\n\|age\|name\|\n+---+----+\n\|  5\| Bob\|\n+---+---- in Spark |
+| `fillna` | Runs |  |
+| `filter` | Runs |  |
 | `first` | Runs |  |
 | `foreach` | Refused | `df.foreach(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `foreachPartition` | Refused | `df.foreachPartition(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `freqItems` | Runs |  |
-| `groupBy` | Differs | `df.groupBy().avg().show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+--------+\n\|avg(age)\|\n+--------+\n\|    2.75\|\n+-------- in Spark |
+| `groupBy` | Differs | `df.groupBy(df.name).max().sort("name").show()`: {"printed": "+-----+\n\| name\|\n+-----+\n\|Alice\|\n\|  Bob\|\n+-----+"} here, {"printed": "+-----+--------+\n\| name\|max(age)\|\n+-----+--------+\n\|Al in Spark |
 | `groupby` | Not checked |  |
 | `head` | Runs |  |
 | `hint` | Not checked |  |
 | `inputFiles` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a single...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
-| `intersect` | Differs | `df1.intersect(df2).sort(df1.C1.desc()).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+---+---+\n\| C1\| C2\|\n+---+---+\n\|  b\|  3\|\n\|  a\|  1\|\n+- in Spark |
-| `intersectAll` | Differs | `df1.intersectAll(df2).sort("C1", "C2").show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+---+---+\n\| C1\| C2\|\n+---+---+\n\|  a\|  1\|\n\|  a\|  1\|\n\|  in Spark |
+| `intersect` | Runs |  |
+| `intersectAll` | Runs |  |
 | `isEmpty` | Fails | `df_non_empty = spark.createDataFrame(["a"], 'STRING')`: PySparkValueError: Provided column names and number of columns in the DataFrame don't match |
 | `isLocal` | Runs |  |
 | `isStreaming` | Fails | `df = spark.readStream.format("rate").load()`: ValueError: readStream.load needs a path. |
-| `join` | Differs | `df.join(df2, 'name').select(df.name, df2.height).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+----+------+\n\|name\|height\|\n+----+------+\n\| Bob\|    85 in Spark |
-| `limit` | Differs | `df.limit(1).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+----+\n\|age\|name\|\n+---+----+\n\| 14\| Tom\|\n+---+---- in Spark |
+| `join` | Runs |  |
+| `limit` | Runs |  |
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
 | `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
 | `melt` | Not checked |  |
-| `na` | Differs | `df.na.fill(2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+---+\n\| c1\| c2\|\n+---+---+\n\|  1\|  2\|\n+---+---+"} in Spark |
+| `na` | Runs |  |
 | `observe` | Fails | `from pyspark.sql import Observation`: ImportError: cannot import name 'Observation' from 'duckdb.experimental.spark.sql' |
-| `offset` | Differs | `df.offset(1).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\| 23\|Alice\|\n\| 16\| in Spark |
-| `orderBy` | Differs | `df.sort(asc("age")).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\|  2\|Alice\|\n\|  5\| in Spark |
+| `offset` | Runs |  |
+| `orderBy` | Runs |  |
 | `pandas_api` | Runs |  |
 | `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
 | `printSchema` | Differs | `df.printSchema()`: {"printed": "root\n \|-- age: bigint (nullable = true)\n \|-- name: stri here, {"printed": "root\n \|-- age: long (nullable = true)\n \|-- name: string in Spark |
@@ -94,44 +94,44 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
 | `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `replace` | Differs | `df.na.replace(10, 20).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+----+------+-----+\n\| age\|height\| name\|\n+----+------+-- in Spark |
+| `replace` | Runs |  |
 | `rollup` | Fails | `df.rollup("name", df.age).count().orderBy("name", "age")....`: AttributeError: 'DataFrame' object has no attribute 'rollup' |
 | `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
 | `sample` | Runs |  |
 | `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |
 | `schema` | Runs |  |
-| `select` | Differs | `df.select('*').show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\|  2\|Alice\|\n\|  5\| in Spark |
-| `selectExpr` | Differs | `df.selectExpr("age * 2", "abs(age)").show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+---------+--------+\n\|(age * 2)\|abs(age)\|\n+---------+-- in Spark |
+| `select` | Runs |  |
+| `selectExpr` | Runs |  |
 | `semanticHash` | Not checked |  |
-| `show` | Fails | `df.show(2)`: TypeError: DataFrame.show() takes 1 positional argument but 2 were given |
-| `sort` | Differs | `df.sort(asc("age")).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\|  2\|Alice\|\n\|  5\| in Spark |
+| `show` | Runs |  |
+| `sort` | Runs |  |
 | `sortWithinPartitions` | Runs |  |
 | `sparkSession` | Runs |  |
 | `sql_ctx` | Not checked |  |
 | `stat` | Runs |  |
 | `storageLevel` | Fails | `df1.storageLevel`: AttributeError: 'DataFrame' object has no attribute 'storageLevel' |
-| `subtract` | Differs | `df1.subtract(df2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+---+---+\n\| C1\| C2\|\n+---+---+\n\|  c\|  4\|\n+---+---+"} in Spark |
-| `summary` | Differs | `df.select("age", "weight", "height").summary().show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
+| `subtract` | Runs |  |
+| `summary` | Differs | `df.select("age", "weight", "height").summary().show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
 | `tail` | Runs |  |
 | `take` | Runs |  |
 | `to` | Not checked |  |
-| `toDF` | Differs | `df.toDF('f1', 'f2').show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\| f1\|   f2\|\n+---+-----+\n\| 14\|  Tom\|\n\| 23\| in Spark |
+| `toDF` | Runs |  |
 | `toJSON` | Fails | `df.toJSON().first()`: AttributeError: 'DataFrame' object has no attribute 'toJSON' |
 | `toLocalIterator` | Runs |  |
 | `toPandas` | Not checked |  |
 | `to_koalas` | Not checked |  |
 | `to_pandas_on_spark` | Not checked |  |
 | `transform` | Fails | `df.transform(cast_all_to_int).transform(sort_columns_asc)...`: BinderException: Binder Error: Referenced column "CAST(float AS INTEGER)" not found in FROM clause! |
-| `union` | Differs | `df3.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\| id\|value\|\n+---+-----+\n\|  1\|    A\|\n\|  2\| in Spark |
+| `union` | Runs |  |
 | `unionAll` | Not checked |  |
-| `unionByName` | Differs | `df1.unionByName(df2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+----+----+----+\n\|col0\|col1\|col2\|\n+----+----+----+\n\|   in Spark |
+| `unionByName` | Runs |  |
 | `unpersist` | Runs |  |
-| `unpivot` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+---+------+\n\| id\|int\|double\|\n+---+---+------+\n\|   in Spark |
+| `unpivot` | Runs |  |
 | `where` | Not checked |  |
-| `withColumn` | Differs | `df.withColumn('age2', df.age + 2).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+----+\n\|age\| name\|age2\|\n+---+-----+----+\n\|   in Spark |
-| `withColumnRenamed` | Differs | `df.withColumnRenamed('age', 'age2').show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+----+-----+\n\|age2\| name\|\n+----+-----+\n\|   2\|Alice\|\n\| in Spark |
-| `withColumns` | Differs | `df.withColumns({'age2': df.age + 2, 'age3': df.age + 3})....`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+----+----+\n\|age\| name\|age2\|age3\|\n+---+-----+ in Spark |
-| `withColumnsRenamed` | Differs | `df.withColumnsRenamed({'age2': 'age4', 'age3': 'age5'}).s...`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+----+----+\n\|age\| name\|age4\|age5\|\n+---+-----+ in Spark |
+| `withColumn` | Runs |  |
+| `withColumnRenamed` | Runs |  |
+| `withColumns` | Runs |  |
+| `withColumnsRenamed` | Runs |  |
 | `withMetadata` | Fails | `df_meta = df.withMetadata('age', {'foo': 'bar'})`: AttributeError: 'DataFrame' object has no attribute 'withMetadata' |
 | `withWatermark` | Not checked |  |
 | `write` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tab2")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
@@ -160,19 +160,19 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `endswith` | Runs |  |
 | `eqNullSafe` | Fails | `df1.select( df1['value'] == 'foo', df1['value'].eqNullSaf...`: TypeError: 'Column' object is not callable |
 | `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
-| `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
+| `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "+--------------------------------------+----------------- here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |
 | `isNull` | Runs |  |
 | `isin` | Runs |  |
 | `like` | Runs |  |
 | `name` | Not checked |  |
-| `otherwise` | Differs | `df.select(df.name, sf.when(df.age > 3, 1).otherwise(0)).s...`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-----+-------------------------------------+\n\| name\|CAS in Spark |
-| `over` | Differs | `df.withColumn( "rank", rank().over(window) ).withColumn( ...`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+----+---+\n\|age\| name\|rank\|min\|\n+---+-----+-- in Spark |
+| `otherwise` | Differs | `df.select(df.name, sf.when(df.age > 3, 1).otherwise(0)).s...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------+\n\| name\|CAS in Spark |
+| `over` | Runs |  |
 | `rlike` | Runs |  |
 | `startswith` | Runs |  |
 | `substr` | Fails | `df.select(df.name.substr(1, 3).alias("col")).collect()`: TypeError: 'Column' object is not callable |
-| `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+-----+-------------------------------------------------- in Spark |
+| `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------------------- in Spark |
 | `withField` | Fails | `df.withColumn('a', df['a'].withField('b', lit(3))).select...`: TypeError: 'Column' object is not callable |
 
 ## GroupedData
@@ -183,14 +183,14 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `apply` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
 | `applyInPandas` | Fails | `from pyspark.sql.functions import pandas_udf, ceil`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
 | `applyInPandasWithState` | Fails | `from pyspark.sql.streaming.state import GroupStateTimeout`: ModuleNotFoundError: No module named 'pyspark.sql.streaming.state'; 'pyspark.sql.streaming' is not a package |
-| `avg` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
+| `avg` | Runs |  |
 | `cogroup` | Not checked |  |
-| `count` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+\n\|age\| name\|\n+---+-----+\n\|  2\|Alice\|\n\|  3\| in Spark |
-| `max` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
+| `count` | Runs |  |
+| `max` | Runs |  |
 | `mean` | Not checked |  |
-| `min` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
-| `pivot` | Differs | `df1.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2 here, {"printed": "+------+----+--------+\n\|course\|year\|earnings\|\n+------+- in Spark |
-| `sum` | Differs | `df.show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+-----+------+\n\|age\| name\|height\|\n+---+-----+------ in Spark |
+| `min` | Runs |  |
+| `pivot` | Runs |  |
+| `sum` | Runs |  |
 
 ## DataFrameReader
 
@@ -206,7 +206,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'orc' to <temp dir> on this PC. |
 | `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
 | `schema` | Refused | `spark.read.schema("col0 INT, col1 DOUBLE")`: NotImplementedError: On this PC, give read.schema() a StructType. A DDL string isn't supported. |
-| `table` | Differs | `spark.read.table('tblA').show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\ here, {"printed": "+---+\n\| id\|\n+---+\n\|  0\|\n\|  1\|\n\|  2\|\n\|  3\|\n\|  4\|\n\| in Spark |
+| `table` | Runs |  |
 | `text` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'text' to <temp dir> on this PC. |
 
 ## DataFrameWriter
@@ -234,9 +234,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `drop` | Differs | `df.na.drop().show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+------+-----+\n\|age\|height\| name\|\n+---+------+----- in Spark |
-| `fill` | Differs | `df.na.fill(50).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+---+------+-----+----+\n\|age\|height\| name\|bool\|\n+---+-- in Spark |
-| `replace` | Differs | `df.na.replace(10, 20).show()`: {"printed": "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2 here, {"printed": "+----+------+-----+\n\| age\|height\| name\|\n+----+------+-- in Spark |
+| `drop` | Runs |  |
+| `fill` | Runs |  |
+| `replace` | Runs |  |
 
 ## DataFrameStatFunctions
 

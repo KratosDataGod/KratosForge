@@ -1,0 +1,60 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "datasets": [],
+  "parity": null,
+  "id": "E64",
+  "title": "Read a query plan and fix the expensive step",
+  "objectives": [
+    "3.3.6"
+  ],
+  "objective_text": "Use EXPLAIN ANALYZE to find the join that multiplies rows, then aggregate each side before joining so the query reads fewer rows and the totals are right.",
+  "scenario": "The monthly revenue report joins orders to their lines and, since last week, to their payments. Finance says both totals jumped when payments were added, and the query got slower. An order has several lines and can have several payments, so joining both to the order pairs every line with every payment.",
+  "prerequisites": [
+    "LM-18",
+    "LAB-02"
+  ],
+  "minutes": 20,
+  "mode": "guided",
+  "starter": "monthly_revenue.sql",
+  "verifies": [
+    "Your query returns the right orders, line total and paid total for each region and month, on this PC with DuckDB."
+  ],
+  "does_not_verify": [
+    "A speed-up threshold: the fix reads far fewer rows, but timings vary from PC to PC, so speed is shown as a measurement, not a pass mark.",
+    "How a Fabric Warehouse or the SQL analytics endpoint plans the same query: their plans look different, though the join that multiplies rows does too.",
+    "Anything about capacity units: a local timing is not a CU estimate."
+  ],
+  "expected": {
+    "description": "Columns region, order_month, orders, line_total, paid_total: 12 rows (4 regions by 3 months), ordered by region then month; unpaid orders count with a paid total of 0."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The totals are right for every region and month.",
+      "fail": "Some totals are wrong: check that each line and each payment is counted once, and that unpaid orders still count."
+    }
+  ],
+  "hints": [
+    "Run EXPLAIN ANALYZE on the starter. Compare the rows coming out of the join with payments to the number of order lines.",
+    "An order with 4 lines and 3 payments comes out of the joins as 12 rows, so each line is counted 3 times and each payment 4 times. SUM(DISTINCT ...) isn't a fix: two lines with the same amount would count once.",
+    "Sum the lines per order and the payments per order first, in two CTEs, then join both to orders. Keep the payments join LEFT, and show 0 when nothing is paid."
+  ],
+  "explanation": "When two one-to-many tables are joined to the same parent, every child row of one is paired with every child row of the other, so the join returns lines x payments rows per order. The plan shows it as a join whose output is much bigger than either input, and every sum above it is inflated. Aggregating each child table to one row per order before the join keeps the join one-to-one, so it reads fewer rows and each amount is counted once.",
+  "remediation": [
+    "LM-18",
+    "LAB-02",
+    "https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance"
+  ],
+  "reset": "Reset restores monthly_revenue.sql; the data is rebuilt from the same fixed hashes.",
+  "review_notes": [
+    "The starter is both slow and wrong (the fan-out inflates both totals), so result_matches alone separates it from the fix. Speed isn't graded."
+  ]
+}

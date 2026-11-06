@@ -19,10 +19,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 356 |
+| Runs | 367 |
 | Differs | 0 |
-| Refused | 29 |
-| Fails | 3 |
+| Refused | 21 |
+| Fails | 0 |
 | Not checked | 50 |
 | **All** | **438** |
 
@@ -40,7 +40,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `bit_or` | Runs | `SELECT bit_or(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bit_xor` | Runs | `SELECT bit_xor(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bitmap_construct_agg` | Runs | `SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) FROM VALUES (1), (2), (3) AS tab(col)` |  |
-| `bitmap_or_agg` | Fails | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` | Could not read the query: Expecting ). Line 1, Col: 67. |
+| `bitmap_or_agg` | Runs | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` |  |
 | `bool_and` | Runs | `SELECT bool_and(col) FROM VALUES (true), (true), (true) AS tab(col)` |  |
 | `bool_or` | Runs | `SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)` |  |
 | `collect_list` | Runs | `SELECT collect_list(col) FROM VALUES (1), (2), (1) AS tab(col)` |  |
@@ -229,7 +229,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `now` | Not checked | `SELECT now()` |  |
 | `quarter` | Runs | `SELECT quarter('2016-08-31')` |  |
 | `second` | Runs | `SELECT second('2009-07-30 12:58:59')` |  |
-| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabri |
+| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: session windows run in Fabric only. Run the cell in Fabric. |
 | `timestamp_micros` | Runs | `SELECT timestamp_micros(1230219000123123)` |  |
 | `timestamp_millis` | Runs | `SELECT timestamp_millis(1230219000123)` |  |
 | `timestamp_seconds` | Runs | `SELECT timestamp_seconds(1230219000)` |  |
@@ -248,8 +248,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `unix_timestamp` | Not checked | `SELECT unix_timestamp()` |  |
 | `weekday` | Runs | `SELECT weekday('2009-07-30')` |  |
 | `weekofyear` | Runs | `SELECT weekofyear('2008-02-20')` |  |
-| `window` | Fails | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` | Parser Error: syntax error at or near "(" |
-| `window_time` | Refused | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` | window_time() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabric. |
+| `window` | Runs | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` |  |
+| `window_time` | Runs | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` |  |
 | `year` | Runs | `SELECT year('2016-07-30')` |  |
 
 ## Generator
@@ -269,12 +269,12 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `crc32` | Runs | `SELECT crc32('Spark')` |  |
-| `hash` | Refused | `SELECT hash('Spark', array(123), 2)` | hash() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's hash gives a different number from the hash this PC has. Run it in Fabric, or use |
+| `hash` | Runs | `SELECT hash('Spark', array(123), 2)` |  |
 | `md5` | Runs | `SELECT md5('Spark')` |  |
 | `sha` | Runs | `SELECT sha('Spark')` |  |
 | `sha1` | Runs | `SELECT sha1('Spark')` |  |
 | `sha2` | Runs | `SELECT sha2('Spark', 256)` |  |
-| `xxhash64` | Refused | `SELECT xxhash64('Spark', array(123), 2)` | xxhash64() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's xxhash64 gives a different number from the hash this PC has. Run it in Fabric |
+| `xxhash64` | Runs | `SELECT xxhash64('Spark', array(123), 2)` |  |
 
 ## JSON
 
@@ -402,7 +402,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `assert_true` | Runs | `SELECT assert_true(0 < 1)` |  |
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
-| `bitmap_count` | Fails | `SELECT bitmap_count(X '1010')` | Could not read the query: Expecting ). Line 1, Col: 28. |
+| `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
 | `current_catalog` | Not checked | `SELECT current_catalog()` |  |
 | `current_database` | Not checked | `SELECT current_database()` |  |
 | `current_schema` | Not checked | `SELECT current_schema()` |  |
@@ -520,13 +520,13 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `substring` | Runs | `SELECT substring('Spark SQL', 5)` |  |
 | `substring_index` | Runs | `SELECT substring_index('www.apache.org', '.', 2)` |  |
 | `to_binary` | Runs | `SELECT to_binary('abc', 'utf-8')` |  |
-| `to_char` | Refused | `SELECT to_char(454, '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Argument 'format' is not supported for expression 'ToChar' when targeting KfD |
-| `to_number` | Refused | `SELECT to_number('454', '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Unsupported TO_NUMBER function Run it in Fabric, or rewrite that part. |
-| `to_varchar` | Refused | `SELECT to_varchar(454, '999')` | to_varchar() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabric,  |
+| `to_char` | Runs | `SELECT to_char(454, '999')` |  |
+| `to_number` | Runs | `SELECT to_number('454', '999')` |  |
+| `to_varchar` | Runs | `SELECT to_varchar(454, '999')` |  |
 | `translate` | Runs | `SELECT translate('AaBbCc', 'abc', '123')` |  |
 | `trim` | Runs | `SELECT trim(' SparkSQL ')` |  |
 | `try_to_binary` | Runs | `SELECT try_to_binary('abc', 'utf-8')` |  |
-| `try_to_number` | Refused | `SELECT try_to_number('454', '999')` | try_to_number() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabri |
+| `try_to_number` | Runs | `SELECT try_to_number('454', '999')` |  |
 | `ucase` | Runs | `SELECT ucase('SparkSql')` |  |
 | `unbase64` | Runs | `SELECT unbase64('U3BhcmsgU1FM')` |  |
 | `upper` | Runs | `SELECT upper('SparkSql')` |  |
@@ -542,7 +542,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `parse_url` | Refused | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: PARSE_URL is not supported in DuckDB Run it in Fabric, or rewrite that part. |
+| `parse_url` | Runs | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` |  |
 | `url_decode` | Runs | `SELECT url_decode('https%3A%2F%2Fspark.apache.org')` |  |
 | `url_encode` | Runs | `SELECT url_encode('https://spark.apache.org')` |  |
 

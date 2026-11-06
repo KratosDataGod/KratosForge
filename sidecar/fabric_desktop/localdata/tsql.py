@@ -33,12 +33,14 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Container
 from typing import Any
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
+from sqlglot.helper import seq_get
 from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
@@ -70,7 +72,7 @@ def split_batches(sql: str) -> list[str]:
 
 
 def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
-              known: set[str] | None = None) -> tuple[list[str], list[str]]:
+              known: Container[str] | None = None) -> tuple[list[str], list[str]]:
     """Each statement of the T-SQL script ``sql`` as DuckDB SQL, and notes on what may differ.
 
     ``columns`` is {schema: {table: {column: DuckDB type}}} for the tables the script may read; it
@@ -86,6 +88,8 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
+                parts.replace(_timefromparts(parts))
             _converts(tree)
             notes += _types(tree, schema)
             notes += _likes(tree)
@@ -119,7 +123,11 @@ class KfTSQL(TSQL):
 
     class Parser(TSQL.Parser):  # type: ignore[misc,valid-type]  # as Tokenizer above
         # FORMAT is kept as written until its value's type is known (tsql_format).
-        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build}
+        # SQUARE is a float in T-SQL; sqlglot reads it as POWER(x, 2), which keeps an integer's type and
+        # refuses a decimal (_power).
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+                     "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
+                                                    expression=exp.Literal.number(2))}
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -174,6 +182,10 @@ def _refuse(tree: exp.Expression) -> None:
                                                                                    "TRIGGER"):
         raise ValueError(f"T-SQL CREATE {tree.args['kind'].upper()} doesn't run on the local engine. "
                          "Procedures and functions run in a Fabric Warehouse.")
+    for written in tree.find_all(exp.DataType):
+        if written.this in (exp.DataType.Type.MONEY, exp.DataType.Type.SMALLMONEY):
+            raise ValueError(_NOT_YET + "MONEY and SMALLMONEY aren't carried yet, and neither are their CONVERT "
+                             "styles. Use DECIMAL(19, 4) for money and DECIMAL(10, 4) for smallmoney.")
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
         raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
@@ -218,7 +230,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.qualify import qualify
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
-             tsql_format.TsqlFormat)
+             exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     if not here and not compared:
@@ -235,17 +248,19 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't tell the column types, so divisions, averages, casts to integers and text comparisons are "
-                "done as DuckDB does them (T-SQL divides and averages integers as integers, cuts a decimal cast to an "
-                "integer toward zero, and ignores trailing spaces when it compares text)."]
+        return ["Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
+                "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
+                "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
+                "text, and writes a float in CONCAT with at most 6 significant digits)."]
     notes = _padded(compared, _in_order(typed, _COMPARISONS))
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for node in sized:
             _sized_text(node, None)
-        return notes + ["Couldn't match the query's columns to their types, so divisions, averages and casts to "
-                "integers are done as DuckDB does them (T-SQL divides and averages integers as integers, and cuts a "
-                "decimal cast to an integer toward zero)."]
+        return notes + ["Couldn't match the query's columns to their types, so divisions, averages, casts to "
+                "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
+                "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
+                "with at most 6 significant digits)."]
     for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
@@ -261,8 +276,12 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
+        elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
+            notes += _same_type(node, info.this.type)
         elif isinstance(node, tsql_format.TsqlFormat):
             tsql_format.rewrite(node, info.this.type)
+        elif isinstance(node, (exp.Concat, exp.ConcatWs)):
+            notes += _floats_joined(node, info)
         elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
             if _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
@@ -272,9 +291,11 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
             elif _is(a, _TEXT) and _is(b, _NUMBERS):
                 # A number outranks text in T-SQL: '1' + 1 is 2 (and 'x' + 1 is an error).
-                node.set("this", exp.Cast(this=node.this, to=b.copy()))
+                assert b is not None
+                _text_as_number(node, "this", b)
             elif _is(b, _TEXT) and _is(a, _NUMBERS):
-                node.set("expression", exp.Cast(this=node.expression, to=a.copy()))
+                assert a is not None
+                _text_as_number(node, "expression", a)
             elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
@@ -284,8 +305,40 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                     and _unknown(info.this.type):
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
+            source = _numeric_style(node, info) or info.this.type
             _truncated(node, info.this.type)
-            _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
+            _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+    return notes
+
+
+def _text_as_number(node: exp.Add, side: str, to: exp.DataType) -> None:
+    """The text side of ``+`` converted to the number's type, as T-SQL does: ``'' + 1`` is 1 and ``f + ''`` is f,
+    since '' converts to 0 for an integer or a float (DuckDB refuses it); text for an integer has to be a whole
+    number, as in a CAST. A decimal refuses '' in both."""
+    cast = exp.Cast(this=node.args[side], to=to.copy())
+    node.set(side, cast)
+    if to.this in _INTEGERS - {exp.DataType.Type.BIT}:
+        _whole_text(cast, to)
+    elif to.this in _FLOATS:
+        v = exp.to_identifier("kf_text")
+        blank = exp.EQ(this=exp.func("TRIM", v.copy()), expression=exp.Literal.string(""))
+        case = exp.Case(ifs=[exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy()))],
+                        default=exp.Cast(this=v.copy(), to=to.copy()))
+        bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[cast.this]), exp.Lambda(this=case, expressions=[v]))
+        cast.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))
+
+
+def _floats_joined(node: exp.Expression, info: exp.Expression) -> list[str]:
+    """``CONCAT`` and ``CONCAT_WS`` write a float as text in T-SQL's style 0 (``0.333333``), as a CAST to text does;
+    DuckDB writes its shortest exact form. An argument whose type can't be told is left as it is, with a note."""
+    notes = []
+    for arg, typed in zip(list(node.expressions), info.expressions, strict=True):
+        if _is(typed.type, _FLOATS):
+            arg.replace(_float_text(arg.copy()))
+        elif _unknown(typed.type) and not isinstance(arg, (exp.Literal, exp.Null)):
+            notes.append(f"Couldn't tell the type of {arg.sql(dialect='tsql')} in {node.sql(dialect='tsql')}: a float "
+                         "there is written as DuckDB does (0.3333333333333333), and T-SQL writes at most 6 "
+                         "significant digits (0.333333).")
     return notes
 
 
@@ -293,9 +346,7 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
     """``POWER(x, y)`` has x's type in T-SQL: an integer base gives an integer, cut toward zero
     (``POWER(2, -1)`` is 0), and a result too big for that type is an error. A decimal base keeps the
     decimal's scale, which isn't carried here, so it is refused rather than answered differently."""
-    first = node.this.this if isinstance(node.this, exp.Neg) else node.this
-    written_decimal = isinstance(first, exp.Literal) and not first.is_string and "." in first.name \
-        and "e" not in first.name.lower()  # 2.0 is a decimal in T-SQL, 2e0 a float
+    written_decimal = _written_decimal(node.this)
     if _is(base, _INTEGERS - {exp.DataType.Type.BIT}) and not written_decimal:
         assert base is not None
         big = base.this == exp.DataType.Type.BIGINT  # tinyint and smallint give an int, as T-SQL's POWER does
@@ -307,6 +358,33 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
     elif _unknown(base):
         return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
                 "point, and T-SQL gives the first argument's type (an integer base gives an integer)."]
+    return []
+
+
+def _written_decimal(node: exp.Expression) -> bool:
+    """``2.0`` is a decimal in T-SQL and ``2e0`` a float; sqlglot types both as a float."""
+    first = node.this if isinstance(node, exp.Neg) else node
+    return isinstance(first, exp.Literal) and not first.is_string and "." in first.name \
+        and "e" not in first.name.lower()
+
+
+def _same_type(node: exp.Expression, arg: exp.DataType | None) -> list[str]:
+    """``CEILING``, ``FLOOR``, ``DEGREES`` and ``RADIANS`` give their argument's type in T-SQL: ``CEILING(5)`` is the
+    integer 5 and ``DEGREES(1)`` the integer 57 (cut toward zero), where DuckDB gives a float. ``DEGREES`` and
+    ``RADIANS`` of a decimal keep the decimal's scale, which isn't carried here, so they are refused."""
+    name = "DEGREES" if isinstance(node, exp.Degrees) else "RADIANS"
+    if isinstance(node, (exp.Degrees, exp.Radians)) and (
+            _written_decimal(node.this) or _is(arg, {exp.DataType.Type.DECIMAL, exp.DataType.Type.MONEY,
+                                                     exp.DataType.Type.SMALLMONEY})):
+        raise ValueError(_NOT_YET + f"{name} of a decimal keeps the decimal's scale in T-SQL, which isn't mapped "
+                         "yet. Cast the argument to FLOAT.")
+    if _is(arg, _INTEGERS - {exp.DataType.Type.BIT}) and not _written_decimal(node.this):
+        assert arg is not None
+        inner = node.copy() if isinstance(node, (exp.Ceil, exp.Floor)) else exp.Trunc(this=node.copy())
+        node.replace(exp.Cast(this=inner, to=arg.copy()))
+    elif _unknown(arg):
+        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
+                "gives the argument's type (an integer gives an integer)."]
     return []
 
 
@@ -343,6 +421,35 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
+_FLOATS = {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+
+
+def _float_text(value: exp.Expression) -> exp.Expr:
+    """A float as text in T-SQL's style 0: at most 6 significant digits, in scientific notation
+    from 1e+006 up and below 0.0001, with a three-digit exponent (``0.333333``, ``1.23457e+006``). That is C's
+    ``%g`` with the exponent padded; DuckDB writes the shortest exact form instead."""
+    printed = exp.func("PRINTF", exp.Literal.string("%g"), value)  # a float always converts
+    return exp.func("REGEXP_REPLACE", printed, exp.Literal.string(r"e([+-])(\d\d)$"), exp.Literal.string(r"e\10\2"))
+
+
+def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType | None:
+    """sqlglot reads a ``CONVERT`` style as a date style, so ``CONVERT(VARCHAR, x, 1)`` of a number
+    became ``STRFTIME(x, '%m/%d/%y')``, which fails. For an integer or a decimal T-SQL ignores the
+    style, and so does this; a float's styles 1, 2 and 3 (8, 16 and 17 digits) are refused. Returns
+    the number's type when the STRFTIME was taken off."""
+    style = node.meta.get("tsql_style")
+    if style is None or not isinstance(node.this, exp.TimeToStr) or not isinstance(info.this, exp.TimeToStr):
+        return None
+    kind = info.this.this.type
+    if not _is(kind, _NUMBERS):
+        return None
+    if style != "0" and _is(kind, _FLOATS):
+        raise ValueError(f"This T-SQL can't be run on the local engine: CONVERT style {style} for a float isn't "
+                         "carried yet. Leave the style out, or use 0.")
+    node.set("this", node.this.this)
+    return kind
+
+
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 _PADDED = {exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 
@@ -363,9 +470,10 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if isinstance(node, exp.TryCast):
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
     if _is(source, _NUMBERS):
-        too_long = exp.GT(this=exp.func("LENGTH", text.copy()), expression=exp.Literal.number(n))
+        shown = _float_text(node.this) if _is(source, _FLOATS) else text
+        too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=text)
+        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:
@@ -385,6 +493,9 @@ def _converts(tree: exp.Expression) -> None:
             # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
+            style = node.args.get("style")
+            if isinstance(new.this, exp.TimeToStr) and isinstance(style, exp.Literal):
+                new.meta["tsql_style"] = style.name  # a date style, unless _types finds a number (_numeric_style)
         node.replace(new)
 
 
@@ -674,6 +785,9 @@ def _gaps(tree: exp.Expression) -> None:
             else:
                 inner = exp.TryCast if isinstance(node, exp.TryCast) else exp.Cast
                 node.set("this", inner(this=value, to=exp.DataType.build("DECIMAL(38, 10)")))
+    if any(True for _ in tree.find_all(exp.OpenJSON)):
+        raise ValueError(_NOT_YET + "OPENJSON isn't mapped yet. JSON_VALUE and JSON_QUERY read one value or object "
+                         "from JSON text.")
     for rounded in list(tree.find_all(exp.Round)):
         mode = rounded.args.get("truncate")
         if mode is None:
@@ -731,6 +845,37 @@ def _quotename(args: list[exp.Expression]) -> exp.Expression:
                                 true=exp.Null())], default=quoted)
 
 
+def _timefromparts(node: exp.TimeFromParts) -> exp.Expression:
+    """``TIMEFROMPARTS(hour, minute, seconds, fractions, precision)``: fractions are tenths, hundredths and so
+    on of a second, by the precision, which T-SQL needs written in the query. DuckDB's time keeps
+    microseconds, so precision 7 runs here only with fractions written in the query that end in 0."""
+    precision = node.args.get("precision")
+    if not (isinstance(precision, exp.Literal) and not precision.is_string and precision.name.isdigit()
+            and int(precision.name) <= 7):
+        raise ValueError(_NOT_YET + "TIMEFROMPARTS's precision has to be a whole number from 0 to 7 written in the query.")
+    places = int(precision.name)
+    fractions = node.args.get("fractions") or exp.Literal.number(0)
+    written = isinstance(fractions, exp.Literal) and not fractions.is_string and fractions.name.isdigit()
+    if written and int(fractions.name) >= 10 ** places:
+        raise ValueError(f"TIMEFROMPARTS's fractions ({fractions.name}) don't fit a precision of {places}.")
+    if places == 7 and not (written and int(fractions.name) % 10 == 0):
+        raise ValueError(_NOT_YET + "TIMEFROMPARTS with precision 7 needs fractions written in the query that end "
+                         "in 0: times here keep microseconds.")
+    micros: exp.Expression = (exp.Literal.number(int(fractions.name) // 10) if places == 7 else
+                              exp.Mul(this=exp.Cast(this=fractions.copy(), to=exp.DataType.build("BIGINT")),
+                                      expression=exp.Literal.number(10 ** (6 - places))))
+    if not written:  # fractions from a column or an expression: stop as T-SQL does, never carry into the seconds
+        f = exp.Cast(this=fractions.copy(), to=exp.DataType.build("BIGINT"))
+        micros = exp.Case(ifs=[exp.If(this=exp.or_(exp.LT(this=f, expression=exp.Literal.number(0)),
+                                                   exp.GTE(this=f.copy(), expression=exp.Literal.number(10 ** places))),
+                                      true=exp.Anonymous(this="ERROR", expressions=[exp.Literal.string(
+                                          f"TIMEFROMPARTS's fractions don't fit a precision of {places}.")]))],
+                          default=micros)
+    seconds = exp.Add(this=exp.Cast(this=node.args["sec"].copy(), to=exp.DataType.build("DOUBLE")),
+                      expression=exp.Div(this=exp.paren(micros), expression=exp.Literal.number(1000000.0)))
+    return exp.Anonymous(this="MAKE_TIME", expressions=[node.args["hour"].copy(), node.args["min"].copy(), exp.paren(seconds)])
+
+
 def _whole_literal(node: exp.Expression, what: str, low: int, high: int) -> int:
     if not (isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit()
             and low <= int(node.name) <= high):
@@ -756,7 +901,7 @@ def _str(args: list[exp.Expression]) -> exp.Expression:
                     default=exp.Literal.string("*" * length))
 
 
-def _unknown_functions(tree: exp.Expression, known: set[str]) -> None:
+def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
     """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
     for call in tree.find_all(exp.Anonymous):
         name = call.name.upper()
@@ -816,6 +961,19 @@ def _whole(node: exp.Expression | None, low: int) -> bool:
     return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
 
 
+def _number(node: exp.Expression | None) -> float | None:
+    """The value of a number literal such as ``2``, ``-1`` or ``-0.5``; None for anything else."""
+    sign = 1.0
+    if isinstance(node, exp.Neg):
+        node, sign = node.this, -1.0
+    if isinstance(node, exp.Literal) and not node.is_string:
+        try:
+            return sign * float(node.name)
+        except ValueError:
+            return None
+    return None
+
+
 def _string_edges(tree: exp.Expression) -> None:
     """Where DuckDB's string functions answer differently from T-SQL's at the edges, as T-SQL does:
 
@@ -825,10 +983,43 @@ def _string_edges(tree: exp.Expression) -> None:
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
     - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
+    - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
+      characters of ``a`` that have no partner in ``b``).
 
     Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat)):
-        if isinstance(node, exp.Substring):
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate)):
+        if isinstance(node, (exp.Left, exp.Right)):
+            name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
+            length = node.expression
+            message = f"Invalid length parameter passed to the {name} function."
+            value = _number(length)
+            if value is not None:
+                # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
+                if int(value) < 0:
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same "
+                                     "error.")
+                if not _whole(length, 0):  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
+                    node.set("expression", exp.Literal.number(int(value)))
+            elif not _whole(length, 0):
+                whole = exp.cast(exp.Trunc(this=length.copy()), "BIGINT")
+                negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+                node.set("expression", whole)
+                node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))],
+                                      default=node.copy()))
+        elif isinstance(node, exp.Translate):
+            source, target = node.args["from_"], node.args["to"]
+            message = ("The second and third arguments of the TRANSLATE function must contain an equal number "
+                       "of characters.")
+            if all(isinstance(x, exp.Literal) and x.is_string for x in (source, target)):
+                if len(source.name) != len(target.name):
+                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the "
+                                     "same error.")
+                continue
+            differ = exp.NEQ(this=exp.func("LENGTH", source.copy()), expression=exp.func("LENGTH", target.copy()))
+            node.replace(exp.Case(ifs=[exp.If(this=differ, true=exp.func("ERROR", exp.Literal.string(message)))],
+                                  default=node.copy()))
+        elif isinstance(node, exp.Substring):
             start, length = node.args.get("start"), node.args.get("length")
             if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
                 continue
@@ -844,8 +1035,8 @@ def _string_edges(tree: exp.Expression) -> None:
                                default=exp.Substring(this=node.this, start=first, length=count))
             if not _whole(length, 0):
                 negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
-                message = exp.Literal.string("Invalid length parameter passed to the SUBSTRING function.")
-                cut = exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", message))], default=cut)
+                error = exp.func("ERROR", exp.Literal.string("Invalid length parameter passed to the SUBSTRING function."))
+                cut = exp.Case(ifs=[exp.If(this=negative, true=error)], default=cut)
             node.replace(cut)
         elif isinstance(node, exp.Stuff):
             start, length = node.args["start"], node.args["length"]

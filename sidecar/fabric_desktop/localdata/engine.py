@@ -34,7 +34,7 @@ from contextlib import contextmanager
 import time
 import uuid
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import duckdb
 import pyarrow as pa
@@ -669,7 +669,9 @@ class LocalEngine:
                               "kind": "write delta" if write else _kind(text)})
             return steps
         if dialect == "tsql":
-            texts, notes = tsql.translate(sql, self._column_types(con), self._function_names(con))
+            # The function list is read only for a query that calls a function sqlglot doesn't know: building it
+            # is most of a short T-SQL query's time (about 15 ms of 21 in examples/benchmark).
+            texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
             return self._duckdb_steps(con, texts, n)
@@ -1295,6 +1297,19 @@ def _analyze(con: duckdb.DuckDBPyConnection, sql: str) -> Any:
             except duckdb.Error:
                 pass
     return _Rows(rows)
+
+
+class _FunctionNames:
+    """The database's function names, read the first time a name is looked up, then kept for that one query."""
+
+    def __init__(self, load: Callable[[], set[str]]) -> None:
+        self._load = load
+        self._names: set[str] | None = None
+
+    def __contains__(self, name: object) -> bool:
+        if self._names is None:
+            self._names = self._load()
+        return name in self._names
 
 
 class _Rows:

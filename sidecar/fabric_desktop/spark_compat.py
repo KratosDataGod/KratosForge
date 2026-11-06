@@ -258,6 +258,11 @@ def xxhash64(*cols: Any) -> Column:
     return _call(f"xxhash64({', '.join('{%d}' % i for i in range(len(cols)))})", *cols)
 
 
+def _spark_hash(*cols: Any) -> Column:
+    """F.hash: Spark's hash (named apart here so this module keeps Python's own hash)."""
+    return _call(f"hash({', '.join('{%d}' % i for i in range(len(cols)))})", *cols)
+
+
 def uuid() -> Column:
     return _sql("CAST(uuid() AS VARCHAR)")
 
@@ -417,7 +422,7 @@ def count(col: Any) -> Column:
 FUNCTIONS = {name: obj for name, obj in list(globals().items())
              if callable(obj) and not name.startswith("_") and getattr(obj, "__module__", "") == __name__
              and name not in ("spark_expr", "install")}
-FUNCTIONS |= {"countDistinct": count_distinct, "sumDistinct": sum_distinct, "count": count}
+FUNCTIONS |= {"countDistinct": count_distinct, "sumDistinct": sum_distinct, "count": count, "hash": _spark_hash}
 
 
 # ---- windows
@@ -501,6 +506,98 @@ def _order_of(c: Any) -> str:
     return vars(c).get("_fd_order", "ASC NULLS FIRST") if isinstance(c, Column) else "ASC NULLS FIRST"
 
 
+# A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
+_RELATION = re.compile(r"\bunnamed_relation_[0-9a-f]+\.")
+# A quoted identifier in DuckDB's name ("name", quoted as a keyword): Spark writes it bare.
+_IDENTIFIER = re.compile(r'"((?:[^"]|"")*)"')
+
+
+def _named(col: Column, name: str) -> Column:
+    """``col`` carrying Spark's name for it, which select and agg give it (see _spark_named_cols). An
+    alias would name it too, but DuckDB writes an alias inside a function's arguments as name := ...,
+    which would then show in the name of any function around it."""
+    col._fd_name = name  # type: ignore[attr-defined]
+    return col
+
+
+def _spark_named_cols(cols: Any) -> Any:
+    """Columns given to select or agg, each one that carries Spark's name aliased to it."""
+    return [c.alias(vars(c)["_fd_name"]) if isinstance(c, Column) and vars(c).get("_fd_name") else c for c in cols]
+
+
+def _naming(fn: Any) -> Any:
+    """DataFrame.select, DataFrame.agg and GroupedData.agg, giving their columns Spark's names."""
+    def call(self: Any, *cols: Any) -> Any:
+        if len(cols) == 1 and isinstance(cols[0], list):
+            return fn(self, _spark_named_cols(cols[0]))
+        return fn(self, *_spark_named_cols(cols))
+    call.__name__ = getattr(fn, "__name__", "call")
+    call.__doc__ = fn.__doc__
+    return call
+
+
+def _spark_text(value: Any) -> str:
+    """``value`` as Spark writes it inside a generated column name: a column by its name, a string as
+    is, None as NULL, a double as Java writes it."""
+    if isinstance(value, Column):
+        if (name := vars(value).get("_fd_name")) is not None:
+            return str(name)
+        return _IDENTIFIER.sub(lambda m: m.group(1).replace('""', '"'), _RELATION.sub("", value.expr.get_name()))
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return _java_double(value)
+    return str(value)
+
+
+def _operand_sql(value: Any) -> str:
+    """``value`` as DuckDB SQL: a column's own expression, or a literal (NaN and infinities spelled out,
+    which DuckDB's constant would print as NULL)."""
+    if isinstance(value, Column):
+        return _col_sql(value)
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return f"CAST('{value!r}' AS DOUBLE)"
+    return str(duckdb.ConstantExpression(value))
+
+
+def _between(self: Column, lowerBound: Any, upperBound: Any) -> Column:  # noqa: N803 - PySpark's names
+    """Column.between: lower <= x <= upper, both ends included, named as Spark names it."""
+    me, lo, hi = _operand_sql(self), _operand_sql(lowerBound), _operand_sql(upperBound)
+    name = f"(({_spark_text(self)} >= {_spark_text(lowerBound)}) AND ({_spark_text(self)} <= {_spark_text(upperBound)}))"
+    return _named(_sql(f"(({me} >= {lo}) AND ({me} <= {hi}))"), name)
+
+
+def _substr(self: Column, startPos: Any, length: Any) -> Column:  # noqa: N803 - PySpark's names
+    """Column.substr: ``length`` characters from 1-based ``startPos`` (Spark's substring), both ints or
+    both Columns, as PySpark requires."""
+    ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (startPos, length))
+    if not ints and not (isinstance(startPos, Column) and isinstance(length, Column)):
+        raise TypeError(f"startPos and length must both be ints or both be Columns, got "
+                        f"{type(startPos).__name__} and {type(length).__name__}")
+    name = f"substring({_spark_text(self)}, {_spark_text(startPos)}, {_spark_text(length)})"
+    if ints:
+        return _named(_call(f"substring({{0}}, {startPos}, {length})", self), name)
+    return _named(_call("substring({0}, {1}, {2})", self, startPos, length), name)
+
+
+def _bitwise(operator: str) -> Any:
+    """Column.bitwiseAND, bitwiseOR and bitwiseXOR, named as Spark names them: (a & b)."""
+    sql = {"&": "({a} & {b})", "|": "({a} | {b})", "^": "xor({a}, {b})"}[operator]
+
+    def bitwise(self: Column, other: Any) -> Column:
+        text = sql.format(a=_operand_sql(self), b=_operand_sql(other))
+        return _named(_sql(text), f"({_spark_text(self)} {operator} {_spark_text(other)})")
+    return bitwise
+
+
+def _eq_null_safe(self: Column, other: Any) -> Column:
+    """Column.eqNullSafe: equal, with NULL equal to NULL (Spark's <=>), never NULL itself."""
+    text = f"({_operand_sql(self)} IS NOT DISTINCT FROM {_operand_sql(other)})"
+    return _named(_sql(text), f"({_spark_text(self)} <=> {_spark_text(other)})")
+
+
 def _get_item(self: Column, key: Any) -> Column:
     """``col.getItem(key)`` and ``col[key]``: a whole number is an array's 0-based position (NULL
     outside the array, as Spark gives without ANSI mode); text is a map's key or a struct's field."""
@@ -510,8 +607,8 @@ def _get_item(self: Column, key: Any) -> Column:
     if isinstance(key, bool) or not isinstance(key, (int, str)):
         raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
     if isinstance(key, int):
-        return _sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]")
-    return _sql(f"({_col_sql(self)})[{_lit(key)}]")
+        return _named(_sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]"), f"{_spark_text(self)}[{key}]")
+    return _named(_sql(f"({_col_sql(self)})[{_lit(key)}]"), f"{_spark_text(self)}[{key}]")
 
 
 def _getitem(original: Any) -> Any:
@@ -545,6 +642,78 @@ def _over(self: Column, window: WindowSpec) -> Column:
         text = f"{m.group(1)}_value({m.group(2)} IGNORE NULLS)"
     return _sql(f"{text} OVER ({window.sql()})")
 
+
+# ---- Spark's generated column names
+# A Column made by an operator, a CASE or a null check is named as Spark names it ((age > 3),
+# CASE WHEN (age > 3) THEN 1 ELSE 0 END, (age IS NULL)); DuckDB's own names carry its relation
+# (unnamed_relation_<hex>.age) and its SQL spelling. Only the name changes: str(col.expr), which
+# the SQL is built from, leaves the alias out.
+
+# Spark's text for each operator: how the two sides (self, other) are written.
+_OPERATORS = {
+    "__eq__": "({a} = {b})", "__ne__": "(NOT ({a} = {b}))", "__lt__": "({a} < {b})", "__le__": "({a} <= {b})",
+    "__gt__": "({a} > {b})", "__ge__": "({a} >= {b})", "__add__": "({a} + {b})", "__sub__": "({a} - {b})",
+    "__mul__": "({a} * {b})", "__truediv__": "({a} / {b})", "__div__": "({a} / {b})", "__mod__": "({a} % {b})",
+    "__pow__": "POWER({a}, {b})", "__and__": "({a} AND {b})", "__or__": "({a} OR {b})",
+    # PySpark's reverse operators: + * AND OR keep the column first, the others put the value first
+    "__radd__": "({a} + {b})", "__rmul__": "({a} * {b})", "__rand__": "({a} AND {b})", "__ror__": "({a} OR {b})",
+    "__rsub__": "({b} - {a})", "__rtruediv__": "({b} / {a})", "__rdiv__": "({b} / {a})", "__rmod__": "({b} % {a})",
+    "__rpow__": "POWER({b}, {a})",
+}
+_UNARY = {"__neg__": "(- {a})", "__invert__": "(NOT {a})", "isNull": "({a} IS NULL)",
+          "isNotNull": "({a} IS NOT NULL)"}
+
+
+def _spark_named(name: str, fn: Any) -> Any:
+    template = _OPERATORS.get(name) or _UNARY[name]
+
+    def named(self: Column, *other: Any) -> Any:
+        out = fn(self, *other)
+        if not isinstance(out, Column):  # NotImplemented, for Python to try the other side
+            return out
+        return _named(out, template.format(a=_spark_text(self), b=_spark_text(other[0]) if other else ""))
+    named.__name__ = name
+    named.__doc__ = fn.__doc__
+    return named
+
+
+def _isin_named(fn: Any) -> Any:
+    def isin(self: Column, *cols: Any) -> Column:
+        values = cols[0] if len(cols) == 1 and isinstance(cols[0], (list, set, tuple)) else cols
+        return _named(fn(self, *cols), f"({_spark_text(self)} IN ({', '.join(_spark_text(v) for v in values)}))")
+    isin.__doc__ = fn.__doc__
+    return isin
+
+
+def _case_named(fn: Any) -> Any:
+    """F.when: CASE WHEN c THEN v END."""
+    def when(condition: Any, value: Any) -> Column:
+        return _named(fn(condition, value), f"CASE WHEN {_spark_text(condition)} THEN {_spark_text(value)} END")
+    when.__doc__ = fn.__doc__
+    return when
+
+
+def _case_step(fn: Any, kind: str) -> Any:
+    """Column.when and Column.otherwise on a CASE: its name gains WHEN c THEN v, or ELSE v."""
+    def step(self: Column, *args: Any) -> Column:
+        out = fn(self, *args)
+        name = _spark_text(self)
+        if not (name.startswith("CASE WHEN ") and name.endswith(" END")):
+            return out
+        part = f"WHEN {_spark_text(args[0])} THEN {_spark_text(args[1])}" if kind == "when" else f"ELSE {_spark_text(args[0])}"
+        return _named(out, f"{name[:-4]} {part} END")
+    step.__doc__ = fn.__doc__
+    return step
+
+
+def _install_spark_names() -> None:
+    for name in (*_OPERATORS, *_UNARY):
+        if hasattr(Column, name):
+            setattr(Column, name, _spark_named(name, getattr(Column, name)))
+    Column.isin = _isin_named(Column.isin)  # type: ignore[method-assign]
+    Column.when = _case_step(Column.when, "when")  # type: ignore[method-assign]
+    Column.otherwise = _case_step(Column.otherwise, "otherwise")  # type: ignore[method-assign]
+    F.when = _case_named(F.when)
 
 # ---- DataFrame
 
@@ -622,11 +791,64 @@ def _grouped_agg(fn: Any) -> Any:
     def agg(self: GroupedData, *exprs: Any) -> DataFrame:
         if len(exprs) == 1 and isinstance(exprs[0], dict):
             exprs = tuple(_dict_agg(self._df, exprs[0]))
+        if not self._grouping._type and any(_is_grouping(e) for e in exprs):
+            from duckdb.experimental.spark.errors import AnalysisException
+            raise AnalysisException("grouping()/grouping_id() can only be used with GroupingSets/Cube/Rollup")
         if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
             return _agg(self._df, *exprs)
+        exprs = tuple(_all_grouping_id(self, e) for e in exprs)
         return fn(self, *_spark_decimals(self._df, exprs))
     agg.__doc__ = fn.__doc__
     return agg
+
+
+_GROUPING_ID_ALL = "grouping_id()"  # F.grouping_id() with no columns: every grouping column, known at agg
+# What F.grouping_id() holds until agg knows the grouping columns: used anywhere else, it stops the query.
+_GROUPING_ID_MARK = ("CAST(error('grouping_id() without columns works only in agg after groupBy, cube or rollup')"
+                     " AS BIGINT)")
+
+
+def _is_grouping(expr: Any) -> bool:
+    """Whether ``expr`` uses grouping() or grouping_id(), which Spark allows only under cube or rollup
+    (DuckDB gives 0 under a plain GROUP BY)."""
+    if not isinstance(expr, Column):
+        return False
+    text = str(expr.expr)
+    return "GROUPING(" in text.upper() or text == str(_sql(_GROUPING_ID_MARK).expr)
+
+
+def _all_grouping_id(grouped: GroupedData, expr: Any) -> Any:
+    """F.grouping_id() in ``agg``: Spark's grouping_id over all the grouping columns, named as Spark names it."""
+    if isinstance(expr, Column) and str(expr.expr) == str(_sql(_GROUPING_ID_MARK).expr):
+        # the name it was given: grouping_id(), or an alias of the user's
+        return _sql(f"CAST(GROUPING({grouped._grouping.get_columns()}) AS BIGINT)").alias(expr.expr.get_name())
+    return expr
+
+
+def _grouping(col: Any) -> Column:
+    """F.grouping: 1 on a row that a cube or rollup totals over ``col``, else 0 (Spark's tinyint)."""
+    name = col if isinstance(col, str) else str(col.expr).strip('"')
+    return _sql(f"CAST(GROUPING({_col_sql(col)}) AS TINYINT)").alias(f"grouping({name})")
+
+
+def _grouping_id(*cols: Any) -> Column:
+    """F.grouping_id: the grouping level as a bit vector (Spark's bigint), over ``cols`` or, with none,
+    over every grouping column."""
+    if not cols:
+        return _sql(_GROUPING_ID_MARK).alias(_GROUPING_ID_ALL)
+    names = ", ".join(c if isinstance(c, str) else str(c.expr).strip('"') for c in cols)
+    return _sql(f"CAST(GROUPING({', '.join(_col_sql(c) for c in cols)}) AS BIGINT)").alias(f"grouping_id({names})")
+
+
+def _grouping_sets(kind: str) -> Any:
+    """DataFrame.cube and rollup: groupBy over every combination (cube) or every prefix (rollup) of the
+    columns, with NULL where a row totals over a column."""
+    def grouped(self: DataFrame, *cols: Any) -> GroupedData:
+        from duckdb.experimental.spark.sql.group import Grouping
+        columns = cols[0] if len(cols) == 1 and isinstance(cols[0], list) else cols
+        return GroupedData(Grouping(*columns, special=kind) if columns else Grouping(), self)
+    grouped.__name__ = kind
+    return grouped
 
 
 def _dict_agg(df: DataFrame, spec: dict[str, str]) -> list[Column]:
@@ -974,6 +1196,17 @@ window_module.Window = Window  # type: ignore[attr-defined]
 window_module.WindowSpec = WindowSpec  # type: ignore[attr-defined]
 
 
+def sql_names(spark_sql: Any) -> None:
+    """The names ``from pyspark.sql import ...`` gives in Spark that DuckDB's pyspark.sql lacks: Row
+    (DuckDB keeps it in types), Column and GroupedData, and Window."""
+    from duckdb.experimental.spark.sql import column, group
+    from duckdb.experimental.spark.sql import types as spark_types
+    spark_sql.Row = spark_types.Row
+    spark_sql.Column = column.Column
+    spark_sql.GroupedData = group.GroupedData
+    spark_sql.Window = Window
+
+
 def spark_type_name(dt: Any) -> str:
     """``dt`` as Spark's ``DataType.simpleString()`` writes it, which is what ``DataFrame.dtypes`` shows:
     int, timestamp, timestamp_ntz. DuckDB 1.x's Spark API says integer and timestamptz, and DuckDB 2.0
@@ -1027,6 +1260,159 @@ def _has_struct(dt: Any) -> bool:
     if isinstance(dt, T.MapType):
         return _has_struct(dt.valueType)
     return False
+
+
+# DataFrame.show as Spark 3.5 prints it (Dataset.showString): +---+ borders, cells as Spark casts them to
+# text for display (NULL, true, [1, 2], {a -> 1}, 1.0E20), right-aligned unless truncate is off, East
+# Asian wide characters two columns wide. DuckDB's own show draws its box table instead.
+_WIDE = re.compile("[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︐-︙︰-﹯"
+                   "＀-｠￠-￦]")
+_ESCAPES = str.maketrans({"\n": "\\n", "\r": "\\r", "\t": "\\t", "\f": "\\f", "\b": "\\b", "\x0b": "\\v",
+                          "\x07": "\\a"})
+
+
+def _half_width(text: str) -> int:
+    return len(text) + len(_WIDE.findall(text))
+
+
+def _java_double(value: float, digits: str | None = None) -> str:
+    """``value`` as Java's Double.toString writes it: 1.0, 1.0E20, 1.0E-4, NaN, Infinity. ``digits`` are
+    the significant digits to write (a float's shortest), else the shortest that read back as the double."""
+    import decimal
+    if value != value:
+        return "NaN"
+    if value in (float("inf"), float("-inf")):
+        return "Infinity" if value > 0 else "-Infinity"
+    sign = "-" if str(value).startswith("-") else ""
+    if value == 0:
+        return f"{sign}0.0"
+    number = decimal.Decimal(digits or repr(abs(value)))
+    figures = "".join(map(str, number.as_tuple().digits)).lstrip("0").rstrip("0") or "0"
+    power = number.adjusted()
+    if -3 <= power < 7:
+        if power >= 0:
+            whole, frac = figures[:power + 1].ljust(power + 1, "0"), figures[power + 1:]
+        else:
+            whole, frac = "0", "0" * (-power - 1) + figures
+        return f"{sign}{whole}.{frac or '0'}"
+    return f"{sign}{figures[0]}.{figures[1:] or '0'}E{power}"
+
+
+def _java_float(value: float) -> str:
+    """A FloatType value as Java's Float.toString writes it: the shortest digits that read back as the
+    same 32-bit float, not the double DuckDB hands Python."""
+    import struct
+    if value != value or value in (float("inf"), float("-inf")) or value == 0:
+        return _java_double(value)
+    single = struct.unpack("f", struct.pack("f", value))[0]
+    for places in range(0, 9):
+        text = f"{abs(single):.{places}e}"
+        try:
+            same = struct.unpack("f", struct.pack("f", float(text)))[0] == abs(single)
+        except OverflowError:  # silent-ok: rounded past the largest float, so more digits are needed
+            same = False
+        if same:
+            return _java_double(value, text)
+    return _java_double(value)
+
+
+def _interval(value: Any) -> str:
+    """A day-time interval as Spark displays one: INTERVAL '1 02:03:04.5' DAY TO SECOND."""
+    micros = value.days * 86_400_000_000 + value.seconds * 1_000_000 + value.microseconds
+    sign, micros = ("-", -micros) if micros < 0 else ("", micros)
+    days, rest = divmod(micros, 86_400_000_000)
+    hours, rest = divmod(rest, 3_600_000_000)
+    minutes, rest = divmod(rest, 60_000_000)
+    seconds, fraction = divmod(rest, 1_000_000)
+    text = f"{sign}{days} {hours:02d}:{minutes:02d}:{seconds:02d}"
+    if fraction:
+        text += f".{fraction:06d}".rstrip("0")
+    return f"INTERVAL '{text}' DAY TO SECOND"
+
+
+def _pretty(value: Any, data_type: Any) -> str:
+    """One value as Spark's show writes it (ToPrettyString)."""
+    import datetime
+    import decimal
+    from duckdb.experimental.spark.sql import types as T
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(data_type, T.FloatType) and isinstance(value, float):
+        return _java_float(value)
+    if isinstance(value, float):
+        return _java_double(value)
+    if isinstance(value, decimal.Decimal):
+        return format(value, "f")
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "[" + " ".join(f"{b:02X}" for b in bytes(value)) + "]"
+    if isinstance(value, datetime.datetime):
+        text = value.replace(tzinfo=None).isoformat(sep=" ")  # a TIMESTAMPTZ is already in the session's zone
+        return text.rstrip("0") if "." in text else text
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return _interval(value)
+    if isinstance(data_type, T.MapType) and isinstance(value, dict):
+        return "{" + ", ".join(f"{_pretty(k, data_type.keyType)} -> {_pretty(v, data_type.valueType)}"
+                               for k, v in value.items()) + "}"
+    if isinstance(data_type, T.StructType):
+        values = list(value.values()) if isinstance(value, dict) else list(value)
+        return "{" + ", ".join(_pretty(v, f.dataType) for v, f in zip(values, data_type.fields, strict=False)) + "}"
+    if isinstance(value, (list, tuple)):
+        element = getattr(data_type, "elementType", None)
+        return "[" + ", ".join(_pretty(v, element) for v in value) + "]"
+    return str(value)
+
+
+def show_string(df: DataFrame, n: int = 20, truncate: bool | int = True, vertical: bool = False) -> str:
+    """What ``df.show(n, truncate, vertical)`` prints in Spark 3.5."""
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise TypeError(f"Argument `n` should be an int, got {type(n).__name__}.")
+    if not isinstance(truncate, (bool, int)):
+        raise TypeError(f"Argument `truncate` should be a bool or an int, got {type(truncate).__name__}.")
+    if not isinstance(vertical, bool):
+        raise TypeError(f"Argument `vertical` should be a bool, got {type(vertical).__name__}.")
+    width = (20 if truncate else 0) if isinstance(truncate, bool) else truncate
+    n = max(n, 0)
+    fields = df.schema.fields
+    taken = df.limit(n + 1).collect()
+    more = len(taken) > n
+
+    def cell(value: Any, data_type: Any) -> str:
+        text = _pretty(value, data_type).translate(_ESCAPES)
+        if width > 0 and len(text) > width:
+            text = text[:width] if width < 4 else text[:width - 3] + "..."
+        return text
+
+    rows = [[f.name.translate(_ESCAPES) for f in fields]] + [[cell(v, f.dataType) for v, f in zip(r, fields, strict=True)] for r in taken[:n]]
+    out: list[str] = []
+    if not vertical:
+        widths = [max(3, *(_half_width(r[i]) for r in rows)) for i in range(len(fields))]
+
+        def line(row: list[str]) -> str:
+            pad = [w - _half_width(c) + len(c) for c, w in zip(row, widths, strict=True)]
+            return "|" + "|".join(c.rjust(p) if width > 0 else c.ljust(p) for c, p in zip(row, pad, strict=True)) + "|"
+        sep = "+" + "+".join("-" * w for w in widths) + "+"
+        out += [sep, line(rows[0]), sep, *(line(r) for r in rows[1:]), sep]
+    else:
+        names, data = rows[0], rows[1:]
+        name_width = max([3, *(_half_width(c) for c in names)])
+        data_width = max([3, *(_half_width(c) for r in data for c in r)])
+        for i, row in enumerate(data):
+            out.append(f"-RECORD {i}".ljust(name_width + data_width + 5, "-"))
+            out += [f" {name.ljust(name_width - _half_width(name) + len(name))} | "
+                    f"{c.ljust(data_width - _half_width(c) + len(c))} " for name, c in zip(names, row, strict=True)]
+    if vertical and not rows[1:]:
+        out.append("(0 rows)")
+    elif more:
+        out.append(f"only showing top {n} {'row' if n == 1 else 'rows'}")
+    return "\n".join(out) + "\n"
+
+
+def _show(self: DataFrame, n: int = 20, truncate: bool | int = True, vertical: bool = False) -> None:
+    print(show_string(self, n, truncate, vertical))
 
 
 def _collect_structs_as_rows(collect: Any) -> Any:
@@ -1127,6 +1513,15 @@ def install() -> None:
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
     Column.getItem = _get_item  # type: ignore[attr-defined]
+    Column.between = _between  # type: ignore[attr-defined]
+    Column.substr = _substr  # type: ignore[attr-defined]
+    Column.bitwiseAND = _bitwise("&")  # type: ignore[attr-defined]
+    Column.bitwiseOR = _bitwise("|")  # type: ignore[attr-defined]
+    Column.bitwiseXOR = _bitwise("^")  # type: ignore[attr-defined]
+    Column.eqNullSafe = _eq_null_safe  # type: ignore[attr-defined]
+    # Spark's other names for alias and cast, calling whatever alias and cast are by then
+    Column.name = lambda self, *names, **kw: self.alias(*names, **kw)  # type: ignore[attr-defined]
+    Column.astype = lambda self, dataType: self.cast(dataType)  # type: ignore[attr-defined]
     Column.getField = _get_field  # type: ignore[attr-defined]
     Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
     Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
@@ -1136,7 +1531,12 @@ def install() -> None:
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
+    _install_spark_names()  # after every other Column patch, so it names what they give
     DataFrame.agg = _agg  # type: ignore[attr-defined]
+    DataFrame.show = _show  # type: ignore[method-assign,assignment]
+    DataFrame.cube = _grouping_sets("cube")  # type: ignore[attr-defined]
+    DataFrame.rollup = _grouping_sets("rollup")  # type: ignore[attr-defined]
+    vars(F).update(grouping=_grouping, grouping_id=_grouping_id)
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]
@@ -1163,5 +1563,8 @@ def install() -> None:
             setattr(DataFrame, name, _same)
     GroupedData.pivot = _pivot  # type: ignore[attr-defined]
     GroupedData.agg = _grouped_agg(GroupedData.agg)  # type: ignore[method-assign]
+    DataFrame.select = _naming(DataFrame.select)  # type: ignore[method-assign]
+    DataFrame.agg = _naming(DataFrame.agg)  # type: ignore[attr-defined]
+    GroupedData.agg = _naming(GroupedData.agg)  # type: ignore[method-assign]
     # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

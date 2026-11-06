@@ -129,13 +129,13 @@ def test_the_result_label_is_honest():
 
 # ---- the learner package (Security read, 2026-11-03)
 
-def test_the_package_is_its_sources_with_only_the_shims_parent_imports_changed(tmp_path):
+def test_the_package_is_its_sources_with_only_parent_imports_changed(tmp_path):
     learner_pkg.build(tmp_path)
     pkg = tmp_path / learner_pkg.PACKAGE
     assert sorted(p.name for p in pkg.glob("*.py")) == sorted(["__init__.py", *learner_pkg.SOURCES])
     for name, src in learner_pkg.SOURCES.items():
         built, original = (pkg / name).read_text(encoding="utf-8"), src.read_text(encoding="utf-8")
-        if name == "pyspark_shim.py":
+        if name in learner_pkg.REWRITES:
             assert "from .." not in built and built.count("\n") == original.count("\n")
         else:
             assert built == original
@@ -243,6 +243,17 @@ def test_the_session_sets_nothing_after_it_connects(monkeypatch, tmp_path):
     spark = pyspark_shim.AcademySession(tmp_path)
     assert spark.read.table("bronze.t").collect()[0][0] == 1
     assert spark.conn.execute("SELECT current_setting('default_null_order')").fetchone()[0].lower() == "nulls_first_on_asc_last_on_desc"
+
+
+def test_a_join_on_a_text_key_runs(tmp_path):
+    """delta-rs reads text as string_view, and DuckDB pushes a join's key filter into the Arrow scan as
+    is_in, which pyarrow can't run on string_view: the session reads plain strings instead."""
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA b; CREATE TABLE b.o AS SELECT * FROM (VALUES (1, 'P1'), (2, 'P2'), "
+                                  "(3, 'P9')) t(id, p); CREATE TABLE b.p AS SELECT * FROM (VALUES ('P1', 'x'), ('P2', 'y')) t(p, c)")
+    spark = pyspark_shim.AcademySession(tmp_path)
+    joined = spark.read.table("b.o").join(spark.read.table("b.p"), on="p", how="inner")
+    assert sorted(r[0] for r in joined.select("id").collect()) == [1, 2]
+    assert str(pyspark_shim.read_delta(pyspark_shim.table_path(tmp_path, "b.p")).schema.field("p").type) == "string"
 
 
 # ---- reading what the answer left: checked before the engine opens it

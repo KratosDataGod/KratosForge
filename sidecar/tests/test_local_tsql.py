@@ -142,7 +142,7 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
 def test_plus_with_a_number_adds_as_numbers(engine):
     r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[2, 14, "Ann  !"]]
-    with pytest.raises(duckdb.ConversionException):
+    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
@@ -377,6 +377,90 @@ def test_substring_stuff_and_replicate_at_the_edges(engine):
         tsql(engine, "SELECT SUBSTRING(name, 1, qty) AS s FROM dbo.orders")
 
 
+def test_left_right_and_translate_fail_where_tsql_fails(engine):
+    # DuckDB drops from the other end for a negative LEFT / RIGHT and drops unpartnered TRANSLATE characters.
+    r = tsql(engine, "SELECT LEFT(name, id) AS l, RIGHT(name, id) AS r, LEFT('abc', 0) AS z, "
+                     "TRANSLATE(name, 'nB', 'Nb') AS t FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["A", " ", "", "ANN  "], ["Bo", "Bo", "", "bo"]]
+    # T-SQL makes the length an integer toward zero first: -0.5 is 0, and 2.7 is 2 (DuckDB rounds).
+    r = tsql(engine, "SELECT LEFT('abc', -0.5) AS a, RIGHT('abc', 2.7) AS b, LEFT(name, price) AS c FROM dbo.orders "
+                     "ORDER BY id")
+    assert r["rows"] == [["", "bc", "An"], ["", "bc", "Bo"]]
+    r = tsql(engine, "SELECT LEFT('abcdef', 2.0) AS a, LEFT(name, 1e1) AS b, RIGHT('abcdef', 3.00) AS c FROM dbo.orders "
+                     "ORDER BY id")
+    assert r["rows"] == [["ab", "Ann  ", "def"], ["ab", "Bo", "def"]]
+    for sql in ("SELECT LEFT('abc', -1)", "SELECT RIGHT(name, -2) FROM dbo.orders"):
+        with pytest.raises(ValueError, match="Invalid length parameter passed to the (LEFT|RIGHT) function"):
+            tsql(engine, sql)
+    with pytest.raises(Exception, match="Invalid length parameter passed to the LEFT function"):
+        tsql(engine, "SELECT LEFT(name, qty) AS l FROM dbo.orders")  # -7 on the second row
+    with pytest.raises(ValueError, match="must contain an equal number of characters"):
+        tsql(engine, "SELECT TRANSLATE('abc', 'ab', 'x')")
+    with pytest.raises(Exception, match="must contain an equal number of characters"):
+        tsql(engine, "SELECT TRANSLATE(name, name, 'x') AS t FROM dbo.orders")
+
+def test_a_float_as_text_has_six_significant_digits(engine):
+    # T-SQL's style 0 for float and real: %g, with a three-digit exponent. DuckDB writes every digit.
+    engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1 AS DOUBLE) / 3, CAST(0.5 AS REAL)), "
+                   "(2, 1234567.0, 0.00001), (3, 100.0, -2.5), (4, NULL, NULL)) v(id, d, r)")
+    r = tsql(engine, "SELECT CAST(d AS VARCHAR) AS a, CONVERT(VARCHAR(20), d) AS b, CAST(r AS NVARCHAR(10)) AS c, "
+                     "TRY_CAST(d AS VARCHAR(30)) AS t FROM dbo.f ORDER BY id")
+    assert r["rows"] == [["0.333333", "0.333333", "0.5", "0.333333"],
+                         ["1.23457e+006", "1.23457e+006", "1e-005", "1.23457e+006"],
+                         ["100", "100", "-2.5", "100"], [None, None, None, None]]
+    assert tsql(engine, "SELECT CAST(1e10 AS VARCHAR) AS a, CAST(price AS VARCHAR) AS p FROM dbo.orders ORDER BY id")[
+        "rows"] == [["1e+010", "2.5"], ["1e+010", "4.0"]]  # price is a decimal: unchanged
+    with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
+        tsql(engine, "SELECT CAST(d AS VARCHAR(5)) AS s FROM dbo.f")  # '0.333333' is 8 characters
+
+
+def test_convert_styles_on_numbers(engine):
+    # sqlglot read every CONVERT style as a date style, so a number went to STRFTIME and failed.
+    engine.execute("CREATE TABLE dbo.f AS SELECT CAST(0.5 AS DOUBLE) AS d")
+    r = tsql(engine, "SELECT CONVERT(VARCHAR(10), qty, 1) AS q, CONVERT(VARCHAR(10), price, 2) AS p, "
+                     "CONVERT(VARCHAR(10), day, 1) AS d FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["7", "2.5", "10/18/26"], ["-7", "4.0", "01/04/26"]]  # integers and decimals ignore it
+    assert tsql(engine, "SELECT CONVERT(VARCHAR(10), d, 0) AS d FROM dbo.f")["rows"] == [["0.5"]]
+    for style in (1, 2, 3):
+        with pytest.raises(ValueError, match=f"CONVERT style {style} for a float isn't carried yet"):
+            tsql(engine, f"SELECT CONVERT(VARCHAR(30), d, {style}) AS d FROM dbo.f")
+
+
+def test_concat_writes_a_float_in_style_0(engine):
+    # CONCAT converts a float as CAST to text does in T-SQL; DuckDB wrote '1234567.0' and '0.3333333333333333'.
+    engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1234567 AS DOUBLE), CAST(0.5 AS REAL), 'a'), "
+                   "(2, NULL, NULL, 'b')) v(id, d, r, s)")
+    r = tsql(engine, "SELECT CONCAT(d, 'x') AS a, CONCAT_WS('-', d, r, s) AS b, CONCAT(1e0 / 3, '') AS c "
+                     "FROM dbo.f ORDER BY id")
+    assert r["rows"] == [["1.23457e+006x", "1.23457e+006-0.5-a", "0.333333"], ["x", "b", "0.333333"]]
+    # Integers and decimals are written as before.
+    assert tsql(engine, "SELECT CONCAT(qty, '/', price) AS a FROM dbo.orders ORDER BY id")["rows"] == [["7/2.5"],
+                                                                                                    ["-7/4.0"]]
+
+
+def test_concat_of_a_column_whose_type_cant_be_told_says_so():
+    texts, notes = translate("SELECT CONCAT(x, 'a') FROM dbo.nowhere", {"dbo": {"t": {"d": "DOUBLE"}}})
+    assert texts == ["SELECT CONCAT(x, 'a') FROM dbo.nowhere"]
+    assert any("Couldn't tell the type of x in CONCAT(x, 'a')" in n and "6 significant digits" in n for n in notes)
+
+
+def test_text_added_to_a_number_follows_tsql(engine):
+    # The text becomes the number's type. '' is 0 for an integer or a float, where DuckDB refused it, and text
+    # for an integer has to be a whole number: DuckDB rounded '1.5' to 2, T-SQL stops.
+    engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1.5 AS DOUBLE), ''), (2, NULL, ' 2 ')) v(id, d, s)")
+    assert tsql(engine, "SELECT d + '' AS a, '' + 7 AS b, s + 1 AS c, s + d AS e FROM dbo.f ORDER BY id")["rows"] == [
+        [1.5, 7, 1, 1.5], [None, 7, 3, None]]
+    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
+        tsql(engine, "SELECT '1.5' + 1 AS a")
+
+
+@pytest.mark.parametrize("sql", ["SELECT CONVERT(VARCHAR(20), CAST(1234.5 AS MONEY), 1) AS x",
+                                 "SELECT CAST(qty AS SMALLMONEY) AS x FROM dbo.orders"])
+def test_money_is_refused_by_name(engine, sql):
+    with pytest.raises(ValueError, match="on the local engine: MONEY and SMALLMONEY aren't carried yet"):
+        tsql(engine, sql)
+
+
 def test_format_of_a_date_follows_dotnets_formats(engine):
     # Expected text: .NET's en-US formats, as FORMAT uses them (UNVERIFIED on a Fabric Warehouse).
     at = "CAST('2024-03-05 14:07:09.123456' AS DATETIME2)"
@@ -411,7 +495,7 @@ def test_format_of_a_number_rounds_half_away_from_zero(engine):
 
 @pytest.mark.parametrize("sql, says", [
     ("SELECT FORMAT(1e0, 'N2')", "FORMAT of a FLOAT value"),
-    ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "FORMAT of a MONEY value"),
+    ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "MONEY and SMALLMONEY aren't carried yet"),
     ("SELECT FORMAT(CAST('10:00' AS TIME), 'hh')", "FORMAT of a TIME value"),
     ("SELECT FORMAT('2024-01-01', 'yyyy')", "FORMAT of text"),
     ("SELECT FORMAT(5, '0000')", "number format '0000'"),
@@ -469,3 +553,17 @@ def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
     assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
     assert notes == ["Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
                      "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count."]
+
+
+def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(engine, monkeypatch):
+    # Reading duckdb_functions() was most of a short T-SQL query's time; a query sqlglot fully knows skips it.
+    reads = []
+    real = type(engine)._function_names
+    monkeypatch.setattr(type(engine), "_function_names", lambda self, con: reads.append(1) or real(self, con))
+    assert tsql(engine, "SELECT TOP 1 id, UPPER(name) AS n FROM dbo.orders ORDER BY id")["rows"] == [[1, "ANN  "]]
+    assert reads == []
+    with pytest.raises(ValueError, match="ISDATE isn't mapped yet"):
+        tsql(engine, "SELECT ISDATE('2024-01-01')")
+    assert reads == [1]
+    engine.execute("CREATE MACRO twice(x) AS x * 2")  # a macro made in the database is still found
+    assert tsql(engine, "SELECT twice(qty) AS t FROM dbo.orders ORDER BY id")["rows"] == [[14], [-14]]

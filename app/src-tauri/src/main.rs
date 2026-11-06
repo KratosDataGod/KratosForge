@@ -499,9 +499,15 @@ fn apply_release_rule(latest: &mut Value) {
     let tag = latest["tag"].as_str().unwrap_or(release_tag()).to_string();
     let path = update_state();
     match update_guard::check_manifest(latest, update_guard::load_seen(&path, &tag).as_ref(), unix_now()) {
-        Ok(seen) => {
-            let _ = update_guard::remember(&path, &tag, Some(&seen));
-        }
+        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(&path)) {
+            None => {
+                let _ = update_guard::remember(&path, &tag, Some(&seen));
+            }
+            Some(reason) => {
+                let _ = update_guard::remember(&path, &tag, None);
+                latest["refused"] = json!(reason);
+            }
+        },
         Err(reason) => {
             let _ = update_guard::remember(&path, &tag, None);
             latest["refused"] = json!(reason);
@@ -791,6 +797,38 @@ impl SidecarState {
     }
 }
 
+/// The origins of the app's own page (http/https on Windows, tauri:// elsewhere).
+const APP_ORIGINS: [&str; 3] = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+
+/// Whether a call to one of the app's commands may come from this Origin header. Every command
+/// goes through it (`guarded`, wrapped around the whole handler), not only `rpc`. Frames inside the
+/// app (the notebook output frame, the Power BI host page) are served from their own `*.localhost`
+/// protocols, which Tauri counts as local, so its capability rules alone would let them call.
+/// Only the app's own page may: the whole origin must match exactly, never by prefix. A missing
+/// header is the postMessage route, which WebView2 delivers only from the top page of a webview,
+/// not from its frames. The frames also can't reach the IPC protocol at all: their policies allow
+/// no connections (tests notebook_output_frame_has_no_network_and_only_opens_in_the_app and
+/// the_embed_host_page_allows_no_connections). Loosening either policy needs a security read.
+fn invoke_allowed(_command: &str, origin: Option<&str>) -> bool {
+    origin.is_none_or(|o| APP_ORIGINS.contains(&o))
+}
+
+const INVOKE_REFUSED: &str = "Only KratosForge's own page can use the app's commands.";
+
+/// The app's command handler with the origin check in front: a refused call never reaches a command.
+fn guarded<R: tauri::Runtime>(
+    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let origin = invoke.message.headers().get(tauri::http::header::ORIGIN).map(|v| v.to_str().unwrap_or("not text"));
+        if !invoke_allowed(invoke.message.command(), origin) {
+            invoke.resolver.reject(INVOKE_REFUSED);
+            return true;
+        }
+        commands(invoke)
+    }
+}
+
 #[tauri::command]
 async fn rpc(
     state: tauri::State<'_, SidecarState>,
@@ -883,36 +921,104 @@ fn rename_to_kratosforge(exe: &std::path::Path) {
     let _ = exe;
 }
 
+/// Set once this exe's engine has answered (confirm_started).
+static START_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WATCHING_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How long a new build has, after its window is up, for its engine to answer. Time spent downloading
+/// or installing the engine doesn't count, for up to two hours in all (update_guard::StartClock); its first start does, which is
+/// slow while Windows scans each new file.
+const CONFIRM_LIMIT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
+/// The UI calls this once the engine has answered its first call: this build works, so the
+/// previous one (exe.old) can go. It goes once its process has exited. Not when this is the wrong
+/// build: the exe that started it is putting itself back.
+#[tauri::command]
+fn confirm_started() {
+    if START_CONFIRMED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let updated_to = updated_to_arg();
+    if updated_to.as_deref().is_some_and(|to| to != BUILD_COMMIT) {
+        return;
+    }
+    let after_update = updated_to.is_some();
+    std::thread::spawn(move || {
+        let Ok(exe) = app_exe() else { return };
+        let old = exe.with_extension("exe.old");
+        for _ in 0..120 {
+            if !old.exists() || std::fs::remove_file(&old).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        // The previous exe has exited and gone, so nothing else holds this file's name: a copy
+        // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
+        // takes itself; a managed PC's file stays where IT put it.
+        if after_update && !old.exists() && bundled() && auto_update_allowed() {
+            rename_to_kratosforge(&exe);
+        }
+    });
+}
+
+/// After an update, puts the previous build back when this one's engine hasn't answered within
+/// CONFIRM_LIMIT of its window coming up (EA-024): the previous exe has already exited by then, so
+/// this exe does it itself. Once per build (update_guard::rolls_back), and the build is remembered
+/// so this PC doesn't install it again.
+fn watch_start(app: tauri::AppHandle) {
+    let mut clock = update_guard::StartClock::default();
+    let mut last = std::time::Instant::now();
+    loop {
+        if START_CONFIRMED.load(Ordering::SeqCst) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let now = std::time::Instant::now();
+        let installing = app.state::<SidecarState>().installing.load(Ordering::SeqCst);
+        if clock.tick(now - last, installing, CONFIRM_LIMIT) {
+            break;
+        }
+        last = now;
+    }
+    let state_file = update_state();
+    let failed_before = update_guard::failed_builds(&state_file).iter().any(|c| c.eq_ignore_ascii_case(BUILD_COMMIT));
+    if !update_guard::rolls_back(updated_to_arg().as_deref(), BUILD_COMMIT, START_CONFIRMED.load(Ordering::SeqCst), failed_before) {
+        return;
+    }
+    let Ok(exe) = app_exe() else { return };
+    let old = exe.with_extension("exe.old");
+    if !old.exists() {
+        return; // nothing to put back (removed by hand, say): keep running
+    }
+    let state = app.state::<SidecarState>();
+    state.updating.store(true, Ordering::SeqCst); // so nothing starts the engine again meanwhile
+    let _ = state.shut_down(std::time::Duration::from_secs(10));
+    if let Err(e) = update_guard::restore_previous(&exe, &old) {
+        eprintln!("could not put the previous build back: {e}");
+        state.updating.store(false, Ordering::SeqCst);
+        return;
+    }
+    // Only once it is back: a build that stays because the restore failed can still be installed again.
+    let _ = update_guard::record_failed(&state_file, BUILD_COMMIT);
+    INSTANCE.release(); // so the previous build claims it straight away
+    if let Err(e) = Command::new(&exe).spawn() {
+        eprintln!("put the previous build back but could not start it: {e}");
+    }
+    app.exit(0);
+}
+
 /// Reports this exe's build, the Python and sidecar it will use, and the
 /// latest release. Fails only when Python itself cannot run.
 #[tauri::command]
-async fn check_components() -> Result<Value, String> {
+async fn check_components(app: tauri::AppHandle) -> Result<Value, String> {
     let updated_to = updated_to_arg();
     // The window is up and the UI has asked for this check, so this exe started. After an update,
-    // the exe that started this one waits for this marker, then exits.
+    // the exe that started this one waits for this marker, then exits. From here this exe watches
+    // its own start: until its engine answers (confirm_started), the previous build stays as exe.old.
     if updated_to.is_some() {
         let _ = update_guard::mark_started(&start_marker(), BUILD_COMMIT);
-    }
-    // The previous exe (exe.old) is kept until now so it can be put back; it goes once its process
-    // has exited. Not when this is the wrong build: the exe that started it is putting itself back.
-    if updated_to.as_deref().is_none_or(|to| to == BUILD_COMMIT) {
-        let after_update = updated_to.is_some();
-        std::thread::spawn(move || {
-            let Ok(exe) = app_exe() else { return };
-            let old = exe.with_extension("exe.old");
-            for _ in 0..120 {
-                if !old.exists() || std::fs::remove_file(&old).is_ok() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            // The previous exe has exited and gone, so nothing else holds this file's name: a copy
-            // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
-            // takes itself; a managed PC's file stays where IT put it.
-            if after_update && !old.exists() && bundled() && auto_update_allowed() {
-                rename_to_kratosforge(&exe);
-            }
-        });
+        if updated_to.as_deref() == Some(BUILD_COMMIT) && !WATCHING_START.swap(true, Ordering::SeqCst) {
+            std::thread::spawn(move || watch_start(app));
+        }
     }
     let mut report = if bundled() && engine_python().is_none() {
         // Nothing to run the check with until the engine is installed; the UI installs
@@ -2415,11 +2521,11 @@ fn main() {
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .register_uri_scheme_protocol(EMBED_SCHEME, |ctx, request| embed_host(ctx.webview_label(), request.uri().path()))
         .on_window_event(on_window_event)
-        .invoke_handler(tauri::generate_handler![
-            rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
+        .invoke_handler(guarded(tauri::generate_handler![
+            rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("error while running KratosForge");
 }
@@ -2797,6 +2903,32 @@ mod embed_host_tests {
     }
 
     #[test]
+    fn the_embed_host_page_allows_no_connections() {
+        assert!(EMBED_CSP.contains("connect-src 'none'"), "{EMBED_CSP}");
+        assert!(!EMBED_CSP.contains('*'), "{EMBED_CSP}");
+    }
+
+    #[test]
+    fn only_the_apps_own_page_can_use_the_apps_commands() {
+        let main_rs = include_str!("main.rs");
+        let list = main_rs.split("invoke_handler(guarded(tauri::generate_handler![").nth(1).expect("the handler is guarded")
+            .split("]").next().unwrap();
+        let commands: Vec<&str> = list.split(',').map(str::trim).filter(|c| !c.is_empty()).collect();
+        assert!(commands.len() >= 22 && commands.contains(&"rpc") && commands.contains(&"update_app") && commands.contains(&"open_link"), "{commands:?}");
+        for command in &commands {
+            for ok in [None, Some("http://tauri.localhost"), Some("https://tauri.localhost"), Some("tauri://localhost")] {
+                assert!(invoke_allowed(command, ok), "{command} {ok:?}");
+            }
+            for bad in ["null", "http://nbout.localhost", "http://pbiembed.localhost", "http://tauri.localhost.evil",
+                    "http://tauri.localhost.evil.com", "http://tauri.localhost:8080", "http://evil.tauri.localhost",
+                    "https://app.fabric.microsoft.com", "http://localhost", "HTTP://TAURI.LOCALHOST", "",
+                    "http://tauri.localhost/", "not text"] {
+                assert!(!invoke_allowed(command, Some(bad)), "{command} {bad}");
+            }
+        }
+    }
+
+    #[test]
     fn other_webviews_and_other_paths_get_nothing() {
         for view in ["fabric", "fabric-pop-out", "pop-out-runs", "pop-out-fabric", ""] {
             let r = embed_host(view, "/host.html");
@@ -2825,6 +2957,41 @@ mod embed_host_tests {
         assert!(frames.split_whitespace().any(|s| s == "http://pbiembed.localhost"));
         assert!(!frames.contains("powerbi.com"), "{frames}");
         assert!(!frames.contains("https://*") && !frames.split_whitespace().any(|s| s == "https:" || s == "*"));
+    }
+
+    #[test]
+    fn the_apps_pages_get_only_the_tauri_permissions_they_use() {
+        // The pages use the Tauri bridge for exactly this; everything else is one of the app's own commands.
+        let cap: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let perms: Vec<&str> = cap["permissions"].as_array().unwrap().iter().map(|p| p.as_str().expect("a plain permission name")).collect();
+        assert_eq!(perms, ["core:event:allow-listen", "core:event:allow-unlisten"]);
+        assert!(cap.get("remote").is_none(), "no remote pages");
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui");
+        let mut used = std::collections::BTreeSet::new();
+        let (mut folders, mut scripts) = (vec![ui], Vec::new());
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else if path.extension().is_some_and(|e| e == "js") {
+                    scripts.push(path);
+                }
+            }
+        }
+        assert!(scripts.len() > 10, "the pages' scripts were found");
+        for path in scripts {
+            {
+                let src = std::fs::read_to_string(&path).unwrap();
+                for (i, _) in src.match_indices("__TAURI__") {
+                    let rest: String = src[i + "__TAURI__".len()..].chars().take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '?').collect();
+                    used.insert(rest.replace('?', ""));
+                }
+            }
+        }
+        // core.invoke reaches only the app's commands; convertFileSrc builds a URL in the page; event.listen is the one permission.
+        let known: std::collections::BTreeSet<String> = ["", ".core", ".core.invoke", ".core.convertFileSrc", ".event", ".event.listen"].iter().map(|s| s.to_string()).collect();
+        assert!(used.is_subset(&known), "a page uses more of the Tauri bridge than the capability grants: {used:?}");
     }
 }
 

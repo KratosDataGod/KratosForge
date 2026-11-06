@@ -1,0 +1,47 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E61",
+  "title": "Optimize a warehouse: loads, data types, statistics and result set caching",
+  "objectives": [
+    "3.3.3"
+  ],
+  "objective_text": "Choose the load pattern, column types and features that keep a Fabric Warehouse fast, and say why.",
+  "scenario": "Brightwater's finance warehouse feeds a dashboard that's getting slow. The nightly load inserts rows one at a time, some columns are much wider than their data, and the same dashboard query runs all day.",
+  "minutes": 15,
+  "verifies": [
+    "You can pick the right setting or pattern for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can apply it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 5 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/statistics",
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-06."
+  ]
+}

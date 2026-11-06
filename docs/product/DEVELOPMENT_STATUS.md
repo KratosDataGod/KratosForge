@@ -3,10 +3,26 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-05 11:42 UTC, main 7c7ed9e2.** Covers the PRs merged from #135 to #1828.
+**Product check of 2026-11-06 11:42 UTC, main de881016.** Covers the PRs merged from #135 to #1953.
 
 ## Summary
 
+- Review, 2026-11-06: PB-129 (platform skins) moved to In review; its review recommends Accept with documented
+  limitations (docs/product/reviews/PB-129-skins.md).
+- Morning check, 2026-11-06: 46 PRs merged after a7631920. 2 were product data and docs audit PRs; the other
+  44 were linked. Platform skins recorded their end-to-end demonstration with mocked cloud parts and check
+  keyboard, axe and reduced motion in every skin (PB-129). Axe now runs on every dialog with an empty baseline,
+  and a Narrator checklist is ready for the Windows pass (PB-063). Notebooks gained df.show(), cube, rollup and
+  more Column helpers as in Spark 3.5, with a PySpark API coverage list (PB-103); T-SQL functions on this PC
+  have a generated page (PB-106). The MSI's silent install and detection are documented (PB-124).
+- Evening check, 2026-11-05: 78 PRs merged after 7c7ed9e2. 1 was a product data PR; the other 77 were linked.
+  App Studio can plan an app from a description, apply asked-for changes as one undoable step and publish a
+  Power BI report behind a check and a typed confirm (PB-127). The Databricks-familiar and Snowflake-familiar skins
+  landed (PB-129, Preview). Embed Studio's Power BI page is in Workspaces (PB-121, Preview). Academy runs exercise
+  scripts in the AppContainer by default on Windows, with more DP-700 exercises (PB-128). Local T-SQL, Spark SQL and
+  Snowflake answer as those platforms do in more places, and local T-SQL is about 3x faster. Audit remediation
+  (PB-124, score 64): one transaction helper, narrower Tauri permissions, the previous build kept until the new
+  engine answers (#1596). Axe covers the most-opened dialogs, with a guard for new ones (PB-063).
 - Morning check, 2026-11-05: 6 PRs merged after 03d2b53a. 2 were product data PRs; #1828 (a data product's page
   no longer has a Business terms card) updated its own rows, and the other 3 hardened Academy's AppContainer (PB-128).
 - Acceptance, 2026-11-05: the product owner accepted PB-131, now titled "Let people remove Academy's runtime
@@ -111,7 +127,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 119 items (7 P0, 33 P1, 60 P2, 19 P3). 12 are Proposed, 33 In progress, 2 In review and 72 Accepted.
+- Backlog: 119 items (7 P0, 33 P1, 60 P2, 19 P3). 12 are Proposed, 32 In progress, 3 In review and 72 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

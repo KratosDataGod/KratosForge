@@ -1,0 +1,117 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "At Fernbrook, dashboards over a sensor table in an eventhouse almost always look at the last 14 days. Which policy keeps those days in fast storage?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A caching policy with a 14-day hot period"
+        },
+        {
+          "id": "b",
+          "text": "An ingestion mapping"
+        },
+        {
+          "id": "c",
+          "text": "A retention policy of 14 days"
+        },
+        {
+          "id": "d",
+          "text": "A materialized view"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The caching policy decides which data is hot: hot data is kept on local SSD for faster queries. A 14-day retention policy would delete everything older instead.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/cache-policy"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "Readings older than three years must not be kept. Which setting handles that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The caching policy's hot period"
+        },
+        {
+          "id": "b",
+          "text": "The retention policy's soft-delete period"
+        },
+        {
+          "id": "c",
+          "text": "An update policy"
+        },
+        {
+          "id": "d",
+          "text": "A row-level security policy"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The soft-delete period is how long data is guaranteed to stay available to query, measured from ingestion; after it, the data is removed, though not at an exact moment.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/retention-policy"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "Every dashboard tile runs the same hourly aggregation over the whole sensor table. What makes those queries cheaper while keeping results current?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Running the tiles more often"
+        },
+        {
+          "id": "b",
+          "text": "A longer retention period"
+        },
+        {
+          "id": "c",
+          "text": "A materialized view over the aggregation"
+        },
+        {
+          "id": "d",
+          "text": "Converting the timestamps to strings"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Querying a materialized view is more performant than running the aggregation over the source table, and it returns an up-to-date result.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview"
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "stem": "Which two changes follow the KQL query best practices for a query that looks for the word 'overheat' in the last day of messages?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Filter on time at the very end, after the other operators"
+        },
+        {
+          "id": "b",
+          "text": "Put the where on the datetime column first, right after the table"
+        },
+        {
+          "id": "c",
+          "text": "Use contains, because it matches whole words faster"
+        },
+        {
+          "id": "d",
+          "text": "Use has 'overheat' instead of contains 'overheat'"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Predicates on datetime columns go first: their index can skip whole shards. For full terms, has works better than contains because it doesn't look for substrings.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices"
+    }
+  ]
+}

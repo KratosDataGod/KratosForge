@@ -1,0 +1,150 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "troubleshoot",
+  "id": "E53",
+  "title": "Broken: an eventhouse loads empty rows after the devices changed their events",
+  "objectives": [
+    "3.2.4"
+  ],
+  "objective_text": "Compare the events arriving today with the table's JSON ingestion mapping, find which paths and types no longer fit, and fix the mapping so every column is filled again.",
+  "scenario": "The DeviceReadings table in an eventhouse filled up nicely until this morning. Since the devices moved to firmware 2.x, new rows arrive with DeviceId, ReadingTime and TemperatureC empty. Nobody changed the table or the mapping. The devices changed what they send.",
+  "prerequisites": [],
+  "minutes": 20,
+  "engine_label": "A model of an eventhouse table's ingestion mapping, checked on this PC",
+  "starter": "settings.json",
+  "fault": {
+    "summary": "The firmware update nested the device id, renamed timestamp, temperature and firmware, and sends the time as Unix milliseconds. The mapping still reads the old paths.",
+    "planted": [
+      {
+        "where": "settings.json, mapping",
+        "what": "paths $.deviceId, $.timestamp, $.temperature and $.firmware, which today's events don't have"
+      },
+      {
+        "where": "event_today.ts",
+        "what": "a number of milliseconds since 1970 where the old events sent an ISO 8601 string"
+      }
+    ],
+    "symptom": "New rows arrive, but DeviceId, ReadingTime, TemperatureC and Firmware are empty."
+  },
+  "verifies": [
+    "Your mapping reads each column from a field today's events carry, turns ts into a datetime with the right Unix-time transform, and leaves the table as it was, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That an eventhouse accepts the mapping or ingests a single row: nothing is sent to Fabric, and no KQL runs here.",
+    "Devices still on the old firmware: here every device moved to 2.x overnight. A mixed fleet needs a mapping or an update policy that reads both shapes.",
+    "Where ingestion problems are reported in Fabric, and the exact behaviour of a path that's missing from an event."
+  ],
+  "expected": {
+    "description": "Four mapping entries in the same order, with paths $.device.id, $.ts, $.temp_c and $.fw, and ReadingTime using DateTimeFromUnixMilliseconds."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Some column still points at a field today's events don't have.",
+      "pass": "Every column reads a field that today's events carry.",
+      "rules": [
+        {
+          "path": "mapping",
+          "count": 4,
+          "why": "One mapping entry per column."
+        },
+        {
+          "path": "mapping.0.column",
+          "equals": "DeviceId"
+        },
+        {
+          "path": "mapping.0.Properties.Path",
+          "equals": "$.device.id",
+          "why": "The id is now nested inside device."
+        },
+        {
+          "path": "mapping.1.column",
+          "equals": "ReadingTime"
+        },
+        {
+          "path": "mapping.1.Properties.Path",
+          "equals": "$.ts"
+        },
+        {
+          "path": "mapping.2.column",
+          "equals": "TemperatureC"
+        },
+        {
+          "path": "mapping.2.Properties.Path",
+          "equals": "$.temp_c"
+        },
+        {
+          "path": "mapping.3.column",
+          "equals": "Firmware"
+        },
+        {
+          "path": "mapping.3.Properties.Path",
+          "equals": "$.fw"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "ReadingTime won't hold a correct time from today's ts value.",
+      "pass": "ReadingTime turns ts into a UTC datetime.",
+      "rules": [
+        {
+          "path": "columns.1.type",
+          "equals": "datetime",
+          "why": "Queries and retention work on a datetime, not a number."
+        },
+        {
+          "path": "mapping.1.Properties.Transform",
+          "equals": "DateTimeFromUnixMilliseconds",
+          "why": "ts has 13 digits: it counts milliseconds since 1970, not seconds."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The table itself changed; fix the mapping, not the table.",
+      "pass": "The table is as it was.",
+      "rules": [
+        {
+          "path": "table",
+          "equals": "DeviceReadings"
+        },
+        {
+          "path": "columns",
+          "count": 4
+        },
+        {
+          "path": "columns.0.type",
+          "equals": "string"
+        },
+        {
+          "path": "columns.2.type",
+          "equals": "real"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Put event_last_week and event_today side by side. Which field names changed, and which moved?",
+    "A JSON path follows nesting with dots: the id is inside device.",
+    "ts is a number, not a date string. The mapping can convert it with a Transform; count its digits to pick seconds or milliseconds.",
+    "Leave the table's columns alone. Changing ReadingTime to a number would make every query that filters by time harder."
+  ],
+  "explanation": "An ingestion mapping is the contract between the events and the table: each column says which JSON path to read. When the source changes shape, ingestion doesn't stop. Rows keep arriving with empty or wrong values in the columns whose paths no longer exist, which is easy to miss. Fix the mapping, not the table: point each column at its new path, and convert the Unix-millisecond ts into a datetime with DateTimeFromUnixMilliseconds so ReadingTime stays a real time.",
+  "remediation": [
+    "https://learn.microsoft.com/kusto/management/json-mapping",
+    "https://learn.microsoft.com/kusto/management/mappings?view=microsoft-fabric"
+  ],
+  "reset": "Reset puts the original settings.json back.",
+  "review_notes": [
+    "Mapping entries are checked by position because the rules read list entries by index; the starter says to keep the order.",
+    "The docs say a mismatch between schema and data 'might result in empty or incorrect data ingested'; the symptom says empty values and makes no claim about failures."
+  ]
+}

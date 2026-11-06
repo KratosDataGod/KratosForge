@@ -22,6 +22,7 @@ import datetime as dt
 import logging
 import os
 import signal
+import sqlite3
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
@@ -373,6 +374,24 @@ class Agent:
                     lost.set()
                 return
 
+    SETTLE_WAITS = (1.0, 4.0)  # seconds between tries to record a run's outcome (tests shorten them)
+
+    def _settle(self, job: dict[str, Any], call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Record how a run went (succeed, fail, retry_later, cancel). The queue file can stay locked
+        longer than its 30 s busy wait (another process, a virus scanner); the run's work is done, so
+        try again rather than lose its outcome and run the job again. Repeating is safe: each call
+        changes the job only while this claim still holds it (claim_id)."""
+        for wait_s in (*self.SETTLE_WAITS, None):
+            try:
+                return call(*args, **kwargs)
+            except sqlite3.OperationalError as exc:
+                if wait_s is None:
+                    raise
+                self.log.warning("couldn't record the job's outcome; trying again", extra=fields(
+                    job_id=job["id"], error=describe(exc)))
+                time.sleep(wait_s)
+        return None  # not reached
+
     def run_job(self, job: dict[str, Any]) -> None:
         p, owner = job["payload"], self.config.name
         ctx = {"job_id": job["id"], "env": p.get("env"), "attempt": job["attempts"], "source": job["source"]}
@@ -397,7 +416,7 @@ class Agent:
             self.log.warning("job stopped: its lease ran out", extra=fields(**ctx, error=str(exc)))
             return
         except Abandoned as exc:
-            self.queue.cancel(job["id"], str(exc), owner=owner, claim=claim)
+            self._settle(job, self.queue.cancel, job["id"], str(exc), owner=owner, claim=claim)
             self._audit(job, "handed_over", time.monotonic() - t0, error=str(exc))
             self.log.warning("job stopped: another agent took its request over", extra=fields(**ctx, error=str(exc)))
             return
@@ -406,13 +425,13 @@ class Agent:
             error = f"{type(exc).__name__}: {exc}"
             self._audit(job, "error", time.monotonic() - t0, error=error)
             if is_retryable(exc):
-                after = self.queue.retry_later(job["id"], owner, error, claim=claim)
+                after = self._settle(job, self.queue.retry_later, job["id"], owner, error, claim=claim)
                 self.log.warning("job will retry" if after and after["state"] == "queued" else "job gave up",
                                  extra=fields(**ctx, error=error))
                 if after and after["state"] == "dead":
                     self._alert(job, after["error"])
             else:
-                self.queue.fail(job["id"], owner, error, claim=claim)
+                self._settle(job, self.queue.fail, job["id"], owner, error, claim=claim)
                 self.log.error("job failed", extra=fields(**ctx, error=error))
                 self._alert(job, error)
             return
@@ -423,7 +442,7 @@ class Agent:
         failed = [r for r in results if r["status"] not in ("ok", "skipped")]
         retry = [r["entity"] for r in failed if r.get("retryable")]
         if not failed:
-            if self.queue.succeed(job["id"], owner, summary, claim=claim):
+            if self._settle(job, self.queue.succeed, job["id"], owner, summary, claim=claim):
                 self._audit(job, "ok", seconds, **summary)
                 self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
             else:  # its lease ran out at the end: the job's next attempt records how it went
@@ -436,7 +455,7 @@ class Agent:
             # Only busy tables or network trouble: try again, for just those and what they block.
             skipped = [r["entity"] for r in results if r["status"] == "skipped"]
             error = "; ".join(f"{r['entity']}: {r['message']}" for r in failed)
-            after = self.queue.retry_later(job["id"], owner, error, claim=claim)
+            after = self._settle(job, self.queue.retry_later, job["id"], owner, error, claim=claim)
             if after and after["state"] == "queued" and p.get("entities") != retry + skipped and not p.get("cascade"):
                 self._narrow(job["id"], retry + skipped)
             self.log.warning("job will retry", extra=fields(**ctx, seconds=seconds, error=error, **summary))
@@ -444,7 +463,7 @@ class Agent:
                 self._alert(job, after["error"])
         else:
             error = "; ".join(f"{r['entity']}: {r['message']}" for r in failed)
-            self.queue.fail(job["id"], owner, error, summary, claim=claim)
+            self._settle(job, self.queue.fail, job["id"], owner, error, summary, claim=claim)
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
 
@@ -518,7 +537,13 @@ class Agent:
     def step(self) -> None:
         """One pass of the loop; ``run_forever`` calls it every ``poll_seconds``."""
         for job_id in self.queue.recover():
-            self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
+            job = self.queue.get(job_id)
+            if job and job["state"] == "dead":  # its worker stopped on every attempt (say, a run that takes the agent down)
+                self.log.error("job gave up: its worker stopped on every attempt",
+                               extra=fields(job_id=job_id, error=job["error"]))
+                self._alert(job, job["error"] or "")
+            else:
+                self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
         self.tick_schedules()
         if self.mailbox and self.clock() - self._mailbox_at >= self.config.pipeline.poll_seconds:
             self._mailbox_at = self.clock()

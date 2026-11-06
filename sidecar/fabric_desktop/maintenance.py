@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from typing import Any
+from typing import Any, cast
 
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
@@ -56,8 +56,8 @@ def vorder_files(uri: str, options: dict[str, str] | None = None, limit: int = F
 
     table = DeltaTable(uri, storage_options=options)
     actions = table.get_add_actions(flatten=True)
-    paths = actions.column("path").to_pylist() if actions.num_rows else []
-    times = actions.column("modification_time").to_pylist() if actions.num_rows else []
+    paths = cast(list[str], actions.column("path").to_pylist()) if actions.num_rows else []
+    times = cast(list[Any], actions.column("modification_time").to_pylist()) if actions.num_rows else []
     newest = [p for _, p in sorted(zip(times, paths, strict=True), key=lambda tp: str(tp[0] or ""), reverse=True)]
     fs = DeltaStorageHandler(table.table_uri, options)
     v_ordered = 0
@@ -77,7 +77,7 @@ def health(uri: str, options: dict[str, str] | None = None, local: bool = False)
     except TableNotFoundError:
         return {"exists": False, "advice": [], "status": "missing"}
     actions = table.get_add_actions(flatten=True)
-    sizes = actions.column("size_bytes").to_pylist() if actions.num_rows else []
+    sizes = cast(list[int], actions.column("size_bytes").to_pylist()) if actions.num_rows else []
     files, total = len(sizes), sum(sizes)
     history = table.history(200)  # newest first
     version = table.version()

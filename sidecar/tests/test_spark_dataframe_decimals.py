@@ -78,14 +78,14 @@ def test_double_and_integer_expressions_are_unchanged():
                        "print(df.agg(F.avg('d'), F.sum('i')).dtypes)")
     assert status == "ok", text
     scalars, aggregates = text.replace('"', "").strip().splitlines()
-    assert scalars == "[('(d * 2)', 'double'), ('(i + 1)', 'int'), ('(d / nullif(i, 0))', 'double'), ('(a * d)', 'double')]"
+    assert scalars == "[('(d * 2)', 'double'), ('(i + 1)', 'int'), ('(d / i)', 'double'), ('(a * d)', 'double')]"
     assert aggregates == "[('avg(d)', 'double'), ('sum(i)', 'hugeint')]"  # DuckDB's own, as before
 
 
 def test_column_names_stay_as_they_were():
     status, text = run("print(df.select(F.col('a') * F.col('b'), F.col('a') / F.col('b'), 'k', F.col('a')).columns)")
     assert status == "ok", text
-    assert text.strip() == "['(a * b)', '(a / \"nullif\"(b, 0))', 'k', 'a']"
+    assert text.strip() == "['(a * b)', '(a / b)', 'k', 'a']"  # Spark's names (spark_compat._spark_named)
 
 
 def test_a_star_next_to_a_decimal_column():

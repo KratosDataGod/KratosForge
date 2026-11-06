@@ -271,6 +271,26 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+test("Save support bundle sits after Report a problem and lists every file, missing logs included (PB-062)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const help = src.slice(src.indexOf('h("h2", {}, "Help and about")'));
+  assert.ok(help.indexOf('"Report a problem"') < help.indexOf('"Save support bundle", "save", saveSupportBundle'));
+  assert.ok(help.indexOf('"Save support bundle"') < help.indexOf('"Guide for IT admins"'));
+  const ctx = { sizeText: (b) => `${b} B` };
+  vm.runInNewContext(`${src.match(/const BUNDLE_FILES = [\s\S]*?\n};\n/)[0]}${src.match(/const BUNDLE_MISSING = [\s\S]*?\n};\n/)[0]}` +
+    `${src.match(/function bundleRows\([\s\S]*?\n}\n/)[0]}; this.bundleRows = bundleRows;`, ctx);
+  const rows = ctx.bundleRows({ files: [{ name: "about.json", bytes: 3 }, { name: "CONTENTS.txt", bytes: 7 }], missing: ["sidecar.log"] });
+  assert.deepStrictEqual([...rows.map((r) => r.name)], ["about.json", "sidecar.log", "CONTENTS.txt"]);
+  assert.strictEqual(rows[1].missing, true);
+  assert.strictEqual(rows[1].size, "–");
+  assert.match(rows[1].what, /hasn't written a log yet/);
+  const dialog = src.slice(src.indexOf("async function saveSupportBundle"), src.indexOf("// ---------- Check for updates"));
+  assert.match(dialog, /Nothing is sent from KratosForge/);
+  assert.match(dialog, /rpc\("support_bundle_save", \{ folder: folder\.value \}\)/);
+  assert.match(dialog, /rpc\("support_bundle_reveal", \{ path: res\.path \}\)/);
+  assert.match(dialog, /"aria-expanded": "false"/);
+});
+
 test("Help and about shows the policy file's SHA-256 and whether its last change came the way IT pushes it (#1670)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = { h: (tag, attrs, ...kids) => ({ tag, text: kids.flat().join("") }), dateTimeText: () => "2 Nov 2026, 17:00" };
@@ -1242,7 +1262,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync"\]/);  // Databricks sync is a Workspaces tab too
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"\]/);  // Databricks sync and Power BI are Workspaces tabs too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -1730,6 +1750,8 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
+    "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
   const found = [];
   const walk = (dir) => {
@@ -5025,7 +5047,7 @@ test("pop-out windows load popout.js after app.js and get no more than the main 
   const cap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "capabilities", "default.json"), "utf8"));
   assert.deepStrictEqual(cap.windows, ["main"]);
   assert.deepStrictEqual(cap.webviews, ["pop-out-runs", "pop-out-fabric"]);
-  assert.deepStrictEqual(cap.permissions, ["core:default"]);
+  assert.deepStrictEqual(cap.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /const POP_OUT = \["runs", "fabric"\]\.find/);
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
@@ -5600,8 +5622,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
     incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
     agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
-    warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
-    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
+    warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
+    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
     pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
@@ -5618,6 +5640,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
+    embedStudio: ["Embed Studio"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5849,7 +5872,7 @@ test("a developer Python missing a package says the command that installs it", (
 // mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
 // when a change moves more of them onto tokens.
 test("styles.css writes no more colors outside its tokens than it did", () => {
-  const LITERAL_COLORS = 157;
+  const LITERAL_COLORS = 50;
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
@@ -5880,13 +5903,19 @@ test("every dialog has an axe case, or is in the baseline that only shrinks", ()
   const openers = dialogOpeners();
   const browser = path.join(__dirname, "browser");
   const covered = new Map();
+  const noAxe = [];
   for (const name of fs.readdirSync(browser).filter((f) => f.endsWith(".cjs"))) {
-    for (const m of fs.readFileSync(path.join(browser, name), "utf8").matchAll(/^\s*\/\/ axe covers dialogs: (.+)$/gm)) {
+    const src = fs.readFileSync(path.join(browser, name), "utf8");
+    const tags = [...src.matchAll(/^\s*\/\/ axe covers dialogs: (.+)$/gm)];
+    // A tag only counts in a file that runs axe: the harness's axeFindings, or axe.run directly.
+    if (tags.length && !/\baxeFindings\(|\baxe\.run\(/.test(src.replace(/^\s*\/\/.*$/gm, ""))) noAxe.push(name);
+    for (const m of tags) {
       for (const key of m[1].split(",").map((s) => s.trim()).filter(Boolean)) covered.set(key, name);
     }
   }
   const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "a11y-dialog-baseline.json"), "utf8"));
   const problems = [
+    ...noAxe.map((f) => `${f} names dialogs for axe but never runs axe`),
     ...[...openers].filter((k) => k.endsWith(":(top level)")).map((k) => `${k}: showDialog outside a function, so the guard can't name it`),
     ...[...covered].filter(([k]) => !openers.has(k)).map(([k, f]) => `${f} names ${k}, which doesn't open a dialog (renamed or removed?)`),
     ...[...openers].filter((k) => !covered.has(k) && !baseline.includes(k)).map((k) => `${k} opens a dialog that no browser test runs axe on`),

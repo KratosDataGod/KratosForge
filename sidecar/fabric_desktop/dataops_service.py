@@ -16,7 +16,6 @@ from typing import Any
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.compute  # noqa: F401 - pa.compute
 
 from . import http_session, retrying
 from .meta import Engine, impact
@@ -41,7 +40,9 @@ def _rows_in(table: Any) -> int:
     """Rows in a Delta table from its log's file statistics, or by counting the files when a writer left them out."""
     actions = pa.table(table.get_add_actions(flatten=True))
     if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
-        return int(pa.compute.sum(actions.column("num_records")).as_py() or 0)
+        import pyarrow.compute as pc  # here, not at the top: it adds about 30 ms to every engine start
+
+        return int(pc.sum(actions.column("num_records")).as_py() or 0)
     return table.to_pyarrow_dataset().count_rows()
 
 
@@ -127,17 +128,18 @@ class DataOpsMixin:
     def _deployed_entities(self, project: Any, env: str) -> dict[str, str] | None:
         """{name: config text} as promote last copied them to ``env``; None if it never was."""
         store = self._store(project, env)  # type: ignore[attr-defined]
-        deps = store.meta("deployments").filter(pl.col("env") == env)
+        deps = store.meta_where("deployments", pl.col("env") == env)
         if not deps.height:
             return None
         version = deps["version"][-1]
-        rows = store.meta("entities").filter(pl.col("version") == version)
+        rows = store.meta_where("entities", pl.col("version") == version)
         return {r["name"]: r["config"] for r in rows.iter_rows(named=True)}
 
     def meta_diff(self, against: str = "head") -> dict[str, Any]:
         """What the project's tables change by meaning, against the last Git commit ("head") or
         the version last promoted to an environment ("test", "prod")."""
         project = self._project()  # type: ignore[attr-defined]
+        base: dict[str, str] | None
         if against == "head":
             files = release.committed(project.root, "metadata/entities", ".toml")
             if files is None:
@@ -189,7 +191,7 @@ class DataOpsMixin:
             problem = str(exc)
         history = []
         try:
-            h = store.meta("schema_history").filter(pl.col("entity") == name).reverse()
+            h = store.meta_where("schema_history", pl.col("entity") == name).reverse()
             history = _rows(h, 10)
         except Exception as exc:
             _log.info("No schema history for this entity: %s", describe(exc))

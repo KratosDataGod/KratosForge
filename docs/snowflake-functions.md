@@ -21,12 +21,12 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 104 |
-| Differs | 19 |
-| Refused | 30 |
-| Fails | 107 |
-| Not checked | 234 |
-| **All** | **494** |
+| Runs | 136 |
+| Differs | 21 |
+| Refused | 69 |
+| Fails | 41 |
+| Not checked | 228 |
+| **All** | **495** |
 
 ## String and binary
 
@@ -130,8 +130,8 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `DIV0` | Runs | 1 value check |
-| `DIV0NULL` | Runs | 1 value check |
+| `DIV0` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `DIV0NULL` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
 | `ABS` | Runs | 1 value check |
 | `CEIL` | Runs | 1 value check |
 | `FLOOR` | Runs | 1 value check |
@@ -229,7 +229,7 @@ the known differences in more detail.
 | `CAST` | Not checked | `SELECT CAST('1' AS INTEGER)` |  |
 | `TRY_CAST` | Runs |  | 1 value check |
 | `TO_CHAR` | Not checked |  |  |
-| `TO_VARCHAR` | Runs |  | 1 value check |
+| `TO_VARCHAR` | Runs |  | 3 value checks |
 | `TO_BINARY` | Not checked |  |  |
 | `TRY_TO_BINARY` | Not checked |  |  |
 | `TO_DECFLOAT` | Fails |  | DuckDB has no TO_DECFLOAT, and the rules don't rewrite it |
@@ -269,7 +269,7 @@ the known differences in more detail.
 | `ARRAY_APPEND` | Not checked |  |  |
 | `ARRAY_CAT` | Runs |  | 1 value check |
 | `ARRAY_COMPACT` | Not checked |  |  |
-| `ARRAY_CONSTRUCT` | Not checked |  |  |
+| `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
 | `ARRAY_CONSTRUCT_COMPACT` | Not checked |  |  |
 | `ARRAY_CONTAINS` | Runs |  | 1 value check |
 | `ARRAY_DISTINCT` | Not checked |  |  |
@@ -316,41 +316,42 @@ the known differences in more detail.
 | `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
 | `GET_PATH` | Not checked |  |  |
 | `XMLGET` | Fails |  | DuckDB has no XMLGET, and the rules don't rewrite it |
-| `AS_ARRAY` | Fails |  | DuckDB has no AS_ARRAY, and the rules don't rewrite it |
-| `AS_BINARY` | Fails |  | DuckDB has no AS_BINARY, and the rules don't rewrite it |
-| `AS_CHAR` | Fails |  | DuckDB has no AS_CHAR, and the rules don't rewrite it |
-| `AS_VARCHAR` | Fails |  | DuckDB has no AS_VARCHAR, and the rules don't rewrite it |
-| `AS_DATE` | Fails |  | DuckDB has no AS_DATE, and the rules don't rewrite it |
-| `AS_DECIMAL` | Fails |  | DuckDB has no AS_DECIMAL, and the rules don't rewrite it |
-| `AS_NUMBER` | Fails |  | DuckDB has no AS_NUMBER, and the rules don't rewrite it |
-| `AS_DOUBLE` | Fails |  | DuckDB has no AS_DOUBLE, and the rules don't rewrite it |
-| `AS_REAL` | Fails |  | DuckDB has no AS_REAL, and the rules don't rewrite it |
-| `AS_INTEGER` | Fails |  | DuckDB has no AS_INTEGER, and the rules don't rewrite it |
-| `AS_OBJECT` | Fails |  | DuckDB has no AS_OBJECT, and the rules don't rewrite it |
-| `AS_TIME` | Fails |  | DuckDB has no AS_TIME, and the rules don't rewrite it |
-| `AS_TIMESTAMP_LTZ` | Fails |  | DuckDB has no AS_TIMESTAMP_LTZ, and the rules don't rewrite it |
-| `AS_TIMESTAMP_NTZ` | Fails |  | DuckDB has no AS_TIMESTAMP_NTZ, and the rules don't rewrite it |
-| `AS_TIMESTAMP_TZ` | Fails |  | DuckDB has no AS_TIMESTAMP_TZ, and the rules don't rewrite it |
+| `AS_ARRAY` | Runs |  | 1 value check |
+| `AS_BOOLEAN` | Runs |  | 1 value check |
+| `AS_BINARY` | Runs |  | 1 value check |
+| `AS_CHAR` | Runs |  | 1 value check |
+| `AS_VARCHAR` | Runs |  | 2 value checks |
+| `AS_DATE` | Runs |  | 1 value check |
+| `AS_DECIMAL` | Runs |  | 2 value checks; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_NUMBER` | Runs |  | 1 value check; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_DOUBLE` | Runs |  | 1 value check |
+| `AS_REAL` | Runs |  | 1 value check |
+| `AS_INTEGER` | Runs |  | 3 value checks |
+| `AS_OBJECT` | Runs |  | 2 value checks |
+| `AS_TIME` | Runs |  | 1 value check |
+| `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
+| `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `TO_JSON` | Not checked |  |  |
 | `TO_XML` | Fails |  | DuckDB has no TO_XML, and the rules don't rewrite it |
-| `IS_ARRAY` | Not checked |  |  |
-| `IS_BOOLEAN` | Fails |  | DuckDB has no IS_BOOLEAN, and the rules don't rewrite it |
-| `IS_BINARY` | Fails |  | DuckDB has no IS_BINARY, and the rules don't rewrite it |
-| `IS_CHAR` | Fails |  | DuckDB has no IS_CHAR, and the rules don't rewrite it |
-| `IS_VARCHAR` | Fails |  | DuckDB has no IS_VARCHAR, and the rules don't rewrite it |
-| `IS_DATE` | Fails |  | DuckDB has no IS_DATE, and the rules don't rewrite it |
-| `IS_DATE_VALUE` | Fails |  | DuckDB has no IS_DATE_VALUE, and the rules don't rewrite it |
-| `IS_DECIMAL` | Fails |  | DuckDB has no IS_DECIMAL, and the rules don't rewrite it |
-| `IS_DOUBLE` | Fails |  | DuckDB has no IS_DOUBLE, and the rules don't rewrite it |
-| `IS_REAL` | Fails |  | DuckDB has no IS_REAL, and the rules don't rewrite it |
-| `IS_INTEGER` | Fails |  | DuckDB has no IS_INTEGER, and the rules don't rewrite it |
-| `IS_NULL_VALUE` | Runs |  | 1 value check |
-| `IS_OBJECT` | Fails |  | DuckDB has no IS_OBJECT, and the rules don't rewrite it |
-| `IS_TIME` | Fails |  | DuckDB has no IS_TIME, and the rules don't rewrite it |
-| `IS_TIMESTAMP_LTZ` | Fails |  | DuckDB has no IS_TIMESTAMP_LTZ, and the rules don't rewrite it |
-| `IS_TIMESTAMP_NTZ` | Fails |  | DuckDB has no IS_TIMESTAMP_NTZ, and the rules don't rewrite it |
-| `IS_TIMESTAMP_TZ` | Fails |  | DuckDB has no IS_TIMESTAMP_TZ, and the rules don't rewrite it |
-| `TYPEOF` | Differs |  | TYPEOF (path to an exponent): A JSON number with a fraction or exponent read from a path or a column is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF(PARSE_JSON(...)) is exact. |
+| `IS_ARRAY` | Runs |  | 1 value check |
+| `IS_BOOLEAN` | Runs |  | 1 value check |
+| `IS_BINARY` | Runs |  | 1 value check |
+| `IS_CHAR` | Runs |  | 1 value check |
+| `IS_VARCHAR` | Runs |  | 1 value check |
+| `IS_DATE` | Runs |  | 1 value check |
+| `IS_DATE_VALUE` | Runs |  | 1 value check |
+| `IS_DECIMAL` | Differs |  | IS_DECIMAL (vartab): SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
+| `IS_DOUBLE` | Runs |  | 3 value checks |
+| `IS_REAL` | Runs |  | 2 value checks |
+| `IS_INTEGER` | Runs |  | 4 value checks |
+| `IS_NULL_VALUE` | Runs |  | 2 value checks |
+| `IS_OBJECT` | Runs |  | 1 value check |
+| `IS_TIME` | Runs |  | 1 value check |
+| `IS_TIMESTAMP_LTZ` | Refused |  | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `IS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
+| `IS_TIMESTAMP_TZ` | Refused |  | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `TYPEOF` | Differs |  | TYPEOF (stored value with an exponent): A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
 
 ## Aggregate
 
@@ -405,34 +406,34 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `APPROX_COUNT_DISTINCT` | Runs | 1 value check |
-| `HLL` | Fails | DuckDB has no HLL, and the rules don't rewrite it |
-| `HLL_ACCUMULATE` | Fails | DuckDB has no HLL_ACCUMULATE, and the rules don't rewrite it |
-| `HLL_COMBINE` | Fails | DuckDB has no HLL_COMBINE, and the rules don't rewrite it |
-| `HLL_ESTIMATE` | Fails | DuckDB has no HLL_ESTIMATE, and the rules don't rewrite it |
-| `HLL_EXPORT` | Fails | DuckDB has no HLL_EXPORT, and the rules don't rewrite it |
-| `HLL_IMPORT` | Fails | DuckDB has no HLL_IMPORT, and the rules don't rewrite it |
-| `DATASKETCHES_HLL` | Fails | DuckDB has no DATASKETCHES_HLL, and the rules don't rewrite it |
-| `DATASKETCHES_HLL_ACCUMULATE` | Fails | DuckDB has no DATASKETCHES_HLL_ACCUMULATE, and the rules don't rewrite it |
-| `DATASKETCHES_HLL_COMBINE` | Fails | DuckDB has no DATASKETCHES_HLL_COMBINE, and the rules don't rewrite it |
-| `DATASKETCHES_HLL_ESTIMATE` | Fails | DuckDB has no DATASKETCHES_HLL_ESTIMATE, and the rules don't rewrite it |
-| `APPROXIMATE_JACCARD_INDEX` | Fails | Binder Error: Aggregate with only constant parameters has to be bound in the root subquery |
-| `APPROXIMATE_SIMILARITY` | Fails | Binder Error: Aggregate with only constant parameters has to be bound in the root subquery |
-| `MINHASH` | Not checked |  |
-| `MINHASH_COMBINE` | Fails | Binder Error: Aggregate with only constant parameters has to be bound in the root subquery |
-| `APPROX_TOP_K` | Refused | Not rewritten for DuckDB. APPROX_TOP_K cannot be transpiled to DuckDB due to incompatible return types. . |
-| `APPROX_TOP_K_ACCUMULATE` | Fails | DuckDB has no APPROX_TOP_K_ACCUMULATE, and the rules don't rewrite it |
-| `APPROX_TOP_K_COMBINE` | Fails | DuckDB has no APPROX_TOP_K_COMBINE, and the rules don't rewrite it |
-| `APPROX_TOP_K_ESTIMATE` | Fails | DuckDB has no APPROX_TOP_K_ESTIMATE, and the rules don't rewrite it |
-| `APPROX_PERCENTILE` | Fails | Binder Error: APPROXIMATE QUANTILE parameter list cannot be NULL |
-| `APPROX_PERCENTILE_ACCUMULATE` | Fails | DuckDB has no APPROX_PERCENTILE_ACCUMULATE, and the rules don't rewrite it |
-| `APPROX_PERCENTILE_COMBINE` | Fails | DuckDB has no APPROX_PERCENTILE_COMBINE, and the rules don't rewrite it |
-| `APPROX_PERCENTILE_ESTIMATE` | Fails | DuckDB has no APPROX_PERCENTILE_ESTIMATE, and the rules don't rewrite it |
-| `BITMAP_BIT_POSITION` | Not checked |  |
-| `BITMAP_BUCKET_NUMBER` | Not checked |  |
-| `BITMAP_CONSTRUCT_AGG` | Not checked |  |
-| `BITMAP_COUNT` | Fails | DuckDB has no BITMAP_COUNT, and the rules don't rewrite it |
-| `BITMAP_OR_AGG` | Fails | DuckDB has no BITMAP_OR_AGG, and the rules don't rewrite it |
+| `APPROX_COUNT_DISTINCT` | Runs | 1 value check; labelled SFD-010 Approximate answers use DuckDB's estimators |
+| `HLL` | Runs | 2 value checks; labelled SFD-010 Approximate answers use DuckDB's estimators |
+| `HLL_ACCUMULATE` | Refused | HLL_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_COMBINE` | Refused | HLL_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_ESTIMATE` | Refused | HLL_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_EXPORT` | Refused | HLL_EXPORT: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `HLL_IMPORT` | Refused | HLL_IMPORT: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `DATASKETCHES_HLL` | Differs | DATASKETCHES_HLL (docs example): SFD-010: DuckDB's estimate is 4.0, where Snowflake's sketch gives 4.00000003. |
+| `DATASKETCHES_HLL_ACCUMULATE` | Refused | DATASKETCHES_HLL_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `DATASKETCHES_HLL_COMBINE` | Refused | DATASKETCHES_HLL_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `DATASKETCHES_HLL_ESTIMATE` | Refused | DATASKETCHES_HLL_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROXIMATE_JACCARD_INDEX` | Refused | APPROXIMATE_SIMILARITY: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROXIMATE_SIMILARITY` | Refused | APPROXIMATE_SIMILARITY: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `MINHASH` | Refused | MINHASH: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `MINHASH_COMBINE` | Refused | MINHASH_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K` | Refused | APPROX_TOP_K: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K_ACCUMULATE` | Refused | APPROX_TOP_K_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K_COMBINE` | Refused | APPROX_TOP_K_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_TOP_K_ESTIMATE` | Refused | APPROX_TOP_K_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_PERCENTILE` | Differs | APPROX_PERCENTILE (docs example, 0.1): SFD-010: DuckDB's approx_quantile gives 1.0. |
+| `APPROX_PERCENTILE_ACCUMULATE` | Refused | APPROX_PERCENTILE_ACCUMULATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_PERCENTILE_COMBINE` | Refused | APPROX_PERCENTILE_COMBINE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `APPROX_PERCENTILE_ESTIMATE` | Refused | APPROX_PERCENTILE_ESTIMATE: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `BITMAP_BIT_POSITION` | Runs | 3 value checks |
+| `BITMAP_BUCKET_NUMBER` | Runs | 3 value checks |
+| `BITMAP_CONSTRUCT_AGG` | Refused | BITMAP_CONSTRUCT_AGG: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `BITMAP_COUNT` | Refused | BITMAP_COUNT: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
+| `BITMAP_OR_AGG` | Refused | BITMAP_OR_AGG: Snowflake sketch and bitmap states. It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) counts. |
 
 ## Window
 
@@ -497,34 +498,34 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CURRENT_CLIENT` | Fails | DuckDB has no CURRENT_CLIENT, and the rules don't rewrite it |
+| `CURRENT_CLIENT` | Refused | CURRENT_CLIENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_DATE` | Not checked |  |
-| `CURRENT_IP_ADDRESS` | Fails | DuckDB has no CURRENT_IP_ADDRESS, and the rules don't rewrite it |
-| `CURRENT_REGION` | Fails | DuckDB has no CURRENT_REGION, and the rules don't rewrite it |
+| `CURRENT_IP_ADDRESS` | Refused | CURRENT_IP_ADDRESS: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_REGION` | Refused | CURRENT_REGION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_TIME` | Not checked |  |
 | `CURRENT_TIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `CURRENT_VERSION` | Not checked |  |
-| `CURRENT_ACCOUNT` | Fails | DuckDB has no CURRENT_ACCOUNT, and the rules don't rewrite it |
-| `CURRENT_ACCOUNT_NAME` | Fails | DuckDB has no CURRENT_ACCOUNT_NAME, and the rules don't rewrite it |
-| `CURRENT_ORGANIZATION_NAME` | Fails | DuckDB has no CURRENT_ORGANIZATION_NAME, and the rules don't rewrite it |
+| `CURRENT_ACCOUNT` | Refused | CURRENT_ACCOUNT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_ACCOUNT_NAME` | Refused | CURRENT_ACCOUNT_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_ORGANIZATION_NAME` | Refused | CURRENT_ORGANIZATION_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_ROLE` | Not checked |  |
-| `CURRENT_AVAILABLE_ROLES` | Fails | DuckDB has no CURRENT_AVAILABLE_ROLES, and the rules don't rewrite it |
-| `CURRENT_SECONDARY_ROLES` | Fails | DuckDB has no CURRENT_SECONDARY_ROLES, and the rules don't rewrite it |
-| `CURRENT_SESSION` | Fails | DuckDB has no CURRENT_SESSION, and the rules don't rewrite it |
-| `CURRENT_STATEMENT` | Fails | DuckDB has no CURRENT_STATEMENT, and the rules don't rewrite it |
-| `CURRENT_TRANSACTION` | Fails | DuckDB has no CURRENT_TRANSACTION, and the rules don't rewrite it |
+| `CURRENT_AVAILABLE_ROLES` | Refused | CURRENT_AVAILABLE_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_SECONDARY_ROLES` | Refused | CURRENT_SECONDARY_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_SESSION` | Refused | CURRENT_SESSION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_STATEMENT` | Refused | CURRENT_STATEMENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_TRANSACTION` | Refused | CURRENT_TRANSACTION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_USER` | Not checked |  |
 | `CURRENT_DATABASE` | Not checked |  |
-| `CURRENT_ROLE_TYPE` | Fails | DuckDB has no CURRENT_ROLE_TYPE, and the rules don't rewrite it |
+| `CURRENT_ROLE_TYPE` | Refused | CURRENT_ROLE_TYPE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_SCHEMA` | Not checked |  |
 | `CURRENT_SCHEMAS` | Not checked |  |
-| `CURRENT_WAREHOUSE` | Fails | DuckDB has no CURRENT_WAREHOUSE, and the rules don't rewrite it |
+| `CURRENT_WAREHOUSE` | Refused | CURRENT_WAREHOUSE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `GETDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `LOCALTIME` | Not checked |  |
 | `LOCALTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
-| `LAST_QUERY_ID` | Fails | DuckDB has no LAST_QUERY_ID, and the rules don't rewrite it |
+| `LAST_QUERY_ID` | Refused | LAST_QUERY_ID: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `RANDOM` | Not checked |  |
 | `UNIFORM` | Not checked |  |
 | `SEQ4` | Not checked |  |
@@ -534,7 +535,7 @@ the known differences in more detail.
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `\|\|` | Runs |  | 1 value check |
-| `/` | Differs |  | / (by zero): Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0. |
+| `/` | Runs |  | 2 value checks; labelled SFD-003 Division returns DOUBLE |
 | `%` | Runs |  | 1 value check |
 | `::` | Not checked | `SELECT '1'::INT` |  |
 | `CASE` | Not checked | `SELECT CASE WHEN 1 = 1 THEN 'a' ELSE 'b' END` |  |
@@ -546,7 +547,7 @@ the known differences in more detail.
 | `ILIKE ANY` | Not checked | `SELECT 'ABC' ILIKE ANY ('x%', 'a%')` |  |
 | `REGEXP` | Not checked | `SELECT 'abc' REGEXP 'a.c'` |  |
 | `IS DISTINCT FROM` | Not checked | `SELECT 1 IS DISTINCT FROM NULL` |  |
-| `Path (v:a)` | Runs |  | 1 value check |
+| `Path (v:a)` | Runs |  | 5 value checks |
 | `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
 | `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
 | `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |

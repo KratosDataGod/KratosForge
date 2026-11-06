@@ -3,7 +3,7 @@
 // The shell serves this page from its pbiembed scheme, to the main window only, with a policy that lets it
 // frame app.powerbi.com and nothing else. The main window frames it and talks to it by postMessage. It runs
 // Microsoft's powerbi-client SDK (vendor/powerbi.min.js) and does only what a fixed list of commands asks:
-// embed one item, give it a new token, change page, reload, full screen, reset. Messages are taken only
+// embed one item, give it a new token, change page, reload, reset. Messages are taken only
 // from the parent window on one of the app's own origins, and answered only to that origin. Events go back
 // with anything that looks like a token or secret removed, so the screen can show and copy them.
 //
@@ -23,12 +23,14 @@
   const KINDS = ["report", "visual", "dashboard", "tile"];
   // What the SDK raises for each kind (powerbi-client 2.25.0). Q&A isn't here: Microsoft retires it in December 2026.
   const EVENTS = {
-    report: ["loaded", "rendered", "error", "pageChanged", "dataSelected", "buttonClicked", "saved"],
+    report: ["loaded", "rendered", "error", "pageChanged", "dataSelected", "buttonClicked", "dataHyperlinkClicked", "saved"],
     visual: ["loaded", "rendered", "error", "dataSelected"],
     dashboard: ["loaded", "error", "tileClicked"],
     tile: ["tileLoaded", "tileClicked", "error"],
   };
   const SECRET = /token|authorization|secret|password|credential/i;
+  // A token inside text (an error message that quotes a header, say): a JWT, or a bearer value.
+  const TOKEN_TEXT = /\beyJ[\w-]{4,}\.[\w-]{4,}\.[\w-]*|\bBearer\s+[\w.~+/=-]+/gi;
   const MAX_TEXT = 2000;
 
   // An embed address the frame may load: https on app.powerbi.com, no port and no user name.
@@ -44,7 +46,10 @@
   function clean(value, depth) {
     depth = depth || 0;
     if (value === null || value === undefined) return value === undefined ? null : value;
-    if (typeof value === "string") return value.length > MAX_TEXT ? value.slice(0, MAX_TEXT) + "…" : value;
+    if (typeof value === "string") {
+      const text = value.replace(TOKEN_TEXT, "(token removed)");
+      return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "…" : text;
+    }
     if (typeof value === "number" || typeof value === "boolean") return value;
     if (typeof value !== "object" || depth >= 6) return null;
     if (typeof Node !== "undefined" && value instanceof Node) return null;
@@ -78,7 +83,9 @@
     const config = {
       type: kind, id: msg.id, embedUrl: msg.embedUrl, accessToken: msg.accessToken,
       tokenType: models.TokenType.Aad,
-      settings: { panes: { pageNavigation: { visible: false } } },
+      // Power BI's own page list is hidden (the screen has its own), and a link in the report is raised as an
+      // event for the app to open in the default browser: the frame itself can't open windows.
+      settings: { panes: { pageNavigation: { visible: false } }, hyperlinkClickBehavior: models.HyperlinkClickBehavior.RaiseEvent },
     };
     if (kind === "report" && typeof msg.pageName === "string" && msg.pageName) config.pageName = msg.pageName;
     if (kind === "visual") {
@@ -140,11 +147,6 @@
         if (!current) throw new Error("Nothing is open.");
         return current.reload().then(() => ({}));
       },
-      fullscreen() {
-        if (!current) throw new Error("Nothing is open.");
-        current.fullscreen();
-        return {};
-      },
       reset() {
         service.reset(el);
         current = null;
@@ -162,7 +164,19 @@
       Promise.resolve()
         .then(() => commands[msg.command](msg))
         .then((result) => send({ reply: seq, ok: true, result: clean(result) }))
-        .catch((err) => send({ reply: seq, ok: false, error: String((err && err.message) || err).slice(0, MAX_TEXT) }));
+        .catch((err) => send({ reply: seq, ok: false, error: clean(String((err && err.message) || err)) }));
+    });
+    // The SDK sends the load request when Power BI's frame has loaded, and drops that promise: a refused load
+    // (an error status from Power BI) surfaces only as an unhandled rejection here. It goes to the app as an
+    // error event, so the screen can say what happened instead of waiting.
+    win.addEventListener("unhandledrejection", (e) => {
+      const reason = e.reason;
+      if (!current || !reason || typeof reason !== "object" || !(reason.message || reason.errorCode)) return;
+      // Anything else that rejects with a message while content is open goes the same way: it shows as an error
+      // event, which is what someone debugging an embed wants to see.
+      e.preventDefault();
+      // An Error's message isn't an own enumerable key, so it is copied over before clean() walks the keys.
+      emit("error", { message: reason.message, errorCode: reason.errorCode, ...reason });
     });
     // Ready: the parent can send commands now. It carries nothing, so it goes to each app origin it may be.
     for (const origin of APP_ORIGINS) send({ event: "ready" }, origin);

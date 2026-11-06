@@ -35,21 +35,24 @@ enterprise ready), see [Platform support levels](platforms.md); this page doesn'
 
 | Area | Visual familiarity | Workflow compatibility | Cloud API integration | Local execution | Verified runtime equivalence |
 | --- | --- | --- | --- | --- | --- |
-| Workspaces and items | Missing | Missing | Verified | · | · |
-| Lakehouse tables and files | Missing | Missing | Built | Built | · |
-| Warehouse and SQL analytics endpoint | Missing | Missing | Built | Partial | · |
-| Notebooks and Spark | Missing | Missing | Verified | Partial | Partial |
-| Data Factory pipelines | Missing | Missing | · | Partial | · |
-| Dataflows Gen2 | Missing | Missing | · | · | · |
-| Medallion task flows | Missing | Missing | · | · | · |
-| Semantic models, TMDL and Direct Lake | Missing | Missing | · | Partial | · |
-| Git integration and deployment | Missing | Missing | Built | · | · |
-| Monitoring and capacity | Missing | Missing | Built | · | · |
-| Security and governance | Missing | Missing | · | · | · |
+| Workspaces and items | Partial | Partial | Verified | · | · |
+| Lakehouse tables and files | Partial | Partial | Built | Built | · |
+| Warehouse and SQL analytics endpoint | Partial | Missing | Built | Partial | · |
+| Notebooks and Spark | Partial | Missing | Verified | Partial | Partial |
+| Data Factory pipelines | Partial | Missing | · | Partial | · |
+| Dataflows Gen2 | Partial | Missing | · | · | · |
+| Medallion task flows | Partial | Missing | · | · | · |
+| Semantic models, TMDL and Direct Lake | Partial | Missing | · | Partial | · |
+| Git integration and deployment | Partial | Missing | Built | · | · |
+| Monitoring and capacity | Partial | Partial | Built | · | · |
+| Security and governance | Partial | Missing | · | · | · |
 
 Notes:
 
+- **Every area, Visual familiarity:** The Fabric-familiar skin (Preview) gives a teal accent and Fabric's page order on the rail (Home, Create, Workspaces, OneLake and Monitor first); pages keep KratosForge's own layout.
+- **Workspaces and items, Workflow compatibility:** The skin's rail has Workspaces third, after Home and Create, as in Fabric; inside it, the page is KratosForge's own.
 - **Workspaces and items, Cloud API integration:** Listing workspaces and lakehouses was recorded; other item types were not. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
+- **Lakehouse tables and files, Workflow compatibility:** The skin's rail has OneLake fourth, after Workspaces, as in Fabric; inside it, the page is KratosForge's own.
 - **Lakehouse tables and files, Cloud API integration:** Tables weren't listed in the recorded live run.
 - **Lakehouse tables and files, Local execution:** Notebooks on this PC read and write OneLake; used live, not recorded.
 - **Warehouse and SQL analytics endpoint, Local execution:** T-SQL is translated to DuckDB; documented gaps fail loudly (docs/sql-compatibility.md).
@@ -59,27 +62,30 @@ Notes:
 - **Data Factory pipelines, Local execution:** Pipelines run on this PC; expected outcomes come from documentation, not a recorded tenant run.
 - **Semantic models, TMDL and Direct Lake, Local execution:** TMDL is read offline and the Direct Lake check runs on this PC; models aren't served here.
 - **Git integration and deployment, Cloud API integration:** Publishing hasn't been recorded live.
+- **Monitoring and capacity, Workflow compatibility:** The skin's rail has Monitor fifth, after OneLake, as in Fabric; inside it, the page is KratosForge's own.
 
 ### Azure Databricks
 
 | Area | Visual familiarity | Workflow compatibility | Cloud API integration | Local execution | Verified runtime equivalence |
 | --- | --- | --- | --- | --- | --- |
-| Sign-in and workspace discovery | Missing | Missing | Built | · | · |
-| SQL warehouses and the SQL editor | Missing | Missing | Built | Partial | · |
-| Notebooks, Spark and dbutils | Missing | Missing | Built | Partial | · |
-| Unity Catalog | Missing | Missing | · | · | · |
-| Jobs and Lakeflow pipelines | Missing | Missing | Partial | · | · |
-| Compute | Missing | Missing | · | · | · |
-| Asset bundles and deployment | Missing | Missing | Partial | · | · |
-| Cost and DBU | Missing | Missing | Partial | · | · |
+| Sign-in and workspace discovery | Partial | Missing | Built | · | · |
+| SQL warehouses and the SQL editor | Partial | Missing | Built | Partial | · |
+| Notebooks, Spark and dbutils | Partial | Missing | Built | Partial | · |
+| Unity Catalog | Partial | Missing | · | · | · |
+| Jobs and Lakeflow pipelines | Partial | Partial | Partial | · | · |
+| Compute | Partial | Missing | · | · | · |
+| Asset bundles and deployment | Partial | Missing | Partial | · | · |
+| Cost and DBU | Partial | Missing | Partial | · | · |
 
 Notes:
 
+- **Every area, Visual familiarity:** The Databricks-familiar skin (Preview) gives a blue accent and Databricks' page names on the rail; pages keep KratosForge's own layout.
 - **Sign-in and workspace discovery, Cloud API integration:** Against fakes of the CLI and APIs; no live run yet.
 - **SQL warehouses and the SQL editor, Cloud API integration:** Against fakes of the SQL Statement API; no live run yet.
 - **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.
 - **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced with a workspace folder (Preview); against fakes, no live run yet.
 - **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.
+- **Jobs and Lakeflow pipelines, Workflow compatibility:** The skin names Monitor "Jobs and pipelines" and puts it where Databricks does; inside it, runs are read, not created or started.
 - **Jobs and Lakeflow pipelines, Cloud API integration:** Monitor > Databricks (Preview) reads job runs and Lakeflow updates with their tasks and errors; jobs aren't created or started here. Against fakes, no live run yet.
 - **Asset bundles and deployment, Cloud API integration:** Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; bundle run and destroy aren't offered. Against a fake CLI, no live run yet.
 - **Cost and DBU, Cloud API integration:** Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; no budgets or alerts. Against fakes, no live run yet.
@@ -88,16 +94,17 @@ Notes:
 
 | Area | Visual familiarity | Workflow compatibility | Cloud API integration | Local execution | Verified runtime equivalence |
 | --- | --- | --- | --- | --- | --- |
-| Sign-in, roles and warehouses | Missing | Missing | Missing | · | · |
-| SQL worksheets | Missing | Missing | Missing | Partial | · |
-| Databases, schemas and object browser | Missing | Missing | · | · | · |
-| Snowpark | Missing | Missing | · | Missing | · |
-| Stages and data loading | Missing | Missing | · | · | · |
-| Streams, tasks and dynamic tables | Missing | Missing | · | · | · |
-| Query history, profiling and credits | Missing | Missing | · | · | · |
+| Sign-in, roles and warehouses | Partial | Missing | Missing | · | · |
+| SQL worksheets | Partial | Missing | Missing | Partial | · |
+| Databases, schemas and object browser | Partial | Missing | · | · | · |
+| Snowpark | Partial | Missing | · | Missing | · |
+| Stages and data loading | Partial | Missing | · | · | · |
+| Streams, tasks and dynamic tables | Partial | Missing | · | · | · |
+| Query history, profiling and credits | Partial | Missing | · | · | · |
 
 Notes:
 
+- **Every area, Visual familiarity:** The Snowflake-familiar skin (Preview) gives a blue accent and Snowsight's page names on the rail; pages keep KratosForge's own layout.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime.
 <!-- END GENERATED: parity -->
 

@@ -41,6 +41,7 @@ it; SLA targets per priority are applied when the incidents are read (``sla.py``
 
 from __future__ import annotations
 
+import builtins  # IncidentLog.list hides the builtin in its class's annotations
 import datetime as dt
 import json
 import time
@@ -143,8 +144,14 @@ class IncidentLog:
         stored = self.backend.read(KEY)
         if stored is None:
             return {"contract": CONTRACT, "kind": "incidents", "env": self.env, "incidents": []}, None
-        doc = json.loads(stored.data or b"{}")
-        doc.setdefault("incidents", [])
+        try:
+            doc = json.loads(stored.data)  # never written empty: an empty file is one cut short
+            if not isinstance(doc, dict) or not isinstance(doc.setdefault("incidents", []), list):
+                raise ValueError("it isn't an incident list")
+        except ValueError as exc:  # never written over: it may hold incidents nobody has resolved
+            raise ValueError(f"The {self.env.title()} incident list ({KEY} in its control area) can't be read "
+                             f"({exc}). It is left as it is, so no incident in it is lost; restore it from a "
+                             "backup, or move it away to start a new list.") from None
         return doc, stored.etag
 
     def list(self, states: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
@@ -154,7 +161,7 @@ class IncidentLog:
         done = sorted((i for i in items if i["state"] not in ACTIVE), key=lambda i: i.get("resolved_at") or "", reverse=True)
         return active + done
 
-    def active(self) -> list[dict[str, Any]]:
+    def active(self) -> builtins.list[dict[str, Any]]:
         return self.list(ACTIVE)
 
     # ---- changing
@@ -180,8 +187,8 @@ class IncidentLog:
             time.sleep(min(0.05 * (attempt + 1), 0.5))
         raise Conflict("The incident list kept changing while it was being updated; try again.")
 
-    def sync(self, signals: list[dict[str, Any]], *, evaluated: bool | set[str] | frozenset[str],
-             by: str) -> list[dict[str, Any]]:
+    def sync(self, signals: builtins.list[dict[str, Any]], *, evaluated: bool | set[str] | frozenset[str],
+             by: str) -> builtins.list[dict[str, Any]]:
         """Bring the document in line with what an evaluation saw.
 
         ``signals`` are the problems seen now ({kind, workload, name, title, text, evidence,
@@ -251,7 +258,7 @@ class IncidentLog:
         return self._change(apply) or []
 
     def escalate(self, after_seconds: float, to: str, by: str,
-                 applies: Callable[[dict[str, Any]], bool] = lambda inc: True) -> list[dict[str, Any]]:
+                 applies: Callable[[dict[str, Any]], bool] = lambda inc: True) -> builtins.list[dict[str, Any]]:
         """Mark every open incident nobody acknowledged within ``after_seconds`` as escalated to
         ``to``, once. Only the write that lands reports it, so two evaluators escalate once."""
         now_t = self.clock()
@@ -351,7 +358,7 @@ class IncidentLog:
             raise ValueError(f"Priority is one of {', '.join(PRIORITIES)}.")
         now = _iso(self.clock())
         inc_id = _id()
-        inc = {"id": inc_id, "key": signal_key("reported", inc_id, self.env), "kind": "reported",
+        inc: dict[str, Any] = {"id": inc_id, "key": signal_key("reported", inc_id, self.env), "kind": "reported",
                "workload": workload or None, "name": name, "env": self.env, "title": title[:200], "text": text[:4000],
                "evidence": {}, "evidence_id": "", "state": "open", "opened_at": now, "last_seen_at": now,
                "occurrences": 1, "opened_by": by, "owner": owner.strip(), "acknowledged_by": None,

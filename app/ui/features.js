@@ -116,6 +116,7 @@ const PREVIEW_FEATURES = {
   learn: "Learn",
   academy: "Academy",
   appStudio: "App Studio",
+  embedStudio: "Embed Studio (Power BI)",
 };
 
 function previewShown() {
@@ -432,8 +433,9 @@ function openPalette(initial = "") {
   palette.opener = opener;
   closeMenu();
   const input = h("input", { type: "text", value: initial, placeholder: "Search pages, actions, notebooks, workspaces and entities",
-    "aria-label": "Command bar" });
-  const list = h("div", { class: "palette-list", role: "listbox", "aria-label": "Results" });
+    "aria-label": "Command bar", role: "combobox", "aria-expanded": "true", "aria-autocomplete": "list",
+    "aria-controls": "palette-list" });
+  const list = h("div", { class: "palette-list", id: "palette-list", role: "listbox", "aria-label": "Results" });
   const close = () => {
     const open = document.getElementById("palette");
     if (!open) return;
@@ -448,11 +450,15 @@ function openPalette(initial = "") {
     list.replaceChildren(...(items.length ? items.flatMap((it, i) => {
       const head = it.group !== group ? h("div", { class: "palette-group" }, (group = it.group)) : null;
       const row = h("button", { class: `palette-item${i === palette.selected ? " on" : ""}`, role: "option",
+        id: `palette-item-${i}`, "aria-selected": String(i === palette.selected),
         onmousemove: () => { if (palette.selected !== i) { palette.selected = i; draw(); } },
         onclick: () => { close(); it.run(); } }, icon(it.icon, 16), it.label);
       return head ? [head, row] : [row];  // replaceChildren would print a null as the text "null"
     }) : [h("div", { class: "palette-empty" }, "Nothing matches. Try fewer letters.")]));
     list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
+    // Focus stays in the box; a screen reader follows the highlighted result through aria-activedescendant.
+    if (items.length) input.setAttribute?.("aria-activedescendant", `palette-item-${palette.selected}`);
+    else input.removeAttribute?.("aria-activedescendant");
     return items;
   };
   input.addEventListener("input", () => { palette.selected = 0; draw(); });

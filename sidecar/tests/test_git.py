@@ -588,7 +588,7 @@ def test_redaction_hides_credentials_in_messages():
             "Authorization: Bearer eyJabc.def.ghijklmnop\n" + KEY + "\nhttp.extraheader=AUTHORIZATION: basic Zm9vOmJhcg==")
     out = secrets.redact(text)
     assert "ghp_" + "B" * 10 not in out and "chris" not in out and "Zm9vOmJhcg" not in out
-    assert "Ab1+…[hidden]" in out and "https://***@github.com" in out
+    assert "Ab1+" not in out and "https://[removed]@github.com" in out and "AccountKey=[removed]" in out
 
 
 # ---- the service the page calls

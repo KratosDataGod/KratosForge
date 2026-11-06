@@ -9,15 +9,18 @@ import shutil
 import duckdb
 import pytest
 
-from fabric_desktop.academy import exercises, registry
+from fabric_desktop.academy import (configlab, exercises, gitlab, pipelab, pylab, pyspark_lab, quizlab, registry,
+                                    sqlprojlab, workspace)
 
 PACK = "dp-700"
 
 
 def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
-    assert exercises.ids(PACK) == ["E21", "E23", "E24", "E25", "E33", "E35", "E36", "E37", "E38", "E39", "E43",
-                                   "E57", "E58", "E59"]
+    assert exercises.ids(PACK) == ["E06", "E08", "E12", "E17", "E19", "E21", "E22", "E23", "E24", "E25", "E27",
+                                   "E28", "E32", "E33", "E35", "E36", "E37", "E38", "E39", "E40", "E43", "E44",
+                                   "E48", "E49", "E50", "E51", "E53", "E56", "E57", "E58", "E59", "E61", "E62",
+                                   "E63", "E64"]
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))
@@ -30,9 +33,46 @@ def test_reference_passes_and_every_wrong_answer_fails(eid):
         assert all(c["detail"] for c in r["results"])
 
 
-def test_the_starter_does_not_pass_yet():
+def test_the_starter_does_not_pass_yet(tmp_path):
     for eid in exercises.ids(PACK):
         ex = exercises.get(PACK, eid)
+        if ex["adapter"] == pipelab.ADAPTER:   # the starter pipeline, run as the learner's answer
+            folder = registry.ROOT / PACK / "exercises" / eid
+            work = tmp_path / eid
+            work.mkdir()
+            shutil.copy(folder / ex["starter"], work / ex["starter"])
+            assert not pipelab.grade(work, ex, folder)["passed"], eid
+            continue
+        if ex["adapter"] in pylab.ADAPTERS:   # the starter script, run in the learner process
+            folder = registry.ROOT / PACK / "exercises" / eid
+            data_root = tmp_path / f"{eid}-data"
+            work = workspace.workspace_dir(data_root, "starter", eid)
+            work.mkdir(parents=True)
+            pylab.prepare(work, folder, ex, (folder / ex["starter"]).read_text(encoding="utf-8"))
+            res = pylab.grade(work, ex["starter"], ex["validation"], data_root, appcontainer_ok=pylab.appcontainer_ok(ex))
+            assert not res["passed"], eid
+            continue
+        if ex["adapter"] == quizlab.ADAPTER:   # a quiz starts with no answers
+            assert not ex.get("starter"), eid
+            continue
+        if ex["adapter"] == configlab.ADAPTER:   # the starter settings document, checked like any answer
+            starter = (registry.ROOT / PACK / "exercises" / eid / ex["starter"]).read_text(encoding="utf-8")
+            assert not configlab.grade(starter, ex)["passed"], eid
+            continue
+        if ex["adapter"] == gitlab.ADAPTER:   # the starter session, replayed in a fresh repository
+            folder = registry.ROOT / PACK / "exercises" / eid
+            assert not gitlab.grade((folder / ex["starter"]).read_text(encoding="utf-8"), folder, ex)["passed"], eid
+            continue
+        if ex["adapter"] == sqlprojlab.ADAPTER:   # the starter change set, applied and built
+            folder = registry.ROOT / PACK / "exercises" / eid
+            text = (folder / ex["starter"]).read_text(encoding="utf-8")
+            assert not sqlprojlab.grade(text, folder, registry.ROOT / PACK / "grading" / eid, ex)["passed"], eid
+            continue
+        if ex["adapter"] == "pyspark_lab":   # the starter code, graded like any answer
+            ref = pyspark_lab.reference(PACK, eid)
+            res = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], ref["starter"], ref["solution"], pyspark_lab.run_reference)
+            assert not res["passed"], eid
+            continue
         ref = exercises.reference(PACK, eid)
         assert not exercises.grade(ref["setup"], ex["validation"], ref["starter"], ref["solution"])["passed"], eid
 

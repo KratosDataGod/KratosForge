@@ -1,0 +1,63 @@
+{
+  "_about": "A model of one eventhouse table and its JSON ingestion mapping. Edit the mapping; keep one entry per column, in this order.",
+  "table": "DeviceReadings",
+  "columns": [
+    {
+      "name": "DeviceId",
+      "type": "string"
+    },
+    {
+      "name": "ReadingTime",
+      "type": "datetime"
+    },
+    {
+      "name": "TemperatureC",
+      "type": "real"
+    },
+    {
+      "name": "Firmware",
+      "type": "string"
+    }
+  ],
+  "event_last_week": {
+    "deviceId": "d-17",
+    "timestamp": "2026-10-30T08:15:02Z",
+    "temperature": 21.4,
+    "firmware": "1.9.3"
+  },
+  "event_today": {
+    "device": {
+      "id": "d-17"
+    },
+    "ts": 1762416902000,
+    "temp_c": 21.4,
+    "fw": "2.1.0"
+  },
+  "mapping_name": "DeviceReadings_json",
+  "mapping": [
+    {
+      "column": "DeviceId",
+      "Properties": {
+        "Path": "$.deviceId"
+      }
+    },
+    {
+      "column": "ReadingTime",
+      "Properties": {
+        "Path": "$.timestamp"
+      }
+    },
+    {
+      "column": "TemperatureC",
+      "Properties": {
+        "Path": "$.temperature"
+      }
+    },
+    {
+      "column": "Firmware",
+      "Properties": {
+        "Path": "$.firmware"
+      }
+    }
+  ]
+}

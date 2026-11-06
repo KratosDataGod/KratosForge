@@ -28,6 +28,7 @@ Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -41,7 +42,7 @@ from typing import Any, Callable
 
 import requests
 
-from . import delta_dml, delta_profile, jsonfile, leases, redact
+from . import delta_dml, delta_profile, jsonfile, leases, redact, retrying
 from .fabric_api import FabricError
 from .onelake import FileStore, TableRef, storage_options
 
@@ -469,16 +470,15 @@ class LiveTest:
                 start.wait(timeout=60)
             except threading.BrokenBarrierError:
                 _log.info("Live test writer %s started without the other", name)
-            for attempt in range(1, 4):
-                attempts[name] = attempt
-                try:
-                    self.write_table(ref, rows, "append")
-                    return
-                except Exception as exc:  # recorded as the check's failure below
-                    if attempt == 3 or not _commit_conflict(exc):
-                        errors[name] = f"{type(exc).__name__}: {exc}"
-                        return
-                    self.sleep(attempt)
+
+            def once() -> None:
+                attempts[name] = attempts.get(name, 0) + 1
+                self.write_table(ref, rows, "append")
+
+            try:  # a lost commit race is tried again: 3 tries, waiting 1 s then 2 s
+                retrying.retry_call(once, _commit_conflict, 3, lambda tries: tries, self.sleep)
+            except Exception as exc:  # recorded as the check's failure below
+                errors[name] = f"{type(exc).__name__}: {exc}"
 
         threads = [threading.Thread(target=writer, args=(name, first), daemon=True)
                    for name, first in (("A", 1), ("B", 1 + n))]
@@ -540,6 +540,8 @@ class LiveTest:
         uri, opts = self.table_access(ref)
         change = delta_dml.parse("MERGE INTO dbo.livetest_merge AS t USING s ON t.id = s.id "
                                  "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *")
+        if change is None:
+            raise RuntimeError("The test's MERGE statement couldn't be read")
         source = pa.table({"id": [2, 4], "amount": [200, 40]})
         # The same lease the write path takes on this table, so no other KratosForge writer overlaps.
         with leases.table_lease(self.lease_backend(), "dbo", "livetest_merge", owner=f"live test {self.run_id}"):
@@ -695,7 +697,7 @@ class LiveTest:
             if kind not in ("lakehouse", *ITEM_KINDS) or resource.get("workspace_id") != self.workspace_id or not ours:
                 continue  # never delete what this run didn't name (fdlt_<run id>, fdlt_<run id>_*)
             check = self._check(f"cleanup.{kind}", f"Delete {kind} {resource['name']}",
-                                lambda r=resource: self._delete(r))
+                                functools.partial(self._delete, resource))
             if check.status == "passed":
                 self.ledger.remove(resource)
             done.append(check)
@@ -760,7 +762,7 @@ _AFTER_LAKEHOUSE = [("fabric.get_lakehouse", "Read the lakehouse's properties"),
                     ("errors.bad_token", "OneLake refuses a bad token")]
 
 
-def _commit_conflict(exc: Exception) -> bool:
+def _commit_conflict(exc: BaseException) -> bool:
     """A Delta commit lost a race with another writer and can be tried again."""
     text = f"{type(exc).__name__} {exc}".lower()
     return any(w in text for w in ("commitfailed", "conflict", "concurrent", "version already exists"))

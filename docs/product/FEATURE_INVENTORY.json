@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "7c7ed9e275bc2549b7a9cfdfb883feb3b201bde6",
-    "date": "2026-11-05",
+    "commit": "de881016b9d097538645ee3b7e4c66f5d8dee369",
+    "date": "2026-11-06",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -40,7 +40,9 @@
       "Product check 2026-11-04 11:42 at 1ca71e38abe68aee101715050bd72b47b09dcfd8: 13 PRs merged after 9b7848eb; 2 were product data and docs audit PRs and the other 11 were linked by number. PB-016's package source recorded as decided; new PB-131 (remove Academy's runtime access grants on uninstall).",
       "Product check 2026-11-04 23:42 at 03d2b53aa5560c88062d3148d9041cf57d0c9b42: 16 PRs merged after 1ca71e38; 1 was a product data PR and the other 15 were linked by number. PB-131 moved to In review.",
       "Acceptance of PB-131 recorded (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv); retitled because Security chose no uninstall step.",
-      "Product check 2026-11-05 11:42 at 7c7ed9e275bc2549b7a9cfdfb883feb3b201bde6: 6 PRs merged after 03d2b53a; 2 were product data PRs, #1828 updated its own rows, and the other 3 were linked to PB-128."
+      "Product check 2026-11-05 11:42 at 7c7ed9e275bc2549b7a9cfdfb883feb3b201bde6: 6 PRs merged after 03d2b53a; 2 were product data PRs, #1828 updated its own rows, and the other 3 were linked to PB-128.",
+      "Product check 2026-11-05 23:42 at a7631920de1b2b3e3666d5144e649152ac0680c1: 78 PRs merged after 7c7ed9e2; 1 was a product data PR and the other 77 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-06 11:42 at de881016b9d097538645ee3b7e4c66f5d8dee369: 46 PRs merged after a7631920; 2 were product data and docs audit PRs and the other 44 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -112,7 +114,16 @@
         1490,
         1502,
         1512,
-        1699
+        1596,
+        1699,
+        1768,
+        1769,
+        1836,
+        1839,
+        1846,
+        1872,
+        1887,
+        1892
       ]
     },
     {
@@ -289,7 +300,18 @@
         1759,
         1770,
         1772,
-        1773
+        1773,
+        1837,
+        1847,
+        1879,
+        1891,
+        1896,
+        1904,
+        1921,
+        1922,
+        1923,
+        1924,
+        1925
       ]
     },
     {
@@ -439,7 +461,19 @@
         1297,
         1334,
         1339,
-        1717
+        1717,
+        1841,
+        1854,
+        1855,
+        1856,
+        1858,
+        1876,
+        1878,
+        1884,
+        1886,
+        1888,
+        1890,
+        1930
       ],
       "workstream": "Enterprise readiness (FD-139)",
       "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
@@ -619,7 +653,8 @@
         1637,
         1734,
         1811,
-        1821
+        1821,
+        1908
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -719,7 +754,9 @@
         1177,
         1379,
         1387,
-        1392
+        1392,
+        1679,
+        1870
       ]
     },
     {
@@ -1189,13 +1226,18 @@
         1126,
         1134,
         1135,
+        1136,
         1642,
         1715,
         1718,
         1721,
         1727,
         1728,
-        1736
+        1736,
+        1842,
+        1868,
+        1871,
+        1897
       ]
     },
     {
@@ -1692,6 +1734,7 @@
         743,
         745,
         747,
+        755,
         774,
         783,
         787,
@@ -1705,7 +1748,8 @@
         985,
         1181,
         1471,
-        1641
+        1641,
+        1893
       ],
       "limitations": [
         "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
@@ -2340,6 +2384,7 @@
         1559,
         1562,
         1566,
+        1568,
         1572,
         1579,
         1587,
@@ -2363,7 +2408,19 @@
         1732,
         1745,
         1787,
-        1792
+        1792,
+        1845,
+        1851,
+        1853,
+        1860,
+        1866,
+        1880,
+        1905,
+        1906,
+        1919,
+        1927,
+        1928,
+        1941
       ]
     },
     {
@@ -2882,7 +2939,18 @@
         676,
         703,
         1245,
-        1268
+        1268,
+        1622,
+        1632,
+        1633,
+        1635,
+        1852,
+        1869,
+        1898,
+        1900,
+        1912,
+        1913,
+        1939
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -5412,7 +5480,8 @@
         1735,
         1799,
         1800,
-        1802
+        1802,
+        1867
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -7401,7 +7470,8 @@
         1382,
         1383,
         1399,
-        1451
+        1451,
+        1936
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go.",
@@ -7664,7 +7734,9 @@
         262,
         349,
         613,
-        1472
+        1472,
+        1833,
+        1834
       ],
       "workstream": "Optimize central lakehouse (PB-104)",
       "next_action": "Settings history can include capacity overrides for administrators (#613); not yet set up on a tenant.",
@@ -7953,7 +8025,11 @@
         1535,
         1545,
         1738,
-        1816
+        1816,
+        1863,
+        1864,
+        1929,
+        1933
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8285,7 +8361,8 @@
         795,
         811,
         1569,
-        1707
+        1707,
+        1832
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
@@ -8419,7 +8496,20 @@
         1820,
         1823,
         1824,
-        1825
+        1825,
+        1827,
+        1840,
+        1843,
+        1844,
+        1848,
+        1850,
+        1877,
+        1910,
+        1915,
+        1916,
+        1917,
+        1918,
+        1926
       ],
       "backlog": [
         "PB-119",

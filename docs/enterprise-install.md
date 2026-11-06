@@ -35,6 +35,27 @@ Each build's release also has `kratosforge.msi`, built by CI from the same exe t
 - The MSI is unsigned until code signing lands, the same as the exe. Expect the same SmartScreen and policy checks.
 - Each build's MSI has a higher version than the one before. Going back to an earlier build (a Stable rollback) gives a lower version, which the MSI refuses over a newer one: uninstall KratosForge first, then assign the earlier MSI. Settings and the engine stay, since they live outside the install folder.
 
+### Silent install, uninstall and detection
+
+These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI builds it (`.github/workflows/ci.yml`, "Build the MSI"). **UNVERIFIED:** none of these commands has been run in an Intune or Configuration Manager tenant yet.
+
+| What | Value |
+| --- | --- |
+| Install, silently, for the signed-in user | `msiexec /i kratosforge.msi /qn /norestart`. Add `/l*v "%TEMP%\kratosforge-msi.log"` for a log |
+| Install context | **User** (`Scope="perUser"`). Run it as the user, not as SYSTEM: as SYSTEM it would install for the SYSTEM account |
+| Uninstall, silently | `msiexec /x kratosforge.msi /qn /norestart` with the same build's MSI, or `msiexec /x {ProductCode} /qn /norestart`. The product code is new for each build (WiX makes one), so read it from `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall` on a pilot PC rather than hard-coding it. An Intune line-of-business app handles this for you |
+| Upgrade code (the same for every build) | `9b7d27af-a699-475e-a9e3-c3f09833ddda`. A newer MSI replaces an older one through it (`MajorUpgrade`), and the same version can be installed again |
+| Version | `0.<n>.<run>` from the CI run number, so each build's MSI is higher than the one before. An older MSI over a newer install stops with "A newer KratosForge is already installed. Uninstall it first to go back to this one." |
+| Installs | `%LOCALAPPDATA%\Programs\KratosForge\kratosforge.exe` and a Start menu shortcut, plus `InstallFolder` and `StartMenuShortcut` under `HKCU\Software\KratosBI\KratosForge` |
+| Detection rule (Win32 app) | The registry value `HKCU\Software\KratosBI\KratosForge\InstallFolder` exists. Don't detect on the exe's size or version: a self-updating app replaces the exe, so it stops matching the MSI's copy |
+| Repair | None runs on its own. The shortcut isn't advertised, so starting the app never triggers a repair that would undo a self-update |
+
+**UNVERIFIED on Windows:**
+- an uninstall while the app is open;
+- an uninstall after the app has updated itself in that folder (a leftover `kratosforge.exe.old` would keep the folder from being removed).
+
+Close the app first, and check the folder on a pilot PC.
+
 ## Deploy
 
 1. Download `kratosforge.exe` from the release you want: [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) unless your pilot group follows Preview.
@@ -68,7 +89,7 @@ Each time the engine starts, and each time someone opens Settings, KratosForge c
 | The file was removed | `policy_file_changed`, with no SHA-256 and `state` `none` |
 | Nothing changed | Nothing |
 
-Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped.
+Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped. A [support bundle](troubleshooting.md) carries the same hash and last change in `about.json` (`policy_record`); making one only reads them.
 
 An [agent](agent.md#operate) on the same machine does the same at its start and every 15 minutes, in its own audit log.
 
@@ -144,7 +165,50 @@ The list comes from the hosts named in the source code. Notebooks run on the PC,
 
 ### Proxies and HTTPS inspection
 
-The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. If a certificate is still refused, the error starts with "HTTPS was refused because the server's certificate isn't trusted on this PC" and says what to do. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+
+Each outbound call, what it uses, and how long it waits:
+
+| Call | Proxy | Certificates | Gives up after |
+| --- | --- | --- | --- |
+| Sign-in (MSAL: browser, device code, service principal) | Windows proxy or `HTTPS_PROXY` | Windows store | 60 seconds per call to Entra; the browser or Windows prompt itself waits for the person |
+| Sign-in with Windows (WAM) | Windows' own network settings | Windows store | Windows decides |
+| Fabric REST API, OneLake, Graph, Power BI | Windows proxy or `HTTPS_PROXY` | Windows store | 60 seconds unless the call names its own |
+| Managed identity on an Azure VM | Windows proxy or `HTTP_PROXY` | Not HTTPS | 60 seconds |
+| Update check and downloads (the shell, before the engine starts) | Windows proxy or `HTTPS_PROXY` | Windows store (Python's standard library loads it) | 5 to 120 seconds, by step |
+
+Set up the network like this:
+- A proxy given by a PAC file or by automatic detection (WPAD) isn't read. Set the proxy server in Internet Options, or set `HTTPS_PROXY` and `NO_PROXY` as machine environment variables (Group Policy or Intune).
+- A proxy that asks for a sign-in of its own (a 407 answer, with NTLM, Kerberos or Basic) isn't supported. Allow the addresses in [Network access](#network-access) without proxy sign-in.
+- On an Azure VM that signs in with its managed identity, add `169.254.169.254` to `NO_PROXY` or the proxy's bypass list, so the machine's identity endpoint isn't sent to the proxy.
+
+When a call fails on the network, the error starts with one line that says what to do, then the detail:
+- "HTTPS was refused because the server's certificate isn't trusted on this PC": add the root certificate to Windows.
+- "The proxy server refused the connection or couldn't be reached": check the proxy address and that it doesn't ask for a sign-in of its own.
+- "The server didn't answer in time": the proxy or firewall dropped the call without answering.
+
+The update check says the same in its own words. No call waits forever: `sidecar/tests/test_corporate_network.py` fails when an outbound call is written without a timeout, and runs sign-in, a Fabric call and the update check through a local proxy with a made-up company root certificate, a proxy that answers 407, and one that never answers. These tests run on Linux in CI and stand in for the Windows proxy setting, so the Windows proxy and certificate store themselves are UNVERIFIED until a pilot PC behind your proxy confirms them.
+
+## What the support bundle collects
+
+When your help desk needs logs, ask for a support bundle: **Settings > Help and about > Save support bundle**, or `fabric-desktop support-bundle --out <folder>`. It saves a zip to the PC and never sends it anywhere. This is what it holds, from `sidecar/fabric_desktop/support_bundle.py`:
+
+| File | What it holds |
+| --- | --- |
+| `about.json` | The app and engine versions, Python and Windows versions, and where each setting comes from. The policy file's state: whether it applies, or the last copy that could be read stands in, and the names of the settings it sets, never their values. The file's SHA-256 and the last change this PC recorded (`policy_record`), to compare with `Get-FileHash` of the file you shipped |
+| `sidecar.log` | The last 2,000 lines of the engine's log |
+| `sidecar.prev.log` | The last 2,000 lines of the run before, when the engine has restarted |
+| `agent.log` | On an agent server, with `--agent-home`: the last 2,000 lines of the agent's log |
+| `CONTENTS.txt` | What is in the zip and what was taken out |
+
+Every file goes through the same redaction before it is written. It takes out:
+- tokens, keys and passwords;
+- email addresses;
+- the tenant's `onmicrosoft.com` and SharePoint names, and the organization's name on OneDrive folders;
+- user names in paths;
+- tenant, workspace and item ids.
+
+A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
 
 ## Uninstall
 

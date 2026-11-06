@@ -154,6 +154,8 @@ def test_the_fabric_skin_is_light_and_orders_the_rail_without_hiding_a_page():
     fabric = skins.BUILT_IN["fabric"]
     assert fabric["targets"][0]["platform"] == "fabric" and fabric["appearance"]["color_mode"] == "light"
     assert set(fabric["workflow"]["rail"]) == set(skins.KRATOSFORGE["workflow"]["rail"])  # reordered, nothing removed
+    # Fabric's own order, which docs/parity.md's workflow cells for Fabric rely on.
+    assert fabric["workflow"]["rail"][:5] == ["home", "create", "workspaces", "onelake", "monitor"]
     assert skins.contrast(fabric["appearance"]["tokens"]["light"]["--accent"], "#ffffff") >= skins.CONTRAST_MIN
 
 
@@ -161,4 +163,26 @@ def test_skins_list_answers_from_the_server_and_is_read_only():
     from fabric_desktop import audit, server
     assert "skins_list" in server.METHODS and "skins_list" in audit.READ_ONLY
     listing = skins.listing()
-    assert [s["id"] for s in listing["skins"]][:2] == ["kratosforge", "fabric"] and listing["schema"] == skins.SCHEMA
+    assert [s["id"] for s in listing["skins"]] == ["kratosforge", "fabric", "databricks", "snowflake"]
+    assert listing["schema"] == skins.SCHEMA
+
+
+@pytest.mark.parametrize("skin_id, first", [("databricks", ["workspaces", "home", "create", "onelake"]),
+                                            ("snowflake", ["home", "onelake", "create", "monitor"])])
+def test_the_databricks_and_snowflake_skins_lead_with_their_platforms_pages(skin_id, first):
+    skin = skins.BUILT_IN[skin_id]
+    assert skins.validate(skin, skins.BASE) is skin and skin in skins.listing()["skins"]
+    assert skin["targets"][0]["platform"] == skin_id and skin["appearance"]["color_mode"] == "light"
+    rail = skin["workflow"]["rail"]
+    assert rail[:len(first)] == first
+    assert set(rail) == set(skins.KRATOSFORGE["workflow"]["rail"])  # reordered, nothing removed
+    assert rail[-3:] == ["platform", "optimize", "metadata"]  # KratosForge's own pages last (#1847)
+    assert "density" not in skin["appearance"]  # not applied yet
+    assert set(skin["workflow"].get("labels", {})) <= set(rail)
+    assert skins.contrast(skin["appearance"]["tokens"]["light"]["--accent"], "#ffffff") >= skins.CONTRAST_MIN
+
+
+def test_the_databricks_skins_dark_set_is_complete_and_readable():
+    dark = skins.BUILT_IN["databricks"]["appearance"]["tokens"]["dark"]
+    for fg, bg in skins.CONTRAST_PAIRS:  # no built-in dark base yet, so the skin sets both sides
+        assert fg in dark and bg in dark and skins.contrast(dark[fg], dark[bg]) >= skins.CONTRAST_MIN

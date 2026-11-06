@@ -111,7 +111,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
            "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
-           "telemetry_status", "telemetry_new_install_id"}
+           "telemetry_status", "telemetry_new_install_id",
+           "support_bundle_preview", "support_bundle_save", "support_bundle_reveal"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).
@@ -302,8 +303,9 @@ def handle(service: Service, line: str) -> dict:
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            if net_trust.certificate_refused(exc):  # one line that says what to do, then the detail
-                text = f"{net_trust.HINT} ({text})"
+            hint = net_trust.explain(exc)  # a certificate, proxy or timeout: one line that says what to do
+            if hint:
+                text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}
     if audit.audited(method):
         seconds = time.monotonic() - started

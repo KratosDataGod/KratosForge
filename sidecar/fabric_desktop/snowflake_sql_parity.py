@@ -20,6 +20,7 @@ docs/engines.md carries the table (``table_markdown``), checked by the same test
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,10 +30,20 @@ from .duckdb_rows import first_row
 _FN = "https://docs.snowflake.com/en/sql-reference/functions/"
 D = dt.date
 _V = "(SELECT column1 AS x FROM VALUES ({}))"
+# vartab from Snowflake's IS_<object_type> and AS_<object_type> pages.
+_VARTAB = ("(SELECT column1 AS n, parse_json(column2) AS v FROM VALUES (1, 'null'), (2, null), (3, 'true'), "
+           "(4, '-17'), (5, '123.12'), (6, '1.912e2'), (7, '\"Om ara pa ca na dhih\"  '), "
+           "(8, '[-1, 12, 289, 2188, false,]'), (9, '{ \"x\" : \"abc\", \"y\" : false, \"z\": 10} '))")
 
 
 def _values(*rows: Any) -> str:
     return _V.format("), (".join(str(r) for r in rows))
+
+
+@dataclass(frozen=True)
+class Raises:
+    """A documented error: the case is "same" when DuckDB stops with a message containing ``text``."""
+    text: str
 
 
 @dataclass(frozen=True)
@@ -128,8 +139,8 @@ CASES: tuple[Case, ...] = (
     _c("POWER", "Numeric", "SELECT power(2, 3)", 8),
     _c("SIGN", "Numeric", "SELECT sign(-5)", -1),
     _c("BITAND", "Numeric", "SELECT bitand(12, 10)", 8),
-    _c("/ (by zero)", "Numeric", "SELECT 1/0", "Division by zero error", "differs",
-       "Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0.",
+    _c("/ (by zero)", "Numeric", "SELECT 1/0", Raises("Division by zero"), page="div0"),
+    _c("/ (by a zero column)", "Numeric", f"SELECT 1 / x FROM {_values(1, 0)}", Raises("Division by zero"),
        page="div0"),
     _c("TO_NUMBER (scale 0)", "Conversion", "SELECT to_number('12.3456')", 12, page="to_decimal"),
     _c("TRY_TO_NUMBER", "Conversion", "SELECT try_to_number('12x')", None, page="try_to_decimal"),
@@ -160,6 +171,27 @@ CASES: tuple[Case, ...] = (
     _c("MONTHNAME", "Date and time", "SELECT monthname('2026-10-30'::date)", "Oct"),
     _c("DAYNAME", "Date and time", "SELECT dayname('2026-10-30'::date)", "Fri"),
     _c("PARSE_JSON path", "Semi-structured", "SELECT parse_json('{\"a\": 1}'):a::int", 1),
+    # Snowflake's "Querying semi-structured data" page: src:salesperson.name::string is the name, unquoted.
+    _c("PARSE_JSON path (cast to a string)", "Semi-structured",
+       "SELECT parse_json('{\"salesperson\": {\"name\": \"Frank Beasley\"}}'):salesperson.name::string",
+       "Frank Beasley", page="../../user-guide/querying-semistructured"),
+    _c("PARSE_JSON path (a number cast to a string)", "Semi-structured",
+       "SELECT parse_json('{\"a\": 1.5}'):a::varchar", "1.5", page="../../user-guide/querying-semistructured"),
+    _c("TO_VARCHAR (a JSON string)", "Conversion", "SELECT to_varchar(parse_json('{\"a\": \"Pine\"}'):a)", "Pine",
+       page="to_char"),
+    _c("PARSE_JSON path (brackets cast to a string)", "Semi-structured",
+       "SELECT v['salesperson']['name']::string FROM (SELECT parse_json('{\"salesperson\": {\"name\": "
+       "\"Frank Beasley\"}}') AS v)", "Frank Beasley", page="../../user-guide/querying-semistructured"),
+    # Snowflake's "Considerations for semi-structured data", NULL values: TO_CHAR of a JSON null is NULL.
+    _c("TO_VARCHAR (a JSON null)", "Conversion", "SELECT to_char(parse_json('{ \"a\": null }'):a)", None,
+       page="../../user-guide/semistructured-considerations"),
+    # [i] is 0-based on an ARRAY and on a VARIANT holding one (Snowflake's "Querying semi-structured data").
+    _c("PARSE_JSON path ([1] on a stored array)", "Semi-structured",
+       "SELECT v[1]::int FROM (SELECT parse_json('[10, 20, 30]') AS v)", 20,
+       page="../../user-guide/querying-semistructured"),
+    _c("ARRAY_CONSTRUCT ([i] with an index column)", "Semi-structured",
+       "SELECT a[i] FROM (SELECT array_construct(10, 20, 30) AS a, 2 AS i)", 30,
+       page="../../user-guide/querying-semistructured"),
     _c("ARRAY_SIZE", "Semi-structured", "SELECT array_size(array_construct(1, 2, 3))", 3),
     _c("ARRAY_CONTAINS", "Semi-structured", "SELECT array_contains(2::variant, array_construct(1, 2))", True),
     _c("ARRAY_TO_STRING", "Semi-structured", "SELECT array_to_string(array_construct('a', 'b'), ',')", "a,b"),
@@ -167,6 +199,57 @@ CASES: tuple[Case, ...] = (
     _c("ARRAY_CAT", "Semi-structured", "SELECT array_cat(array_construct(1), array_construct(2))", [1, 2]),
     _c("OBJECT_KEYS", "Semi-structured", "SELECT object_keys(parse_json('{\"a\": 1, \"b\": 2}'))", ["a", "b"]),
     _c("IS_NULL_VALUE", "Semi-structured", "SELECT is_null_value(parse_json('null'))", True),
+    # The examples on Snowflake's IS_<object_type> and AS_<object_type> pages: vartab, then multiple_types.
+    *(_c(f"{name} (vartab)", "Semi-structured", f"SELECT listagg(n, ',') WITHIN GROUP (ORDER BY n) FROM {_VARTAB} "
+         f"WHERE {name.lower()}(v)", rows, page="is") for name, rows in (
+        ("IS_NULL_VALUE", "1"), ("IS_BOOLEAN", "3"), ("IS_INTEGER", "4"), ("IS_DOUBLE", "4,5,6"),
+        ("IS_REAL", "4,5,6"), ("IS_VARCHAR", "7"), ("IS_CHAR", "7"), ("IS_ARRAY", "8"), ("IS_OBJECT", "9"))),
+    _c("IS_DECIMAL (vartab)", "Semi-structured",
+       f"SELECT listagg(n, ',') WITHIN GROUP (ORDER BY n) FROM {_VARTAB} WHERE is_decimal(v)", "4,5", "differs",
+       "SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too.", page="is"),
+    _c("IS_DECIMAL", "Semi-structured", "SELECT is_decimal(to_variant(1.23::decimal(6, 3)))", True),
+    _c("IS_DECIMAL (a DOUBLE)", "Semi-structured", "SELECT is_decimal(to_variant(3.21::double))", False),
+    _c("IS_DECIMAL (an integer)", "Semi-structured", "SELECT is_decimal(to_variant(15))", True),
+    _c("IS_INTEGER (a DECIMAL)", "Semi-structured", "SELECT is_integer(to_variant(1.23::decimal(6, 3)))", False),
+    _c("IS_INTEGER (a DOUBLE)", "Semi-structured", "SELECT is_integer(to_variant(3.21::double))", False),
+    _c("IS_DOUBLE (a BOOLEAN)", "Semi-structured", "SELECT is_double(to_variant(true))", False),
+    _c("IS_DOUBLE (a DECIMAL)", "Semi-structured", "SELECT is_double(to_variant(1.23::decimal(6, 3)))", True),
+    _c("IS_REAL", "Semi-structured", "SELECT is_real(to_variant(3.21::double))", True, page="is_double-real"),
+    _c("IS_DATE", "Semi-structured", "SELECT is_date(to_variant('2024-01-17'::date))", True, page="is"),
+    _c("IS_DATE_VALUE", "Semi-structured", "SELECT is_date_value(parse_json('\"2024-01-17\"'))", False, page="is"),
+    _c("IS_TIME", "Semi-structured", "SELECT is_time(to_variant('10:20:30'::time))", True, page="is"),
+    _c("IS_TIMESTAMP_NTZ", "Semi-structured", "SELECT is_timestamp_ntz('2024-01-17 19:00:00'::timestamp::variant)",
+       True, page="is"),
+    _c("IS_BINARY", "Semi-structured", "SELECT is_binary(to_variant(to_binary('41', 'HEX')))", True, page="is"),
+    _c("AS_REAL (vartab)", "Semi-structured", f"SELECT avg(as_real(v)) FROM {_VARTAB}", 99.10666666666667, page="as"),
+    _c("AS_DOUBLE", "Semi-structured", "SELECT as_double(to_variant(to_double(1.23)))", 1.23, page="as_double-real"),
+    _c("AS_ARRAY", "Semi-structured", "SELECT as_array(to_variant(array_construct('Array-like', 'example')))",
+       ["Array-like", "example"]),
+    _c("AS_BOOLEAN", "Semi-structured", "SELECT as_boolean(to_variant(to_boolean(false)))", False),
+    _c("AS_CHAR", "Semi-structured", "SELECT as_char(to_variant('X'))", "X", page="as_char-varchar"),
+    _c("AS_VARCHAR", "Semi-structured", "SELECT as_varchar(to_variant('My VARCHAR value'))", "My VARCHAR value",
+       page="as_char-varchar"),
+    _c("AS_VARCHAR (not a string)", "Semi-structured", "SELECT as_varchar(parse_json('15'))", None,
+       page="as_char-varchar"),
+    _c("AS_DECIMAL", "Semi-structured", "SELECT as_decimal(to_variant(1.23::decimal(6, 3)), 6, 3)",
+       Decimal("1.230"), page="as_decimal-number"),
+    _c("AS_NUMBER", "Semi-structured", "SELECT as_number(to_variant(to_number(2.34, 6, 3)), 6, 3)", Decimal("2.340"),
+       page="as_decimal-number"),
+    _c("AS_DECIMAL (a DOUBLE)", "Semi-structured", "SELECT as_decimal(to_variant(3.21::double))", None,
+       page="as_decimal-number"),
+    _c("AS_INTEGER", "Semi-structured", "SELECT as_integer(to_variant(15))", 15),
+    _c("AS_INTEGER (a DECIMAL)", "Semi-structured", "SELECT as_integer(parse_json('1.5'))", None),
+    _c("AS_OBJECT", "Semi-structured", "SELECT object_keys(as_object(parse_json('{\"Tree\": \"Pine\"}')))", ["Tree"]),
+    _c("AS_OBJECT (an array)", "Semi-structured", "SELECT as_object(parse_json('[1]'))", None),
+    _c("AS_INTEGER (of an AS_OBJECT path)", "Semi-structured",
+       "SELECT as_integer(as_object(parse_json('{\"a\": 5}')):a)", 5, page="as_integer"),
+    _c("IS_INTEGER (of AS_INTEGER)", "Semi-structured", "SELECT is_integer(to_variant(as_integer(parse_json('5'))))",
+       True, page="is_integer"),
+    _c("AS_DATE", "Semi-structured", "SELECT as_date(to_variant('2024-01-17'::date))", D(2024, 1, 17), page="as"),
+    _c("AS_TIME", "Semi-structured", "SELECT as_time(to_variant('10:20:30'::time))", dt.time(10, 20, 30), page="as"),
+    _c("AS_TIMESTAMP_NTZ", "Semi-structured", "SELECT as_timestamp_ntz('2024-01-17 19:00:00'::timestamp::variant)",
+       dt.datetime(2024, 1, 17, 19), page="as"),
+    _c("AS_BINARY", "Semi-structured", "SELECT as_binary(to_variant(to_binary('41', 'HEX')))", b"A", page="as"),
     _c("TYPEOF", "Semi-structured", "SELECT typeof(parse_json('1'))", "INTEGER"),
     # The examples on Snowflake's TYPEOF page, row by row.
     _c("TYPEOF (JSON null)", "Semi-structured", "SELECT typeof(parse_json('null'))", "NULL_VALUE", page="typeof"),
@@ -186,8 +269,14 @@ CASES: tuple[Case, ...] = (
     _c("TYPEOF (TIMESTAMP cast to VARIANT)", "Semi-structured",
        "SELECT typeof('2024-01-17 19:00:00.000'::timestamp::variant)", "TIMESTAMP_NTZ", page="typeof"),
     _c("TYPEOF (path to an exponent)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": 1.912e2}'):a)", "DOUBLE",
-       "differs", "A JSON number with a fraction or exponent read from a path or a column is 'DECIMAL or DOUBLE' "
-       "here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF(PARSE_JSON(...)) is exact.", page="typeof"),
+       page="typeof"),
+    _c("TYPEOF (path to a fraction)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": [1, 191.2]}'):a[1])",
+       "DECIMAL", page="typeof"),
+    _c("TYPEOF (stored value with an exponent)", "Semi-structured",
+       "SELECT typeof(v:a) FROM (SELECT parse_json('{\"a\": 1.912e2}') AS v)", "DOUBLE", "differs",
+       "A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' "
+       "here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into "
+       "PARSE_JSON of text in the query, is exact.", page="typeof"),
     _c("LISTAGG", "Aggregate", f"SELECT listagg(x, ',') WITHIN GROUP (ORDER BY x) FROM {_values(repr('b'), repr('a'))}",
        "a,b"),
     _c("ARRAY_AGG", "Aggregate", f"SELECT array_agg(x) WITHIN GROUP (ORDER BY x) FROM {_values(2, 1)}", [1, 2]),
@@ -196,6 +285,31 @@ CASES: tuple[Case, ...] = (
     _c("BOOLOR_AGG", "Aggregate", f"SELECT boolor_agg(x) FROM {_values('TRUE', 'FALSE')}", True),
     _c("ANY_VALUE", "Aggregate", f"SELECT any_value(x) FROM {_values(1)}", 1),
     _c("APPROX_COUNT_DISTINCT", "Aggregate", f"SELECT approx_count_distinct(x) FROM {_values(1, 1, 2)}", 2),
+    _c("HLL", "Aggregate", f"SELECT hll(x) FROM {_values(1, 1, 2)}", 2),
+    _c("HLL (DISTINCT has no effect)", "Aggregate", f"SELECT hll(DISTINCT x) FROM {_values(1, 1, 2)}", 2, page="hll"),
+    _c("DATASKETCHES_HLL (docs example)", "Aggregate",
+       f"SELECT datasketches_hll(x) FROM {_values(1, 2, 2, 2, 1, 1, 4, 4, 5)}", 4.00000003, "differs",
+       "SFD-010: DuckDB's estimate is 4.0, where Snowflake's sketch gives 4.00000003.", page="datasketches_hll"),
+    _c("APPROX_PERCENTILE (docs example, 0.1)", "Aggregate",
+       f"SELECT approx_percentile(x, 0.1) FROM {_values(*range(11))}", 1.5, "differs",
+       "SFD-010: DuckDB's approx_quantile gives 1.0.", page="approx_percentile"),
+    _c("APPROX_PERCENTILE (docs example, 0.5)", "Aggregate",
+       f"SELECT approx_percentile(x, 0.5) FROM {_values(*range(11))}", 5.5, "differs",
+       "SFD-010: DuckDB's approx_quantile gives 5.0.", page="approx_percentile"),
+    _c("APPROX_PERCENTILE (docs example, 0.999)", "Aggregate",
+       f"SELECT approx_percentile(x, 0.999) FROM {_values(*range(11))}", 10.5, "differs",
+       "SFD-010: DuckDB's approx_quantile gives 10.0, the largest value; Snowflake's estimate goes past it.",
+       page="approx_percentile"),
+    _c("BITMAP_BUCKET_NUMBER", "Numeric", "SELECT bitmap_bucket_number(1)", 1),
+    _c("BITMAP_BUCKET_NUMBER (last of bucket 1)", "Numeric", "SELECT bitmap_bucket_number(32768)", 1,
+       page="bitmap_bucket_number"),
+    _c("BITMAP_BUCKET_NUMBER (first of bucket 2)", "Numeric", "SELECT bitmap_bucket_number(32769)", 2,
+       page="bitmap_bucket_number"),
+    _c("BITMAP_BIT_POSITION", "Numeric", "SELECT bitmap_bit_position(1)", 0),
+    _c("BITMAP_BIT_POSITION (last of bucket 1)", "Numeric", "SELECT bitmap_bit_position(32768)", 32767,
+       page="bitmap_bit_position"),
+    _c("BITMAP_BIT_POSITION (first of bucket 2)", "Numeric", "SELECT bitmap_bit_position(32769)", 0,
+       page="bitmap_bit_position"),
     _c("STDDEV_SAMP", "Aggregate", f"SELECT stddev_samp(x) FROM {_values(1, 3)}", 2 ** 0.5, page="stddev_samp"),
     _c("RATIO_TO_REPORT", "Aggregate", f"SELECT ratio_to_report(x) OVER () FROM {_values(1, 3)} ORDER BY x LIMIT 1",
        0.25),
@@ -228,6 +342,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
     try:
         row = first_row(con.execute(translation.duckdb_sql))
     except duckdb.Error as exc:
+        if isinstance(case.expected, Raises) and case.expected.text in str(exc):
+            return "same", case.expected
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None
     return ("same" if same(value, case.expected) else "differs"), value

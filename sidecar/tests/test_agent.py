@@ -324,23 +324,27 @@ def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
     agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.3))
     agent.queue.enqueue("meta", {"env": "dev"})
     job = agent.queue.claim(setup.name, 0.3)
-    real, calls = agent.queue.heartbeat, []
+    real, calls, renewed = agent.queue.heartbeat, [], []
 
     def flaky(*a, **k):
         calls.append(1)
         if len(calls) == 1:
             raise sqlite3.OperationalError("database is locked")
-        return real(*a, **k)
+        ok = real(*a, **k)
+        renewed.append(ok)
+        return ok
     agent.queue.heartbeat = flaky
     done, lost = threading.Event(), threading.Event()
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     beat.start()
     try:
         deadline = time.monotonic() + 10
-        while len(calls) < 4 and time.monotonic() < deadline:
+        while len(renewed) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert beat.is_alive() and len(calls) >= 4 and not lost.is_set()
-        assert agent.queue.recover() == []  # renewed: not put back
+        # The beats after the failed one renewed the lease. (Asserting recover() == [] against the
+        # wall clock failed on a slow runner whenever one beat came late: a 0.3 s lease has no slack.)
+        assert renewed[:3] == [True, True, True] and beat.is_alive() and not lost.is_set()
+        assert agent.queue.get(job["id"])["lease_until"] > job["lease_until"]
     finally:
         done.set()
         beat.join(5)
@@ -503,6 +507,22 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
     with pytest.raises(LeaseBusy, match="agent-b"):
         with a.hold("LH_Silver/dbo.orders"):
             pass
+
+
+def test_a_lease_change_windows_keeps_refusing_leaves_the_lease_and_no_temporary_file(tmp_path, monkeypatch):
+    from fabric_desktop import leases
+    backend = LocalBackend(tmp_path / "leases")
+    etag = backend.create("LH_Silver/dbo.orders", b"agent-a")
+
+    def refused(src, dst):
+        raise PermissionError("[WinError 32] The process cannot access the file")
+    monkeypatch.setattr(leases.os, "replace", refused)
+    monkeypatch.setattr(leases.time, "sleep", lambda s: None)
+    with pytest.raises(PermissionError):
+        backend.replace("LH_Silver/dbo.orders", b"agent-a renewed", etag)
+    monkeypatch.undo()
+    assert not [p.name for p in (tmp_path / "leases").rglob("*.tmp")]
+    assert backend.read("LH_Silver/dbo.orders").data == b"agent-a"
 
 
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
@@ -862,15 +882,17 @@ def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatc
     assert Engine(project, store).run("bronze.orders").status == "ok"
     e = project.entities["bronze.orders"]
     lh = project.layer(e.layer).lakehouse
-    real_read, raced = store.read_at, []
+    # A full load replaces every row, so it reads only the table's schema and version (schema_at).
+    real_read, raced = store.schema_at, []
     first = real_read(lh, e.schema, e.table)[1]
 
     def read_then_other_writer_commits(lakehouse, schema, table):
         out = real_read(lakehouse, schema, table)
         if table == e.table and not raced:
             raced.append(True)
-            other = out[0].head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
-            store.write(lakehouse, schema, table, pl.concat([out[0], other], how="diagonal_relaxed"))
+            rows = store.read(lakehouse, schema, table)
+            other = rows.head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
+            store.write(lakehouse, schema, table, pl.concat([rows, other], how="diagonal_relaxed"))
         return out
     real_write, outcomes = store.write, []
 
@@ -883,7 +905,7 @@ def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatc
         if table == e.table and "read_version" in kw:
             outcomes.append(("ok", kw["read_version"], v))
         return v
-    monkeypatch.setattr(store, "read_at", read_then_other_writer_commits)
+    monkeypatch.setattr(store, "schema_at", read_then_other_writer_commits)
     monkeypatch.setattr(store, "write", write)
     monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda s: None)
     res = Engine(project, store).run("bronze.orders")

@@ -212,10 +212,35 @@ def _say(value: Any) -> str:
     return "a different value"
 
 
+def _same(a: Any, b: Any) -> bool:
+    """Equal as JSON values: true is never 1 and false never 0, as Python's == would have it."""
+    return a == b and isinstance(a, bool) == isinstance(b, bool)
+
+
+def _count_problem(path: str, value: Any, rule: dict[str, Any]) -> str | None:
+    """``count``, ``count_min``, ``count_max`` on a list: how many entries match ``where`` (all of its
+    fields equal; every entry when there's no ``where``). Order in the list never matters."""
+    if not isinstance(value, list):
+        return f"{path} is {_say(value)}; it should be a list."
+    where = rule.get("where") or {}
+    n = sum(1 for item in value if all(isinstance(item, dict) and _same(item.get(k, _MISSING), want)
+                                       for k, want in where.items()))
+    which = (" with " + " and ".join(f"{k} {_say(w)}" for k, w in where.items())) if where else ""
+    things = "entry" if n == 1 else "entries"
+    if "count" in rule and n != rule["count"]:
+        return f"{path} has {n} {things}{which}; it should have exactly {rule['count']}."
+    if "count_min" in rule and n < rule["count_min"]:
+        return f"{path} has {n} {things}{which}; it should have at least {rule['count_min']}."
+    if "count_max" in rule and n > rule["count_max"]:
+        return f"{path} has {n} {things}{which}; it should have at most {rule['count_max']}."
+    return None
+
+
 def config_matches(doc: Any, rules: list[dict[str, Any]]) -> dict[str, Any]:
     """Rules on a parsed settings document. Each rule has ``path`` and one of ``equals``, ``one_of``,
-    ``absent``, ``present``, ``min``/``max``, ``contains``, ``not_contains``; ``why`` is said when it fails
-    (the reason the setting matters, such as least privilege)."""
+    ``absent``, ``present``, ``min``/``max``, ``contains``, ``not_contains``, or ``count``/``count_min``/
+    ``count_max`` (entries of a list, optionally only those matching ``where``); ``why`` is said when it
+    fails (the reason the setting matters, such as least privilege)."""
     kind = "config_matches"
     for rule in rules:
         path = str(rule["path"])
@@ -227,9 +252,14 @@ def config_matches(doc: Any, rules: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         if value is _MISSING:
             return _no(kind, f"{path} isn't set.{why}")
-        if "equals" in rule and value != rule["equals"]:
+        if any(k in rule for k in ("count", "count_min", "count_max")):
+            said = _count_problem(path, value, rule)
+            if said:
+                return _no(kind, f"{said}{why}")
+            continue
+        if "equals" in rule and not _same(value, rule["equals"]):
             return _no(kind, f"{path} is {_say(value)}; it should be {_say(rule['equals'])}.{why}")
-        if "one_of" in rule and value not in rule["one_of"]:
+        if "one_of" in rule and not any(_same(value, o) for o in rule["one_of"]):
             return _no(kind, f"{path} is {_say(value)}; it should be one of {', '.join(map(_say, rule['one_of']))}.{why}")
         for bound, bad in (("min", lambda v, b: v < b), ("max", lambda v, b: v > b)):
             if bound in rule:

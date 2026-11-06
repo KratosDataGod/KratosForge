@@ -101,9 +101,10 @@ the learner's process never gets.
 | `python_lab` | `kernel_proc.py` | Child process with time and memory limits, process group or Job Object; lab mode: no sign-in, no lakehouse, working folder is the exercise workspace, scrubbed environment |
 | `delta_lab` | `python_lab` + delta-rs | As `python_lab`; tables live under the workspace |
 | `pipeline_lab` | `orchestration/runner.py` | Engine process; only local adapters and the exercise's mocks; no Copy, no Fabric calls |
-| `config_model` | rule checks like `governance_checks.py` | No code runs; a JSON or YAML settings document is checked |
-| `git_lab`, `sqlproj_lab` | `git_service.py`, `warehouse_project_service.py` | Git and file checks in the workspace |
-| `quiz` | exam engine (ACD-013) | No code |
+| `config_model` | `academy/configlab.py` over `validators.config_matches` | No code runs; a JSON settings document is checked as data. A pass is SIMULATED |
+| `git_lab` | `academy/gitlab.py` over the PC's own `git` | The learner's session (git commands and `write` blocks) replayed by the engine in a fresh repository built from the exercise's history: allow-listed subcommands only, nothing before the subcommand, no global or system configuration, hooks, editor, credential helper or transports, fixed identity and dates, time limits; each git command in a Job Object on Windows (memory, CPU time, a process cap, no breakaway, everything it started ended with it) or its own limited session elsewhere. A pass is LOCAL VERIFIED (real Git ran it); it proves nothing about Fabric's Git integration |
+| `sqlproj_lab` | `academy/sqlprojlab.py` over `warehouse_project_service.py`, `warehouse_compare.py` and `localdata/tsql.py` | No learner process: the change set (`-- file:` and `-- delete:` sections) is applied to the exercise's project as text, each file must define one object in Fabric's Git layout, and tables and views are translated from T-SQL and built in an in-memory DuckDB with external access off, a memory limit, locked settings and a time limit. A pass is LOCAL VERIFIED; it doesn't prove a Fabric warehouse builds or deploys the project |
+| `quiz` | `academy/quizlab.py` over the exam engine's question rules (ACD-013) | No code. Questions and key in `grading/<id>/quiz.json`; the screen gets stems and options only. A pass is KNOWLEDGE ONLY |
 | `fabric` | `prove_service.py` confirm and risk check, `fabric_api.py` | Fabric, in the learner's own workspace, with their own identity (ACD-014) |
 
 | Validator | Checks |
@@ -114,7 +115,9 @@ the learner's process never gets.
 | `delta_table` | Version count, operation history, partitioning, file count and size bounds, schema |
 | `notebook_ran` | The notebook ran end to end in the lab kernel; named outputs exist |
 | `pipeline_outcome` | Run status, per-activity status, outputs and parameters |
-| `config_matches` | Settings document meets the rules (least privilege, required settings) |
+| `repo_matches` | A Git repository meets the rules: branches, the branch checked out, file text or JSON at a ref, merged into, merge commits, commits ahead, clean, no conflict markers |
+| `project_builds`, `objects_present`, `deploy_safe` | A database project: every file defines one object in place and builds; named objects and columns are there; a deploy from the warehouse drops nothing and rebuilds no table |
+| `config_matches` | Settings document meets the rules (least privilege, required settings); `count` with `where` counts list entries in any order |
 | `artifact_present` | Required files or items exist with the right shape |
 | `faster_than` | Measured on this PC only, with the reference answer checked first (existing) |
 | `fabric_check` | A read-only check of the learner's Fabric item (ACD-014) |

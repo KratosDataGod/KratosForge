@@ -5,7 +5,7 @@ The learner process gets neither ``fabric_desktop`` nor the engine's sign-in pac
 ``spark`` needs from KratosForge (DuckDB's PySpark API gap fillers, the Spark SQL translation they use,
 and the Academy's Delta reader and writer) is copied into a separate top-level package, built from the
 engine's own source files so it never drifts: ``build()`` writes it, ``SOURCES`` lists what goes in,
-and the only change made to a file is ``pyspark_shim``'s two parent-package imports, made relative.
+and the only change made to a file is a parent-package import made relative (``REWRITES``).
 
 ``ALLOWED_IMPORTS`` is everything those files may import at the top level. ``import_problems()`` reads
 each source and lists any other import, so a new dependency (say, the lakehouse module) fails CI
@@ -29,10 +29,17 @@ SOURCES: dict[str, Path] = {
     "spark_builtins_sql.py": _ENGINE / "spark_builtins_sql.py",
     "sql_dialects.py": _ENGINE / "sql_dialects.py",
     "spark_decimals.py": _ENGINE / "spark_decimals.py",
+    "spark_hash.py": _ENGINE / "spark_hash.py",
+    "spark_number_format.py": _ENGINE / "spark_number_format.py",
+    "notebook_dag.py": _ENGINE / "notebook_dag.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",
+    "pyspark_stream.py": _HERE / "pyspark_stream.py",
+    "pyspark_delta.py": _HERE / "pyspark_delta.py",
+    "notebookutils_lab.py": _HERE / "notebookutils_lab.py",
 }
 REWRITES = {"pyspark_shim.py": (("from .. import spark_compat", "from . import spark_compat"),
-                                ("from ..duckdb_rows import", "from .duckdb_rows import"))}
+                                ("from ..duckdb_rows import", "from .duckdb_rows import")),
+            "notebookutils_lab.py": (("from .. import notebook_dag", "from . import notebook_dag"),)}
 # Top-level packages the copied files may import, besides the standard library and each other.
 ALLOWED_IMPORTS = ("duckdb", "sqlglot", "pyarrow", "deltalake", "typing_extensions")
 # Imported lazily, inside functions a learner's exercise never reaches; absent from kf_learner, so they fail.

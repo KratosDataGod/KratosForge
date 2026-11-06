@@ -175,6 +175,42 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def telemetry_new_install_id(self) -> dict[str, Any]:
         return {"install_id": self.telemetry.new_install_id()}
 
+    # Settings > Help and about > Save support bundle (PB-062). Nothing is sent: the zip is written
+    # to a folder the user picks and they decide who gets it. Every file is redacted (support_bundle).
+    def _bundle_agent_home(self) -> Path | None:
+        """The agent's folder when this PC runs the agent and it has written a log; else None."""
+        from .agent_config import default_home
+        home = default_home()
+        return home if (home / "logs" / "agent.log").is_file() else None
+
+    def support_bundle_preview(self) -> dict[str, Any]:
+        from . import support_bundle
+        shown = support_bundle.preview(self.root, self._bundle_agent_home())
+        return shown | {"folder": str(Path.home() / "Downloads")}
+
+    def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
+        from . import support_bundle
+        target = Path(folder) if folder else Path.home() / "Downloads"
+        if not target.is_absolute():
+            raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
+        try:
+            path = support_bundle.create(target, self.root, self._bundle_agent_home())
+        except OSError as exc:
+            reason = "access denied" if isinstance(exc, PermissionError) else (exc.strerror or str(exc))
+            raise PermissionError(f"KratosForge couldn't write to {target}: {reason}. "
+                                  "Choose another folder and try again. Nothing was saved.") from exc
+        return {"path": str(path), "name": path.name, "folder": str(target)}
+
+    def support_bundle_reveal(self, path: str) -> dict[str, Any]:
+        """Show a saved bundle in Explorer. Only a support bundle's own file name is accepted."""
+        from . import support_bundle
+        from .notebook_resources_service import _reveal
+        target = Path(path)
+        if not target.is_absolute() or not support_bundle.NAME.fullmatch(target.name) or not target.is_file():
+            raise FileNotFoundError("That support bundle isn't there any more.")
+        _reveal(target, select=True)
+        return {"shown": str(target)}
+
     def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
         """The newest audit lines, newest first, and whether the chain is intact."""
         return {"entries": self.audit.recent(limit, action), "check": self.audit.verify(), "folder": str(self.audit.folder)}

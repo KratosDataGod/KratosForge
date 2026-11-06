@@ -69,11 +69,6 @@
   "arg-type": 1,
   "assignment": 1
  },
- "fabric_desktop/cloud_service.py": {
-  "arg-type": 3,
-  "assignment": 2,
-  "call-overload": 2
- },
  "fabric_desktop/comments_service.py": {
   "union-attr": 1
  },

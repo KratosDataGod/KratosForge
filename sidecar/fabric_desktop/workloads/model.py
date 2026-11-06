@@ -108,12 +108,12 @@ def observation(source: str, state: str, collected_at: dt.datetime | str | None 
                 max_age_s: float | None = None, at: dt.datetime | None = None) -> dict[str, Any]:
     """What was read from one source, when, and whether it can be trusted as current.
 
-    A ``cached`` observation older than ``max_age_s`` becomes ``stale``."""
+    A ``cached`` observation older than ``max_age_s``, or whose read time can't be parsed, becomes ``stale``."""
     if state not in OBS_STATES:
         raise ValueError(f"unknown observation state {state!r}")
     collected = parse_time(collected_at) if not isinstance(collected_at, dt.datetime) else collected_at
     age = (at or now()) - collected if collected else None
-    if state == "cached" and age is not None and max_age_s is not None and age.total_seconds() > max_age_s:
+    if state == "cached" and max_age_s is not None and (age is None or age.total_seconds() > max_age_s):
         state = "stale"
     return {"source": source, "state": state, "label": OBS_LABELS[state], "collected_at": iso(collected),
             "age_seconds": round(age.total_seconds()) if age is not None else None, "detail": detail}

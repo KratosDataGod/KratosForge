@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.4"
+RULES_VERSION = "2026.11.5"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -131,6 +131,13 @@ SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
               "DATE instead, and a TIMESTAMP cast or function raises nothing.",
               "Cast the result to DATE where its type matters, such as a join or a written table.",
               f"{_DOCS}/functions/date_trunc")
+SFD_BRACKET = _n("SFD-009", "[i] on a value whose type isn't known",
+                 "[i] is 0-based in Snowflake. Here [i] on a table's column whose type the statement doesn't show "
+                 "is taken for an ARRAY: a literal index such as [0] is moved to DuckDB's 1-based lists, and an "
+                 "integer column or expression as the index isn't. On a JSON (VARIANT) column [0] then reads the "
+                 "second element, and v['a']::string keeps the JSON quotes ('\"Pine\"', not 'Pine').",
+                 "Cast the column in the query (v::variant, PARSE_JSON(v), or l::array) so its type is known, "
+                 "or check the result.", f"{_DOCS}/data-types-semistructured")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
                 "TYPEOF gives Snowflake's type names here (SFX-009), with two exceptions. A JSON number with a "
                 "fraction or an exponent that isn't read from PARSE_JSON of text written in the query (a "
@@ -647,7 +654,7 @@ def _rewrite_json_text(statement: exp.Expression) -> None:
             to_char.replace(_json_text(to_char.this, exp.DataType.build("VARCHAR")))
 
 
-def _type_values(statement: exp.Expression) -> None:
+def _type_values(statement: exp.Expression, written: set[int] | None = None) -> bool:
     """SFX-012 and SFX-013 need to know which values are JSON. sqlglot's type inference, run on a qualified
     copy so the SQL itself isn't changed, tells a column read from PARSE_JSON (in a subquery or WITH) or
     an integer column; the types found are copied onto the same nodes here.
@@ -655,25 +662,32 @@ def _type_values(statement: exp.Expression) -> None:
     SFX-013: [i] is 0-based in Snowflake, on an ARRAY and on JSON alike. DuckDB's JSON is 0-based too but
     its lists are 1-based, and sqlglot adds 1 only when it can tell the value is a list and the index an
     integer (a column it can't type is taken for a list). So v[0] stays [0] on JSON, and l[i] becomes
-    l[i + 1] on a list."""
+    l[i + 1] on a list.
+
+    True when a [...] is on a value whose type isn't known (a table's column): SFD-009. A string key
+    raises it only under a cast to text, since v['a'] alone is right on JSON and on a MAP. Only the
+    [...] the user wrote count (``written``, their ids), not ones an earlier rewrite made."""
     kinds = (exp.Bracket, exp.Cast, exp.ToChar)
     mine = [n for n in statement.find_all(*kinds)]
     if not mine:
-        return
+        return False
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
     try:
         typed = annotate_types(qualify(statement.copy(), dialect="snowflake", validate_qualify_columns=False,
                                        identify=False), dialect="snowflake")
     except SqlglotError:
-        return
+        return any(isinstance(n, exp.Bracket) and _written(n, written) for n in mine)
     theirs = [n for n in typed.find_all(*kinds)]
     if [type(n) for n in theirs] != [type(n) for n in mine]:
-        return
+        return any(isinstance(n, exp.Bracket) and _written(n, written) for n in mine)
+    unknown = set()
     wanted = (exp.DataType.Type.JSON, exp.DataType.Type.ARRAY)
     for m, t in zip(mine, theirs, strict=True):
         if m.this.type is None and t.this.type is not None and t.this.type.this in wanted:
             m.this.type = t.this.type.copy()
+        if isinstance(m, exp.Bracket) and (t.this.type is None or t.this.type.this == exp.DataType.Type.UNKNOWN):
+            unknown.add(id(m))
         if isinstance(m, exp.Bracket) and len(m.expressions) == len(t.expressions) == 1 \
                 and m.expressions[0].type is None and t.expressions[0].type is not None \
                 and t.expressions[0].type.this in exp.DataType.INTEGER_TYPES:
@@ -681,6 +695,24 @@ def _type_values(statement: exp.Expression) -> None:
     for m in reversed(mine):  # v['arr'][0]: [...] on JSON is JSON too, inner first
         if isinstance(m, exp.Bracket) and m.this.type is None and _json_valued(m.this):
             m.this.type = exp.DataType.build("JSON")
+    return any(id(m) in unknown and not _json_valued(m.this) and _bracket_may_differ(m)
+               for m in mine if isinstance(m, exp.Bracket) and _written(m, written))
+
+
+def _written(node: exp.Expression, written: set[int] | None) -> bool:
+    return written is None or id(node) in written
+
+
+def _bracket_may_differ(node: exp.Bracket) -> bool:
+    """A [...] on a value whose type isn't known: a key that isn't a string (the 0- or 1-based question),
+    or any key under a cast to text (the JSON quotes)."""
+    if not (len(node.expressions) == 1 and node.expressions[0].is_string):
+        return True
+    parent = node.parent
+    while isinstance(parent, exp.Paren):
+        parent = parent.parent
+    return (isinstance(parent, exp.Cast) and parent.to.this in _TEXT_TYPES) or \
+        (isinstance(parent, exp.ToChar) and parent.args.get("format") is None)
 
 
 # DuckDB's typeof -> Snowflake's TYPEOF, where the name is the same whatever the value.
@@ -985,6 +1017,7 @@ CATALOG = (
     ("SFD-006", "Runs, with a difference: " + SFD_DATE.title, SFD_DATE.reason),
     ("SFD-007", "Runs, with a difference: " + SFD_TYPEOF.title, SFD_TYPEOF.reason),
     ("SFD-008", "Runs, with a difference: " + SFD_NUMBER.title, SFD_NUMBER.reason),
+    ("SFD-009", "Runs, with a difference: " + SFD_BRACKET.title, SFD_BRACKET.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -1027,6 +1060,8 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         return StatementReport(n, "not_translatable", None, (refusal,))
     tree = statement.copy()
     notes = _differences(tree)
+    brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
+    written = {id(b) for b in brackets}
     try:
         flattened = _rewrite_flatten(tree)
         _rewrite_to_char(tree)
@@ -1038,7 +1073,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_haversine(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)
-        _type_values(tree)
+        unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
         sql = _duck(tree)
@@ -1050,6 +1085,8 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
                                (_refuse("SFX-000", "Not rewritten for DuckDB", first + "."),))
     if flattened:
         notes.append(SFD_FLATTEN)
+    if unknown_brackets:
+        notes.append(SFD_BRACKET)
     return StatementReport(n, "difference" if notes else "translated", sql, tuple(notes))
 
 

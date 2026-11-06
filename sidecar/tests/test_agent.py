@@ -324,23 +324,27 @@ def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
     agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.3))
     agent.queue.enqueue("meta", {"env": "dev"})
     job = agent.queue.claim(setup.name, 0.3)
-    real, calls = agent.queue.heartbeat, []
+    real, calls, renewed = agent.queue.heartbeat, [], []
 
     def flaky(*a, **k):
         calls.append(1)
         if len(calls) == 1:
             raise sqlite3.OperationalError("database is locked")
-        return real(*a, **k)
+        ok = real(*a, **k)
+        renewed.append(ok)
+        return ok
     agent.queue.heartbeat = flaky
     done, lost = threading.Event(), threading.Event()
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     beat.start()
     try:
         deadline = time.monotonic() + 10
-        while len(calls) < 4 and time.monotonic() < deadline:
+        while len(renewed) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert beat.is_alive() and len(calls) >= 4 and not lost.is_set()
-        assert agent.queue.recover() == []  # renewed: not put back
+        # The beats after the failed one renewed the lease. (Asserting recover() == [] against the
+        # wall clock failed on a slow runner whenever one beat came late: a 0.3 s lease has no slack.)
+        assert renewed[:3] == [True, True, True] and beat.is_alive() and not lost.is_set()
+        assert agent.queue.get(job["id"])["lease_until"] > job["lease_until"]
     finally:
         done.set()
         beat.join(5)

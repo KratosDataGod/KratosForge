@@ -41,8 +41,16 @@ def test_score_says_which_are_not_right_yet_but_never_the_answer():
     assert quizlab.grade(json.dumps(KEY), EX, QUESTIONS)["passed"]
     res = quizlab.grade(json.dumps({"q1": ["a"], "q2": ["a", "b"]}), EX, QUESTIONS)["results"][0]
     assert not res["passed"]
-    assert res["detail"] == "1 of 3 right; you need 3. Not right yet: q1. Not answered yet: q3."
-    assert res["right"] == ["q2"]
+    assert res["detail"] == "1 of 3 right; you need 3. Not answered yet: q3."
+    assert set(res) == {"kind", "passed", "detail"}   # nothing says which answered question is wrong
+
+
+def test_a_failed_check_never_tells_a_right_answer_from_a_wrong_one():
+    one_wrong = {**KEY, "q1": ["a"]}
+    other_wrong = {**KEY, "q2": ["c", "d"]}
+    a = quizlab.grade(json.dumps(one_wrong), EX, QUESTIONS)["results"][0]
+    b = quizlab.grade(json.dumps(other_wrong), EX, QUESTIONS)["results"][0]
+    assert a == b and a["detail"] == "2 of 3 right; you need 3."
 
 
 def test_min_correct_and_a_single_string_answer():
@@ -56,7 +64,7 @@ def test_min_correct_and_a_single_string_answer():
     ("[1]", "is an object of question ids"),
     (" " * (quizlab.MAX_BYTES + 1), "over 64 KB"),
     ("[" * 30_000, "isn't valid JSON"),
-])
+], ids=["unclosed", "not-an-object", "oversized", "deep-nesting"])   # short ids: Windows caps PYTEST_CURRENT_TEST
 def test_answers_that_cant_be_read_fail_in_words(answer, said):
     res = quizlab.grade(answer, EX, QUESTIONS)
     assert not res["passed"] and said in res["results"][0]["detail"]

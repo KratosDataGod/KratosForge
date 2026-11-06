@@ -20,6 +20,20 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: settings.js:showMotionGallery, meta.js:newKeyTableDialog, meta.js:useKeyTableDialog, meta.js:pickEnvWorkspace
 // axe covers dialogs: mesh.js:linkDialog, mesh.js:domainDialog, governance.js:assignDialog, platform.js:keyTableDialog
 // axe covers dialogs: platform.js:sourceDialog, governance-checks.js:labelDialog, platform-notices.js:mailServerDialog, estate.js:measureDialog
+// axe covers dialogs: vscode.js:pairingDialog, vscode.js:writeDialog, vscode.js:vscodeSetupDialog, integrations.js:capabilitiesDialog
+// axe covers dialogs: integrations.js:setupDialog, entra-groups.js:entraLinkDialog, entra-groups.js:entraNamingDialog
+// axe covers dialogs: governance-checks.js:useTemplateDialog, governance-checks.js:saveAsTemplateDialog, mesh.js:addMemberDialog
+// axe covers dialogs: access-cache.js:protectAccessCache, platform.js:landingZoneDialog, platform.js:sourceRequestDialog
+// axe covers dialogs: platform-notices.js:platformRouteDialog, estate.js:costSettingsDialog
+// axe covers dialogs: appstudio.js:appStudioImport, appstudio.js:appStudioPublishDialog, fabricstep.js:stepConfirm, git.js:gitSecretsDialog
+// axe covers dialogs: meta.js:dictionaryImportDialog, estate.js:restoreDialog, integrations.js:editTool, platform.js:confirmShortcutEnvs
+// axe covers dialogs: sqlchanges.js:whChangeConfirm, meta.js:createEnvWorkspace, whproject.js:whProjectNewObject
+// axe covers dialogs: meta.js:pickKeysWorkspace, mesh.js:pickDesignationWorkspace, mesh.js:keysSetupDialog
+// axe covers dialogs: dataops.js:columnLineage, df-dataflows.js:dfRunInFabric, meta.js:metaRiskGate, meta.js:readSourceDialog
+// axe covers dialogs: governance.js:policyDialog, prove.js:showScorecard, xray.js:vacuumAll, optimize.js:optimizeMove
+// axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
+// axe covers dialogs: optimize.js:optimizeSyncDetails, meta.js:profileEntity, platform.js:confirmCopyJob, product-items.js:productItemDialog
+// axe covers dialogs: whmonitor.js:whMonitorBuild, xray.js:stagingDialog, optimize.js:optimizeCreateFlow, meta.js:moveSourcesToPlatform
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -40,6 +54,24 @@ before(async () => {
   app = await openApp({
     engine: ["app_settings", "profile_get"],  // the profile as a new person's engine makes it
     mocks: {
+      xray_staging_preview: () => ({ ok: true, lakehouse_name: "LH_Staging", kept: "LH_Staging_2", quiet_days: 30, created: "2026-09-01T00:00:00Z",
+        last_write: "2026-10-01T00:00:00Z", files: 12, bytes: 40960, dataflows: [{ name: "Orders flow", ok: true, last_refresh: "2026-11-04T00:00:00Z" }] }),
+      meta_profile: () => ({ rows: 1200, seconds: 0.4, suggestions: [{ id: "s1", kind: "not_null", rule: "order_id is never empty", toml: "" }],
+        columns: [{ name: "order_id", type: "BIGINT", nulls: 0, null_pct: 0, distinct: 1200, min: 1, max: 1200, issues: [], top: [] }] }),
+      list_items: () => [{ id: "wh1", displayName: "WH_Sales", type: "Warehouse" }, { id: "sm1", displayName: "Sales model", type: "SemanticModel" }],
+      platform_status: () => ({ landing: { central: false } }),
+      optimize_status: () => ({ default_name: "FabricDesktop_Central" }),
+      meta_sources_move: () => ({ moved: ["sap"], conflicts: [{ code: "crm", id: 4, why: "the platform uses id 4 for another source" }] }),
+      git_platform_deploy: () => ({ commit: "0123456789abcdef", catalog_env: "prod", labels: {}, plan_id: "p1", steps: [], stops: [],
+        removable: [], blocked: [], notes: ["Platform admins only."] }),
+      meta_lineage: () => ({ columns: { order_id: { how: "copied", label: "direct" }, total: { how: "derived", label: "computed" } } }),
+      workload_preflight: () => ({ code: "not_in_inventory" }),
+      meta_risk_gate: () => ({ checks: [{ entity: "silver.orders", result: "warning", lines: ["The capacity is 80% used this hour."], needs_acknowledgement: true }],
+        run: ["silver.orders"], held: {} }),
+      list_capacities: () => [{ id: "c1", display: "F64 Sales", sku: "F64", state: "Active" }],
+      git_vscode_plan: () => ({ files: [{ path: ".vscode/settings.json", state: "new", label: "Settings", why: "Points VS Code at KratosForge" },
+        { path: "AGENTS.md", state: "exists", label: "Agent notes", why: "Tells AI tools about the repo", text: "Use KratosForge." }] }),
+      platform_domains: () => [{ id: "d1", name: "Sales", parent_id: null }, { id: "d2", name: "EMEA", parent_id: "d1" }],
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
       list_lakehouses: () => [{ id: "l1", displayName: "LH_Bronze" }],
@@ -158,6 +190,96 @@ const CASES = [
   ["platform-notices.js:mailServerDialog", "Company mail server", () => { mailServerDialog({ host: "smtp.contoso.com", port: 587, security: "starttls", sender: "kf@contoso.com" }, () => {}); }],
   ["estate.js:measureDialog", "Capacity use this month", () => {
     measureDialog("Capacity use this month", { classification: "measured", value: 12.5, unit: "cu_hours", metric: "cu_hours", methods: ["Sum of CU-seconds"], sources: ["Capacity metrics"] }, "USD"); }],
+  // Batch 4: VS Code, tools, Entra groups, governance templates, members, landing and notices.
+  ["vscode.js:pairingDialog", "Let VS Code run notebooks on this PC?", () => {
+    pairingDialog({ id: "pr1", client: "KratosForge for VS Code", window: "sales-repo", code: "482 913" }); }],
+  ["vscode.js:writeDialog", "VS Code wants to write to OneLake", () => {
+    writeDialog({ id: "a1", notebook: "Daily sales", window: "sales-repo", target: "silver.orders" }); }],
+  ["vscode.js:vscodeSetupDialog", "Set up sales for VS Code", () => { vscodeSetupDialog("C:/repos/sales", "sales", () => {}); }],
+  ["integrations.js:capabilitiesDialog", "What tools can do", () => {
+    capabilitiesDialog({ permissions: [{ id: "READ_METADATA", offered: true, allowed: true }, { id: "READ_DATA", offered: false, allowed: false }],
+      capabilities: [{ title: "List lakehouses", description: "Names and tables", permission: "READ_METADATA", approval: "never" },
+        { title: "Read rows", description: "Sample rows", permission: "READ_DATA", approval: "ask" }] }); }],
+  ["integrations.js:setupDialog", "Connect Copilot", () => {
+    setupDialog({ id: "copilot", name: "Copilot", grants: ["READ_METADATA"], config: { vscode: { where: "In .vscode/mcp.json", text: "{}" } } }, "tok-123", "vscode"); }],
+  ["entra-groups.js:entraLinkDialog", "Link a group to Sales readers", () => {
+    entraLinkDialog({ label: "Sales readers", domain: "Sales", domain_id: "d1", role: "reader", env: "dev", suggested: "SALES-DEV-READERS" }, () => {}); }],
+  ["entra-groups.js:entraNamingDialog", "Group naming", () => {
+    entraNamingDialog({ pattern: "{prefix}-{domain}-{env}-{role}", prefix: "KF", case: "upper", domain_part: "id", words: {}, roles_off: [] }, true, () => {}); }],
+  ["governance-checks.js:useTemplateDialog", "Use Table names", () => { useTemplateDialog({ id: "table-names", name: "Table names" }, null); }],
+  ["governance-checks.js:saveAsTemplateDialog", "Save Table names as a template", () => {
+    saveAsTemplateDialog({ id: "table-names", name: "Table names", current_version: 2 }); }],
+  ["mesh.js:addMemberDialog", "Add member", () => { addMemberDialog(() => {}); }],
+  ["access-cache.js:protectAccessCache", "Who may read the access cache", () => { protectAccessCache({ workspace_id: "w1" }); }],
+  ["platform.js:landingZoneDialog", "New landing zone", () => { landingZoneDialog({ where: "the Landing workspace" }, () => {}); }],
+  ["platform.js:sourceRequestDialog", "Request a source", () => { sourceRequestDialog("erp", () => {}); }],
+  ["platform-notices.js:platformRouteDialog", "Add a route", () => { platformRouteDialog({ mail_server: null }, null, () => {}); }],
+  ["estate.js:costSettingsDialog", "Cost estimate", () => { costSettingsDialog({ price_per_cu_hour: 0.18, currency: "USD", python_cu: 2, spark_cu: 8 }); }],
+  // Batch 5: App Studio, Fabric step, secrets, dictionary, restore, tools, approvals and warehouse changes.
+  ["appstudio.js:appStudioImport", "Import an app", () => { appStudioImport(); }],
+  ["appstudio.js:appStudioPublishDialog", "Publish", () => {
+    appStudioPublishDialog({ valid: true, spec: { pages: [{ components: [{}, {}] }], sources: [{ kind: "sample" }] } }); }],
+  ["fabricstep.js:stepConfirm", "Run the last cell of Daily sales on Fabric?", () => {
+    stepConfirm({ name: "Daily sales" }, { tables: ["silver.orders"], workspace_name: "Sales Dev", workspace_id: "w1", lakehouse: "LH_Silver", item_name: "Daily sales (step)" }); }],
+  ["git.js:gitSecretsDialog", "These files look like they hold a secret", () => {
+    gitSecretsDialog([{ path: "config/settings.json", line: 4, kind: "Storage key", match: "AccountKey=abc***" }]); }],
+  ["meta.js:dictionaryImportDialog", "Import descriptions", () => { dictionaryImportDialog({ layer: "silver" }, () => {}); }],
+  ["estate.js:restoreDialog", "Restore silver.orders to version 3?", () => {
+    restoreDialog("silver.orders", "dev", { version: 3, at: "2026-11-04T08:00:00Z" }, { incremental: true, downstream: ["gold.sales"] }); }],
+  ["integrations.js:editTool", "Edit Copilot", () => {
+    editTool({ permissions: [{ id: "READ_METADATA", offered: true, allowed: true }, { id: "READ_DATA", offered: true, allowed: true }] },
+      { id: "copilot", name: "Copilot", grants: ["READ_METADATA"], auto: [], workspaces: [], config: {}, kind: "vscode", transport: "stdio" }, () => {}); }],
+  ["platform.js:confirmShortcutEnvs", "Approve shortcut sales_orders?", () => {
+    confirmShortcutEnvs({ id: "r1", target: "sales_orders", detail: { name: "sales_orders", workspace_name: "Sales Dev", lakehouse_name: "LH_Bronze" } }); }],
+  ["sqlchanges.js:whChangeConfirm", "Change WH_Sales?", () => {
+    whChangeConfirm({ name: "WH_Sales", kind: "warehouse", workspace_id: "w1" },
+      { statements: [{ statement: "UPDATE dbo.orders SET x = 1", permission: "warehouse_write", reason: "Changes rows" }, { statement: "SELECT 1", permission: "warehouse_read" }] }); }],
+  ["meta.js:createEnvWorkspace", "New workspace for Dev", () => { createEnvWorkspace("dev", state.meta.project); }],
+  ["whproject.js:whProjectNewObject", "New object", () => {
+    whProjectNewObject({ name: "WH_Sales", kind: "warehouse" }, { repo: "C:/repos/wh", folder: "WH_Sales" }, {}, () => {}); }],
+  ["meta.js:pickKeysWorkspace", "Keys workspace for Dev", () => { pickKeysWorkspace("dev"); }, "#dialog-root .dialog .choice"],
+  ["mesh.js:pickDesignationWorkspace", "Landing workspace for Dev", () => {
+    pickDesignationWorkspace("dev", { id: "landing", label: "Landing" }, () => {}); }, "#dialog-root .dialog .choice"],
+  ["mesh.js:keysSetupDialog", "Create the Keys workspace", () => { keysSetupDialog({ keys: { default_name: "KratosForge Keys" } }); }],
+  // Batch 6: lineage, Fabric runs, risk gate, sources, governance policy, scorecard, vacuum and landing.
+  ["dataops.js:columnLineage", "Column lineage: silver.orders", () => { columnLineage("silver.orders"); }],
+  ["df-dataflows.js:dfRunInFabric", "Run Orders flow?", () => {
+    dfRunInFabric({ id: "w9", displayName: "Other" }, { item_id: "df1", name: "Orders flow" }, "Run", () => {}); }],
+  ["meta.js:metaRiskGate", "Run Daily load in Dev?", () => { metaRiskGate(state.meta, ["silver.orders"], "dev", "Daily load"); }],
+  ["meta.js:readSourceDialog", "Add a source this project reads", () => {
+    readSourceDialog([{ code: "sap", title: "SAP ERP", system_type: "SAP", owner: "ERP team", id: 3, read: false }], "dev", () => {}); }],
+  ["governance.js:policyDialog", "New policy", () => {
+    policyDialog({ categories: { naming: "Naming", quality: "Quality" }, severities: ["low", "medium", "high"], enforcements: ["advisory", "warn", "block"],
+      scopes: ["enterprise", "domain", "project", "entity"] }, null, () => {}); }],
+  ["prove.js:showScorecard", "Scorecard", () => { showScorecard({ scorecard: {} }); }],
+  ["xray.js:vacuumAll", "Vacuum 2 tables", () => { vacuumAll([{ table: "orders" }, { table: "customers" }], null, null); }],
+  ["optimize.js:optimizeMove", "Dismiss this improvement?", () => { optimizeMove({ id: "rec1" }, "dismissed"); }],
+  ["platform.js:landingSetupDialog", "Move to one landing workspace", () => { landingSetupDialog({ default_landing_name: "KratosForge Landing" }, () => {}); }],
+  ["meta.js:ossieImportDialog", "Import from Ossie", () => { ossieImportDialog({ name: "Sales model", existing: true, workspace_name: "Sales Dev" }, null); }],
+  ["platform.js:confirmApproval", "Pick a capacity for Sales Dev", () => { confirmApproval({ kind: "workspace", target: "Sales Dev", detail: {} }); }],
+  ["git.js:gitPlatformDeploy", "Deploy the platform repository", () => { gitPlatformDeploy("C:/repos/platform"); }],
+  // Batch 7: the last dialogs, several opened from a step before them (next() presses that step's main button).
+  ["optimize.js:optimizeSyncDetails", "Sync with the lakehouse", () => {
+    optimizeSyncDetails({ pending: 3, pending_rows: 120, oldest: "2026-11-05T09:00:00Z", last_sync: "2026-11-05T08:00:00Z" }); }],
+  ["meta.js:profileEntity", "Profile silver.orders", () => { profileEntity("silver.orders"); }, "#dialog-root .dialog.wide .scroll"],
+  ["platform.js:confirmCopyJob", "Approve source erp?", () => {
+    confirmCopyJob({ target: "erp", detail: { owner: "erp-team@contoso.com",
+      copy: { connection_name: "ERP SQL", times: ["02:00"], tables: [{ table: "dbo.orders", folder: "orders", mode: "incremental", column: "modified_at" }] } } }); }],
+  ["product-items.js:productItemDialog", "Add a semantic model", () => {
+    productItemDialog({ id: "p1" }, { type: "SemanticModel", title: "Semantic models", dialog: "Add a semantic model", word: "semantic model" }, () => {}); }],
+  ["whmonitor.js:whMonitorBuild", "Build monitoring views in Sales Dev?", () => {
+    sqlPage.whMonitor = { item: "wh1", status: { database: "monitoring", querysets: {} } };
+    whMonitorBuild({ workspace_id: "w1", workspace_name: "Sales Dev" }); }],
+  ["xray.js:stagingDialog", "Remove LH_Staging", () => {
+    stagingDialog({ id: "f1", workspace_id: "w1", lakehouse_id: "l1", lakehouse_name: "LH_Staging", workspace_name: "Sales Dev" }, null, null); }, "#dialog-root .dialog table"],
+  ["optimize.js:optimizeCreateFlow", "Create an optimization lakehouse", async () => {
+    optimizeCreateFlow();
+    await new Promise((r) => setTimeout(r, 300));
+    document.querySelector("#dialog-root .dialog .tool.primary").click(); }, "#dialog-root .dialog input"],
+  ["meta.js:moveSourcesToPlatform", "Some sources weren't moved", async () => {
+    moveSourcesToPlatform([{ code: "sap", id: 3 }, { code: "crm", id: 4 }], "dev", () => {});
+    await new Promise((r) => setTimeout(r, 300));
+    document.querySelector("#dialog-root .dialog .tool.primary").click(); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

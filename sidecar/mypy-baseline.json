@@ -471,9 +471,6 @@
  "fabric_desktop/workloads/queue.py": {
   "var-annotated": 1
  },
- "fabric_desktop/workloads/run_as.py": {
-  "union-attr": 2
- },
  "fabric_desktop/workloads/store.py": {
   "arg-type": 1
  },

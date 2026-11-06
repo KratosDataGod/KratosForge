@@ -349,3 +349,24 @@ def test_only_programs_running_as_this_windows_account_can_call(paired, monkeypa
     assert call(svc, "editor_pending")["pairing"] == []
     monkeypatch.setattr(peer, "same_user", lambda client, server: True)
     assert window.call("GET", "/v1/status")[0] == 200
+
+
+def test_idle_connections_cant_hold_more_than_a_few_engine_threads(paired):
+    import socket
+    from fabric_desktop.editor_channel import MAX_CONNECTIONS
+    svc, window, _ = paired
+    before = threading.active_count()
+    idle = [socket.create_connection(("127.0.0.1", window.port), timeout=10) for _ in range(MAX_CONNECTIONS * 3)]
+    try:
+        time.sleep(0.5)
+        assert threading.active_count() - before <= MAX_CONNECTIONS
+        over = idle[-1]
+        reply = over.recv(4096)
+        assert reply.startswith(b"HTTP/1.0 503") and b'"busy"' in reply
+    finally:
+        for s in idle:
+            s.close()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and window.call("GET", "/v1/hello?nonce=" + "n" * 32)[0] != 200:
+        time.sleep(0.1)
+    assert window.call("GET", "/v1/hello?nonce=" + "n" * 32)[0] == 200  # slots come back once they close

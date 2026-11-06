@@ -6,6 +6,7 @@ import pytest
 
 from fabric_desktop.optimize import outbox as ob
 from fabric_desktop.optimize.shared import Shared
+from test_optimize_local_runs import share
 from test_optimize_service import svc, xray_result  # noqa: F401 - the fixture is used by name
 
 
@@ -196,7 +197,7 @@ def test_shared_local_runs_wait_too(svc, monkeypatch):  # noqa: F811
     preview = asked.value.would  # type: ignore[attr-defined]
     assert preview["new"] == 1
     _offline(monkeypatch, "record_local_executions", ConnectionError("down"))
-    out = svc.optimize_share_local_runs(approve=True)
+    out = share(svc)
     assert out["shared"] == 0 and out["queued"] == preview["new"]
     assert svc.optimize_status()["outbox"]["pending_rows"] == preview["new"]
 
@@ -211,9 +212,9 @@ def test_runs_shared_with_no_network_at_all_wait_once(svc, monkeypatch):  # noqa
     read_ids = Shared.local_execution_ids
     monkeypatch.setattr(Shared, "local_execution_ids", lambda self: (_ for _ in ()).throw(down))
     state = _offline(monkeypatch, "record_local_executions", down)
-    out = svc.optimize_share_local_runs(approve=True)
+    out = share(svc)
     assert out["queued"] == 1 and "network down" in out["offline"]
-    again = svc.optimize_share_local_runs(approve=True)  # sharing again while still offline
+    again = share(svc)  # sharing again while still offline
     assert again["new"] == 0 and again["waiting"] == 1
     assert svc.optimize_status()["outbox"]["pending"] == 1
     # Back online: the waiting run goes with the next connect or switch, once.

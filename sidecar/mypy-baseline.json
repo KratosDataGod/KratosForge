@@ -299,9 +299,6 @@
  "fabric_desktop/meta/varlib.py": {
   "operator": 1
  },
- "fabric_desktop/meta_service.py": {
-  "arg-type": 2
- },
  "fabric_desktop/model_directlake_service.py": {
   "var-annotated": 1
  },

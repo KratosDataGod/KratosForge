@@ -37,6 +37,7 @@ replace the target, which is checked first.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -52,6 +53,8 @@ from ..learn import checks
 from ..learn import labs as learn_labs
 from . import configlab, dbsql_lab, exercises, gitlab, pylab, quizlab, registry, sandbox, sqlprojlab
 from . import workspace as ws
+
+_log = logging.getLogger(__name__)
 
 DB_FILE = "lab.duckdb"
 ANSWER_FILE = "answer.sql"
@@ -289,7 +292,10 @@ def _run_git(root: Path, pack_id: str, exercise_id: str, text: str, limit: int) 
     try:
         got = gitlab.run(work, _exercise_folder(pack_id, exercise_id), ex, text, min(max(1, int(limit)), 1000))
     finally:
-        git_ops.remove_clone(work)   # Git keeps its objects read-only, which Windows won't delete as they are
+        try:   # Git keeps its objects read-only, which Windows won't delete as they are
+            git_ops.remove_clone(work)
+        except OSError as exc:   # a locked file: keep Run's own result; the next Run clears what's left
+            _log.warning("The exercise's run folder couldn't be removed yet: %s", exc)
     return {**got, "ms": round((time.perf_counter() - began) * 1000)}
 
 

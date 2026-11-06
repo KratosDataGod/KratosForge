@@ -95,7 +95,8 @@ class PythonSession:
             raise Unsupported(f"The Python engine doesn't run {request.language} cells.")
         started = time.perf_counter()
         snap = self._kernel.start(request.code)
-        version, outputs = -1, []
+        version = -1
+        outputs: list[dict[str, Any]] = []
         while True:
             if snap.get("outputs") is not None:
                 if on_output:

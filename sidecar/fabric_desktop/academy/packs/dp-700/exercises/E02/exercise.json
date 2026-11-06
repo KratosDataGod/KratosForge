@@ -49,7 +49,8 @@
         },
         {
           "path": "environment.libraries.custom",
-          "count": 1
+          "count": 1,
+          "why": "A CSV is a file the notebook reads, not a library; small files like it go in the environment's resources."
         },
         {
           "path": "environment.resources",
@@ -75,7 +76,7 @@
         {
           "path": "environment.publish_mode",
           "equals": "Full",
-          "why": "Full mode makes a stable, reproducible library snapshot; Quick mode installs libraries when a session starts."
+          "why": "Full mode makes a stable, reproducible library snapshot; Quick mode installs them when the session first runs code in that language."
         },
         {
           "path": "workspace_default_environment",
@@ -90,7 +91,7 @@
     "When do library changes take effect?",
     "Which publish mode gives a reproducible snapshot?"
   ],
-  "explanation": "An environment holds Spark compute settings, libraries and resources. Public libraries come from sources such as PyPI and custom libraries are files you upload; resources are small files notebooks read, and change without a publish. Library and compute changes apply only once published. Full mode builds a stable snapshot, which suits production; Quick mode publishes fast and installs libraries as each session starts. Making the environment the workspace default saves attaching it to every notebook.",
+  "explanation": "An environment holds Spark compute settings, libraries and resources. Public libraries come from sources such as PyPI and custom libraries are files you upload; resources are small files notebooks read, and change without a publish. Library and compute changes apply only once published. Full mode builds a stable snapshot, which suits production; Quick mode publishes fast and installs libraries when a session first runs code in that language. Making the environment the workspace default saves attaching it to every notebook.",
   "remediation": [
     "https://learn.microsoft.com/en-us/fabric/data-engineering/create-and-use-environment",
     "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings"

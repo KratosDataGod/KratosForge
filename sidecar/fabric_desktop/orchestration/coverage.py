@@ -20,7 +20,8 @@ with the value the reference gives:
     runs           it gives the reference's value for the example
     differs        it runs and gives another value: check results that use it in Fabric
     fails          the reference's own example stops with an error here
-    not checked    its value changes from run to run (guid, rand, utcNow), so there is no value check
+    not checked    its value changes from run to run (guid, rand, utcNow, getFutureTime, getPastTime), so
+                   there is no value check
     refused        the evaluator stops the activity with "<name>() isn't supported in local runs yet"
 """
 
@@ -97,6 +98,13 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "int": ("int('10')", 10),
     "json": ("json('[1, 2, 3]')", [1, 2, 3]),
     "string": ("string(10)", "10"),
+    "base64": ("base64('hello')", "aGVsbG8="),
+    "base64ToString": ("base64ToString('aGVsbG8=')", "hello"),
+    "decodeBase64": ("decodeBase64('aGVsbG8=')", "hello"),
+    "dataUri": ("dataUri('hello')", "data:text/plain;charset=utf-8;base64,aGVsbG8="),
+    "dataUriToString": ("dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')", "hello"),
+    "encodeUriComponent": ("encodeUriComponent('https://contoso.com')", "https%3A%2F%2Fcontoso.com"),
+    "decodeUriComponent": ("decodeUriComponent('http%3A%2F%2Fcontoso.com')", "http://contoso.com"),
     "add": ("add(1, 1.5)", 2.5),
     "div": ("div(11, 5)", 2),
     "max": ("max(1, 2, 3)", 3),
@@ -111,9 +119,27 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "addSeconds": ("addSeconds('2018-03-15T00:00:00Z', 10)", "2018-03-15T00:00:10.0000000Z"),
     "formatDateTime": ("formatDateTime('03/15/2018 12:00:00', 'yyyy-MM-ddTHH:mm:ss')", "2018-03-15T12:00:00"),
     "startOfDay": ("startOfDay('2018-03-15T13:30:30Z')", "2018-03-15T00:00:00.0000000Z"),
+    "startOfHour": ("startOfHour('2018-03-15T13:30:30Z')", "2018-03-15T13:00:00.0000000Z"),
+    "startOfMonth": ("startOfMonth('2018-03-15T13:30:30Z')", "2018-03-01T00:00:00.0000000Z"),
+    "addToTime": ("addToTime('2018-01-01T00:00:00Z', 1, 'Day')", "2018-01-02T00:00:00.0000000Z"),
+    "subtractFromTime": ("subtractFromTime('2018-01-02T00:00:00Z', 1, 'Day')", "2018-01-01T00:00:00.0000000Z"),
+    "dayOfMonth": ("dayOfMonth('2018-03-15T13:27:36Z')", 15),
+    "dayOfWeek": ("dayOfWeek('2018-03-15T13:27:36Z')", 4),
+    "dayOfYear": ("dayOfYear('2018-03-15T13:27:36Z')", 74),
+    "ticks": ("ticks('2018-03-15T13:27:36Z')", 636567172560000000),
+}
+# Where the reference's printed value is wrong, the value above is the corrected one, and this says why.
+NOTES: dict[str, str] = {
+    "encodeUriComponent": "The reference prints `http%3A%2F%2Fcontoso.com` for `https://contoso.com`, which drops "
+                          "the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.",
+    "decodeUriComponent": "The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an "
+                          "s; unescaping can't, so `http://contoso.com` is the value checked.",
+    "ticks": "The reference prints 636567724560000000 for this example. In .NET, "
+             "`new DateTime(2018, 3, 15, 13, 27, 36).Ticks` is 636567172560000000 "
+             "(621355968000000000 ticks at 1970-01-01, plus 1521120456 seconds), so that is the value checked.",
 }
 # Their value changes from run to run, so there is nothing to compare.
-VARYING = frozenset({"guid", "rand", "utcNow"})
+VARYING = frozenset({"getFutureTime", "getPastTime", "guid", "rand", "utcNow"})
 
 ACTIVITY_STATUS = {"local": "runs locally", "simulated": "simulated", "static": "refused", "cloud": "Fabric only",
                    "unsupported": "refused"}
@@ -234,4 +260,5 @@ def markdown(cov: dict[str, list[dict[str, Any]]]) -> str:
             here = "" if r["status"] in ("runs", "refused", "not checked") else _cell(r["got"])
             out.append(f"| `{r['name']}` | {r['status']} | {example} | {_cell(r['expected'])} | {here} |")
         out.append("")
+        out += [f"`{r['name']}`: {NOTES[r['name']]}\n" for r in rows if r["name"] in NOTES]
     return "\n".join(out)

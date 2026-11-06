@@ -173,9 +173,9 @@ class SmokeTest:
             self._step(3, "catalog.items", "List the test workspace's items", self._items)
         self._step(4, "lakehouse.bad_name", "An invalid lakehouse name is refused before calling Fabric", self._bad_name)
         if fabric.status == "passed" and self.live_test:
-            self._live()
+            self._live(self.live_test)
         if fabric.status == "passed" and self.platform_test:
-            self._platform()
+            self._platform(self.platform_test)
         self._step(10, "support.bundle", "A support bundle holds nothing personal", self._bundle)
         return self._finish(started)
 
@@ -210,8 +210,8 @@ class SmokeTest:
             raise RuntimeError("The name check accepted '1 bad name', so the client would send it to Fabric")
         return f"Refused: {problem}"
 
-    def _live(self) -> None:
-        test = self.live_test(self.dir / "live")
+    def _live(self, live_test: Callable[[Path], Any]) -> None:
+        test = live_test(self.dir / "live")
         self.live = test.run()
         owner = {id: f.n for f in FLOWS for id in f.live_checks}
         for c in self.live["checks"]:
@@ -222,8 +222,8 @@ class SmokeTest:
                                "; ".join(refused) if refused else f"Live test {self.live['run_id']}: {self.live['outcome']}"
                                + (f", {len(self.live['left_behind'])} left behind" if self.live["left_behind"] else "")))
 
-    def _platform(self) -> None:
-        test = self.platform_test(self.dir / "platform")
+    def _platform(self, platform_test: Callable[[Path], Any]) -> None:
+        test = platform_test(self.dir / "platform")
         self.platform = test.run()
         for c in self.platform["checks"]:
             self.steps.append(Step(c["flow"], c["id"], c["title"], c["status"], c["detail"]))
@@ -258,8 +258,8 @@ class SmokeTest:
         flows = []
         for f in FLOWS + (PLATFORM_FLOWS if self.platform_test else []):
             mine = [s for s in self.steps if s.flow == f.n]
-            failed = [s for s in mine if s.status == "failed" and s.required]
-            automated = "failed" if failed else ("passed" if any(s.status == "passed" for s in mine) else "none")
+            failing = [s for s in mine if s.status == "failed" and s.required]
+            automated = "failed" if failing else ("passed" if any(s.status == "passed" for s in mine) else "none")
             flows.append({"n": f.n, "title": f.title, "features": f.features, "automated": automated,
                           "by_hand": f.by_hand})
         failed = any(f["automated"] == "failed" for f in flows)

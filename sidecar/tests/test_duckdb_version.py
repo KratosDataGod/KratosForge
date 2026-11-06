@@ -45,8 +45,10 @@ def test_pyproject_allows_no_major_version_beyond_the_ones_ci_tests():
 
 
 def test_ci_runs_the_suite_on_the_next_major():
-    ci = (SIDECAR.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "python tests/test_duckdb_version.py" in ci
+    github = SIDECAR.parent / ".github"
+    assert "python tests/test_duckdb_version.py" in (github / "scripts" / "compat_tests.sh").read_text(encoding="utf-8")
+    for workflow in ("ci.yml", "compat-nightly.yml"):  # every main push, and nightly
+        assert "compat_tests.sh duckdb" in (github / "workflows" / workflow).read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

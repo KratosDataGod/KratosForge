@@ -64,7 +64,8 @@
         },
         {
           "path": "rules.0.condition.value",
-          "equals": -15
+          "equals": -15,
+          "why": "The stores' limit is -15; a rule at -18 alerts on freezers that are still cold enough."
         },
         {
           "path": "rules.0.actions",
@@ -72,7 +73,8 @@
           "where": {
             "type": "Teams message",
             "to": "Store operations channel"
-          }
+          },
+          "why": "The store staff want one post in their Teams channel, not an email."
         },
         {
           "path": "rules.0.actions",
@@ -96,7 +98,8 @@
       "rules": [
         {
           "path": "rules",
-          "count": 2
+          "count": 2,
+          "why": "Silence needs a rule of its own: one that fires when no data arrives."
         },
         {
           "path": "rules.1.condition.kind",

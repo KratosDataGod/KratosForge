@@ -24,6 +24,7 @@ from typing import Any, Protocol
 import msal
 
 from .auth import AUTHORITY, FABRIC_SCOPES, STORAGE_SCOPES, default_scope, resource_of  # noqa: F401  (re-exported)
+from . import http_session
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -134,7 +135,8 @@ class ServicePrincipal(_AppCredential):
         else:
             raise ValueError("A service principal needs certificate_path or client_secret_env")
         authority = AUTHORITY.rsplit("/", 1)[0] + "/" + tenant_id
-        self.app = msal.ConfidentialClientApplication(client_id, authority=authority, client_credential=credential)
+        self.app = msal.ConfidentialClientApplication(client_id, authority=authority, client_credential=credential,
+                                                      timeout=http_session.DEFAULT_TIMEOUT)
 
     def _acquire(self, resource_scope: str) -> dict[str, Any]:
         return self.app.acquire_token_for_client(scopes=[resource_scope])
@@ -150,10 +152,10 @@ class ManagedIdentity(_AppCredential):
         if client is not None:  # tests
             self.client = client
             return
-        import requests
         identity = msal.UserAssignedManagedIdentity(client_id=client_id) if client_id \
             else msal.SystemAssignedManagedIdentity()
-        self.client = msal.ManagedIdentityClient(identity, http_client=requests.Session())
+        # A session with a timeout: the machine's identity endpoint that doesn't answer fails, not hangs.
+        self.client = msal.ManagedIdentityClient(identity, http_client=http_session.new())
 
     def _acquire(self, resource_scope: str) -> dict[str, Any]:
         return self.client.acquire_token_for_client(resource=resource_scope.removesuffix("/.default"))

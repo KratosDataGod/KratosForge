@@ -5,21 +5,29 @@ from __future__ import annotations
 
 import json
 import shutil
+from pathlib import Path
 
 import duckdb
 import pytest
 
-from fabric_desktop.academy import configlab, exercises, pipelab, pylab, pyspark_lab, quizlab, registry, workspace
+from fabric_desktop.academy import (configlab, exercises, gitlab, pipelab, pylab, pyspark_lab, quizlab, registry,
+                                    sqlprojlab, workspace)
 
 PACK = "dp-700"
+PINS = Path(__file__).parent / "academy_pins" / PACK
+
+
+def pinned_ids() -> list[str]:
+    """The built exercises, one file per id, so Academy PRs that add exercises never edit the same line."""
+    files = sorted(p for p in PINS.iterdir() if p.name != "README.md")
+    for f in files:
+        assert f.read_text(encoding="utf-8").strip() == f.name, f"{f.name}: a pin file holds its own id"
+    return [f.name for f in files]
 
 
 def test_bundled_exercises_have_no_problems():
     assert exercises.problems() == []
-    assert exercises.ids(PACK) == ["E01", "E02", "E03", "E04", "E12", "E19", "E21", "E22", "E23", "E24", "E25",
-                                   "E32", "E33", "E35", "E36", "E37", "E38", "E39", "E43", "E44", "E46", "E48",
-                                   "E49", "E50", "E51", "E53", "E56", "E57", "E58", "E59", "E61", "E62", "E63",
-                                   "E64"]
+    assert exercises.ids(PACK) == pinned_ids()
 
 
 @pytest.mark.parametrize("eid", exercises.ids(PACK))
@@ -57,6 +65,15 @@ def test_the_starter_does_not_pass_yet(tmp_path):
         if ex["adapter"] == configlab.ADAPTER:   # the starter settings document, checked like any answer
             starter = (registry.ROOT / PACK / "exercises" / eid / ex["starter"]).read_text(encoding="utf-8")
             assert not configlab.grade(starter, ex)["passed"], eid
+            continue
+        if ex["adapter"] == gitlab.ADAPTER:   # the starter session, replayed in a fresh repository
+            folder = registry.ROOT / PACK / "exercises" / eid
+            assert not gitlab.grade((folder / ex["starter"]).read_text(encoding="utf-8"), folder, ex)["passed"], eid
+            continue
+        if ex["adapter"] == sqlprojlab.ADAPTER:   # the starter change set, applied and built
+            folder = registry.ROOT / PACK / "exercises" / eid
+            text = (folder / ex["starter"]).read_text(encoding="utf-8")
+            assert not sqlprojlab.grade(text, folder, registry.ROOT / PACK / "grading" / eid, ex)["passed"], eid
             continue
         if ex["adapter"] == "pyspark_lab":   # the starter code, graded like any answer
             ref = pyspark_lab.reference(PACK, eid)

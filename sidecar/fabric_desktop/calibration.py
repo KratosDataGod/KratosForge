@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import statistics
-from typing import Any
+from typing import Any, cast
 
 from . import measurement as ms
 
@@ -28,6 +28,11 @@ def _usable(b: dict[str, Any], now: dt.datetime, max_age_days: float) -> bool:
     return at is not None and 0 <= (now - at).total_seconds() <= max_age_days * 86400  # not dated in the future
 
 
+def _when(b: dict[str, Any]) -> dt.datetime:
+    """A usable baseline's time: _usable has checked that it parses."""
+    return cast(dt.datetime, ms.parse_time(b["at"]))
+
+
 def calibrate(local_run: dict[str, Any], baselines: list[dict[str, Any]], *, now: dt.datetime | None = None,
               max_age_days: float = MAX_AGE_DAYS, notes: list[str] | None = None) -> dict[str, Any]:
     """The Fabric job CU a run on this PC would have used in Fabric, as a classified measurement.
@@ -40,7 +45,7 @@ def calibrate(local_run: dict[str, Any], baselines: list[dict[str, Any]], *, now
     recent few is taken. It is scaled by rows read only when both sides recorded them. ``notes`` are
     added to the assumptions, for what the caller knows about how the baselines were chosen."""
     now = now or dt.datetime.now(dt.timezone.utc)
-    ids = {"workload_id": local_run.get("workload_id"), "run_id": local_run.get("run_id")}
+    ids: dict[str, Any] = {"workload_id": local_run.get("workload_id"), "run_id": local_run.get("run_id")}
     usable = [b for b in baselines if _usable(b, now, max_age_days)]
     version = local_run.get("version")
     if version is not None:
@@ -54,15 +59,15 @@ def calibrate(local_run: dict[str, Any], baselines: list[dict[str, Any]], *, now
                f"No Fabric run of this workload in the last {max_age_days:g} days has a known CU figure.")
         return ms.unknown(METRIC, ms.CU_SECONDS, why, **ids)
     measured = [b for b in usable if b["cu"]["classification"] == ms.MEASURED]
-    pick = sorted(measured or usable, key=lambda b: ms.parse_time(b["at"]), reverse=True)[:MAX_BASELINES]
+    pick = sorted(measured or usable, key=_when, reverse=True)[:MAX_BASELINES]
     kind = "measured" if measured else "estimated"
     rows = local_run.get("rows")
     scaled = isinstance(rows, (int, float)) and rows > 0 and all(isinstance(b.get("rows"), (int, float)) and b["rows"] > 0
                                                                  for b in pick)
     per = [ms.convert(b["cu"]["value"], b["cu"]["unit"], ms.CU_SECONDS) * (rows / b["rows"] if scaled else 1.0)
            for b in pick]
-    newest = ms.parse_time(pick[0]["at"])
-    oldest = ms.parse_time(pick[-1]["at"])
+    newest = _when(pick[0])
+    oldest = _when(pick[-1])
     assumptions = [
         (f"Based on the {kind} Fabric job CU of {len(pick)} Fabric run{'s' if len(pick) != 1 else ''} of this workload "
          f"({oldest.date().isoformat()} to {newest.date().isoformat()}); the median is used."),

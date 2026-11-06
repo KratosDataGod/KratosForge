@@ -72,7 +72,8 @@
         },
         {
           "path": "domains.Sales.workspaces",
-          "count": 1
+          "count": 1,
+          "why": "The needs put Sales-EMEA-Reports in the Sales EMEA subdomain, so Sales keeps only Sales-Core."
         },
         {
           "path": "domains.Sales.subdomains.Sales EMEA.workspaces",

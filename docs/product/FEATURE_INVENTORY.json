@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "de881016b9d097538645ee3b7e4c66f5d8dee369",
+    "commit": "c750da45a4eae0b9d5bd1bc45f4c9e38c70ba7d7",
     "date": "2026-11-06",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -43,7 +43,8 @@
       "Product check 2026-11-05 11:42 at 7c7ed9e275bc2549b7a9cfdfb883feb3b201bde6: 6 PRs merged after 03d2b53a; 2 were product data PRs, #1828 updated its own rows, and the other 3 were linked to PB-128.",
       "Product check 2026-11-05 23:42 at a7631920de1b2b3e3666d5144e649152ac0680c1: 78 PRs merged after 7c7ed9e2; 1 was a product data PR and the other 77 were linked by title; other rows were not re-read.",
       "Product check 2026-11-06 11:42 at de881016b9d097538645ee3b7e4c66f5d8dee369: 46 PRs merged after a7631920; 2 were product data and docs audit PRs and the other 44 were linked by title; other rows were not re-read.",
-      "Acceptance of PB-129 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv)."
+      "Acceptance of PB-129 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv).",
+      "Product check 2026-11-06 23:42 at c750da45a4eae0b9d5bd1bc45f4c9e38c70ba7d7: 97 PRs merged after de881016; 3 were product data PRs and the other 94 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -124,7 +125,14 @@
         1846,
         1872,
         1887,
-        1892
+        1892,
+        1956,
+        1958,
+        1993,
+        2021,
+        2050,
+        2055,
+        2058
       ]
     },
     {
@@ -308,11 +316,15 @@
         1891,
         1896,
         1904,
+        1920,
         1921,
         1922,
         1923,
         1924,
-        1925
+        1925,
+        1963,
+        1966,
+        1967
       ]
     },
     {
@@ -474,7 +486,11 @@
         1886,
         1888,
         1890,
-        1930
+        1930,
+        1931,
+        1932,
+        1935,
+        1937
       ],
       "workstream": "Enterprise readiness (FD-139)",
       "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
@@ -1238,7 +1254,8 @@
         1842,
         1868,
         1871,
-        1897
+        1897,
+        2037
       ]
     },
     {
@@ -2421,7 +2438,9 @@
         1919,
         1927,
         1928,
-        1941
+        1941,
+        1971,
+        2008
       ]
     },
     {
@@ -5482,7 +5501,17 @@
         1799,
         1800,
         1802,
-        1867
+        1867,
+        1954,
+        1970,
+        1986,
+        1990,
+        1992,
+        1994,
+        1996,
+        2006,
+        2007,
+        2044
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -7472,7 +7501,9 @@
         1383,
         1399,
         1451,
-        1936
+        1936,
+        1965,
+        2041
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go.",
@@ -7737,7 +7768,8 @@
         613,
         1472,
         1833,
-        1834
+        1834,
+        2040
       ],
       "workstream": "Optimize central lakehouse (PB-104)",
       "next_action": "Settings history can include capacity overrides for administrators (#613); not yet set up on a tenant.",
@@ -8030,7 +8062,10 @@
         1863,
         1864,
         1929,
-        1933
+        1933,
+        1934,
+        1938,
+        2011
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8510,7 +8545,15 @@
         1916,
         1917,
         1918,
-        1926
+        1926,
+        1951,
+        1955,
+        1957,
+        1968,
+        1973,
+        1989,
+        2010,
+        2039
       ],
       "backlog": [
         "PB-119",

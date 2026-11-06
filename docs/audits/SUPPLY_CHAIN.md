@@ -10,8 +10,8 @@ This page records what KratosForge ships, which licenses it ships under, and how
 | --- | --- | --- | --- |
 | Engine | python.org's embeddable Python 3.12.10, the 76 packages the engine installs, and the engine's own package | `sidecar/engine-requirements.txt` holds versions and SHA-256 hashes. `ci.yml` holds the Python zip's MD5 and SHA-256 | `sbom-engine.cdx.json`, made by `cyclonedx-py environment` from the built engine folder |
 | Shell | The Tauri app (`app/src-tauri`) and its 243 Rust crates on Windows | `app/src-tauri/Cargo.lock` holds versions and crate checksums | `sbom-app.cdx.json`, made by `cargo cyclonedx` from `Cargo.lock` |
-| Notebook editor | CodeMirror, bundled into `app/ui/vendor/codemirror/codemirror.js` | That folder's `package.json` gives exact versions for the direct packages. The built file is committed | Not in an SBOM yet (see Follow-ups) |
-| Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | Not in an SBOM yet (see Follow-ups) |
+| Notebook editor | CodeMirror, bundled into `app/ui/vendor/codemirror/codemirror.js` | That folder's `package.json` gives exact versions for the direct packages. The built file is committed | Its license is in `LICENSE` there |
+| Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | Its packages and licenses are in `THIRD-PARTY-NOTICES.md` there |
 | Model converter | The Apache Ossie Microsoft converter, copied into `sidecar/fabric_desktop/_vendor/ossie_microsoft` | Committed source | Covered by the engine's own package |
 | VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | None needed |
 
@@ -141,17 +141,6 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 | Engine Python | `PYTHON_VERSION` in `ci.yml` | Yes: python.org's MD5 and a pinned SHA-256 |
 | Shell crates | `Cargo.lock` | Yes: `cargo build --locked` checks each crate's checksum against the lock file |
 | GitHub Actions | A commit SHA on every `uses:` line in every workflow (16 actions) | Yes, by the commit SHA |
-| CI-only Python tools (tests, mypy, pip-audit, docs) | Exact versions, in `constraints.txt` and `ci-constraints.txt` or with `==` on the command line | No |
 | CI-only Rust tools (cargo-audit, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
-| Rust toolchain | `stable`, so it moves with each Rust release | No |
-| Bundled JavaScript | Exact versions of the direct packages in `package.json`. The built files are committed | The committed files can't change without a PR. A rebuild resolves their dependencies again, because those folders have no lock file |
+| Bundled JavaScript | The built files are committed | They can't change without a PR |
 
-## Follow-ups
-
-These are about reproducibility. None of them changes anything that ships today.
-
-1. **Lock files for the bundled JavaScript builds.**
-   - Commit a `package-lock.json` in `app/ui/vendor/codemirror` and in `app/ui/vendor/vega`, so a rebuild uses the same dependency versions and hashes.
-   - Then add both bundles to an SBOM, built from those lock files. That could be one more step in the existing `sbom-app` job, with no new job.
-2. **Pin the Rust toolchain.** Add a `rust-toolchain.toml` in `app/src-tauri` with an exact version, so a new Rust release can't change a build without a PR.
-3. **Hash-pin the CI tools.** Give the CI-only Python tools hashed requirement files, as the engine's packages have.

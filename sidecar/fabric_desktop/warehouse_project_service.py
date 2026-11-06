@@ -303,15 +303,9 @@ class WarehouseProjectMixin:
 
     @staticmethod
     def _wh_write(f: Path, text: str) -> None:
-        """Replaces or creates ``f`` in one step, through a fresh temp file beside it."""
-        tmp = f.with_name(f"{f.name}.{uuid.uuid4().hex[:8]}.tmp")
-        try:
-            with open(tmp, "x", encoding="utf-8", newline="\n") as out:
-                out.write(text)
-            jsonfile.replace(tmp, f)
-        except BaseException:
-            tmp.unlink(missing_ok=True)  # a locked file (Windows) mustn't leave a .tmp for Git to show
-            raise
+        """Replaces or creates ``f`` in one step, through a fresh temp file beside it. LF endings on every
+        OS, and a locked file (Windows) leaves no temporary file for Git to show."""
+        jsonfile.write_text(f, text, newline="\n")
 
     def _wh_mkdirs(self, project: Path, f: Path) -> None:
         f.parent.mkdir(parents=True, exist_ok=True)

@@ -324,23 +324,27 @@ def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
     agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.3))
     agent.queue.enqueue("meta", {"env": "dev"})
     job = agent.queue.claim(setup.name, 0.3)
-    real, calls = agent.queue.heartbeat, []
+    real, calls, renewed = agent.queue.heartbeat, [], []
 
     def flaky(*a, **k):
         calls.append(1)
         if len(calls) == 1:
             raise sqlite3.OperationalError("database is locked")
-        return real(*a, **k)
+        ok = real(*a, **k)
+        renewed.append(ok)
+        return ok
     agent.queue.heartbeat = flaky
     done, lost = threading.Event(), threading.Event()
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     beat.start()
     try:
         deadline = time.monotonic() + 10
-        while len(calls) < 4 and time.monotonic() < deadline:
+        while len(renewed) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert beat.is_alive() and len(calls) >= 4 and not lost.is_set()
-        assert agent.queue.recover() == []  # renewed: not put back
+        # The beats after the failed one renewed the lease. (Asserting recover() == [] against the
+        # wall clock failed on a slow runner whenever one beat came late: a 0.3 s lease has no slack.)
+        assert renewed[:3] == [True, True, True] and beat.is_alive() and not lost.is_set()
+        assert agent.queue.get(job["id"])["lease_until"] > job["lease_until"]
     finally:
         done.set()
         beat.join(5)
@@ -933,3 +937,48 @@ def test_job_ids_made_in_the_same_second_carry_48_random_bits(tmp_path):
     ids = [q.enqueue("meta", {"i": i})["id"] for i in range(200)]
     assert len(set(ids)) == 200
     assert all(re.fullmatch(r"job-\d{8}-\d{6}-[0-9a-f]{12}", i) for i in ids), ids[:3]
+
+
+# ---- the policy file (#1670's follow-up): the agent records a change in its own audit log
+
+def test_agent_records_the_policy_file_at_start_and_a_change_at_its_next_check(setup, monkeypatch, tmp_path):
+    from fabric_desktop import agent as agent_mod
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"show_preview": False}), encoding="utf-8")
+    clock = Clock()
+    agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock), clock=clock)
+    seen = lambda: [(e["action"], e["target"]["state"]) for e in agent.audit.entries()  # noqa: E731
+                    if e["action"].startswith("policy_file_")]
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied")]
+    assert (setup.home / "policy-seen.json").exists()  # in the agent's home, apart from the desktop app's
+    policy.write_text(json.dumps({"show_preview": True}), encoding="utf-8")
+    clock.t += agent_mod.POLICY_CHECK_SECONDS - 1
+    agent.step()
+    assert len(seen()) == 1  # not time to look again yet
+    clock.t += 1
+    agent.step()
+    assert seen() == [("policy_file_seen", "applied"), ("policy_file_changed", "applied")]
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert len(seen()) == 2  # unchanged: nothing new
+    policy.unlink()
+    clock.t += agent_mod.POLICY_CHECK_SECONDS
+    agent.step()
+    assert seen()[-1] == ("policy_file_changed", "none")
+
+
+def test_a_policy_check_that_fails_is_logged_and_the_loop_carries_on(setup, monkeypatch, caplog):
+    from fabric_desktop import policy_watch
+    def broken(*_):
+        raise OSError("disk gone")
+    monkeypatch.setattr(policy_watch, "check", broken)
+    clock = Clock()
+    q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)
+    agent = Agent(setup, queue=q, clock=clock)
+    with caplog.at_level("WARNING", logger="fabric_desktop.agent"):
+        agent.step()
+    assert "couldn't check the policy file" in caplog.text
+    assert agent._pruned_at is not None  # the rest of the pass ran

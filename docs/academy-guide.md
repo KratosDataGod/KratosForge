@@ -49,6 +49,16 @@ The panel beside the editor has **Task** (the scenario, requirements, how it's c
 lesson), **Hints** and **Check** (each check's result, what it proves and doesn't, the explanation once
 you've passed, and what was recorded).
 
+## Where your exercise code runs
+
+Your exercise code runs on this PC in its own limited process, with time, memory and output limits, and it can
+see only the exercise's folder. On Windows, exercise scripts also run in a Windows AppContainer by default (Delta and PySpark exercises use the limited process only).
+To allow that, KratosForge gives its own exercise sandbox read access to the engine's Python. **Settings > Advanced
+> Exercise sandbox** shows whether the AppContainer is on and how many folders hold that permission.
+**Remove exercise permissions** takes the permission away after asking; it can't run while an exercise is running,
+and the next exercise you run adds it back. How the sandbox works is in
+[Grading sandbox](academy/grading-sandbox.md).
+
 ## Readiness is an estimate
 
 Readiness is KratosForge's own estimate from the evidence on this PC. It isn't Microsoft's score and it

@@ -1,0 +1,69 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "datasets": [],
+  "parity": null,
+  "id": "E12",
+  "title": "Row-level security: a predicate that shows each region its rows",
+  "objectives": [
+    "1.3.3"
+  ],
+  "objective_text": "Write the security predicate that lets each person see only the sales rows of the regions they're mapped to, with an all-regions mapping for managers and nothing for anyone unmapped.",
+  "scenario": "The sales table is about to be shared with the regional teams. A mapping table says who may see which region; a manager's '*' means every region. Sign-in returns names as people typed them, so 'Ana@Example.com' is the same person as 'ana@example.com'. Someone who isn't in the mapping must see nothing, not everything.",
+  "prerequisites": [
+    "LM-24"
+  ],
+  "minutes": 25,
+  "mode": "guided",
+  "starter": "predicate.sql",
+  "verifies": [
+    "For each of four sign-ins, the rows the predicate lets through are exactly the rows that person may see, on this PC with DuckDB.",
+    "The sales, user_regions and signins tables are as they were: the answer filters rows, it doesn't change the data or the mapping."
+  ],
+  "does_not_verify": [
+    "Row-level security in a Fabric Warehouse or the SQL analytics endpoint. There the predicate is an inline table-valued function that a security policy applies to every query, and USER_NAME() supplies the signed-in name; here a DuckDB macro stands in for the function and a table of sign-ins stands in for USER_NAME().",
+    "That the rule is enforced for every query path: this lab checks what the predicate returns, not a security policy that applies it.",
+    "Column-level, object-level or OneLake folder security, which the same objective also covers."
+  ],
+  "expected": {
+    "description": "Columns user_name, sale_id, region: the rows each of the four sign-ins may see, ordered by user_name then sale_id."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Each person sees exactly their regions' rows.",
+      "fail": "Someone sees rows they shouldn't, or misses rows they should: check the manager, the capitalised name and the unmapped person."
+    },
+    {
+      "kind": "unchanged",
+      "tables": [
+        "sales",
+        "user_regions",
+        "signins"
+      ],
+      "pass": "The data and the mapping are untouched.",
+      "fail": "The answer changed a table; row-level security filters rows, it never edits them."
+    }
+  ],
+  "hints": [
+    "Start with one person: which rows of user_regions belong to who? Compare names the way they're stored.",
+    "The mapping is stored in lower case and sign-in isn't, so compare m.user_name with lower(who).",
+    "A row is visible when a mapping exists for this person and its region is row_region or '*'. EXISTS (SELECT 1 FROM user_regions AS m WHERE ...) returns false when there's no mapping at all, so an unmapped person sees nothing."
+  ],
+  "explanation": "A row-level security predicate answers one question per row: may this person see it? Writing it as EXISTS over the mapping table makes 'no mapping' mean 'no rows', which is the safe default. A wildcard row for managers keeps the mapping short, and comparing names in one case avoids locking someone out because sign-in returned their name with capitals. In a Fabric Warehouse the same predicate is an inline table-valued function that a security policy adds as a filter to the table, so SELECT, UPDATE and DELETE on it only see the rows the predicate lets through.",
+  "remediation": [
+    "LM-24",
+    "https://learn.microsoft.com/fabric/data-warehouse/row-level-security"
+  ],
+  "reset": "Reset rebuilds the tables from setup.sql and puts the starter predicate back.",
+  "review_notes": [
+    "result_matches reads the answer's last SELECT, so an answer could replace it with literal rows. The starter keeps the SELECT on a view built in setup, and unchanged protects the tables; hard-coding all the rows is the same limit E49 notes."
+  ]
+}

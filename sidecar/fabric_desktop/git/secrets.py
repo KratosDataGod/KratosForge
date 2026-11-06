@@ -36,8 +36,12 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "Revoke the key and read it from Key Vault or an environment variable at run time."),
     ("Access token", re.compile(r"\b(?P<s>eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"),
      "This looks like a sign-in token (often in notebook output). Clear the output and commit again."),
-    ("Teams webhook", re.compile(r"(?P<s>https://[A-Za-z0-9.-]+\.webhook\.office\.com/[^\s'\"]+)"),
+    ("Teams webhook", re.compile(r"(?i)(?P<s>https://(?:[A-Za-z0-9.-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)[^\s'\"]+)"),
      "Anyone with this address can post to the channel. Keep it in the agent's settings or Key Vault."),
+    ("Password in code", re.compile(r"(?i)\b(?:password|passwd|pwd)[\"']?\s*[=:]\s*(?P<q>[\"'])(?P<s>(?:(?!(?P=q))[^\n]){4,})(?P=q)"),
+     "Read the password from Key Vault, an environment variable or a variable library at run time."),
+    ("Token in a URL", re.compile(r"(?i)[?&](?:[a-z_]*token|api_?key|code)=(?P<s>[^&\s\"'<>#]{8,})"),
+     "Anyone with this address can use the token. Keep it in Key Vault or a variable library marked secret."),
     ("Secret in code", re.compile(r"(?i)\b(?:client_secret|api_key|apikey|secret_key|access_token|auth_token)\s*[=:]\s*[\"'](?P<s>[^\"'\s]{8,})[\"']"),
      "Read the value from Key Vault, an environment variable or a variable library at run time."),
 ]
@@ -141,6 +145,8 @@ def _joined(v: Any) -> str:
 _URL_USERINFO = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<user>[^/@\s:]*)(?::[^/@\s]*)?@", re.I)
 _BEARER = re.compile(r"(?i)\b(authorization:\s*(?:bearer|basic)\s+|bearer\s+)[A-Za-z0-9._~+/=-]{8,}")
 _EXTRAHEADER = re.compile(r"(?i)(extraheader\s*=?\s*)\S.*")
+# A private key's body, between its BEGIN line and its END line (or the end of the text when cut off).
+_PRIVATE_KEY_BODY = re.compile(r"(-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----)(?:[\s\S]*?(-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----)|[\s\S]*)")
 
 
 def redact(text: str | None) -> str:
@@ -150,6 +156,7 @@ def redact(text: str | None) -> str:
     text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}***@", text)
     text = _BEARER.sub(lambda m: m.group(1) + "***", text)
     text = _EXTRAHEADER.sub(lambda m: m.group(1) + "***", text)
+    text = _PRIVATE_KEY_BODY.sub(lambda m: m.group(1) + "***" + (m.group(2) or ""), text)
     for _, pattern, _ in PATTERNS:
         if "s" in pattern.groupindex:
             text = pattern.sub(lambda m: m.group(0).replace(m.group("s"), mask(m.group("s"))), text)

@@ -8,8 +8,6 @@ the person picks a kind. Nothing is committed for them: the new files show as ch
 
 from __future__ import annotations
 
-import os
-import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -239,18 +237,10 @@ def write_locations(root: str | Path, envs: dict[str, Any]) -> dict[str, Any]:
 
 
 def _replace_in(root: Path, name: str, text: str) -> None:
-    """Replaces the file ``name`` at the repository root with ``text``. The new file is written
-    beside it and moved into place, so a link there is replaced itself and its target (which can
-    be anywhere, in a cloned repository) is never written."""
-    root = Path(root)
-    fd, tmp = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=root)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as out:
-            out.write(text)
-        jsonfile.replace(tmp, root / name)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    """Replaces the file ``name`` at the repository root with ``text``, line endings as given. The new
+    file is written beside it and moved into place, so a link there is replaced itself and its target
+    (which can be anywhere, in a cloned repository) is never written."""
+    jsonfile.write_text(Path(root) / name, text, newline="")
 
 
 def wrong_place(kind: str | None, item: str) -> str | None:

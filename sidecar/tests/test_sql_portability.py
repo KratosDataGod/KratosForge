@@ -97,3 +97,77 @@ def test_every_report_says_it_is_static_and_lists_the_grades():
     assert r["schema"] == sp.SCHEMA and r["grades"] == GRADES
     assert any("nothing was sent" in n for n in r["notes"]) and any("not proof" in n for n in r["notes"])
     assert all(t["grade"] in GRADES for t in r["targets"])
+
+
+# QUALIFY with ORDER BY or LIMIT: sqlglot's own rewrite for platforms without QUALIFY left LIMIT (and
+# ORDER BY) inside the subquery, so rows were cut before the window filter. Each case runs the
+# Snowflake query and the rewrite on DuckDB, which has QUALIFY, and compares the rows.
+_QUALIFY_TAILS = [
+    # The first row per a by c, ordered and cut afterwards (the #1904 demo's case).
+    "SELECT a, c FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 ORDER BY c DESC LIMIT 3",
+    "SELECT a, b FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 ORDER BY t.c DESC LIMIT 3 OFFSET 1",
+    "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c DESC) = 1 ORDER BY c, a LIMIT 4",
+    "SELECT a, c AS n FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) <= 2 ORDER BY 2 DESC LIMIT 5",
+    "SELECT t.a, t.c FROM t JOIN s ON t.a = s.a "
+    "QUALIFY ROW_NUMBER() OVER (PARTITION BY t.a ORDER BY s.x DESC, t.c) = 1 ORDER BY s.x, t.a LIMIT 3",
+    "SELECT a, COUNT(*) AS n FROM t GROUP BY a QUALIFY RANK() OVER (ORDER BY COUNT(*) DESC, a) <= 5 "
+    "ORDER BY SUM(c) LIMIT 2",
+    "SELECT x FROM (SELECT a AS x, c FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 "
+    "ORDER BY c DESC LIMIT 3) AS q ORDER BY x",
+    # Both levels have QUALIFY and a tail: the inner one must be moved too.
+    "SELECT a, c FROM (SELECT a, b, c FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c DESC) = 1 "
+    "ORDER BY c LIMIT 4) AS q QUALIFY ROW_NUMBER() OVER (ORDER BY c) <= 3 ORDER BY c DESC LIMIT 2",
+]
+
+
+@pytest.fixture(scope="module")
+def qualify_tables():
+    import duckdb
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT i % 7 AS a, (i * 37) % 11 AS b, i AS c FROM range(60) r(i)")
+    con.execute("CREATE TABLE s AS SELECT i % 7 AS a, i AS x FROM range(30) r(i)")
+    yield con
+    con.close()
+
+
+@pytest.mark.parametrize("sql", _QUALIFY_TAILS)
+@pytest.mark.parametrize("tid", ["spark", "warehouse", "postgres"])
+def test_qualify_with_order_by_and_limit_keeps_its_rows(qualify_tables, sql, tid):
+    import sqlglot
+    want = qualify_tables.execute(sqlglot.transpile(sql, read="snowflake", write="duckdb")[0]).fetchall()
+    finding = target(portability(sql, "snowflake", targets=[tid]), tid)["statements"][0]
+    if tid == "warehouse" and "ORDER BY 2" in sql:  # T-SQL can't sort NULLs last by position
+        assert finding["grade"] == "unsupported" and "positional" in finding["reasons"][0]
+        return
+    assert finding["grade"] == "translated" and "QUALIFY" not in finding["rewritten"].upper()
+    assert any("still apply after the filter" in r for r in finding["reasons"])
+    rewritten = sqlglot.transpile(finding["rewritten"], read=PLATFORMS[tid]["sqlglot"], write="duckdb")[0]
+    assert qualify_tables.execute(rewritten).fetchall() == want, finding["rewritten"]
+
+
+def test_qualify_without_a_tail_says_how_it_was_rewritten():
+    finding = target(portability("SELECT a FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1",
+                                 "snowflake", targets=["spark"]), "spark")["statements"][0]
+    assert finding["grade"] == "translated" and finding["reasons"][0] == sp.QUALIFY_NOTE
+
+
+def test_qualify_that_cannot_be_rewritten_safely_is_unverified():
+    for sql in ("SELECT a, a + 1 FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 LIMIT 5",
+                "SELECT * FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 ORDER BY a + b LIMIT 5",
+                # sqlglot would read t.b in the window as the alias b, which is s.x.
+                "SELECT s.x AS b FROM t JOIN s ON t.a = s.a QUALIFY ROW_NUMBER() OVER (ORDER BY t.b) = 1"):
+        for t in portability(sql, "snowflake", targets=["spark", "warehouse"])["targets"]:
+            assert t["grade"] == "unverified" and t["statements"][0]["rewritten"] is None, (sql, t)
+
+
+def test_qualify_with_select_star_is_partial_for_its_extra_column():
+    finding = target(portability("SELECT * FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 LIMIT 5",
+                                 "snowflake", targets=["spark"]), "spark")["statements"][0]
+    assert finding["grade"] == "partial" and sp.QUALIFY_STAR_NOTE in finding["reasons"]
+    assert finding["rewritten"].endswith("WHERE _w = 1 LIMIT 5")
+
+
+def test_platforms_with_qualify_keep_it_as_written():
+    sql = "SELECT a FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 LIMIT 5"
+    for t in portability(sql, "snowflake", targets=["duckdb", "databricks"])["targets"]:
+        assert not any("QUALIFY is rewritten" in r for r in t["statements"][0]["reasons"])

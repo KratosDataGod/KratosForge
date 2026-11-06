@@ -26,14 +26,13 @@ import base64
 import hashlib
 import os
 import re
-import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .. import notebook_formats as nbf
 from .. import redact
-from ..jsonfile import read_json, replace, write_json
+from ..jsonfile import read_json, write_bytes, write_json
 from .databricks_discovery import _text
 from .databricks_sql import Client
 
@@ -347,15 +346,9 @@ def pull(client: Client, pair: dict[str, Any], files: list[str]) -> dict[str, An
         if path.is_symlink() or path.resolve().parent != root:
             skipped.append({"file": name, "why": "Not a file in this folder."})
             continue
-        # A new file of its own (never one a link points at), swapped in whole.
-        fd, tmp = tempfile.mkstemp(dir=root, prefix=".kf-pull-")
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            replace(tmp, path)   # waits out a busy file on Windows
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        # A new file of its own beside it (never one a link points at), swapped in whole; a busy file on
+        # Windows is waited out.
+        write_bytes(path, data)
         state[name] = {"hash": _hash(data), "modified_at": there.get(row["remote"], {}).get("modified_at", 0)}
         done.append({"file": name, "action": "pulled"})
     return {"done": done, "skipped": skipped, "files": state}

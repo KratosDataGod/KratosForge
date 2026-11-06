@@ -29,7 +29,8 @@ def svc(tmp_path, monkeypatch):
 
 def test_methods_are_served_and_only_the_reads_skip_the_audit():
     assert METHODS <= server.METHODS
-    reads = {"appstudio_home", "appstudio_open", "appstudio_history", "appstudio_versions", "appstudio_preview"}
+    reads = {"appstudio_home", "appstudio_open", "appstudio_history", "appstudio_versions", "appstudio_preview",
+             "appstudio_connections", "appstudio_publish_check"}
     for m in METHODS:
         assert audit.audited(m) is (m not in reads), m
 

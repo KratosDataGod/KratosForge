@@ -191,7 +191,7 @@ class IncidentDeskMixin:
                     "message": message}
         conn = self.central_lakehouse()  # type: ignore[attr-defined]
         sent = Sent(self.root / "incident_history_sent.json")  # type: ignore[attr-defined]
-        envs = []
+        envs: list[dict[str, Any]] = []
         for env in ENVIRONMENTS:
             try:
                 log = self._incident_log(env)  # type: ignore[attr-defined]

@@ -175,9 +175,6 @@
  "fabric_desktop/http_session.py": {
   "arg-type": 1
  },
- "fabric_desktop/incident_desk.py": {
-  "dict-item": 2
- },
  "fabric_desktop/integrations/app_service.py": {
   "assignment": 1,
   "has-type": 1

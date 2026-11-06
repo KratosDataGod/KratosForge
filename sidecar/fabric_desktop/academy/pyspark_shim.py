@@ -11,6 +11,10 @@ It runs in the learner's process, never in the engine, as part of the generated 
 Table names are ``schema.table`` or ``table`` of letters, digits and underscores; a name can't leave
 ``tables/``. Modes: ``error``/``errorifexists`` (the default), ``overwrite``, ``append``, ``ignore``;
 option ``overwriteSchema`` replaces the schema on overwrite, ``mergeSchema`` adds new columns on append.
+Streams (``spark.readStream``, ``df.writeStream``) run as availableNow (pyspark_stream.py), ``from
+delta.tables import DeltaTable`` merges with delta-rs (pyspark_delta.py), and ``notebookutils`` runs the
+exercise's other notebooks and reads its ``Files/`` (notebookutils_lab.py).
+
 This is not Apache Spark: there are no partitions, no plans and no Spark UI here.
 """
 
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import re
 import sys
+import types as _modules
 from pathlib import Path
 from typing import Any, Literal
 
@@ -31,6 +36,8 @@ from duckdb.experimental.spark.sql.session import SparkSession
 
 from .. import spark_compat
 from ..duckdb_rows import duckdb_major
+from . import notebookutils_lab, pyspark_delta, pyspark_stream
+from .notebookutils_lab import NotebookExit  # noqa: F401 - the learner script catches it
 
 TABLES = "tables"
 MODES = {"error": "error", "errorifexists": "error", "overwrite": "overwrite", "append": "append", "ignore": "ignore",
@@ -148,10 +155,12 @@ class _Context(SparkContext):
             self._connection = duckdb.connect(":memory:", config=settings)
 
 
-def read_delta(path: Path) -> pa.Table:
-    """A Delta table's current rows, read by delta-rs itself (DataFusion), not through a pyarrow file
-    system: the learner process refuses pyarrow's PyFileSystem, which to_pyarrow_table uses."""
-    query = deltalake.QueryBuilder().register("t", deltalake.DeltaTable(str(path)))
+def read_delta(path: Path, version: int | None = None) -> pa.Table:
+    """A Delta table's rows (at ``version``, else the current ones), read by delta-rs itself (DataFusion),
+    not through a pyarrow file system: the learner process refuses pyarrow's PyFileSystem, which
+    to_pyarrow_table uses."""
+    table = deltalake.DeltaTable(str(path)) if version is None else deltalake.DeltaTable(str(path), version=version)
+    query = deltalake.QueryBuilder().register("t", table)
     return _no_views(pa.table(query.execute("SELECT * FROM t").read_all()))
 
 
@@ -176,6 +185,10 @@ class AcademySession(SparkSession):
 
     def table(self, name: str) -> DataFrame:  # type: ignore[override]
         return self.read.table(name)
+
+    @property
+    def readStream(self) -> pyspark_stream.StreamReader:  # type: ignore[override]  # noqa: N802 - PySpark's name
+        return pyspark_stream.StreamReader(self)
 
 
 class _Builder:
@@ -204,6 +217,11 @@ def _alias_pyspark(spark: AcademySession) -> None:
     spark_compat.sql_names(spark_sql)  # Row, Column, GroupedData, Window
     AcademySession.builder = _Builder(spark)  # type: ignore[assignment]
     spark_sql.SparkSession = AcademySession  # type: ignore[misc,assignment]
+    delta, tables = _modules.ModuleType("delta"), _modules.ModuleType("delta.tables")
+    tables.DeltaTable = pyspark_delta.DeltaTable  # type: ignore[attr-defined]
+    delta.tables = tables  # type: ignore[attr-defined]
+    sys.modules.update({"delta": delta, "delta.tables": tables})
+    pyspark_delta.DeltaTable._session = spark
 
 
 def session(work: Path) -> AcademySession:
@@ -212,5 +230,21 @@ def session(work: Path) -> AcademySession:
     spark_compat.install()
     spark = AcademySession(work)
     _dataframe.DataFrame.write = property(lambda self: Writer(self, spark.work))  # type: ignore[assignment]
+    _dataframe.DataFrame.writeStream = property(  # type: ignore[attr-defined]
+        lambda self: pyspark_stream.StreamWriter(self, spark))
+    _dataframe.DataFrame.isStreaming = property(pyspark_stream.is_streaming)  # type: ignore[attr-defined]
     _alias_pyspark(spark)
     return spark
+
+
+_UTILS: _modules.ModuleType | None = None
+
+
+def namespace(spark: AcademySession) -> dict[str, object]:
+    """The variables a notebook of the exercise starts with: ``spark`` and ``notebookutils`` (also as
+    ``mssparkutils``), as in a Fabric notebook. The first call makes ``notebookutils`` importable."""
+    global _UTILS
+    if _UTILS is None:
+        _UTILS = notebookutils_lab.install(spark.work, lambda: namespace(spark))
+    utils = _UTILS
+    return {"__name__": "__main__", "spark": spark, "notebookutils": utils, "mssparkutils": utils}

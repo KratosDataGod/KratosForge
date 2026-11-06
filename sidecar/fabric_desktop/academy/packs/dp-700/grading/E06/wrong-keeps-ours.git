@@ -1,0 +1,29 @@
+git switch feature/retry
+write Ingest.DataPipeline/pipeline-content.json
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "Copy orders",
+        "type": "Copy",
+        "policy": {
+          "timeout": "0.01:00:00",
+          "retry": 3,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "source": {
+            "type": "LakehouseTableSource"
+          },
+          "sink": {
+            "type": "LakehouseTableSink"
+          }
+        }
+      }
+    ]
+  }
+}
+end
+git add Ingest.DataPipeline/pipeline-content.json
+git commit -m "Retry the copy 3 times"
+git merge -X ours main

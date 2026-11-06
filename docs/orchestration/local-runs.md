@@ -94,14 +94,14 @@ The states are pending, running, succeeded, failed, skipped and cancelled. Each 
 
 ### Expressions
 
-Expressions are evaluated by a fixed list of functions written for this purpose, never by a general-purpose evaluator. An expression that uses anything else fails that activity with `LocalExpressionError` and the function's name. The functions are:
+Expressions are evaluated by a fixed list of functions written for this purpose, never by a general-purpose evaluator. An expression that uses anything else fails that activity with `LocalExpressionError` and the function's name. [Local pipeline coverage](coverage.md) checks each one against Microsoft's reference and lists the ones not supported yet. The functions are:
 
 - Logic: `equals`, `not`, `and`, `or`, `if`, `greater`, `greaterOrEquals`, `less`, `lessOrEquals`.
 - Math: `add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `range` (at most 100,000 numbers, ForEach's limit in Fabric).
 - Text: `concat`, `substring`, `replace`, `toLower`, `toUpper`, `trim`, `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`, `split`, `guid`.
 - Collections: `length`, `empty`, `contains`, `first`, `last`, `take`, `skip`, `union`, `intersection`, `createArray`, `join`, `coalesce`.
 - Conversion: `string`, `int`, `float`, `bool`, `json`, `array`.
-- Dates (UTC): `utcNow`, `formatDateTime`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `startOfDay`.
+- Dates (UTC): `utcNow`, `formatDateTime`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `addToTime`, `subtractFromTime`, `getFutureTime`, `getPastTime`, `startOfDay`, `startOfHour`, `startOfMonth`, `dayOfMonth`, `dayOfWeek` (Sunday is 0), `dayOfYear`, `ticks`. Adding months or years keeps the day of the month, or uses the month's last day when it's shorter, as .NET does. Dates are read as ISO 8601 or month first (`03/15/2018 12:00:00`), as the reference's examples write them.
 - Pipeline: `pipeline()` (`parameters`, `RunId`, `Pipeline`, `TriggerTime`, `TriggerType`, `TriggerId`, `TriggerName`, `GroupId`), `variables()`, `activity()` (`output`, `status`, `error`, `activityRunId`), `item()`.
 
 A Failed activity's `error` has the fields Fabric gives it: `errorCode`, `message`, `failureType`, `target` (the activity's name) and `details` (empty). `failureType` is `UserError`, except `SystemError` when the local engine itself fails (`LocalAdapterError`); a mock can set its own `failureType`. So a catch branch can read `activity('Load').error.failureType` here as in Fabric. The error codes of local failures start with `Local` and differ from Fabric's numeric codes.

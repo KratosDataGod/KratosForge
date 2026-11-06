@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 82 |
-| Differs | 9 |
+| Runs | 93 |
+| Differs | 6 |
 | Refused | 15 |
-| Fails | 57 |
+| Fails | 49 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -49,7 +49,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
 | `crossJoin` | Runs |  |
 | `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
-| `cube` | Fails | `df.cube("name", df.age).count().orderBy("name", "age").sh...`: AttributeError: 'DataFrame' object has no attribute 'cube' |
+| `cube` | Runs |  |
 | `describe` | Differs | `df.describe(['age', 'weight', 'height']).show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
 | `distinct` | Runs |  |
 | `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
@@ -95,7 +95,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `replace` | Runs |  |
-| `rollup` | Fails | `df.rollup("name", df.age).count().orderBy("name", "age")....`: AttributeError: 'DataFrame' object has no attribute 'rollup' |
+| `rollup` | Runs |  |
 | `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
 | `sample` | Runs |  |
 | `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |
@@ -147,10 +147,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `asc_nulls_first` | Runs |  |
 | `asc_nulls_last` | Runs |  |
 | `astype` | Not checked |  |
-| `between` | Fails | `df.select(df.name, df.age.between(2, 4)).show()`: TypeError: 'Column' object is not callable |
-| `bitwiseAND` | Fails | `df.select(df.a.bitwiseAND(df.b)).collect()`: TypeError: 'Column' object is not callable |
-| `bitwiseOR` | Fails | `df.select(df.a.bitwiseOR(df.b)).collect()`: TypeError: 'Column' object is not callable |
-| `bitwiseXOR` | Fails | `df.select(df.a.bitwiseXOR(df.b)).collect()`: TypeError: 'Column' object is not callable |
+| `between` | Runs |  |
+| `bitwiseAND` | Runs |  |
+| `bitwiseOR` | Runs |  |
+| `bitwiseXOR` | Runs |  |
 | `cast` | Runs |  |
 | `contains` | Runs |  |
 | `desc` | Runs |  |
@@ -158,21 +158,21 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc_nulls_last` | Runs |  |
 | `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
 | `endswith` | Runs |  |
-| `eqNullSafe` | Fails | `df1.select( df1['value'] == 'foo', df1['value'].eqNullSaf...`: TypeError: 'Column' object is not callable |
+| `eqNullSafe` | Runs |  |
 | `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
-| `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "+--------------------------------------+----------------- here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
+| `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |
 | `isNull` | Runs |  |
 | `isin` | Runs |  |
 | `like` | Runs |  |
 | `name` | Not checked |  |
-| `otherwise` | Differs | `df.select(df.name, sf.when(df.age > 3, 1).otherwise(0)).s...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------+\n\| name\|CAS in Spark |
+| `otherwise` | Runs |  |
 | `over` | Runs |  |
 | `rlike` | Runs |  |
 | `startswith` | Runs |  |
-| `substr` | Fails | `df.select(df.name.substr(1, 3).alias("col")).collect()`: TypeError: 'Column' object is not callable |
-| `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------------------- in Spark |
+| `substr` | Runs |  |
+| `when` | Runs |  |
 | `withField` | Fails | `df.withColumn('a', df['a'].withField('b', lit(3))).select...`: TypeError: 'Column' object is not callable |
 
 ## GroupedData

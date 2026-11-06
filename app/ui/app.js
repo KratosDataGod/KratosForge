@@ -224,6 +224,7 @@ function showDialog(title, body, actions = [], onClose = null) {
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
       actions.length ? h("div", { class: "dialog-actions" }, actions) : null));
+  describeDialog(overlay.querySelector(".dialog"), body);
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
@@ -237,6 +238,20 @@ function showDialog(title, body, actions = [], onClose = null) {
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
+}
+
+// A screen reader reads a dialog's name, then the control that has focus. The sentence that says what the
+// dialog is about (a confirm's "Its files are removed from OneLake") is read too only when the dialog
+// names it with aria-describedby. That sentence is the body's lead paragraph: its first element, going
+// down through plain wrappers, when that is a paragraph. A form that starts with a field has none.
+let dialogDescribed = 0;
+function describeDialog(dialog, body) {
+  const is = (el, sel) => typeof el?.matches === "function" && el.matches(sel);
+  let lead = body;
+  while (is(lead, "div:not([role]):not(.text)")) lead = lead.firstElementChild;
+  if (!is(lead, "p, .text") || is(lead, ".error-text") || lead.hidden || !dialog) return;
+  lead.id ||= `dialog-desc-${++dialogDescribed}`;
+  dialog.setAttribute("aria-describedby", lead.id);
 }
 
 // check(value) returns why the value can't be used, or "": the dialog says so and stays open.
@@ -1679,15 +1694,18 @@ document.addEventListener("mousedown", (e) => {
 const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) => [id, label])), other: "Other types" };
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
-function onelakeTabs() {
+// hasHeading: the tab draws its own level 1 heading (Access), so the hidden page name is left out.
+function onelakeTabs(hasHeading = false) {
   const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
     "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
   // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
   // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  // The page's name for screen readers (EA-030): each tab draws its own h2, and the rail already shows "OneLake".
   return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
     tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
     preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
-    h("span", { class: "spacer" }), learnMore("onelake"));
+    h("span", { class: "spacer" }), learnMore("onelake"),
+    hasHeading ? null : h("h1", { class: "sr-only" }, "OneLake"));
 }
 
 async function renderOneLake() {

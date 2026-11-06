@@ -1058,7 +1058,11 @@ def schedule_configuration(kind: str, times: list[str] | None = None, every_minu
             raise ValueError("Pick at least one time of day")
         return config | {"type": "Daily", "times": times}
     if kind == "weekly":
-        days = [d for d in (weekdays or []) if d in WEEKDAYS]
+        names = {d.lower(): d for d in WEEKDAYS}
+        unknown = [d for d in (weekdays or []) if str(d).strip().lower() not in names]
+        if unknown:  # dropping a misspelt day would quietly leave the schedule a day short
+            raise ValueError(f"Days are Monday to Sunday (got {', '.join(repr(d) for d in unknown)})")
+        days = list(dict.fromkeys(names[str(d).strip().lower()] for d in weekdays or []))
         if not days or not times:
             raise ValueError("Pick at least one day and one time")
         return config | {"type": "Weekly", "weekdays": days, "times": times}

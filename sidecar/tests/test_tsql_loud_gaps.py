@@ -65,6 +65,12 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("TIMEFROMPARTS fractions at precision 3", "SELECT DATEPART(millisecond, TIMEFROMPARTS(13, 45, 30, 500, 3))", 500),
     ("TIMEFROMPARTS fractions at precision 1", "SELECT DATEPART(millisecond, TIMEFROMPARTS(13, 45, 30, 5, 1))", 500),
     ("TIMEFROMPARTS of NULL", "SELECT DATEPART(hour, TIMEFROMPARTS(NULL, 45, 30, 0, 0))", None),
+    ("DEGREES of an integer is an integer", "SELECT DEGREES(1)", 57),
+    ("RADIANS of an integer is an integer", "SELECT RADIANS(180)", 3),
+    ("DEGREES of a float", "SELECT DEGREES(PI() / 2)", 90.0),
+    ("SQUARE of a decimal is a float", "SELECT SQUARE(2.5)", 6.25),
+    ("CEILING of a decimal", "SELECT CEILING(-123.45)", "-123"),
+    ("FLOOR of a decimal", "SELECT FLOOR(123.45)", "123"),
     ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
     ("FORMAT long date", "SELECT FORMAT(CAST('2024-03-05' AS DATE), 'D')", "Tuesday, March 5, 2024"),
     ("FORMAT abbreviated day and AM/PM", "SELECT FORMAT(CAST('2024-03-05 14:07' AS DATETIME2), 'ddd hh:mm tt')",
@@ -135,6 +141,9 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT POWER(2.0, 0.5)",
     "SELECT POWER(-2.5, 2)",
     "SELECT POWER(CAST(2 AS DECIMAL(5, 2)), 2)",
+    "SELECT DEGREES(1.0)",
+    "SELECT RADIANS(-45.01)",
+    "SELECT DEGREES(CAST(1 AS DECIMAL(5, 2)))",
     "SELECT QUOTENAME('a', '(')",
     "SELECT STR(1.5, 10, 20)",
     "SELECT STR(1.5, boxes) FROM dbo.orders",
@@ -174,6 +183,17 @@ def test_power_follows_the_bases_column_type(engine):
         engine.execute("SELECT POWER(d, 2) FROM dbo.bases", dialect="tsql")
     with pytest.raises(Exception, match="INT32|out of range"):  # T-SQL: arithmetic overflow
         engine.execute("SELECT POWER(i, 40) FROM dbo.bases", dialect="tsql")
+
+
+def test_ceiling_floor_degrees_and_radians_keep_an_integers_type(engine):
+    engine.execute("CREATE TABLE dbo.angles AS SELECT * FROM (VALUES (1, CAST(180 AS BIGINT), CAST(1 AS DOUBLE))) "
+                   "v(i, b, f)")
+    row = engine.execute("SELECT CEILING(i), FLOOR(b), DEGREES(i), RADIANS(b), DEGREES(f), SQUARE(i) FROM dbo.angles",
+                         dialect="tsql")["rows"][0]
+    assert row == [1, 180, 57, 3, 57.29577951308232, 1.0]
+    assert [type(v) for v in row] == [int, int, int, int, float, float]
+    with pytest.raises(Exception, match="on the local engine: DEGREES of a decimal"):
+        engine.execute("SELECT DEGREES(CAST(i AS DECIMAL(5, 1))) FROM dbo.angles", dialect="tsql")
 
 
 def test_the_refused_list_in_the_docs_names_every_refused_function():
@@ -228,6 +248,8 @@ def test_a_macro_in_the_database_is_a_known_function(engine):
 REFUSED_IN_THE_DOCS = {
     "ISNUMERIC": "SELECT ISNUMERIC('1')",
     "POWER": "SELECT POWER(2.5, 2)",
+    "DEGREES": "SELECT DEGREES(1.0)",
+    "RADIANS": "SELECT RADIANS(-45.01)",
     "SYSDATETIMEOFFSET": "SELECT SYSDATETIMEOFFSET()",
     "MONEY": "SELECT CONVERT(VARCHAR(20), CAST(1234.5 AS MONEY), 1)",
     "SMALLMONEY": "SELECT CAST(1 AS SMALLMONEY)",

@@ -182,6 +182,8 @@ def test_sfx004_object_construct_star_is_refused():
     ("select date_trunc('month', ts) from t", "SFD-006"),
     ("select dateadd(week, 1, ts) from t", "SFD-006"),
     ("select typeof(v) from t", "SFD-007"),
+    ("select l[i] from t", "SFD-009"),
+    ("select v['a']::string from t", "SFD-009"),
 ])
 def test_each_known_difference_is_named(code, note):
     (report,) = sf.translate(code).statements
@@ -532,3 +534,104 @@ def test_division_that_snowflake_answers_still_answers(code, want):
     assert duckdb.connect().execute(sql).fetchone()[0] == want
     if code == "select 7/2":
         assert "ERROR" not in sql.upper()  # a divisor written as a non-zero number needs no check
+
+
+@pytest.mark.parametrize("name", sorted(sf._ACCOUNT_FUNCTIONS))
+def test_account_and_session_functions_are_refused_by_name(name):
+    args = "-1" if name == "LAST_QUERY_ID" else ""
+    t = sf.translate(f"SELECT 1 AS a, {name.lower()}({args}) AS b")
+    assert not t.runnable
+    [note] = t.statements[0].notes
+    assert note.id == "SFN-014" and note.title.startswith(name)
+
+
+def test_functions_that_run_here_are_not_taken_for_account_functions():
+    assert sf.translate("SELECT current_date(), current_timestamp(), last_value(a) OVER (ORDER BY a) FROM t").runnable
+
+
+def _one(sql):
+    import duckdb
+    t = sf.translate(sql)
+    assert t.runnable, t.first_refusal()
+    return duckdb.connect().execute(t.duckdb_sql).fetchone(), t.statements[0]
+
+
+def test_is_and_as_read_the_type_a_variant_was_made_from():
+    row, st = _one("SELECT is_varchar(to_variant('2024-01-17'::date)), is_date(to_variant('2024-01-17'::date)), "
+                   "is_integer(to_variant(15::number(38, 0))), is_decimal(to_variant(3.21::double)), "
+                   "as_integer(to_variant(1.23::decimal(6, 3))), as_varchar(parse_json('\"x\"'))")
+    assert row == (False, True, True, False, None, "x")
+
+
+def test_is_and_as_of_sql_null_are_null_and_json_null_is_its_own_type():
+    row, _ = _one("SELECT is_varchar(NULL), as_varchar(NULL), is_null_value(parse_json('null')), "
+                  "is_varchar(parse_json('null')), as_integer(parse_json('null'))")
+    assert row == (None, None, True, False, None)
+
+
+def test_the_decimal_family_is_labelled_and_the_rest_is_not():
+    assert [n.id for n in _one("SELECT is_decimal(parse_json('1.5'))")[1].notes] == ["SFD-008"]
+    assert [n.id for n in _one("SELECT as_number(parse_json('1.5'), 4, 1)")[1].notes] == ["SFD-008"]
+    assert _one("SELECT is_integer(parse_json('1')), as_double(parse_json('1.5'))")[1].notes == ()
+
+
+@pytest.mark.parametrize("sql, rule", [
+    ("SELECT is_timestamp_tz(v) FROM t", "SFN-015"), ("SELECT as_timestamp_ltz(v) FROM t", "SFN-015"),
+    ("SELECT as_decimal(v, p) FROM t", "SFX-011"), ("SELECT as_decimal(v, 40, 2) FROM t", "SFX-011"),
+    ("SELECT as_decimal(v, 4, 6) FROM t", "SFX-011"), ("SELECT is_integer(v, 1) FROM t", "SFX-011"),
+    ("SELECT as_varchar() FROM t", "SFX-011")])
+def test_variant_types_that_cannot_be_rewritten_are_refused_by_name(sql, rule):
+    t = sf.translate(sql)
+    assert not t.runnable and t.statements[0].notes[0].id == rule
+
+
+def test_nested_is_and_as_calls_are_all_rewritten_and_the_value_is_read_once():
+    row, st = _one("SELECT is_integer(as_integer(parse_json('5'))), as_integer(as_object(parse_json('{\"a\": 5}')):a)")
+    assert row == (True, 5)
+    sql = sf.translate("SELECT is_integer(parse_json(col)) FROM t").duckdb_sql
+    assert sql.upper().count("JSON(COL)") == 1 and "LAMBDA" in sql.upper()
+def test_a_json_string_cast_to_text_loses_its_quotes_and_json_null_is_sql_null():
+    import duckdb
+    t = sf.translate("SELECT v:a::string, v:n::string, v:o::varchar, v:z::string, to_varchar(v:a), v:a, "
+                     "'x'::string FROM (SELECT parse_json('{\"a\": \"Pine\", \"n\": 1.5, \"o\": {\"k\": 1}, "
+                     "\"z\": null}') AS v)")
+    assert t.statements[0].verdict == "translated"
+    row = duckdb.connect().execute(t.duckdb_sql).fetchone()
+    assert row[:6] == ("Pine", "1.5", '{"k":1}', None, "Pine", '"Pine"') and row[6] == "x"
+
+
+def test_brackets_index_json_from_zero_and_lists_from_an_integer_column():
+    import duckdb
+    t = sf.translate("SELECT v[0], v['k'][1]::string, l[0], l[i], x[0] FROM (SELECT parse_json('[\"a\"]') AS v, "
+                     "parse_json('{\"k\": [1, \"b\"]}') AS w, array_construct(10, 20) AS l, 1 AS i, "
+                     "array_construct(7) AS x)")
+    sql = t.duckdb_sql
+    assert "v[0]" in sql and "l[1]" in sql and "l[i + 1]" in sql and "x[1]" in sql
+    t = sf.translate("SELECT w['k'][1]::string, l[i] FROM (SELECT parse_json('{\"k\": [1, \"b\"]}') AS w, "
+                     "array_construct(10, 20) AS l, 1 AS i)")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ("b", 20)
+
+
+def test_a_column_whose_type_the_statement_does_not_show_is_left_as_written():
+    sql = sf.translate("SELECT v['a']::string, x[0] FROM t").duckdb_sql
+    assert sql == "SELECT CAST(v['a'] AS TEXT), x[1] FROM t"
+    (report,) = sf.translate("SELECT v['a']::string, x[0] FROM t").statements
+    assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-009"]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT m['k'] FROM t",                                   # a string key alone reads the same on JSON and MAP
+    "SELECT id::string FROM t",                               # no brackets
+    "SELECT v:a::string FROM t",                              # a path is JSON whatever the column is
+    "SELECT parse_json('[5,6]')[0]",
+    "SELECT l[1] FROM (SELECT array_construct(10, 20) AS l)",
+    "WITH s AS (SELECT parse_json('{\"a\": \"P\"}') AS v) SELECT v['a']::string FROM s",
+])
+def test_brackets_whose_value_type_is_known_raise_no_note(code):
+    assert "SFD-009" not in [n.id for n in sf.translate(code).statements[0].notes]
+
+
+@pytest.mark.parametrize("code", ["SELECT l[0] FROM t", "SELECT (v['a'])::varchar FROM t",
+                                  "SELECT to_varchar(v['a']) FROM t", "SELECT v['a'][0] FROM t"])
+def test_brackets_on_a_column_of_unknown_type_are_labelled(code):
+    assert "SFD-009" in [n.id for n in sf.translate(code).statements[0].notes]

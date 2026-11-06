@@ -186,3 +186,78 @@ def test_the_databricks_skins_dark_set_is_complete_and_readable():
     dark = skins.BUILT_IN["databricks"]["appearance"]["tokens"]["dark"]
     for fg, bg in skins.CONTRAST_PAIRS:  # no built-in dark base yet, so the skin sets both sides
         assert fg in dark and bg in dark and skins.contrast(dark[fg], dark[bg]) >= skins.CONTRAST_MIN
+
+
+# ---------- command placement (workflow.commands; mockup "skin command placement") ----------
+
+UI = STYLES.parent
+
+
+def _app_notebook_actions() -> dict[str, str]:
+    """Every notebook action the app defines (actions.js defineAction), with its definition's text."""
+    found = {}
+    for js in sorted(UI.glob("*.js")):
+        text = js.read_text(encoding="utf-8")
+        for m in re.finditer(r'defineAction\(\{ id: "([^"]+)"(.*?)\n(?=\S|\Z)', text, re.S):
+            if '"notebook"' in m.group(2) and "contexts:" in m.group(2):
+                found[m.group(1)] = m.group(2)
+    return found
+
+
+def test_the_notebook_commands_a_skin_can_place_are_the_apps_own():
+    app = _app_notebook_actions()
+    assert set(skins.NOTEBOOK_COMMANDS) == set(app) and len(app) == 9
+    for cmd, why in skins.NOTEBOOK_COMMANDS.items():
+        # A skin may rename only a low or moderate command that doesn't use capacity.
+        fixed = "spendsCapacity: true" in app[cmd] or 'risk: "high"' in app[cmd]
+        assert bool(why) == fixed, cmd
+    assert skins.NOTEBOOK_COMMANDS["notebook.run_in_fabric"]
+
+
+def _commands(**notebook):
+    return _skin(workflow={"rail": ["home"], "commands": {"notebook": notebook}})
+
+
+def test_a_skin_places_a_primary_up_to_three_more_and_renames_them():
+    m = _commands(primary="notebook.run_all", bar=["notebook.run_cell", "notebook.restart_run_all", "notebook.publish"],
+                  labels={"notebook.run_cell": "Run cell", "notebook.restart_run_all": "Clear state and run all"})
+    assert skins.parse(skins.dump(m), skins.BASE) == m
+
+
+def test_a_skin_that_breaks_the_command_rules_is_refused_with_every_reason():
+    problems = _problems(_commands(primary="notebook.run_all",
+                                   bar=["notebook.export", "notebook.run_cell", "notebook.save", "notebook.pin", "notebook.validate"],
+                                   labels={"notebook.run_in_fabric": "Go"}))
+    assert "commands.notebook.bar has 5 commands; at most 3" in problems
+    assert "commands.notebook.bar names notebook.export, which isn't a notebook command" in problems
+    assert "commands.notebook.labels can't rename notebook.run_in_fabric: it uses capacity" in problems
+
+
+@pytest.mark.parametrize("notebook, problem", [
+    ({"bar": ["notebook.run_cell"]}, "commands.notebook needs a primary command"),
+    ({"primary": "notebook.run_all", "bar": ["notebook.run_all"]}, "commands.notebook places a command twice"),
+    ({"primary": "notebook.run_all", "labels": {"notebook.save": "x" * 41}}, "commands.notebook.labels notebook.save is longer than 40 characters"),
+    ({"primary": "notebook.run_all", "labels": {"notebook.save": "<b>Save</b>"}}, "commands.notebook.labels notebook.save can't hold control characters, < > { } or \\"),
+    ({"primary": "notebook.run_all", "hide": ["notebook.publish"]}, "commands.notebook has keys a skin can't hold: hide"),
+])
+def test_command_placement_rules(notebook, problem):
+    assert problem in _problems(_commands(**notebook))
+
+
+def test_commands_only_for_known_views():
+    assert "commands has keys a skin can't hold: sql" in _problems(
+        _skin(workflow={"commands": {"sql": {"primary": "notebook.run_all"}}}))
+
+
+@pytest.mark.parametrize("skin_id, primary, bar", [
+    ("fabric", "notebook.run_all", ["notebook.run_cell", "notebook.save"]),
+    ("databricks", "notebook.run_all", ["notebook.run_cell", "notebook.restart_run_all", "notebook.publish"]),
+    ("snowflake", "notebook.run_all", ["notebook.run_cell", "notebook.save"]),
+])
+def test_the_built_in_skins_place_the_notebook_commands_as_drawn(skin_id, primary, bar):
+    placed = skins.BUILT_IN[skin_id]["workflow"]["commands"]["notebook"]
+    assert (placed["primary"], placed["bar"]) == (primary, bar)
+
+
+def test_the_kratosforge_skin_places_no_commands():
+    assert "commands" not in skins.KRATOSFORGE["workflow"]

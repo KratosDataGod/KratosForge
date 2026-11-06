@@ -50,6 +50,25 @@ function skinRailChildren(list, item) {
   return [...items.slice(0, at), h("div", { class: "rail-group-label", role: "heading", "aria-level": "2" }, "KratosForge"), ...items.slice(at)];
 }
 
+// The commands a skin places on a view's command group (workflow.commands, checked by the engine), or
+// null when it places none: then the view keeps its own buttons (the KratosForge skin sets none).
+function skinCommands(view) {
+  return currentSkin()?.workflow?.commands?.[view] || null;
+}
+
+// The ids a skin puts on the group, primary first; the command bar lists these first.
+function skinPlacedCommands(view) {
+  const c = skinCommands(view);
+  return c ? [c.primary, ...(c.bar || [])] : [];
+}
+
+// A command's name under the skin, or null to keep its own. The engine allows renaming only low and
+// moderate commands that don't use capacity, so Run in Fabric always keeps its name.
+function skinCommandLabel(id) {
+  for (const c of Object.values(currentSkin()?.workflow?.commands || {})) if (c?.labels?.[id]) return c.labels[id];
+  return null;
+}
+
 function skinRailLabel(f) {
   return currentSkin()?.workflow?.labels?.[f.id] || f.rail.label;
 }

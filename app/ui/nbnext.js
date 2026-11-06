@@ -80,6 +80,7 @@ function nbNextLine(nb) {
 // Draws the line again in place (a run finishing doesn't redraw the whole notebook).
 function refreshNbNextLine(nb) {
   if (state.notebook !== nb || state.view !== "notebook") return;
+  refreshSkinCommandGroup();  // a failed cell takes a skin's primary slot
   const line = nbNextLine(nb);
   const old = document.querySelector(".nb-next");
   if (old) { if (line) old.replaceWith(line); else old.remove(); }

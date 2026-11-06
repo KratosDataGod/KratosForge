@@ -20,6 +20,9 @@ Rules ``validate`` enforces, each with a reason a person can act on:
   ``--muted`` on ``--surface``, and ``--on-accent`` on ``--accent`` (WCAG 2.2 AA).
 - Rail entries name pages by id (letters and digits); labels are short plain text. Which ids exist
   is the app's to check, since pages are registered in the UI (features.js).
+- Commands (``workflow.commands.notebook``): a primary and at most ``MAX_BAR`` more, by id from
+  ``NOTEBOOK_COMMANDS`` only. Whatever a skin doesn't place stays under More, so none can be hidden,
+  and a skin may rename only a low or moderate command that doesn't use capacity (never Run in Fabric).
 - At most ``MAX_BYTES`` of JSON.
 """
 
@@ -64,8 +67,19 @@ _TEXT_BAD = re.compile(r"[\x00-\x1f\x7f<>{}\\]")
 KEYS = {"schema", "id", "name", "version", "description", "targets", "appearance", "workflow"}
 TARGET_KEYS = {"platform", "reviewed", "basis"}
 APPEARANCE_KEYS = {"color_mode", "density", "tokens"}
-WORKFLOW_KEYS = {"rail", "labels"}
+WORKFLOW_KEYS = {"rail", "labels", "commands"}
 MAX_RAIL = 12  # the app still shows at most 8 main pages (features.js RAIL_LIMIT); the rest go below
+# The notebook's commands a skin may place (workflow.commands.notebook), as actions.js defines them
+# (test_skins.py keeps this equal to the app's defineAction calls). The value says why a skin can't
+# rename one, or is None: a skin may rename only a low or moderate command that doesn't use capacity.
+NOTEBOOK_COMMANDS: dict[str, str | None] = {
+    "notebook.pin": None, "notebook.run_all": None, "notebook.run_cell": None,
+    "notebook.restart_run_all": None, "notebook.validate": None, "notebook.save": None,
+    "notebook.publish": None, "notebook.run_in_fabric": "it uses capacity", "notebook.go_failed": None,
+}
+COMMAND_VIEWS = {"notebook": NOTEBOOK_COMMANDS}
+COMMAND_KEYS = {"primary", "bar", "labels"}
+MAX_BAR = 3
 
 
 class SkinError(ValueError):
@@ -127,6 +141,60 @@ def _tokens(tokens: Any, where: str, problems: list[str], base: dict[str, str]) 
             ratio = contrast(full[fg], full[bg])
             if ratio < CONTRAST_MIN:
                 problems.append(f"{where} {fg} on {bg} has contrast {ratio:.2f}:1; it needs {CONTRAST_MIN}:1 to be readable")
+
+
+def _command_id(cmd: Any, at: str, view: str, known: dict[str, str | None], problems: list[str]) -> bool:
+    if isinstance(cmd, str) and cmd in known:
+        return True
+    problems.append(f"{at} names {cmd}, which isn't a {view} command" if isinstance(cmd, str)
+                    else f"{at} must name {view} commands by id")
+    return False
+
+
+def _commands(commands: Any, problems: list[str]) -> None:
+    """workflow.commands: per view, a primary command, up to MAX_BAR more and labels for them. Ids come
+    from that view's list; whatever a skin doesn't place stays under More, so nothing can be hidden."""
+    if not isinstance(commands, dict):
+        problems.append("commands must be an object of view: placement")
+        return
+    _unknown(commands, set(COMMAND_VIEWS), "commands", problems)
+    for view, known in COMMAND_VIEWS.items():
+        if view not in commands:
+            continue
+        where = f"commands.{view}"
+        placed = commands[view]
+        if not isinstance(placed, dict):
+            problems.append(f"{where} must be an object with primary, bar and labels")
+            continue
+        _unknown(placed, COMMAND_KEYS, where, problems)
+
+        primary = placed.get("primary")
+        if primary is None:
+            problems.append(f"{where} needs a primary command")
+        else:
+            _command_id(primary, f"{where}.primary", view, known, problems)
+        bar = placed.get("bar", [])
+        if not isinstance(bar, list):
+            problems.append(f"{where}.bar must be a list of {view} commands")
+            bar = []
+        elif len(bar) > MAX_BAR:
+            problems.append(f"{where}.bar has {len(bar)} commands; at most {MAX_BAR}")
+        for cmd in bar:
+            _command_id(cmd, f"{where}.bar", view, known, problems)
+        ids = [primary, *bar]
+        if len({str(i) for i in ids}) != len(ids):
+            problems.append(f"{where} places a command twice")
+        labels = placed.get("labels", {})
+        if not isinstance(labels, dict):
+            problems.append(f"{where}.labels must be an object of command id: label")
+            continue
+        for cmd, label in labels.items():
+            if not _command_id(cmd, f"{where}.labels", view, known, problems):
+                continue
+            if known[cmd]:
+                problems.append(f"{where}.labels can't rename {cmd}: {known[cmd]}")
+            else:
+                _text(label, f"{where}.labels {cmd}", 40, problems)
 
 
 def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
@@ -207,6 +275,8 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
         if not _PAGE.fullmatch(str(page)):
             problems.append(f"workflow labels key {page!r} isn't a page id")
         _text(label, f"workflow labels {page}", 24, problems)
+    if "commands" in workflow:
+        _commands(workflow["commands"], problems)
 
     if problems:
         raise SkinError(problems)
@@ -265,7 +335,10 @@ FABRIC: dict[str, Any] = {
         "--accent": "#0f6c5c", "--accent-dark": "#0a4d42", "--accent-soft": "#e6f2ef", "--accent-soft-2": "#edf5f3",
         "--canvas": "#f5f5f5", "--border": "#e1e1e1",
     }}},
-    "workflow": {"rail": ["home", "create", "workspaces", "onelake", "monitor", "platform", "optimize", "metadata"]},
+    "workflow": {"rail": ["home", "create", "workspaces", "onelake", "monitor", "platform", "optimize", "metadata"],
+                 # Run all first, then running one cell and saving, as Fabric notebooks put them.
+                 "commands": {"notebook": {"primary": "notebook.run_all", "bar": ["notebook.run_cell", "notebook.save"],
+                                           "labels": {"notebook.run_cell": "Run cell", "notebook.save": "Save"}}}},
 }
 # Databricks-familiar (Preview): Workspace first, then Recents, New and Catalog, with Jobs and pipelines,
 # as Databricks developers find their way; a blue accent of our own. Its dark set follows the mockup's
@@ -287,7 +360,12 @@ DATABRICKS: dict[str, Any] = {
                  "--border-input": "#4a515a", "--danger": "#ff8f8f"}}},
     "workflow": {"rail": ["workspaces", "home", "create", "onelake", "monitor", "platform", "optimize", "metadata"],
                  "labels": {"workspaces": "Workspace", "home": "Recents", "create": "New", "onelake": "Catalog",
-                            "monitor": "Jobs and pipelines", "optimize": "Optimize and cost"}},
+                            "monitor": "Jobs and pipelines", "optimize": "Optimize and cost"},
+                 # Run all, run one cell, and clear state then run all, in Databricks words.
+                 "commands": {"notebook": {"primary": "notebook.run_all",
+                                           "bar": ["notebook.run_cell", "notebook.restart_run_all", "notebook.publish"],
+                                           "labels": {"notebook.run_cell": "Run cell",
+                                                      "notebook.restart_run_all": "Clear state and run all"}}}},
 }
 # Snowflake-familiar (Preview): light, Worksheets and Data first, as in Snowflake's web interface; a
 # blue accent of our own. Patterns only: no Snowflake logos or brand colors.
@@ -302,7 +380,10 @@ SNOWFLAKE: dict[str, Any] = {
     }}},
     "workflow": {"rail": ["home", "onelake", "create", "monitor", "workspaces", "platform", "optimize", "metadata"],
                  "labels": {"home": "Worksheets", "onelake": "Data", "create": "Load and create",
-                            "monitor": "Monitoring", "optimize": "Optimize and cost"}},
+                            "monitor": "Monitoring", "optimize": "Optimize and cost"},
+                 # Run all, and a plain Run for the selected cell, as a worksheet has.
+                 "commands": {"notebook": {"primary": "notebook.run_all", "bar": ["notebook.run_cell", "notebook.save"],
+                                           "labels": {"notebook.run_cell": "Run", "notebook.save": "Save"}}}},
 }
 BUILT_IN: dict[str, dict[str, Any]] = {m["id"]: validate(m, BASE) for m in (KRATOSFORGE, FABRIC, DATABRICKS, SNOWFLAKE)}
 

@@ -26,7 +26,7 @@ nothing on screen. Some near-duplicates (`--surface-3` and `--surface-3b`, three
 are kept apart for that reason; they can be merged when a design review agrees the difference doesn't
 matter.
 
-A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-soft-4` to `--warn-soft-9`, `--warn-ink-2`,
+A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-soft-4`, `--warn-soft-5`, `--warn-soft-7` to `--warn-soft-9`, `--warn-ink-2`,
 `--ok-ink`, `--danger-ink`, `--code-ref` and others) holds shades that more than one rule shared. They
 are not in the table above, so a skin can't set them yet; dark mode will need them added once the
 near-duplicates among them are merged.

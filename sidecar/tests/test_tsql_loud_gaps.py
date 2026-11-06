@@ -61,6 +61,10 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("STR with places", "SELECT STR(123.45, 6, 1)", " 123.5"),
     ("STR gives up places that don't fit", "SELECT STR(123.45, 5, 2)", "123.5"),
     ("STR too long for the length", "SELECT STR(-1234.5, 4)", "****"),
+    ("TIMEFROMPARTS as text", "SELECT CONVERT(varchar(8), TIMEFROMPARTS(13, 45, 30, 0, 0))", "13:45:30"),
+    ("TIMEFROMPARTS fractions at precision 3", "SELECT DATEPART(millisecond, TIMEFROMPARTS(13, 45, 30, 500, 3))", 500),
+    ("TIMEFROMPARTS fractions at precision 1", "SELECT DATEPART(millisecond, TIMEFROMPARTS(13, 45, 30, 5, 1))", 500),
+    ("TIMEFROMPARTS of NULL", "SELECT DATEPART(hour, TIMEFROMPARTS(NULL, 45, 30, 0, 0))", None),
     ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
     ("FORMAT long date", "SELECT FORMAT(CAST('2024-03-05' AS DATE), 'D')", "Tuesday, March 5, 2024"),
     ("FORMAT abbreviated day and AM/PM", "SELECT FORMAT(CAST('2024-03-05 14:07' AS DATETIME2), 'ddd hh:mm tt')",
@@ -135,6 +139,9 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT STR(1.5, 10, 20)",
     "SELECT STR(1.5, boxes) FROM dbo.orders",
     "SELECT FORMAT(1e0, 'N2')",
+    "SELECT TIMEFROMPARTS(13, 45, 30, 0, 8)",
+    "SELECT TIMEFROMPARTS(13, 45, 30, 1234567, 7)",
+    "SELECT TIMEFROMPARTS(13, 45, 30, 0, boxes) FROM dbo.orders",
     "SELECT FORMAT(boxes, '#,##0')  FROM dbo.orders",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
@@ -239,10 +246,11 @@ REFUSED_IN_THE_DOCS = {
     "procedures and functions": "CREATE PROCEDURE dbo.p AS SELECT 1",
     "USE": "USE sales",
     "FOR JSON": "SELECT 1 AS a FOR JSON PATH",
+    "OPENJSON": "SELECT [key] FROM OPENJSON('{}')",
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "DATEFIRST": "SET DATEFIRST 1",
 }
-ADVICE_IN_THE_DOCS = {"TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
+ADVICE_IN_THE_DOCS = {"JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
                       "SET NOCOUNT ON", "SET DATEFIRST 7"}
 
@@ -286,3 +294,22 @@ def test_every_function_refused_whole_is_in_the_docs_refused_list():
     assert whole >= {"ISNUMERIC", "SYSDATETIMEOFFSET"}
     listed = _docs_refused_list()
     assert not [n for n in whole if f"`{n}" not in listed], "a function refused whole is missing from the docs' list"
+
+
+def test_timefromparts_refuses_fractions_that_dont_fit_the_precision(engine):
+    """T-SQL stops on TIMEFROMPARTS(13, 45, 30, 50, 1); so does the local engine, before DuckDB adds 5 seconds."""
+    with pytest.raises(Exception, match=r"fractions \(50\) don't fit a precision of 1"):
+        engine.execute("SELECT TIMEFROMPARTS(13, 45, 30, 50, 1)", dialect="tsql")
+
+
+@pytest.mark.parametrize("fractions", [1000001, -1])
+def test_timefromparts_refuses_fractions_from_a_column_that_dont_fit(engine, fractions):
+    """Not carried into the seconds: T-SQL stops with "Cannot construct data type time"."""
+    engine.execute(f"CREATE OR REPLACE TABLE dbo.parts AS SELECT 3 AS s, {fractions} AS f")
+    with pytest.raises(Exception, match="fractions don't fit a precision of 6"):
+        engine.execute("SELECT TIMEFROMPARTS(1, 2, s, f, 6) FROM dbo.parts", dialect="tsql")
+
+
+def test_timefromparts_takes_fractions_from_a_column(engine):
+    engine.execute("CREATE OR REPLACE TABLE dbo.parts AS SELECT 3 AS s, 250 AS f")
+    assert first(engine, "SELECT DATEPART(millisecond, TIMEFROMPARTS(1, 2, s, f, 3)) FROM dbo.parts") == 250

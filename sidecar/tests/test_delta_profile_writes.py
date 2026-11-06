@@ -105,3 +105,59 @@ def test_publish_loads_an_existing_tables_log_once(tmp_path, monkeypatch):
     assert sorted(DeltaTable(uri).to_pyarrow_table().column("id").to_pylist()) == [1, 2, 3]
     table = publish.publish(pa.table({"name": ["a"]}), ref, "overwrite", "token")  # schema replaced, as before
     assert table.version() == 3 and table.schema().to_arrow().names == ["name"] and len(loads) == 2
+
+
+def counted_loads(monkeypatch) -> list:
+    from fabric_desktop.meta import store as store_mod
+    loads: list = []
+
+    class Counted(DeltaTable):
+        def __init__(self, *a, **k):
+            loads.append(a[0] if a else k.get("table_uri"))
+            super().__init__(*a, **k)
+    monkeypatch.setattr(delta_profile, "DeltaTable", Counted)
+    monkeypatch.setattr(store_mod, "DeltaTable", Counted)
+    return loads
+
+
+@pytest.mark.parametrize("call", [
+    lambda s: s.write("LH_Bronze", "dbo", "events", rows(3), mode="append"),
+    lambda s: s.write("LH_Bronze", "dbo", "events", rows(3), mode="overwrite", read_version=1),
+    lambda s: s.write_stream("LH_Bronze", "dbo", "events", rows(3).to_arrow().to_reader(), read_version=1),
+    lambda s: s.upsert("LH_Bronze", "dbo", "events", rows(2, 3), on=["id"])[0],
+    lambda s: s.upsert("LH_Bronze", "dbo", "events", rows(2, 3), on=["id"], read_version=1)[0],
+], ids=["append", "overwrite_at_version", "stream", "upsert", "upsert_at_version"])
+def test_a_store_write_loads_the_tables_log_once(store, monkeypatch, call):
+    """The type checks, the profile check, the write and the new version share one load of the log,
+    as publish does: on OneLake each load is a round trip per commit file."""
+    store.write("LH_Bronze", "dbo", "events", rows(1))
+    store.write("LH_Bronze", "dbo", "events", rows(2), mode="append")
+    loads = counted_loads(monkeypatch)
+    assert call(store) == 2
+    assert len(loads) == 1
+    assert DeltaTable(store.uri("LH_Bronze", "dbo", "events")).version() == 2
+
+
+def test_an_append_lands_on_top_of_a_commit_made_after_the_log_was_loaded(store, monkeypatch):
+    """The append goes through the table as it was loaded; another writer's commit in between is
+    kept, and the version reported is the one this append made."""
+    uri = store.uri("LH_Bronze", "dbo", "events")
+    store.write("LH_Bronze", "dbo", "events", rows(1))
+    check = delta_profile.check_table
+
+    def meanwhile(table):
+        write_deltalake(uri, rows(2).to_arrow(), mode="append")  # another writer commits version 1
+        check(table)
+    monkeypatch.setattr(delta_profile, "check_table", meanwhile)
+    assert store.write("LH_Bronze", "dbo", "events", rows(3), mode="append") == 2
+    assert sorted(store.read("LH_Bronze", "dbo", "events")["id"].to_list()) == [1, 2, 3]
+    assert store.written_schema("LH_Bronze", "dbo", "events", 2) is not None
+
+
+def test_a_merge_at_an_older_version_still_fails_when_another_writer_committed(store):
+    from deltalake.exceptions import CommitFailedError
+    store.write("LH_Bronze", "dbo", "events", rows(1))
+    store.write("LH_Bronze", "dbo", "events", rows(2), mode="append")  # version 1, after the read at 0
+    with pytest.raises(CommitFailedError):
+        store.upsert("LH_Bronze", "dbo", "events", rows(1, 3), on=["id"], read_version=0)
+    assert sorted(store.read("LH_Bronze", "dbo", "events")["id"].to_list()) == [1, 2]

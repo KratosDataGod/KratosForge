@@ -114,6 +114,9 @@ _QUALIFY_TAILS = [
     "ORDER BY SUM(c) LIMIT 2",
     "SELECT x FROM (SELECT a AS x, c FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c) = 1 "
     "ORDER BY c DESC LIMIT 3) AS q ORDER BY x",
+    # Both levels have QUALIFY and a tail: the inner one must be moved too.
+    "SELECT a, c FROM (SELECT a, b, c FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY c DESC) = 1 "
+    "ORDER BY c LIMIT 4) AS q QUALIFY ROW_NUMBER() OVER (ORDER BY c) <= 3 ORDER BY c DESC LIMIT 2",
 ]
 
 

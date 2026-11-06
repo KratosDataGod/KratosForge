@@ -160,6 +160,7 @@ the filter, as written. When that can't be done safely, the grade is unverified 
 why: a selected column with no name, or two with the same name; SELECT * sorted by an expression; or a
 window that names a table's column with the same name as an output alias. With SELECT * the rewrite
 also returns its helper column `_w`, so the grade is partial.
+Fabric Warehouse has QUALIFY too, so there the rewrite is one way to run it, not the only one.
 
 Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
 two platforms give the same answer. Comparing answers needs both runs.

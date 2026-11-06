@@ -190,7 +190,8 @@ def _move_qualify_tails(tree: exp.Expr) -> tuple[exp.Expr, bool, str | None]:
     whether any moved, and the reason when one can't be."""
     tree = tree.copy()
     moved_any = False
-    for select in list(tree.find_all(exp.Select)):
+    # Innermost first: an outer SELECT is rebuilt from a copy, which must already carry its inner rewrites.
+    for select in reversed(list(tree.find_all(exp.Select))):
         if not select.args.get("qualify"):
             continue
         if _alias_clash(select):

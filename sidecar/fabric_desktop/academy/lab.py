@@ -18,6 +18,10 @@ Python and Delta exercises (``python_lab``, ``delta_lab``) keep the learner's sc
 builds ``check/`` fresh from the exercise's files and the saved script every time, runs it, and grades
 what it leaves (academy/pylab.py), so nothing an earlier run left behind can make an answer pass.
 
+Settings exercises (``config_model``) keep the learner's settings document (the starter, such as
+``settings.json``) and ``state.json`` in the exercise folder. Nothing runs: Run lists the settings the
+document holds, and Check reads it as data against the exercise's rules (academy/configlab.py).
+
 Learner code writes in its workspace (ACD-005), so every file the engine reads or writes
 there goes through academy/workspace.py: the path stays inside the folder and no part of it may be a
 link, junction or hard link; reads are size-capped; writes go to a temporary file in the folder and
@@ -39,7 +43,7 @@ import duckdb
 from .. import jsonfile
 from ..learn import checks
 from ..learn import labs as learn_labs
-from . import dbsql_lab, exercises, pylab, registry, sandbox
+from . import configlab, dbsql_lab, exercises, pylab, registry, sandbox
 from . import workspace as ws
 
 DB_FILE = "lab.duckdb"
@@ -48,7 +52,9 @@ STATE_FILE = "state.json"
 RUN_DIR = "run"        # python_lab: where Run runs the script
 CHECK_DIR = "check"    # python_lab: made fresh for every Check
 # Adapters with a workspace on this PC (lab.start and the rest).
-LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS)
+LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER)
+# Adapters whose answer is the exercise's own starter file (a script or a settings document), not answer.sql.
+STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER)
 
 
 MAX_ANSWER_BYTES = 1024 * 1024
@@ -103,7 +109,7 @@ def _lab_exercise(pack_id: str, exercise_id: str) -> dict[str, Any]:
 
 
 def _answer_file(ex: dict[str, Any]) -> str:
-    return str(ex["starter"]) if ex["adapter"] in pylab.ADAPTERS else ANSWER_FILE
+    return str(ex["starter"]) if ex["adapter"] in STARTER_ADAPTERS else ANSWER_FILE
 
 
 def _fresh_dir(folder: Path, name: str) -> Path:
@@ -140,6 +146,9 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
         if not _exists(folder, ex["starter"]):
             _write(folder, ex["starter"], starter)
         pylab.prepare(_fresh_dir(folder, RUN_DIR), _exercise_folder(pack_id, exercise_id), ex, starter)
+    elif ex["adapter"] == configlab.ADAPTER:
+        if not _exists(folder, ex["starter"]):
+            _write(folder, ex["starter"], exercises.file_text(pack_id, exercise_id, ex["starter"]))
     else:
         ref = exercises.reference(pack_id, exercise_id)
         con = duckdb.connect(_db_path(folder, must_exist=False))
@@ -186,8 +195,13 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     """The first ``limit`` rows of the learner's SQL, run in the workspace and rolled back. For a Python
     exercise, ``sql`` is the script: it runs in the learner process in ``run/`` (what it wrote there
     stays until Reset), and the result is its status, output and how long it took."""
-    if exercises.get(pack_id, exercise_id)["adapter"] in pylab.ADAPTERS:
+    adapter = exercises.get(pack_id, exercise_id)["adapter"]
+    if adapter in pylab.ADAPTERS:
         return _run_python(root, pack_id, exercise_id, sql)
+    if adapter == configlab.ADAPTER:   # nothing runs: the settings the checks will read, as rows
+        _started(root, pack_id, exercise_id)
+        began = time.perf_counter()
+        return {**configlab.outline(str(sql), min(max(1, int(limit)), 1000)), "ms": round((time.perf_counter() - began) * 1000)}
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     limit = min(max(1, int(limit)), 1000)
@@ -243,10 +257,19 @@ def _check_python(root: Path, pack_id: str, exercise_id: str, ex: dict[str, Any]
         got = pylab.grade(work, ex["starter"], ex["validation"], Path(root), appcontainer_ok=pylab.appcontainer_ok(ex))
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    by_kind = {c["kind"]: c for c in ex["validation"]}
+    return _with_messages(ex, got["results"])
+
+
+def _with_messages(ex: dict[str, Any], results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each result with its check's own ``pass`` or ``fail`` sentence, when the exercise gives one. Results
+    that line up one for one with the checks are paired by position, so two checks of the same kind keep
+    their own sentences; otherwise by kind."""
+    checks_ = ex["validation"]
+    paired = len(results) == len(checks_) and all(r["kind"] == c["kind"] for r, c in zip(results, checks_, strict=False))
+    by_kind = {c["kind"]: c for c in checks_}
     out = []
-    for r in got["results"]:
-        c = by_kind.get(r["kind"], {})
+    for n, r in enumerate(results):
+        c = checks_[n] if paired else by_kind.get(r["kind"], {})
         message = c.get("pass") if r["passed"] else c.get("fail")
         out.append({**r, "message": message} if message else r)
     return out
@@ -316,6 +339,8 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
     if ex["adapter"] in pylab.ADAPTERS:
         results = _check_python(root, pack_id, exercise_id, ex, answer)
+    elif ex["adapter"] == configlab.ADAPTER:
+        results = _with_messages(ex, configlab.grade(answer, ex)["results"])
     elif ex["adapter"] == "dbsql_lab":
         results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
                                       connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),

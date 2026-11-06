@@ -14,6 +14,7 @@ A person can :meth:`JobQueue.requeue` a ``dead`` or ``failed`` job once they've 
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 import time
@@ -285,7 +286,8 @@ class JobQueue:
                                      (dedupe_key,)))
 
     def list(self, limit: int = 50, state: str | None = None) -> list[dict[str, Any]]:
-        sql, args = "select * from jobs", ()
+        sql = "select * from jobs"
+        args: tuple[Any, ...] = ()
         if state:
             sql, args = sql + " where state = ?", (state,)
         rows = self._rows(sql + " order by created_at desc limit ?", (*args, limit))
@@ -293,13 +295,14 @@ class JobQueue:
 
     def counts(self, env: str | None = None) -> dict[str, int]:
         """Jobs in each state; with ``env``, only that environment's."""
-        sql, args = "select state, count(*) as n from jobs", ()
+        sql = "select state, count(*) as n from jobs"
+        args: tuple[Any, ...] = ()
         if env is not None:
             sql, args = sql + " where json_extract(payload, '$.env') = ?", (env,)
         rows = self._rows(sql + " group by state", args)
         return {s: 0 for s in STATES} | {r["state"]: r["n"] for r in rows}
 
-    def for_env(self, env: str, limit: int = 200) -> list[dict[str, Any]]:
+    def for_env(self, env: str, limit: int = 200) -> builtins.list[dict[str, Any]]:
         """An environment's newest jobs, plus every one still queued or running."""
         rows = self._rows(
             "select * from jobs where json_extract(payload, '$.env') = ? and (state in ('queued', 'running') or id in"

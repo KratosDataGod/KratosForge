@@ -183,6 +183,8 @@ def test_sfx004_object_construct_star_is_refused():
     ("select dateadd(week, 1, ts) from t", "SFD-006"),
     ("select typeof(v) from t", "SFD-007"),
     ("select l[i] from t", "SFD-009"),
+    ("select approx_percentile(x, 0.5) from t", "SFD-010"),
+    ("select hll(x) from t", "SFD-010"),
     ("select v['a']::string from t", "SFD-009"),
 ])
 def test_each_known_difference_is_named(code, note):
@@ -635,3 +637,37 @@ def test_brackets_whose_value_type_is_known_raise_no_note(code):
                                   "SELECT to_varchar(v['a']) FROM t", "SELECT v['a'][0] FROM t"])
 def test_brackets_on_a_column_of_unknown_type_are_labelled(code):
     assert "SFD-009" in [n.id for n in sf.translate(code).statements[0].notes]
+
+
+_SKETCH_ARGS = {"APPROX_TOP_K": "x, 2", "APPROX_TOP_K_ACCUMULATE": "x, 2", "APPROX_TOP_K_ESTIMATE": "x, 2",
+                "APPROX_PERCENTILE_ESTIMATE": "x, 0.5", "MINHASH": "5, x"}
+
+
+@pytest.mark.parametrize("name", sorted(sf._SKETCH_FUNCTIONS))
+def test_sketch_and_bitmap_states_are_refused_by_name(name):
+    t = sf.translate(f"SELECT {name.lower()}({_SKETCH_ARGS.get(name, 'x')}) FROM t")
+    (note,) = t.statements[0].notes
+    assert not t.runnable and note.id == "SFN-016" and "sketch and bitmap" in note.title
+
+
+def test_hll_and_datasketches_hll_count_distinct_values_as_snowflake_types_them():
+    import duckdb
+    t = sf.translate("SELECT hll(x), hll(DISTINCT x), datasketches_hll(x), datasketches_hll(DISTINCT x, 12), "
+                     "typeof(approx_percentile(x, 0.5)) FROM (SELECT column1 AS x FROM VALUES (1), (1), (2))")
+    assert "SFD-010" in [n.id for n in t.statements[0].notes]
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == (2, 2, 2.0, 2.0, "DOUBLE")
+
+
+def test_approximate_functions_in_a_window_are_cast_outside_it():
+    import duckdb
+    t = sf.translate("SELECT approx_percentile(x, 0.5) OVER (PARTITION BY g), datasketches_hll(x) OVER () FROM "
+                     "(SELECT column1 AS x, column2 AS g FROM VALUES (1, 1), (3, 1)) LIMIT 1")
+    assert "OVER (PARTITION BY g) AS DOUBLE)" in t.duckdb_sql and "OVER () AS DOUBLE)" in t.duckdb_sql
+    median, distinct = duckdb.connect().execute(t.duckdb_sql).fetchone()
+    assert isinstance(median, float) and distinct == 2.0
+
+
+@pytest.mark.parametrize("code", ["SELECT hll(*) FROM t", "SELECT hll(a, b) FROM t", "SELECT datasketches_hll() FROM t"])
+def test_hll_forms_that_are_not_rewritten_say_so(code):
+    (note,) = sf.translate(code).statements[0].notes
+    assert note.id == "SFX-014"

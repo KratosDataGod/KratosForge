@@ -94,9 +94,7 @@ class WorkloadMixin:
         key = f"meta:{pname}:{env}"
         cached = self.workload_store.cache_get(key)
         if not local:
-            age = None
-            if cached:
-                age = (model.now() - model.parse_time(cached["collected_at"])).total_seconds()
+            age = _age_s(cached["collected_at"]) if cached else None
             if cached and not refresh and age is not None and age < REMOTE_RUNS_MAX_AGE:
                 return {"configured": True, **cached["payload"],
                         "observation": model.observation(source, "cached", cached["collected_at"],
@@ -201,8 +199,9 @@ class WorkloadMixin:
         errors = payload.get("errors") or []
         detail = (f"{len(errors)} of {payload.get('workspaces', 0)} workspaces couldn't be read: "
                   + "; ".join(f"{e['workspace']}: {e['message']}" for e in errors[:3])) if errors else ""
+        age = _age_s(cached["collected_at"])
         fresh_now = scan and not scan.get("pending") and scan.get("collected_at") == cached["collected_at"] \
-            and (model.now() - model.parse_time(cached["collected_at"])).total_seconds() < REMOTE_RUNS_MAX_AGE
+            and age is not None and age < REMOTE_RUNS_MAX_AGE
         state = "partial" if errors else ("live" if fresh_now else "cached")
         obs = model.observation(source, state, cached["collected_at"], max_age_s=ITEMS_STALE_AFTER, detail=detail)
         return payload.get("items") or [], obs, scanning
@@ -783,6 +782,12 @@ def _audit_problem(exc: BaseException) -> str:
         return ("a platform admin may need to run Platform > Settings > Finish or repair once, so the platform "
                 "records workload actions. " + text)
     return text
+
+
+def _age_s(collected_at: Any) -> float | None:
+    """Seconds since a cached read, or None when its time can't be read, so it never counts as fresh."""
+    collected = model.parse_time(collected_at)
+    return (model.now() - collected).total_seconds() if collected else None
 
 
 def _rows(df: Any) -> list[dict[str, Any]]:

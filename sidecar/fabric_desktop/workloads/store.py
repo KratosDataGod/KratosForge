@@ -194,8 +194,9 @@ class ManagementStore:
         return self._action_out(row)
 
     def actions(self, wid: str | None = None, limit: int = 50, open_only: bool = False) -> list[dict[str, Any]]:
-        sql, params = "SELECT * FROM action", []
-        where = []
+        sql = "SELECT * FROM action"
+        params: list[Any] = []
+        where: list[str] = []
         if wid:
             where.append("wid = ?")
             params.append(wid)

@@ -7,10 +7,12 @@ whole feature off with the ``allow_optimize_lakehouse`` policy key.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from typing import Any, Callable
 
-from . import app_settings, redact, retrying
+from . import app_settings, jsonfile, redact, retrying
 from .auth import ONELAKE_SCOPES
 from .fabric_api import FabricError
 from .meta.project import ENVIRONMENTS
@@ -348,17 +350,20 @@ class OptimizeMixin:
         """Recommendations at their latest state, for items the person can open."""
         return self._optimize_shared().recommendations(self._optimize_workspaces(), include_closed=include_closed)
 
-    def optimize_share_local_runs(self, approve: bool = False) -> dict[str, Any]:
-        """Add this PC's notebook work (writes to OneLake tables, scheduled notebook runs) to the central
-        lakehouse's fdopt_local_execution, so Optimize counts what ran here. Without ``approve`` it
-        writes nothing and raises with what it would add; runs already added aren't added again."""
+    def optimize_share_local_runs(self, approve: bool = False, confirm: str = "") -> dict[str, Any]:
+        """Add this PC's work (notebook writes to OneLake tables, scheduled notebook runs, metadata runs,
+        proof runs) to the central lakehouse's fdopt_local_execution, so Optimize counts what ran here.
+        Without ``approve`` it writes nothing and raises with what it would add, and ``confirm`` in what
+        it would add. It writes only with ``approve`` and that ``confirm``: if the runs to add changed
+        since (a run finished in between), it asks again instead of sharing runs the person wasn't
+        shown. Runs already added aren't added again."""
         shared = self._optimize_shared()
         me = self.optimize_installation.id
         notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
         rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
                 + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me)  # type: ignore[attr-defined]
                 + self._optimize_metadata_runs(me)
-                + local_runs.from_proofs(self._proofs_saved(), me))  # type: ignore[attr-defined]
+                + local_runs.from_proofs(self._optimize_proofs(), me))
         offline = None
         try:
             done = shared.local_execution_ids()
@@ -379,13 +384,15 @@ class OptimizeMixin:
                "shared": 0, **({"offline": offline} if offline else {})}
         if not new:
             return out
-        if not approve:
+        out["confirm"] = hashlib.sha256("\n".join(sorted(r["execution_id"] for r in new)).encode()).hexdigest()[:32]
+        if not approve or confirm != out["confirm"]:
             name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
             parts = [f"{n} {what}{'s' if n != 1 else ''}" for n, what in (
                 (writes, "notebook write"), (kinds["notebook_run"], "scheduled notebook run"),
                 (kinds["metadata_run"], "metadata run"), (kinds["proof_run"], "proof run")) if n]
+            changed = "The runs to add changed since you looked. " if approve and confirm else ""
             ask = PermissionError(
-                f"Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({', '.join(parts)}): "
+                f"{changed}Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({', '.join(parts)}): "
                 "when each ran, how long it took, rows written, CPU time and peak memory where they were measured, "
                 "and the table, project or notebook name. No code or data, and everyone who can read the "
                 "lakehouse sees them. Confirm to continue.")
@@ -395,12 +402,32 @@ class OptimizeMixin:
         return out | {"shared": sent["sent"], "queued": len(new) if sent["queued"] else 0,
                       **({"error": sent["error"]} if sent.get("error") else {})}
 
+    def _optimize_proofs(self) -> list[dict[str, Any]]:
+        """Prove's saved proofs, one line each; a line that can't be read is left out, not the rest."""
+        try:
+            lines = jsonfile.read_text(self._proofs_file).splitlines()  # type: ignore[attr-defined]
+        except OSError:
+            return []
+        out = []
+        for line in filter(str.strip, lines):
+            try:
+                record = json.loads(line)
+            except ValueError as exc:  # one damaged proof is left out
+                _log.info("A saved proof couldn't be read, so it isn't shared: %s", redact.describe(exc))
+                continue
+            if isinstance(record, dict):
+                out.append(record)
+        return out
+
     def _optimize_metadata_runs(self, installation_id: str) -> list[dict[str, Any]]:
         """Runs of the open metadata project in its environments kept on this PC. An environment in
         Fabric isn't read: that would be a OneLake read, and those runs ran in Fabric or by an agent."""
         try:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:
+            return []
+        except Exception as exc:  # noqa: BLE001 - a damaged project leaves its runs out, not the rest
+            _log.info("The metadata project couldn't be read, so its runs aren't shared: %s", redact.describe(exc))
             return []
         rows: list[dict[str, Any]] = []
         for env in ENVIRONMENTS:

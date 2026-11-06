@@ -116,7 +116,7 @@ Optimize can count the notebook work that ran on a PC instead of in Fabric. Shar
 
 CPU time and peak memory are filled in only where they were measured (a proof's run). Everywhere else they're empty, never 0.
 
-Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
+Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain, with a `confirm` value for exactly those runs. It writes only with `approve=True` and that `confirm`. If a run finished in between, it asks again rather than share a run nobody was shown. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
 
 ## The tables
 

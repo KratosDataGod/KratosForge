@@ -7,6 +7,14 @@ from test_optimize_service import svc  # noqa: F401 - the fixture
 
 from fabric_desktop.optimize import local_runs
 
+def share(svc):
+    """Share the way the app does: ask, then confirm with what the ask showed."""
+    try:
+        return svc.optimize_share_local_runs()
+    except PermissionError as asked:
+        return svc.optimize_share_local_runs(approve=True, confirm=asked.would["confirm"])  # type: ignore[attr-defined]
+
+
 URI = "abfss://w1@onelake.dfs.fabric.microsoft.com/lh-sales/Tables/dbo/orders"
 WRITE = {"job": "Notebook write to Sales", "table_uri": URI, "mode": "append", "rows": 120, "delta_version": 4,
          "seconds": 2.5, "finished_at": "2026-10-20T09:00:00Z"}
@@ -74,12 +82,42 @@ def test_sharing_adds_metadata_runs_kept_on_this_pc_and_proofs(svc, tmp_path):  
     with pytest.raises(PermissionError, match=r"Adds 7 runs.*6 metadata runs, 1 proof run.*CPU time and peak memory") as asked:
         svc.optimize_share_local_runs()
     assert asked.value.would["metadata_runs"] == 6 and asked.value.would["proof_runs"] == 1
-    assert svc.optimize_share_local_runs(approve=True)["shared"] == 7
+    assert share(svc)["shared"] == 7
     rows = svc._optimize_shared().rows("local_execution")
     assert sorted(set(rows["project"].to_list()))[0].startswith("crm.")
     proof = rows.filter(rows["workload_type"] == "proof_run").row(0, named=True)
     assert proof["cpu_seconds"] == 9.5 and proof["peak_memory_bytes"] == 512 * 1024 ** 2
     assert svc.optimize_share_local_runs()["new"] == 0  # each once
+
+
+def test_a_damaged_project_or_proof_leaves_only_that_out(svc, tmp_path):  # noqa: F811
+    svc.meta_init(str(tmp_path / "repo" / "crm"), "3")
+    assert [r["status"] for r in svc.meta_run()] == ["ok"] * 6
+    (tmp_path / "repo" / "crm" / "layers.toml").write_text("this isn't [ TOML", encoding="utf-8")
+    (svc.root / "proofs.jsonl").write_text("{not json\n" + json.dumps(PROOF) + "\n", encoding="utf-8")
+    (svc.root / "history.jsonl").write_text(json.dumps(WRITE) + "\n", encoding="utf-8")
+    svc.optimize_create("w1", workspace_name="Platform")
+    with pytest.raises(PermissionError) as asked:
+        svc.optimize_share_local_runs()
+    would = asked.value.would
+    assert (would["notebook_writes"], would["metadata_runs"], would["proof_runs"]) == (1, 0, 1)
+
+
+def test_a_run_that_lands_after_the_ask_isnt_shared_without_a_new_confirm(svc):  # noqa: F811
+    svc.optimize_create("w1", workspace_name="Platform")
+    (svc.root / "history.jsonl").write_text(json.dumps(WRITE) + "\n", encoding="utf-8")
+    with pytest.raises(PermissionError) as asked:
+        svc.optimize_share_local_runs()
+    seen = asked.value.would["confirm"]
+    svc.pc_schedules.log_run(RUN)
+    svc.notebooks.save("daily_load", [{"type": "code", "source": "print(1)"}])
+    with pytest.raises(PermissionError, match="changed since you looked.*Adds 2 runs") as again:
+        svc.optimize_share_local_runs(approve=True, confirm=seen)
+    assert svc._optimize_shared().local_execution_ids() == set()  # nothing written
+    with pytest.raises(PermissionError, match="^Adds"):
+        svc.optimize_share_local_runs(approve=True)  # approving without what was shown asks too
+    out = svc.optimize_share_local_runs(approve=True, confirm=again.value.would["confirm"])
+    assert out["shared"] == 2
 
 
 def test_sharing_asks_first_and_adds_each_run_once(svc):  # noqa: F811
@@ -93,7 +131,7 @@ def test_sharing_asks_first_and_adds_each_run_once(svc):  # noqa: F811
         svc.optimize_share_local_runs()
     assert asked.value.would["notebook_writes"] == 1
     assert svc._optimize_shared().local_execution_ids() == set()  # asking wrote nothing
-    out = svc.optimize_share_local_runs(approve=True)
+    out = share(svc)
     assert out["shared"] == 2 and out["notebook_runs"] == 1
     assert svc.optimize_share_local_runs() == {"new": 0, "notebook_writes": 0, "notebook_runs": 0, "metadata_runs": 0,
                                                "proof_runs": 0, "already": 2, "waiting": 0, "shared": 0}

@@ -76,3 +76,30 @@ for (const [name, open] of DIALOGS) {
     assert.deepStrictEqual(app.errors, []);
   });
 }
+
+// A screen reader reads a dialog's name and the focused control; the sentence that says what the dialog
+// is about is read only when aria-describedby names it (EA-030, docs/ux/narrator-checklist.md 3.4). The
+// accessibility tree is what Narrator reads, so the check is on the tree's description, not the attribute.
+const DESCRIBED = [
+  ["The confirm dialog", 'confirmDialog("Delete Orders?", "Its files are removed from OneLake.", "Delete", { danger: true })',
+    "Its files are removed from OneLake."],
+  ["A confirm that asks why", 'confirmDialog("Reject the request?", "The requester sees your reason.", "Reject", { reason: { label: "Reason" } })',
+    "The requester sees your reason."],
+  ["A text prompt", 'askText("Rename notebook", "New name", "Daily sales", "Rename")', null],  // starts with its field
+];
+for (const [name, open, expected] of DESCRIBED) {
+  test(`${name}: the dialog's description is ${expected ? "its lead sentence" : "empty"}`, { skip }, async () => {
+    await page().evaluate((open) => { (0, eval)(open); }, open);
+    const dialog = page().locator("#dialog-root .dialog");
+    await dialog.waitFor();
+    const cdp = await page().context().newCDPSession(page());
+    const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+    const node = nodes.find((n) => n.role?.value === "dialog" && !n.ignored);
+    const description = node?.description?.value || null;
+    await cdp.detach();
+    assert.strictEqual(description, expected);
+    await page().keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    assert.deepStrictEqual(app.errors, []);
+  });
+}

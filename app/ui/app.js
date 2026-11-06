@@ -224,6 +224,7 @@ function showDialog(title, body, actions = [], onClose = null) {
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
       actions.length ? h("div", { class: "dialog-actions" }, actions) : null));
+  describeDialog(overlay.querySelector(".dialog"), body);
   const previous = dialogOnClose;
   dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
@@ -237,6 +238,20 @@ function showDialog(title, body, actions = [], onClose = null) {
   previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
+}
+
+// A screen reader reads a dialog's name, then the control that has focus. The sentence that says what the
+// dialog is about (a confirm's "Its files are removed from OneLake") is read too only when the dialog
+// names it with aria-describedby. That sentence is the body's lead paragraph: its first element, going
+// down through plain wrappers, when that is a paragraph. A form that starts with a field has none.
+let dialogDescribed = 0;
+function describeDialog(dialog, body) {
+  const is = (el, sel) => typeof el?.matches === "function" && el.matches(sel);
+  let lead = body;
+  while (is(lead, "div:not([role]):not(.text)")) lead = lead.firstElementChild;
+  if (!is(lead, "p, .text") || is(lead, ".error-text") || lead.hidden || !dialog) return;
+  lead.id ||= `dialog-desc-${++dialogDescribed}`;
+  dialog.setAttribute("aria-describedby", lead.id);
 }
 
 // check(value) returns why the value can't be used, or "": the dialog says so and stays open.

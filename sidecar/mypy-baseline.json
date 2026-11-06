@@ -364,12 +364,6 @@
  "fabric_desktop/optimize_service.py": {
   "index": 1
  },
- "fabric_desktop/orchestration/adapters.py": {
-  "arg-type": 4,
-  "index": 1,
-  "return-value": 1,
-  "union-attr": 1
- },
  "fabric_desktop/orchestration/copyjob_build.py": {
   "var-annotated": 1
  },

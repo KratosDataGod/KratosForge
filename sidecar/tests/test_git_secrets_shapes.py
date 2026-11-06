@@ -27,10 +27,11 @@ def test_the_scan_finds_it_and_a_message_hides_it(kind, text, secret):
     assert secret not in secrets.redact(text)
 
 
-def test_a_private_key_keeps_its_begin_and_end_lines_and_a_cut_off_one_hides_the_rest():
+def test_a_private_key_is_removed_whole_and_a_cut_off_one_hides_the_rest():
+    # Git messages use the shared redactor (redact.secrets), which removes a key from BEGIN to END.
     begin, end = J(["-----BEGIN ", "RSA PRIVATE KEY-----"]), J(["-----END ", "RSA PRIVATE KEY-----"])
-    assert secrets.redact(f"{begin}\n{PEM_BODY}\n{end}\nafter") == f"{begin}***{end}\nafter"
-    assert secrets.redact(f"{begin}\n{PEM_BODY}") == f"{begin}***"
+    assert secrets.redact(f"{begin}\n{PEM_BODY}\n{end}\nafter") == "[removed]\nafter"
+    assert secrets.redact(f"before\n{begin}\n{PEM_BODY}") == "before\n[removed]"
 
 
 @pytest.mark.parametrize("text", ['password = "{{ pw }}"', "password: '********'", 'if password == "":'])
@@ -41,6 +42,16 @@ def test_a_placeholder_password_is_not_a_finding(text):
 @pytest.mark.parametrize("text", [
     "GET /x?token=short&y=1", "risk-assessment-for-the-quarterly-planning-cycle", "https://example.webhook.example.com/x",
 ])
-def test_ordinary_text_is_left_alone(text):
+def test_ordinary_text_is_not_a_finding(text):
     assert secrets.scan_text(text) == []
+
+
+@pytest.mark.parametrize("text", ["risk-assessment-for-the-quarterly-planning-cycle", "https://example.webhook.example.com/x"])
+def test_ordinary_text_is_left_alone(text):
     assert secrets.redact(text) == text
+
+
+def test_a_short_token_is_not_a_finding_but_a_message_still_hides_it():
+    # The scan needs 8+ characters to call it a token; messages use the shared redactor, which
+    # removes any token= value.
+    assert secrets.redact("GET /x?token=short&y=1") == "GET /x?token=[removed]&y=1"

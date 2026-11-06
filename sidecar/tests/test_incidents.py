@@ -799,6 +799,9 @@ def test_a_job_alert_teams_didnt_take_goes_out_later_marked_delayed(tmp_path, mo
     assert title == "Delayed: KratosForge agent etl-01: a Prod job didn't finish"
     assert lines[0].startswith("From ") and lines[1:] == ["Job j1 (schedule)", "boom",
                                                           "Fix the cause, then run: fabric-desktop agent requeue j1"]
+    assert agent._alert_outbox().pending() == []
+    agent.send_waiting_alerts()
+    assert len(posted) == 1  # sent once
 
 
 def test_a_job_alert_says_how_to_run_the_job_again(tmp_path, monkeypatch):
@@ -807,9 +810,6 @@ def test_a_job_alert_says_how_to_run_the_job_again(tmp_path, monkeypatch):
     agent, _ = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
     agent._alert(JOB | {"dedupe_key": "pipeline:run-1"}, "boom")
     assert posted[-1] == ["Job j1 (schedule)", "boom", "Fix the cause, then submit the request again from the pipeline."]
-    assert agent._alert_outbox().pending() == []
-    agent.send_waiting_alerts()
-    assert len(posted) == 1  # sent once
 
 
 def test_waiting_job_alerts_go_before_a_new_one(tmp_path, monkeypatch):

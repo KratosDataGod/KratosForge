@@ -266,6 +266,36 @@ def _blocked_files(probe) -> dict | None:
             "smart_app_control": sac, "location": str(dists[0].locate_file(""))}
 
 
+# One line that says what to do, before the detail, when the update check or download fails on a
+# corporate network. urllib uses the proxy Windows is set to (or HTTPS_PROXY) and, on Windows, the
+# certificates Windows trusts, so these name what's left for IT to change.
+CERT_HINT = ("HTTPS was refused because GitHub's certificate isn't trusted on this PC. If your network "
+             "inspects HTTPS, ask IT to add its root certificate to Windows.")
+PROXY_HINT = ("The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy "
+              "Windows is set to, or HTTPS_PROXY; a proxy that asks for a sign-in of its own (407) isn't supported.")
+TIMEOUT_HINT = "GitHub didn't answer in time. If your network uses a proxy, check that it allows github.com."
+
+
+def explain(exc: BaseException, detail: str) -> str:
+    """``detail``, after one line that says what to do when ``exc`` is a certificate, proxy or timeout."""
+    seen, todo, chain = set(), [exc], []
+    while todo:
+        e = todo.pop()
+        if not isinstance(e, BaseException) or id(e) in seen:
+            continue
+        seen.add(id(e))
+        chain.append(e)
+        todo += [e.__cause__, e.__context__, getattr(e, "reason", None)]
+    text = " ".join(str(e) for e in chain)
+    if "CERTIFICATE_VERIFY_FAILED" in text or any(type(e).__name__ == "SSLCertVerificationError" for e in chain):
+        return f"{CERT_HINT} ({detail})"
+    if "Tunnel connection failed" in text or "Proxy Authentication Required" in text:
+        return f"{PROXY_HINT} ({detail})"
+    if any(isinstance(e, TimeoutError) for e in chain) or "timed out" in text:
+        return f"{TIMEOUT_HINT} ({detail})"
+    return detail
+
+
 def _get(url: str, timeout: int = 5):
     # Ask every cache on the way for a fresh copy: "latest" is replaced in place on each build.
     req = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache",
@@ -314,8 +344,8 @@ def latest_release() -> dict:
                 note = NO_STABLE
                 continue
             return {"commit": None, "error": f"HTTPError: {exc}", "channel": name, "notes": "", "note": note}
-        except Exception as exc:  # offline
-            return {"commit": None, "error": f"{type(exc).__name__}: {exc}", "channel": name, "notes": "", "note": note}
+        except Exception as exc:  # offline, or a proxy or certificate in the way
+            return {"commit": None, "error": explain(exc, f"{type(exc).__name__}: {exc}"), "channel": name, "notes": "", "note": note}
         commit = info.get("commit") or ""
         if not SHA.fullmatch(commit):
             return {"commit": None, "error": f"the release names {commit!r}, not a commit", "channel": name, "notes": "", "note": note}
@@ -508,7 +538,7 @@ def main(argv: list[str]) -> int:
         try:
             return download_app(*args[:2])
         except (OSError, urllib.error.URLError) as exc:  # offline, or the release has no exe
-            print(f"The download failed: {exc}", flush=True)
+            print(f"The download failed: {explain(exc, str(exc))}", flush=True)
             return 1
     print(f"unknown command {command!r}", file=sys.stderr)
     return 2

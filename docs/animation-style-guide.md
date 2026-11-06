@@ -122,7 +122,7 @@ two brand colours so the app never looks like it has two brands.
 | Token (proposed) | Value | Use | In use today |
 | --- | --- | --- | --- |
 | `--fx-spark` | `#ffd08a` | Spark tips, the hottest point | yes, as a literal |
-| `--fx-ember` | `#ffc46b` | Floating embers and their glow | yes, as a literal |
+| `--fx-ember` | `#ffc46b` | Floating embers and their glow | yes, as a token |
 | `--fx-heat` | `#ffb347` | Inner glow of a heat source | yes, as a literal |
 | `--fx-flame` | `#f8991c` | Body of fire (same as `--brand-orange`) | yes |
 | `--fx-coal` | `#c4560f` | Deep coal, shadow side of flames (Forge and Titan only) | new |

@@ -1,0 +1,58 @@
+{
+  "_about": "A model of one Dataflow Gen2 query, its applied steps and its data destination. Edit the steps; keep their order.",
+  "query": "Orders",
+  "source_columns": [
+    "order_id",
+    "order_date",
+    "region",
+    "amount",
+    "ingest_file"
+  ],
+  "steps": [
+    {
+      "name": "Source",
+      "kind": "source",
+      "from": "Lakehouse bronze, file orders.csv"
+    },
+    {
+      "name": "Promoted headers",
+      "kind": "promote_headers"
+    },
+    {
+      "name": "Changed column type",
+      "kind": "change_type",
+      "types": {
+        "order_id": "Whole number",
+        "order_date": "Date",
+        "region": "Text",
+        "amount": "Text"
+      }
+    },
+    {
+      "name": "Removed columns",
+      "kind": "remove_columns",
+      "columns": [
+        "ingest_file"
+      ]
+    }
+  ],
+  "destination": {
+    "kind": "Lakehouse table",
+    "table": "silver_orders",
+    "update_method": "Append",
+    "schema": "fixed",
+    "columns": {
+      "order_id": "Whole number",
+      "order_date": "Date",
+      "region": "Text",
+      "amount": "Text"
+    }
+  },
+  "last_published": {
+    "steps_changed": [
+      "Changed column type",
+      "Removed columns"
+    ],
+    "by": "dev@example.com"
+  }
+}

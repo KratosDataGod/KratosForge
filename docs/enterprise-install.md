@@ -13,7 +13,7 @@ This page is for IT teams that roll KratosForge out to many Windows PCs with Int
 | The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release, or from [your own folder](#host-the-engine-yourself), on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | `policy.json` (optional) | `%ProgramData%\FabricDesktop\policy.json` | You push it ([the keys](azure-setup.md#4-push-settings-to-everyone)) |
 
-Nothing needs admin rights at run time. The exe writes nothing to the registry; the MSI adds its own uninstall entry and two values under `HKCU\Software\KratosBI\KratosForge`. The engine is per user, so a shared PC downloads it once for each person who uses the app.
+Nothing needs admin rights at run time. The app writes to the registry only for the signed-in Windows user: the `kratosforge://` link registration under `HKCU\Software\Classes\kratosforge` (unless `"register_link_scheme": false`), and, when Academy exercises run in the Windows AppContainer, the profile Windows keeps for that container. The MSI adds its own uninstall entry and two values under `HKCU\Software\KratosBI\KratosForge`. The engine is per user, so a shared PC downloads it once for each person who uses the app.
 
 ## Pick an update model
 
@@ -48,6 +48,8 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 | Version | `0.<n>.<run>` from the CI run number, so each build's MSI is higher than the one before. An older MSI over a newer install stops with "A newer KratosForge is already installed. Uninstall it first to go back to this one." |
 | Installs | `%LOCALAPPDATA%\Programs\KratosForge\kratosforge.exe` and a Start menu shortcut, plus `InstallFolder` and `StartMenuShortcut` under `HKCU\Software\KratosBI\KratosForge` |
 | Detection rule (Win32 app) | The registry value `HKCU\Software\KratosBI\KratosForge\InstallFolder` exists. Don't detect on the exe's size or version: a self-updating app replaces the exe, so it stops matching the MSI's copy |
+| Per-machine install | Not available. The MSI is per user only; don't pass `ALLUSERS` or `MSIINSTALLPERUSER`. For one copy per PC, copy `kratosforge.exe` into `C:\Program Files\...` yourself with `"auto_update": false` ([Pick an update model](#pick-an-update-model)) |
+| The exe's own switches | None for installing: `kratosforge.exe` isn't an installer, and starting it is the whole install. The only arguments it takes are a `kratosforge://` link, the ones Windows Task Scheduler passes for a schedule, and the one it passes itself after an update |
 | Repair | None runs on its own. The shortcut isn't advertised, so starting the app never triggers a repair that would undo a self-update |
 
 **UNVERIFIED on Windows:**
@@ -72,6 +74,10 @@ Close the app first, and check the folder on a pilot PC.
      "support_url": "https://teams.microsoft.com/l/channel/..."
    }
    ```
+
+   Save the file as UTF-8 (with or without a byte order mark). Windows PowerShell 5's `Out-File` and `>` write UTF-16 by default, which the app can't read, so the PC treats it as a broken file (the last copy it could read applies, or it fails closed); use `Set-Content -Encoding UTF8` or `Out-File -Encoding utf8`.
+
+   Settings come only from this file. KratosForge reads no registry policy (nothing under `HKLM\Software\Policies` or `HKCU\Software\Policies`) and has no ADMX template, so Group Policy deploys the file (a Files preference item) rather than setting values.
 
    If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
 
@@ -179,7 +185,7 @@ Each outbound call, what it uses, and how long it waits:
 
 Set up the network like this:
 - A proxy given by a PAC file or by automatic detection (WPAD) isn't read. Set the proxy server in Internet Options, or set `HTTPS_PROXY` and `NO_PROXY` as machine environment variables (Group Policy or Intune).
-- A proxy that asks for a sign-in of its own (a 407 answer, with NTLM, Kerberos or Basic) isn't supported. Allow the addresses in [Network access](#network-access) without proxy sign-in.
+- A proxy that asks for a Windows sign-in of its own (a 407 answer asking for NTLM, Negotiate or Kerberos) isn't supported. Allow the addresses in [Network access](#network-access) without proxy sign-in. A proxy that takes Basic sign-in works only with the user name and password written into `HTTPS_PROXY` (`http://user:password@proxy:8080`), where every program the person runs can read them, so don't do that on shared or managed PCs.
 - On an Azure VM that signs in with its managed identity, add `169.254.169.254` to `NO_PROXY` or the proxy's bypass list, so the machine's identity endpoint isn't sent to the proxy.
 
 When a call fails on the network, the error starts with one line that says what to do, then the detail:
@@ -188,6 +194,20 @@ When a call fails on the network, the error starts with one line that says what 
 - "The server didn't answer in time": the proxy or firewall dropped the call without answering.
 
 The update check says the same in its own words. No call waits forever: `sidecar/tests/test_corporate_network.py` fails when an outbound call is written without a timeout, and runs sign-in, a Fabric call and the update check through a local proxy with a made-up company root certificate, a proxy that answers 407, and one that never answers. These tests run on Linux in CI and stand in for the Windows proxy setting, so the Windows proxy and certificate store themselves are UNVERIFIED until a pilot PC behind your proxy confirms them.
+
+### Environment variables
+
+The app reads these from the PC's environment. None is needed for a normal rollout.
+
+| Variable | Effect |
+| --- | --- |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | The proxy, and the hosts that skip it, instead of the Windows proxy ([Proxies and HTTPS inspection](#proxies-and-https-inspection)) |
+| `REQUESTS_CA_BUNDLE` | A certificate file trusted on top of the Windows certificate store |
+| `FABRIC_DESKTOP_CLIENT_ID` | Your own app registration's ID for this PC, between the policy file's `client_id` (which wins) and the person's own setting ([Configure Azure and Fabric](azure-setup.md#3-only-if-required-your-own-app-registration)) |
+| `FABRIC_DESKTOP_PYTHON` | For developers only. The app runs its engine from this Python instead of the one it downloads, and pip-installs the engine's packages into it. Don't set it on managed PCs |
+| `FABRIC_DESKTOP_TELEMETRY_CONNECTION_STRING` | For maintainers only. Where usage data goes when the policy file names no `telemetry_connection_string`, instead of the destination built into the release. It doesn't turn usage data on; `telemetry` does |
+
+The [headless agent](agent.md) reads its own: `FABRIC_DESKTOP_HOME`, `FABRIC_DESKTOP_AGENT_CONFIG`, and the variables `agent.toml` names for secrets.
 
 ## What the support bundle collects
 

@@ -144,8 +144,14 @@ class IncidentLog:
         stored = self.backend.read(KEY)
         if stored is None:
             return {"contract": CONTRACT, "kind": "incidents", "env": self.env, "incidents": []}, None
-        doc = json.loads(stored.data or b"{}")
-        doc.setdefault("incidents", [])
+        try:
+            doc = json.loads(stored.data)  # never written empty: an empty file is one cut short
+            if not isinstance(doc, dict) or not isinstance(doc.setdefault("incidents", []), list):
+                raise ValueError("it isn't an incident list")
+        except ValueError as exc:  # never written over: it may hold incidents nobody has resolved
+            raise ValueError(f"The {self.env.title()} incident list ({KEY} in its control area) can't be read "
+                             f"({exc}). It is left as it is, so no incident in it is lost; restore it from a "
+                             "backup, or move it away to start a new list.") from None
         return doc, stored.etag
 
     def list(self, states: tuple[str, ...] | None = None) -> list[dict[str, Any]]:

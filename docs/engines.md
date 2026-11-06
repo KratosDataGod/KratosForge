@@ -77,7 +77,9 @@ engine says what to change instead of running.
 
 Warehouse T-SQL runs on this PC's DuckDB engine after translation. What it refuses, by name, is the
 "Refused, not half-translated" list in [Local data: T-SQL](local-data.md#t-sql); a test runs a query
-for each item in that list and fails when the list and the code differ (#1666).
+for each item in that list and fails when the list and the code differ (#1666). [T-SQL functions on this PC](tsql-functions.md) lists every T-SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 ## Snowflake SQL on this PC (Preview)
 

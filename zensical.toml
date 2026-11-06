@@ -66,6 +66,7 @@ nav = [
     { "Engines and connection profiles" = "engines.md" },
     { "Spark functions on this PC" = "spark-functions.md" },
     { "Snowflake functions on this PC" = "snowflake-functions.md" },
+    { "T-SQL functions on this PC" = "tsql-functions.md" },
     { "Decision patterns" = "decision-patterns.md" },
     { "Platform support levels" = "platforms.md" },
     { "Platform skins" = "skins.md" },

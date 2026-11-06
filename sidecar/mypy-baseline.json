@@ -110,10 +110,6 @@
   "assignment": 1,
   "union-attr": 1
  },
- "fabric_desktop/frames.py": {
-  "arg-type": 2,
-  "assignment": 1
- },
  "fabric_desktop/git/capacity_files.py": {
   "index": 1
  },

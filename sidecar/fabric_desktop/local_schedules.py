@@ -88,6 +88,19 @@ def local_configuration(schedule: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
+TASK_MAX_MINUTES = 31 * 24 * 60  # the longest repetition Task Scheduler takes
+
+
+def task_configuration(schedule: dict[str, Any]) -> dict[str, Any]:
+    """``local_configuration`` for a schedule Task Scheduler starts, which repeats at most every 31 days:
+    a longer interval is refused here in words, not by schtasks as a value out of range."""
+    config = local_configuration(schedule)
+    if config["type"] == "Cron" and config["interval"] > TASK_MAX_MINUTES:
+        raise ValueError(f"A schedule on this PC runs at least every 31 days ({TASK_MAX_MINUTES} minutes); "
+                         "Task Scheduler repeats no less often")
+    return config
+
+
 def next_run(config: dict[str, Any], now: dt.datetime | None = None) -> dt.datetime | None:
     """When the schedule fires next, in local time (what Task Scheduler does with these triggers)."""
     now = (now or dt.datetime.now()).replace(second=0, microsecond=0)
@@ -326,7 +339,7 @@ class LocalSchedules:
         return found
 
     def add(self, target: dict[str, Any], schedule: dict[str, Any], signed_out: bool = False) -> dict[str, Any]:
-        item = {"id": uuid.uuid4().hex[:12], "target": check_target(target), "config": local_configuration(schedule),
+        item = {"id": uuid.uuid4().hex[:12], "target": check_target(target), "config": task_configuration(schedule),
                 "enabled": True, "created": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         if signed_out:
             item["signed_out"] = True
@@ -358,7 +371,7 @@ class LocalSchedules:
         history stays, and a paused schedule stays paused. ``signed_out`` (when given) turns running while
         signed out on or off in the same save, so Windows asks for the password at most once and a closed
         prompt leaves both the times and the setting as they were."""
-        config = local_configuration(schedule)  # checks the times before anything changes
+        config = task_configuration(schedule)  # checks the times before anything changes
         data = self._load()
         for s in data["schedules"]:
             if s["id"] == schedule_id:

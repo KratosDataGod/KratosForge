@@ -14,11 +14,6 @@
  "fabric_desktop/best_practice_checkers.py": {
   "arg-type": 1
  },
- "fabric_desktop/calibration.py": {
-  "arg-type": 2,
-  "return-value": 1,
-  "union-attr": 1
- },
  "fabric_desktop/capacity_history_service.py": {
   "list-item": 1
  },
@@ -108,11 +103,6 @@
   "valid-type": 1,
   "var-annotated": 1
  },
- "fabric_desktop/envprofile.py": {
-  "attr-defined": 1,
-  "union-attr": 2,
-  "var-annotated": 2
- },
  "fabric_desktop/estate_service.py": {
   "assignment": 2,
   "union-attr": 1
@@ -140,11 +130,6 @@
  },
  "fabric_desktop/git/capacity_files.py": {
   "index": 1
- },
- "fabric_desktop/git/ops.py": {
-  "assignment": 2,
-  "index": 1,
-  "valid-type": 2
  },
  "fabric_desktop/git/platform_files.py": {
   "arg-type": 1,
@@ -244,10 +229,6 @@
  },
  "fabric_desktop/meta/mesh.py": {
   "union-attr": 1
- },
- "fabric_desktop/meta/objectives.py": {
-  "operator": 1,
-  "union-attr": 4
  },
  "fabric_desktop/meta/project.py": {
   "operator": 1,
@@ -437,9 +418,6 @@
  },
  "fabric_desktop/workloads/run_as.py": {
   "union-attr": 2
- },
- "fabric_desktop/workloads/store.py": {
-  "arg-type": 1
  },
  "fabric_desktop/wrangler.py": {
   "assignment": 2

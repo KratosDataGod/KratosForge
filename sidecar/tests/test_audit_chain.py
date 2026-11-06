@@ -2,6 +2,11 @@
 
 import json
 import multiprocessing
+import os
+import sys
+import types
+
+import pytest
 
 from fabric_desktop import audit_chain
 from fabric_desktop.audit import AuditLog
@@ -96,3 +101,78 @@ def test_the_ai_tools_trail_gets_a_head_too(tmp_path):
     entry = {"at": "2026-10-24T00:00:00Z", "tool": "x"}
     audit_chain.append(tmp_path, entry)
     assert json.loads((tmp_path / audit_chain.HEAD).read_text()) == {"hash": entry["hash"], "lines": 1}
+
+
+# --------------------------------------------------------------------------- damaged lines and the lock
+
+def _line(folder, at="2026-11-06T10:00:00Z", **extra):
+    return audit_chain.append(folder, {"at": at, "action": "meta_run", **extra})
+
+
+@pytest.mark.parametrize("damage", ["[1, 2]", "\"text\"", "7", "{\"no\": \"hash\"}", "{not json"])
+def test_a_line_that_isnt_an_audit_line_is_reported_not_raised(tmp_path, damage):
+    _line(tmp_path)
+    with (tmp_path / "audit-2026-11.jsonl").open("a", encoding="utf-8") as f:
+        f.write(damage + "\n\n")
+    out = audit_chain.verify(tmp_path)
+    assert out["lines"] == 2 and not out["ok"]
+    assert "audit-2026-11.jsonl line 2: not an audit line" in out["problems"]
+
+
+def test_a_damaged_last_line_starts_the_chain_again_and_is_reported(tmp_path):
+    _line(tmp_path)
+    with (tmp_path / "audit-2026-11.jsonl").open("a", encoding="utf-8") as f:
+        f.write("[\"cut off\n")
+    assert audit_chain.last_hash(tmp_path) == audit_chain.GENESIS
+    entry = _line(tmp_path)
+    assert entry["prev"] == audit_chain.GENESIS
+    problems = audit_chain.verify(tmp_path)["problems"]
+    assert any("line 2: not an audit line" in p for p in problems)
+    assert any("line 3: a line before it is missing or changed" in p for p in problems)
+
+
+def test_a_changed_line_is_reported(tmp_path):
+    _line(tmp_path, n=1)
+    _line(tmp_path, n=2)
+    path = tmp_path / "audit-2026-11.jsonl"
+    path.write_text(path.read_text(encoding="utf-8").replace('"n": 1', '"n": 9'), encoding="utf-8")
+    assert audit_chain.verify(tmp_path)["problems"] == ["audit-2026-11.jsonl line 1: this line was changed"]
+
+
+def test_the_newest_month_with_a_line_gives_the_last_hash(tmp_path):
+    first = _line(tmp_path, at="2026-10-31T23:59:00Z")
+    (tmp_path / "audit-2026-11.jsonl").write_text("\n", encoding="utf-8")  # a month started, nothing in it
+    assert audit_chain.last_hash(tmp_path) == first["hash"]
+    second = _line(tmp_path, at="2026-11-01T00:01:00Z")
+    assert second["prev"] == first["hash"] and audit_chain.verify(tmp_path)["ok"]
+
+
+def test_a_head_that_isnt_an_object_counts_as_none(tmp_path):
+    (tmp_path / audit_chain.HEAD).write_text("[1]", encoding="utf-8")
+    _line(tmp_path)
+    assert json.loads((tmp_path / audit_chain.HEAD).read_text())["lines"] == 1
+    assert audit_chain.verify(tmp_path)["ok"]
+
+
+class FakeMsvcrt:
+    LK_LOCK, LK_UNLCK = 1, 0
+
+    def __init__(self, busy):
+        self.busy, self.calls = busy, []
+
+    def locking(self, fd, mode, nbytes):
+        self.calls.append(mode)
+        if mode == self.LK_LOCK and self.busy:
+            self.busy -= 1
+            raise OSError(36, "Resource deadlock avoided")
+
+
+def test_on_windows_the_lock_waits_for_another_writer_then_lets_go(tmp_path, monkeypatch):
+    fake = FakeMsvcrt(busy=2)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    # only audit_chain sees Windows: os.name itself would turn every Path into a WindowsPath
+    monkeypatch.setattr(audit_chain, "os", types.SimpleNamespace(name="nt", SEEK_END=os.SEEK_END))
+    monkeypatch.setattr(audit_chain.time, "sleep", lambda s: None)
+    with audit_chain.locked(tmp_path / "trail"):
+        assert fake.calls == [1, 1, 1]
+    assert fake.calls == [1, 1, 1, 0] and (tmp_path / "trail" / ".lock").exists()

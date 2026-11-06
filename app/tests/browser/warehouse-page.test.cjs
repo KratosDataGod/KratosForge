@@ -181,7 +181,7 @@ const tabText = () => page().evaluate(() => sqlPage.tabs[sqlPage.active].sql);
 test("Script as on a table: CREATE from the explorer's columns, opened in a new tab and not run", { skip }, async () => {
   const before = starts().length;
   await page().getByRole("button", { name: "Script Sales" }).click();
-  assert.deepStrictEqual(await menuItems(), ["Select top 100 rows", "Script as CREATE", "Script as DROP"]);
+  assert.deepStrictEqual(await menuItems(), ["Select top 100 rows", "Table detail", "Script as CREATE", "Script as DROP"]);
   await page().getByRole("menuitem", { name: "Script as CREATE" }).click();
   await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "Sales (CREATE)");
   const sql = await tabText();
@@ -249,7 +249,7 @@ test("the explorer is a tree: one row takes Tab, the arrow keys walk and open it
   await press("ArrowDown");
   await press("ArrowDown");
   await press("Shift+F10");
-  assert.deepStrictEqual(await menuItems(), ["Select top 100 rows", "Script as CREATE", "Script as DROP"]);
+  assert.deepStrictEqual(await menuItems(), ["Select top 100 rows", "Table detail", "Script as CREATE", "Script as DROP"]);
   await press("Escape");
   assert.deepStrictEqual(app.errors, []);
 });

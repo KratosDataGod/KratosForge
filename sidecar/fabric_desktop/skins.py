@@ -40,7 +40,7 @@ DENSITIES = ("comfortable", "compact")
 # The tokens on styles.css's :root a skin may set (test_skins.py keeps this list inside that file's).
 TOKENS = (
     "--accent", "--accent-dark", "--accent-soft", "--accent-soft-2", "--brand-orange", "--brand-orange-soft",
-    "--on-accent",
+    "--rail-active", "--on-accent",
     "--text", "--text-2", "--muted", "--muted-2",
     "--surface", "--surface-2", "--surface-3", "--surface-3b", "--canvas", "--hover", "--neutral-mark",
     "--border", "--border-soft", "--border-input",
@@ -240,7 +240,7 @@ KRATOSFORGE: dict[str, Any] = {
     "targets": [{"platform": "kratosforge", "reviewed": "2026-11-03"}],
     "appearance": {"color_mode": "light", "density": "comfortable", "tokens": {"light": {
         "--accent": "#1b3664", "--accent-dark": "#12264a", "--accent-soft": "#e9eef7", "--accent-soft-2": "#e8edf5",
-        "--brand-orange": "#f8991c", "--brand-orange-soft": "#ffb347", "--on-accent": "#fff",
+        "--brand-orange": "#f8991c", "--brand-orange-soft": "#ffb347", "--rail-active": "#f8991c", "--on-accent": "#fff",
         "--text": "#242424", "--text-2": "#424242", "--muted": "#616161", "--muted-2": "#8a8a8a",
         "--surface": "#ffffff", "--surface-2": "#fafafa", "--surface-3": "#f5f5f5", "--surface-3b": "#f7f7f7",
         "--canvas": "#f3f2f1", "--hover": "#f0f0f0", "--neutral-mark": "#8a8886",
@@ -267,7 +267,44 @@ FABRIC: dict[str, Any] = {
     }}},
     "workflow": {"rail": ["home", "create", "workspaces", "onelake", "monitor", "platform", "optimize", "metadata"]},
 }
-BUILT_IN: dict[str, dict[str, Any]] = {m["id"]: validate(m, BASE) for m in (KRATOSFORGE, FABRIC)}
+# Databricks-familiar (Preview): Workspace first, then Recents, New and Catalog, with Jobs and pipelines,
+# as Databricks developers find their way; a blue accent of our own. Its dark set follows the mockup's
+# dark board and shows once dark mode lands (skins.js applies light tokens today). Patterns only: no
+# Databricks names beyond the page labels developers know, no logos or brand colors.
+DATABRICKS: dict[str, Any] = {
+    "schema": SCHEMA, "id": "databricks", "name": "Databricks-familiar", "version": "0.1.0",
+    "description": "Workspace first, then Recents, New, Catalog and Jobs and pipelines, as Databricks developers expect.",
+    "targets": [{"platform": "databricks", "reviewed": "2026-11-05",
+                 "basis": "Azure Databricks documentation (workspace browser, Catalog Explorer, Jobs and pipelines), November 2026"}],
+    "appearance": {"color_mode": "light", "tokens": {
+        "light": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#e8eef8",
+                  "--accent-soft-2": "#eef2f9", "--canvas": "#f4f5f7", "--border": "#dde1e6"},
+        "dark": {"--accent": "#3b63b0", "--accent-dark": "#2f569c", "--accent-soft": "#2b3038",
+                 "--accent-soft-2": "#262b32", "--on-accent": "#ffffff",
+                 "--text": "#e6e8eb", "--text-2": "#c3c8ce", "--muted": "#a9b0b8", "--muted-2": "#8b939c",
+                 "--surface": "#23272e", "--surface-2": "#1f2328", "--surface-3": "#2b3038", "--surface-3b": "#262b32",
+                 "--canvas": "#1b1e23", "--hover": "#2b3038", "--border": "#3d434b", "--border-soft": "#2e333a",
+                 "--border-input": "#4a515a", "--danger": "#ff8f8f"}}},
+    "workflow": {"rail": ["workspaces", "home", "create", "onelake", "monitor", "platform", "optimize", "metadata"],
+                 "labels": {"workspaces": "Workspace", "home": "Recents", "create": "New", "onelake": "Catalog",
+                            "monitor": "Jobs and pipelines", "optimize": "Optimize and cost"}},
+}
+# Snowflake-familiar (Preview): light, Worksheets and Data first, as in Snowflake's web interface; a
+# blue accent of our own. Patterns only: no Snowflake logos or brand colors.
+SNOWFLAKE: dict[str, Any] = {
+    "schema": SCHEMA, "id": "snowflake", "name": "Snowflake-familiar", "version": "0.1.0",
+    "description": "Light, worksheet-first: Worksheets, Data and Monitoring at the top, as Snowflake developers expect.",
+    "targets": [{"platform": "snowflake", "reviewed": "2026-11-05",
+                 "basis": "Snowflake documentation (Snowsight worksheets, data, monitoring), November 2026"}],
+    "appearance": {"color_mode": "light", "tokens": {"light": {
+        "--accent": "#1660a8", "--accent-dark": "#0e4479", "--accent-soft": "#e6f0fa", "--accent-soft-2": "#eef4fb",
+        "--canvas": "#f4f7fb", "--border": "#dbe4ee", "--border-input": "#c6d3e1",
+    }}},
+    "workflow": {"rail": ["home", "onelake", "create", "monitor", "workspaces", "platform", "optimize", "metadata"],
+                 "labels": {"home": "Worksheets", "onelake": "Data", "create": "Load and create",
+                            "monitor": "Monitoring", "optimize": "Optimize and cost"}},
+}
+BUILT_IN: dict[str, dict[str, Any]] = {m["id"]: validate(m, BASE) for m in (KRATOSFORGE, FABRIC, DATABRICKS, SNOWFLAKE)}
 
 
 def built_in() -> list[dict[str, Any]]:

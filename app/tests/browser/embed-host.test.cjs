@@ -47,11 +47,11 @@ test("embed addresses off app.powerbi.com are refused", () => {
 });
 
 test("only known fields reach the SDK, with an Entra token and Power BI's page list hidden", () => {
-  const models = { TokenType: { Aad: 0, Embed: 1 } };
+  const models = { TokenType: { Aad: 0, Embed: 1 }, HyperlinkClickBehavior: { Navigate: 0, NavigateAndRaiseEvent: 1, RaiseEvent: 2 } };
   const config = host.embedConfig({ kind: "report", id: "r1", embedUrl: EMBED, accessToken: "t", pageName: "P1",
     tokenType: "Embed", settings: { hyperlinkClickBehavior: 2 }, eventHooks: { x: 1 } }, models);
   assert.deepStrictEqual(config, { type: "report", id: "r1", embedUrl: EMBED, accessToken: "t", tokenType: 0, pageName: "P1",
-    settings: { panes: { pageNavigation: { visible: false } } } });
+    settings: { panes: { pageNavigation: { visible: false } }, hyperlinkClickBehavior: 2 } });
   assert.throws(() => host.embedConfig({ kind: "qna", id: "x", embedUrl: EMBED, accessToken: "t" }, models), /reports, visuals/);
   assert.throws(() => host.embedConfig({ kind: "report", id: "x", embedUrl: "https://evil.example/r", accessToken: "t" }, models), /only opens/);
   assert.throws(() => host.embedConfig({ kind: "report", id: "x", embedUrl: EMBED }, models), /token/);
@@ -67,6 +67,9 @@ test("event details lose anything that looks like a token or secret", () => {
   assert.deepStrictEqual(out.nested, { keep: "k" });
   assert.ok(out.long.length < 2100);
   assert.ok(!JSON.stringify(out).includes("\"x\""));
+  assert.strictEqual(host.clean("lowercase bearer abc.def"), "lowercase (token removed)");
+  const quoted = host.clean({ message: "refused: Authorization: Bearer abc.def-ghi", detail: "jwt eyJhbGciOi.eyJzdWIiOiIx.c2lnbmF0dXJl here" });
+  assert.deepStrictEqual(quoted, { message: "refused: Authorization: (token removed)", detail: "jwt (token removed) here" }, "tokens inside text go too");
   assert.deepStrictEqual(host.eventDetail("pageChanged", { newPage: { name: "p", displayName: "P", report: cyclic } }),
     { newPage: { name: "p", displayName: "P" } });
 });
@@ -183,6 +186,18 @@ test("Power BI's frame can't take itself off app.powerbi.com", { skip }, async (
   await pbiFrame.evaluate(() => { location.href = "https://example.com/stolen"; });
   assert.match(await blocked, /^frame-src https:\/\/example\.com/);
   assert.ok(!page.frames().some((f) => f.url().startsWith("https://example.com/")), "the frame reached example.com");
+});
+
+// The SDK sends /report/load itself and doesn't wait on the answer, so a refused load is an unhandled rejection
+// in the host: it must still reach the app as an error event, with Power BI's request id and no token.
+test("a load Power BI refuses comes back as an error event", { skip }, async () => {
+  const id = await page.evaluate((url) => window.command({ command: "embed", kind: "report", id: "r2", embedUrl: url, accessToken: "secret-token" }),
+    "https://app.powerbi.com/reportEmbed?reportId=r2&groupId=w1&fail=load");
+  assert.strictEqual((await replyTo(id)).ok, true);
+  const err = await page.waitForFunction(() => window.got.find((m) => m.event === "error" && m.detail?.technicalDetails?.requestId === "req-load"))
+    .then((h) => h.jsonValue());
+  assert.strictEqual(err.detail.message, "LoadReportFailed");
+  assert.ok(!JSON.stringify(err).includes("leaked-token") && !JSON.stringify(err).includes("secret-token"));
 });
 
 // PBE-05: a report Power BI can't open comes back as the SDK's error event, with Power BI's request id kept for

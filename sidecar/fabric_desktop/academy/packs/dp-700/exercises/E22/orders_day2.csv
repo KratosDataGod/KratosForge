@@ -1,0 +1,6 @@
+order_id,status,amount
+1,open,10.00
+2,cancelled,20.00
+3,complete,31.50
+4,open,40.00
+5,open,50.00

@@ -15,7 +15,7 @@ import itertools
 import re
 import sys
 import types
-from typing import Any
+from typing import Any, Callable, cast
 
 import duckdb
 import sqlglot
@@ -45,9 +45,19 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    tree = spark_builtins_sql.mark(sqlglot.parse_one(text, read="spark"))
+    tree = spark_builtins_sql.mark(_parse(text))
     return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
         spark_sql.spark_integer_casts(tree)))))
+
+
+def _parse(text: str) -> exp.Expression:
+    """One Spark SQL expression as sqlglot reads it (it types the result as its base Expr)."""
+    return cast(exp.Expression, sqlglot.parse_one(text, read="spark"))
+
+
+def _literal(text: str) -> Callable[[re.Match[str]], str]:
+    """A re.sub replacement that puts ``text`` in as it is (a string would read its backslashes)."""
+    return lambda _m: text
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -55,7 +65,7 @@ def _call(spark_sql: str, *cols: Any) -> Column:
     holes = [f"__fdc{i}__" for i in range(len(cols))]
     text = spark_expr(spark_sql.format(*holes))
     for hole, c in zip(holes, cols, strict=True):
-        text = re.sub(rf'"?{hole}"?', lambda _m, c=c: f"({_col_sql(c)})" if _col_sql(c) != "*" else "*", text)
+        text = re.sub(rf'"?{hole}"?', _literal(f"({_col_sql(c)})" if _col_sql(c) != "*" else "*"), text)
     return _sql(text)
 
 
@@ -248,6 +258,11 @@ def xxhash64(*cols: Any) -> Column:
     return _call(f"xxhash64({', '.join('{%d}' % i for i in range(len(cols)))})", *cols)
 
 
+def _spark_hash(*cols: Any) -> Column:
+    """F.hash: Spark's hash (named apart here so this module keeps Python's own hash)."""
+    return _call(f"hash({', '.join('{%d}' % i for i in range(len(cols)))})", *cols)
+
+
 def uuid() -> Column:
     return _sql("CAST(uuid() AS VARCHAR)")
 
@@ -357,8 +372,7 @@ def initcap(col: Any) -> Column:
 
 def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(spark_sql.spark_integer_casts(
-        sqlglot.parse_one(text, read="spark"))))
+    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(spark_sql.spark_integer_casts(_parse(text))))
     if isinstance(parsed, exp.Alias):
         return _sql(spark_sql.duckdb_sql(parsed.this)).alias(parsed.alias)
     return _sql(spark_sql.duckdb_sql(parsed))
@@ -408,7 +422,7 @@ def count(col: Any) -> Column:
 FUNCTIONS = {name: obj for name, obj in list(globals().items())
              if callable(obj) and not name.startswith("_") and getattr(obj, "__module__", "") == __name__
              and name not in ("spark_expr", "install")}
-FUNCTIONS |= {"countDistinct": count_distinct, "sumDistinct": sum_distinct, "count": count}
+FUNCTIONS |= {"countDistinct": count_distinct, "sumDistinct": sum_distinct, "count": count, "hash": _spark_hash}
 
 
 # ---- windows
@@ -813,7 +827,7 @@ def _drop_cols(fn: Any) -> Any:
 
         def resolve(c: Any) -> Any:  # F.col("ID") names the column too; another expression is left as given
             name = c if isinstance(c, str) else c.expr.get_name() if isinstance(c, Column) else None
-            if isinstance(c, Column) and len(name) > 1 and name[0] == name[-1] == "`":
+            if isinstance(c, Column) and name is not None and len(name) > 1 and name[0] == name[-1] == "`":
                 name = name[1:-1]
             return by_lower.get(name.lower(), c) if name is not None else c
         cols = tuple(resolve(c) for c in cols)
@@ -847,7 +861,7 @@ def _drop_duplicates(fn: Any) -> Any:
 def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None = None,  # noqa: N803
             seed: int | None = None) -> DataFrame:
     if withReplacement is not None and not isinstance(withReplacement, bool):  # sample(0.1) and sample(0.1, 42)
-        withReplacement, fraction, seed = None, withReplacement, fraction  # noqa: N806
+        withReplacement, fraction, seed = None, withReplacement, cast("int | None", fraction)  # noqa: N806
     if withReplacement:
         raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC. Leave it out to sample without replacement.")
     if fraction is None:
@@ -1115,7 +1129,7 @@ def install() -> None:
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
                     "add_months", "months_between", "element_at", "to_date", "to_timestamp") or not hasattr(F, name):
             setattr(F, name, fn)
-    F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
+    vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
     Column.getItem = _get_item  # type: ignore[attr-defined]
     Column.getField = _get_field  # type: ignore[attr-defined]

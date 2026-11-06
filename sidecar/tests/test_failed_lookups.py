@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from fabric_desktop import cloud_service, lakehouse
+from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.service import Service
 from fabric_desktop.xray_service import _finding_id
 from test_cloud import FolderOneLake, svc  # noqa: F401 - the fixture
@@ -95,8 +96,8 @@ def test_saving_over_an_existing_model_needs_replace():
 
 
 def test_saving_a_model_stops_when_the_list_fails():
-    c, s = client([Resp(503, {"error": {"code": "ServiceUnavailable", "message": "busy"}})])
-    with pytest.raises(Exception):
+    c, s = client([Resp(503, {"error": {"code": "ServiceUnavailable", "message": "busy"}})] * 5)  # every retry busy
+    with pytest.raises(FabricError, match="503"):
         c.save_semantic_model("ws1", "SM_Gold", {"definition.pbism": "{}"})
     assert {m for m, *_ in s.calls} == {"GET"}  # no create over a model that may exist (the list may be retried)
 

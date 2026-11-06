@@ -1,0 +1,95 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E56",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a slow lakehouse table made of many small files",
+  "objectives": [
+    "3.3.1"
+  ],
+  "objective_text": "Find why a Delta table is slow to read, compact its small files without losing or doubling rows, and keep its history.",
+  "scenario": "Device events arrive in 40 small batches a day, and the ingestion job appends each one as it lands. Readers complain the table gets slower every day. The table has the right rows; it's how they're stored that hurts.",
+  "prerequisites": [
+    "LM-25"
+  ],
+  "minutes": 25,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "delta_lab",
+  "engine_label": "Python with delta-rs and Polars on this PC",
+  "lesson": "lesson.md",
+  "starter": "ingest_events.py",
+  "files": [
+    "events.csv"
+  ],
+  "verifies": [
+    "Your script ran on this PC and left a Delta table with at most 2 data files, an OPTIMIZE in its history after the writes, and all 1,000 events once each."
+  ],
+  "does_not_verify": [
+    "Read speed in Fabric: this checks file counts in the Delta log, not query timings. V-Order and the lakehouse's table maintenance (OPTIMIZE and VACUUM) in Fabric are separate features.",
+    "Statistics and their effect on the SQL analytics endpoint."
+  ],
+  "datasets": [],
+  "fault": {
+    "summary": "Each batch is a separate append, so the table holds 40 tiny data files and every read opens all of them.",
+    "planted": [
+      {
+        "where": "ingest_events.py",
+        "what": "one write_deltalake(..., mode='append') per 25-event batch"
+      }
+    ],
+    "symptom": "tables/events has 40 data files for 1,000 rows."
+  },
+  "expected": {
+    "table": "tables/events",
+    "files_max": 2,
+    "rows": 1000
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error; read its output."
+    },
+    {
+      "kind": "delta_table",
+      "path": "tables/events",
+      "files_max": 2,
+      "operations": [
+        "WRITE",
+        "OPTIMIZE"
+      ],
+      "operations_in_order": true,
+      "pass": "The table is compacted and its history shows how.",
+      "fail": "Count the table's data files, and check its history for the compaction."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/events.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "unique",
+          "column": "event_id"
+        },
+        {
+          "rule": "row_count",
+          "equals": 1000
+        }
+      ],
+      "pass": "All 1,000 events, once each.",
+      "fail": "Events were lost or doubled while repairing the table."
+    }
+  ],
+  "hints": [
+    "How many data files does the table have? DeltaTable(TABLE).file_uris() lists them.",
+    "Rewriting the data yourself risks losing or doubling rows. Delta has a maintenance operation for exactly this.",
+    "DeltaTable(TABLE).optimize.compact() rewrites small files into large ones as one OPTIMIZE commit; the rows don't change."
+  ],
+  "explanation": "Every append adds at least one data file, and every reader opens every file, so a table fed by many small writes slows down even when the rows are right. Compaction (OPTIMIZE) rewrites many small files into a few large ones in one commit, without changing the rows, and the old files stay in the history until they are vacuumed. In Fabric, OPTIMIZE in a notebook or the lakehouse's table maintenance does the same; batching writes upstream prevents the problem in the first place.",
+  "remediation": [
+    "LM-25",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance"
+  ],
+  "reset": "Reset removes the table and the snapshot and puts the starter script back."
+}

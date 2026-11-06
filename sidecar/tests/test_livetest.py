@@ -309,7 +309,7 @@ def extra_harness(tmp_path, fabric=None, extra=livetest.ALL_CHECKS, files=None, 
     return livetest.LiveTest(WS, fabric or ItemFabric(), files or Files(), Credential(), tmp_path / "out",
                              table_access=lambda ref: (str(tmp_path / "delta" / ref.lakehouse_id / ref.table), {}),
                              bad_token_files=BadTokenFiles(), run_id="run1", extra=extra,
-                             write_table=writer or local_writer(tmp_path), sleep=lambda s: None,
+                             write_table=writer or local_writer(tmp_path), sleep=kw.pop("sleep", lambda s: None),
                              lease_backend=kw.pop("lease_backend", None) or (lambda: leases.LocalBackend(tmp_path / "leases")),
                              **kw)
 
@@ -634,3 +634,35 @@ def test_lease_and_merge_checks_need_the_lakehouse(tmp_path):
     assert built == [], "no lease store is touched without the run's own lakehouse"
     assert by_id(result)["lease.onelake"]["status"] == "skipped"
     assert by_id(result)["delta.merge_profile"]["status"] == "skipped"
+
+
+# EA-028: the concurrent check's writer retry, pinned before it moved onto retrying.retry_call.
+def _losing_writer(tmp_path, who, times, error="CommitFailedError: Transaction failed: version already exists"):
+    lost = []
+
+    def write(ref, data, mode):
+        if data.column("writer")[0].as_py() == who and len(lost) < times:
+            lost.append(1)
+            raise RuntimeError(error)
+        write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode)
+    return write
+
+
+def test_a_writer_retries_a_lost_race_twice_waiting_1_then_2_seconds(tmp_path):
+    slept = []
+    result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=_losing_writer(tmp_path, "A", 2),
+                           sleep=slept.append).run()
+    check = by_id(result)["delta.concurrent"]
+    assert check["status"] == "passed", check
+    assert "writer A retried (3 attempts)" in check["detail"]
+    assert [s for s in slept if s in (1, 2)][:2] == [1, 2]
+
+
+def test_a_writer_that_loses_three_times_or_fails_otherwise_fails_the_check(tmp_path):
+    result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=_losing_writer(tmp_path, "A", 3)).run()
+    check = by_id(result)["delta.concurrent"]
+    assert check["status"] == "failed" and "Writer A failed: RuntimeError: CommitFailedError" in check["detail"], check
+    result = extra_harness(tmp_path / "2", extra={"delta.concurrent"},
+                           writer=_losing_writer(tmp_path / "2", "B", 1, error="403 Forbidden")).run()
+    check = by_id(result)["delta.concurrent"]
+    assert check["status"] == "failed" and "Writer B failed: RuntimeError: 403 Forbidden" in check["detail"], check

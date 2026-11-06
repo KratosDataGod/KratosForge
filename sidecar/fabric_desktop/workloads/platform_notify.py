@@ -24,7 +24,7 @@ from typing import Any, Callable, ContextManager
 
 from .. import redact, sqlitefile
 from . import deliver
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
+from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
          "product.deprecated", "incident.impact", "product.changed", "exception.ending")
@@ -200,7 +200,7 @@ class Ledger:
             db.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)")
 
     def _db(self) -> ContextManager[sqlite3.Connection]:
-        return transaction(self.path)
+        return sqlitefile.transaction(self.path)
 
     def get(self, key: str) -> tuple[str, bool] | None:
         with self._db() as db:

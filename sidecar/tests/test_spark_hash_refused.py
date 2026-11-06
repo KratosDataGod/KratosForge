@@ -1,11 +1,13 @@
 """EA-017: Spark's hash() is a 32-bit Murmur3 and xxhash64() is XXH64, both seeded 42; DuckDB's hash is
-neither. Until they are written to give Spark's value, every Spark path refuses them by name rather
-than answer with another number. md5 and sha2(x, 256), the stable hashes the message points to, give
+neither. Every Spark path that goes through sql.spark_fixes now gives Spark's value (spark_hash.py);
+the Local data engine's Spark SQL, which doesn't, still refuses them by name rather than answer with
+another number. md5 and sha2(x, 256), the stable hashes the message points to, give
 the text Spark gives."""
 
 import hashlib
 
 import pytest
+from sqlglot import exp
 
 from fabric_desktop import sql
 from fabric_desktop.engines import local_sql
@@ -21,28 +23,30 @@ def run(code, k=None):
 @pytest.mark.parametrize("code", [
     "print(spark.sql(\"SELECT hash('a') AS h\").collect())",
     "print(spark.sql(\"SELECT HASH(1, 'a') AS h\").collect())",
-    "print(spark.sql(\"SELECT id FROM range(3) WHERE hash(id) % 2 = 0\").collect())",
+    "print(spark.range(3).where('hash(id) % 2 = 0').collect())",
     "print(spark.range(3).select(F.expr('hash(id)')).collect())",
     "print(spark.range(3).selectExpr('hash(id) AS h').collect())",
     "print(spark.range(3).select(F.xxhash64('id')).collect())",
     "print(spark.sql('SELECT xxhash64(1)').collect())",
 ])
-def test_spark_hashes_are_refused_by_name(code):
+def test_every_spark_path_runs_spark_s_hash(code):
+    """Each path reaches spark_hash.py (its values: test_spark_hash.py), never DuckDB's own hash."""
     status, text = run(code)
-    assert status == "error", text
-    assert "can't run on this PC the way it runs in Fabric" in text
-    assert "hash" in text.lower() and "Row(" not in text
+    assert status == "ok", text
+    assert "Row(" in text or "[]" in text
 
 
 def test_the_characterization_holds():
-    """The audit's check: Spark-sized (32-bit) or refused naming hash, never a 64-bit value."""
+    """The audit's check: Spark-sized (32-bit) and Spark's own number, never a 64-bit value."""
     status, text = run("print(spark.sql(\"SELECT hash('a') AS h\").collect()[0]['h'])")
-    assert status == "error" and "hash" in text.lower()
+    assert status == "ok", text
+    assert int(text.strip()) == 1485273170  # Spark 3.5.3: SELECT hash('a')
 
 
-def test_databricks_sql_on_the_duckdb_engine_refuses_hash_too():
-    with pytest.raises(ValueError, match="hash"):
-        local_sql._databricks("SELECT hash(1)")
+def test_databricks_sql_on_the_duckdb_engine_gives_spark_s_hash_too():
+    trees = local_sql._databricks("SELECT hash(1), xxhash64(1)")
+    assert not [c for t in trees for c in t.find_all(exp.Anonymous) if c.name.upper() in ("HASH", "XXHASH64")]
+    assert sql.run("SELECT hash(1) h").to_pylist() == [{"h": -559580957}]  # Spark 3.5.3
 
 
 def test_duckdb_sql_keeps_duckdb_s_own_hash():

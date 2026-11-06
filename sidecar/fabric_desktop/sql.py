@@ -42,6 +42,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         if chosen["id"] == "spark":
             statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
     except ParseError as first_error:
+        if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
+            try:
+                return parse(respelled, dialect)
+            except ValueError:
+                pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
@@ -58,6 +63,33 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
 def _statements(parsed: list[Any]) -> list[exp.Expression]:
     """What sqlglot.parse read, without the empty statements (a stray ';')."""
     return [cast(exp.Expression, s) for s in parsed if s is not None]
+
+
+_HEX = re.compile(r"[0-9a-fA-F]*")
+
+
+def _spark_spellings(query: str) -> str:
+    """``query`` with two spellings Spark reads and sqlglot doesn't written the way sqlglot reads them:
+    ``X '1010'`` as ``X'1010'`` (Spark reads X and a quoted hex string as a binary literal even with
+    spaces between: only a lone X, not ``t.x``, before a quote of hex digits), and ``GROUP BY
+    window(...)`` as ``GROUP BY `window`(...)`` (sqlglot reads a WINDOW right after GROUP BY as the
+    start of a WINDOW clause)."""
+    try:
+        tokens = sqlglot.tokenize(query, read="spark")
+    except TokenError:
+        return query
+    edits: list[tuple[int, int, str]] = []
+    for before, token, after in zip([None, *tokens], tokens, tokens[1:], strict=False):
+        if (token.token_type == TokenType.VAR and token.text in ("x", "X") and after.token_type == TokenType.STRING
+                and (before is None or before.token_type != TokenType.DOT)
+                and query[token.end + 1:after.start].isspace() and _HEX.fullmatch(after.text)):
+            edits.append((token.end + 1, after.start, ""))
+        elif (token.token_type == TokenType.WINDOW and after.token_type == TokenType.L_PAREN
+              and before is not None and before.token_type == TokenType.GROUP_BY):
+            edits.append((token.start, token.end + 1, "`" + token.text + "`"))
+    for start, end, text in reversed(edits):
+        query = query[:start] + text + query[end:]
+    return query
 
 
 _EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."
@@ -308,7 +340,10 @@ def _arity(template: str) -> int:
 
 
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
-    return cast(exp.Expression, sqlglot.parse_one(template.format(*(duckdb_sql(a) for a in args)), read="duckdb"))
+    """``template`` ({0}, {1}, ... for the arguments) with the argument nodes themselves put in, not
+    their text: a call inside one that spark_builtins_sql marked keeps its mark, so it is still written
+    as Spark's (pmod(hash(x), 7) is Spark's hash, not DuckDB's)."""
+    return _with_args(template.format(*(f"fj_arg{i}" for i in range(len(args)))), args)
 
 
 # sqlglot 30.24 folded SortArray into ArraySort, which then carries asc and nulls_first itself.
@@ -910,7 +945,7 @@ def _as_timestamp(value: exp.Expression) -> str:
 
 
 # Spark's hash is Murmur3 (32-bit, seed 42) and xxhash64 is XXH64 (seed 42); DuckDB's hash is
-# neither, so these can't run here until they are written to give Spark's value (EA-017).
+# neither. spark_fixes gives Spark's value (spark_hash.py); paths without it refuse them (EA-017).
 _SPARK_HASHES = ("HASH", "XXHASH64")
 _SPARK_HASH = ("{name}() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's {name} gives "
                "a different number from the hash this PC has. Run it in Fabric, or use md5() or sha2(x, 256) "
@@ -935,6 +970,12 @@ def spark_name(column: exp.Expression) -> str:
     """The name Spark gives an unnamed selected expression: functions in lower case, each operator in
     parentheses ("(a + 1)", "(NOT a)", "(a IS NULL)", "(- a)") and a decimal's parameters without a space ("DECIMAL(10,2)")."""
     copy = column.copy()
+    for call in list(copy.find_all(exp.ToChar)):   # sqlglot writes to_char(n, fmt) as a CAST for Spark
+        named = exp.Anonymous(this="to_char", expressions=[a for a in (call.this, call.args.get("format")) if a])
+        if call is copy:
+            copy = named
+        else:
+            call.replace(named)
     # Spark writes these its own way: UnaryMinus as "(- x)" and IsNotNull as "(x IS NOT NULL)", which
     # sqlglot reads as NOT (x IS NULL). Innermost first, each operand formatted the same way.
     for unary in reversed(list(copy.find_all(exp.Neg, exp.Not))):
@@ -990,8 +1031,8 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
 
 
 def refuse_spark_hashes(node: exp.Expr) -> None:
-    """ValueError if Spark SQL ``node`` calls hash or xxhash64 (_SPARK_HASH). Every Spark path calls
-    it: spark_substring, and the Local data engine's Spark SQL."""
+    """ValueError if Spark SQL ``node`` calls hash or xxhash64 (_SPARK_HASH). The Local data engine's
+    Spark SQL calls it: it doesn't go through spark_fixes, where spark_builtins_sql gives Spark's value."""
     for call in node.find_all(exp.Anonymous):
         if str(call.this).upper() in _SPARK_HASHES:
             raise ValueError(_SPARK_HASH.format(name=str(call.this).lower()))
@@ -1014,9 +1055,7 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
     in a window).
 
-    hash and xxhash64 are refused: DuckDB's hash is another function, so the value would differ
-    from Fabric's without a word (EA-017)."""
-    refuse_spark_hashes(node)
+    hash and xxhash64 aren't DuckDB's hash: spark_builtins_sql writes them as Spark computes them."""
     for ignore in list(node.find_all(exp.IgnoreNulls)):
         agg = ignore.this
         if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):

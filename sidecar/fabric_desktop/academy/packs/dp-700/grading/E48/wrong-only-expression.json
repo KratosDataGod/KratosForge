@@ -1,0 +1,82 @@
+{
+  "name": "load_orders",
+  "properties": {
+    "variables": {
+      "query": {
+        "type": "String"
+      },
+      "result": {
+        "type": "String"
+      }
+    },
+    "activities": [
+      {
+        "name": "Lookup watermark",
+        "type": "Lookup",
+        "dependsOn": [],
+        "typeProperties": {}
+      },
+      {
+        "name": "Build query",
+        "type": "SetVariable",
+        "dependsOn": [
+          {
+            "activity": "Lookup watermark",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "variableName": "query",
+          "value": "@concat('SELECT * FROM orders WHERE arrived_at > ''', activity('Lookup watermark').output.firstRow.last_loaded, '''')"
+        }
+      },
+      {
+        "name": "Copy orders",
+        "type": "Copy",
+        "dependsOn": [
+          {
+            "activity": "Build query",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {}
+      },
+      {
+        "name": "Log failure",
+        "type": "SetVariable",
+        "dependsOn": [
+          {
+            "activity": "Copy orders",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "variableName": "result",
+          "value": "@activity('Copy orders').error.message"
+        }
+      },
+      {
+        "name": "Fail run",
+        "type": "Fail",
+        "dependsOn": [
+          {
+            "activity": "Log failure",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "message": "@variables('result')",
+          "errorCode": "LoadFailed"
+        }
+      }
+    ]
+  }
+}

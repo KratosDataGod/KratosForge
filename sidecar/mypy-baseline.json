@@ -173,10 +173,6 @@
  "fabric_desktop/localdata/delta.py": {
   "arg-type": 1
  },
- "fabric_desktop/localdata/discovery.py": {
-  "arg-type": 1,
-  "assignment": 2
- },
  "fabric_desktop/localdata/transform.py": {
   "assignment": 1,
   "attr-defined": 1

@@ -168,6 +168,14 @@ def test_xpath_default_limits_stop_quadratic_work_quickly():
     assert time.monotonic() - start < expr_xml.MAX_SECONDS + 1.5
 
 
+def test_xpath_result_list_is_bounded():
+    # 500 nested elements around 1 MB of text: "//*" would repeat the text in every one (about 500 MB)
+    doc = "<a>" * 500 + "x" * 1_000_000 + "</a>" * 500
+    with pytest.raises(ExpressionError, match="result has more than 10,485,760 characters"):
+        ev("xpath(pipeline().parameters.d, '//*')", d=doc)
+    assert len(ev("xpath(pipeline().parameters.d, '/a')", d=doc)[0]) == 1_000_000 + 7 * 500
+
+
 def test_xpath_time_budget(monkeypatch):
     monkeypatch.setattr(expr_xml, "MAX_SECONDS", 0.0)
     with pytest.raises(ExpressionError, match="ran longer than 0 seconds"):

@@ -36,6 +36,7 @@ MAX_XPATH = 10_000
 MAX_VISITS = 500_000          # nodes visited, comparisons made and text read (per 256 characters), per xpath()
 MAX_SECONDS = 2.0             # and wall-clock time per xpath(), whichever comes first
 MAX_STRING = 1_048_576        # characters in any text an XPath builds
+MAX_RESULT = 10_485_760       # characters across a node set's results: one pipeline value's limit
 MAX_NESTING = 32   # brackets and predicates inside one another; each level is a dozen Python frames
 _NAME = re.compile(r"[A-Za-z_][\w.\-]*(?::[A-Za-z_][\w.\-]*)?\Z")
 
@@ -869,8 +870,17 @@ def xpath(document: Any, path: Any) -> Any:
     xp.deadline = time.monotonic() + MAX_SECONDS
     result = xp.run(root, 1, 1)
     if isinstance(result, list):
-        # an element, or the document itself (as .NET's OuterXml gives for "/"), as its XML text
-        return [outer_xml(n) if n.kind in ("element", "root") else string_value(n) for n in result]
+        # an element, or the document itself (as .NET's OuterXml gives for "/"), as its XML text. Nested
+        # matches repeat their descendants, so the whole list is bounded and charged as it is built.
+        out, total = [], 0
+        for n in result:
+            text = outer_xml(n) if n.kind in ("element", "root") else string_value(n)
+            total += len(text)
+            if total > MAX_RESULT:
+                raise XmlError(f"the XPath's result has more than {MAX_RESULT:,} characters, the limit for one xpath()")
+            xp._visit(1 + len(text) // 256)
+            out.append(text)
+        return out
     if isinstance(result, float):
         if math.isnan(result) or math.isinf(result):
             raise XmlError(f"the XPath's result is {_string(result)}, which a pipeline value can't hold")

@@ -47,7 +47,7 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # A user name alone, since Git remotes carry a token there too (https://<token>@github.com/...).
     # Not storage addresses on a storage host (abfss://workspace@onelake..., wasbs://container@acct.blob
     # .core.windows.net), where the part before @ names a container.
-    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com\b|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net\b))"
+    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s\"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s\"'<>]|$)))"
                 r"([a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
     # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).

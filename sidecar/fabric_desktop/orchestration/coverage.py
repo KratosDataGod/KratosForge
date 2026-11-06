@@ -56,6 +56,17 @@ FUNCTIONS: dict[str, tuple[str, ...]] = {
     "Scope": ("activity", "item", "pipeline", "variables"),
 }
 
+def _bits(text: str) -> str:
+    return "".join(format(b, "08b") for b in text.encode("utf-8"))
+
+
+_URI = "data:text/plain;charset=utf-8;base64,aGVsbG8="
+_ITEMS = ('<?xml version="1.0"?><produce><item><name>Gala</name><type>apple</type><count>20</count></item>'
+          '<item><name>Honeycrisp</name><type>apple</type><count>10</count></item></produce>')
+_BINARY_NOTE = ("A local run returns the bytes the way Data Factory writes a binary value in a run's JSON, "
+                '`{"$content-type": "application/octet-stream", "$content": "<base64>"}`, and `base64()` and '
+                "`string()` read them back. Which form Fabric writes hasn't been checked.")
+
 # The reference's example for a function and the value it gives, where the value doesn't change from
 # run to run. A function the evaluator has but that has no example here is "not checked".
 EXAMPLES: dict[str, tuple[str, Any]] = {
@@ -105,6 +116,15 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "dataUriToString": ("dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')", "hello"),
     "encodeUriComponent": ("encodeUriComponent('https://contoso.com')", "https%3A%2F%2Fcontoso.com"),
     "decodeUriComponent": ("decodeUriComponent('http%3A%2F%2Fcontoso.com')", "http://contoso.com"),
+    # The reference prints these as the bits of a text: binary's of the decoded text, the other three's of
+    # their own argument (see _BINARY_NOTE).
+    "binary": ("binary('hello')", _bits("hello")),
+    "base64ToBinary": ("base64ToBinary('aGVsbG8=')", _bits("aGVsbG8=")),
+    "dataUriToBinary": (f"dataUriToBinary('{_URI}')", _bits(_URI)),
+    "decodeDataUri": (f"decodeDataUri('{_URI}')", _bits(_URI)),
+    "xml": ("xml('<name>Sophia Owen</name>')", "<name>Sophia Owen</name>"),
+    # The reference's items parameter written into the expression, since the check has no parameters.
+    "xpath": (f"xpath(xml('{_ITEMS}'), 'sum(/produce/item/count)')", 30),
     "add": ("add(1, 1.5)", 2.5),
     "div": ("div(11, 5)", 2),
     "max": ("max(1, 2, 3)", 3),
@@ -141,6 +161,13 @@ NOTES: dict[str, str] = {
                           "the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.",
     "decodeUriComponent": "The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an "
                           "s; unescaping can't, so `http://contoso.com` is the value checked.",
+    "binary": "The reference prints the result as a string of bits of the UTF-8 text. " + _BINARY_NOTE,
+    "base64ToBinary": "The reference prints the result as a string of bits, those of the base64 text itself rather "
+                      "than of the bytes it decodes to. " + _BINARY_NOTE,
+    "dataUriToBinary": "The reference prints the result as a string of bits, those of the whole data URI rather than "
+                       "of the data it holds. " + _BINARY_NOTE,
+    "decodeDataUri": "The reference prints the result as a string of bits, those of the whole data URI rather than "
+                     "of the data it holds. " + _BINARY_NOTE,
     "ticks": "The reference prints 636567724560000000 for this example. In .NET, "
              "`new DateTime(2018, 3, 15, 13, 27, 36).Ticks` is 636567172560000000 "
              "(621355968000000000 ticks at 1970-01-01, plus 1521120456 seconds), so that is the value checked.",

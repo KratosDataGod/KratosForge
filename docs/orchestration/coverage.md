@@ -44,7 +44,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 
 ## Expression functions
 
-88 functions: 69 runs, 1 differs, 0 fails, 10 not checked, 8 refused.
+88 functions: 71 runs, 5 differs, 0 fails, 12 not checked, 0 refused.
 
 - **runs:** it gives the reference's value for the reference's own example.
 - **differs:** it runs but gives another value for that example, so check results that use it in Fabric.
@@ -104,17 +104,17 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | --- | --- | --- | --- | --- |
 | `array` | runs | `array('hello')` | ["hello"] |  |
 | `base64` | runs | `base64('hello')` | "aGVsbG8=" |  |
-| `base64ToBinary` | refused |  |  |  |
+| `base64ToBinary` | differs | `base64ToBinary('aGVsbG8=')` | "0110000101000111010101100111001101100010010001110011100000111101" | {"$content-type": "application/octet-stream", "$content": "aGVsbG8="} |
 | `base64ToString` | runs | `base64ToString('aGVsbG8=')` | "hello" |  |
-| `binary` | refused |  |  |  |
+| `binary` | differs | `binary('hello')` | "0110100001100101011011000110110001101111" | {"$content-type": "application/octet-stream", "$content": "aGVsbG8="} |
 | `bool` | runs | `bool(1)` | true |  |
 | `coalesce` | runs | `coalesce(null, true, false)` | true |  |
 | `createArray` | runs | `createArray('h', 'e', 'l', 'l', 'o')` | ["h", "e", "l", "l", "o"] |  |
 | `dataUri` | runs | `dataUri('hello')` | "data:text/plain;charset=utf-8;base64,aGVsbG8=" |  |
-| `dataUriToBinary` | refused |  |  |  |
+| `dataUriToBinary` | differs | `dataUriToBinary('data:text/plain;charset=utf-8;base64,aGVsbG8=')` | "011001000110000101110100011000010011101001110100011001010111100001110100001011110111000001101100011000010110100101101110001110110110001101101000011000010111001001110011011001010111010000111101011101010111010001100110001011010011100000111011011000100110000101110011011001010011011000110100001011000110000101000111010101100111001101100010010001110011100000111101" | {"$content-type": "text/plain", "$content": "aGVsbG8="} |
 | `dataUriToString` | runs | `dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')` | "hello" |  |
 | `decodeBase64` | runs | `decodeBase64('aGVsbG8=')` | "hello" |  |
-| `decodeDataUri` | refused |  |  |  |
+| `decodeDataUri` | differs | `decodeDataUri('data:text/plain;charset=utf-8;base64,aGVsbG8=')` | "011001000110000101110100011000010011101001110100011001010111100001110100001011110111000001101100011000010110100101101110001110110110001101101000011000010111001001110011011001010111010000111101011101010111010001100110001011010011100000111011011000100110000101110011011001010011011000110100001011000110000101000111010101100111001101100010010001110011100000111101" | {"$content-type": "text/plain", "$content": "aGVsbG8="} |
 | `decodeUriComponent` | runs | `decodeUriComponent('http%3A%2F%2Fcontoso.com')` | "http://contoso.com" |  |
 | `encodeUriComponent` | runs | `encodeUriComponent('https://contoso.com')` | "https%3A%2F%2Fcontoso.com" |  |
 | `float` | runs | `float('10.333')` | 10.333 |  |
@@ -122,10 +122,18 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `json` | runs | `json('[1, 2, 3]')` | [1, 2, 3] |  |
 | `string` | runs | `string(10)` | "10" |  |
 | `uriComponent` | not checked |  |  |  |
-| `uriComponentToBinary` | refused |  |  |  |
+| `uriComponentToBinary` | not checked |  |  |  |
 | `uriComponentToString` | not checked |  |  |  |
-| `xml` | refused |  |  |  |
-| `xpath` | refused |  |  |  |
+| `xml` | runs | `xml('<name>Sophia Owen</name>')` | "<name>Sophia Owen</name>" |  |
+| `xpath` | runs | `xpath(xml('<?xml version="1.0"?><produce><item><name>Gala</name><type>apple</type><count>20</count></item><item><name>Honeycrisp</name><type>apple</type><count>10</count></item></produce>'), 'sum(/produce/item/count)')` | 30 |  |
+
+`base64ToBinary`: The reference prints the result as a string of bits, those of the base64 text itself rather than of the bytes it decodes to. A local run returns the bytes the way Data Factory writes a binary value in a run's JSON, `{"$content-type": "application/octet-stream", "$content": "<base64>"}`, and `base64()` and `string()` read them back. Which form Fabric writes hasn't been checked.
+
+`binary`: The reference prints the result as a string of bits of the UTF-8 text. A local run returns the bytes the way Data Factory writes a binary value in a run's JSON, `{"$content-type": "application/octet-stream", "$content": "<base64>"}`, and `base64()` and `string()` read them back. Which form Fabric writes hasn't been checked.
+
+`dataUriToBinary`: The reference prints the result as a string of bits, those of the whole data URI rather than of the data it holds. A local run returns the bytes the way Data Factory writes a binary value in a run's JSON, `{"$content-type": "application/octet-stream", "$content": "<base64>"}`, and `base64()` and `string()` read them back. Which form Fabric writes hasn't been checked.
+
+`decodeDataUri`: The reference prints the result as a string of bits, those of the whole data URI rather than of the data it holds. A local run returns the bytes the way Data Factory writes a binary value in a run's JSON, `{"$content-type": "application/octet-stream", "$content": "<base64>"}`, and `base64()` and `string()` read them back. Which form Fabric writes hasn't been checked.
 
 `decodeUriComponent`: The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an s; unescaping can't, so `http://contoso.com` is the value checked.
 
@@ -141,7 +149,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `min` | runs | `min(1, 2, 3)` | 1 |  |
 | `mod` | runs | `mod(3, 2)` | 1 |  |
 | `mul` | runs | `mul(1, 2)` | 2 |  |
-| `rand` | refused |  |  |  |
+| `rand` | not checked |  |  |  |
 | `range` | runs | `range(1, 4)` | [1, 2, 3, 4] |  |
 | `sub` | runs | `sub(10.3, .3)` | 10 |  |
 

@@ -45,10 +45,10 @@ def test_a_function_marked_as_running_gives_the_references_value(cov):
 
 def test_a_refused_function_stops_the_activity_by_name(cov):
     refused = [r["name"] for r in cov["functions"] if r["status"] == "refused"]
-    assert "xpath" in refused and "ticks" not in refused
-    for name in refused:
-        with pytest.raises(evaluate.ExpressionError, match=rf"{name}\(\) isn't supported in local runs yet"):
-            evaluate.call(name, [], evaluate.Scope())
+    assert refused == [], "every function in the reference runs locally now"
+    # a function outside the reference still stops the activity by name
+    with pytest.raises(evaluate.ExpressionError, match=r"eval\(\) isn't supported in local runs yet"):
+        evaluate.call("eval", [], evaluate.Scope())
 
 
 def test_the_page_is_up_to_date(cov):

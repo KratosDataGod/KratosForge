@@ -15,6 +15,7 @@ import binascii
 import calendar
 import json
 import math
+import random
 import urllib.parse
 import uuid
 from collections import ChainMap
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any, Callable
 
+from . import expr_binary, expr_xml
 from .expressions import tokens
 
 
@@ -223,6 +225,8 @@ def _member(value: Any, key: Any, safe: bool) -> Any:
 def _text(v: Any) -> str:
     if isinstance(v, str):
         return v
+    if expr_binary.is_binary(v):
+        return expr_binary.binary_text(v)   # string() of a binary value is its UTF-8 text
     if isinstance(v, bool):
         return "True" if v else "False"
     if v is None:
@@ -588,6 +592,8 @@ def _if(c: Any, a: Any, b: Any) -> Any:
 
 
 def _base64(v: Any) -> str:
+    if expr_binary.is_binary(v):
+        return base64.b64encode(expr_binary.binary_bytes(v)).decode("ascii")
     return base64.b64encode(_text(v).encode("utf-8")).decode("ascii")
 
 
@@ -613,6 +619,15 @@ def _data_uri_text(v: Any) -> str:
         return raw.decode(charset)
     except (binascii.Error, LookupError, ValueError):
         raise ExpressionError("dataUriToString() couldn't read the data URI's text") from None
+
+
+def _rand(lo: Any, hi: Any) -> int:
+    """rand(): a whole number from lo up to, but not including, hi."""
+    if isinstance(lo, bool) or isinstance(hi, bool) or not isinstance(lo, int) or not isinstance(hi, int):
+        raise ExpressionError(f"rand() needs two whole numbers, not {lo!r} and {hi!r}")
+    if lo >= hi:
+        raise ExpressionError(f"rand() needs its minimum ({lo}) to be less than its maximum ({hi})")
+    return random.randrange(lo, hi)
 
 
 def _uri_encode(v: Any) -> str:
@@ -642,7 +657,7 @@ _PURE: dict[str, Callable[..., Any]] = {
     "mul": lambda a, b: _num(a, "mul") * _num(b, "mul"), "div": _div, "mod": _mod,
     "min": lambda *a: min(_num(x, "min") for x in (a[0] if len(a) == 1 and isinstance(a[0], list) else a)),
     "max": lambda *a: max(_num(x, "max") for x in (a[0] if len(a) == 1 and isinstance(a[0], list) else a)),
-    "range": _range,
+    "range": _range, "rand": _rand,
     # strings
     "concat": lambda *a: "".join(_text(x) for x in a),
     "substring": _substring, "replace": lambda s, a, b: _text(s).replace(_text(a), _text(b)),
@@ -667,6 +682,12 @@ _PURE: dict[str, Callable[..., Any]] = {
     "datauri": lambda v: "data:text/plain;charset=utf-8;base64," + _base64(v), "datauritostring": _data_uri_text,
     "uricomponent": _uri_encode, "encodeuricomponent": _uri_encode,
     "uricomponenttostring": _uri_decode, "decodeuricomponent": _uri_decode,
+    "binary": lambda v: expr_binary.to_binary(_text(v)),
+    "base64tobinary": lambda v: expr_binary.base64_to_binary(_text(v)),
+    "datauritobinary": lambda v: expr_binary.data_uri_to_binary(_text(v), "dataUriToBinary"),
+    "decodedatauri": lambda v: expr_binary.data_uri_to_binary(_text(v), "decodeDataUri"),
+    "uricomponenttobinary": lambda v: expr_binary.uri_component_to_binary(_text(v)),
+    "xml": expr_xml.to_xml, "xpath": expr_xml.xpath,
     # dates
     "formatdatetime": lambda ts, fmt=None: _format_time(_parse_time(ts), fmt),
     "adddays": _add_time("days"), "addhours": _add_time("hours"), "addminutes": _add_time("minutes"),
@@ -757,5 +778,7 @@ def call(name: str, args: list[Any], scope: Scope) -> Any:
             return _bounded(name, _PURE[fn](*args))
     except TypeError:
         raise ExpressionError(f"{name}() was given {len(args)} argument(s), which it doesn't take") from None
+    except (expr_xml.XmlError, expr_binary.BinaryError) as e:
+        raise ExpressionError(str(e) if str(e).lower().startswith(fn + "(") else f"{name}(): {e}") from None
     raise ExpressionError(f"{name}() isn't supported in local runs yet")
 

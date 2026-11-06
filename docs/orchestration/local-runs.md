@@ -94,7 +94,7 @@ The states are pending, running, succeeded, failed, skipped and cancelled. Each 
 
 ### Expressions
 
-Expressions are evaluated by a fixed list of functions written for this purpose, never by a general-purpose evaluator. An expression that uses anything else fails that activity with `LocalExpressionError` and the function's name. The functions are:
+Expressions are evaluated by a fixed list of functions written for this purpose, never by a general-purpose evaluator. An expression that uses anything else fails that activity with `LocalExpressionError` and the function's name. [Local pipeline coverage](coverage.md) checks each one against Microsoft's reference and lists the ones not supported yet. The functions are:
 
 - Logic: `equals`, `not`, `and`, `or`, `if`, `greater`, `greaterOrEquals`, `less`, `lessOrEquals`.
 - Math: `add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `range` (at most 100,000 numbers, ForEach's limit in Fabric).

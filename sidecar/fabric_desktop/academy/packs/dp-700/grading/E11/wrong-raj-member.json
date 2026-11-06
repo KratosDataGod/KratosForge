@@ -1,0 +1,35 @@
+{
+  "_about": "A model of who gets access to the SalesLH lakehouse. For each person, set workspace_role (null, Viewer, Contributor, Member or Admin) and share (null for no share, or the two extra boxes of the share dialog). Sharing always includes Read. Give each person the least access that works.",
+  "lakehouse": "SalesLH",
+  "people": {
+    "Priya": {
+      "needs": "Power BI developer in another workspace. Queries every table with T-SQL through the SQL analytics endpoint.",
+      "workspace_role": null,
+      "share": {
+        "read_all_sql_analytics_endpoint": true,
+        "read_all_apache_spark": false
+      }
+    },
+    "Omar": {
+      "needs": "Data scientist in another workspace. Reads the lakehouse's Delta tables from his notebooks with Spark.",
+      "workspace_role": null,
+      "share": {
+        "read_all_sql_analytics_endpoint": false,
+        "read_all_apache_spark": true
+      }
+    },
+    "Lena": {
+      "needs": "Auditor. Opens the lakehouse and queries only the tables the DBA has granted her in SQL.",
+      "workspace_role": null,
+      "share": {
+        "read_all_sql_analytics_endpoint": false,
+        "read_all_apache_spark": false
+      }
+    },
+    "Raj": {
+      "needs": "Data engineer joining the team. Writes new tables into this lakehouse.",
+      "workspace_role": "Member",
+      "share": null
+    }
+  }
+}

@@ -44,7 +44,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 
 ## Expression functions
 
-88 functions: 50 runs, 0 differs, 2 fails, 6 not checked, 30 refused.
+88 functions: 66 runs, 0 differs, 1 fails, 10 not checked, 11 refused.
 
 - **runs:** it gives the reference's value for the reference's own example.
 - **differs:** it runs but gives another value for that example, so check results that use it in Fabric.
@@ -103,29 +103,33 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | Function | Status | Example | Reference value | Value here |
 | --- | --- | --- | --- | --- |
 | `array` | runs | `array('hello')` | ["hello"] |  |
-| `base64` | refused |  |  |  |
+| `base64` | runs | `base64('hello')` | "aGVsbG8=" |  |
 | `base64ToBinary` | refused |  |  |  |
-| `base64ToString` | refused |  |  |  |
+| `base64ToString` | runs | `base64ToString('aGVsbG8=')` | "hello" |  |
 | `binary` | refused |  |  |  |
 | `bool` | runs | `bool(1)` | true |  |
 | `coalesce` | runs | `coalesce(null, true, false)` | true |  |
 | `createArray` | runs | `createArray('h', 'e', 'l', 'l', 'o')` | ["h", "e", "l", "l", "o"] |  |
-| `dataUri` | refused |  |  |  |
+| `dataUri` | runs | `dataUri('hello')` | "data:text/plain;charset=utf-8;base64,aGVsbG8=" |  |
 | `dataUriToBinary` | refused |  |  |  |
-| `dataUriToString` | refused |  |  |  |
-| `decodeBase64` | refused |  |  |  |
+| `dataUriToString` | runs | `dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')` | "hello" |  |
+| `decodeBase64` | runs | `decodeBase64('aGVsbG8=')` | "hello" |  |
 | `decodeDataUri` | refused |  |  |  |
-| `decodeUriComponent` | refused |  |  |  |
-| `encodeUriComponent` | refused |  |  |  |
+| `decodeUriComponent` | runs | `decodeUriComponent('http%3A%2F%2Fcontoso.com')` | "http://contoso.com" |  |
+| `encodeUriComponent` | runs | `encodeUriComponent('https://contoso.com')` | "https%3A%2F%2Fcontoso.com" |  |
 | `float` | runs | `float('10.333')` | 10.333 |  |
 | `int` | runs | `int('10')` | 10 |  |
 | `json` | runs | `json('[1, 2, 3]')` | [1, 2, 3] |  |
 | `string` | runs | `string(10)` | "10" |  |
-| `uriComponent` | refused |  |  |  |
+| `uriComponent` | not checked |  |  |  |
 | `uriComponentToBinary` | refused |  |  |  |
-| `uriComponentToString` | refused |  |  |  |
+| `uriComponentToString` | not checked |  |  |  |
 | `xml` | refused |  |  |  |
 | `xpath` | refused |  |  |  |
+
+`decodeUriComponent`: The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an s; unescaping can't, so `http://contoso.com` is the value checked.
+
+`encodeUriComponent`: The reference prints `http%3A%2F%2Fcontoso.com` for `https://contoso.com`, which drops the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.
 
 ### Math
 
@@ -149,22 +153,24 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `addHours` | runs | `addHours('2018-03-15T00:00:00Z', 10)` | "2018-03-15T10:00:00.0000000Z" |  |
 | `addMinutes` | runs | `addMinutes('2018-03-15T00:10:00Z', 10)` | "2018-03-15T00:20:00.0000000Z" |  |
 | `addSeconds` | runs | `addSeconds('2018-03-15T00:00:00Z', 10)` | "2018-03-15T00:00:10.0000000Z" |  |
-| `addToTime` | refused |  |  |  |
+| `addToTime` | runs | `addToTime('2018-01-01T00:00:00Z', 1, 'Day')` | "2018-01-02T00:00:00.0000000Z" |  |
 | `convertFromUtc` | refused |  |  |  |
 | `convertTimeZone` | refused |  |  |  |
 | `convertToUtc` | refused |  |  |  |
-| `dayOfMonth` | refused |  |  |  |
-| `dayOfWeek` | refused |  |  |  |
-| `dayOfYear` | refused |  |  |  |
-| `formatDateTime` | fails | `formatDateTime('03/15/2018 12:00:00', 'yyyy-MM-ddTHH:mm:ss')` | "2018-03-15T12:00:00" | "error: '03/15/2018 12:00:00' isn't a date and time this PC can read (use ISO 8601)" |
-| `getFutureTime` | refused |  |  |  |
-| `getPastTime` | refused |  |  |  |
+| `dayOfMonth` | runs | `dayOfMonth('2018-03-15T13:27:36Z')` | 15 |  |
+| `dayOfWeek` | runs | `dayOfWeek('2018-03-15T13:27:36Z')` | 4 |  |
+| `dayOfYear` | runs | `dayOfYear('2018-03-15T13:27:36Z')` | 74 |  |
+| `formatDateTime` | runs | `formatDateTime('03/15/2018 12:00:00', 'yyyy-MM-ddTHH:mm:ss')` | "2018-03-15T12:00:00" |  |
+| `getFutureTime` | not checked |  |  |  |
+| `getPastTime` | not checked |  |  |  |
 | `startOfDay` | runs | `startOfDay('2018-03-15T13:30:30Z')` | "2018-03-15T00:00:00.0000000Z" |  |
-| `startOfHour` | refused |  |  |  |
-| `startOfMonth` | refused |  |  |  |
-| `subtractFromTime` | refused |  |  |  |
-| `ticks` | refused |  |  |  |
+| `startOfHour` | runs | `startOfHour('2018-03-15T13:30:30Z')` | "2018-03-15T13:00:00.0000000Z" |  |
+| `startOfMonth` | runs | `startOfMonth('2018-03-15T13:30:30Z')` | "2018-03-01T00:00:00.0000000Z" |  |
+| `subtractFromTime` | runs | `subtractFromTime('2018-01-02T00:00:00Z', 1, 'Day')` | "2018-01-01T00:00:00.0000000Z" |  |
+| `ticks` | runs | `ticks('2018-03-15T13:27:36Z')` | 636567172560000000 |  |
 | `utcNow` | not checked |  |  |  |
+
+`ticks`: The reference prints 636567724560000000 for this example. In .NET, `new DateTime(2018, 3, 15, 13, 27, 36).Ticks` is 636567172560000000 (621355968000000000 ticks at 1970-01-01, plus 1521120456 seconds), so that is the value checked.
 
 ### Scope
 

@@ -258,6 +258,55 @@ def _start(argv: list[str], work: Path, memory_limit: int, cpu_limit: int, job: 
     return proc, limits
 
 
+def contained(argv: list[str], cwd: Path, env: dict[str, str], *, timeout: float, memory_limit: int,
+              cpu_limit: int, processes: int) -> dict[str, Any]:
+    """Run a trusted program (``argv``) on learner input with the learner process's limits, for an
+    adapter that runs a PC program rather than learner Python (git_lab). Windows: created suspended,
+    put in an unnamed Job Object (at most ``processes`` processes, memory, CPU time, killed when the
+    job closes, no breakaway), then resumed. Linux and macOS: its own session with the same rlimits
+    as the learner process, and the whole group killed at the end. Returns only after everything
+    it started has ended: ``{"exit_code", "stdout", "stderr", "timed_out", "memory_hit"}``."""
+    common: dict[str, Any] = {"cwd": str(cwd), "env": env, "stdin": subprocess.DEVNULL,
+                              "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+    limiter: Any
+    if sys.platform == "win32":
+        limiter = _WinJob(memory_limit, cpu_limit, None, processes)
+        try:
+            flags = 0x00000004 | getattr(subprocess, "CREATE_NO_WINDOW", 0)   # CREATE_SUSPENDED
+            proc = subprocess.Popen(argv, creationflags=flags, **common)
+        except BaseException:
+            limiter.close()
+            raise
+        try:
+            limiter.hold(proc)
+        except BaseException:
+            proc.kill()
+            limiter.close()
+            proc.wait(timeout=KILL_WAIT)
+            raise
+    else:
+        limiter = _PosixGroup(memory_limit, cpu_limit)
+        proc = subprocess.Popen(argv, start_new_session=True, preexec_fn=limiter.apply, **common)  # noqa: PLW1509 - limits only
+        limiter.proc = proc
+    out: dict[str, bytes] = {}
+    readers = [threading.Thread(target=_drain, args=(proc.stdout, out, "stdout"), daemon=True),
+               threading.Thread(target=_drain, args=(proc.stderr, out, "stderr"), daemon=True)]
+    for t in readers:
+        t.start()
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+    finally:
+        limiter.close()          # ends anything left in the job or group, then waits for it
+        proc.wait(timeout=KILL_WAIT)
+        for t in readers:
+            t.join(timeout=5)
+    return {"exit_code": proc.returncode, "stdout": out.get("stdout", b""), "stderr": out.get("stderr", b""),
+            "timed_out": timed_out, "memory_hit": limiter.memory_hit()}
+
+
 class _PosixGroup:
     """Linux and macOS (CI and development): resource limits and the process's own session."""
 
@@ -306,9 +355,11 @@ def _query_only_attributes() -> Any:
 
 
 class _WinJob:
-    """A Job Object: one process, a memory and CPU limit, ended when closed, no breakaway."""
+    """A Job Object: one process (or ``processes``), a memory and CPU limit, ended when closed, no
+    breakaway. Named for the learner process, so its bootstrap can check it is in this job; unnamed
+    (``name`` None) for a program the engine runs, which nothing else can then open."""
 
-    def __init__(self, memory_limit: int, cpu_limit: int, name: str):
+    def __init__(self, memory_limit: int, cpu_limit: int, name: str | None, processes: int = 1):
         import ctypes
         from ctypes import wintypes
         from ..kernel_proc import _kernel32   # typed CreateJobObjectW and friends
@@ -319,12 +370,16 @@ class _WinJob:
         self.k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
         # Named, so the bootstrap can check it is in this job. The DACL lets others (the learner
         # included) only query it; this handle from creation keeps full access.
-        sa = _query_only_attributes()
-        try:
-            self.job = self.k.CreateJobObjectW(ctypes.addressof(sa), name)
-            created = ctypes.get_last_error()  # type: ignore[attr-defined]
-        finally:
-            ctypes.windll.kernel32.LocalFree(ctypes.c_void_p(sa.lpSecurityDescriptor))  # type: ignore[attr-defined]
+        created = 0
+        if name is None:
+            self.job = self.k.CreateJobObjectW(None, None)
+        else:
+            sa = _query_only_attributes()
+            try:
+                self.job = self.k.CreateJobObjectW(ctypes.addressof(sa), name)
+                created = ctypes.get_last_error()  # type: ignore[attr-defined]
+            finally:
+                ctypes.windll.kernel32.LocalFree(ctypes.c_void_p(sa.lpSecurityDescriptor))  # type: ignore[attr-defined]
         if self.job and created == 183:   # ERROR_ALREADY_EXISTS: not ours
             self.k.CloseHandle(self.job)
             self.job = None
@@ -335,7 +390,7 @@ class _WinJob:
         # KILL_ON_JOB_CLOSE | ACTIVE_PROCESS | JOB_MEMORY | JOB_TIME | DIE_ON_UNHANDLED_EXCEPTION;
         # BREAKAWAY_OK and SILENT_BREAKAWAY_OK are left off, so nothing can leave the job.
         basic.LimitFlags = 0x2000 | 0x0008 | 0x0200 | 0x0004 | 0x0400
-        basic.ActiveProcessLimit = 1
+        basic.ActiveProcessLimit = max(1, int(processes))
         basic.PerJobUserTimeLimit = int(cpu_limit) * 10_000_000   # 100 ns units
         info.JobMemoryLimit = int(memory_limit)
         if not self.k.SetInformationJobObject(self.job, 9, ctypes.byref(info), ctypes.sizeof(info)):

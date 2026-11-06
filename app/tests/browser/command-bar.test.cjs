@@ -129,3 +129,37 @@ test("Ctrl+K over an open dialog leaves the dialog alone", { skip }, async () =>
   assert.strictEqual(await bar().count(), 0);
   await page().evaluate(() => closeDialog());
 });
+
+// EA-030 (docs/ux/narrator-checklist.md 3.5): focus stays in the box while the arrows move the choice, so a
+// screen reader hears the choice only through aria-activedescendant. The check reads Chromium's
+// accessibility tree, which is what Narrator reads: the box's active descendant is the chosen row, and only
+// that row is selected.
+test("a screen reader follows the chosen row as the arrows move it", { skip }, async () => {
+  await page().keyboard.press("Control+k");
+  await bar().waitFor();
+  await page().keyboard.type("o");
+  const heard = async () => {
+    const cdp = await page().context().newCDPSession(page());
+    const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+    await cdp.detach();
+    const box = nodes.find((n) => n.role?.value === "combobox" && n.name?.value === "Command bar");
+    const active = box?.properties?.find((p) => p.name === "activedescendant")?.value?.relatedNodes?.[0]?.backendDOMNodeId;
+    const option = nodes.find((n) => n.backendDOMNodeId === active);
+    const selected = nodes.filter((n) => n.role?.value === "option" && n.properties?.some((p) => p.name === "selected" && p.value.value));
+    return { expanded: box?.properties?.find((p) => p.name === "expanded")?.value?.value, option: option?.name?.value,
+      selected: selected.map((n) => n.name?.value) };
+  };
+  let at = await heard();
+  assert.strictEqual(at.expanded, true);
+  assert.strictEqual(at.option, (await chosen()).trim());
+  assert.deepStrictEqual(at.selected, [at.option]);
+  const first = at.option;
+  await page().keyboard.press("ArrowDown");
+  at = await heard();
+  assert.strictEqual(at.option, (await chosen()).trim());
+  assert.notStrictEqual(at.option, first, "the arrow didn't move what a screen reader hears");
+  assert.deepStrictEqual(at.selected, [at.option]);
+  assert.strictEqual(await page().evaluate(() => document.activeElement?.getAttribute("aria-label")), "Command bar");
+  await closed();
+  assert.deepStrictEqual(app.errors, []);
+});

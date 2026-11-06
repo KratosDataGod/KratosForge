@@ -33,6 +33,9 @@ CASES = [
  ("Storage AccountKey", "AccountKey=" + J(["A" * 20, "b" * 24]) + "==;", J(["A" * 20, "b" * 24]) + "=="),
  ("git extraheader", "http.extraheader=AUTHORIZATION: basic " + J(["Zm9vOmJh", "cg=="]), J(["Zm9vOmJh", "cg=="])),
  ("Quoted password", "{'password': '" + J(["correct horse", " battery"]) + "'}", J(["correct horse", " battery"])),
+ ("GitLab token", "push with " + J(["gl", "pat-", "aB3dE5fG7hJ9kL1mN2pQ"]), J(["gl", "pat-", "aB3dE5fG7hJ9kL1mN2pQ"])),
+ ("npm token", "_authToken " + J(["np", "m_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"]), J(["np", "m_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"])),
+ ("Slack webhook", "post to https://hooks.slack.com/services/" + J(["T0123ABCD/", "B0456EFGH/", "aBcDeFgHiJkLmNoPqRsTuVwX"]), J(["T0123ABCD/", "B0456EFGH/", "aBcDeFgHiJkLmNoPqRsTuVwX"])),
  ("Bare token=", "GET /x?token=" + J(["abc123", "XYZ789"]) + "&y=1", J(["abc123", "XYZ789"])),
 ]
 
@@ -60,6 +63,9 @@ TODAY = {
     'Storage AccountKey': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'git extraheader': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Quoted password': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'GitLab token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'npm token': ('removed', 'removed', 'removed', 'removed', 'removed'),
+    'Slack webhook': ('removed', 'removed', 'removed', 'removed', 'removed'),
     'Bare token=': ('removed', 'removed', 'removed', 'removed', 'removed'),
 }
 

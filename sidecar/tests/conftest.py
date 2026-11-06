@@ -117,3 +117,26 @@ def pytest_runtest_protocol(item, nextitem):
     finally:
         timer.cancel()
         faulthandler.cancel_dump_traceback_later()
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    """With --durations, also list the test files that take longest in all (setup, call and teardown
+    of every test in them), so a slow fixture shows even when no single test is in the slowest list.
+    Under pytest-xdist the times are each worker's, added up."""
+    if not config.getoption("durations", None):
+        return
+    files: dict[str, list[float]] = {}
+    for reports in terminalreporter.stats.values():
+        for report in reports:
+            when, nodeid = getattr(report, "when", None), getattr(report, "nodeid", "")
+            if when not in ("setup", "call", "teardown") or not nodeid:
+                continue
+            spent = files.setdefault(nodeid.split("::")[0], [0.0, 0.0, 0])
+            spent[0 if when == "setup" else 1] += float(getattr(report, "duration", 0.0) or 0.0)
+            spent[2] += when == "call"
+    if not files:
+        return
+    total = sum(s[0] + s[1] for s in files.values())
+    terminalreporter.write_sep("=", f"slowest {min(25, len(files))} test files of {len(files)} ({total:.0f}s of test time in all)")
+    for path, (setup, rest, count) in sorted(files.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:25]:
+        terminalreporter.write_line(f"{setup + rest:8.1f}s  setup {setup:7.1f}s  {count:4d} tests  {path}")

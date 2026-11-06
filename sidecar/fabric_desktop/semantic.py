@@ -127,11 +127,12 @@ def plan(project: Any, layer: str, kept: dict[str, str] | None = None) -> tuple[
     for t in tables:
         cols = set(project.entities[t.entity].columns)
         for dim in tables:
-            if dim is t or not dim.is_dimension or dim.surrogate_key not in cols:
+            sk = dim.surrogate_key
+            if dim is t or not dim.is_dimension or sk is None or sk not in cols:
                 continue
-            if any(r.from_table == t.name and r.from_column == dim.surrogate_key for r in rels):
+            if any(r.from_table == t.name and r.from_column == sk for r in rels):
                 continue
-            rels.append(Relationship(t.name, dim.surrogate_key, dim.name, dim.surrogate_key,
+            rels.append(Relationship(t.name, sk, dim.name, sk,
                                      why=f"same name as {dim.entity}'s surrogate key"))
     # Power BI allows one active relationship between two tables.
     seen: set[tuple[str, str]] = set()
@@ -162,7 +163,7 @@ def _summed(t: ModelTable) -> list[tuple[str, str]]:
     return out
 
 
-def _about(text: str, indent: str) -> list[str]:
+def _about(text: str | None, indent: str) -> list[str]:
     """TMDL description lines (``///``), which go right before the object they describe."""
     return [f"{indent}/// {line}".rstrip() for line in str(text or "").strip().splitlines()] if str(text or "").strip() else []
 
@@ -179,10 +180,10 @@ def _table_tmdl(t: ModelTable, expression: str, about: dict[str, str] | None = N
     if not t.is_dimension:
         lines += [*_about(f"Rows in {t.name}.", "\t"), f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
                   "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
-    for col, dtype in _summed(t):
+    for col, summed_type in _summed(t):
         lines += [*_about(f"Sum of {col}." + (f" {about[col]}" if about.get(col) else ""), "\t"),
                   f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
-                  f"\t\tformatString: {'#,0' if dtype == 'int64' else '#,0.00'}",
+                  f"\t\tformatString: {'#,0' if summed_type == 'int64' else '#,0.00'}",
                   f"\t\tlineageTag: {tag('measure', t.entity, col)}", ""]
     for col, delta_type in t.columns:
         dtype = tmdl_type(delta_type)

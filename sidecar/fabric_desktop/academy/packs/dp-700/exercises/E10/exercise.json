@@ -1,0 +1,129 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E10",
+  "title": "Least-privilege workspace roles for six people",
+  "objectives": [
+    "1.3.1"
+  ],
+  "mode": "guided",
+  "minutes": 15,
+  "prerequisites": [],
+  "objective_text": "Give six people the least workspace role (Admin, Member, Contributor or Viewer) that covers what each one does, and remove someone who has left.",
+  "scenario": "The Sales workspace grew without a plan, and an audit asks for least privilege. You have six people, a line on what each one does, and one person who left last week.",
+  "engine_label": "A model of a workspace's role assignments, checked on this PC",
+  "verifies": [
+    "Your role for each person is the least of Admin, Member, Contributor and Viewer that covers their work, as the Fabric role table describes it, and the person who left has none, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That anyone gets these roles in Fabric: nothing is set in a workspace here.",
+    "Item permissions, sharing and OneLake security roles, which can give someone access without a workspace role.",
+    "Access to shortcut destinations, which needs permissions on the target as well."
+  ],
+  "expected": {
+    "description": "Ana Admin, Ben Member, Cara Contributor, Dev Contributor, Eve Viewer, Finn null."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Someone has a role that doesn't fit what they need.",
+      "pass": "Everyone has the least role that covers their work.",
+      "rules": [
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "name": "Ana",
+            "role": "Admin"
+          },
+          "why": "Only Admin can add or remove other admins and update or delete the workspace."
+        },
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "name": "Ben",
+            "role": "Member"
+          },
+          "why": "Member can add members or others with lower permissions and allow others to reshare items, without being able to delete the workspace."
+        },
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "name": "Cara",
+            "role": "Contributor"
+          },
+          "why": "Contributor is the least role that can write notebooks, pipelines and lakehouse data."
+        },
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "name": "Dev",
+            "role": "Contributor"
+          },
+          "why": "Reading lakehouse data through the lakehouse explorer and Spark needs ReadAll, which Viewer doesn't have; Contributor is the least workspace role that does."
+        },
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "name": "Eve",
+            "role": "Viewer"
+          },
+          "why": "Viewer can connect to the SQL analytics endpoint and read data with T-SQL (ReadData)."
+        },
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "name": "Finn",
+            "role": null
+          },
+          "why": "Someone who has left needs no role at all."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The workspace should have exactly one Admin.",
+      "pass": "One Admin, as planned.",
+      "rules": [
+        {
+          "path": "people",
+          "count": 1,
+          "where": {
+            "role": "Admin"
+          },
+          "why": "Every Admin can remove every other person, so keep the list short."
+        },
+        {
+          "path": "people",
+          "count": 6,
+          "why": "Keep all six entries; set a role to null instead of deleting a person."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Start with the most limited role, Viewer, and move up only when a task needs it.",
+    "Viewer reads with T-SQL through the SQL analytics endpoint, but not through Spark or the lakehouse explorer.",
+    "Only one role can add or remove other admins."
+  ],
+  "explanation": "Fabric's four workspace roles nest: Viewer reads, Contributor also creates and writes items and data, Member also adds people with lower roles and lets others reshare, and Admin also manages admins and can delete the workspace. Least privilege means the lowest role that covers the work. The trap is Dev: reading lakehouse data through Spark or the lakehouse explorer needs ReadAll, which Viewer lacks, so the least workspace role is Contributor. (Sharing the lakehouse with Read all with Apache Spark, without a workspace role, would be narrower still; E11 covers that.)",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (roles-workspaces): the role table rows for updating and deleting the workspace, adding admins, adding lower roles, resharing, writing items and data, reading via the TDS endpoint (all roles) and via OneLake APIs, Spark and the lakehouse explorer (ReadAll, not Viewer)."
+  ]
+}

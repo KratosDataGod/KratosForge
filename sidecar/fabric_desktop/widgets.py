@@ -24,7 +24,7 @@ import threading
 import traceback
 import types
 from collections import OrderedDict
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Literal, Mapping
 
 MAX_WIDGETS = 1000
 MAX_DEPTH = 20
@@ -220,7 +220,8 @@ class _Number(ValueWidget):
         bound = self._bounded and name in ("min", "max")
         if bound:
             value = self._cast(value)
-            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")), setting=name)
+            lo, hi = (value if name == n else self._state[n] for n in ("min", "max"))
+            _check_bounds(lo, hi, setting=name)
         super()._set(name, value)
         if bound:
             self.value = self._state["value"]  # clamps into the new bounds, as ipywidgets does
@@ -302,7 +303,8 @@ class _Range(ValueWidget):
         bound = name in ("min", "max")
         if bound:
             value = self._cast(value)
-            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")), setting=name)
+            lo, hi = (value if name == n else self._state[n] for n in ("min", "max"))
+            _check_bounds(lo, hi, setting=name)
         super()._set(name, value)
         if bound:
             self.value = self._state["value"]
@@ -613,7 +615,7 @@ class Output(DOMWidget):
         self._stack.append(cm)
         return self
 
-    def __exit__(self, *exc: Any) -> bool:
+    def __exit__(self, *exc: Any) -> Literal[False]:
         if self._stack:
             self._stack.pop().__exit__(*exc)
         return False
@@ -736,6 +738,7 @@ class GridBox(Box):
 class _Titled(Box):
     """Accordion and Tab keep titles and the selected index, as ipywidgets does. The app draws the children stacked."""
     _traits = Box._traits + ("titles", "selected_index")
+    titles: tuple[str, ...]  # a trait, kept in _state (annotation only: no class attribute)
 
     def __init__(self, children: Any = (), titles: Any = (), selected_index: Any = None, **kw: Any):
         super().__init__(children=children, titles=tuple(titles), selected_index=selected_index, **kw)
@@ -791,9 +794,9 @@ def _control(name: str, abbrev: Any) -> Widget | fixed | None:
         v = abbrev
         return IntSlider(value=v, min=-v if v > 0 else 3 * v, max=3 * v if v > 0 else -v if v < 0 else 1, description=name)
     if isinstance(abbrev, float):
-        v = abbrev
-        lo, hi = (-v, 3 * v) if v > 0 else (3 * v, -v) if v < 0 else (0.0, 1.0)
-        return FloatSlider(value=v, min=lo, max=hi, step=(hi - lo) / 100, description=name)
+        fv = abbrev
+        lo, hi = (-fv, 3 * fv) if fv > 0 else (3 * fv, -fv) if fv < 0 else (0.0, 1.0)
+        return FloatSlider(value=fv, min=lo, max=hi, step=(hi - lo) / 100, description=name)
     if isinstance(abbrev, str):
         return Text(value=abbrev, description=name)
     if isinstance(abbrev, tuple) and 2 <= len(abbrev) <= 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in abbrev):
@@ -815,6 +818,7 @@ class interactive(VBox):  # noqa: N801 - ipywidgets' name
         import inspect
         self.f = __interact_f
         manual = bool((__options or {}).get("manual"))
+        params: Mapping[str, inspect.Parameter]
         try:
             params = inspect.signature(__interact_f).parameters
         except (TypeError, ValueError):

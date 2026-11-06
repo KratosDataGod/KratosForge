@@ -831,6 +831,13 @@ def _timefromparts(node: exp.TimeFromParts) -> exp.Expression:
     micros: exp.Expression = (exp.Literal.number(int(fractions.name) // 10) if places == 7 else
                               exp.Mul(this=exp.Cast(this=fractions.copy(), to=exp.DataType.build("BIGINT")),
                                       expression=exp.Literal.number(10 ** (6 - places))))
+    if not written:  # fractions from a column or an expression: stop as T-SQL does, never carry into the seconds
+        f = exp.Cast(this=fractions.copy(), to=exp.DataType.build("BIGINT"))
+        micros = exp.Case(ifs=[exp.If(this=exp.or_(exp.LT(this=f, expression=exp.Literal.number(0)),
+                                                   exp.GTE(this=f.copy(), expression=exp.Literal.number(10 ** places))),
+                                      true=exp.Anonymous(this="ERROR", expressions=[exp.Literal.string(
+                                          f"TIMEFROMPARTS's fractions don't fit a precision of {places}.")]))],
+                          default=micros)
     seconds = exp.Add(this=exp.Cast(this=node.args["sec"].copy(), to=exp.DataType.build("DOUBLE")),
                       expression=exp.Div(this=exp.paren(micros), expression=exp.Literal.number(1000000.0)))
     return exp.Anonymous(this="MAKE_TIME", expressions=[node.args["hour"].copy(), node.args["min"].copy(), exp.paren(seconds)])

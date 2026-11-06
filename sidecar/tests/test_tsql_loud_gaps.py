@@ -300,3 +300,16 @@ def test_timefromparts_refuses_fractions_that_dont_fit_the_precision(engine):
     """T-SQL stops on TIMEFROMPARTS(13, 45, 30, 50, 1); so does the local engine, before DuckDB adds 5 seconds."""
     with pytest.raises(Exception, match=r"fractions \(50\) don't fit a precision of 1"):
         engine.execute("SELECT TIMEFROMPARTS(13, 45, 30, 50, 1)", dialect="tsql")
+
+
+@pytest.mark.parametrize("fractions", [1000001, -1])
+def test_timefromparts_refuses_fractions_from_a_column_that_dont_fit(engine, fractions):
+    """Not carried into the seconds: T-SQL stops with "Cannot construct data type time"."""
+    engine.execute(f"CREATE OR REPLACE TABLE dbo.parts AS SELECT 3 AS s, {fractions} AS f")
+    with pytest.raises(Exception, match="fractions don't fit a precision of 6"):
+        engine.execute("SELECT TIMEFROMPARTS(1, 2, s, f, 6) FROM dbo.parts", dialect="tsql")
+
+
+def test_timefromparts_takes_fractions_from_a_column(engine):
+    engine.execute("CREATE OR REPLACE TABLE dbo.parts AS SELECT 3 AS s, 250 AS f")
+    assert first(engine, "SELECT DATEPART(millisecond, TIMEFROMPARTS(1, 2, s, f, 3)) FROM dbo.parts") == 250

@@ -125,7 +125,7 @@ def test_the_build_has_no_file_or_network_access(folder):
     ("-- file: dbo/Tables/CON.sql\nSELECT 1;", "isn't a .sql file path in the project"),
     ("-- file: a.sql\nx\n-- file: a.sql\ny", "is in the change set twice"),
     (" " * (sqlprojlab.MAX_BYTES + 1), "over 1 MB"),
-])
+], ids=["no-marker", "dotdot", "absolute", "not-sql", "device", "twice", "oversized"])   # short ids: Windows caps PYTEST_CURRENT_TEST
 def test_a_change_set_that_cant_be_read_fails_every_check_in_words(folder, text, said):
     with pytest.raises(sqlprojlab.Refused, match=None) as err:
         sqlprojlab.parse(text)

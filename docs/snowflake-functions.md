@@ -21,12 +21,12 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 105 |
-| Differs | 18 |
-| Refused | 44 |
-| Fails | 93 |
-| Not checked | 234 |
-| **All** | **494** |
+| Runs | 133 |
+| Differs | 19 |
+| Refused | 48 |
+| Fails | 63 |
+| Not checked | 232 |
+| **All** | **495** |
 
 ## String and binary
 
@@ -229,7 +229,7 @@ the known differences in more detail.
 | `CAST` | Not checked | `SELECT CAST('1' AS INTEGER)` |  |
 | `TRY_CAST` | Runs |  | 1 value check |
 | `TO_CHAR` | Not checked |  |  |
-| `TO_VARCHAR` | Runs |  | 1 value check |
+| `TO_VARCHAR` | Runs |  | 3 value checks |
 | `TO_BINARY` | Not checked |  |  |
 | `TRY_TO_BINARY` | Not checked |  |  |
 | `TO_DECFLOAT` | Fails |  | DuckDB has no TO_DECFLOAT, and the rules don't rewrite it |
@@ -269,7 +269,7 @@ the known differences in more detail.
 | `ARRAY_APPEND` | Not checked |  |  |
 | `ARRAY_CAT` | Runs |  | 1 value check |
 | `ARRAY_COMPACT` | Not checked |  |  |
-| `ARRAY_CONSTRUCT` | Not checked |  |  |
+| `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
 | `ARRAY_CONSTRUCT_COMPACT` | Not checked |  |  |
 | `ARRAY_CONTAINS` | Runs |  | 1 value check |
 | `ARRAY_DISTINCT` | Not checked |  |  |
@@ -316,40 +316,41 @@ the known differences in more detail.
 | `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
 | `GET_PATH` | Not checked |  |  |
 | `XMLGET` | Fails |  | DuckDB has no XMLGET, and the rules don't rewrite it |
-| `AS_ARRAY` | Fails |  | DuckDB has no AS_ARRAY, and the rules don't rewrite it |
-| `AS_BINARY` | Fails |  | DuckDB has no AS_BINARY, and the rules don't rewrite it |
-| `AS_CHAR` | Fails |  | DuckDB has no AS_CHAR, and the rules don't rewrite it |
-| `AS_VARCHAR` | Fails |  | DuckDB has no AS_VARCHAR, and the rules don't rewrite it |
-| `AS_DATE` | Fails |  | DuckDB has no AS_DATE, and the rules don't rewrite it |
-| `AS_DECIMAL` | Fails |  | DuckDB has no AS_DECIMAL, and the rules don't rewrite it |
-| `AS_NUMBER` | Fails |  | DuckDB has no AS_NUMBER, and the rules don't rewrite it |
-| `AS_DOUBLE` | Fails |  | DuckDB has no AS_DOUBLE, and the rules don't rewrite it |
-| `AS_REAL` | Fails |  | DuckDB has no AS_REAL, and the rules don't rewrite it |
-| `AS_INTEGER` | Fails |  | DuckDB has no AS_INTEGER, and the rules don't rewrite it |
-| `AS_OBJECT` | Fails |  | DuckDB has no AS_OBJECT, and the rules don't rewrite it |
-| `AS_TIME` | Fails |  | DuckDB has no AS_TIME, and the rules don't rewrite it |
-| `AS_TIMESTAMP_LTZ` | Fails |  | DuckDB has no AS_TIMESTAMP_LTZ, and the rules don't rewrite it |
-| `AS_TIMESTAMP_NTZ` | Fails |  | DuckDB has no AS_TIMESTAMP_NTZ, and the rules don't rewrite it |
-| `AS_TIMESTAMP_TZ` | Fails |  | DuckDB has no AS_TIMESTAMP_TZ, and the rules don't rewrite it |
+| `AS_ARRAY` | Runs |  | 1 value check |
+| `AS_BOOLEAN` | Runs |  | 1 value check |
+| `AS_BINARY` | Runs |  | 1 value check |
+| `AS_CHAR` | Runs |  | 1 value check |
+| `AS_VARCHAR` | Runs |  | 2 value checks |
+| `AS_DATE` | Runs |  | 1 value check |
+| `AS_DECIMAL` | Runs |  | 2 value checks; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_NUMBER` | Runs |  | 1 value check; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_DOUBLE` | Runs |  | 1 value check |
+| `AS_REAL` | Runs |  | 1 value check |
+| `AS_INTEGER` | Runs |  | 3 value checks |
+| `AS_OBJECT` | Runs |  | 2 value checks |
+| `AS_TIME` | Runs |  | 1 value check |
+| `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
+| `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `TO_JSON` | Not checked |  |  |
 | `TO_XML` | Fails |  | DuckDB has no TO_XML, and the rules don't rewrite it |
-| `IS_ARRAY` | Not checked |  |  |
-| `IS_BOOLEAN` | Fails |  | DuckDB has no IS_BOOLEAN, and the rules don't rewrite it |
-| `IS_BINARY` | Fails |  | DuckDB has no IS_BINARY, and the rules don't rewrite it |
-| `IS_CHAR` | Fails |  | DuckDB has no IS_CHAR, and the rules don't rewrite it |
-| `IS_VARCHAR` | Fails |  | DuckDB has no IS_VARCHAR, and the rules don't rewrite it |
-| `IS_DATE` | Fails |  | DuckDB has no IS_DATE, and the rules don't rewrite it |
-| `IS_DATE_VALUE` | Fails |  | DuckDB has no IS_DATE_VALUE, and the rules don't rewrite it |
-| `IS_DECIMAL` | Fails |  | DuckDB has no IS_DECIMAL, and the rules don't rewrite it |
-| `IS_DOUBLE` | Fails |  | DuckDB has no IS_DOUBLE, and the rules don't rewrite it |
-| `IS_REAL` | Fails |  | DuckDB has no IS_REAL, and the rules don't rewrite it |
-| `IS_INTEGER` | Fails |  | DuckDB has no IS_INTEGER, and the rules don't rewrite it |
-| `IS_NULL_VALUE` | Runs |  | 1 value check |
-| `IS_OBJECT` | Fails |  | DuckDB has no IS_OBJECT, and the rules don't rewrite it |
-| `IS_TIME` | Fails |  | DuckDB has no IS_TIME, and the rules don't rewrite it |
-| `IS_TIMESTAMP_LTZ` | Fails |  | DuckDB has no IS_TIMESTAMP_LTZ, and the rules don't rewrite it |
-| `IS_TIMESTAMP_NTZ` | Fails |  | DuckDB has no IS_TIMESTAMP_NTZ, and the rules don't rewrite it |
-| `IS_TIMESTAMP_TZ` | Fails |  | DuckDB has no IS_TIMESTAMP_TZ, and the rules don't rewrite it |
+| `IS_ARRAY` | Runs |  | 1 value check |
+| `IS_BOOLEAN` | Runs |  | 1 value check |
+| `IS_BINARY` | Runs |  | 1 value check |
+| `IS_CHAR` | Runs |  | 1 value check |
+| `IS_VARCHAR` | Runs |  | 1 value check |
+| `IS_DATE` | Runs |  | 1 value check |
+| `IS_DATE_VALUE` | Runs |  | 1 value check |
+| `IS_DECIMAL` | Differs |  | IS_DECIMAL (vartab): SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
+| `IS_DOUBLE` | Runs |  | 3 value checks |
+| `IS_REAL` | Runs |  | 2 value checks |
+| `IS_INTEGER` | Runs |  | 4 value checks |
+| `IS_NULL_VALUE` | Runs |  | 2 value checks |
+| `IS_OBJECT` | Runs |  | 1 value check |
+| `IS_TIME` | Runs |  | 1 value check |
+| `IS_TIMESTAMP_LTZ` | Refused |  | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `IS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
+| `IS_TIMESTAMP_TZ` | Refused |  | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `TYPEOF` | Differs |  | TYPEOF (stored value with an exponent): A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
 
 ## Aggregate
@@ -546,7 +547,7 @@ the known differences in more detail.
 | `ILIKE ANY` | Not checked | `SELECT 'ABC' ILIKE ANY ('x%', 'a%')` |  |
 | `REGEXP` | Not checked | `SELECT 'abc' REGEXP 'a.c'` |  |
 | `IS DISTINCT FROM` | Not checked | `SELECT 1 IS DISTINCT FROM NULL` |  |
-| `Path (v:a)` | Runs |  | 1 value check |
+| `Path (v:a)` | Runs |  | 5 value checks |
 | `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
 | `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
 | `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |

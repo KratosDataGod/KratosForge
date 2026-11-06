@@ -323,6 +323,12 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
     grading = _grading(pack_id, eid, root)
     names = [ex[k] for k in ("lesson", "setup", "starter") if ex.get(k)] + list(ex.get("files") or [])
     names += list((ex.get("children") or {}).values()) if isinstance(ex.get("children"), dict) else []
+    names += list(ex.get("notebooks") or []) if isinstance(ex.get("notebooks"), list) else []
+    if ex.get("adapter") == "pyspark_lab":
+        from . import pyspark_lab   # it imports this module
+        out += [f"{eid}: {p}" for p in pyspark_lab.asset_problems(ex)]
+    elif ex.get("notebooks") or ex.get("files_folder"):
+        out.append(f"{eid}: notebooks and files_folder are for pyspark_lab exercises")
     for name in names:
         if not isinstance(name, str) or not _FILE.match(name) or ".." in name:
             out.append(f"{eid}: {name!r} isn't a plain file name in the exercise's folder")

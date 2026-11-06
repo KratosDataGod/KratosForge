@@ -47,6 +47,7 @@ from typing import Any
 import duckdb
 
 from .. import jsonfile
+from ..git import ops as git_ops
 from ..learn import checks
 from ..learn import labs as learn_labs
 from . import configlab, dbsql_lab, exercises, gitlab, pylab, quizlab, registry, sandbox, sqlprojlab
@@ -280,11 +281,15 @@ def _run_git(root: Path, pack_id: str, exercise_id: str, text: str, limit: int) 
     if len(text.encode("utf-8")) > MAX_ANSWER_BYTES:
         raise ValueError("That session is over 1 MB; an exercise answer is much smaller.")
     began = time.perf_counter()
+    left = ws.inside(folder, RUN_DIR, must_exist=False)
+    if os.path.lexists(left):   # what an earlier run couldn't remove; refused when it is a link
+        ws.inside(folder, RUN_DIR)
+        git_ops.remove_clone(left)
     work = _fresh_dir(folder, RUN_DIR)
     try:
         got = gitlab.run(work, _exercise_folder(pack_id, exercise_id), ex, text, min(max(1, int(limit)), 1000))
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        git_ops.remove_clone(work)   # Git keeps its objects read-only, which Windows won't delete as they are
     return {**got, "ms": round((time.perf_counter() - began) * 1000)}
 
 

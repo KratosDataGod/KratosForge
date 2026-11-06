@@ -5623,7 +5623,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
     agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
-    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
+    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
     pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",

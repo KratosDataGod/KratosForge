@@ -23,6 +23,10 @@ OWN = {
     "jsonfile.py": "the shared helper",
     "leases.py": "retries a shared lease file for longer (_while_shared)",
     "meta/snapshot.py": "moves a whole folder of release files into place",
+    # These two run only in an Academy learner's process (kf_learner, academy/learner_pkg.py), which can't
+    # import jsonfile; the files are in the exercise's own folder, which nothing else holds open.
+    "academy/notebookutils_lab.py": "notebookutils.fs.mv in a learner's exercise folder",
+    "academy/pyspark_stream.py": "a stream's checkpoint in a learner's exercise folder",
 }
 
 

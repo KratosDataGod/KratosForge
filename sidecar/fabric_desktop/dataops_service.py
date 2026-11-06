@@ -139,6 +139,7 @@ class DataOpsMixin:
         """What the project's tables change by meaning, against the last Git commit ("head") or
         the version last promoted to an environment ("test", "prod")."""
         project = self._project()  # type: ignore[attr-defined]
+        base: dict[str, str] | None
         if against == "head":
             files = release.committed(project.root, "metadata/entities", ".toml")
             if files is None:

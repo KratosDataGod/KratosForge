@@ -84,10 +84,6 @@
  "fabric_desktop/cpu_cap.py": {
   "syntax": 1
  },
- "fabric_desktop/dataops_service.py": {
-  "arg-type": 4,
-  "assignment": 1
- },
  "fabric_desktop/dbutils_local.py": {
   "misc": 1,
   "operator": 1,
@@ -259,9 +255,6 @@
  },
  "fabric_desktop/meta/compare.py": {
   "operator": 2
- },
- "fabric_desktop/meta/diff.py": {
-  "dict-item": 2
  },
  "fabric_desktop/meta/drift.py": {
   "arg-type": 1,

@@ -355,7 +355,8 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
     elif ex["adapter"] == configlab.ADAPTER:
         results = _with_messages(ex, configlab.grade(answer, ex)["results"])
     elif ex["adapter"] == quizlab.ADAPTER:
-        results = _with_messages(ex, quizlab.grade(answer, ex, quizlab.load(_grading_folder(pack_id, exercise_id)))["results"])
+        questions = quizlab.load(_grading_folder(pack_id, exercise_id))
+        results = _with_messages(ex, quizlab.grade(answer, ex, questions)["results"])
     elif ex["adapter"] == "dbsql_lab":
         results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
                                       connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),
@@ -364,11 +365,20 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         results = _check_duckdb(ex, exercises.reference(pack_id, exercise_id), answer)
     st = _state(folder)
     passed = all(r["passed"] for r in results)
+    if ex["adapter"] == quizlab.ADAPTER:   # answers changed after a failed check: the pass isn't independent
+        picks = quizlab.parse(answer)[0] or {}
+        raw = st.get("quiz_checked")
+        checked: dict[str, list[str]] = dict(raw) if isinstance(raw, dict) else {}
+        if quizlab.changed(questions, checked, picks):
+            st["answers_changed"] = True
+        if not passed:
+            st["quiz_checked"] = {**checked, **{k: v for k, v in picks.items() if v}}
     st["last"] = {"passed": passed, "checks": [{"kind": r["kind"], "passed": r["passed"]} for r in results]}
     _write_state(folder, st)
     return {"pack": pack_id, "exercise": exercise_id, "version": ex["version"], "passed": passed, "results": results,
             "verification": exercises.label(ex), "hints_used": int(st.get("hints_used") or 0),
-            "explanation_seen": bool(st.get("explanation_seen"))}
+            "explanation_seen": bool(st.get("explanation_seen")),
+            "answers_changed": bool(st.get("answers_changed"))}
 
 
 def hint(root: Path, pack_id: str, exercise_id: str, level: int) -> dict[str, Any]:

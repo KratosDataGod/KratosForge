@@ -95,9 +95,10 @@ def pid_running(pid: int) -> bool:
 
 def _remove(path: Path) -> int | None:
     """Delete a file or folder; its size, or None when something in it is in use (Windows keeps an
-    open file: a write still uploading, a DuckDB file a run has open) and it was left."""
-    size = sum(p.stat().st_size for p in path.rglob("*") if p.is_file()) if path.is_dir() else path.stat().st_size
+    open file: a write still uploading, a DuckDB file a run has open) and it was left. A file that
+    goes while this looks (its upload finished) counts as nothing, rather than failing the clear-up."""
     try:
+        size = _usage(path, 0)["bytes"] if path.is_dir() else path.stat().st_size
         if path.is_dir():
             shutil.rmtree(path)
         else:

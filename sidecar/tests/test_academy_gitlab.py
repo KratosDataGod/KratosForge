@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 import json
 import shutil
+import sys
 
 import pytest
 
@@ -421,3 +422,71 @@ def test_run_of_a_refused_session_says_why(svc):
     svc.academy_start(PACK, EID)
     with pytest.raises(ValueError, match="git push isn't part of this lab"):
         svc.academy_run(PACK, EID, "git push\n")
+
+
+# ---- limits: each command in a Job Object (Windows) or its own limited session
+
+def _plain_env() -> dict[str, str]:
+    import os
+    return {k: os.environ[k] for k in ("SYSTEMROOT", "SystemRoot", "PATH") if k in os.environ}
+
+
+def test_every_git_command_runs_contained_with_the_labs_limits(folder, tmp_path, monkeypatch):
+    seen = []
+    real = gitlab.sandbox.contained
+
+    def spy(argv, cwd, env, **limits):
+        seen.append(limits)
+        return real(argv, cwd, env, **limits)
+
+    monkeypatch.setattr(gitlab.sandbox, "contained", spy)
+    (tmp_path / "run").mkdir()
+    gitlab.run(tmp_path / "run", folder, EX, SOLUTION)
+    assert seen and all(s["memory_limit"] == gitlab.MEMORY_LIMIT and s["cpu_limit"] == gitlab.CPU_SECONDS
+                        and s["processes"] == gitlab.PROCESSES and s["timeout"] <= gitlab.STEP_SECONDS for s in seen)
+
+
+@pytest.mark.parametrize(("result", "code", "said"), [
+    ({"timed_out": True, "memory_hit": False}, 124, "took longer than 15 seconds"),
+    ({"timed_out": False, "memory_hit": True}, 125, "used more than 512 MB of memory"),
+])
+def test_a_command_stopped_at_a_limit_says_which(tmp_path, monkeypatch, result, code, said):
+    monkeypatch.setattr(gitlab.sandbox, "contained",
+                        lambda *a, **k: {"exit_code": 1, "stdout": b"", "stderr": b"", **result})
+    (tmp_path / "repo").mkdir()
+    got = gitlab._git(tmp_path / "repo", ["status"])
+    assert got[0] == code and said in got[1]
+
+
+def test_a_command_that_runs_out_of_time_takes_what_it_started_with_it(tmp_path):
+    """The command's own child outlives it unless the job or group ends it: it would write ``late``."""
+    import sys
+    import time
+    child = "import time; time.sleep(3); open('late', 'w').close()"
+    parent = f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(60)"
+    began = time.monotonic()
+    out = gitlab.sandbox.contained([sys.executable, "-c", parent], tmp_path, _plain_env(), timeout=1.5,
+                                   memory_limit=gitlab.MEMORY_LIMIT, cpu_limit=30, processes=4)
+    assert out["timed_out"] and time.monotonic() - began < 20
+    time.sleep(4)
+    assert not (tmp_path / "late").exists()
+
+
+def test_a_command_over_its_memory_limit_is_stopped(tmp_path):
+    import sys
+    code = "b = bytearray(700 * 1024 * 1024); print('done')"
+    out = gitlab.sandbox.contained([sys.executable, "-c", code], tmp_path, _plain_env(), timeout=60,
+                                   memory_limit=256 * 1024 ** 2, cpu_limit=30, processes=4)
+    assert out["exit_code"] != 0 and b"done" not in out["stdout"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Job Objects are Windows only")
+def test_windows_job_holds_the_process_limit_and_refuses_breakaway(tmp_path):
+    code = ("import subprocess, sys\n"
+            "try:\n    subprocess.run([sys.executable, '-c', 'pass'], creationflags=0x01000000)\n"   # BREAKAWAY_FROM_JOB
+            "except OSError:\n    print('no breakaway')\n"
+            "try:\n    subprocess.run([sys.executable, '-c', 'pass'])\n"
+            "except OSError:\n    print('no child')\n")
+    out = gitlab.sandbox.contained([sys.executable, "-I", "-c", code], tmp_path, _plain_env(), timeout=60,
+                                   memory_limit=gitlab.MEMORY_LIMIT, cpu_limit=30, processes=1)
+    assert b"no breakaway" in out["stdout"] and b"no child" in out["stdout"]

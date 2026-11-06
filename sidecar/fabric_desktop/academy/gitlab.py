@@ -22,7 +22,9 @@ replay goes on; a line this lab refuses stops it.
 What the session may do. Git runs as an argument list (never a shell), in that repository only
 (``GIT_DIR`` and ``GIT_WORK_TREE`` name it), with no global or system configuration, no hooks, no
 editor, no pager, no credential helper and no transports (``protocol.allow=never``), and a time
-limit per command and per session. Only the subcommands in ``SUBCOMMANDS`` run, and nothing may come
+limit per command and per session. Each command runs in a Job Object on Windows (memory, CPU time
+and process limits, no breakaway, killed with everything it started when it ends or runs out of
+time) or in its own limited session elsewhere (``sandbox.contained``). Only the subcommands in ``SUBCOMMANDS`` run, and nothing may come
 before the subcommand, so ``-c``, ``-C`` and ``--git-dir`` can't change where or how Git runs. Options
 that write or read files outside the repository, run another program, or sign are refused
 (``REFUSED``), as is any argument that is an absolute path, starts with ``~`` or has a ``..``
@@ -52,14 +54,13 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .. import jsonfile
-from . import validators
+from . import sandbox, validators
 from . import workspace as ws
 
 ADAPTER = "git_lab"
@@ -70,6 +71,12 @@ MAX_STEPS = 200                 # lines that do something
 MAX_FILE = 256 * 1024           # one file a check reads from the repository
 STEP_SECONDS = 15
 SESSION_SECONDS = 90
+# Each git command runs in a Job Object (Windows) or its own limited session (elsewhere), killed with
+# everything it started when it ends or runs out of time. Git for Windows' git.exe starts the real
+# git as a child, and a command may start a few helpers, so a handful of processes are allowed.
+MEMORY_LIMIT = 512 * 1024 ** 2   # bytes for one command and everything it starts
+CPU_SECONDS = STEP_SECONDS       # CPU time for one command
+PROCESSES = 16                   # processes alive at once in one command's job
 OUTPUT_CHARS = 4000             # of one command's output, as the screen shows it
 # Fixed identity and time: the same session always makes the same commits.
 NAME, EMAIL, WHEN = "Academy Learner", "learner@academy.invalid", "2026-01-05T09:00:00+00:00"
@@ -268,7 +275,6 @@ _OPTIONS = ["-c", "core.fsmonitor=false", "-c", "protocol.allow=never",
             "-c", "core.quotepath=false", "-c", "color.ui=false", "-c", "advice.detachedHead=false",
             "-c", "init.defaultBranch=main", "-c", "merge.conflictStyle=merge", "-c", "core.symlinks=false",
             "-c", "user.name=" + NAME, "-c", "user.email=" + EMAIL]
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _git(repo: Path, argv: list[str], timeout: float = STEP_SECONDS) -> tuple[int, str]:
@@ -278,13 +284,14 @@ def _git(repo: Path, argv: list[str], timeout: float = STEP_SECONDS) -> tuple[in
         home.mkdir()
         jsonfile.write_text(home / "gitconfig", "")
     hooks = ["-c", "core.hooksPath=" + str(home / "no-hooks")]   # a folder that is never made
-    try:
-        out = subprocess.run([git_exe(), *hooks, *_OPTIONS, *argv], cwd=repo, env=_environment(repo, home), capture_output=True,
-                             stdin=subprocess.DEVNULL, timeout=timeout, creationflags=_NO_WINDOW, check=False)
-    except subprocess.TimeoutExpired:
-        return 124, f"Stopped: git {argv[0] if argv else ''} took longer than {int(timeout)} seconds."
-    text = (out.stdout + out.stderr).decode("utf-8", "replace")
-    return out.returncode, text
+    out = sandbox.contained([git_exe(), *hooks, *_OPTIONS, *argv], repo, _environment(repo, home), timeout=timeout,
+                            memory_limit=MEMORY_LIMIT, cpu_limit=CPU_SECONDS, processes=PROCESSES)
+    name = argv[0] if argv else ""
+    if out["timed_out"]:
+        return 124, f"Stopped: git {name} took longer than {int(timeout)} seconds."
+    if out["memory_hit"]:
+        return 125, f"Stopped: git {name} used more than {MEMORY_LIMIT // 1024 ** 2} MB of memory."
+    return int(out["exit_code"]), (out["stdout"] + out["stderr"]).decode("utf-8", "replace")
 
 
 def _must(repo: Path, argv: list[str]) -> str:

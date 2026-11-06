@@ -345,7 +345,10 @@ def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], 
         except OSError:
             _log.warning("restore: couldn't put %s back; its copy is in restore-safety", dest, exc_info=True)
     for tmp in staged:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:  # the error that stopped the restore is the one to raise, not this
+            _log.warning("restore: couldn't remove %s", tmp, exc_info=True)
 
 
 def describe(result: dict[str, Any]) -> str:

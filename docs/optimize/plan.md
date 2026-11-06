@@ -110,7 +110,7 @@ Chris's unit testing (2026-10-18, items 9 and 10): every finding gets an in-app 
 - Every finding kind (small files, not changing, needs vacuum, empty, unidentified folders, access, cost, adopt) has an action or a "How to fix this" guide; a test fails if a kind has neither.
 
 ### OPT-012: Optimize motion events
-Optimize has no events in the motion system (`FORGE_EVENTS` in `app/ui/motion.js`). Add `optimize.analysis.finished`, `optimize.recommendation.applied` and `optimize.savings.verified`, on finished state changes only, using the existing effects and settings. Per the motion brief, savings figures are never animated in a way that makes them look bigger, and only a Measured result gets the verified effect.
+Built in part: `optimize.analysis.finished` and `optimize.recommendation.applied`; `optimize.savings.verified` waits for Measured savings rows (OPT-004) and the screen that shows them. Optimize had no events in the motion system (`FORGE_EVENTS` in `app/ui/motion.js`). Add `optimize.analysis.finished`, `optimize.recommendation.applied` and `optimize.savings.verified`, on finished state changes only, using the existing effects and settings. Per the motion brief, savings figures are never animated in a way that makes them look bigger, and only a Measured result gets the verified effect.
 
 ### OPT-013: Local vs Fabric advisor screen
 FINOPS-005's placement advice (RECOMMEND LOCAL, RECOMMEND FABRIC, EITHER, INSUFFICIENT INFORMATION) exists only for AI tools (`fabric_desktop_placement_advice`); PB-017 was accepted with "has no screen" as its limitation. Show it next to the notebook's Runs on control, with its evidence one click away, never switching the choice for the person. Mockup first.

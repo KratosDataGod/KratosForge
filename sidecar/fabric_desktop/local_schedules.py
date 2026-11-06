@@ -97,7 +97,16 @@ def next_run(config: dict[str, Any], now: dt.datetime | None = None) -> dt.datet
         step = dt.timedelta(minutes=int(config["interval"]))
         if start > now:
             return start
-        return start + step * ((now - start) // step + 1)
+        nxt = start + step * ((now - start) // step + 1)
+        # When the clocks go back an hour the wall clock repeats it, so a wall time in that hour names
+        # two moments (fold 0 and 1). Stepping by wall time alone skipped the repeated hour, or from
+        # inside it named a moment already past. The next run is the first grid time, at either
+        # moment, that is still to come.
+        if now.fold or nxt.timestamp() - now.timestamp() > step.total_seconds():
+            span = int(dt.timedelta(hours=1) / step) + 1
+            grid = [(nxt + k * step).replace(fold=f) for k in range(-span, span + 1) for f in (0, 1)]
+            nxt = min((g for g in grid if g.timestamp() > now.timestamp()), key=lambda g: g.timestamp())
+        return nxt
     times = sorted(config.get("times") or [])
     days = set(range(7)) if kind == "Daily" else {WEEKDAYS.index(d) for d in config.get("weekdays") or []}
     if not times or not days:

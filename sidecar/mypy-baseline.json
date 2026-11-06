@@ -72,17 +72,8 @@
   "arg-type": 1,
   "assignment": 1
  },
- "fabric_desktop/costs.py": {
-  "arg-type": 2,
-  "no-redef": 1,
-  "union-attr": 1
- },
  "fabric_desktop/cpu_cap.py": {
   "syntax": 1
- },
- "fabric_desktop/dataops_service.py": {
-  "arg-type": 4,
-  "assignment": 1
  },
  "fabric_desktop/dbutils_local.py": {
   "misc": 1,
@@ -196,10 +187,6 @@
   "assignment": 1,
   "operator": 1
  },
- "fabric_desktop/jobqueue.py": {
-  "assignment": 2,
-  "valid-type": 1
- },
  "fabric_desktop/jobs.py": {
   "arg-type": 1,
   "operator": 1
@@ -246,18 +233,11 @@
  "fabric_desktop/meta/compare.py": {
   "operator": 2
  },
- "fabric_desktop/meta/diff.py": {
-  "dict-item": 2
- },
  "fabric_desktop/meta/drift.py": {
   "arg-type": 1,
   "call-overload": 1,
   "index": 4,
   "union-attr": 1
- },
- "fabric_desktop/meta/keys.py": {
-  "arg-type": 2,
-  "attr-defined": 3
  },
  "fabric_desktop/meta/lineage.py": {
   "arg-type": 1
@@ -287,9 +267,6 @@
  },
  "fabric_desktop/meta/varlib.py": {
   "operator": 1
- },
- "fabric_desktop/meta_service.py": {
-  "arg-type": 2
  },
  "fabric_desktop/model_directlake_service.py": {
   "var-annotated": 1
@@ -370,10 +347,6 @@
  },
  "fabric_desktop/scorecard.py": {
   "arg-type": 1
- },
- "fabric_desktop/semantic.py": {
-  "arg-type": 4,
-  "assignment": 1
  },
  "fabric_desktop/server.py": {
   "union-attr": 1
@@ -459,14 +432,8 @@
   "has-type": 1,
   "misc": 2
  },
- "fabric_desktop/workload_service.py": {
-  "operator": 2
- },
  "fabric_desktop/workloads/platform_notify.py": {
   "index": 1
- },
- "fabric_desktop/workloads/queue.py": {
-  "var-annotated": 1
  },
  "fabric_desktop/workloads/run_as.py": {
   "union-attr": 2

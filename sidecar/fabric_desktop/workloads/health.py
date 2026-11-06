@@ -111,8 +111,8 @@ def assess(w: dict[str, Any]) -> dict[str, Any]:
         health = "late"
     elif "attention" in levels and any(f["kind"] in ("run", "freshness") for f in fs if f["level"] == "attention"):
         health = "attention"
-    elif not observed:
-        health = "unknown"
+    elif not observed or any(f["kind"] == "run" and f["level"] == "unknown" for f in fs):
+        health = "unknown"  # a last run whose status isn't known says nothing about how it went
     elif not ran:
         health = "idle"
     else:

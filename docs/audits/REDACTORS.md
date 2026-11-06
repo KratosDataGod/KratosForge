@@ -37,6 +37,9 @@ The values are: removed; masked (only the first characters stay, so a person can
 | Storage `AccountKey=` | removed | removed | removed | removed | removed |
 | git `extraheader` | removed | removed | removed | removed | removed |
 | Quoted `'password': '…'` | removed | removed | removed | removed | removed |
+| GitLab token (`glpat-`) | removed | removed | removed | removed | removed |
+| npm token (`npm_`) | removed | removed | removed | removed | removed |
+| Slack webhook (`hooks.slack.com`) | removed | removed | removed | removed | removed |
 | Bare `token=` in a URL | removed | removed | removed | removed | removed |
 
 ## Where they differ

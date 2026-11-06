@@ -145,6 +145,8 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 
 The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
 
+[T-SQL functions on this PC](tsql-functions.md) lists every T-SQL function, operator and statement with its status here.
+
 **Refused, not half-translated:** `ISNUMERIC` (use `TRY_CAST(x AS FLOAT) IS NOT NULL` for now), `POWER` of a decimal such as `POWER(2.5, 2)` (T-SQL keeps the decimal's scale; cast the base to `FLOAT`), `SYSDATETIMEOFFSET` (use `SYSUTCDATETIME()`: a warehouse's clock is UTC), `MONEY` and `SMALLMONEY`, and so their conversion styles (use `DECIMAL(19, 4)` and `DECIMAL(10, 4)`), any function DuckDB doesn't have, such as `ISDATE`, `CHECKSUM` or `TRY_PARSE` (each is named in the message), variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.

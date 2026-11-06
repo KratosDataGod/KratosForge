@@ -341,15 +341,6 @@
   "arg-type": 1,
   "assignment": 2
  },
- "fabric_desktop/workloads/evaluate.py": {
-  "union-attr": 1
- },
- "fabric_desktop/workloads/platform_notify.py": {
-  "index": 1
- },
- "fabric_desktop/workloads/run_as.py": {
-  "union-attr": 2
- },
  "fabric_desktop/wrangler.py": {
   "assignment": 2
  },

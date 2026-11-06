@@ -74,7 +74,7 @@ def test_reference_passes_and_wrong_answers_fail(tmp_path):
     ("not json", "isn't valid JSON"),
     ("[" * 100_000 + "]" * 100_000, "nested too deeply"),
     (" " * (configlab.MAX_BYTES + 1), "over 1 MB"),
-])
+], ids=["unclosed", "not-json", "deep-nesting", "oversized"])   # short ids: Windows caps PYTEST_CURRENT_TEST
 def test_a_document_that_cant_be_read_fails_every_check_in_words(answer, said):
     res = configlab.grade(answer, EX)
     assert not res["passed"] and len(res["results"]) == 2

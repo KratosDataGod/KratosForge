@@ -10,7 +10,9 @@ delta-rs, without V-Order.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
+import stat
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -175,12 +177,47 @@ def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
     # full: also the data files no version of the log names (a write stopped before its commit), once
-    # they're as old as the history kept, so a write still under way never loses one.
+    # they're as old as the history kept, so a write still under way never loses one. A full VACUUM
+    # follows a linked folder inside the table and would delete old files wherever it points, so a
+    # table with one gets the plain VACUUM, which deletes only files a commit removed.
+    linked = _linked(uri)
     removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
-                           full=True)
+                           full=not linked)
     staged = _remove_staged(uri)
-    return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
-            "vacuumed": len(removed), "staged_removed": staged}
+    out = {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
+           "vacuumed": len(removed), "staged_removed": staged}
+    if linked:
+        out["note"] = (f"{linked} is a linked folder, so files no commit names were left in place: only files a "
+                       f"commit removed were vacuumed")
+    return out
+
+
+def _is_link(entry: os.DirEntry[str]) -> bool:
+    """A symbolic link, or on Windows any reparse point (a junction, a mount point)."""
+    if entry.is_symlink():
+        return True
+    attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def _walk(uri: str) -> Any:
+    """(entry, is_link) for everything under the table folder, never going into a linked folder."""
+    stack = [uri]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                link = _is_link(entry)
+                yield entry, link
+                if not link and entry.is_dir(follow_symlinks=False):
+                    stack.append(entry.path)
+
+
+def _linked(uri: str) -> str | None:
+    """The first link or reparse point under the table folder, relative to it; None when there's none."""
+    for entry, link in _walk(uri):
+        if link:
+            return Path(entry.path).relative_to(uri).as_posix()
+    return None
 
 
 def _stale_staged(uri: str) -> list[Path]:
@@ -188,10 +225,11 @@ def _stale_staged(uri: str) -> list[Path]:
     STALE_STAGED_HOURS: data files and log commits a stopped write never put in place."""
     cutoff = time.time() - STALE_STAGED_HOURS * 3600
     out = []
-    for p in Path(uri).rglob("*"):
+    for entry, link in _walk(uri):
         try:
-            if _STAGED.search(p.name) and p.is_file() and p.stat().st_mtime < cutoff:
-                out.append(p)
+            if (not link and _STAGED.search(entry.name) and entry.is_file(follow_symlinks=False)
+                    and entry.stat(follow_symlinks=False).st_mtime < cutoff):
+                out.append(Path(entry.path))
         except OSError:  # silent-ok: gone meanwhile
             continue
     return out
@@ -215,13 +253,15 @@ def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
     files no version of the log names, and stale staged files (_stale_staged). Only files untouched
     for STALE_STAGED_HOURS, so a write still under way isn't counted. Nothing is deleted."""
     table = table or DeltaTable(uri)
+    root = Path(uri)
+    cutoff = time.time() - STALE_STAGED_HOURS * 3600
+    out = {p.relative_to(root).as_posix() for p in _stale_staged(uri)}
+    if _linked(uri):  # a full VACUUM would list what the link points at; Compact doesn't run one here
+        return sorted(out)
     # A full VACUUM's dry run lists every file the log doesn't keep; the plain one only those a commit
     # removed. What's in the first and not the second, no commit ever named.
     kept_by_none = set(table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False, full=True))
     removed = set(table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False))
-    root = Path(uri)
-    cutoff = time.time() - STALE_STAGED_HOURS * 3600
-    out = {p.relative_to(root).as_posix() for p in _stale_staged(uri)}
     for rel in kept_by_none - removed:
         try:
             if (root / rel).stat().st_mtime < cutoff:

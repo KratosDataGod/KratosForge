@@ -107,3 +107,33 @@ def test_a_healthy_local_table_reports_no_leftovers(tmp_path):
     h = maintenance.health(uri, local=True)
     assert h["leftover_files"] == 0 and not any("stopped part way" in a for a in h["advice"])
     assert maintenance.leftovers(uri) == []  # the overwritten file is VACUUM's, not a leftover
+
+
+def _link_folder(link: Path, target: Path) -> None:
+    """A symbolic link, or on Windows without the right to make one, a junction."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except OSError:
+        if os.name != "nt":
+            raise
+        import subprocess
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+
+
+def test_compact_never_deletes_through_a_linked_folder(tmp_path):
+    uri, left = _stopped_writes(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    kept = [outside / "precious.parquet", outside / "notes.txt", outside / "part-00000-x-c000.snappy.parquet#1"]
+    for p in kept:
+        p.write_text("not the table's")
+        _age(p, 30 * 24)
+    _link_folder(Path(uri) / "linked", outside)
+    assert all(not p.startswith("linked") for p in maintenance.leftovers(uri))
+    result = maintenance.compact_local(uri, days=7)
+    assert all(p.exists() for p in kept)
+    assert "linked folder" in result["note"]
+    # The table's own staged leftovers still go; data files no commit names wait for a table with no link.
+    assert not left["staged_data"].exists() and not left["staged_commit"].exists()
+    assert left["old_orphan"].exists()
+    assert _rows(uri) == [1, 2, 3, 4]

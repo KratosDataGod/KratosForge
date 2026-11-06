@@ -83,7 +83,7 @@ Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so 
 | OPT-012 | Optimize motion events | Planned, with OPT-004 |
 | OPT-013 | Local vs Fabric advisor screen (FinOps advisor) | Planned, mockup first |
 | OPT-005 | Dashboard and reports | Planned, mockup first |
-| OPT-008 | Security and retention | Planned |
+| OPT-008 | Security and retention | Security doc in review; the retention action needs a mockup first |
 | OPT-009 | Optimize's own overhead | Planned |
 
 OPT-010 to 013 were found missing in the closed-thread audit of 2026-11-03: Chris asked for them (unit testing items 9 and 10 on 2026-10-18, the action-first go on 2026-10-26, the FinOps brief's FINOPS-005 screen, the motion brief's Optimization experience) and the threads that held them closed without building them.
@@ -132,6 +132,7 @@ Register, switch and disconnect are in (#186). Left: an explicit **Upgrade** for
 Overview totals read from the shared tables, grouped by classification, with each figure's evidence one click away. An optional Power BI model over the `fdopt_` tables is a separate decision for Chris. Mockup first.
 
 ### OPT-008: Security and retention
+- Built: `docs/optimize/security.md`, and a recommendation's reason is shared with secrets removed.
 - `docs/optimize/security.md`: who can read what, what each table holds, what counts as identifying (table and workspace names), the read-only reporting role (ReadAll), and what's verified on a tenant versus not.
 - Retention: `retention_days` exists as a setting but nothing enforces it. Deleting shared rows is destructive, so retention will be an administrator action with a dry run that lists what would go, never automatic, and recorded in `fdopt_audit`.
 

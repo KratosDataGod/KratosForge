@@ -166,6 +166,17 @@ def test_recommendation_lifecycle_is_events_and_checks_moves(tmp_path, lake):
     assert changes["outcome"].to_list() == ["dismissed", "open"]
 
 
+def test_a_reason_is_shared_without_secrets(tmp_path, lake):
+    me = pc(tmp_path, lake=lake)
+    analysis(me, "r1", [finding()], [{"workspace_id": "w1", "item_id": "i1", "rule_id": "small_files",
+                                      "target": "dbo.sales", "kind": "optimize"}])
+    rid = me.recommendations()[0]["recommendation_id"]
+    # Everyone who reads the lakehouse sees the reason, so anything credential-shaped is removed first.
+    out = me.set_recommendation_state(rid, "dismissed", "Retired, see https://x.blob.core.windows.net/c?sig=abc123SECRET")
+    assert "abc123SECRET" not in out["state_reason"] and out["state_reason"].startswith("Retired")
+    assert not any("abc123SECRET" in (r or "") for r in lake.rows("fdopt_recommendations")["reason"].to_list())
+
+
 def test_a_change_from_a_pc_with_a_slow_clock_still_wins(tmp_path, lake, monkeypatch):
     me = pc(tmp_path, lake=lake)
     analysis(me, "r1", [finding()], [{"workspace_id": "w1", "item_id": "i1", "rule_id": "small_files",

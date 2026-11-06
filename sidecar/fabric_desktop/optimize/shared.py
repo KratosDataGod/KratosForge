@@ -27,6 +27,7 @@ from typing import Any, Iterable
 
 import polars as pl
 
+from .. import redact
 from . import schema, setup
 from .installation import Installation
 
@@ -226,7 +227,7 @@ class Shared:
         at = _after(current["changed_at"])
         event = {"record_id": record_id("recommendation-state", recommendation_id_, state, at, self.installation.id),
                  "recommendation_id": recommendation_id_, "fingerprint": current["fingerprint"],
-                 "kind": current["kind"], "state": state, "reason": (reason or "")[:500] or None, "impact": current["impact"],
+                 "kind": current["kind"], "state": state, "reason": redact.secrets(reason or "")[:500] or None,  # everyone who reads the lakehouse sees it "impact": current["impact"],
                  "effort": current["effort"], "confidence": current["confidence"], "at": at}
         self._write("recommendations", [event])
         self._write("audit", [{"record_id": record_id("audit", event["record_id"]), "at": at,

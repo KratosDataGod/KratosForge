@@ -193,10 +193,14 @@ def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
 
 
 def _is_link(entry: os.DirEntry[str]) -> bool:
-    """A symbolic link, or on Windows any reparse point (a junction, a mount point)."""
-    if entry.is_symlink():
+    """A symbolic link, or on Windows any reparse point (a junction, a mount point). An entry gone
+    meanwhile counts as one, so the walk skips it."""
+    try:
+        if entry.is_symlink():
+            return True
+        attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+    except OSError:  # silent-ok: gone meanwhile; skipped like a link
         return True
-    attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 

@@ -245,10 +245,6 @@
  "fabric_desktop/meta/mesh.py": {
   "union-attr": 1
  },
- "fabric_desktop/meta/objectives.py": {
-  "operator": 1,
-  "union-attr": 4
- },
  "fabric_desktop/meta/project.py": {
   "operator": 1,
   "union-attr": 1

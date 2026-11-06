@@ -65,6 +65,10 @@
   --surface-warm: #faf9f8;
   --muted-3: #707070;
   --code-ref: #1d4f2f;
+  --code-comment: #5f6b5f;
+  --code-number: #0b7a3e;
+  --text-disabled: #a19f9d;
+  --bar-neutral: #9e9e9e;
 }
 
 * { box-sizing: border-box; }
@@ -172,7 +176,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 13px; cursor: pointer; white-space: nowrap;
 }
 .tool:hover:not(:disabled) { background: var(--hover); }
-.tool:disabled { color: #a19f9d; cursor: default; }
+.tool:disabled { color: var(--text-disabled); cursor: default; }
 .tool.outline { border-color: var(--border-input); }
 .tool.primary { background: var(--accent); color: var(--on-accent); }
 .tool.primary:hover:not(:disabled) { background: var(--accent-dark); }
@@ -284,7 +288,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-edit { background: var(--surface); }
 .cm-tooltip-autocomplete .cm-completionIcon { width: 1em; }
 .cm-panels { font-size: 12px; }
-.kw { color: #0f4fa8; } .str { color: #a3420f; } .fn { color: #6b3fa0; } .cm { color: #5f6b5f; } .num { color: #0b7a3e; } .bi { color: #0e6f8a; }
+.kw { color: #0f4fa8; } .str { color: #a3420f; } .fn { color: #6b3fa0; } .cm { color: var(--code-comment); } .num { color: var(--code-number); } .bi { color: #0e6f8a; }
 .md-h { color: var(--accent-dark); font-weight: 600; }
 
 .md-view { padding: 8px 16px; color: var(--text-2); line-height: 1.5; }
@@ -2440,7 +2444,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .pl-row .n { text-align: right; font-variant-numeric: tabular-nums; }
 .pl-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-track { position: relative; height: 12px; background: #f3f3f3; border-radius: 3px; }
-.pl-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; background: #9e9e9e; }
+.pl-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; background: var(--bar-neutral); }
 .pl-bar.ok { background: #2e7d4f; } .pl-bar.bad { background: var(--danger); } .pl-bar.run { background: var(--accent); }
 
 /* Panel and dialog transitions (motion.js motionPanes, motionLeave): Minimal and above, transform and

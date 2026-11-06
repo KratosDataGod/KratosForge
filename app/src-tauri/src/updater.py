@@ -272,7 +272,7 @@ def _blocked_files(probe) -> dict | None:
 CERT_HINT = ("HTTPS was refused because GitHub's certificate isn't trusted on this PC. If your network "
              "inspects HTTPS, ask IT to add its root certificate to Windows.")
 PROXY_HINT = ("The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy "
-              "Windows is set to, or HTTPS_PROXY; a proxy that asks for a sign-in of its own (407) isn't supported.")
+              "Windows is set to, or HTTPS_PROXY; a proxy that asks for a Windows sign-in of its own (407) isn't supported.")
 TIMEOUT_HINT = "GitHub didn't answer in time. If your network uses a proxy, check that it allows github.com."
 
 

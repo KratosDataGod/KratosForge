@@ -28,7 +28,7 @@ HINT = ("HTTPS was refused because the server's certificate isn't trusted on thi
 
 
 PROXY_HINT = ("The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy "
-              "Windows is set to, or HTTPS_PROXY when it's set; a proxy that asks for a sign-in of its own "
+              "Windows is set to, or HTTPS_PROXY when it's set; a proxy that asks for a Windows sign-in of its own "
               "(407) isn't supported, so ask IT to allow the Microsoft and GitHub addresses without one.")
 
 TIMEOUT_HINT = ("The server didn't answer in time. If your network uses a proxy, check that it allows this "

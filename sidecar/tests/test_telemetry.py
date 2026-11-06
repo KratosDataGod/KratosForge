@@ -143,6 +143,19 @@ def test_the_organization_decides(policy, tmp_path):
     assert any("telemetry_connection_string" in p for p in app_settings.policy_problems())
 
 
+def test_usage_data_the_organization_turns_on_ignores_a_destination_variable(policy, monkeypatch):
+    built_in = "InstrumentationKey=99999999-8888-7777-6666-555555555555;IngestionEndpoint=https://kratosbi.in.applicationinsights.azure.com/"
+    monkeypatch.setattr(app_settings, "_read_engine_info", lambda: {"telemetry_connection_string": built_in})
+    app_settings.save({"telemetry": True})
+    assert telemetry.destination() == (CONN, "kratosbi")  # the person's own choice: the variable still applies
+    policy.write_text(json.dumps({"telemetry": True}))
+    assert telemetry.destination() == (built_in, "kratosbi")  # forced on: the release's own destination
+    monkeypatch.setattr(app_settings, "_read_engine_info", lambda: {})
+    assert telemetry.destination() == ("", "")  # and none without one, never the variable's
+    policy.write_text(json.dumps({"telemetry": True, "telemetry_connection_string": ORG}))
+    assert telemetry.destination() == (ORG, "organization")
+
+
 def test_a_build_without_a_destination_never_sends(policy, tmp_path, monkeypatch):
     monkeypatch.delenv("FABRIC_DESKTOP_TELEMETRY_CONNECTION_STRING")
     app_settings.save({"telemetry": True})

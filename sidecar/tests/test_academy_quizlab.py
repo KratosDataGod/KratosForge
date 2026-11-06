@@ -64,7 +64,7 @@ def test_min_correct_and_a_single_string_answer():
     ("[1]", "is an object of question ids"),
     (" " * (quizlab.MAX_BYTES + 1), "over 64 KB"),
     ("[" * 30_000, "isn't valid JSON"),
-])
+], ids=["unclosed", "not-an-object", "oversized", "deep-nesting"])   # short ids: Windows caps PYTEST_CURRENT_TEST
 def test_answers_that_cant_be_read_fail_in_words(answer, said):
     res = quizlab.grade(answer, EX, QUESTIONS)
     assert not res["passed"] and said in res["results"][0]["detail"]

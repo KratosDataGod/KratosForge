@@ -171,3 +171,10 @@ def test_a_cast_of_a_plain_column_keeps_its_name_and_text_methods_read_as_spark(
     assert "".join(o.get("text", "") for o in out["outputs"]).strip() == (
         "['age', 'CAST((age + 1) AS DOUBLE)', 'name LIKE A%', 'RLIKE(name, ^A)', 'contains(name, l)', "
         "'startswith(name, A)', 'endswith(name, b)', 'ilike(name, a%)']")
+
+
+def test_quotes_in_a_column_name_and_a_literal_stay_apart(kernel):
+    out = kernel.run("q = spark.createDataFrame([('a',)], [\"c'd\"])\n"
+                     "print(q.select(F.concat(F.col(\"c'd\"), F.lit(\"x'y\")), F.upper(F.col(\"c'd\"))).columns)")
+    assert out["status"] == "ok", out["outputs"]
+    assert "".join(o.get("text", "") for o in out["outputs"]).strip() == "[\"concat(c'd, x'y)\", \"upper(c'd)\"]"

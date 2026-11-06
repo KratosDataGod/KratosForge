@@ -506,10 +506,9 @@ def _order_of(c: Any) -> str:
 
 # A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
 _RELATION = re.compile(r"\bunnamed_relation_[0-9a-f]+\.")
-# A quoted identifier in DuckDB's name ("name", quoted as a keyword): Spark writes it bare.
-_IDENTIFIER = re.compile(r'"((?:[^"]|"")*)"')
-# A string literal in DuckDB's name ('x'): Spark writes its text.
-_STRING = re.compile(r"'((?:[^']|'')*)'")
+# A quoted identifier ("name", quoted as a keyword) or a string literal ('x') in DuckDB's name, read
+# left to right in one pass so a quote inside one never pairs with the next: Spark writes each bare.
+_QUOTED = re.compile(r'"((?:[^"]|"")*)"|\'((?:[^\']|\'\')*)\'')
 
 
 def _named(col: Column, name: str) -> Column:
@@ -536,14 +535,17 @@ def _naming(fn: Any) -> Any:
     return call
 
 
+def _unquote(m: re.Match[str]) -> str:
+    return m.group(1).replace('""', '"') if m.group(1) is not None else m.group(2).replace("''", "'")
+
+
 def _spark_text(value: Any) -> str:
     """``value`` as Spark writes it inside a generated column name: a column by its name, a string as
     is, None as NULL, a double as Java writes it."""
     if isinstance(value, Column):
         if (name := vars(value).get("_fd_name")) is not None:
             return str(name)
-        name = _IDENTIFIER.sub(lambda m: m.group(1).replace('""', '"'), _RELATION.sub("", value.expr.get_name()))
-        return _STRING.sub(lambda m: m.group(1).replace("''", "'"), name)
+        return _QUOTED.sub(_unquote, _RELATION.sub("", value.expr.get_name()))
     if value is None:
         return "NULL"
     if isinstance(value, bool):
@@ -797,7 +799,7 @@ def _function_named(name: str, fn: Any) -> Any:
             return out
         if ("_fd_name" not in vars(out) and out.expr.get_name() != str(out.expr)
                 and not _PLAIN_COLUMN.match(str(out.expr))):  # named by the function itself (spark_compat's own)
-            return _named(out, _spark_text(out))
+            return _named(out, out.expr.get_name())  # already Spark's text: unquoting it again would pair its quotes
         # otherwise its own name, also over one a function it calls gave (nvl over coalesce)
         try:
             bound = signature.bind(*args, **kwargs)

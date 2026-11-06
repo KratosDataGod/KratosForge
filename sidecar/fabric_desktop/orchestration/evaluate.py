@@ -10,8 +10,12 @@ lists the differences known so far).
 
 from __future__ import annotations
 
+import base64
+import binascii
+import calendar
 import json
 import math
+import urllib.parse
 import uuid
 from collections import ChainMap
 from dataclasses import dataclass, field
@@ -381,8 +385,22 @@ def _parse_time(v: Any) -> datetime:
     try:
         t = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        raise ExpressionError(f"{text!r} isn't a date and time this PC can read (use ISO 8601)") from None
+        t = _parse_invariant(text)
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+# Besides ISO 8601, the month-first forms .NET's invariant culture reads, as in the reference's own
+# examples (formatDateTime('03/15/2018 12:00:00', ...)).
+_INVARIANT = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M", "%m/%d/%Y")
+
+
+def _parse_invariant(text: str) -> datetime:
+    for fmt in _INVARIANT:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ExpressionError(f"{text!r} isn't a date and time this PC can read (use ISO 8601 or MM/dd/yyyy HH:mm:ss)")
 
 
 def _format_time(t: datetime, fmt: str | None) -> str:
@@ -431,6 +449,55 @@ def _start_of_day(ts: Any, fmt: Any = None) -> str:
     return _format_time(t.replace(hour=0, minute=0, second=0, microsecond=0), fmt)
 
 
+def _start_of_hour(ts: Any, fmt: Any = None) -> str:
+    t = _parse_time(ts).astimezone(timezone.utc)
+    return _format_time(t.replace(minute=0, second=0, microsecond=0), fmt)
+
+
+def _start_of_month(ts: Any, fmt: Any = None) -> str:
+    t = _parse_time(ts).astimezone(timezone.utc)
+    return _format_time(t.replace(day=1, hour=0, minute=0, second=0, microsecond=0), fmt)
+
+
+_UNITS = {"second": "seconds", "minute": "minutes", "hour": "hours", "day": "days", "week": "weeks"}
+
+
+def _shift(t: datetime, n: Any, unit: Any, fn: str) -> datetime:
+    """``t`` moved by ``n`` of ``unit`` (Second, Minute, Hour, Day, Week, Month or Year). A month or
+    year keeps the day of the month, or the month's last day when it has fewer (as .NET's AddMonths)."""
+    name = _text(unit).strip().lower()
+    if name in _UNITS:
+        try:
+            return t + timedelta(**{_UNITS[name]: _num(n, fn)})
+        except OverflowError:
+            raise ExpressionError(f"{fn}() moved the time out of range") from None
+    if name not in ("month", "year"):
+        raise ExpressionError(f"{fn}() needs a time unit of Second, Minute, Hour, Day, Week, Month or Year, "
+                              f"not {_text(unit)!r}")
+    months = _int(n) * (12 if name == "year" else 1)
+    total = t.year * 12 + (t.month - 1) + months
+    year, month = divmod(total, 12)
+    if not 1 <= year <= 9999:
+        raise ExpressionError(f"{fn}() moved the time out of range")
+    last = calendar.monthrange(year, month + 1)[1]
+    return t.replace(year=year, month=month + 1, day=min(t.day, last))
+
+
+def _add_to_time(ts: Any, n: Any, unit: Any, fmt: Any = None) -> str:
+    return _format_time(_shift(_parse_time(ts), n, unit, "addToTime"), fmt)
+
+
+def _subtract_from_time(ts: Any, n: Any, unit: Any, fmt: Any = None) -> str:
+    return _format_time(_shift(_parse_time(ts), -_num(n, "subtractFromTime"), unit, "subtractFromTime"), fmt)
+
+
+def _ticks(ts: Any) -> int:
+    """100-nanosecond intervals since 0001-01-01T00:00:00 UTC, as .NET counts them."""
+    t = _parse_time(ts).astimezone(timezone.utc)
+    seconds = (t.toordinal() - 1) * 86400 + t.hour * 3600 + t.minute * 60 + t.second
+    return seconds * 10_000_000 + t.microsecond * 10
+
+
 def _variable(scope: Scope, name: Any) -> Any:
     if name not in scope.variables:
         raise ExpressionError(f"variable {name!r} isn't declared")
@@ -471,6 +538,47 @@ def _if(c: Any, a: Any, b: Any) -> Any:
     return a if c else b
 
 
+def _base64(v: Any) -> str:
+    return base64.b64encode(_text(v).encode("utf-8")).decode("ascii")
+
+
+def _from_base64(v: Any, fn: str) -> str:
+    try:
+        return base64.b64decode(_text(v), validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        raise ExpressionError(f"{fn}() was given text that isn't base64-encoded UTF-8 text") from None
+
+
+def _data_uri_text(v: Any) -> str:
+    """The text in a data URI (data:[<media type>][;charset=...][;base64],<data>), read as UTF-8 unless
+    it names another charset."""
+    text = _text(v)
+    head, sep, data = text.partition(",")
+    if not head.lower().startswith("data:") or not sep:
+        raise ExpressionError("dataUriToString() was given text that isn't a data URI")
+    params = [p.strip() for p in head[5:].split(";")]
+    charset = next((p.split("=", 1)[1] for p in params if p.lower().startswith("charset=")), "utf-8")
+    try:
+        raw = base64.b64decode(data, validate=True) if "base64" in (p.lower() for p in params) \
+            else urllib.parse.unquote_to_bytes(data)
+        return raw.decode(charset)
+    except (binascii.Error, LookupError, ValueError):
+        raise ExpressionError("dataUriToString() couldn't read the data URI's text") from None
+
+
+def _uri_encode(v: Any) -> str:
+    # As .NET's Uri.EscapeDataString: everything but letters, digits and - _ . ~ is escaped, as UTF-8.
+    return urllib.parse.quote(_text(v), safe="")
+
+
+def _uri_decode(v: Any) -> str:
+    # As .NET's Uri.UnescapeDataString: %XX escapes become UTF-8 text; a + stays a +.
+    try:
+        return urllib.parse.unquote(_text(v), errors="strict")
+    except UnicodeDecodeError:
+        raise ExpressionError("decodeUriComponent() was given escapes that aren't UTF-8 text") from None
+
+
 _PURE: dict[str, Callable[..., Any]] = {
     # logic and comparison
     "equals": lambda a, b: a == b, "not": lambda a: not _bool(a),
@@ -505,15 +613,29 @@ _PURE: dict[str, Callable[..., Any]] = {
     # conversion
     "string": _text, "int": _int, "float": _float, "bool": _bool, "json": _json,
     "array": lambda v: [v],
+    "base64": _base64, "base64tostring": lambda v: _from_base64(v, "base64ToString"),
+    "decodebase64": lambda v: _from_base64(v, "decodeBase64"),
+    "datauri": lambda v: "data:text/plain;charset=utf-8;base64," + _base64(v), "datauritostring": _data_uri_text,
+    "uricomponent": _uri_encode, "encodeuricomponent": _uri_encode,
+    "uricomponenttostring": _uri_decode, "decodeuricomponent": _uri_decode,
     # dates
     "formatdatetime": lambda ts, fmt=None: _format_time(_parse_time(ts), fmt),
     "adddays": _add_time("days"), "addhours": _add_time("hours"), "addminutes": _add_time("minutes"),
     "addseconds": _add_time("seconds"), "startofday": _start_of_day,
+    "startofhour": _start_of_hour, "startofmonth": _start_of_month,
+    "addtotime": _add_to_time, "subtractfromtime": _subtract_from_time,
+    "dayofmonth": lambda ts: _parse_time(ts).astimezone(timezone.utc).day,
+    "dayofweek": lambda ts: (_parse_time(ts).astimezone(timezone.utc).weekday() + 1) % 7,   # Sunday is 0
+    "dayofyear": lambda ts: _parse_time(ts).astimezone(timezone.utc).timetuple().tm_yday,
+    "ticks": _ticks,
 }
 
 _SCOPED: dict[str, Callable[..., Any]] = {
     "variables": _variable, "activity": _activity, "item": _item, "pipeline": _pipeline,
     "utcnow": lambda scope, fmt=None: _format_time(scope.now(), fmt),
+    "getfuturetime": lambda scope, n, unit, fmt=None: _format_time(_shift(scope.now(), n, unit, "getFutureTime"), fmt),
+    "getpasttime": lambda scope, n, unit, fmt=None: _format_time(
+        _shift(scope.now(), -_num(n, "getPastTime"), unit, "getPastTime"), fmt),
 }
 
 FUNCTIONS = tuple(sorted(set(_PURE) | set(_SCOPED)))

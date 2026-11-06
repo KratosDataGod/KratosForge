@@ -31,6 +31,7 @@ jobs:
       browser: ${{ steps.paths.outputs.browser }}
       windows: ${{ steps.paths.outputs.windows }}
       ubuntu: ${{ steps.paths.outputs.ubuntu }}
+      compat: ${{ steps.paths.outputs.compat }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: github.event_name == 'pull_request'
@@ -40,7 +41,7 @@ jobs:
         shell: bash
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\n' >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
@@ -61,6 +62,24 @@ jobs:
           # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
           # host list, links), so a docs change runs them here too.
           if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then echo "ubuntu=true"; else echo "ubuntu=false"; fi >> "$GITHUB_OUTPUT"
+          # The engine tests on other DuckDB and sqlglot versions look for drift in those packages, which
+          # a pull request rarely causes, so a pull request runs them only when it changes what they
+          # check: the packages it installs (requirements, constraints, lock files), the version tests,
+          # CI itself, or engine code that imports duckdb or sqlglot (before or after the change).
+          # Every main push and a nightly run (compat-nightly.yml) run them whatever changed.
+          compat=false
+          if has '^(sidecar/(pyproject\.toml|constraints\.txt|ci-constraints\.txt|tests/test_(duckdb|sqlglot)_version\.py)|\.github/(workflows|scripts)/)|(^|/)[^/]*requirements[^/]*\.txt$|\.lock$'; then
+            compat=true
+          else
+            code="$(grep -E '^sidecar/fabric_desktop/.*\.py$' <<< "$files" || true)"
+            if [ -n "$code" ]; then
+              pattern='^[[:space:]]*(import|from)[[:space:]]+(duckdb|sqlglot)([[:space:].,]|$)'
+              # Both sides of the change, so a removed or rewritten import counts too.
+              mapfile -t paths <<< "$code"
+              if git grep -qE "$pattern" HEAD^1 HEAD -- "${paths[@]}"; then compat=true; fi
+            fi
+          fi
+          echo "compat=$compat" >> "$GITHUB_OUTPUT"
 
   sidecar:
     needs: changes
@@ -105,25 +124,21 @@ jobs:
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
       # pyproject allows a range of sqlglot and the suite above runs the pin, so the SQL tests also
-      # run on the oldest and newest version of that range (#1252).
+      # run on the oldest and newest version of that range (#1252). pyproject allows DuckDB 1.x and
+      # 2.x (#1401) but installs the pinned 1.x; the whole engine suite also runs on 2.0, so a change
+      # that breaks it there shows before anyone moves the pin (#1341). Both run on every main push,
+      # nightly (compat-nightly.yml), and on a pull request that changes what they check (changes job).
       - name: SQL tests on both ends of the sqlglot range
-        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest' && needs.changes.outputs.compat == 'true'
         shell: bash
-        run: |
-          for v in $(python tests/test_sqlglot_version.py); do
-            python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/sqlglot-$v" "sqlglot==$v"
-            PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider \
-              -k "sql or spark or sqlglot or ossie or databricks or tsql or snowflake"
-          done
-      # pyproject allows DuckDB 1.x and 2.x (#1401) but installs the pinned 1.x; the whole engine suite
-      # also runs on 2.0 here, so a change that breaks it there shows before anyone moves the pin (#1341).
+        run: bash ../.github/scripts/compat_tests.sh sqlglot
       - name: Engine tests on the next DuckDB major
-        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest' && needs.changes.outputs.compat == 'true'
         shell: bash
-        run: |
-          v=$(python tests/test_duckdb_version.py)
-          python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/duckdb-$v" "duckdb==$v"
-          PYTHONPATH="$RUNNER_TEMP/duckdb-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider
+        run: bash ../.github/scripts/compat_tests.sh duckdb
+      - if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest' && needs.changes.outputs.compat != 'true'
+        working-directory: .
+        run: echo "This pull request changes no package versions and no code that imports duckdb or sqlglot, so the next-DuckDB and sqlglot-range runs wait for main and the nightly run."
 
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
@@ -213,10 +228,20 @@ jobs:
           node-version: "22"
       - run: python -m pip install -e . -c constraints.txt
         working-directory: sidecar
-      - name: Install Playwright and Chromium
+      # Chromium's download is kept between runs, keyed on the Playwright version that picks it. A
+      # few installs took ten minutes instead of half a minute; the steps below are timed apart, so
+      # the log shows whether the time goes to the download or to the system packages.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
+      - name: Install Playwright
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION" "axe-core@$AXE_CORE_VERSION"
+      - name: Install Chromium's system packages
+        run: '"$RUNNER_TEMP/pw/node_modules/.bin/playwright" install-deps chromium'
+      - name: Install Chromium
         run: |
-          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION" "axe-core@$AXE_CORE_VERSION"
-          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install chromium
           # The tests skip when Playwright can't be loaded; here that must fail instead.
           NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
       # One file at a time: each starts a Chromium and an engine, and running them side by side on
@@ -348,7 +373,11 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
-          python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
+          # The engine's own wheel is built against a hashed build backend, not one pip fetches unchecked.
+          python -m pip install --only-binary=:all: --require-hashes -r .github\requirements\engine-build.txt
+          if ($LASTEXITCODE) { throw "The engine's build backend did not match its pinned hash" }
+          python -m pip wheel --no-build-isolation --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
+          if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
           # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
           # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
           # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
@@ -393,16 +422,6 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-      - name: List every package in the engine (SBOM)
-        shell: pwsh
-        run: |
-          python -m pip install --quiet cyclonedx-bom==7.5.0
-          cyclonedx-py environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: sbom-engine
-          path: sbom-engine.cdx.json
-          if-no-files-found: error
       - name: Zip the engine
         id: zip
         shell: pwsh
@@ -430,6 +449,22 @@ jobs:
           path: |
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
+          if-no-files-found: error
+      # After the zips and their hashes, so no third-party tool runs on the engine folder between
+      # signing and hashing. The tool comes from a hashed file into its own venv, and only reads the folder.
+      - name: List every package in the engine (SBOM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m venv "$env:RUNNER_TEMP\sbom"
+          & "$env:RUNNER_TEMP\sbom\Scripts\python.exe" -m pip install --quiet --only-binary=:all: --require-hashes -r .github\requirements\sbom.txt
+          if ($LASTEXITCODE) { throw "The SBOM tool did not match its pinned hashes" }
+          & "$env:RUNNER_TEMP\sbom\Scripts\cyclonedx-py.exe" environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
+          if ($LASTEXITCODE) { exit 1 }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-engine
+          path: sbom-engine.cdx.json
           if-no-files-found: error
 
   shell:

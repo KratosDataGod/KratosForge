@@ -559,7 +559,7 @@ async function renderAccess() {
   const body = view === "all" ? allSlot
     : view === "roles" ? h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Workspace roles"), people)
       : h("div", { class: "card pad" }, h("h2", { class: "flush" }, "Table access in a lakehouse"), lhSlot);
-  setView(h("div", { class: "page" }, signInCallout(), onelakeTabs(),
+  setView(h("div", { class: "page" }, signInCallout(), onelakeTabs(true),
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Access"),
         h("p", { class: "sub" }, view === "all" ? "Who can reach every workspace you can open, from the access cache, with what's worth a look."

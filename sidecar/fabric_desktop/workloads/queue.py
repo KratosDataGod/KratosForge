@@ -48,7 +48,7 @@ def _source(source: Any) -> str:
 
 
 def agent_rows(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime, until: dt.datetime) -> list[dict[str, Any]]:
-    rows = []
+    rows: list[dict[str, Any]] = []
     shared: dict[tuple[str, str], list[tuple[str, bool, dt.datetime, Any, Any]]] = {}
     for env, records in by_env.items():
         for r in records:

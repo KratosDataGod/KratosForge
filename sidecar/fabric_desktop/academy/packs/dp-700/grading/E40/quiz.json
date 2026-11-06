@@ -1,0 +1,116 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "Click events must be filtered and sent to two destinations, an eventhouse and a lakehouse, and the team wants to set it up without writing code. Which fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventstream, with a filter in the event processor and two destinations"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline copy activity scheduled every minute for each destination"
+        },
+        {
+          "id": "c",
+          "text": "A Spark Structured Streaming notebook that writes to both destinations"
+        },
+        {
+          "id": "d",
+          "text": "A KQL update policy that copies each row into the lakehouse"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Eventstreams bring real-time events into Fabric, transform them and send them to various destinations without writing any code. The event processor is a drag-and-drop editor for processing, transforming and routing.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "Operators want to explore streaming data interactively with a query language and see results seconds after it's ingested. Which engine fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Spark Structured Streaming job that writes CSV files every hour"
+        },
+        {
+          "id": "b",
+          "text": "A warehouse table loaded once a day from the stream"
+        },
+        {
+          "id": "c",
+          "text": "An eventhouse, queried with KQL"
+        },
+        {
+          "id": "d",
+          "text": "A Dataflow Gen2 that refreshes on a schedule"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Eventhouses are the analytics engine for data in motion, queried in KQL or T-SQL, with seconds from data ingestion to insights.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/overview"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "A team writes PySpark and wants to stream events into a Delta table in a lakehouse, with a checkpoint so a restart carries on where it stopped. Which engine fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL materialized view that keeps a copy of the stream for each restart"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline copy activity that runs again after each failure"
+        },
+        {
+          "id": "c",
+          "text": "Spark Structured Streaming, writing in Delta format with a checkpointLocation"
+        },
+        {
+          "id": "d",
+          "text": "An eventstream, with a filter operator configured to resume from its last event"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "In a lakehouse, Spark Structured Streaming writes with format(\"delta\"), a checkpointLocation option and toTable, so the stream lands in a managed Delta table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "A Spark stream writes many small files to its Delta table. What does the guidance suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set a trigger interval, such as processingTime=\"1 minute\", so data is written in fewer, larger writes"
+        },
+        {
+          "id": "b",
+          "text": "Switch the outputMode from append to complete, so each write replaces the table"
+        },
+        {
+          "id": "c",
+          "text": "Remove the checkpointLocation, so each microbatch starts again from scratch"
+        },
+        {
+          "id": "d",
+          "text": "Run the stream in several notebooks at once, so each writes a share of the files"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "By default Spark processes each microbatch as soon as the previous one completes. A trigger interval gathers data over a period and writes it in fewer, larger operations.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+    }
+  ]
+}

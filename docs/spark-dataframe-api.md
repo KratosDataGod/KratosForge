@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 89 |
-| Differs | 10 |
+| Runs | 95 |
+| Differs | 5 |
 | Refused | 15 |
-| Fails | 49 |
+| Fails | 48 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -31,7 +31,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Differs | `df.agg(sf.min(df.age)).show()`: {"printed": "+------------------------------------------+\n\|min(unname here, {"printed": "+--------+\n\|min(age)\|\n+--------+\n\|       2\|\n+-------- in Spark |
+| `agg` | Runs |  |
 | `alias` | Fails | `joined_df.select( "df_as1.name", "df_as2.name", "df_as2.a...`: BinderException: Binder Error: Referenced table "df_as1" not found! |
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
@@ -121,7 +121,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `toPandas` | Not checked |  |
 | `to_koalas` | Not checked |  |
 | `to_pandas_on_spark` | Not checked |  |
-| `transform` | Fails | `df.transform(cast_all_to_int).transform(sort_columns_asc)...`: BinderException: Binder Error: Referenced column "CAST(float AS INTEGER)" not found in FROM clause! |
+| `transform` | Runs |  |
 | `union` | Runs |  |
 | `unionAll` | Not checked |  |
 | `unionByName` | Runs |  |
@@ -158,21 +158,21 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc_nulls_last` | Runs |  |
 | `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
 | `endswith` | Runs |  |
-| `eqNullSafe` | Differs | `df1.select( df1['value'] == 'foo', df1['value'].eqNullSaf...`: {"printed": "+---------------------------------------------------+---- here, {"printed": "+-------------+---------------+----------------+\n\|(value in Spark |
+| `eqNullSafe` | Runs |  |
 | `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
-| `getItem` | Differs | `df.select(df.l.getItem(0), df.d.getItem("key")).show()`: {"printed": "+--------------------------------------+----------------- here, {"printed": "+----+------+\n\|l[0]\|d[key]\|\n+----+------+\n\|   1\| value in Spark |
+| `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |
 | `isNull` | Runs |  |
 | `isin` | Runs |  |
 | `like` | Runs |  |
 | `name` | Not checked |  |
-| `otherwise` | Differs | `df.select(df.name, sf.when(df.age > 3, 1).otherwise(0)).s...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------+\n\| name\|CAS in Spark |
+| `otherwise` | Runs |  |
 | `over` | Runs |  |
 | `rlike` | Runs |  |
 | `startswith` | Runs |  |
 | `substr` | Runs |  |
-| `when` | Differs | `df.select(df.name, sf.when(df.age > 4, 1).when(df.age < 3...`: {"printed": "+-----+-------------------------------------------------- here, {"printed": "+-----+-------------------------------------------------- in Spark |
+| `when` | Runs |  |
 | `withField` | Fails | `df.withColumn('a', df['a'].withField('b', lit(3))).select...`: TypeError: 'Column' object is not callable |
 
 ## GroupedData

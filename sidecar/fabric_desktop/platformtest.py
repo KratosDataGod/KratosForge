@@ -112,8 +112,8 @@ class PlatformTest:
         self.name = f"fdlt_{self.run_id}"
         self.checks: list[Check] = []
         self.config: dict[str, Any] = {}
-        self.ledger: list[dict[str, str]] = []
-        self.left_behind: list[dict[str, str]] = []
+        self.ledger: list[dict[str, Any]] = []  # name, id, and deleted once it's gone
+        self.left_behind: list[dict[str, Any]] = []
         self.refused: list[str] = []
 
     def plan(self) -> list[str]:

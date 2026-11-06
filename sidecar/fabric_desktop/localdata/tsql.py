@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Container
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
@@ -150,7 +150,7 @@ def _parse(batch: str) -> list[exp.Expression]:
         m = re.match(r"'(\S+)", unsupported[0])
         word = (m[1] if m else batch.strip().split(None, 1)[0]).upper()
         raise ValueError(f"The local engine doesn't run T-SQL {word} yet. {_LATER}")
-    return trees
+    return cast(list[exp.Expression], trees)  # sqlglot types parse() as its Expr base
 
 
 def _harmless_setting(tree: exp.Expression) -> bool:
@@ -220,7 +220,7 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
                     continue  # a nested type sqlglot can't read; that column stays untyped
                 kept[col] = kind
             clean.setdefault(schema, {})[table] = kept
-    return MappingSchema(clean, dialect="duckdb", normalize=True)
+    return MappingSchema(cast(dict[str, object], clean), dialect="duckdb", normalize=True)
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:
@@ -246,8 +246,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     try:
         typed = annotate_types(typed, schema=schema, dialect="duckdb")
     except SqlglotError:
-        for node in sized:
-            _sized_text(node, None)
+        for cast_node in sized:
+            _sized_text(cast_node, None)
         return ["Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
@@ -255,8 +255,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     notes = _padded(compared, _in_order(typed, _COMPARISONS))
     there = _in_order(typed, kinds)
     if len(there) != len(here):
-        for node in sized:
-            _sized_text(node, None)
+        for cast_node in sized:
+            _sized_text(cast_node, None)
         return notes + ["Couldn't match the query's columns to their types, so divisions, averages, casts to "
                 "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
@@ -473,7 +473,7 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         shown = _float_text(node.this) if _is(source, _FLOATS) else text
         too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
+        cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:

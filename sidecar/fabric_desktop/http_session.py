@@ -66,6 +66,12 @@ def session() -> requests.Session:
         return _shared
 
 
+def new() -> requests.Session:
+    """A session of its own with the same default timeout, for a library that keeps its session
+    (MSAL's managed identity client)."""
+    return _Session()
+
+
 def reset() -> None:
     """Close the shared session; the next ``session()`` makes a new one."""
     global _shared

@@ -36,9 +36,8 @@ name = f"%(results)s/{request_id}.json"
 pip = ""
 
 import re as _re
-_SECRET = [(_re.compile(p, _re.I), r) for p, r in (
-    (r"(bearer\\s+)[\\w.~+/=-]+", r"\\1[redacted]"), (r"eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]*", "[redacted]"),
-    (r"([?&](?:sig|se|sv|sp|skoid|sktid|skt|ske|sks|skv)=)[^&\\s]+", r"\\1[redacted]"), (r"(://)[^/\\s:@]+:[^/\\s@]+@", r"\\1[redacted]@"))]
+# The app's own patterns (redact.secrets), written in when the notebook is made.
+_SECRET = [(_re.compile(p, f), r) for p, f, r in %(secret_patterns)s]
 
 def _scrub(text):
     for pattern, repl in _SECRET:
@@ -77,6 +76,15 @@ print(f"{len(rows)} findings")
 '''
 
 
+def _secret_patterns() -> str:
+    """redact.secrets' patterns as a Python literal for the check cell. The notebook runs in Fabric,
+    where the app's modules aren't installed, so it gets a copy of the same patterns rather than a
+    shorter list of its own. Its saved error is redacted again when the app reads it (error())."""
+    from . import redact
+
+    return repr([(pattern.pattern, int(pattern.flags), repl) for pattern, repl in redact._SECRETS])
+
+
 def bpa_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str = "LH_Meta") -> dict[str, Any]:
     from .fabric_run import PYTHON_NOTEBOOK_METADATA
 
@@ -98,7 +106,8 @@ def bpa_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str = "
                 "the findings for KratosForge. Start checks from **Data mesh > Deploy > Semantic model** in the app; "
                 "changes here are replaced on the next check.\n"]},
                       code(params, ["parameters"]),
-                      code(_CHECK % {"mount": MOUNT, "results": RESULTS_DIR, "package": PACKAGE, "version": VERSION})]}
+                      code(_CHECK % {"mount": MOUNT, "results": RESULTS_DIR, "package": PACKAGE, "version": VERSION,
+                                    "secret_patterns": _secret_patterns()})]}
 
 
 def notebook_hash(ipynb: dict[str, Any]) -> str:

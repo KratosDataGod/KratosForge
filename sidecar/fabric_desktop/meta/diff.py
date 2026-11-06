@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import difflib
 import tomllib
+from collections.abc import Mapping
 from typing import Any
 
 from .project import LOGIC_KEYS, OPERATIONAL_KEYS
@@ -140,10 +141,10 @@ def _items(section: str, a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
-def project_changes(old: dict[str, str | None], new: dict[str, str | None]) -> list[dict[str, Any]]:
+def project_changes(old: Mapping[str, str | None], new: Mapping[str, str | None]) -> list[dict[str, Any]]:
     """Per entity, the changes from ``old`` to ``new`` ({name: file text, or None if absent}).
     Entities with no meaningful change are left out; a file that doesn't parse says so."""
-    out = []
+    out: list[dict[str, Any]] = []
     for name in sorted(old.keys() | new.keys()):
         a, b = old.get(name), new.get(name)
         pa, pb = parse(a), parse(b)

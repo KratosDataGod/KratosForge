@@ -31,6 +31,12 @@ def test_stable_is_written_only_after_approval_and_one_publish_at_a_time():
     assert promote["needs"] in ("approve", ["approve"])
     assert promote["concurrency"] == {"group": "release-assets", "cancel-in-progress": False}
     assert "${{ needs.approve.outputs.build }}" in str(promote["steps"])
+    # A re-run of the promote job alone can't replay an old approval after Stable has moved.
+    steps = str(promote["steps"])
+    assert "${{ needs.approve.outputs.approved_at }}" in steps
+    assert "${{ needs.approve.outputs.stable_before }}" in steps
+    assert "Stable has changed since this promote was approved" in steps
+    assert set(jobs["approve"]["outputs"]) >= {"build", "signing", "approved_at", "stable_before"}
     # Only the promote job can write: approval alone changes nothing.
     writers = [name for name, job in jobs.items() if (job.get("permissions") or {}).get("contents") == "write"]
     assert writers == ["promote"]

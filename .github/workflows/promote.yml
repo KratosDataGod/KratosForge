@@ -29,6 +29,8 @@ jobs:
     outputs:
       signing: ${{ steps.read.outputs.signing }}
       build: ${{ steps.read.outputs.build }}
+      approved_at: ${{ steps.read.outputs.approved_at }}
+      stable_before: ${{ steps.read.outputs.stable_before }}
     steps:
       # "The build now on Preview" is read once, here, right after approval, and passed on as its
       # commit. So the promote job moves Stable to the build that was approved, even when Preview
@@ -41,6 +43,16 @@ jobs:
           SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' }}
         run: |
           echo "signing=$SIGNING" >> "$GITHUB_OUTPUT"
+          echo "approved_at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+          # Which build Stable names now. The promote job moves Stable only if it still names this one.
+          if gh release view stable > /dev/null 2>&1; then
+            gh release download stable --pattern version.json --output stable-version.json
+            STABLE_BEFORE=$(jq -r '.commit // ""' stable-version.json)
+            echo "$STABLE_BEFORE" | grep -Eq '^[0-9a-f]{40}$' || { echo "The stable release has no build commit"; exit 1; }
+          else
+            STABLE_BEFORE=none
+          fi
+          echo "stable_before=$STABLE_BEFORE" >> "$GITHUB_OUTPUT"
           BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]')
           if [ -z "$BUILD" ]; then
             gh release download latest --pattern version.json --output preview-version.json
@@ -69,7 +81,29 @@ jobs:
           NOTES: ${{ inputs.notes }}
           BUILD: ${{ needs.approve.outputs.build }}
           SIGNING: ${{ needs.approve.outputs.signing }}
+          APPROVED_AT: ${{ needs.approve.outputs.approved_at }}
+          STABLE_BEFORE: ${{ needs.approve.outputs.stable_before }}
         run: |
+          # A re-run of this job alone reuses its approval. That's meant for retrying this promote, not
+          # for replaying an old one, so it goes ahead only while Stable still names the build it named
+          # at approval (a retry after a failed upload does: version.json is uploaded last), and within
+          # a day of the approval. Checked here, inside release-assets, so nothing publishes meanwhile.
+          [[ "$APPROVED_AT" =~ ^[0-9]+$ ]] || { echo "The approval time is missing; start a new run."; exit 1; }
+          if [ $(( $(date -u +%s) - APPROVED_AT )) -gt 86400 ]; then
+            echo "This promote was approved more than 24 hours ago; start a new run."
+            exit 1
+          fi
+          if gh release view stable > /dev/null 2>&1; then
+            gh release download stable --pattern version.json --output stable-now.json
+            STABLE_NOW=$(jq -r '.commit // ""' stable-now.json)
+            rm -f stable-now.json
+          else
+            STABLE_NOW=none
+          fi
+          if [ -z "$STABLE_BEFORE" ] || [ "$STABLE_NOW" != "$STABLE_BEFORE" ]; then
+            echo "Stable has changed since this promote was approved; start a new run."
+            exit 1
+          fi
           BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]' | tr 'A-F' 'a-f')
           WANT=""
           if [ -z "$BUILD" ]; then

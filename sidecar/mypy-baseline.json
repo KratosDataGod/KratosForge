@@ -446,9 +446,6 @@
  "fabric_desktop/workloads/platform_notify.py": {
   "index": 1
  },
- "fabric_desktop/workloads/queue.py": {
-  "var-annotated": 1
- },
  "fabric_desktop/workloads/run_as.py": {
   "union-attr": 2
  },

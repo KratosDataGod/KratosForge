@@ -9,7 +9,7 @@ starter, an independently runnable reference solution, validation rules, and a C
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
 content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
 solution and planted wrong answers: E12, E19, E21, E22, E23, E24, E25, E32, E33, E35, E36, E37, E38, E39, E43,
-E44, E48, E49, E51, E56, E57, E58, E59, E63, E64.
+E44, E48, E49, E51, E56, E57, E58, E59, E61, E62, E63, E64.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).
@@ -89,8 +89,8 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E46 | Alerts: an Activator rule and a pipeline failure alert | 3.1.4 | C | SIM +FV | config | 20 | |
 | E47 | Capacity Metrics: find the throttled hour and what caused it | 3.1.2 | C | SIM | duckdb (`runs`) | 20 | FinOps |
 | E60 | Optimize a pipeline: parallel ForEach, fewer sequential steps | 3.3.2 | C | SIM +FV | pipeline | 25 | |
-| E61 | Optimize a warehouse: data types, statistics and result set caching | 3.3.3 | G | KO +FV | quiz | 15 | |
-| E62 | Optimize an eventhouse: retention, caching and materialized views | 3.3.4 | G | KO +FV | quiz | 15 | |
+| E61 | Optimize a warehouse: loads, data types, statistics and result set caching | 3.3.3 | G | KO +FV | quiz | 15 | |
+| E62 | Optimize an eventhouse: caching, retention, materialized views and query shape | 3.3.4 | G | KO +FV | quiz | 15 | |
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
 

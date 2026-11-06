@@ -1,0 +1,145 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "Brightwater's nightly job loads 40,000 rows into a warehouse table with one INSERT statement per row, and it gets slower every week. What should it do instead?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Rebuild the table's statistics after every INSERT"
+        },
+        {
+          "id": "b",
+          "text": "Wrap each INSERT in its own explicit transaction"
+        },
+        {
+          "id": "c",
+          "text": "Run the same single-row INSERTs from more parallel sessions"
+        },
+        {
+          "id": "d",
+          "text": "Stage the rows and load them together, for example with one INSERT ... SELECT or with COPY INTO"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Each small INSERT, UPDATE or DELETE writes its own Parquet file, so many row-level changes leave many small files. Staging the data and loading it in one statement, or with COPY INTO for files, avoids that.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "A country_code column holds two-letter codes but was declared varchar(8000). What does the performance guidance say?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Leave it: string length doesn't affect a warehouse"
+        },
+        {
+          "id": "b",
+          "text": "Store the codes as a JSON array instead"
+        },
+        {
+          "id": "c",
+          "text": "Change it to varchar(max) so it never needs changing again"
+        },
+        {
+          "id": "d",
+          "text": "Use the smallest string length that fits the values, such as varchar(2)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The guidance is to use the smallest string column length that can hold the values, for example varchar(100) rather than varchar(8000) or varchar(max).",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance"
+    },
+    {
+      "id": "q3",
+      "type": "multiple",
+      "stem": "Which two statements about statistics in a Fabric Warehouse are true?",
+      "options": [
+        {
+          "id": "a",
+          "text": "You can create single-column histogram statistics yourself with CREATE STATISTICS"
+        },
+        {
+          "id": "b",
+          "text": "Statistics are only built when a Spark notebook runs"
+        },
+        {
+          "id": "c",
+          "text": "The engine creates and maintains statistics automatically"
+        },
+        {
+          "id": "d",
+          "text": "You can create multi-column statistics with CREATE STATISTICS"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "Automatic statistics are created and maintained by the engine. You can also create, update and drop single-column histogram statistics; multi-column statistics can't be created manually.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/statistics"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "A dashboard runs the same SELECT against a warehouse many times an hour, and the tables it reads change once a night. Which feature lets the repeat runs return quickly?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Result set caching, which keeps the query's final result and reuses it until the tables it reads change"
+        },
+        {
+          "id": "b",
+          "text": "A retention policy"
+        },
+        {
+          "id": "c",
+          "text": "Splitting the query into many single-row SELECTs"
+        },
+        {
+          "id": "d",
+          "text": "Turning off automatic statistics"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Result set caching persists the final result set of applicable SELECT queries so later runs can reuse it. A change to the referenced tables invalidates the cache, so results stay consistent.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "After the nightly load changes a table, what happens to a cached result for a query that reads it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The cache is copied into the table"
+        },
+        {
+          "id": "b",
+          "text": "The old result keeps being returned until someone clears it by hand"
+        },
+        {
+          "id": "c",
+          "text": "The earlier cache isn't used, so the next run reads the new data"
+        },
+        {
+          "id": "d",
+          "text": "The load fails until the cache is dropped"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Result consistency is kept by invalidating cache created before the data changed.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching"
+    }
+  ]
+}

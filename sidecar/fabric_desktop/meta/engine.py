@@ -16,7 +16,7 @@ import time
 import uuid
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import polars as pl
 
@@ -66,9 +66,9 @@ DELETED_AT_TYPE = pl.Datetime("us", "UTC")
 # [load] deletes = "hard": the MERGE source column that flags a key to remove (never written).
 _DELETE_FLAG = "__fd_delete"
 _SIMPLE_TYPES: dict[str, pl.DataType] = {
-    "string": pl.String, "str": pl.String, "int64": pl.Int64, "bigint": pl.Int64, "int32": pl.Int32,
-    "int": pl.Int32, "float64": pl.Float64, "double": pl.Float64, "float32": pl.Float32, "bool": pl.Boolean,
-    "boolean": pl.Boolean, "date": pl.Date,
+    "string": pl.String(), "str": pl.String(), "int64": pl.Int64(), "bigint": pl.Int64(), "int32": pl.Int32(),
+    "int": pl.Int32(), "float64": pl.Float64(), "double": pl.Float64(), "float32": pl.Float32(),
+    "bool": pl.Boolean(), "boolean": pl.Boolean(), "date": pl.Date(),
     # Fabric reads Delta timestamps as UTC; naive timestamps would need a newer Delta writer version.
     "datetime": pl.Datetime("us", "UTC"), "timestamp": pl.Datetime("us", "UTC"),
 }
@@ -565,9 +565,10 @@ class Engine:
                     if not todo:
                         raise NothingNew(f"no new files: all {plural(len(listed), 'file')} matching {pattern} are loaded")
                 self._files_read = (where, todo)  # a full rebuild has loaded every file too
-            df, names = self.store.read_files(where, pattern, todo)
-            if df is None:
+            read, names = self.store.read_files(where, pattern, todo)
+            if read is None:
                 raise CheckStop(f"no files match {pattern} in {where}/Files")
+            df = read
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df
         else:
@@ -681,6 +682,7 @@ class Engine:
     def _tombstones(self, e: Entity, gone: pl.DataFrame) -> pl.DataFrame:
         """deletes = "soft": the table's rows for the gone keys, marked deleted as of this run."""
         lf = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        assert lf is not None  # the keys gone were read from this table
         rows = lf.join(gone.lazy(), on=e.keys, how="semi").collect(engine="streaming")
         return rows.with_columns(pl.lit(True).alias("is_deleted"),
                                  pl.lit(self.run_at).cast(DELETED_AT_TYPE).alias("deleted_at"),
@@ -874,10 +876,13 @@ class Engine:
         worker.start()
         try:
             first = take()
-            before = None if read_version is None else \
-                self.store.scan(lh, e.schema, e.table, read_version).collect_schema()
+            before = None
+            if read_version is not None:
+                at_version = self.store.scan(lh, e.schema, e.table, read_version)
+                assert at_version is not None  # read_version is this table's
+                before = at_version.collect_schema()
             schema, kept_types = _first_batch_schema(e, first, before)
-            self._refuse_type_changes(e, before, pl.from_arrow(schema.empty_table()).schema)
+            self._refuse_type_changes(e, before, cast(pl.DataFrame, pl.from_arrow(schema.empty_table())).schema)
 
             def fit(t: pa.Table) -> pa.Table:  # every batch in the first one's columns and types
                 for name, old in kept_types.items():
@@ -886,7 +891,7 @@ class Engine:
                     col_ = t.column(name) if name in t.column_names else None
                     if col_ is None or col_.null_count == t.num_rows:
                         continue
-                    new_ = pl.from_arrow(t.select([name]).slice(0, 0)).schema[name]
+                    new_ = cast(pl.DataFrame, pl.from_arrow(t.select([name]).slice(0, 0))).schema[name]
                     if new_ != old and not (name not in e.columns and drift_mod.widens(new_, old)):
                         stop_ = type_change_refused(
                             e.name, [f"{name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)}"])
@@ -1100,6 +1105,7 @@ class Engine:
             raise CheckStop(f"{dim_e.name} has not been loaded in {self.store.env} yet")
         sk, on, at = lk["as"], lk["on"], lk.get("at")
         dim_sk = dim_e.surrogate_key
+        assert dim_sk is not None  # a lookup's dim is a dimension, which project.py requires a surrogate key of
         history = "valid_from" in scan.collect_schema().names()
         if not history:
             at = None  # a Type 1 dimension has one row per key, so the fact date doesn't matter
@@ -1163,7 +1169,9 @@ class Engine:
     def _replayed(self, e: Entity, res: RunResult) -> pl.DataFrame:
         """Quarantined rows back to contract types, with derived columns worked out again from any fixes."""
         t0 = time.perf_counter()
-        df = self._replay_rows.drop([c for c in QUARANTINE_COLUMNS if c in self._replay_rows.columns])
+        rows = self._replay_rows
+        assert rows is not None  # replay() sets them for its run
+        df = rows.drop([c for c in QUARANTINE_COLUMNS if c in rows.columns])
         res.rows_read = df.height
         self._step(res, "read", t0, df.height, f"{plural(df.height, 'quarantined row')} to replay")
         self._evolved = []
@@ -1228,8 +1236,8 @@ class Engine:
             elif "exists_in" in c:
                 tgt, ref_col = c["exists_in"].rsplit(".", 1)
                 ref_e = self.project.entities[tgt]
-                ref = self.store.scan(self.lakehouse(ref_e), ref_e.schema, ref_e.table)
-                ref = ref.select(ref_col).collect() if ref is not None else None
+                ref_scan = self.store.scan(self.lakehouse(ref_e), ref_e.schema, ref_e.table)
+                ref = ref_scan.select(ref_col).collect() if ref_scan is not None else None
                 bad = (~df[col].is_in(ref[ref_col].implode()) & df[col].is_not_null()) if ref is not None \
                     else _fill(True, df.height)
             elif "accepted_values" in c:
@@ -1322,7 +1330,7 @@ class Engine:
         # Rows from before schema versions were recorded have none: each of their runs counts as one, so
         # the numbering continues after them (and stays above any version that started again at 1).
         older = seen.filter(pl.col("schema_version").is_null())["run_id"].n_unique()
-        top = seen["schema_version"].max()
+        top = cast(int | None, seen["schema_version"].max())
         return [{"entity": e.name, "run_id": self.run_id, "delta_version": res.delta_version,
                  "schema_version": max(older, int(top or 0)) + 1} | c for c in changes]
 
@@ -1355,7 +1363,9 @@ class Engine:
                       metadata: dict[str, str], hard: pl.DataFrame | None = None) -> tuple[int, str]:
         """``hard``: keys whose rows the same MERGE removes ([load] deletes = "hard")."""
         lh = self.lakehouse(e)
-        have = self.store.scan(lh, e.schema, e.table).collect_schema()
+        scan = self.store.scan(lh, e.schema, e.table)
+        assert scan is not None  # a merge writes to a table that exists
+        have = scan.collect_schema()
         # A column the table has and the rows don't is null in them, as when the table was rewritten.
         df = df.with_columns([pl.lit(None, dtype=t).alias(c) for c, t in have.items() if c not in df.columns])
         what = "replayed" if backfill == "replay" else ("merged" if how == "upsert" else "appended")
@@ -1377,7 +1387,7 @@ class Engine:
                          f"(Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
 
     def _write_dimension(self, e: Entity, df: pl.DataFrame,
-                         metadata: dict[str, str]) -> tuple[int, str, int] | str:
+                         metadata: dict[str, str]) -> tuple[int | None, str, int] | str:
         """A Type 1 or Type 2 dimension without reading all of it.
 
         Only the versions of the business keys that arrived (and the Unknown member) are read,
@@ -1470,7 +1480,7 @@ class Engine:
         if e.soft_deletes:
             # Every row the source has is live; a key it no longer has keeps its row, marked deleted.
             df = df.with_columns(pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at"))
-            if n_gone:
+            if gone is not None and n_gone:
                 df = pl.concat([df, self._tombstones(e, gone)], how="diagonal_relaxed")
                 deleted = f"; marked {plural(n_gone, 'row')} deleted (gone from the source)"
         elif n_gone:
@@ -1486,9 +1496,9 @@ class Engine:
         if e.mode in ("scd1", "scd2") and self.merge_writes:
             done = self._write_dimension(e, df, metadata)
             if isinstance(done, tuple):
-                version, info, rows = done
-                res.rows_written, res.delta_version = df.height, version
-                self._step(res, "write", t0, rows, f"{info}; Delta version {version}")
+                dim_version, info, rows = done
+                res.rows_written, res.delta_version = df.height, dim_version
+                self._step(res, "write", t0, rows, f"{info}; Delta version {dim_version}")
                 return True
             why = done
         # The version read is the one the commit is made against: if another writer (the app, an
@@ -1621,7 +1631,7 @@ def _committed_files(commit: dict[str, Any], lakehouse: str) -> list[dict[str, A
 def _next_key(existing: pl.DataFrame | None, sk: str) -> int:
     if existing is None or existing.height == 0:
         return 1
-    return max(int(existing[sk].max()), 0) + 1
+    return max(int(cast(int, existing[sk].max())), 0) + 1
 
 
 def unknown_member(schema: pl.Schema, e: Entity) -> pl.DataFrame:

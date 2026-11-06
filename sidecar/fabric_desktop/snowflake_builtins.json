@@ -1044,6 +1044,10 @@
   "group": "Semi-structured"
  },
  {
+  "name": "AS_BOOLEAN",
+  "group": "Semi-structured"
+ },
+ {
   "name": "AS_BINARY",
   "group": "Semi-structured"
  },

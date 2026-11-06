@@ -21,6 +21,11 @@ _KEEPS_FILES = ("VACUUM", "SET TBLPROPERTIES")
 def _ts(ms: Any) -> dt.datetime | None:
     if ms is None:
         return None
+    return _at(ms)
+
+
+def _at(ms: Any) -> dt.datetime:
+    """A commit's timestamp (milliseconds) that is there."""
     return dt.datetime.fromtimestamp(int(ms) / 1000, dt.timezone.utc)
 
 
@@ -45,14 +50,14 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
     table = DeltaTable(uri, storage_options=options)
     history = table.history(limit)  # newest first
     current = table.version()
-    horizon = None
+    horizon: dt.datetime | None = None
     for h in table.history(1000):
         if h.get("operation") != "VACUUM START" or not h.get("timestamp"):
             continue
         params = h.get("operationParameters") or {}
-        kept = params.get("specifiedRetentionMillis") or params.get("defaultRetentionMillis")
+        kept: Any = params.get("specifiedRetentionMillis") or params.get("defaultRetentionMillis")
         hours = int(kept) / 3_600_000 if str(kept or "").isdigit() else int(retention_days) * 24
-        cut = _ts(h["timestamp"]) - dt.timedelta(hours=hours)  # files removed before this are gone
+        cut = _at(h["timestamp"]) - dt.timedelta(hours=hours)  # files removed before this are gone
         horizon = cut if horizon is None or cut > horizon else horizon
     # When each version's files started being removed: the next commit that removes files
     # (VACUUM's and table property commits don't).
@@ -69,7 +74,7 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
         v = int(h["version"])
         superseded = superseded_at.get(v)
         restorable = v != current and (horizon is None or superseded is None or superseded > horizon)
-        out.append({"version": v, "at": _ts(h.get("timestamp")).isoformat(timespec="seconds") if h.get("timestamp") else None,
+        out.append({"version": v, "at": _at(h["timestamp"]).isoformat(timespec="seconds") if h.get("timestamp") else None,
                     "operation": h.get("operation"), "run_id": h.get("fabric_desktop_run_id"),
                     "restored_to": h.get("fabric_desktop_restored_to"), "rows": _rows(h),
                     "maintenance": h.get("operation") in _MAINTENANCE, "current": v == current,

@@ -21,11 +21,11 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 56 |
+| Runs | 67 |
 | Differs | 0 |
 | Refused | 35 |
 | Fails | 0 |
-| Not checked | 87 |
+| Not checked | 76 |
 | **All** | **178** |
 
 ## String
@@ -72,23 +72,23 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `ASIN` | Not checked |  |  |
 | `ATAN` | Not checked |  |  |
 | `ATN2` | Not checked |  |  |
-| `CEILING` | Not checked |  |  |
+| `CEILING` | Runs |  | 3 value checks |
 | `COS` | Not checked |  |  |
 | `COT` | Not checked |  |  |
-| `DEGREES` | Not checked |  |  |
-| `EXP` | Not checked |  |  |
-| `FLOOR` | Not checked |  |  |
-| `LOG` | Not checked |  |  |
-| `LOG10` | Not checked |  |  |
-| `PI` | Not checked | `SELECT PI()` |  |
+| `DEGREES` | Runs |  | 4 value checks |
+| `EXP` | Runs |  | 1 value check |
+| `FLOOR` | Runs |  | 3 value checks |
+| `LOG` | Runs |  | 1 value check |
+| `LOG10` | Runs |  | 1 value check |
+| `PI` | Runs |  | 2 value checks |
 | `POWER` | Runs |  | 7 value checks |
-| `RADIANS` | Not checked |  |  |
+| `RADIANS` | Runs |  | 2 value checks |
 | `RAND` | Not checked | `SELECT RAND()` |  |
 | `ROUND` | Runs |  | 3 value checks |
-| `SIGN` | Not checked |  |  |
+| `SIGN` | Runs |  | 1 value check |
 | `SIN` | Not checked |  |  |
-| `SQRT` | Not checked |  |  |
-| `SQUARE` | Not checked |  |  |
+| `SQRT` | Runs |  | 1 value check |
+| `SQUARE` | Runs |  | 2 value checks |
 | `TAN` | Not checked |  |  |
 
 ## Date and time

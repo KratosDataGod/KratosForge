@@ -272,11 +272,11 @@ class CloudMixin:
             except FabricError as exc:
                 raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
                                    "published. Try again.") from exc
-        target = target[0]
-        if target is None:
+        item = target[0]
+        if item is None:
             return None  # Publish makes a new item; nothing is replaced
-        if target["id"] != link["item_id"]:
-            return {"changed": True, "item_id": target["id"], "other_item": True,
+        if item["id"] != link["item_id"]:
+            return {"changed": True, "item_id": item["id"], "other_item": True,
                     "fabric": [{"kind": "other item", "position": None, "diff": []}], "mine": []}
         base = notebook_files.published(Path(self.root) / "published", link["item_id"])  # type: ignore[attr-defined]
         if not base:
@@ -498,7 +498,7 @@ class CloudMixin:
             return False
         return bool(cfg.get("optimize_after_run", True))
 
-    def _managed_tables(self, project: Any, include_meta: bool = True) -> list[dict[str, str]]:
+    def _managed_tables(self, project: Any, include_meta: bool = True) -> list[dict[str, Any]]:
         rows = [{"entity": e.name, "lakehouse": project.layer(e.layer).lakehouse, "schema": e.schema,
                  "table": e.table, "layer": e.layer, "retention_days": project.layer(e.layer).retention_days}
                 for e in sorted(project.entities.values(), key=lambda x: (project.layer_index(x.layer), x.name))
@@ -525,7 +525,7 @@ class CloudMixin:
                 "maintenance": [r for r in self.fabric_runs(100, refresh=not local)
                                 if r.get("kind") == "Table maintenance" and r.get("env") == env][:20]}
 
-    def _maintain(self, store: Any, rows: list[dict[str, str]], env: str) -> list[dict[str, Any]]:
+    def _maintain(self, store: Any, rows: list[dict[str, Any]], env: str) -> list[dict[str, Any]]:
         out = []
         for t in rows:
             label = f"{t['schema']}.{t['table']}"
@@ -873,9 +873,10 @@ class CloudMixin:
         if source:
             df = engine._read(e, RunResult("", name, "ok"), full=True)
         else:
-            df = engine.read_entity(name)
-            if df is None:
+            read = engine.read_entity(name)
+            if read is None:
                 raise LookupError(f"{name} has not been loaded in {env} yet")
+            df = read
         return df
 
     def meta_profile(self, name: str, env: str = "dev", source: bool = True) -> dict[str, Any]:

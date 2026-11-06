@@ -532,3 +532,16 @@ def test_division_that_snowflake_answers_still_answers(code, want):
     assert duckdb.connect().execute(sql).fetchone()[0] == want
     if code == "select 7/2":
         assert "ERROR" not in sql.upper()  # a divisor written as a non-zero number needs no check
+
+
+@pytest.mark.parametrize("name", sorted(sf._ACCOUNT_FUNCTIONS))
+def test_account_and_session_functions_are_refused_by_name(name):
+    args = "-1" if name == "LAST_QUERY_ID" else ""
+    t = sf.translate(f"SELECT 1 AS a, {name.lower()}({args}) AS b")
+    assert not t.runnable
+    [note] = t.statements[0].notes
+    assert note.id == "SFN-014" and note.title.startswith(name)
+
+
+def test_functions_that_run_here_are_not_taken_for_account_functions():
+    assert sf.translate("SELECT current_date(), current_timestamp(), last_value(a) OVER (ORDER BY a) FROM t").runnable

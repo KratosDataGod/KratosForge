@@ -109,7 +109,7 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.1.
+Rules 2026.11.2.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -144,6 +144,7 @@ Rules 2026.11.1.
 | SFN-011 | Runs only in Snowflake | Snowflake-only objects: stages, pipes, warehouses, roles, users, shares, integrations, file formats, sequences, policies, tags. |
 | SFN-012 | Runs only in Snowflake | Cortex AI functions. |
 | SFN-013 | Runs only in Snowflake | TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a time zone name. |
+| SFN-014 | Runs only in Snowflake | Context functions about the Snowflake account, session or client: CURRENT_ACCOUNT, CURRENT_ACCOUNT_NAME, CURRENT_AVAILABLE_ROLES, CURRENT_CLIENT, CURRENT_IP_ADDRESS, CURRENT_ORGANIZATION_NAME, CURRENT_REGION, CURRENT_ROLE_TYPE, CURRENT_SECONDARY_ROLES, CURRENT_SESSION, CURRENT_STATEMENT, CURRENT_TRANSACTION, CURRENT_WAREHOUSE and LAST_QUERY_ID. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value

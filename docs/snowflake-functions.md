@@ -23,8 +23,8 @@ the known differences in more detail.
 | --- | ---: |
 | Runs | 105 |
 | Differs | 18 |
-| Refused | 30 |
-| Fails | 107 |
+| Refused | 44 |
+| Fails | 93 |
 | Not checked | 234 |
 | **All** | **494** |
 
@@ -497,34 +497,34 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CURRENT_CLIENT` | Fails | DuckDB has no CURRENT_CLIENT, and the rules don't rewrite it |
+| `CURRENT_CLIENT` | Refused | CURRENT_CLIENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_DATE` | Not checked |  |
-| `CURRENT_IP_ADDRESS` | Fails | DuckDB has no CURRENT_IP_ADDRESS, and the rules don't rewrite it |
-| `CURRENT_REGION` | Fails | DuckDB has no CURRENT_REGION, and the rules don't rewrite it |
+| `CURRENT_IP_ADDRESS` | Refused | CURRENT_IP_ADDRESS: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_REGION` | Refused | CURRENT_REGION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_TIME` | Not checked |  |
 | `CURRENT_TIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `CURRENT_VERSION` | Not checked |  |
-| `CURRENT_ACCOUNT` | Fails | DuckDB has no CURRENT_ACCOUNT, and the rules don't rewrite it |
-| `CURRENT_ACCOUNT_NAME` | Fails | DuckDB has no CURRENT_ACCOUNT_NAME, and the rules don't rewrite it |
-| `CURRENT_ORGANIZATION_NAME` | Fails | DuckDB has no CURRENT_ORGANIZATION_NAME, and the rules don't rewrite it |
+| `CURRENT_ACCOUNT` | Refused | CURRENT_ACCOUNT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_ACCOUNT_NAME` | Refused | CURRENT_ACCOUNT_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_ORGANIZATION_NAME` | Refused | CURRENT_ORGANIZATION_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_ROLE` | Not checked |  |
-| `CURRENT_AVAILABLE_ROLES` | Fails | DuckDB has no CURRENT_AVAILABLE_ROLES, and the rules don't rewrite it |
-| `CURRENT_SECONDARY_ROLES` | Fails | DuckDB has no CURRENT_SECONDARY_ROLES, and the rules don't rewrite it |
-| `CURRENT_SESSION` | Fails | DuckDB has no CURRENT_SESSION, and the rules don't rewrite it |
-| `CURRENT_STATEMENT` | Fails | DuckDB has no CURRENT_STATEMENT, and the rules don't rewrite it |
-| `CURRENT_TRANSACTION` | Fails | DuckDB has no CURRENT_TRANSACTION, and the rules don't rewrite it |
+| `CURRENT_AVAILABLE_ROLES` | Refused | CURRENT_AVAILABLE_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_SECONDARY_ROLES` | Refused | CURRENT_SECONDARY_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_SESSION` | Refused | CURRENT_SESSION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_STATEMENT` | Refused | CURRENT_STATEMENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
+| `CURRENT_TRANSACTION` | Refused | CURRENT_TRANSACTION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_USER` | Not checked |  |
 | `CURRENT_DATABASE` | Not checked |  |
-| `CURRENT_ROLE_TYPE` | Fails | DuckDB has no CURRENT_ROLE_TYPE, and the rules don't rewrite it |
+| `CURRENT_ROLE_TYPE` | Refused | CURRENT_ROLE_TYPE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_SCHEMA` | Not checked |  |
 | `CURRENT_SCHEMAS` | Not checked |  |
-| `CURRENT_WAREHOUSE` | Fails | DuckDB has no CURRENT_WAREHOUSE, and the rules don't rewrite it |
+| `CURRENT_WAREHOUSE` | Refused | CURRENT_WAREHOUSE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `GETDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `LOCALTIME` | Not checked |  |
 | `LOCALTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
-| `LAST_QUERY_ID` | Fails | DuckDB has no LAST_QUERY_ID, and the rules don't rewrite it |
+| `LAST_QUERY_ID` | Refused | LAST_QUERY_ID: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `RANDOM` | Not checked |  |
 | `UNIFORM` | Not checked |  |
 | `SEQ4` | Not checked |  |

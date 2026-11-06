@@ -109,7 +109,7 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.4.
+Rules 2026.11.5.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -135,6 +135,7 @@ Rules 2026.11.4.
 | SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to DATE instead, and a TIMESTAMP cast or function raises nothing. |
 | SFD-007 | Runs, with a difference: TYPEOF can't always name Snowflake's type | TYPEOF gives Snowflake's type names here (SFX-009), with two exceptions. A JSON number with a fraction or an exponent that isn't read from PARSE_JSON of text written in the query (a column, or a path into one such as v:a) comes back as 'DECIMAL or DOUBLE': Snowflake tells them apart by how the number was written (1.912e2 is DOUBLE, 191.2 is DECIMAL) and DuckDB doesn't keep that. A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't known here: a column, a path or a computed value. |
 | SFD-008 | Runs, with a difference: A JSON fraction counts as a decimal | Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL and AS_NUMBER take any JSON number with a fraction or exponent as a decimal: for 1.912e2 they give TRUE and a number here, where Snowflake gives FALSE and NULL. A VARIANT made with TO_VARIANT keeps its type and is exact. |
+| SFD-009 | Runs, with a difference: [i] on a value whose type isn't known | [i] is 0-based in Snowflake. Here [i] on a table's column whose type the statement doesn't show is taken for an ARRAY: a literal index such as [0] is moved to DuckDB's 1-based lists, and an integer column or expression as the index isn't. On a JSON (VARIANT) column [0] then reads the second element, and v['a']::string keeps the JSON quotes ('"Pine"', not 'Pine'). |
 | SFN-001 | Runs only in Snowflake | Streams. |
 | SFN-002 | Runs only in Snowflake | Tasks. |
 | SFN-003 | Runs only in Snowflake | Dynamic tables (their SELECT can be tried on its own). |

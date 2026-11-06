@@ -74,13 +74,14 @@ def imports(source: str) -> dict[str, Any]:
 
     def visit(node: ast.AST, optional: bool) -> None:
         names: list[str] = []
+        line = 0
         if isinstance(node, ast.Import):
-            names = [a.name for a in node.names]
+            names, line = [a.name for a in node.names], node.lineno
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names = [node.module]
+            names, line = [node.module], node.lineno
         for n in names:
             top = n.split(".")[0]
-            seen = found.setdefault(top, {"module": top, "line": node.lineno, "optional": optional})
+            seen = found.setdefault(top, {"module": top, "line": line, "optional": optional})
             seen["optional"] = seen["optional"] and optional  # required anywhere means required
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             for child in ast.iter_child_nodes(node):
@@ -167,13 +168,14 @@ def in_fabric(module: str, observed: dict[str, dict[str, Any]] | None = None) ->
 
 def check(cells: list[dict[str, Any]], observed: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """The notebook's dependencies, cell by cell, and a summary for each place it can run."""
-    out_cells, modules = [], {}
+    out_cells: list[dict[str, Any]] = []
+    modules: dict[str, dict[str, Any]] = {}
     unparsed, dynamic = [], []
     for n, c in enumerate(cells, 1):
         if c.get("type") == "markdown" or not (c.get("source") or "").strip():
             continue
         found = imports(c["source"])
-        row = {"cell": n, "cell_id": c.get("cell_id"), "imports": []}
+        row: dict[str, Any] = {"cell": n, "cell_id": c.get("cell_id"), "imports": []}
         if not found["parsed"]:
             unparsed.append({"cell": n, "cell_id": c.get("cell_id"), "text": found.get("error", "")})
         for line in found["dynamic"]:

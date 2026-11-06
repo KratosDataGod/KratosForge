@@ -635,7 +635,7 @@ h2.flush { margin: 0; }
 .sql-outcome.no_known_problems { background: var(--ok-soft); color: var(--ok); }
 .sql-findings { display: flex; flex-direction: column; border-top: 1px solid var(--border-soft); }
 .sql-finding { text-align: left; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--border-soft); background: none; font: inherit; color: inherit; cursor: pointer; }
-.sql-finding:hover, .sql-finding:focus-visible { background: var(--surface-2); }
+.sql-finding:hover, .sql-finding:focus-visible { background: var(--hover); }
 .sql-finding.error b { color: var(--danger); } .sql-finding.warning b { color: var(--warn-strong); }
 .sql-finding.information b { color: var(--accent); } .sql-finding.unverified b { color: var(--text-2); }
 .sql-finding-detail { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; }
@@ -2413,7 +2413,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .pl-open-rows { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; max-height: 280px; overflow: auto; }
 .pl-open-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px 12px; text-align: left;
   background: var(--surface); border: 0; border-bottom: 1px solid var(--border-soft); font: inherit; color: inherit; cursor: pointer; }
-.pl-open-row:hover { background: var(--surface-2); }
+.pl-open-row:hover { background: var(--hover); }
 .pl-open-fabric { display: flex; flex-direction: column; gap: 8px; }
 .pl-open-fabric select { max-width: 360px; }
 .pl-open-files { display: flex; flex-wrap: wrap; gap: 8px; }

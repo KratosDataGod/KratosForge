@@ -629,10 +629,50 @@ def _grouped_agg(fn: Any) -> Any:
             exprs = tuple(_dict_agg(self._df, exprs[0]))
         if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
             return _agg(self._df, *exprs)
+        exprs = tuple(_all_grouping_id(self, e) for e in exprs)
         return fn(self, *_spark_decimals(self._df, exprs))
     agg.__doc__ = fn.__doc__
     return agg
 
+
+_GROUPING_ID_ALL = "grouping_id()"  # F.grouping_id() with no columns: every grouping column, known at agg
+# What F.grouping_id() holds until agg knows the grouping columns: used anywhere else, it stops the query.
+_GROUPING_ID_MARK = ("CAST(error('grouping_id() without columns works only in agg after groupBy, cube or rollup')"
+                     " AS BIGINT)")
+
+
+def _all_grouping_id(grouped: GroupedData, expr: Any) -> Any:
+    """F.grouping_id() in ``agg``: Spark's grouping_id over all the grouping columns, named as Spark names it."""
+    if isinstance(expr, Column) and str(expr.expr) == str(_sql(_GROUPING_ID_MARK).expr):
+        # the name it was given: grouping_id(), or an alias of the user's
+        return _sql(f"CAST(GROUPING({grouped._grouping.get_columns()}) AS BIGINT)").alias(expr.expr.get_name())
+    return expr
+
+
+def _grouping(col: Any) -> Column:
+    """F.grouping: 1 on a row that a cube or rollup totals over ``col``, else 0 (Spark's tinyint)."""
+    name = col if isinstance(col, str) else str(col.expr).strip('"')
+    return _sql(f"CAST(GROUPING({_col_sql(col)}) AS TINYINT)").alias(f"grouping({name})")
+
+
+def _grouping_id(*cols: Any) -> Column:
+    """F.grouping_id: the grouping level as a bit vector (Spark's bigint), over ``cols`` or, with none,
+    over every grouping column."""
+    if not cols:
+        return _sql(_GROUPING_ID_MARK).alias(_GROUPING_ID_ALL)
+    names = ", ".join(c if isinstance(c, str) else str(c.expr).strip('"') for c in cols)
+    return _sql(f"CAST(GROUPING({', '.join(_col_sql(c) for c in cols)}) AS BIGINT)").alias(f"grouping_id({names})")
+
+
+def _grouping_sets(kind: str) -> Any:
+    """DataFrame.cube and rollup: groupBy over every combination (cube) or every prefix (rollup) of the
+    columns, with NULL where a row totals over a column."""
+    def grouped(self: DataFrame, *cols: Any) -> GroupedData:
+        from duckdb.experimental.spark.sql.group import Grouping
+        columns = cols[0] if len(cols) == 1 and isinstance(cols[0], list) else cols
+        return GroupedData(Grouping(*columns, special=kind) if columns else Grouping(), self)
+    grouped.__name__ = kind
+    return grouped
 
 def _dict_agg(df: DataFrame, spec: dict[str, str]) -> list[Column]:
     """Spark's {column: function} form, its columns named as Spark names them (``avg(x)``, also for
@@ -1307,6 +1347,9 @@ def install() -> None:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.show = _show  # type: ignore[method-assign,assignment]
+    DataFrame.cube = _grouping_sets("cube")  # type: ignore[attr-defined]
+    DataFrame.rollup = _grouping_sets("rollup")  # type: ignore[attr-defined]
+    vars(F).update(grouping=_grouping, grouping_id=_grouping_id)
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]

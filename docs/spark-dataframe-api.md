@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 82 |
+| Runs | 84 |
 | Differs | 9 |
 | Refused | 15 |
-| Fails | 57 |
+| Fails | 55 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -49,7 +49,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
 | `crossJoin` | Runs |  |
 | `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
-| `cube` | Fails | `df.cube("name", df.age).count().orderBy("name", "age").sh...`: AttributeError: 'DataFrame' object has no attribute 'cube' |
+| `cube` | Runs |  |
 | `describe` | Differs | `df.describe(['age', 'weight', 'height']).show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
 | `distinct` | Runs |  |
 | `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
@@ -95,7 +95,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `replace` | Runs |  |
-| `rollup` | Fails | `df.rollup("name", df.age).count().orderBy("name", "age")....`: AttributeError: 'DataFrame' object has no attribute 'rollup' |
+| `rollup` | Runs |  |
 | `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
 | `sample` | Runs |  |
 | `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |

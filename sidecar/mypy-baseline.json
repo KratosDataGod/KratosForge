@@ -432,9 +432,6 @@
   "has-type": 1,
   "misc": 2
  },
- "fabric_desktop/workload_service.py": {
-  "operator": 2
- },
  "fabric_desktop/workloads/evaluate.py": {
   "union-attr": 1
  },

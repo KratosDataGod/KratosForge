@@ -416,6 +416,9 @@ def _format_time(t: datetime, fmt: str | None, local: bool = False) -> str:
     t = t if local else t.astimezone(timezone.utc)
     if not fmt or fmt == "o":
         return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond:06d}0" + ("" if local else "Z")
+    if len(fmt) == 1 and fmt not in _STANDARD:
+        # .NET reads any one-character format as a standard format ("M" is "March 15"), never as a token.
+        raise ExpressionError(f"standard date format {fmt!r} isn't supported in local runs yet")
     fmt = _STANDARD.get(fmt, fmt)
     out, i = [], 0
     while i < len(fmt):

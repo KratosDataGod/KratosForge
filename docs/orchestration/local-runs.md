@@ -112,7 +112,7 @@ A function's result is at most 10,485,760 characters of text, or 100,000 items c
 
 Known differences, or things not yet compared with Fabric:
 
-- Date formats support the common .NET patterns (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `fff`, `tt`, quoted text) and the standard formats `o`, `s`, `u`, `d` and `D`. Times are UTC, except in `convertTimeZone`, `convertFromUtc` and `convertToUtc`, which take Windows time zone ids (`Pacific Standard Time`, as Fabric does) and follow daylight saving. A time converted into another zone is written without a `Z`.
+- Date formats support the common .NET patterns (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `fff`, `tt`, quoted text) and the standard formats `o`, `s`, `u`, `d` and `D`. Times are UTC, except in `convertTimeZone`, `convertFromUtc` and `convertToUtc`, which take Windows time zone ids (`Pacific Standard Time`, as Fabric does) and follow daylight saving. A time converted into another zone is written without a `Z`. One difference: a local time that doesn't exist because the clocks went forward (2:30 AM on a spring-forward day) is converted here, where Fabric reports an error.
 - `equals` compares exactly, including case. `startsWith`, `endsWith` and `indexOf` ignore case.
 - Library variables, global parameters and `pipeline().DataFactory` aren't available.
 

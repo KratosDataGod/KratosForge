@@ -43,3 +43,15 @@ def test_an_unknown_zone_is_refused(expr, message):
 def test_every_mapped_zone_exists_in_the_time_zone_data():
     assert len(WINDOWS_TO_IANA) > 130 and WINDOWS_TO_IANA["UTC"] == "Etc/UTC"
     assert not [z for z in WINDOWS_TO_IANA.values() if z not in zoneinfo.available_timezones()]
+
+
+@pytest.mark.parametrize("fmt", ["M", "m", "h", "H", "y", "t", "g"])
+def test_a_one_letter_format_is_a_standard_format_not_a_token(fmt):
+    # .NET reads "M" alone as the month/day pattern ("March 15"), so a lone token must not print 3.
+    with pytest.raises(ExpressionError, match="standard date format"):
+        ev(f"formatDateTime('2018-03-15T13:27:36Z', '{fmt}')")
+
+
+def test_the_supported_standard_formats_still_work():
+    assert ev("formatDateTime('2018-03-15T13:27:36Z', 'd')") == "03/15/2018"
+    assert ev("formatDateTime('2018-03-15T13:27:36Z', 's')") == "2018-03-15T13:27:36"

@@ -21,10 +21,10 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 55 |
+| Runs | 56 |
 | Differs | 0 |
-| Refused | 34 |
-| Fails | 2 |
+| Refused | 35 |
+| Fails | 0 |
 | Not checked | 87 |
 | **All** | **178** |
 
@@ -102,7 +102,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `DATEDIFF_BIG` | Not checked | `SELECT DATEDIFF_BIG(second, '2024-01-01', '2024-01-02')` |  |
 | `DATEFROMPARTS` | Runs |  | 1 value check |
 | `DATENAME` | Runs |  | 1 value check |
-| `DATEPART` | Runs |  | 5 value checks |
+| `DATEPART` | Runs |  | 8 value checks |
 | `DATETIME2FROMPARTS` | Refused | `SELECT DATETIME2FROMPARTS(2024, 3, 6, 13, 45, 30, 0, 0)` | DATETIME2FROMPARTS isn't mapped yet. |
 | `DATETIMEFROMPARTS` | Not checked | `SELECT DATETIMEFROMPARTS(2024, 3, 6, 13, 45, 30, 0)` |  |
 | `DATETRUNC` | Runs |  | 2 value checks |
@@ -117,7 +117,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `SYSDATETIME` | Not checked | `SELECT SYSDATETIME()` |  |
 | `SYSDATETIMEOFFSET` | Refused | `SELECT SYSDATETIMEOFFSET()` | SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: SYSUTCDATETIME() gives the same time without the of |
 | `SYSUTCDATETIME` | Not checked | `SELECT SYSUTCDATETIME()` |  |
-| `TIMEFROMPARTS` | Fails | `SELECT TIMEFROMPARTS(13, 45, 30, 0, 0)` | Binder Error: No function matches the given name and argument types 'make_time(INTEGER_LITERAL, INTEGER_LITERAL, INTEGER_LITERAL, INTEGER_LITERAL, INTEGER_LITER |
+| `TIMEFROMPARTS` | Runs |  | 4 value checks |
 | `TODATETIMEOFFSET` | Refused | `SELECT TODATETIMEOFFSET(CAST('2024-03-06' AS datetime2), '+01:00')` | TODATETIMEOFFSET isn't mapped yet. |
 | `YEAR` | Not checked |  |  |
 
@@ -126,7 +126,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `CAST` | Runs |  | 29 value checks |
-| `CONVERT` | Runs |  | 1 value check |
+| `CONVERT` | Runs |  | 2 value checks |
 | `PARSE` | Refused | `SELECT PARSE('42' AS int)` | PARSE isn't mapped yet. |
 | `TRY_CAST` | Runs |  | 3 value checks |
 | `TRY_CONVERT` | Runs |  | 1 value check |
@@ -193,7 +193,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `JSON_OBJECT` | Not checked | `SELECT JSON_OBJECT('a': 1)` |  |
 | `JSON_QUERY` | Not checked | `SELECT JSON_QUERY('{"a": [1]}', '$.a')` |  |
 | `JSON_VALUE` | Not checked | `SELECT JSON_VALUE('{"a": 1}', '$.a')` |  |
-| `OPENJSON` | Fails | `SELECT [key], value FROM OPENJSON('{"a": 1}')` | Catalog Error: Table Function with name openjson does not exist! |
+| `OPENJSON` | Refused | `SELECT [key], value FROM OPENJSON('{"a": 1}')` | OPENJSON isn't mapped yet. JSON_VALUE and JSON_QUERY read one value or object from JSON text. |
 
 ## Other
 

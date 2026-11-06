@@ -1,0 +1,48 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E62",
+  "title": "Optimize an eventhouse: caching, retention, materialized views and query shape",
+  "objectives": [
+    "3.3.4"
+  ],
+  "objective_text": "Choose the eventhouse policies and query patterns that keep recent queries fast and old data under control.",
+  "scenario": "Fernbrook stores sensor readings in an eventhouse. Dashboards look at recent days, auditors want old data gone after three years, and the same aggregation runs on every tile.",
+  "minutes": 15,
+  "verifies": [
+    "You can pick the right setting or pattern for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can apply it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 4 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/kusto/management/cache-policy",
+    "https://learn.microsoft.com/en-us/kusto/management/retention-policy",
+    "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
+    "https://learn.microsoft.com/en-us/kusto/query/best-practices"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-06."
+  ]
+}

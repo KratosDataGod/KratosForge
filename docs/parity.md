@@ -35,21 +35,24 @@ enterprise ready), see [Platform support levels](platforms.md); this page doesn'
 
 | Area | Visual familiarity | Workflow compatibility | Cloud API integration | Local execution | Verified runtime equivalence |
 | --- | --- | --- | --- | --- | --- |
-| Workspaces and items | Missing | Missing | Verified | · | · |
-| Lakehouse tables and files | Missing | Missing | Built | Built | · |
-| Warehouse and SQL analytics endpoint | Missing | Missing | Built | Partial | · |
-| Notebooks and Spark | Missing | Missing | Verified | Partial | Partial |
-| Data Factory pipelines | Missing | Missing | · | Partial | · |
-| Dataflows Gen2 | Missing | Missing | · | · | · |
-| Medallion task flows | Missing | Missing | · | · | · |
-| Semantic models, TMDL and Direct Lake | Missing | Missing | · | Partial | · |
-| Git integration and deployment | Missing | Missing | Built | · | · |
-| Monitoring and capacity | Missing | Missing | Built | · | · |
-| Security and governance | Missing | Missing | · | · | · |
+| Workspaces and items | Partial | Partial | Verified | · | · |
+| Lakehouse tables and files | Partial | Partial | Built | Built | · |
+| Warehouse and SQL analytics endpoint | Partial | Missing | Built | Partial | · |
+| Notebooks and Spark | Partial | Missing | Verified | Partial | Partial |
+| Data Factory pipelines | Partial | Missing | · | Partial | · |
+| Dataflows Gen2 | Partial | Missing | · | · | · |
+| Medallion task flows | Partial | Missing | · | · | · |
+| Semantic models, TMDL and Direct Lake | Partial | Missing | · | Partial | · |
+| Git integration and deployment | Partial | Missing | Built | · | · |
+| Monitoring and capacity | Partial | Partial | Built | · | · |
+| Security and governance | Partial | Missing | · | · | · |
 
 Notes:
 
+- **Every area, Visual familiarity:** The Fabric-familiar skin (Preview) gives a teal accent and Fabric's page order on the rail (Home, Create, Workspaces, OneLake and Monitor first); pages keep KratosForge's own layout.
+- **Workspaces and items, Workflow compatibility:** The skin's rail has Workspaces third, after Home and Create, as in Fabric; inside it, the page is KratosForge's own.
 - **Workspaces and items, Cloud API integration:** Listing workspaces and lakehouses was recorded; other item types were not. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
+- **Lakehouse tables and files, Workflow compatibility:** The skin's rail has OneLake fourth, after Workspaces, as in Fabric; inside it, the page is KratosForge's own.
 - **Lakehouse tables and files, Cloud API integration:** Tables weren't listed in the recorded live run.
 - **Lakehouse tables and files, Local execution:** Notebooks on this PC read and write OneLake; used live, not recorded.
 - **Warehouse and SQL analytics endpoint, Local execution:** T-SQL is translated to DuckDB; documented gaps fail loudly (docs/sql-compatibility.md).
@@ -59,6 +62,7 @@ Notes:
 - **Data Factory pipelines, Local execution:** Pipelines run on this PC; expected outcomes come from documentation, not a recorded tenant run.
 - **Semantic models, TMDL and Direct Lake, Local execution:** TMDL is read offline and the Direct Lake check runs on this PC; models aren't served here.
 - **Git integration and deployment, Cloud API integration:** Publishing hasn't been recorded live.
+- **Monitoring and capacity, Workflow compatibility:** The skin's rail has Monitor fifth, after OneLake, as in Fabric; inside it, the page is KratosForge's own.
 
 ### Azure Databricks
 

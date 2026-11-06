@@ -1169,7 +1169,7 @@ def show_string(df: DataFrame, n: int = 20, truncate: bool | int = True, vertica
             text = text[:width] if width < 4 else text[:width - 3] + "..."
         return text
 
-    rows = [[f.name for f in fields]] + [[cell(v, f.dataType) for v, f in zip(r, fields, strict=True)] for r in taken[:n]]
+    rows = [[f.name.translate(_ESCAPES) for f in fields]] + [[cell(v, f.dataType) for v, f in zip(r, fields, strict=True)] for r in taken[:n]]
     out: list[str] = []
     if not vertical:
         widths = [max(3, *(_half_width(r[i]) for r in rows)) for i in range(len(fields))]
@@ -1306,7 +1306,7 @@ def install() -> None:
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]
-    DataFrame.show = _show  # type: ignore[method-assign]
+    DataFrame.show = _show  # type: ignore[method-assign,assignment]
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]

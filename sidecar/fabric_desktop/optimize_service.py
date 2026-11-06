@@ -7,17 +7,22 @@ whole feature off with the ``allow_optimize_lakehouse`` policy key.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from . import app_settings, redact, retrying
 from .auth import ONELAKE_SCOPES
 from .fabric_api import FabricError
+from .meta.project import ENVIRONMENTS
+from .meta_service import NoMetadataProject
 from .optimize import local_runs, roles, schema, setup
 from .optimize.outbox import ANALYSIS, LOCAL_EXECUTIONS, Outbox
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
 from .optimize.shared import Shared
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_NAME = "FabricDesktop_Central"
 CHANGED_SINCE = "The central lakehouse's roles changed since you looked. Check again before confirming."
@@ -351,7 +356,9 @@ class OptimizeMixin:
         me = self.optimize_installation.id
         notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
         rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
-                + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me))  # type: ignore[attr-defined]
+                + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me)  # type: ignore[attr-defined]
+                + self._optimize_metadata_runs(me)
+                + local_runs.from_proofs(self._proofs_saved(), me))  # type: ignore[attr-defined]
         offline = None
         try:
             done = shared.local_execution_ids()
@@ -363,25 +370,49 @@ class OptimizeMixin:
             done, offline = set(), redact.secrets(str(exc))
         waiting = self.optimize_outbox.waiting_execution_ids((self.optimize_registry.active() or {}).get("lakehouse_id", ""))
         new = [r for r in rows if r["execution_id"] not in done and r["execution_id"] not in waiting]
-        writes = sum(r["workload_type"] == "notebook_write" for r in new)
-        out = {"new": len(new), "notebook_writes": writes, "notebook_runs": len(new) - writes,
+        kinds = {k: sum(r["workload_type"] == k for r in new)
+                 for k in ("notebook_write", "notebook_run", "metadata_run", "proof_run")}
+        writes = kinds["notebook_write"]
+        out = {"new": len(new), "notebook_writes": writes, "notebook_runs": kinds["notebook_run"],
+               "metadata_runs": kinds["metadata_run"], "proof_runs": kinds["proof_run"],
                "already": len(rows) - len(new), "waiting": sum(r["execution_id"] in waiting for r in rows),
                "shared": 0, **({"offline": offline} if offline else {})}
         if not new:
             return out
         if not approve:
             name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
+            parts = [f"{n} {what}{'s' if n != 1 else ''}" for n, what in (
+                (writes, "notebook write"), (kinds["notebook_run"], "scheduled notebook run"),
+                (kinds["metadata_run"], "metadata run"), (kinds["proof_run"], "proof run")) if n]
             ask = PermissionError(
-                f"Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({writes} notebook "
-                f"write{'s' if writes != 1 else ''} to tables, {len(new) - writes} scheduled notebook "
-                f"run{'s' if len(new) - writes != 1 else ''}): when each ran, how long it took, rows written, and "
-                "the table or notebook name. No code or data, and everyone who can read the lakehouse sees them. "
-                "Confirm to continue.")
+                f"Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({', '.join(parts)}): "
+                "when each ran, how long it took, rows written, CPU time and peak memory where they were measured, "
+                "and the table, project or notebook name. No code or data, and everyone who can read the "
+                "lakehouse sees them. Confirm to continue.")
             ask.would = out  # type: ignore[attr-defined]
             raise ask
         sent = self._optimize_write(LOCAL_EXECUTIONS, {"rows": new})
         return out | {"shared": sent["sent"], "queued": len(new) if sent["queued"] else 0,
                       **({"error": sent["error"]} if sent.get("error") else {})}
+
+    def _optimize_metadata_runs(self, installation_id: str) -> list[dict[str, Any]]:
+        """Runs of the open metadata project in its environments kept on this PC. An environment in
+        Fabric isn't read: that would be a OneLake read, and those runs ran in Fabric or by an agent."""
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+        except NoMetadataProject:
+            return []
+        rows: list[dict[str, Any]] = []
+        for env in ENVIRONMENTS:
+            if project.environments.get(env, {}).get("target", "onelake" if env != "dev" else "local") != "local":
+                continue
+            try:
+                log = self._store(project, env).meta("run_log")  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - a damaged or missing run log leaves that env's runs out
+                _log.info("The %s run log couldn't be read: %s", env, redact.describe(exc))
+                continue
+            rows += [r | {"env": r.get("env") or env} for r in log.iter_rows(named=True)]
+        return local_runs.from_run_log(rows, project.root.name, installation_id)
 
     def optimize_set_recommendation(self, recommendation_id: str, state: str, reason: str = "") -> dict[str, Any]:
         """Accept, dismiss, reopen or otherwise move a recommendation on, for everyone using the lakehouse."""

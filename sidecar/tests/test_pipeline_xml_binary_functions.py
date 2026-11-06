@@ -123,6 +123,7 @@ def test_xpath_namespaces_and_inputs():
     assert ev("xpath(binary('<a>1</a>'), 'number(/a)')") == 1
     assert ev("xpath(json('{\"r\": {\"v\": [1, 2, 3]}}'), 'sum(/r/v)')") == 6
     assert ev("xpath('<a>1 &amp; 2</a>', '/a')") == ["<a>1 &amp; 2</a>"]
+    assert ev("xpath('<a><!--c--><b>x</b></a>', '/')") == ["<a><!--c--><b>x</b></a>"]   # the document node
 
 
 @pytest.mark.parametrize("doc, path, needle", [
@@ -151,9 +152,39 @@ def test_xpath_limits_depth_and_work(monkeypatch):
         ev("xpath(pipeline().parameters.d, '/a')", d=deep)
     monkeypatch.setattr(expr_xml, "MAX_VISITS", 10_000)
     wide = "<r>" + "<i/>" * 300 + "</r>"
-    with pytest.raises(ExpressionError, match="visits more than 10,000 nodes"):
+    with pytest.raises(ExpressionError, match="more than 10,000 steps of work"):
         ev("xpath(pipeline().parameters.d, 'count(//i[count(//i) > 0])')", d=wide)
+    with pytest.raises(ExpressionError, match="more than 10,000 steps of work"):
+        ev("xpath(pipeline().parameters.d, '//i = //i[1]/following::i')", d=wide)   # 300 x 299 comparisons
     assert ev("xpath(pipeline().parameters.d, 'count(//i)')", d=wide) == 300
+
+
+def test_xpath_default_limits_stop_quadratic_work_quickly():
+    import time
+    wide = "<r>" + "<i/>" * 2000 + "</r>"
+    start = time.monotonic()
+    with pytest.raises(ExpressionError, match="steps of work|seconds"):
+        ev("xpath(pipeline().parameters.d, 'count(//i[count(//i) > 0])')", d=wide)
+    assert time.monotonic() - start < expr_xml.MAX_SECONDS + 1.5
+
+
+def test_xpath_time_budget(monkeypatch):
+    monkeypatch.setattr(expr_xml, "MAX_SECONDS", 0.0)
+    with pytest.raises(ExpressionError, match="ran longer than 0 seconds"):
+        ev("xpath('<r><i/><i/></r>', 'count(//i)')")
+
+
+def test_xpath_text_it_builds_is_bounded():
+    # 100 KB of text, concatenated 40 times, would be 4 MB
+    doc = "<r>" + "x" * 100_000 + "</r>"
+    path = "concat(" + ", ".join(["string(/)"] * 40) + ")"
+    with pytest.raises(ExpressionError, match="concat\\(\\) made text of more than 1,048,576 characters"):
+        ev("xpath(pipeline().parameters.d, pipeline().parameters.p)", d=doc, p=path)
+    # reading text is charged too: 200 reads of 1 MB is past the work limit, though no result is big
+    doc = "<r>" + "x" * 1_000_000 + "</r>"
+    path = "concat(" + ", ".join(["string-length(string(/))"] * 200) + ")"
+    with pytest.raises(ExpressionError, match="steps of work"):
+        ev("xpath(pipeline().parameters.d, pipeline().parameters.p)", d=doc, p=path)
 
 
 def test_rand():

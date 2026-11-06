@@ -7,8 +7,9 @@ again. XPath is XPath 1.0, as in Data Factory, with its whole function library e
 
 The parser refuses a document type declaration (``<!DOCTYPE``), so no entity can expand and nothing
 outside the text is read. Documents nest at most ``MAX_DEPTH`` elements, an XPath is at most
-``MAX_XPATH`` characters, and one evaluation visits at most ``MAX_VISITS`` nodes, so an expression in a
-loop can't use all the engine's memory or time.
+``MAX_XPATH`` characters, one evaluation does at most ``MAX_VISITS`` units of work (nodes visited,
+comparisons, text read) in at most ``MAX_SECONDS``, and no text it builds passes ``MAX_STRING`` characters,
+so an expression in a loop can't use all the engine's memory or time.
 
 Choices made here that haven't been compared with Fabric's results (docs/orchestration/local-runs.md):
 text that is only white space between elements is dropped, as .NET's XmlDocument does by default; a
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from typing import Any, Callable
 from xml.parsers import expat
 
@@ -31,7 +33,9 @@ class XmlError(Exception):
 
 MAX_DEPTH = 512
 MAX_XPATH = 10_000
-MAX_VISITS = 5_000_000
+MAX_VISITS = 500_000          # nodes visited, comparisons made and text read (per 256 characters), per xpath()
+MAX_SECONDS = 2.0             # and wall-clock time per xpath(), whichever comes first
+MAX_STRING = 1_048_576        # characters in any text an XPath builds
 MAX_NESTING = 32   # brackets and predicates inside one another; each level is a dozen Python frames
 _NAME = re.compile(r"[A-Za-z_][\w.\-]*(?::[A-Za-z_][\w.\-]*)?\Z")
 
@@ -328,6 +332,7 @@ class _XPath:
         self.i = 0
         self.depth = 0
         self.visits = 0
+        self.deadline = math.inf
         self.run = self.expr()
         if self.i != len(self.toks):
             raise XmlError(f"unexpected {self.toks[self.i][1]!r} in the XPath")
@@ -381,7 +386,11 @@ class _XPath:
         if op == "and":
             return lambda n, p, s: _boolean(left(n, p, s)) and _boolean(right(n, p, s))
         if op in ("=", "!=", "<", "<=", ">", ">="):
-            return lambda n, p, s: _compare(op, left(n, p, s), right(n, p, s))
+            def compared(n: Node, p: int, s: int) -> bool:
+                a, b = left(n, p, s), right(n, p, s)
+                self._visit(max(len(a) if isinstance(a, list) else 1, 1) * max(len(b) if isinstance(b, list) else 1, 1))
+                return _compare(op, a, b)
+            return compared
         maths = {"+": lambda a, b: a + b, "-": lambda a, b: a - b, "*": lambda a, b: a * b,
                  "div": _divide, "mod": _modulo}[op]
         return lambda n, p, s: maths(_number(left(n, p, s)), _number(right(n, p, s)))
@@ -548,14 +557,24 @@ class _XPath:
         lo, hi, impl = fn
         if not lo <= len(args) <= hi:
             raise XmlError(f"the XPath function {name}() was given {len(args)} argument(s)")
-        return lambda n, p, s: impl(self, n, p, s, args)
+        def called(n: Node, p: int, s: int) -> Value:
+            out = impl(self, n, p, s, args)
+            if isinstance(out, str):
+                if len(out) > MAX_STRING:
+                    raise XmlError(f"the XPath function {name}() made text of more than {MAX_STRING:,} characters, "
+                                   "the limit in xpath()")
+                self._visit(1 + len(out) // 256)
+            return out
+        return called
 
     # evaluating
 
     def _visit(self, count: int = 1) -> None:
         self.visits += count
         if self.visits > MAX_VISITS:
-            raise XmlError(f"the XPath visits more than {MAX_VISITS:,} nodes, the limit for one xpath()")
+            raise XmlError(f"the XPath does more than {MAX_VISITS:,} steps of work, the limit for one xpath()")
+        if time.monotonic() > self.deadline:
+            raise XmlError(f"the XPath ran longer than {MAX_SECONDS:g} seconds, the limit for one xpath()")
 
     def _run_path(self, start: Callable | None, steps: list[tuple], absolute: bool) -> Callable:
         def run(n: Node, p: int, s: int) -> list[Node]:
@@ -847,9 +866,11 @@ def xpath(document: Any, path: Any) -> Any:
         raise XmlError("xpath() needs the XPath as text")
     root = parse(to_xml(document))
     xp = _XPath(path)
+    xp.deadline = time.monotonic() + MAX_SECONDS
     result = xp.run(root, 1, 1)
     if isinstance(result, list):
-        return [outer_xml(n) if n.kind == "element" else string_value(n) for n in result]
+        # an element, or the document itself (as .NET's OuterXml gives for "/"), as its XML text
+        return [outer_xml(n) if n.kind in ("element", "root") else string_value(n) for n in result]
     if isinstance(result, float):
         if math.isnan(result) or math.isinf(result):
             raise XmlError(f"the XPath's result is {_string(result)}, which a pipeline value can't hold")

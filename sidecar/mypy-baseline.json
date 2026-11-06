@@ -260,10 +260,6 @@
   "index": 4,
   "union-attr": 1
  },
- "fabric_desktop/meta/freshness.py": {
-  "operator": 2,
-  "union-attr": 5
- },
  "fabric_desktop/meta/keys.py": {
   "arg-type": 2,
   "attr-defined": 3

@@ -85,8 +85,23 @@ class _Ok(http.server.BaseHTTPRequestHandler):
         pass
 
 
+@pytest.fixture(scope="module", autouse=True)
+def python_ssl():
+    """Python's own SSLContext while these tests run. On Windows an earlier test in the same run can
+    put truststore in place (cli.main -> net_trust.use_system_store), and truststore checks the peer's
+    certificate on the server side too: the test server then refused every client, which sends none.
+    The Windows store itself isn't what these tests check; they use REQUESTS_CA_BUNDLE."""
+    injected = ssl.SSLContext.__module__ != "ssl"
+    if injected:
+        import truststore
+        truststore.extract_from_ssl()
+    yield
+    if injected:
+        truststore.inject_into_ssl()
+
+
 @pytest.fixture(scope="module")
-def site(company_ca):
+def site(company_ca, python_ssl):
     """https://localhost:<port>, its certificate signed by the company's root."""
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Ok)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

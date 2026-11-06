@@ -38,6 +38,7 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 ## Network
 
 - [ ] Allow the hosts the app uses through your proxy or firewall ([network access](enterprise-install.md#network-access)).
+- [ ] If PCs reach the internet only through the proxy Windows is set to, also set `HTTPS_PROXY` as a machine environment variable: the engine's first download uses only that ([proxies and HTTPS inspection](enterprise-install.md#proxies-and-https-inspection)).
 - [ ] If your network inspects HTTPS, make sure your root certificate is in the Windows certificate store, as it is for Edge. The engine trusts that store as well as Python's own list. `REQUESTS_CA_BUNDLE` adds another certificate file ([proxies and HTTPS inspection](enterprise-install.md#proxies-and-https-inspection)).
 
 ## Unattended runs

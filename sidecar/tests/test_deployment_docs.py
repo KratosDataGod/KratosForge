@@ -49,3 +49,10 @@ def test_the_msi_and_registry_are_as_the_page_says():
     code = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in CODE)
     assert "Software\\\\Policies" not in code and r"Software\Policies" not in code
     assert r"nothing under `HKLM\Software\Policies`" in INSTALL
+
+
+def test_the_engine_download_is_documented_as_curl_with_environment_proxy_only():
+    main = (ROOT / "app" / "src-tauri" / "src" / "main.rs").read_text(encoding="utf-8")
+    install = main.split("fn install_engine", 1)[1].split("\nfn ", 1)[0]
+    assert 'system_tool("curl.exe")' in install and "--proxy" not in install
+    assert "`HTTPS_PROXY` only: curl doesn't read the Windows proxy setting" in INSTALL

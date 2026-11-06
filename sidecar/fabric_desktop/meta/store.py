@@ -443,6 +443,16 @@ class Store:
             return None, None
         return pl.from_arrow(t.to_pyarrow_table()), t.version()
 
+    def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
+        """The table's schema and the Delta version it was read at, as read_at gives them but without
+        reading a row: for a write that replaces every row and needs only those. (None, None) when
+        there's no table."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options)
+        if t is None:
+            return None, None
+        return lazy(t, uri, options).collect_schema(), t.version()
+
     def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
                    columns: list[str] | None = None, version: int | None = None
                    ) -> tuple[pl.DataFrame | None, int | None]:
@@ -659,6 +669,9 @@ class LocalStore(Store):
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).schema_at(lakehouse, schema, table))
 
     def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
                    columns: list[str] | None = None, version: int | None = None

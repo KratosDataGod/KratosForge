@@ -1,19 +1,25 @@
 """Every platform operation that changes something decides who may make it (docs/audits/AUTHORIZATION_MATRIX.md).
 
 A new operation either calls a check (require_admin, require_member, an owner or author check, is_admin)
-or is added below with the reason anyone may make it, in .github/scripts/authz_matrix.py too."""
+or is added to OPEN_BY_DESIGN in .github/scripts/authz_matrix.py with the reason anyone may make it."""
 
 import ast
+import contextlib
 import functools
+import importlib.util
 import inspect
+import io
 from pathlib import Path
 
 from fabric_desktop.central import core
 
-OPEN_BY_DESIGN = {"call_once", "claim_exception_warning", "ensure_policy_schema", "ensure_schema",
-                  "ensure_template_schema", "follow_product", "unfollow_product", "log_workload_action",
-                  "note_seen", "request"}
-GUARD_WORDS = ("require", "is_admin", "_product_owners", "_shortcut_changer", "_can_", "_may_", "owner", "author")
+ROOT = Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("authz_matrix", ROOT / ".github" / "scripts" / "authz_matrix.py")
+authz_matrix = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(authz_matrix)
+
+OPEN_BY_DESIGN = set(authz_matrix.OPEN_BY_DESIGN)
+GUARD_WORDS = authz_matrix.GUARD_WORDS
 
 
 @functools.cache
@@ -49,3 +55,12 @@ def test_every_changing_platform_operation_checks_who_makes_it():
 def test_the_open_ones_are_changes_only_the_caller_or_a_later_check_owns():
     for op in OPEN_BY_DESIGN:
         assert op in core.OPERATIONS and op not in core.READ_OPERATIONS
+
+
+def test_the_committed_matrix_is_what_the_generator_writes():
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        authz_matrix.main()
+    doc = (ROOT / "docs" / "audits" / "AUTHORIZATION_MATRIX.md").read_text(encoding="utf-8")
+    assert out.getvalue() == doc, ("docs/audits/AUTHORIZATION_MATRIX.md is out of date: from sidecar/, run "
+                                   "python ../.github/scripts/authz_matrix.py > ../docs/audits/AUTHORIZATION_MATRIX.md")

@@ -23,7 +23,7 @@ from fabric_desktop.central import core  # noqa: E402
 from fabric_desktop.integrations import capabilities, permissions, registry  # noqa: E402
 from fabric_desktop.service import Service  # noqa: E402
 
-# Platform operations that change something with no role check, on purpose (also in test_authz_matrix.py).
+# Platform operations that change something with no role check, on purpose (test_authz_matrix.py reads it).
 OPEN_BY_DESIGN = {
     "call_once": "runs another change once; that change makes its own check",
     "claim_exception_warning": "records that a notice went, on the exception's own row",
@@ -57,14 +57,14 @@ def _calls(fn: ast.AST) -> set[str]:
     return out
 
 
-def _guards(path: str, name: str, depth: int = 0, seen: set | None = None) -> set[str]:
-    seen = set() if seen is None else seen
+def _guards(path: str, name: str, depth: int = 0, seen: dict | None = None) -> set[str]:
+    seen = {} if seen is None else seen
     src, fns = _module(path)
-    if (path, name) in seen or name not in fns or depth > 3:
+    if name not in fns or depth > 3 or seen.get((path, name), 99) <= depth:
         return set()
-    seen.add((path, name))
+    seen[(path, name)] = depth
     out = set()
-    for c in _calls(fns[name]):
+    for c in sorted(_calls(fns[name])):
         if any(w in c for w in GUARD_WORDS) and c not in ("_canon",):
             out.add(c)
         if c in fns:
@@ -115,17 +115,19 @@ def _source(name: str) -> tuple[str | None, str]:
         return None, ""
 
 
-def _scan(name: str, depth: int = 0, seen: set | None = None) -> tuple[set[str], set[str], set[str]]:
-    seen = set() if seen is None else seen
-    if name in seen or depth > 2:
+def _scan(name: str, depth: int = 0, seen: dict[str, int] | None = None) -> tuple[set[str], set[str], set[str]]:
+    # A method is looked at again when it is reached by a shorter path, so the result doesn't depend
+    # on which caller happens to be read first (set order changes from run to run).
+    seen = {} if seen is None else seen
+    if depth > 2 or seen.get(name, 99) <= depth:
         return set(), set(), set()
-    seen.add(name)
+    seen[name] = depth
     src, _ = _source(name)
     if src is None:
         return set(), set(), set()
     ops, marks = set(_OPS.findall(src)), {k for k, p in _MARKS.items() if re.search(p, src)}
     reach = {k for k, p in (("fabric", _FABRIC), ("other", _OTHER), ("runs", _RUNS)) if re.search(p, src)}
-    for callee in set(re.findall(r"self\.(_?[a-z][a-z0-9_]*)\(", src)):
+    for callee in sorted(set(re.findall(r"self\.(_?[a-z][a-z0-9_]*)\(", src))):
         o, m, r = _scan(callee, depth + 1, seen)
         ops, marks, reach = ops | o, marks | m, reach | r
     return ops, marks, reach

@@ -404,7 +404,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `optimize_new_installation_id` | `sidecar/fabric_desktop/optimize_service.py:147` | this PC | the signed-in Windows user's own files |
 | `optimize_set_label` | `sidecar/fabric_desktop/optimize_service.py:150` | this PC | the signed-in Windows user's own files |
 | `optimize_set_recommendation` | `sidecar/fabric_desktop/optimize_service.py:386` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
-| `optimize_share_local_runs` | `sidecar/fabric_desktop/optimize_service.py:346` | this PC | confirm or approve argument; organization policy |
+| `optimize_share_local_runs` | `sidecar/fabric_desktop/optimize_service.py:346` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `optimize_switch` | `sidecar/fabric_desktop/optimize_service.py:137` | this PC | the signed-in Windows user's own files |
 | `pipeline_run_cancel` | `sidecar/fabric_desktop/pipeline_service.py:308` | this PC | the signed-in Windows user's own files |
 | `pipeline_run_start` | `sidecar/fabric_desktop/pipeline_service.py:225` | Fabric or OneLake | Fabric's own rights |

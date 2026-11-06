@@ -63,10 +63,6 @@
  "fabric_desktop/comments_service.py": {
   "union-attr": 1
  },
- "fabric_desktop/connprofiles.py": {
-  "arg-type": 1,
-  "assignment": 1
- },
  "fabric_desktop/cpu_cap.py": {
   "syntax": 1
  },
@@ -89,24 +85,9 @@
  "fabric_desktop/editor_service.py": {
   "var-annotated": 1
  },
- "fabric_desktop/engines/databricks_sql.py": {
-  "assignment": 1
- },
- "fabric_desktop/engines/local_python.py": {
-  "var-annotated": 1
- },
- "fabric_desktop/engines/local_sql.py": {
-  "arg-type": 1,
-  "misc": 1
- },
  "fabric_desktop/environments.py": {
   "valid-type": 1,
   "var-annotated": 1
- },
- "fabric_desktop/envprofile.py": {
-  "attr-defined": 1,
-  "union-attr": 2,
-  "var-annotated": 2
  },
  "fabric_desktop/estate_service.py": {
   "assignment": 2,
@@ -129,20 +110,12 @@
   "assignment": 1,
   "union-attr": 1
  },
- "fabric_desktop/frames.py": {
-  "arg-type": 2,
-  "assignment": 1
- },
  "fabric_desktop/git/capacity_files.py": {
   "index": 1
  },
  "fabric_desktop/git/platform_files.py": {
   "arg-type": 1,
   "assignment": 2
- },
- "fabric_desktop/git/repo.py": {
-  "assignment": 3,
-  "var-annotated": 1
  },
  "fabric_desktop/git_service.py": {
   "var-annotated": 1
@@ -197,10 +170,6 @@
  "fabric_desktop/leases.py": {
   "attr-defined": 4
  },
- "fabric_desktop/livetest.py": {
-  "arg-type": 1,
-  "misc": 1
- },
  "fabric_desktop/localdata/delta.py": {
   "arg-type": 1
  },
@@ -211,9 +180,6 @@
  "fabric_desktop/localdata/transform.py": {
   "assignment": 1,
   "attr-defined": 1
- },
- "fabric_desktop/maintenance.py": {
-  "var-annotated": 3
  },
  "fabric_desktop/meta/compare.py": {
   "operator": 2
@@ -302,9 +268,6 @@
  "fabric_desktop/pipeline_service.py": {
   "attr-defined": 4
  },
- "fabric_desktop/platformtest.py": {
-  "assignment": 1
- },
  "fabric_desktop/profiling.py": {
   "arg-type": 3
  },
@@ -318,10 +281,6 @@
  "fabric_desktop/receipts.py": {
   "arg-type": 1,
   "return-value": 1
- },
- "fabric_desktop/replay.py": {
-  "assignment": 2,
-  "call-overload": 1
  },
  "fabric_desktop/risk_service.py": {
   "index": 2
@@ -344,10 +303,6 @@
  "fabric_desktop/shortcut_service.py": {
   "arg-type": 1,
   "var-annotated": 1
- },
- "fabric_desktop/smoketest.py": {
-  "assignment": 1,
-  "misc": 2
  },
  "fabric_desktop/snowflake_sql.py": {
   "assignment": 1,
@@ -381,14 +336,6 @@
  "fabric_desktop/tenant_history_service.py": {
   "var-annotated": 1
  },
- "fabric_desktop/usage/__init__.py": {
-  "assignment": 1,
-  "attr-defined": 1,
-  "type-var": 2
- },
- "fabric_desktop/usage/metrics_app.py": {
-  "assignment": 1
- },
  "fabric_desktop/validate_service.py": {
   "index": 1
  },
@@ -398,20 +345,9 @@
  "fabric_desktop/warehouse.py": {
   "arg-type": 3
  },
- "fabric_desktop/warehouse_compare.py": {
-  "arg-type": 1,
-  "index": 2,
-  "var-annotated": 1
- },
  "fabric_desktop/warehouse_project_service.py": {
   "arg-type": 1,
   "assignment": 2
- },
- "fabric_desktop/widgets.py": {
-  "assignment": 2,
-  "exit-return": 1,
-  "has-type": 1,
-  "misc": 2
  },
  "fabric_desktop/workloads/evaluate.py": {
   "union-attr": 1

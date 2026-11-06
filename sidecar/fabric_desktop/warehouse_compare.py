@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from typing import Any
+from typing import Any, cast
 
 from .warehouse import definition_fingerprint
 
@@ -93,7 +93,9 @@ def columns(text: str) -> dict[str, tuple[str, str]] | None:
         open_at = low.index("(", start)
     except ValueError:
         return None
-    depth, part, parts = 0, [], []
+    depth = 0
+    part: list[str] = []
+    parts: list[list[str]] = []
     for tok in t[open_at + 1:]:
         if tok == "(":
             depth += 1
@@ -156,7 +158,7 @@ def compare(project: dict[tuple[str, str, str], dict[str, str]],
     out: list[dict[str, Any]] = []
     for key in sorted(set(project) | set(warehouse)):
         p, w = project.get(key), warehouse.get(key)
-        first = w or p
+        first = cast(dict[str, str], w or p)  # the key came from one side or the other
         row: dict[str, Any] = {"kind": first["kind"], "schema": first["schema"], "name": first["name"],
                                "path": (p or {}).get("path", "")}
         if p and w:
@@ -168,7 +170,7 @@ def compare(project: dict[tuple[str, str, str], dict[str, str]],
         elif p:
             row.update(state="only_project", project_text=p["text"])
         else:
-            row.update(state="only_warehouse", warehouse_text=w["text"])
+            row.update(state="only_warehouse", warehouse_text=cast(dict[str, str], w)["text"])
         out.append(row)
     order = {"changed": 0, "only_project": 1, "only_warehouse": 2, "same": 3}
     return sorted(out, key=lambda r: (order[r["state"]], r["schema"].lower(), r["name"].lower()))
@@ -305,7 +307,7 @@ def deploy_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             out.append({**base, "action": "drop", "sql": f"DROP {_DROP_WORD[r['kind']]} {_full(r)};", "ticked": False,
                         "offered": True, "why": "only in the warehouse. Drops are never ticked for you."})
         elif r["state"] == "changed" and r["kind"] in ("view", "procedure", "function"):
-            sql = _as_create_or_alter(own)
+            sql = _as_create_or_alter(cast(str, own))  # a change with no single definition was handled above
             out.append({**base, "action": "alter", "sql": sql or "", "ticked": bool(sql), "offered": bool(sql),
                         "why": "definition changes" if sql else "the file doesn't start with CREATE, so it can't be applied"})
         elif r["state"] == "changed" and r["kind"] == "table":

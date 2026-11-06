@@ -25,7 +25,7 @@ import time
 import zipfile
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from . import envprofile
 from .onelake import check_name
@@ -59,7 +59,7 @@ def code(cells: list[dict[str, Any]], failed: int) -> tuple[list[dict[str, Any]]
         if clean != source:
             notes.append(f"Cell {n} looked like it held a secret, which isn't in the bundle; a replay may fail there.")
         tags = (cell.get("meta") or {}).get("tags") or []
-        row = {"type": "markdown" if cell.get("type") == "markdown" else "code", "source": clean}
+        row: dict[str, Any] = {"type": "markdown" if cell.get("type") == "markdown" else "code", "source": clean}
         if "parameters" in tags:
             row["parameters"] = True
         if (cell.get("meta") or {}).get("frozen"):
@@ -195,7 +195,7 @@ def build(name: str, cells: list[dict[str, Any]], failed: int, reads: dict[str, 
 
 
 def write(path: Path, bundle: dict[str, Any], samples: dict[str, Any] | None = None,
-          mode: str = "w") -> dict[str, Any]:
+          mode: Literal["w", "x"] = "w") -> dict[str, Any]:
     """Save ``bundle`` and its ``samples`` ({table: pyarrow table}) as a zip at ``path``. With
     ``mode="x"`` the file is created exclusively: FileExistsError if one is already there."""
     import pyarrow.parquet as pq

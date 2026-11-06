@@ -165,7 +165,29 @@ The list comes from the hosts named in the source code. Notebooks run on the PC,
 
 ### Proxies and HTTPS inspection
 
-The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. If a certificate is still refused, the error starts with "HTTPS was refused because the server's certificate isn't trusted on this PC" and says what to do. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+
+Each outbound call, what it uses, and how long it waits:
+
+| Call | Proxy | Certificates | Gives up after |
+| --- | --- | --- | --- |
+| Sign-in (MSAL: browser, device code, service principal) | Windows proxy or `HTTPS_PROXY` | Windows store | 60 seconds per call to Entra; the browser or Windows prompt itself waits for the person |
+| Sign-in with Windows (WAM) | Windows' own network settings | Windows store | Windows decides |
+| Fabric REST API, OneLake, Graph, Power BI | Windows proxy or `HTTPS_PROXY` | Windows store | 60 seconds unless the call names its own |
+| Managed identity on an Azure VM | Windows proxy or `HTTP_PROXY` | Not HTTPS | 60 seconds |
+| Update check and downloads (the shell, before the engine starts) | Windows proxy or `HTTPS_PROXY` | Windows store (Python's standard library loads it) | 5 to 120 seconds, by step |
+
+Set up the network like this:
+- A proxy given by a PAC file or by automatic detection (WPAD) isn't read. Set the proxy server in Internet Options, or set `HTTPS_PROXY` and `NO_PROXY` as machine environment variables (Group Policy or Intune).
+- A proxy that asks for a sign-in of its own (a 407 answer, with NTLM, Kerberos or Basic) isn't supported. Allow the addresses in [Network access](#network-access) without proxy sign-in.
+- On an Azure VM that signs in with its managed identity, add `169.254.169.254` to `NO_PROXY` or the proxy's bypass list, so the machine's identity endpoint isn't sent to the proxy.
+
+When a call fails on the network, the error starts with one line that says what to do, then the detail:
+- "HTTPS was refused because the server's certificate isn't trusted on this PC": add the root certificate to Windows.
+- "The proxy server refused the connection or couldn't be reached": check the proxy address and that it doesn't ask for a sign-in of its own.
+- "The server didn't answer in time": the proxy or firewall dropped the call without answering.
+
+The update check says the same in its own words. No call waits forever: `sidecar/tests/test_corporate_network.py` fails when an outbound call is written without a timeout, and runs sign-in, a Fabric call and the update check through a local proxy with a made-up company root certificate, a proxy that answers 407, and one that never answers. These tests run on Linux in CI and stand in for the Windows proxy setting, so the Windows proxy and certificate store themselves are UNVERIFIED until a pilot PC behind your proxy confirms them.
 
 ## What the support bundle collects
 

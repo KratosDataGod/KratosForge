@@ -189,8 +189,8 @@ class LocalBackend:
             try:
                 tmp.write_bytes(data)
                 _while_shared(lambda: os.replace(tmp, self._path(key)))
-            except BaseException:
-                tmp.unlink(missing_ok=True)  # a renewal Windows kept refusing leaves nothing in the lease folder
+            except BaseException:  # a full disk, or a rename Windows kept refusing: the file stays as it was, no copy is left
+                tmp.unlink(missing_ok=True)
                 raise
             return self._etag(data)
 

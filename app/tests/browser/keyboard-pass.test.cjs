@@ -243,6 +243,35 @@ for (const [view, button, title] of DIALOGS) {
   });
 }
 
+// EA-030 (docs/ux/narrator-checklist.md section 2): choosing a page on the rail with Enter moves focus to
+// the new page's heading, so a screen reader reads it. The rail is redrawn on every page change, so focus
+// would otherwise drop to the window. Read from Chromium's accessibility tree, which is what Narrator reads:
+// the focused node is the page's level 1 heading, or, on a page whose heading isn't drawn yet, the page
+// itself with the page's name in the polite status region.
+test("Enter on a rail page moves focus to that page's heading, so a screen reader reads the new page", { skip }, async (t) => {
+  const rail = await page().evaluate(() => [...railFeatures(), ...railFeatures(true)]
+    .map((f) => ({ name: f.rail.label, view: Object.keys(f.views || {})[0] })));
+  for (const r of rail) {
+    await t.test(r.name, async () => {
+      await page().evaluate((v) => { closeDialog(); go(v === "home" ? "settings" : "home"); }, r.view);
+      await settle();
+      await page().locator("#rail .rail-item").filter({ hasText: r.name }).first().focus();
+      await page().keyboard.press("Enter");
+      await page().waitForTimeout(150);  // announce() writes its text a moment later, so a repeat is read again
+      const cdp = await page().context().newCDPSession(page());
+      const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+      await cdp.detach();
+      const focused = nodes.find((n) => !n.ignored && n.role?.value !== "RootWebArea" && n.properties?.some((p) => p.name === "focused" && p.value.value));
+      const level = focused?.properties?.find((p) => p.name === "level")?.value?.value;
+      const announced = await page().evaluate(() => document.getElementById("announce")?.textContent || "");
+      const heard = focused?.role?.value === "heading" && level === 1 ? `heading ${focused.name?.value}`
+        : focused?.role?.value === "main" ? `main, announced "${announced}"` : `${focused?.role?.value || "nothing"} ${focused?.name?.value || ""}`;
+      assert.ok(heard.startsWith("heading ") || heard === `main, announced "${r.name}"`, `${r.name}: focus is on ${heard}`);
+    });
+  }
+  assert.deepStrictEqual(app.errors, []);
+});
+
 // EA-030 (docs/ux/narrator-checklist.md section 2): a screen reader user finds where they are by the page's
 // level 1 heading (Narrator's H key), so every rail page has exactly one, and so does each OneLake tab.
 // Read from Chromium's accessibility tree, which is what Narrator reads, so a hidden heading counts.

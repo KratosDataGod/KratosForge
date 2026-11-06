@@ -241,7 +241,9 @@ def _snowflake_problems(conn: dict[str, Any], where: str) -> list[str]:
             out.append(f"{where}.{field} must be a name (up to 255 characters).")
     cred = conn.get("credential") or {}
     method = cred.get("method")
-    extra = sorted(_key_text(k) for k in cred if k not in _SF_CRED_FIELDS.get(method, ("method",)) + ("method", "needs_setup"))
+    # A method that isn't a string (a list, from a hand-edited file) can't be a dict key: no fields allowed.
+    allowed = _SF_CRED_FIELDS.get(method, ("method",)) if isinstance(method, str) else ("method",)
+    extra = sorted(_key_text(k) for k in cred if k not in allowed + ("method", "needs_setup"))
     if extra:  # names only: a stray field may hold a key or passphrase, so its value is never repeated
         out.append(f"{where}.credential can't hold {', '.join(extra)} for this sign-in method.")
     if method == "keypair":
@@ -603,7 +605,8 @@ def snowflake_cli_connections(folder: Path | None = None) -> dict[str, Any]:
             return result | {"error": f"Couldn't read {config_path}."}
         name = config.get("default_connection_name")
         result["default"] = name if isinstance(name, str) else None
-        raw = config.get("connections") if isinstance(config.get("connections"), dict) else {}
+        connections = config.get("connections")
+        raw = connections if isinstance(connections, dict) else {}
         del config
     if connections_path.is_file():  # it wins over config.toml's [connections]
         result["found"] = True

@@ -262,6 +262,13 @@ class HookContext:
         self.notes.append(str(message))
 
 
+def new_run_id() -> str:
+    """A run's id: when it started, to the second, then 48 random bits. Every entity run gets its own,
+    and several start in the same second, so the random part has to be wide enough never to repeat:
+    the run log, its run detail and the data-quality results are found by this id."""
+    return f"r-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:12]}"
+
+
 class Engine:
     # Batch ids start with this; the Fabric runner uses "fabric-" so the app can tell where a run ran.
     batch_prefix = "b-"
@@ -403,7 +410,7 @@ class Engine:
         if name not in self.project.entities:
             raise KeyError(f"no entity named {name}")
         self.project.purge_code()
-        self.run_id = f"r-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
+        self.run_id = new_run_id()
         e = self.project.entities[name]
         res = RunResult(self.run_id, name, "ok")
         started = time.perf_counter()

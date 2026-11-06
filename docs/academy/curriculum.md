@@ -43,7 +43,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E10 | Least privilege workspace roles for six people | 1.3.1 | G | SIM +FV | config | 15 | |
 | E11 | Share a lakehouse: Read, ReadData, ReadAll and the SQL endpoint | 1.3.2 | C | SIM +FV | config | 15 | LM-24 |
 | E12 | Row-level security: a predicate that shows each region its rows | 1.3.3 | G | LV +FV | duckdb | 25 | |
-| E13 | Column- and object-level security: GRANT and DENY that hide salary | 1.3.3 | C | SIM +FV | config | 20 | |
+| E13 | Column- and object-level security: GRANTs that keep salary out of reach | 1.3.3 | C | SIM +FV | config | 20 | |
 | E14 | OneLake data access roles for folders and tables | 1.3.3 | C | SIM +FV | config | 20 | LM-24 |
 | E15 | Dynamic data masking: pick the mask for each column, who sees what | 1.3.4 | G | SIM +FV | config | 15 | |
 | E16 | Sensitivity labels and endorsement: promote, certify, label inheritance | 1.3.5, 1.3.6 | G | KO +FV | quiz | 15 | Governance |

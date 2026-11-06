@@ -76,7 +76,7 @@ def test_dataframe_number_to_timestamp():
                        "out = d.select(F.col('n').cast('timestamp'), F.col('n').cast(TimestampType()).alias('z'))\n"
                        "print(out.columns, [(r[0], r[1]) for r in out.collect()])")
     assert status == "ok", text
-    assert "['CAST(" in text and "', 'z']" in text  # DuckDB's own name for the cast, which varies by version
+    assert "['n', 'z']" in text  # a cast of a plain column keeps the column's name, as in Spark
     assert text.count("1970, 1, 1, 0, 0, 10") == 2 and "(None, None)" in text
 
 

@@ -186,3 +186,9 @@ def test_the_databricks_skins_dark_set_is_complete_and_readable():
     dark = skins.BUILT_IN["databricks"]["appearance"]["tokens"]["dark"]
     for fg, bg in skins.CONTRAST_PAIRS:  # no built-in dark base yet, so the skin sets both sides
         assert fg in dark and bg in dark and skins.contrast(dark[fg], dark[bg]) >= skins.CONTRAST_MIN
+
+
+@pytest.mark.parametrize("skin_id", ["databricks", "snowflake"])
+def test_the_databricks_and_snowflake_skins_mark_the_active_page_in_their_accent(skin_id):
+    for mode, tokens in skins.BUILT_IN[skin_id]["appearance"]["tokens"].items():
+        assert tokens["--rail-active"] == tokens["--accent"], mode

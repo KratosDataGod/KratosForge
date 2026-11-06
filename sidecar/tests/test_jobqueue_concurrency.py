@@ -97,12 +97,25 @@ def test_with_leases_running_out_under_contention_only_one_claim_finishes_each_j
     def worker(n: int) -> None:
         rnd, owner = random.Random(n), f"w{n % 2}"  # two owner names: a lapsed claim can't win on its name
         try:
+            claims = 0
             while not stop.is_set():
                 job = q.claim(owner, lease)
                 if job is None:
                     time.sleep(0.01)
                     continue
-                time.sleep(rnd.uniform(0, 2.5 * lease))  # some runs outlast their lease
+                claims += 1
+                if claims % 3 == 1:
+                    # This run outlasts its lease for certain: it finishes only once the recoverer has
+                    # taken the job back, so every run of the test tries a lapsed claim, however slow
+                    # the machine (on a slow runner the timed ones below could all finish in time).
+                    waited = time.monotonic() + 30
+                    while time.monotonic() < waited and not stop.is_set():
+                        now = q.get(job["id"])
+                        if now["state"] != "running" or now["claim_id"] != job["claim_id"]:
+                            break
+                        time.sleep(0.01)
+                else:
+                    time.sleep(rnd.uniform(0, 2.5 * lease))  # some runs outlast their lease
                 if q.succeed(job["id"], owner, {"claim": job["claim_id"]}, claim=job["claim_id"]):
                     with lock:
                         wins[job["id"]].append(job["claim_id"])

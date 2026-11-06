@@ -71,9 +71,6 @@
   "operator": 1,
   "valid-type": 3
  },
- "fabric_desktop/delta_dml.py": {
-  "arg-type": 3
- },
  "fabric_desktop/dpapi.py": {
   "attr-defined": 3
  },

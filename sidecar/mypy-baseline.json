@@ -194,11 +194,6 @@
  "fabric_desktop/incident_desk.py": {
   "dict-item": 2
  },
- "fabric_desktop/incident_service.py": {
-  "attr-defined": 4,
-  "dict-item": 1,
-  "var-annotated": 1
- },
  "fabric_desktop/integrations/app_service.py": {
   "assignment": 1,
   "has-type": 1
@@ -516,12 +511,6 @@
  },
  "fabric_desktop/workloads/evaluate.py": {
   "union-attr": 1
- },
- "fabric_desktop/workloads/incidents.py": {
-  "arg-type": 1,
-  "attr-defined": 1,
-  "valid-type": 4,
-  "var-annotated": 1
  },
  "fabric_desktop/workloads/platform_notify.py": {
   "index": 1

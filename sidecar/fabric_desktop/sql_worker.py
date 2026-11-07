@@ -34,9 +34,14 @@ BATCH_ROWS = 65_536
 PROGRESS_SECONDS = 0.25
 
 
+_say_lock = threading.Lock()  # the memory watch's thread says its error while the run may be mid-event
+
+
 def _say(event: str, **fields: Any) -> None:
-    sys.stdout.write(json.dumps({"event": event, **fields}, default=str) + "\n")
-    sys.stdout.flush()
+    line = json.dumps({"event": event, **fields}, default=str) + "\n"
+    with _say_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def run(job: dict[str, Any]) -> None:

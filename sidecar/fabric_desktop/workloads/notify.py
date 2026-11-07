@@ -178,12 +178,13 @@ class Outbox:
 
     def resting(self, addresses: dict[str, str]) -> dict[str, str]:
         """Routes resting after failures, with their last error: route name -> error. A route
-        whose address changed since it failed isn't resting."""
+        whose address changed since it failed isn't resting, and neither is one whose next try is
+        further off than BACKOFF_MAX (set before the clock went back)."""
         t = self.clock()
         with self._db() as db:
             rows = db.execute("SELECT route, address, next_try, error FROM route_state").fetchall()
         return {r[0]: r[3] or "" for r in rows
-                if r[0] in addresses and r[1] == _fingerprint(addresses[r[0]]) and r[2] > t}
+                if r[0] in addresses and r[1] == _fingerprint(addresses[r[0]]) and t < r[2] <= t + BACKOFF_MAX}
 
     def route_failed(self, route: str, address: str, error: str) -> float:
         """Count a failure and set when the route is next tried. Returns that wait in seconds."""

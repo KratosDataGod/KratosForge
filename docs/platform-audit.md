@@ -61,7 +61,7 @@ A change the platform refuses (the caller isn't an admin, an owner or a member, 
 | `target` | Empty |
 | `detail` | `count`: how many refusals of that operation, by that caller, the row stands for |
 
-The row never holds the call's arguments or the refusal's message, which can quote them. Refused reads leave no row. Each row is a write the capacity pays for, so one caller and operation get at most one row a minute (later refusals in that minute are counted into the next row the same process writes), and the platform writes at most 300 refused rows an hour. A row that can't be written never changes the refusal the caller gets.
+The row never holds the call's arguments or the refusal's message, which can quote them. Refused reads leave no row. Each row is a write the capacity pays for, so one caller and operation get at most one row a minute (later refusals in that minute are counted into the next row the same process writes), one caller gets at most 30 refused rows an hour, and the platform at most 300. The first refusal past either cap in an hour writes one `refusals not recorded` row (`by_user` is the caller for their own cap, empty for the platform's; `detail` has `cap`: `person` or `platform`, and `count`), and later ones that hour aren't recorded. They're still refused. A row that can't be written never changes the refusal the caller gets.
 
 ## Pulling one request's trail
 
@@ -91,5 +91,5 @@ To find a request's id, look it up in `catalog.request` by `target`, `requested_
 - The platform's trail is append-only through its functions but isn't tamper-evident (no hash chain, unlike the app's per-PC log): its integrity rests on who can write to `SQL_Platform`, so keep write access to the Platform workspace for the central team.
 - Reading the platform writes no rows, except the first admin's claim on an empty platform (`claim admin`). A refused read writes none either. A refused change writes its `refused <operation>` row ([Refused changes](#refused-changes)).
 - `refused` covers every change the platform turns down: missing rights, and also a check on what was asked (a name in the wrong form, a missing value). Tell them apart by who and what was attempted, not by the row.
-- The 300-an-hour cap is shared: one caller refused over and over can use it up, and other callers' refusals in that hour are then not recorded. They're still refused.
+- Past a cap, refusals that hour aren't recorded one by one: the `refusals not recorded` row marks when the gap began. Each caller's own cap (30 an hour) keeps one caller from using up the platform's 300.
 - The rate checks read `catalog.audit` by `action` and `at`, which have no index yet. An index on (`action`, `at`) is planned.

@@ -1488,10 +1488,12 @@ def save_term(db: Db, term: dict[str, Any], by: str = "") -> dict[str, Any]:
 # audit even when the caller wasn't the app (a script, another tool with Execute rights). The row says
 # who (the platform's resolved identity) and which operation, never its arguments or the refusal's
 # words, which can quote them. Every row is a write the capacity pays for, so a person and operation get
-# at most one row a minute, with how many refusals it stands for, and the platform at most
-# REFUSAL_CAP rows an hour.
+# at most one row a minute, with how many refusals it stands for; a caller at most REFUSAL_PERSON_CAP
+# rows an hour and the platform REFUSAL_CAP. Past either, one "refusals not recorded" row marks the gap.
 REFUSAL_EVERY = 60
 REFUSAL_CAP = 300
+REFUSAL_PERSON_CAP = 30  # one caller's share of the hour, so one can't use up everyone's
+NOT_RECORDED = "refusals not recorded"
 _REFUSALS: dict[tuple[str, str], int] = {}  # refusals this process saw since its last row, per (who, op)
 _REFUSALS_LOCK = threading.Lock()
 
@@ -1519,9 +1521,20 @@ def record_refusal(db: Db, by: str, op: str) -> bool:
     hour = (now - dt.timedelta(hours=1)).isoformat()
     if db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?", (action, who, minute)):
         return False
-    recent = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' AND at > ?",
-                     (hour,))
-    if recent[0]["n"] >= REFUSAL_CAP:
+    everyone = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' AND at > ?",
+                       (hour,))[0]["n"]
+    theirs = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' "
+                     "AND by_user = ? AND at > ?", (who, hour))[0]["n"]
+    if everyone >= REFUSAL_CAP or theirs >= REFUSAL_PERSON_CAP:
+        # Past a cap: one marker an hour (per person, or for the platform) says refusals from here on
+        # aren't recorded, so the gap shows on the audit itself. They're still refused.
+        cap, marker_by = ("platform", "") if everyone >= REFUSAL_CAP else ("person", who)
+        if not db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?",
+                       (NOT_RECORDED, marker_by, hour)):
+            with _REFUSALS_LOCK:
+                count = _REFUSALS.pop((who, op), 1)
+            _audit(db, marker_by, NOT_RECORDED, "", {"count": count, "cap": cap})
+            db.commit()
         return False
     with _REFUSALS_LOCK:
         count = _REFUSALS.pop((who, op), 1)

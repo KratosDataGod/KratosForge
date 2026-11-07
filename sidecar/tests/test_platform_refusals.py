@@ -136,13 +136,32 @@ def test_one_row_a_minute_per_person_and_operation_with_how_many_it_stands_for(p
     assert last["action"] == "refused close_keys" and json.loads(last["detail"]) == {"count": 5}
 
 
-def test_the_platform_writes_at_most_its_cap_of_refusal_rows_an_hour(platform, monkeypatch):
+def _markers(path):
+    return [(r["by_user"], json.loads(r["detail"])) for r in _rows(path) if r["action"] == core.NOT_RECORDED]
+
+
+def test_the_platform_writes_at_most_its_cap_of_refusal_rows_an_hour_and_marks_the_gap_once(platform, monkeypatch):
     monkeypatch.setattr(core, "REFUSAL_CAP", 2)
-    for n in range(4):
+    for n in range(5):
         platform.who["user"] = f"user{n}@example.com"
-        with pytest.raises(core.PlatformError):
+        with pytest.raises(core.PlatformError, match="Only platform admins"):  # still refused past the cap
             platform.call("close_keys", reason="x")
     assert len(_refused(platform.path)) == 2
+    assert _markers(platform.path) == [("", {"count": 1, "cap": "platform"})]
+
+
+def test_one_caller_cant_use_up_everyone_elses_share(platform, monkeypatch):
+    monkeypatch.setattr(core, "REFUSAL_PERSON_CAP", 2)
+    for op, args in (("close_keys", {"reason": "x"}), ("clear_keys", {}), ("stage_keys", {"staging": True}),
+                     ("claim_admin", {}), ("close_keys", {"reason": "x"})):
+        with pytest.raises(core.PlatformError):
+            platform.call(op, **args)
+    assert [r["by_user"] for r in _refused(platform.path)] == [MALLORY, MALLORY]
+    assert _markers(platform.path) == [(MALLORY, {"count": 1, "cap": "person"})]
+    platform.who["user"] = "someone@example.com"
+    with pytest.raises(core.PlatformError):
+        platform.call("close_keys", reason="x")
+    assert [r["by_user"] for r in _refused(platform.path)][-1] == "someone@example.com"
 
 
 def test_the_refusal_is_raised_unchanged_when_its_row_cant_be_written(platform, function_app, monkeypatch):

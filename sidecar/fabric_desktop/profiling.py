@@ -9,7 +9,7 @@ still uses some capacity).
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 
@@ -89,7 +89,7 @@ def profile(df: pl.DataFrame, keys: list[str] | None = None,
 
         if dtype == pl.String and len(nn):
             lengths = nn.str.len_chars()
-            stat["min_length"], stat["max_length"] = int(lengths.min()), int(lengths.max())
+            stat["min_length"], stat["max_length"] = int(cast(int, lengths.min())), int(cast(int, lengths.max()))
             padded = int((nn != nn.str.strip_chars()).sum())
             if padded:
                 text = f"{_n(padded, 'value')} with spaces at the start or end"
@@ -127,14 +127,14 @@ def profile(df: pl.DataFrame, keys: list[str] | None = None,
                                             "rule": {}, "toml": ""})
             if 1 < folded <= MAX_ACCEPTED and n >= 3 * folded and not is_date and not _keyish(col, keys):
                 # Checks run after cleaning, so the accepted values are the cleaned ones.
-                cleaned = {"lower": real.str.to_lowercase(), "upper": real.str.to_uppercase()}.get(case, real)
+                cleaned = {"lower": real.str.to_lowercase(), "upper": real.str.to_uppercase()}.get(case or "", real)
                 values = sorted(set(cleaned.to_list()))
                 suggest("check", col, {"accepted_values": values},
                         f"only {len(values)} distinct values: a new one is worth a warning", "accepted_values")
 
         if _is_numeric(dtype) and len(nn):
             vals = nn.cast(pl.Float64)
-            stat.update(min=vals.min(), max=vals.max(), mean=round(float(vals.mean()), 4))
+            stat.update(min=vals.min(), max=vals.max(), mean=round(float(cast(float, vals.mean())), 4))
             q1, q3 = vals.quantile(0.25), vals.quantile(0.75)
             if q1 is not None and q3 is not None and q3 > q1 and not _keyish(col, keys):
                 iqr = q3 - q1

@@ -114,8 +114,21 @@ jobs:
         if: env.RUN_TESTS == 'true'
       # One worker per core (pytest-xdist); loadfile keeps each test file in one worker, since some
       # files share module-level state. --durations lists the slowest tests, so slow ones stay visible.
-      - run: python -m pytest -q -n auto --dist loadfile --durations=25
+      # On Windows the default temp folder is on the C: drive, where a SQLite commit measured about
+      # 100 ms against under 2 ms in the runner's own temp folder on D:, so tests use that one.
+      # Tests marked machine_wide_grants take the exercise runtime's access off the shared Python
+      # install, which would stop another worker's running exercise, so they run alone afterwards.
+      - run: python -m pytest -q -n auto --dist loadfile --durations=25 -m "not machine_wide_grants"
         if: env.RUN_TESTS == 'true'
+        env:
+          TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
+          TEMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
+      - name: Tests that change machine-wide grants, one at a time
+        if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
+        run: python -m pytest -q -p no:xdist -m machine_wide_grants
+        env:
+          TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
+          TEMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
         if: env.RUN_TESTS == 'true'
@@ -166,7 +179,7 @@ jobs:
       - run: python -m pip install -e . mypy -c constraints.txt -c ci-constraints.txt
       - run: python -m ruff check --output-format github .
       # mypy, as a ratchet: fails only when a file has more type errors of a kind than
-      # sidecar/mypy-baseline.json records (hundreds predate the check).
+      # sidecar/mypy-baseline/ records, one JSON file per source file (hundreds predate the check).
       - run: python ../.github/scripts/mypy_ratchet.py
 
   vscode-extension:
@@ -312,7 +325,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: |
           cargo cyclonedx --version 2>/dev/null | grep -qwF 0.5.9 || cargo install --locked cargo-cyclonedx --version 0.5.9
-          cd app/src-tauri && cargo cyclonedx --format json --override-filename sbom-app
+          cd app/src-tauri && rustup toolchain install && cargo cyclonedx --format json --override-filename sbom-app
           mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -373,7 +386,11 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
-          python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
+          # The engine's own wheel is built against a hashed build backend, not one pip fetches unchecked.
+          python -m pip install --only-binary=:all: --require-hashes -r .github\requirements\engine-build.txt
+          if ($LASTEXITCODE) { throw "The engine's build backend did not match its pinned hash" }
+          python -m pip wheel --no-build-isolation --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
+          if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
           # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
           # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
           # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
@@ -418,16 +435,6 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-      - name: List every package in the engine (SBOM)
-        shell: pwsh
-        run: |
-          python -m pip install --quiet cyclonedx-bom==7.5.0
-          cyclonedx-py environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: sbom-engine
-          path: sbom-engine.cdx.json
-          if-no-files-found: error
       - name: Zip the engine
         id: zip
         shell: pwsh
@@ -456,6 +463,22 @@ jobs:
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
           if-no-files-found: error
+      # After the zips and their hashes, so no third-party tool runs on the engine folder between
+      # signing and hashing. The tool comes from a hashed file into its own venv, and only reads the folder.
+      - name: List every package in the engine (SBOM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m venv "$env:RUNNER_TEMP\sbom"
+          & "$env:RUNNER_TEMP\sbom\Scripts\python.exe" -m pip install --quiet --only-binary=:all: --require-hashes -r .github\requirements\sbom.txt
+          if ($LASTEXITCODE) { throw "The SBOM tool did not match its pinned hashes" }
+          & "$env:RUNNER_TEMP\sbom\Scripts\cyclonedx-py.exe" environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
+          if ($LASTEXITCODE) { exit 1 }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-engine
+          path: sbom-engine.cdx.json
+          if-no-files-found: error
 
   shell:
     runs-on: windows-latest
@@ -470,7 +493,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          toolchain: stable
+          # The version in app/src-tauri/rust-toolchain.toml, which cargo uses in that folder.
+          toolchain: "1.99.1"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: app/src-tauri

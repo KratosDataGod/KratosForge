@@ -1,0 +1,37 @@
+{
+  "_about": "A model of how the Load orders pipeline starts. schedules lists its schedules; triggers lists its storage event triggers. Parameters passed to the pipeline go under parameters, by name.",
+  "pipeline": {
+    "name": "Load orders",
+    "parameters": {
+      "run_mode": "full or incremental",
+      "file_name": "the file to load, for an incremental run"
+    }
+  },
+  "needs": [
+    "A full reload every night at 02:00 Amsterdam time, from 7 November 2026 to the end of 2027.",
+    "An incremental load whenever a new .csv file lands in the orders folder of the partner's Azure Blob Storage container, loading just that file. Deleted files must not start a run."
+  ],
+  "schedules": [
+    {
+      "frequency": "Daily",
+      "time": "02:00",
+      "time_zone": "UTC",
+      "start": "2026-11-07",
+      "end": null,
+      "parameters": {
+        "RunMode": "full"
+      }
+    }
+  ],
+  "triggers": [
+    {
+      "source": null,
+      "event_types": [],
+      "subject_filter": {
+        "folder": null,
+        "file_type": null
+      },
+      "parameters": {}
+    }
+  ]
+}

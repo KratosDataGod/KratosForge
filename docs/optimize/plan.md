@@ -63,7 +63,7 @@ Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `fi
 
 ## 4. PR sequence and status
 
-Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
+Status checked against `main` on 2026-11-07. Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
 
 | PR | Content | Status |
 | --- | --- | --- |

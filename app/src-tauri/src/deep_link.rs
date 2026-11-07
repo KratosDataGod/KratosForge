@@ -262,7 +262,7 @@ fn proof(token: &str, nonce: &str) -> String {
     let token = &token.as_bytes()[..token.len().min(64)];
     key[..token.len()].copy_from_slice(token);
     let pad = |with: u8| key.iter().map(|k| k ^ with).collect::<Vec<u8>>();
-    let inner = Sha256::new().chain_update(pad(0x36)).chain_update(b"kratosforge link listener ").chain_update(nonce.as_bytes()).finalize();
+    let inner = Sha256::new().chain_update(pad(0x36)).chain_update(b"kratosforge-link-v1 ").chain_update(nonce.as_bytes()).finalize();
     Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -690,26 +690,36 @@ mod tests {
         std::fs::write(dir.join("link-port"), format!("{port} {token}")).unwrap();
         let heard = std::thread::spawn(move || {
             let mut heard = String::new();
-            for answer in ["wrong", &"0".repeat(64), OK] {
+            // Garbage, the nonce echoed back, a proof-shaped guess, nothing at all, and the old protocol's OK.
+            for answer in ["wrong", "echo", &"0".repeat(64), "silent", OK] {
                 let Ok((s, _)) = squatter.accept() else { break };
-                s.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                s.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
                 let mut reader = BufReader::new(s.try_clone().unwrap());
                 let mut line = String::new();
                 let _ = reader.read_line(&mut line);
                 heard.push_str(&line);
-                let _ = writeln!(&s, "{answer}");
+                match answer {
+                    "echo" => { let _ = writeln!(&s, "{}", line.trim().trim_start_matches(HELLO).trim()); }
+                    "silent" => {}
+                    other => { let _ = writeln!(&s, "{other}"); }
+                }
                 line.clear();
                 let _ = reader.read_line(&mut line);
                 heard.push_str(&line);
             }
             heard
         });
-        for _ in 0..3 {
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
             assert!(!forward(&dir, "kratosforge://notebook?path=C%3A%5Csecret.ipynb"));
+            assert!(started.elapsed() < Duration::from_secs(4), "a silent listener is given up on");
         }
         let heard = heard.join().unwrap();
         assert!(!heard.contains(&token) && !heard.contains("secret"), "{heard}");
-        assert_eq!(heard.matches(HELLO).count(), 3, "only hellos: {heard}");
+        assert_eq!(heard.matches(HELLO).count(), 5, "only hellos: {heard}");
+        let nonces: std::collections::BTreeSet<&str> = heard.lines().filter_map(|l| l.strip_prefix("hello ")).collect();
+        assert_eq!(nonces.len(), 5, "a new nonce each time");
+        assert!(nonces.iter().all(|n| n.len() == 32 && n.bytes().all(|b| b.is_ascii_hexdigit())));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -292,7 +292,7 @@ def _serving(monkeypatch, **limits):
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     config = http_server.server_config(app, port)
-    assert (config.host, config.limit_concurrency, config.timeout_keep_alive) == ("127.0.0.1", http_server.MAX_CONNECTIONS, http_server.IDLE_SECONDS)
+    assert (config.host, config.limit_concurrency, config.timeout_keep_alive) == ("127.0.0.1", http_server.MAX_CONNECTIONS + 1, http_server.IDLE_SECONDS)
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
@@ -365,11 +365,17 @@ def test_past_the_connection_cap_a_request_gets_busy_and_the_slots_come_back(mon
     import socket
     import time
 
-    port, stop = _serving(monkeypatch, HEADER_SECONDS=2.0, MAX_CONNECTIONS=4)
+    from fabric_desktop.integrations import http_server
+
+    assert http_server.MAX_CONNECTIONS == 32
+    port, stop = _serving(monkeypatch, HEADER_SECONDS=5.0)
     try:
-        held = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(4)]
-        time.sleep(0.2)
-        assert _get(port) == 503
+        held = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(31)]
+        time.sleep(0.3)
+        assert _get(port) == 200  # the 32nd connection is served
+        held.append(socket.create_connection(("127.0.0.1", port), timeout=5))
+        time.sleep(0.3)
+        assert _get(port) == 503  # the 33rd isn't
         for s in held:
             s.close()
         time.sleep(0.3)

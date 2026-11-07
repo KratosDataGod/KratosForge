@@ -405,7 +405,8 @@ def server_config(app: ASGIApp, port: int) -> Any:
 
     return uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
                           timeout_graceful_shutdown=10, server_header=False, http=_protocol(),
-                          limit_concurrency=MAX_CONNECTIONS, timeout_keep_alive=IDLE_SECONDS)
+                          # uvicorn counts the new connection too, and refuses at the limit
+                          limit_concurrency=MAX_CONNECTIONS + 1, timeout_keep_alive=IDLE_SECONDS)
 
 
 def _parent_alive(pid: int) -> bool:

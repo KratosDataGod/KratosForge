@@ -91,7 +91,7 @@ test("Preview effects plays each effect, follows a real local pipeline run, and 
 test("Windows reduced motion: nothing plays, unless the person opts out of following it", { skip }, async () => {
   const app = await open({ reducedMotion: "reduce" });
   const { page } = app;
-  await page.getByText("Off now: Windows asks apps to reduce motion.").waitFor();
+  await page.getByText("Still now: Windows asks apps to reduce motion.").waitFor();
   assert.strictEqual(await page.evaluate(() => motionLevel()), 0);
   await page.getByRole("button", { name: "Preview effects" }).click();
   await page.getByRole("dialog", { name: "Living Experience" }).getByRole("button", { name: "Play" }).first().click();
@@ -103,7 +103,7 @@ test("Windows reduced motion: nothing plays, unless the person opts out of follo
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("Changing page slides the new page in only at Minimal and above, and never on a redraw", { skip }, async () => {
+test("Changing page slides the new page in only at Subtle and above, and never on a redraw", { skip }, async () => {
   const app = await open();
   const { page } = app;
   const animated = () => page.evaluate(() => document.getElementById("view").getAnimations().length);

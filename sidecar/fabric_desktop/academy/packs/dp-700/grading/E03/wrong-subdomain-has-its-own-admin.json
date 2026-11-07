@@ -1,0 +1,50 @@
+{
+  "_about": "A model of domains for a data mesh. Each domain has admins, contributors (\"everyone\", \"specific users or groups\" with a list, or \"admins only\"), workspaces and subdomains. Subdomains list their workspaces and, if they could have any, admins.",
+  "needs": [
+    "A Sales domain owned by Priya, the business owner, and a Finance domain owned by Omar.",
+    "Sales EMEA as a subdomain of Sales, for the EMEA workspaces. Lukas runs EMEA and asked to be its admin.",
+    "Only the Sales workspace admins group may add workspaces to Sales.",
+    "Workspaces: Sales-Core to Sales, Sales-EMEA-Reports to Sales EMEA, Finance-GL to Finance."
+  ],
+  "who_creates_domains": "Fabric admin",
+  "domains": {
+    "Sales": {
+      "admins": [
+        "Priya"
+      ],
+      "contributors": {
+        "who": "specific users or groups",
+        "list": [
+          "Sales workspace admins"
+        ]
+      },
+      "workspaces": [
+        "Sales-Core"
+      ],
+      "subdomains": {
+        "Sales EMEA": {
+          "workspaces": [
+            "Sales-EMEA-Reports"
+          ],
+          "admins": [
+            "Lukas"
+          ]
+        }
+      }
+    },
+    "Finance": {
+      "admins": [
+        "Omar"
+      ],
+      "contributors": {
+        "who": "everyone",
+        "list": []
+      },
+      "workspaces": [
+        "Finance-GL"
+      ],
+      "subdomains": {}
+    }
+  },
+  "assigning_a_domain_hides_the_workspace_from_others": false
+}

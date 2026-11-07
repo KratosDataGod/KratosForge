@@ -17,7 +17,7 @@ import json
 import re
 import tomllib
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ..central.core import PlatformError, zone_key
 from ..central.policy import BUILTIN_TEMPLATES, clean_definition
@@ -81,11 +81,12 @@ def domain_record(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def source_record(s: dict[str, Any]) -> dict[str, Any]:
-    sid = s.get("source_id")
+    raw: Any = s.get("source_id")  # None too: int() raises TypeError, handled below
+    sid: int | str
     try:
-        sid = int(sid)
+        sid = int(raw)
     except (TypeError, ValueError):
-        sid = _s(sid)  # kept as written, so the diff shows it and a deploy refuses it
+        sid = _s(raw)  # kept as written, so the diff shows it and a deploy refuses it
     active = s.get("active", True)
     rec = {"source_id": sid, "code": _s(s.get("code")) or _s(s.get("name")).upper(), "title": _s(s.get("title")),
            "description": _s(s.get("description")), "owner": _s(s.get("owner")),
@@ -346,19 +347,21 @@ def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | No
     Reads the working folder, or ``committed`` (from committed_files) when given."""
     root = Path(root)
     problems: list[str] = list(committed[1]) if committed else []
+    texts: Mapping[str, str | Path]
     if committed:
         texts = committed[0]
     else:
-        texts = {}
+        found: dict[str, str | Path] = {}
+        texts = found
         for folder in FOLDERS.values():
             where = root / folder
             if where.is_symlink() or not where.is_dir():
                 continue
             for f in sorted(where.glob("*.toml")):
-                texts[f"{folder}/{f.name}"] = f
+                found[f"{folder}/{f.name}"] = f
         for name in FILES.values():
             if (root / name).exists() or (root / name).is_symlink():
-                texts[name] = root / name
+                found[name] = root / name
 
     def load(rel: str) -> dict[str, Any] | None:
         src = texts[rel]

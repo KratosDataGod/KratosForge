@@ -19,7 +19,7 @@ import polars as pl
 
 from .project import SYSTEM_COLUMNS, Entity, Project
 
-_TYPE_NAMES = {pl.Int64: "int64", pl.Int32: "int32", pl.Int16: "int32", pl.Int8: "int32", pl.UInt32: "int64",
+_TYPE_NAMES: dict[Any, str] = {pl.Int64: "int64", pl.Int32: "int32", pl.Int16: "int32", pl.Int8: "int32", pl.UInt32: "int64",
                pl.UInt64: "int64", pl.Float64: "float64", pl.Float32: "float32", pl.String: "string",
                pl.Boolean: "bool", pl.Date: "date"}
 
@@ -115,10 +115,10 @@ def apply(text: str, add: dict[str, str] | None = None, retype: dict[str, str] |
             name = m.group(1) if m else None
             if name and name in (remove or []):
                 continue
-            if name and name in (retype or {}):
+            if name and retype and name in retype:
                 l = f"{name} = {json.dumps(retype[name])}"
             out.append(l)
-        present = {name_of(l).group(1) for l in out if name_of(l)}
+        present = {hit.group(1) for l in out if (hit := name_of(l))}
         out += [f"{c} = {json.dumps(t)}" for c, t in (add or {}).items() if c not in present]
         lines[start + 1:end] = out
     if policy is not None:
@@ -149,10 +149,10 @@ def apply(text: str, add: dict[str, str] | None = None, retype: dict[str, str] |
 
 # ---- what a write changes in the table's schema (PB-031)
 
-_EXACT = {pl.Int8: "int8", pl.Int16: "int16", pl.Int32: "int32", pl.Int64: "int64", pl.UInt8: "uint8",
+_EXACT: dict[Any, str] = {pl.Int8: "int8", pl.Int16: "int16", pl.Int32: "int32", pl.Int64: "int64", pl.UInt8: "uint8",
           pl.UInt16: "uint16", pl.UInt32: "uint32", pl.UInt64: "uint64", pl.Float32: "float32",
           pl.Float64: "float64", pl.String: "string", pl.Boolean: "bool", pl.Date: "date"}
-_BITS = {pl.Int8: 8, pl.Int16: 16, pl.Int32: 32, pl.Int64: 64, pl.UInt8: 8, pl.UInt16: 16, pl.UInt32: 32,
+_BITS: dict[Any, int] = {pl.Int8: 8, pl.Int16: 16, pl.Int32: 32, pl.Int64: 64, pl.UInt8: 8, pl.UInt16: 16, pl.UInt32: 32,
          pl.UInt64: 64}
 # Digits a decimal needs left of the point to hold every value of an integer type, as Delta's type
 # widening counts them: 10 for byte, short and int, 20 for long.

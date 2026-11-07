@@ -53,7 +53,8 @@ def _notebook(item: dict[str, Any], settings: dict[str, dict[str, Any]]) -> list
 
 
 def _sql(item: dict[str, Any], settings: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    target = item.get("target") if item.get("target") in sql_practices.TARGETS else "warehouse"
+    got = item.get("target")
+    target: str = got if got in sql_practices.TARGETS else "warehouse"
     return sql_practices.check(str(item.get("query") or ""), target, settings)["findings"]
 
 

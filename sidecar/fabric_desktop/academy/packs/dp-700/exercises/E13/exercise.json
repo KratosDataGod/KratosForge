@@ -1,0 +1,141 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E13",
+  "title": "Column- and object-level security: GRANTs that keep salary out of reach",
+  "objectives": [
+    "1.3.3"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Write the GRANT SELECT plan for three roles on a warehouse, using column-level security to hide pay columns and no grant at all to keep a whole table out of reach.",
+  "scenario": "The HR warehouse has an Employees table and a SalaryHistory table. Managers, analysts and a payroll app each read it through the SQL analytics endpoint. None of them has a role in the workspace, so what they read is exactly what you grant.",
+  "engine_label": "A model of a warehouse's GRANT SELECT statements, checked on this PC",
+  "verifies": [
+    "Your grants give each role the tables and columns it needs and no more, with Salary, BankAccount and SalaryHistory out of the analysts' reach, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the statements run in a Fabric Warehouse: no T-SQL runs here. In Fabric the analysts' grant is GRANT SELECT ON dbo.Employees(EmployeeID, FullName, Department, Email, HireDate) TO [Analysts].",
+    "DENY, and how DENY and GRANT combine.",
+    "Workspace Admins, Members and Contributors, whose roles reach all data whatever the grants say."
+  ],
+  "expected": {
+    "description": "HRManagers: * on both tables. Analysts: five named columns of Employees, no SalaryHistory. PayrollApp: EmployeeID, Salary and BankAccount of Employees only."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Analysts can still read pay data, or can't read what their reports need.",
+      "pass": "Analysts read Employees without Salary or BankAccount, and nothing in SalaryHistory.",
+      "rules": [
+        {
+          "path": "grants.Analysts.Employees",
+          "not_contains": "*",
+          "why": "SELECT on the whole table would include Salary and BankAccount; list the columns instead."
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "not_contains": "Salary"
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "not_contains": "BankAccount"
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "contains": "EmployeeID",
+          "why": "Their reports read it."
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "contains": "FullName",
+          "why": "Their reports read it."
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "contains": "Department",
+          "why": "Their reports read it."
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "contains": "Email",
+          "why": "Their reports read it."
+        },
+        {
+          "path": "grants.Analysts.Employees",
+          "contains": "HireDate",
+          "why": "Their reports read it."
+        },
+        {
+          "path": "grants.Analysts.SalaryHistory",
+          "absent": true,
+          "why": "No grant on the table at all is object-level security: the whole table is out of reach."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "PayrollApp gets more, or less, than its three columns.",
+      "pass": "PayrollApp reads exactly EmployeeID, Salary and BankAccount.",
+      "rules": [
+        {
+          "path": "grants.PayrollApp.Employees",
+          "count": 3
+        },
+        {
+          "path": "grants.PayrollApp.Employees",
+          "contains": "EmployeeID"
+        },
+        {
+          "path": "grants.PayrollApp.Employees",
+          "contains": "Salary"
+        },
+        {
+          "path": "grants.PayrollApp.Employees",
+          "contains": "BankAccount"
+        },
+        {
+          "path": "grants.PayrollApp.SalaryHistory",
+          "absent": true
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "HRManagers lost access they need.",
+      "pass": "HRManagers read both tables in full.",
+      "rules": [
+        {
+          "path": "grants.HRManagers.Employees",
+          "contains": "*"
+        },
+        {
+          "path": "grants.HRManagers.SalaryHistory",
+          "contains": "*"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Column-level security is a GRANT SELECT that lists columns. A column left out of the list can't be selected.",
+    "To keep a role out of a whole table, give it no grant on that table.",
+    "Check PayrollApp as carefully as Analysts: least privilege applies to apps too."
+  ],
+  "explanation": "Column-level security in a Fabric Warehouse is a GRANT SELECT that names the columns a user or role may read. A query that touches any other column fails, and so does SELECT *. Listing the five safe columns keeps pay data from analysts without a second table or view. A table a role has no grant on is out of its reach entirely, which is how SalaryHistory stays hidden. Grant to roles rather than to individuals: it's easier to manage.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (column-level-security): CLS is applied with GRANT on listed columns, roles are preferred to individuals, and the page's example shows SELECT * failing with Msg 230 on the column not granted.",
+    "DENY is left out because its behaviour wasn't checked against a source in this batch."
+  ]
+}

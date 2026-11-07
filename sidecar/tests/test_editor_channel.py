@@ -349,3 +349,63 @@ def test_only_programs_running_as_this_windows_account_can_call(paired, monkeypa
     assert call(svc, "editor_pending")["pairing"] == []
     monkeypatch.setattr(peer, "same_user", lambda client, server: True)
     assert window.call("GET", "/v1/status")[0] == 200
+
+
+def test_idle_connections_cant_hold_more_than_a_few_engine_threads(tmp_path, monkeypatch):
+    import socket
+    from fabric_desktop import editor_channel
+    from fabric_desktop.editor_channel import MAX_CONNECTIONS, Channel
+    # Idle connections hold their slots for the whole test, whatever the machine's load.
+    monkeypatch.setattr(editor_channel._Handler, "timeout", 120)
+    channel = Channel(None, tmp_path)
+    port = channel.start()
+    slots = channel._server._slots
+
+    def handlers():
+        return sum("process_request_thread" in t.name for t in threading.enumerate())
+
+    def until(check, seconds=30):
+        deadline = time.monotonic() + seconds
+        while not check() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert check()
+
+    before = handlers()
+    held, over = [], []
+    try:
+        for _ in range(MAX_CONNECTIONS):  # one at a time, each accepted before the next
+            taken = MAX_CONNECTIONS - slots._value
+            held.append(socket.create_connection(("127.0.0.1", port), timeout=30))
+            until(lambda t=taken: MAX_CONNECTIONS - slots._value == t + 1)
+        assert slots._value == 0
+        for _ in range(MAX_CONNECTIONS * 2):
+            s = socket.create_connection(("127.0.0.1", port), timeout=30)
+            over.append(s)
+            reply = s.recv(4096)
+            assert reply.startswith(b"HTTP/1.0 503") and b'"busy"' in reply, reply
+        assert handlers() - before <= MAX_CONNECTIONS
+    finally:
+        for s in held + over:
+            s.close()
+        until(lambda: slots._value == MAX_CONNECTIONS)  # slots come back once they close
+        channel.stop()
+
+
+def test_a_connection_that_sends_nothing_is_closed_and_frees_its_slot(tmp_path, monkeypatch):
+    import socket
+    from fabric_desktop import editor_channel
+    from fabric_desktop.editor_channel import MAX_CONNECTIONS, Channel
+    assert editor_channel._Handler.timeout == 5
+    monkeypatch.setattr(editor_channel._Handler, "timeout", 0.3)
+    channel = Channel(None, tmp_path)
+    port = channel.start()
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=30)
+        assert s.recv(4096) == b""  # closed by the engine, without an answer
+        s.close()
+        deadline = time.monotonic() + 30
+        while channel._server._slots._value != MAX_CONNECTIONS and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert channel._server._slots._value == MAX_CONNECTIONS
+    finally:
+        channel.stop()

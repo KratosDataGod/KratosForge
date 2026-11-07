@@ -33,7 +33,7 @@ def _upns(values: Any) -> list[str]:
 
 
 def _title(req: dict[str, Any]) -> str:
-    return secrets(f"{_KIND.get(req.get('kind'), 'Request')} {req.get('target') or ''}".strip())
+    return secrets(f"{_KIND.get(req.get('kind') or '', 'Request')} {req.get('target') or ''}".strip())
 
 
 def _product(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, Any]:
@@ -146,7 +146,7 @@ def shortcut_events(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     the shortcut, so one that stays broken is posted once and its fix closes that break."""
     out = []
     for c in changes:
-        kind = {"broke": "shortcut.broken", "fixed": "shortcut.fixed"}.get(c.get("kind"))
+        kind = {"broke": "shortcut.broken", "fixed": "shortcut.fixed"}.get(c.get("kind") or "")
         if not kind or not c.get("shortcut_id"):
             continue
         where = "/".join(x for x in (c.get("workspace_name"), c.get("lakehouse_name")) if x)

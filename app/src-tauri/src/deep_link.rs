@@ -243,7 +243,7 @@ pub fn forward(data_dir: &Path, url: &str) -> bool {
 /// user's programs on the same PC can't send links.
 pub fn listen(data_dir: &Path, on_link: impl Fn(Link) + Send + 'static) -> std::io::Result<()> {
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
-    let token = random_token();
+    let token = random_token()?;
     std::fs::create_dir_all(data_dir)?;
     std::fs::write(data_dir.join("link-port"), format!("{} {token}", listener.local_addr()?.port()))?;
     std::thread::spawn(move || {
@@ -254,7 +254,7 @@ pub fn listen(data_dir: &Path, on_link: impl Fn(Link) + Send + 'static) -> std::
                 continue;
             }
             let Some((sent, url)) = line.trim().split_once(' ') else { continue };
-            if sent != token {
+            if !same_token(sent, &token) {
                 continue;
             }
             if let Ok(link) = parse(url) {
@@ -273,17 +273,18 @@ pub fn forget_port(data_dir: &Path) {
     let _ = std::fs::remove_file(data_dir.join("link-port"));
 }
 
-/// 128 random bits as hex, from the standard library's per-process random hash keys.
-fn random_token() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    let mut out = String::new();
-    for i in 0..2u64 {
-        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u64(i);
-        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
+/// 128 random bits from the operating system's random source, as 32 hex characters. If the OS
+/// can't supply them, nothing listens: links then open a new copy, as when no copy is running.
+fn random_token() -> std::io::Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(format!("no random token: {e}")))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether `sent` is the token, taking the same time whichever character differs, so the time an
+/// answer takes says nothing about how much of a guess was right.
+fn same_token(sent: &str, token: &str) -> bool {
+    sent.len() == token.len() && sent.bytes().zip(token.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
 }
 
 /// The `reg.exe delete` arguments that take the links back (policy `register_link_scheme: false`).
@@ -495,8 +496,27 @@ mod tests {
         let _ = BufReader::new(s).read_line(&mut answer);
         assert_ne!(answer.trim(), OK);
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "nothing shown");
-        assert_ne!(random_token(), random_token());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_token_is_32_hex_characters_and_new_each_time() {
+        let (a, b) = (random_token().unwrap(), random_token().unwrap());
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{a}");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn only_the_whole_token_is_taken() {
+        let token = random_token().unwrap();
+        assert!(same_token(&token, &token));
+        let mut wrong = token.clone().into_bytes();
+        wrong[31] = if wrong[31] == b'0' { b'1' } else { b'0' };
+        assert!(!same_token(std::str::from_utf8(&wrong).unwrap(), &token), "same length, one character off");
+        assert!(!same_token(&token[..31], &token), "shorter");
+        assert!(!same_token(&format!("{token}0"), &token), "longer");
+        assert!(!same_token("", &token));
     }
 
     #[test]

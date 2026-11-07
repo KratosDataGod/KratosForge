@@ -213,7 +213,7 @@ _ROUTE_FILTERS = ("teams", "owners", "criticality", "kinds", "envs")
 
 def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
     """``[[incidents.route]]``: a name, the variable holding its webhook, and what it matches."""
-    out = []
+    out: list[dict[str, Any]] = []
     for i, r in enumerate(raw if isinstance(raw, list) else []):
         if not isinstance(r, dict):
             errors.append(f"incidents.route {i + 1}: write it as [[incidents.route]] with a name and webhook_env")

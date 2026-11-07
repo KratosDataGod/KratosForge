@@ -218,7 +218,8 @@ class PlatformKeys:
         return self.client.call("lookup_key", name=name, value=value)
 
     def export(self, name: str) -> list[list[Any]]:
-        rows, after = [], core.UNKNOWN_KEY - 1
+        rows: list[list[Any]] = []
+        after = core.UNKNOWN_KEY - 1
         while True:
             page = self.client.call("export_keys", name=name, after=after)
             if not page:

@@ -46,7 +46,8 @@ def _expr(value: Any) -> bool:
 def _service(ls: Any) -> dict[str, Any]:
     ls = ls if isinstance(ls, dict) else {}
     props = ls.get("properties") if isinstance(ls.get("properties"), dict) else {}
-    tp = props.get("typeProperties") if isinstance(props.get("typeProperties"), dict) else {}
+    got = props.get("typeProperties")
+    tp: dict[str, Any] = got if isinstance(got, dict) else {}
     return {"name": ls.get("name"), "type": props.get("type"), **tp}
 
 

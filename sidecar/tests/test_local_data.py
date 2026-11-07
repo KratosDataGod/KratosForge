@@ -212,7 +212,9 @@ def test_results_are_paged_and_counted(local):
     assert r["row_count"] is None and r["truncated"]
 
 
-SLOW = "SELECT count(*) FROM range(10000000000) a"
+# Hashes every row, so DuckDB has to do real work for each one: a bare count(*) over range()
+# finished in about 2 s and, on a fast runner, inside the 1 s limits these tests check.
+SLOW = "SELECT sum(hash(a.range)) FROM range(10000000000) a"
 
 
 def test_timeout_stops_a_query(local):

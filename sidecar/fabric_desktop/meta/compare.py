@@ -90,7 +90,7 @@ def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) ->
             continue
         if left.schema[c].is_numeric() and right.schema[c].is_numeric():
             a, b = left[c].sum(), right[c].sum()
-            out["totals"].append({"column": c, "left": a, "right": b, "diff": (b or 0) - (a or 0)})
+            out["totals"].append({"column": c, "left": a, "right": b, "diff": _minus(b, a)})
 
     keys = [k for k in e.keys if k in common]
     if not keys or len(keys) != len(e.keys):
@@ -170,10 +170,20 @@ FLOAT_TOLERANCE = 1e-9
 FLOAT_FLOOR = 1e-9  # and an absolute one, for sums near zero
 
 
+def _minus(right: Any, left: Any) -> Any:
+    """``right - left`` for two column totals, None as 0. A column that is a decimal on one side
+    and a float on the other (its type changed) sums to a Decimal and a float, which don't
+    subtract, so those two are taken as floats."""
+    r, lt = right or 0, left or 0
+    if isinstance(r, float) or isinstance(lt, float):
+        return float(r) - float(lt)
+    return r - lt
+
+
 def _diff(left: Any, right: Any) -> Any:
     """How a total moved; 0 for two float sums equal within FLOAT_TOLERANCE."""
-    d = (right or 0) - (left or 0)
-    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(left or 0), abs(right or 0)), FLOAT_FLOOR):
+    d = _minus(right, left)
+    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(float(left or 0)), abs(float(right or 0))), FLOAT_FLOOR):
         return 0.0
     return d
 

@@ -41,7 +41,7 @@ def _days_since(iso: str | None, now: dt.datetime) -> int | None:
     return (now - t).days
 
 
-def _size(n: int) -> str:
+def _size(n: float) -> str:
     for unit in ("bytes", "KB", "MB", "GB", "TB"):
         if n < 1024 or unit == "TB":
             return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
@@ -221,7 +221,7 @@ class Scanner:
         self.progress({"phase": "Finding lakehouses", "done": 0, "total": len(workspaces)})
         skipped: list[str] = []
 
-        def lakehouses(ws: dict[str, str]) -> list[dict[str, Any]]:
+        def lakehouses(ws: dict[str, Any]) -> list[dict[str, Any]]:
             self.gate.wait()
             try:
                 ws["assignments"] = self.fabric.list_role_assignments(ws["id"])

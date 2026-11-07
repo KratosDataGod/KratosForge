@@ -45,7 +45,7 @@ class _Session(requests.Session):
         self.mount("https://", adapter)
         self.mount("http://", adapter)
 
-    def request(self, method: str | bytes, url: str | bytes, *args: Any, **kwargs: Any) -> requests.Response:
+    def request(self, method: str, url: str | bytes, *args: Any, **kwargs: Any) -> requests.Response:
         if kwargs.get("timeout") is None:
             kwargs["timeout"] = DEFAULT_TIMEOUT
         return super().request(method, url, *args, **kwargs)

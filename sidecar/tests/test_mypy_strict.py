@@ -78,8 +78,9 @@ def test_no_wildcards_on_the_list():
 
 
 def test_no_file_switches_the_checks_off_inline():
-    """A ``# mypy: allow-untyped-defs`` (or ``allow-incomplete-defs``) comment would get around the list."""
+    """An inline ``# mypy:`` setting for untyped or incomplete defs (``allow-untyped-defs``,
+    ``disallow-untyped-defs=False``, ...) would get around the list; the config is the one place for it."""
     package = PYPROJECT.parent / "fabric_desktop"
     found = [str(p.relative_to(package.parent)) for p in package.rglob("*.py")
-             if re.search(r"#\s*mypy:.*allow[-_](untyped|incomplete)[-_]defs", p.read_text(encoding="utf-8"))]
+             if re.search(r"#\s*mypy:.*(untyped|incomplete)[-_]defs", p.read_text(encoding="utf-8"))]
     assert not found, f"{found} switch mypy's annotation checks off inline: annotate the functions instead"

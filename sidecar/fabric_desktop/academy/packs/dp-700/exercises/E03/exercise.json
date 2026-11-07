@@ -1,0 +1,122 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E03",
+  "title": "Domains for a data mesh: assign workspaces, delegate settings",
+  "objectives": [
+    "1.1.2"
+  ],
+  "mode": "guided",
+  "minutes": 15,
+  "prerequisites": [],
+  "objective_text": "Set up domains and a subdomain for a data mesh: who creates them, who owns them, which workspaces go where and who may assign workspaces.",
+  "scenario": "Contoso is organizing its Fabric data into business domains. A first draft has the wrong owner on Sales, an admin on a subdomain, the EMEA workspace in the parent domain, and anyone allowed to add workspaces.",
+  "engine_label": "A model of a tenant's domains, checked on this PC",
+  "verifies": [
+    "Your domains, subdomain, admins, contributors and workspace assignments follow the domain roles and rules the domains page describes, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any domain is created in Fabric: nothing is set here.",
+    "Which tenant settings a domain admin can override for their domain, and default domains.",
+    "Domain images, descriptions and the OneLake catalog's domain view."
+  ],
+  "expected": {
+    "description": "Fabric admin creates domains; Sales admin Priya, Finance admin Omar; Sales EMEA has no admins of its own; workspaces in their domains; Sales contributors limited to the named group; domains don't hide workspaces."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The domains' owners or creator aren't right.",
+      "pass": "A Fabric admin creates the domains, and each has its business owner as domain admin.",
+      "rules": [
+        {
+          "path": "who_creates_domains",
+          "equals": "Fabric admin",
+          "why": "To create a domain, you must be a Fabric admin."
+        },
+        {
+          "path": "domains.Sales.admins",
+          "contains": "Priya"
+        },
+        {
+          "path": "domains.Sales.admins",
+          "count": 1
+        },
+        {
+          "path": "domains.Finance.admins",
+          "contains": "Omar"
+        },
+        {
+          "path": "domains.Sales.subdomains.Sales EMEA.admins",
+          "absent": true,
+          "why": "Subdomains don't have their own domain admins: a subdomain's admins are its parent domain's."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A workspace is in the wrong domain, or too many people can assign workspaces.",
+      "pass": "Each workspace is in its domain, and only the named group adds workspaces to Sales.",
+      "rules": [
+        {
+          "path": "domains.Sales.workspaces",
+          "contains": "Sales-Core"
+        },
+        {
+          "path": "domains.Sales.workspaces",
+          "count": 1,
+          "why": "The needs put Sales-EMEA-Reports in the Sales EMEA subdomain, so Sales keeps only Sales-Core."
+        },
+        {
+          "path": "domains.Sales.subdomains.Sales EMEA.workspaces",
+          "contains": "Sales-EMEA-Reports"
+        },
+        {
+          "path": "domains.Finance.workspaces",
+          "contains": "Finance-GL"
+        },
+        {
+          "path": "domains.Sales.contributors.who",
+          "equals": "specific users or groups",
+          "why": "Contributors default to everyone in the organization; narrow them to the named group."
+        },
+        {
+          "path": "domains.Sales.contributors.list",
+          "contains": "Sales workspace admins"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Domains don't control who can see a workspace.",
+      "pass": "You know domains group data and don't change access.",
+      "rules": [
+        {
+          "path": "assigning_a_domain_hides_the_workspace_from_others",
+          "equals": false,
+          "why": "Domain assignment doesn't affect item visibility or access for tenant users."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Who may create a domain? Who may make someone a domain admin?",
+    "Can a subdomain have its own admins?",
+    "Who may assign workspaces to a domain by default?"
+  ],
+  "explanation": "Domains group an organization's data by business area. Only Fabric admins create domains and name their admins; domain admins, ideally the business owners, manage the domain, and domain contributors (workspace admins) assign their workspaces to it. Contributors default to everyone, so narrow them when needed. Subdomains refine the grouping and take their admins from the parent. Domains don't change who can see or use a workspace.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/governance/domains"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (governance/domains): Fabric admins create domains; domain admins can't add or remove other domain admins; domain contributors are workspace admins and default to everyone; subdomains have no admins of their own; assignment doesn't affect visibility or access; some tenant settings can be overridden per domain."
+  ]
+}

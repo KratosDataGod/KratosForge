@@ -1,0 +1,128 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E29",
+  "title": "Shortcuts: a table shortcut, a folder shortcut, and a chain to avoid",
+  "objectives": [
+    "2.2.3"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "LM-24"
+  ],
+  "objective_text": "Fix three shortcuts in a lakehouse: where each goes, what it points at, what it's called and how it signs in, so tables show up as tables and files as files.",
+  "scenario": "SalesLH needs CRM customers, a partner's CSV exports and last year's archived orders without copying any of them. Someone created three shortcuts, and none of them works as intended: two tables don't appear, and the partner folder fails to open.",
+  "engine_label": "A model of a lakehouse's shortcuts, checked on this PC",
+  "verifies": [
+    "Your shortcuts sit where OneLake allows them, use names a table can have, point straight at their sources and use the right sign-in, as the shortcuts page describes it, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the shortcuts resolve in Fabric: nothing is created here.",
+    "Schema shortcuts in schema-enabled lakehouses, shortcut caching, and other sources such as S3 or Dataverse.",
+    "Whether the callers have permission on the target lakehouses."
+  ],
+  "expected": {
+    "description": "customers in Tables to CRM_LH/Tables/customers with caller identity; partner in Files to the ADLS container with a connection; orders_2025 in Tables, no spaces."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A table shortcut won't show up as a table.",
+      "pass": "Both table shortcuts sit at the top of Tables with names Delta accepts.",
+      "rules": [
+        {
+          "path": "shortcuts.customers.location",
+          "equals": "Tables",
+          "why": "In Tables, shortcuts can only be created at the top level, not in subfolders."
+        },
+        {
+          "path": "shortcuts.orders_2025.location",
+          "equals": "Tables",
+          "why": "In Tables, shortcuts can only be created at the top level, not in subfolders."
+        },
+        {
+          "path": "shortcuts.customers.name",
+          "not_contains": " ",
+          "why": "Delta doesn't support table names with spaces, so a shortcut with a space isn't recognized as a table."
+        },
+        {
+          "path": "shortcuts.orders_2025.name",
+          "not_contains": " ",
+          "why": "Delta doesn't support table names with spaces, so a shortcut with a space isn't recognized as a table."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The customers shortcut goes through another shortcut.",
+      "pass": "customers points straight at CRM_LH's table.",
+      "rules": [
+        {
+          "path": "shortcuts.customers.target_path",
+          "equals": "CRM_LH/Tables/customers",
+          "why": "A shortcut to a shortcut breaks when the middle one moves, and a path has a limit on how many shortcuts it can pass through. Point at the source."
+        },
+        {
+          "path": "shortcuts.customers.target_type",
+          "equals": "OneLake"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The partner files aren't set up as files from an external source.",
+      "pass": "The partner files are a Files shortcut that signs in with its connection.",
+      "rules": [
+        {
+          "path": "shortcuts.partner_exports.location",
+          "not_contains": "Tables",
+          "why": "CSV files aren't a Delta table; in Files a shortcut can go at any level."
+        },
+        {
+          "path": "shortcuts.partner_exports.location",
+          "contains": "Files"
+        },
+        {
+          "path": "shortcuts.partner_exports.target_type",
+          "equals": "ADLS Gen2"
+        },
+        {
+          "path": "shortcuts.partner_exports.auth",
+          "equals": "connection",
+          "why": "ADLS and S3 shortcuts use the cloud connection's credential; OneLake shortcuts use the caller's identity."
+        },
+        {
+          "path": "shortcuts.customers.auth",
+          "equals": "caller identity"
+        },
+        {
+          "path": "shortcuts.orders_2025.auth",
+          "equals": "caller identity"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Where in Tables can a shortcut go? Where in Files?",
+    "What happens to a table name with a space in Delta?",
+    "Should a shortcut point at another shortcut, or at the source?",
+    "Which shortcuts use the caller's identity, and which use a connection?"
+  ],
+  "explanation": "A shortcut in Tables must be at the top level, and its target must be in a table format such as Delta for the lakehouse to recognize it as a table; a name with a space isn't recognized. Files shortcuts can go at any level and suit non-table data such as CSV. Pointing at another shortcut builds a chain that breaks when a link moves and counts against the limit of shortcuts in one path, so point at the source. OneLake shortcuts use the caller's identity; ADLS and S3 shortcuts use a cloud connection. Deleting a shortcut never deletes its target.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+    "https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (onelake-shortcuts): Tables shortcuts only at the top level, Files at any level; a Delta target is recognized as a table; names with spaces aren't; a path supports up to 10 shortcuts; OneLake shortcuts use the caller's identity, ADLS and S3 use cloud connections; deleting a shortcut leaves the target."
+  ]
+}

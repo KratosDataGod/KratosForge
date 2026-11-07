@@ -1,0 +1,36 @@
+{
+  "_about": "A model of the Sales workspace's role assignments. Set each person's role to Admin, Member, Contributor, Viewer, or null for no access. Give each person the least role that covers what they need.",
+  "workspace": "Sales",
+  "people": [
+    {
+      "name": "Ana",
+      "needs": "Owns the Sales workspace. Adds and removes people, including other admins, and may one day delete the workspace.",
+      "role": "Admin"
+    },
+    {
+      "name": "Ben",
+      "needs": "Team lead. Adds new analysts to the workspace and lets others reshare items. Never deletes the workspace.",
+      "role": "Member"
+    },
+    {
+      "name": "Cara",
+      "needs": "Data engineer. Builds notebooks and pipelines and writes the lakehouse's tables.",
+      "role": "Contributor"
+    },
+    {
+      "name": "Dev",
+      "needs": "Data scientist. Reads the lakehouse's files through the lakehouse explorer and with Spark. Builds nothing.",
+      "role": "Viewer"
+    },
+    {
+      "name": "Eve",
+      "needs": "Report analyst. Reads the warehouse and lakehouse tables with T-SQL through the SQL analytics endpoint.",
+      "role": "Viewer"
+    },
+    {
+      "name": "Finn",
+      "needs": "Left the company last week. Still listed with the Contributor role.",
+      "role": null
+    }
+  ]
+}

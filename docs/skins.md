@@ -82,6 +82,7 @@ part the skin leaves out keeps KratosForge's own look (the first choice listed).
 | `font` | `segoe-variable`, `segoe`, `dm-sans`, `inter` |
 | `header` | `light`, `brand`, `dark`, `none`, `hero` (KratosForge skin only) |
 | `rail` | `stacked` (icon above label), `inline` (icon beside label) |
+| `rail_tone` | `light` (the rail on the page's surface), `brand` (a navy rail in the skin's accent) |
 | `corners` | `soft`, `square`, `round` |
 | `tabs` | `underline`, `boxed`, `pill` |
 | `cells` | `bordered`, `card`, `flat`, `rounded` |
@@ -94,6 +95,7 @@ platform skins set these, as drawn in the "skin look and feel" mockup:
 
 | Skin | Font | Header | Rail | Corners | Tabs | Cells | Icons |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| KratosForge | Segoe UI Variable | light | inline, brand tone | soft | underline | bordered | regular |
 | Fabric-familiar | Segoe UI | brand | stacked | soft | underline | card | light |
 | Databricks-familiar | DM Sans | light | inline | square | boxed | flat | bold |
 | Snowflake-familiar | Inter | none | inline | round | pill | rounded | regular |
@@ -111,6 +113,9 @@ What each choice draws so far:
 - **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
   its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
   its room. It uses the rail's own colors, so it works on a light or a dark rail.
+- **rail_tone:** `light` draws the rail on `--surface`. `brand` fills it from `--accent` to `--accent-dark`
+  with `--on-accent` labels, an orange active item, the white KratosForge lettering above it, and a mountain
+  line at its foot, below the last item so the art never sits under a page link.
 - **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
   text, buttons and lettering turn to `--on-accent`, and the search box sits on `--accent-dark`. `none`
   blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and

@@ -340,8 +340,15 @@ def test_the_platform_skins_look_as_drawn(skin_id, font, header, rail, tabs):
     assert (style["font"], style["header"], style["rail"], style["tabs"]) == (font, header, rail, tabs)
 
 
-def test_the_kratosforge_skin_keeps_todays_look_until_its_redraw():
-    assert "style" not in skins.KRATOSFORGE["appearance"]
+def test_the_kratosforge_skin_draws_its_navy_rail():
+    # Only the rail changes: the header, tabs, cells and font stay the app's defaults.
+    assert skins.KRATOSFORGE["appearance"]["style"] == {"rail": "inline", "rail_tone": "brand"}
+
+
+def test_only_the_kratosforge_skin_uses_the_brand_rail():
+    for skin_id, skin in skins.BUILT_IN.items():
+        tone = skin["appearance"].get("style", {}).get("rail_tone", "light")
+        assert (tone == "brand") == (skin_id == "kratosforge")
 
 
 def test_the_apps_default_look_is_the_first_choice_of_each_part():

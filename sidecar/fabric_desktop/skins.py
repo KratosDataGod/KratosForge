@@ -47,6 +47,7 @@ STYLE: dict[str, tuple[str, ...]] = {
     "font": ("segoe-variable", "segoe", "dm-sans", "inter"),
     "header": ("light", "brand", "dark", "none", "hero"),
     "rail": ("stacked", "inline"),
+    "rail_tone": ("light", "brand"),
     "corners": ("soft", "square", "round"),
     "tabs": ("underline", "boxed", "pill"),
     "cells": ("bordered", "card", "flat", "rounded"),
@@ -363,7 +364,9 @@ KRATOSFORGE: dict[str, Any] = {
     "schema": SCHEMA, "id": "kratosforge", "name": "KratosForge", "version": "1.0.0",
     "description": "The KratosForge look: every engine and platform side by side, local runs up front.",
     "targets": [{"platform": "kratosforge", "reviewed": "2026-11-03"}],
-    "appearance": {"color_mode": "light", "density": "comfortable", "tokens": {"light": {
+    "appearance": {"color_mode": "light", "density": "comfortable",
+                   "style": {"rail": "inline", "rail_tone": "brand"},
+                   "tokens": {"light": {
         "--accent": "#1b3664", "--accent-dark": "#12264a", "--accent-soft": "#e9eef7", "--accent-soft-2": "#e8edf5",
         "--brand-orange": "#f8991c", "--brand-orange-soft": "#ffb347", "--rail-active": "#f8991c", "--on-accent": "#fff",
         "--text": "#242424", "--text-2": "#424242", "--muted": "#616161", "--muted-2": "#8a8a8a",

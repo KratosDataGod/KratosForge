@@ -124,7 +124,10 @@ test("each skin marks the page with its look, part by part, and KratosForge keep
   assert.deepStrictEqual(await look("snowflake"), ["inter", "none", "inline", "round", "pill", "rounded", "accent", "plain", "regular"]);
   assert.deepStrictEqual(await look("fabric"), ["segoe", "brand", "stacked", "soft", "underline", "card", "accent", "plain", "light"]);
   // Back to KratosForge, every part is its own again: nothing from the last skin stays.
-  assert.deepStrictEqual(await look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered", "accent", "plain", "regular"]);
+  assert.deepStrictEqual(await look("kratosforge"), ["segoe-variable", "light", "inline", "soft", "underline", "bordered", "accent", "plain", "regular"]);
+  assert.strictEqual(await page().evaluate(() => document.body.dataset.skinRailTone), "brand");
+  await look("fabric");
+  assert.strictEqual(await page().evaluate(() => document.body.dataset.skinRailTone), "light");
   assert.deepStrictEqual(app.errors, []);
 });
 
@@ -159,9 +162,24 @@ test("a wide rail puts each label beside its icon, and gives its room back in a 
   await railAt(72);
   assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
   await page().setViewportSize({ width: 1440, height: 900 });
-  await page().evaluate(() => { state.settings.ui_skin.value = "kratosforge"; applySkin(); });
+  await page().evaluate(() => { state.settings.ui_skin.value = "fabric"; applySkin(); });
   await railAt(72);
   assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
+});
+
+test("the KratosForge rail is navy with white labels and an orange active item, and passes contrast", { skip }, async () => {
+  await page().evaluate(() => { state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "kratosforge" }; applySkin(); go("home"); });
+  await page().waitForFunction(() => Math.round(document.getElementById("rail").getBoundingClientRect().width) === 208, null, { timeout: 3000 }).catch(() => {});
+  const drawn = await page().evaluate(() => {
+    const rail = getComputedStyle(document.getElementById("rail"));
+    const item = getComputedStyle(document.querySelector(".rail-item:not(.active)"));
+    const active = getComputedStyle(document.querySelector(".rail-item.active"));
+    return { width: Math.round(document.getElementById("rail").getBoundingClientRect().width), navy: /linear-gradient/.test(rail.backgroundImage),
+      label: item.color, orange: /linear-gradient/.test(active.backgroundImage) };
+  });
+  assert.deepStrictEqual(drawn, { width: 208, navy: true, label: "rgb(255, 255, 255)", orange: true });
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#rail"), []);
+  assert.deepStrictEqual(app.errors, []);
 });
 
 test("a brand header fills the bar with the skin's accent and keeps its text readable", { skip }, async () => {

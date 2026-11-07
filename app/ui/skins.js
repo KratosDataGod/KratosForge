@@ -33,13 +33,14 @@ function applySkin() {
   // KratosForge's own.
   const style = skin?.appearance?.style || {};
   for (const [part, own] of Object.entries(SKIN_STYLE_DEFAULTS)) {
-    document.body.dataset[`skin${part[0].toUpperCase()}${part.slice(1)}`] = style[part] || own;
+    const key = part.replace(/(^|_)(\w)/g, (_, __, c) => c.toUpperCase());  // rail_tone: data-skin-rail-tone
+    document.body.dataset[`skin${key}`] = style[part] || own;
   }
 }
 
 // KratosForge's own look, part by part: the first choice of each in the engine's STYLE (test_skins.py
 // keeps the two equal).
-const SKIN_STYLE_DEFAULTS = { font: "segoe-variable", header: "light", rail: "stacked", corners: "soft",
+const SKIN_STYLE_DEFAULTS = { font: "segoe-variable", header: "light", rail: "stacked", rail_tone: "light", corners: "soft",
   tabs: "underline", cells: "bordered", buttons: "accent", tiles: "plain", icons: "regular" };
 
 // The rail's order under the skin: pages it names come first, in its order; the rest keep theirs after.

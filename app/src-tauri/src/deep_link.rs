@@ -255,9 +255,12 @@ pub fn forward(data_dir: &Path, url: &str) -> bool {
 const HELLO: &str = "hello";
 
 /// What the listener answers a hello with: HMAC-SHA256 of the nonce, keyed with the token, in hex.
-/// It shows the listener knows the token without saying anything about it.
+/// It shows the listener knows the token without saying anything about it. The key is the token as
+/// it is, zero-padded to SHA-256's 64-byte block: HMAC hashes a longer key first, which this doesn't,
+/// so it takes only tokens of at most 64 bytes (random_token makes 32).
 fn proof(token: &str, nonce: &str) -> String {
     use sha2::{Digest, Sha256};
+    assert!(token.len() <= 64, "a link token is at most 64 bytes");
     let mut key = [0u8; 64];
     let token = &token.as_bytes()[..token.len().min(64)];
     key[..token.len()].copy_from_slice(token);
@@ -305,7 +308,8 @@ pub fn listen(data_dir: &Path, on_link: impl Fn(Link) + Send + 'static) -> std::
 
 /// One connection, all by HANDOVER_TIME from now: a hello it answers with its proof, then the line
 /// with the token and the link; the link is taken only with the token. A copy from before the hello
-/// sends the token line straight away, which is taken too.
+/// sends the token line straight away, which is taken too. That older form can go once no build
+/// people may still run predates the hello: when the oldest supported Stable sends it.
 fn take_link(mut stream: TcpStream, token: &str, links: &std::sync::mpsc::Sender<Link>) {
     let deadline = std::time::Instant::now() + HANDOVER_TIME;
     let Some(mut line) = read_line_by(&mut stream, deadline, MAX_LINK + 100) else { return };

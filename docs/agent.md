@@ -130,6 +130,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fabric-desktop-agent
 journalctl -u fabric-desktop-agent -f
 ```
 
+If `agent.pem` can be read by every account on the machine, the agent logs a warning when it starts, and `agent check` lists it under `warnings`. It still runs, because a container's secret mount is often readable by all and holds only the agent's account.
+
 Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/fabric-desktop-agent.service).
 
 ### Linux (container)

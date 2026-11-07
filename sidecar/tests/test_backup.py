@@ -27,6 +27,7 @@ def app(tmp_path):
     (root / "schedules.json").write_text(json.dumps({"engine": "C:/old/python.exe", "schedules": [{"id": "s1"}]}))
     (root / "msal_cache.bin").write_bytes(b"tokens")
     (root / "fabric-view-signin.bin").write_bytes(b"tokens")
+    (root / "link-port").write_text("51234 " + "ab" * 16)  # the running app's link listener and its token
     (root / "sidecar.log").write_text("log")
     (root / "engine" / "python").mkdir(parents=True)
     (root / "engine" / "python" / "python.exe").write_bytes(b"exe")
@@ -52,7 +53,8 @@ def test_backup_leaves_out_tokens_engine_logs_and_webhooks(app, tmp_path):
     assert settings == {"cost": {"price": 0.18}}
     assert JWT not in history and "[removed]" in history
     assert {c["path"] for c in manifest["cleaned"]} == {"app/settings.json", "app/history.jsonl"}
-    assert {s["path"] for s in manifest["not_included"]} == {"app/msal_cache.bin", "app/fabric-view-signin.bin"}
+    assert {s["path"] for s in manifest["not_included"]} == {"app/msal_cache.bin", "app/fabric-view-signin.bin",
+                                                                  "app/link-port"}
     assert result["path"].endswith("fabric-desktop-backup-20261017-120000.zip")
 
 

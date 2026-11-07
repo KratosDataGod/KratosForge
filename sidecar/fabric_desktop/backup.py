@@ -4,7 +4,8 @@ A backup is a zip of the app's folder (``%LOCALAPPDATA%\\FabricDesktop``): setti
 schedules on this PC, run history, receipts and the local databases. With ``agent_home`` it also
 holds a headless agent's queue and alert databases. It never holds:
 
-- sign-in tokens (``msal_cache.bin``, the embedded Fabric pages' saved sign-in),
+- sign-in tokens (``msal_cache.bin``, the embedded Fabric pages' saved sign-in) and the running
+  app's link token (``link-port``), which a restore would write over the live one,
 - the engine, caches, logs and lock files, which the app rebuilds,
 - a Teams webhook address, which lets anyone post to that channel (set it again after a restore),
 - anything credential-shaped inside a text file (``redact.secrets``); the manifest names each
@@ -41,7 +42,7 @@ SCHEMA = "fabric-desktop-backup@1"
 MANIFEST = "manifest.json"
 SAFETY = "restore-safety"  # where restore keeps the files it replaced
 SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "logs", "schedule_locks", "_leases", SAFETY}  # top level only
-SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin"}
+SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port"}  # link-port: this run's link listener token
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -59,7 +60,7 @@ def _skipped(rel: PurePosixPath) -> str | None:
     if (len(rel.parts) > 1 and rel.parts[0] in SKIP_DIRS) or "__pycache__" in rel.parts:
         return "rebuilt by the app"
     if rel.name in SKIP_FILES:
-        return "sign-in tokens are never backed up"
+        return "tokens are never backed up"
     if rel.suffix.lower() in SKIP_SUFFIXES or rel.name.endswith(SQLITE_COMPANIONS):
         return "rebuilt by the app"
     return None
@@ -122,7 +123,7 @@ def _collect(data_dir: Path, agent_home: Path | None) -> tuple[list[tuple[str, P
             rel = PurePosixPath(path.relative_to(data_dir).as_posix())
             reason = _skipped(rel)
             if reason:
-                if reason.startswith("sign-in"):
+                if reason.startswith("tokens"):
                     skipped.append({"path": f"app/{rel}", "reason": reason})
                 continue
             files.append((f"app/{rel}", path))

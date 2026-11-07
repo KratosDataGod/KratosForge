@@ -695,6 +695,9 @@ class Agent:
                                                     environments=self.config.environments,
                                                     schedules=[s.id for s in self.config.schedules],
                                                     project=str(self.config.project)))
+        from .credentials import KEY_FILE_OPEN, key_file_open
+        if key_file_open(self.config.auth):
+            self.log.warning(KEY_FILE_OPEN)
         while not self.stopping.is_set():
             try:
                 self.step()

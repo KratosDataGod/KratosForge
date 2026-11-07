@@ -89,6 +89,23 @@ class _AppCredential:
         return self.tenant_id
 
 
+def key_file_open(auth: dict[str, Any]) -> bool:
+    """Whether the service principal's key file (``auth.certificate_path``) can be read by every account on
+    this machine. The agent docs set it to 640; this is a warning, not a refusal, because a container's
+    secret mount is often 0444 or 0644 and holds only the agent's account. Windows ACLs aren't modes: False."""
+    path = auth.get("certificate_path") if auth.get("type") == "service_principal" else ""
+    if not path or os.name == "nt":
+        return False
+    try:
+        return bool(Path(path).stat().st_mode & 0o004)
+    except (OSError, ValueError):
+        return False
+
+
+KEY_FILE_OPEN = ("auth.certificate_path can be read by every account on this machine, and it holds the agent's "
+                 "private key: chmod 640 it, owned by root and the agent's group (docs/agent.md)")
+
+
 def _certificate(path: Path, password: str | None) -> dict[str, Any]:
     """MSAL's client_credential for a certificate: a PEM with the private key and the certificate,
     or a PFX/P12 file."""

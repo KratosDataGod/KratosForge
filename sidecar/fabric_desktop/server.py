@@ -8,6 +8,7 @@ Replies can arrive in a different order from the requests (see QUICK); the shell
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import math
@@ -438,6 +439,36 @@ class _SafeFormatter(logging.Formatter):
         return secrets(super().format(record))
 
 
+class _RedactedStream(io.TextIOBase):
+    """The engine's stderr, which the shell keeps in sidecar.log: every write passes through
+    ``redact.secrets`` first. Log records already do; this covers what doesn't go through them:
+    tracebacks, ``warnings``, third-party loggers' last-resort handler and anything a library prints.
+    Native code writing to the file descriptor directly isn't seen here."""
+
+    def __init__(self, stream: IO[str]):
+        self.stream = stream
+
+    def writable(self) -> bool:
+        return True
+
+    @property
+    def encoding(self) -> str:  # type: ignore[override]
+        return getattr(self.stream, "encoding", None) or "utf-8"
+
+    def fileno(self) -> int:
+        return self.stream.fileno()
+
+    def isatty(self) -> bool:
+        return False
+
+    def write(self, text: str) -> int:
+        self.stream.write(secrets(text))
+        return len(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+
 def _log_to_stderr() -> None:
     """The engine's ``fabric_desktop.*`` log lines (INFO and up) go to stderr, which the shell keeps
     in sidecar.log, with anything credential-shaped removed. Without a handler they went nowhere."""
@@ -459,6 +490,7 @@ def main() -> None:
     # anything a notebook cell or a native library prints cannot corrupt the protocol.
     rpc_out = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", newline="\n")
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()

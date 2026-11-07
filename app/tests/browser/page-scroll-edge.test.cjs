@@ -23,7 +23,14 @@ test("in a wide window Home and Settings scroll at the window's right edge, cont
   await p.waitForFunction(() => state.view === "home" && homeCache.done, null, { timeout: 20000 });
   const home = await measure(p, ".page.home");
   assert.ok(Math.abs(home.right - home.parentRight) < 1, `Home fills its area (${home.right} vs ${home.parentRight})`);
-  assert.ok(home.widest <= 1136.5, `Home content keeps its width (${home.widest}px)`);
+  // With the Living Experience hero (Preview), the hero and the column beside the progression panel are
+  // capped at 1460px, and the page's own content column inside stays at 1136px.
+  const living = await p.$(".page.home.living");
+  assert.ok(home.widest <= (living ? 1460.5 : 1136.5), `Home content keeps its width (${home.widest}px)`);
+  if (living) {
+    const main = await measure(p, ".page.home .home-main");
+    assert.ok(main.widest <= 1136.5, `Home's main column keeps its width (${main.widest}px)`);
+  }
   await p.evaluate(() => go("settings"));
   await p.waitForSelector(".page.settings");
   const settings = await measure(p, ".page.settings");

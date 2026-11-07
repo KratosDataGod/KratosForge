@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     import pyarrow as pa  # annotations only; loads import it where they need it
 
 from .. import disk_full, retrying
+from ..leases import LeaseBusy
 from . import batches as batches_mod
 from . import drift as drift_mod
 from . import keys as keys_mod
@@ -439,9 +441,11 @@ class Engine:
         self._files_recovered: list[dict[str, Any]] = []
         self._pending_quarantine = []
         unsaved = ""  # the schema history's note, if it couldn't be saved: kept whatever the run's message becomes
+        synced = ""  # commits a file sync client set aside: kept whatever the run's message becomes
         try:
             with self.table_lock(e):
                 self._record_unlogged(e, res)
+                synced = self._sync_note(e, res)
                 self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
                 try:
                     if backfill == "migrate":
@@ -475,6 +479,8 @@ class Engine:
         except Exception as ex:  # custom code and source errors are reported, not raised
             from ..retrying import is_retryable
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
+            if isinstance(ex, LeaseBusy):  # another run or notebook is writing the table: its own words say so
+                res.message = str(ex)
             if disk_full.is_disk_full(ex):  # delta-rs words it as a parse or copy error; say what it is
                 res.steps.append(Step("error", 0, 0.0, res.message[:2000]))
                 res.message = disk_full.message(
@@ -484,6 +490,8 @@ class Engine:
             self._pending_quarantine = []  # a run that didn't commit quarantines nothing
             if unsaved and unsaved not in res.message:  # a failure after the commit replaced the message
                 res.message = f"{res.message}; {unsaved}" if res.message else unsaved
+            if synced and synced not in res.message:
+                res.message = f"{res.message}; {synced}" if res.message else synced
         seconds = round(time.perf_counter() - started, 3)
         log = [{
             "run_id": self.run_id, "batch_id": batch_id, "entity": name, "env": self.store.env,
@@ -579,6 +587,30 @@ class Engine:
             res.steps.append(Step("record", 0, 0.0, note))
             res.message = f"{res.message}; {note}" if res.message else note
             return False
+
+    def _sync_note(self, e: Entity, res: RunResult) -> str:
+        """Say so when another PC's write to this table, or its run record, was lost to a file sync
+        conflict (store.sync_conflicts): the project's folder is synced and two PCs wrote it at once.
+        The run goes ahead (it can't bring the lost commit back); the note stays on every run until
+        the set-aside file is deleted."""
+        if not isinstance(self.store, LocalStore):
+            return ""
+        lh = self.lakehouse(e)
+        notes = []
+        for (lakehouse, schema, table), what in (((lh, e.schema, e.table), "this table"),
+                                                  ((META_LAKEHOUSE, "meta", "run_log"), "the run log")):
+            lost = self.store.sync_conflicts(lakehouse, schema, table)
+            if lost:
+                files = ", ".join(name for _, name in lost[:3]) + (f" and {len(lost) - 3} more" if len(lost) > 3 else "")
+                notes.append(f"another PC's write to {what} was lost: two PCs wrote it at once in a synced folder "
+                             f"(OneDrive or similar), and the sync kept one and set the other aside as {files} in "
+                             f"{self.store.uri(lakehouse, schema, table)}{os.sep}_delta_log")
+        if not notes:
+            return ""
+        note = ("; ".join(notes) + ". Run this project on one PC only, check the table and backfill it if rows are "
+                "missing, then delete the set-aside files to clear this note")
+        res.steps.append(Step("sync", 0, 0.0, note))
+        return note
 
     def _local_path(self, where: tuple[str, str, str]) -> str | None:
         """The folder of a table on this PC, for the free space a disk-full message names; None in OneLake."""

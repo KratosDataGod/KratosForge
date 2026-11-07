@@ -33,6 +33,13 @@ class Service:
     def meta_promote(self, env, target, entities=None):
         raise RuntimeError(f"409 conflict, Authorization: Bearer {JWT}")
 
+    def meta_run(self, names=None, env="dev"):  # one table ran, one failed: returned, not raised
+        return [{"entity": "sales", "status": "ok", "message": ""},
+                {"entity": "orders", "status": "failed", "message": f"Bearer {JWT} customers"}]
+
+    def pipeline_run_start(self, text=None):  # refused without raising
+        return {"ok": False, "problems": [{"code": "busy", "message": "4 runs are already going: customers"}]}
+
 
 def call(service, method, **params):
     return server.handle(service, json.dumps({"id": 1, "method": method, "params": params}))
@@ -127,3 +134,40 @@ def test_every_name_that_carries_code_or_queries_is_left_out():
     params = {"code": "x = 1", "sql": "SELECT 1", "query": "SELECT 2", "statement": "DELETE FROM t", "table": "t"}
     assert audit.target(params) == {"code": "(given)", "sql": "(given)", "query": "(given)",
                                     "statement": "(given)", "table": "t"}
+
+
+def test_a_refusal_or_failure_returned_rather_than_raised_is_recorded_as_an_error(tmp_path):
+    s = Service(tmp_path)
+    call(s, "meta_run", names=["sales", "orders"])
+    call(s, "pipeline_run_start", text="{}")
+    pipeline, run = s.audit.recent()
+    assert (run["outcome"], run["reason"]) == ("error", "partial")
+    assert (pipeline["outcome"], pipeline["reason"]) == ("error", "busy")
+    assert "customers" not in json.dumps([run, pipeline]) and JWT not in json.dumps([run, pipeline])  # never the reply
+    assert "reason" not in AuditLog(tmp_path).record("meta_run", "ok", 1.0)
+
+
+def test_the_outcome_of_what_a_call_returned(tmp_path):
+    rows = lambda *st: [{"entity": f"e{i}", "status": x} for i, x in enumerate(st)]  # noqa: E731
+    cases = [
+        ({"rows": []}, ("ok", "")), (None, ("ok", "")), ([], ("ok", "")), (["a"], ("ok", "")),
+        (rows("ok", "skipped"), ("ok", "")),
+        (rows("ok", "failed"), ("error", "partial")),
+        (rows("failed", "needs_decision"), ("error", "failed")),
+        ({"ok": True}, ("ok", "")),
+        ({"ok": False}, ("error", "refused")),
+        ({"ok": False, "preview": True}, ("error", "preview")),
+        ({"ok": False, "problems": [{"code": "busy"}]}, ("error", "busy")),
+        ({"ok": False, "problems": [{"code": "policy_blocked"}]}, ("error", "policy")),
+        ({"ok": False, "problems": [{"code": "bad_json"}]}, ("error", "invalid")),
+        ({"status": "failed"}, ("error", "failed")),
+        ({"done": ["a"], "failed": [{"id": "b"}]}, ("error", "partial")),
+        ({"done": [], "failed": [{"id": "b"}]}, ("error", "failed")),
+        ({"done": ["a"], "failed": [], "problems": ["a note"]}, ("ok", "")),
+    ]
+    for result, expected in cases:
+        assert audit.outcome(result) == expected, result
+    import pytest
+    with pytest.raises(ValueError):
+        AuditLog(tmp_path).record("x", "error", 0.0, reason="anything the reply said")  # a fixed code, nothing else
+    assert not list(tmp_path.glob("audit-*.jsonl"))

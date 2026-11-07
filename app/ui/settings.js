@@ -521,7 +521,7 @@ function showWhatsNew(asked = false) {
 
 // The full-window forge: the emblem strikes the anvil, sparks fly, embers rise behind the
 // lettering. The new name and each update use it. Button, Escape or Enter closes it. It follows
-// Motion & effects when it opens: Off, Minimal or Windows' reduced motion show it still, and with
+// Living Experience when it opens: Professional, Subtle or Windows' reduced motion show it still, and with
 // Forge sparks off no sparks fly and no embers rise. Returns the button so the caller can focus it
 // once it is on screen.
 function forgeSplash({ kicker, tag, body, link, extra, done }) {
@@ -647,9 +647,9 @@ function whatsNewItems(notes, history) {
 
 // ---------- Settings page ----------
 
-const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors still show.",
-  "Quick page and panel transitions only. No branded effects.",
-  "Subtle sparks, embers and the wolf on real progress. Recommended.",
+const MOTION_LEVEL_HELP = ["No decorative effects. Progress, results and errors still show as text and bars.",
+  "Quick page and panel transitions only. No characters or sparks.",
+  "The wolf runs with your work, sparks when it succeeds, the forge strike on deploy. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
@@ -667,7 +667,7 @@ function motionSettingsCard(s, locked) {
   const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
     h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
       disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
-    h("span", {}, h("b", {}, `${n} ${MOTION_LEVELS[n]}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 2 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
   const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
       onchange: (e) => save({ [key]: e.target.checked }) }),
@@ -685,12 +685,12 @@ function motionSettingsCard(s, locked) {
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),
-    h("h3", {}, "Motion & effects"),
-    h("p", { class: "muted-text small" }, "Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
-      reduced ? h("b", {}, "Off now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
-    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
+    h("h3", {}, "Living Experience"),
+    h("p", { class: "muted-text small" }, "Quiet while you work, epic when you achieve. Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
+      reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
+    h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Experience mode" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
+    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Heroic and Legendary.` : help,
       toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
@@ -698,7 +698,7 @@ function motionSettingsCard(s, locked) {
     h("div", { class: "row" }, btn("Preview effects", "play", showMotionGallery, "tool outline")));
 }
 
-// Settings > Motion & effects > Preview effects: each effect on a sample, at the level and switches
+// Settings > Living Experience > Preview effects: each effect on a sample, at the level and switches
 // in force now, and Energy Flow on a real three-step pipeline run on this PC.
 function showMotionGallery() {
   const stats = h("p", { class: "muted-text small", "aria-live": "polite" });
@@ -774,7 +774,7 @@ function showMotionGallery() {
     h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),
     flowHost, stats);
   showStats();
-  showDialog("Motion & effects", body, [btn("Done", null, closeDialog, "primary")]);
+  showDialog("Living Experience", body, [btn("Done", null, closeDialog, "primary")]);
 }
 
 // Three activities that only wait and set a variable: nothing is read, written or sent.
@@ -865,7 +865,7 @@ async function renderSettings() {
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
-  // Appearance > Motion & effects (motion.js, docs/forge-animations.md)
+  // Appearance > Living Experience (motion.js, docs/forge-animations.md)
   const display = s.motion_level ? motionSettingsCard(s, locked) : null;
 
   // Preview features

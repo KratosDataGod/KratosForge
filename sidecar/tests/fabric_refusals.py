@@ -29,6 +29,10 @@ UDF_NO_ARTIFACT_TYPE = ("UnsupportedArgument: Unsupported Argument: artifactType
 UDF_UNDERSCORE = ("Python code validation failed: Function '{function}' (line {line}): input parameter '{name}' "
                   "cannot contain an underscore.")
 
+# Live run 7 (2026-11-07): the same validation refuses a default value on a dict parameter.
+UDF_DICT_DEFAULT = ("Python code validation failed: Function '{function}' (line {line}): Default values are not "
+                    "allowed for 'dict' type parameters.")
+
 # Live run 2 (2026-10-30, #1079): Windows sign-in with Microsoft's Fabric CLI client gets no token
 # for Azure SQL or Kusto. WAM says only Status_IncorrectConfiguration; Entra's reason is AADSTS65002.
 WAM_REFUSED = ("Windows sign-in (WAM) failed: Status_IncorrectConfiguration (3399614466). AADSTS65002: Consent "
@@ -63,6 +67,11 @@ def check_item(item_type: str, parts: Any) -> None:
                     for node in (ast.parse(code).body if code else []) if isinstance(node, ast.FunctionDef)
                     and any(ast.unparse(d) == "udf.function()" for d in node.decorator_list)
                     for arg in node.args.args if "_" in arg.arg]
+        problems += [UDF_DICT_DEFAULT.format(function=node.name, line=node.lineno)
+                     for node in (ast.parse(code).body if code else []) if isinstance(node, ast.FunctionDef)
+                     and any(ast.unparse(d) == "udf.function()" for d in node.decorator_list)
+                     and any(arg.annotation is not None and ast.unparse(arg.annotation) == "dict"
+                             for arg in node.args.args[len(node.args.args) - len(node.args.defaults):])]
         if problems:
             raise FabricError(f"POST failed with 400: {' | '.join(problems)}", "MetadataValidationError", 400)
         meta = _text(parts, "resources/functions.json")

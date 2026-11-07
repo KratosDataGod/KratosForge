@@ -85,6 +85,14 @@ class _Ok(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class _Site(http.server.ThreadingHTTPServer):
+    request_queue_size = 64  # the default 5 refuses callers on Windows when the run is busy
+
+    def handle_error(self, request, client_address):
+        # A caller that refuses the certificate drops the handshake; that is the test, not an error.
+        pass
+
+
 @pytest.fixture(scope="module", autouse=True)
 def python_ssl():
     """Python's own SSLContext while these tests run. On Windows an earlier test in the same run can
@@ -103,10 +111,12 @@ def python_ssl():
 @pytest.fixture(scope="module")
 def site(company_ca, python_ssl):
     """https://localhost:<port>, its certificate signed by the company's root."""
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Ok)
+    httpd = _Site(("127.0.0.1", 0), _Ok)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(company_ca / "site.pem", company_ca / "site.key")
-    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    # The handshake runs in each request's own thread, not in the accept loop: one slow handshake
+    # under a busy test run can't hold up the next caller's connection.
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"https://localhost:{httpd.server_address[1]}"
     httpd.shutdown()
@@ -119,7 +129,7 @@ class Proxy:
     sign-in, "silent" takes the connection and never answers."""
 
     def __init__(self, mode: str):
-        self.mode, self.asked = mode, []
+        self.mode, self.asked, self.errors = mode, [], []
         self.sock = socket.create_server(("127.0.0.1", 0))
         self.url = f"http://127.0.0.1:{self.sock.getsockname()[1]}"
         self.held: list[socket.socket] = []
@@ -134,6 +144,31 @@ class Proxy:
             threading.Thread(target=self._one, args=(conn,), daemon=True).start()
 
     def _one(self, conn: socket.socket):
+        try:
+            self._answer(conn)
+        except Exception as e:  # say what went wrong instead of dropping the caller with no answer
+            self.errors.append(repr(e))
+            try:
+                reason = repr(e).encode(errors="replace")[:200]
+                conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+                             % (len(reason), reason))
+            except OSError:
+                pass
+            conn.close()
+
+    @staticmethod
+    def _upstream(host: str, port: int) -> socket.socket:
+        """The site, with a few tries: a busy machine can refuse a local connect once."""
+        for attempt in range(5):
+            try:
+                return socket.create_connection((host, port), timeout=10)
+            except (ConnectionRefusedError, ConnectionResetError, TimeoutError):
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+        raise AssertionError("unreachable")
+
+    def _answer(self, conn: socket.socket):
         head = b""
         while b"\r\n\r\n" not in head:
             chunk = conn.recv(4096)
@@ -149,7 +184,8 @@ class Proxy:
                          b"Content-Length: 0\r\nConnection: close\r\n\r\n")
             return conn.close()
         host, port = head.split(b" ", 2)[1].decode().rsplit(":", 1)
-        upstream = socket.create_connection(("127.0.0.1" if host == "localhost" else host, int(port)))
+        upstream = self._upstream("127.0.0.1" if host == "localhost" else host, int(port))
+        upstream.settimeout(None)
         conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
         for a, b in ((conn, upstream), (upstream, conn)):
             threading.Thread(target=self._pipe, args=(a, b), daemon=True).start()

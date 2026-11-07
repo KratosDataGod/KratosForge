@@ -55,13 +55,13 @@ class DataOpsMixin:
 
     # ---- compare
 
-    def _table(self, project: Any, name: str, env: str, version: int | None) -> pl.DataFrame | None:
+    def _table(self, project: Any, name: str, env: str, version: int | str | None) -> pl.DataFrame | None:
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
         return store.read(project.layer(e.layer).lakehouse, e.schema, e.table,
                           None if version in (None, "") else int(version))
 
-    def _delta(self, project: Any, name: str, env: str, version: int | None) -> Any:
+    def _delta(self, project: Any, name: str, env: str, version: int | str | None) -> Any:
         """The table's Delta log (no data) at ``version``, default the latest; None when there's none."""
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]

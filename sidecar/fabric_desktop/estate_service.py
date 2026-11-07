@@ -151,8 +151,8 @@ class EstateMixin:
     def _cost_settings(self) -> dict[str, Any]:
         return costs_mod.settings(self._settings().get("cost"))  # type: ignore[attr-defined]
 
-    def set_cost_settings(self, price_per_cu_hour: float | None = None, currency: str | None = None,
-                          python_cu: float | None = None, spark_cu: float | None = None) -> dict[str, Any]:
+    def set_cost_settings(self, price_per_cu_hour: float | str | None = None, currency: str | None = None,
+                          python_cu: float | str | None = None, spark_cu: float | str | None = None) -> dict[str, Any]:
         cfg = self._cost_settings()
         for key, value in (("price_per_cu_hour", price_per_cu_hour), ("python_cu", python_cu), ("spark_cu", spark_cu)):
             if value not in (None, ""):

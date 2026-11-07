@@ -27,6 +27,7 @@ import os
 import platform
 import random
 import time
+from typing import Any
 
 PROOF_ROOT = "Files/_fabric_desktop/proofs"
 
@@ -67,7 +68,7 @@ class ProofRuntime:
         self.seed = int(config.get("seed", 0))
         self.root = None
         self.mount = None
-        self._options = lambda: {}
+        self._options: Any = lambda: {}  # replaced by the side's storage options
         self.log = {"proof": self.id, "side": side, "reads": {}, "files": {}, "writes": {},
                     "seed": self.seed, "timezone": None, "started": time.time()}
         # Tables already in this side's sandbox when it starts (a replay seeded from a bundle's sample):
@@ -199,9 +200,9 @@ class ProofRuntime:
             owners = md.packages_distributions()
         except Exception:  # noqa: BLE001
             owners = {}
-        names = set()
+        names: set[str] = set()
         if modules is None:
-            names = {d.metadata.get("Name") for d in md.distributions() if d.metadata.get("Name")}
+            names = {n for d in md.distributions() if (n := d.metadata.get("Name"))}
         else:
             for m in modules:
                 names.update(owners.get(m) or [m])

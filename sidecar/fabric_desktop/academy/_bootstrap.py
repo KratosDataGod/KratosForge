@@ -248,7 +248,7 @@ def _wrap_native(work, resolve=os.path.realpath):
             return fn(*args, **kwargs)
         return wrapper
 
-    swapped = {}   # id(original) -> wrapped, so the same function reached through a submodule is wrapped too
+    swapped: dict[int, object] = {}   # id(original) -> wrapped, so the same function reached through a submodule is wrapped too
 
     def wrap_all(module, prefixes, what):
         for name in dir(module):
@@ -465,7 +465,7 @@ def _lock_query_builder():
     for modname in ("deltalake.query", "deltalake._internal", "deltalake"):
         mod = _sys.modules.get(modname)
         if mod is not None and getattr(mod, "PyQueryBuilder", None) is real:
-            mod.PyQueryBuilder = refuse
+            setattr(mod, "PyQueryBuilder", refuse)  # noqa: B010 - replaces deltalake's own
 
 
 def _lock_duckdb(db, work, guard):

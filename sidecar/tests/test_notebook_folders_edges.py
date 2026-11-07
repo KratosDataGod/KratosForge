@@ -63,8 +63,10 @@ def test_a_notebook_that_cant_be_moved_back_stays_in_the_new_folder_and_the_firs
             raise PermissionError(32, "b is in use now")
         return real(self, target)
     monkeypatch.setattr(pathlib.Path, "rename", rename)
-    with pytest.raises(PermissionError, match="c is in use"):
+    with pytest.raises(OSError, match="c is in use") as raised:
         nf.rename(shelf, plan)
+    assert "Some files are still in EMEA and couldn't be moved back to Sales: b.ipynb" in str(raised.value)
+    assert isinstance(raised.value.__cause__, PermissionError)
     assert (src / "a.ipynb").is_file() and (src / "c.ipynb").is_file()
     assert (dest / "b.ipynb").is_file()  # split, but every notebook is still on disk
 

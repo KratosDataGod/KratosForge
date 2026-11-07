@@ -49,6 +49,7 @@ export const API_VERSION = 1;
 export const CONNECTION_LOST = "KratosForge closed the connection, so it may have restarted or stopped. Run the cell again.";
 export const RESTARTED = "The notebook's session in KratosForge ended while this cell ran (KratosForge may have restarted). Run the cell again.";
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
+// Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
 const BUSY_RETRIES = 3;
 
 export const APP_TOO_NEW = "This KratosForge is newer than this extension. Install kratosforge.vsix from "

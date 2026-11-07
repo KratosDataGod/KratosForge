@@ -1,7 +1,11 @@
 """The type check (mypy) for the engine, as a ratchet. The engine has hundreds of type errors from
 before it was checked, so the job doesn't ask for zero: it fails when a file has more errors of one
-kind than sidecar/mypy-baseline.json records, and passes otherwise. Fixing errors lowers the counts;
+kind than sidecar/mypy-baseline/ records, and passes otherwise. Fixing errors lowers the counts;
 ``--update`` writes the new, lower ones, so they can't creep back.
+
+The baseline is one small JSON file per source file (sidecar/mypy-baseline/<path>.json, {code: n}),
+so pull requests that clear different modules each delete or edit their own file and never
+conflict with one another. A file with no errors has no baseline file.
 
     python .github/scripts/mypy_ratchet.py            # run mypy in sidecar/ and compare (CI)
     python .github/scripts/mypy_ratchet.py --update   # after fixing errors: record the lower counts
@@ -23,7 +27,30 @@ from collections import Counter
 from pathlib import Path
 
 SIDECAR = Path(__file__).resolve().parents[2] / "sidecar"
-BASELINE = SIDECAR / "mypy-baseline.json"
+BASELINE = SIDECAR / "mypy-baseline"
+SUFFIX = ".json"
+
+
+def load(folder: Path = BASELINE) -> dict[str, dict[str, int]]:
+    """The recorded counts, {file: {code: n}}, from one JSON file per source file."""
+    out: dict[str, dict[str, int]] = {}
+    for f in sorted(folder.rglob("*" + SUFFIX)):
+        out[f.relative_to(folder).as_posix()[:-len(SUFFIX)]] = json.loads(f.read_text(encoding="utf-8"))
+    return out
+
+
+def save(counts: dict[str, dict[str, int]], folder: Path = BASELINE) -> None:
+    """Write ``counts`` as one file per source file, removing the files of sources with no errors."""
+    for f in folder.rglob("*" + SUFFIX):
+        if f.relative_to(folder).as_posix()[:-len(SUFFIX)] not in counts:
+            f.unlink()
+    for file, codes in counts.items():
+        target = folder / (file + SUFFIX)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(codes, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    for d in sorted((p for p in folder.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        if not any(d.iterdir()):
+            d.rmdir()
 # fabric_desktop/cli.py:223: error: Incompatible types in assignment (...)  [assignment]
 ERROR = re.compile(r"^(?P<file>[^:\s]+\.pyi?):\d+(?::\d+)?: error: (?P<message>.*?)(?:  \[(?P<code>[a-z0-9-]+)\])?$")
 
@@ -79,10 +106,10 @@ def main(argv: list[str]) -> int:
     output = run_mypy()
     now = count(output)
     if "--update" in argv:
-        BASELINE.write_text(json.dumps(now, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"Recorded {sum(sum(c.values()) for c in now.values())} errors in {BASELINE.name}.")
+        save(now)
+        print(f"Recorded {sum(sum(c.values()) for c in now.values())} errors in {BASELINE.name}/.")
         return 0
-    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
+    baseline = load()
     worse, better = compare(now, baseline)
     total, before = sum(sum(c.values()) for c in now.values()), sum(sum(c.values()) for c in baseline.values())
     if worse:
@@ -92,9 +119,10 @@ def main(argv: list[str]) -> int:
         print("\nmypy's errors in those files:")
         print("\n".join(line for line in output.splitlines() if line.split(":", 1)[0].replace("\\", "/") in files))
         return 1
-    print(f"No new type errors: {total} now, {before} in {BASELINE.name}.")
+    print(f"No new type errors: {total} now, {before} in {BASELINE.name}/.")
     if better:
-        print("Fewer errors than recorded; run `python .github/scripts/mypy_ratchet.py --update` to lock that in:")
+        print("Fewer errors than recorded; lower (or delete) those files in sidecar/mypy-baseline/, or run "
+              "`python .github/scripts/mypy_ratchet.py --update`, to lock that in:")
         print("\n".join(f"  {b}" for b in better))
     return 0
 

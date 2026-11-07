@@ -1,5 +1,6 @@
 // The code editor for notebook cells and the SQL query page: CodeMirror 6 with Python, SQL, HTML and Markdown.
-// Built into codemirror.js (window.CM) by `npm run build` in this folder; app.js uses only window.CM.
+// Built into codemirror.js (window.CM) by `npm ci --ignore-scripts && npm run build` in this folder, so every
+// package comes from package-lock.json at its recorded version and hash. app.js uses only window.CM.
 export { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection,
   dropCursor, highlightSpecialChars, placeholder, rectangularSelection, crosshairCursor, ViewPlugin,
   Decoration } from "@codemirror/view";

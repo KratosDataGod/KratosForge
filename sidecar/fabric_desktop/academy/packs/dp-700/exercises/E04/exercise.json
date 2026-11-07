@@ -1,0 +1,100 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E04",
+  "title": "OneLake settings: external app access, file explorer, shortcut cache",
+  "objectives": [
+    "1.1.3"
+  ],
+  "mode": "guided",
+  "minutes": 15,
+  "prerequisites": [],
+  "objective_text": "Set the tenant settings the OneLake file explorer needs and a workspace's shortcut cache, and predict what the cache keeps.",
+  "scenario": "Analysts can't open OneLake in the file explorer app, and an S3 shortcut is read so often that egress costs are climbing. The settings were changed in a hurry and don't add up.",
+  "engine_label": "A model of OneLake's tenant and workspace settings, checked on this PC",
+  "verifies": [
+    "Your settings let the file explorer work and cache the S3 shortcut for a week, and your expectations match how the cache behaves, as the OneLake pages describe it, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any setting changes in Fabric: nothing is set here.",
+    "Who may change tenant settings, and security groups that a tenant setting can be limited to.",
+    "Other workspace OneLake settings."
+  ],
+  "expected": {
+    "description": "Both tenant settings on; shortcut cache on with 7 days; the 3 GB file isn't cached; each read resets retention."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The OneLake file explorer won't work for the analysts.",
+      "pass": "Both tenant settings the file explorer needs are on.",
+      "rules": [
+        {
+          "path": "tenant.users_can_sync_data_with_onelake_file_explorer",
+          "equals": true
+        },
+        {
+          "path": "tenant.users_can_access_onelake_with_apps_external_to_fabric",
+          "equals": true,
+          "why": "The file explorer runs outside Fabric, so it also needs the external apps setting."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The S3 shortcut won't be cached as the team needs.",
+      "pass": "Caching is on with a one-week retention.",
+      "rules": [
+        {
+          "path": "workspace.shortcut_cache",
+          "equals": true,
+          "why": "Shortcut caching covers GCS, S3, S3 compatible and on-premises gateway shortcuts."
+        },
+        {
+          "path": "workspace.cache_retention_days",
+          "equals": 7,
+          "why": "Retention is set between 1 and 28 days."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The cache doesn't behave the way you expect.",
+      "pass": "You know which files are cached and how long they stay.",
+      "rules": [
+        {
+          "path": "expectations.sensor_dump_is_cached",
+          "equals": false,
+          "why": "Files over 1 GB aren't cached."
+        },
+        {
+          "path": "expectations.reading_a_cached_file_resets_its_retention",
+          "equals": true,
+          "why": "Each time a file is accessed, its retention period is reset."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "The file explorer is an app outside Fabric. Which tenant setting covers that?",
+    "What range can the cache's retention take?",
+    "Is there a size above which a file isn't cached?"
+  ],
+  "explanation": "The OneLake file explorer needs its own tenant setting and, because it runs outside Fabric, the setting that lets apps external to Fabric reach OneLake. Shortcut caching is a workspace setting for GCS, S3, S3 compatible and gateway shortcuts: retention is 1 to 28 days and resets each time a file is read, and files over 1 GB aren't cached.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/onelake/onelake-file-explorer",
+    "https://learn.microsoft.com/en-us/fabric/onelake/security/get-started-security",
+    "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06: onelake-file-explorer (its own tenant setting; also needs the external apps setting), get-started-security (the external apps tenant setting), onelake-shortcuts caching (1-28 days, reset on access, files over 1 GB not cached, GCS/S3/S3 compatible/gateway, set on the workspace's OneLake tab)."
+  ]
+}

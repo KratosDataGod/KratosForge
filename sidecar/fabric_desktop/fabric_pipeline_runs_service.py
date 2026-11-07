@@ -101,7 +101,8 @@ def _text(value: Any) -> dict[str, Any]:
 
 def activity_row(a: dict[str, Any]) -> dict[str, Any]:
     a = a if isinstance(a, dict) else {}
-    err = a.get("error") if isinstance(a.get("error"), dict) else {}
+    got = a.get("error")
+    err: dict[str, Any] = got if isinstance(got, dict) else {}
     status = _str(a.get("status"))
     message = secrets(str(err.get("message") or ""))
     return {"name": _str(a.get("activityName")), "type": _str(a.get("activityType")),

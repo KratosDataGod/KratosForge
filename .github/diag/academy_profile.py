@@ -50,7 +50,12 @@ def pytest_configure(config):
     except Exception:
         pass
     import subprocess
-    _wrap(subprocess, "run", lambda a, k: "subprocess.run " + os.path.basename(str((a[0] if a else k.get("args"))[0])))
+
+    def _sub(a, k):
+        args = a[0] if a else k.get("args")
+        first = args if isinstance(args, (str, bytes)) or not args else args[0]
+        return "subprocess.run " + os.path.basename(str(first))[:40]
+    _wrap(subprocess, "run", _sub)
 
 
 def pytest_sessionfinish(session):

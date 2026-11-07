@@ -35,8 +35,9 @@ opportunity cites (a Copy activity's source settings, a cell and line number).
 
 | Rule | Finds | Action | Confidence |
 | --- | --- | --- | --- |
-| OE-DUP-NB | Notebooks with the same code once comments, docstrings, spacing, quote style and SQL letter case are set aside, compared by Python syntax tree, cell by cell, with the same default lakehouse | Eliminate the copies' runs | Proven; High when a default lakehouse or run history is missing |
-| OE-DUP-NB-PARAM | The same code with different default lakehouses: not duplicate processing, but duplicate maintenance | Consolidate into one parameterized notebook | Proven (no capacity is claimed) |
+| OE-DUP-NB | Notebooks on the same default lakehouse with the same code once comments, docstrings, spacing, quote style and SQL keyword case are set aside (string literals keep their case), compared by Python syntax tree, cell by cell | Eliminate the copies' runs | Proven; High when run history is missing |
+| OE-DUP-NB-SUSPECT | The same code with no default lakehouse in the definitions: which data each reads isn't known | Check, then consolidate; nothing is marked to remove and no saving is claimed | Medium |
+| OE-DUP-NB-PARAM | The same code on different default lakehouses: not duplicate processing, but duplicate maintenance | Consolidate into one parameterized notebook | Proven (no capacity is claimed) |
 | OE-DUP-COPY | Copy activities in different pipelines with the same source and the same sink | Eliminate one | High; Medium when the source uses expressions |
 | OE-REPEAT-EXTRACT | Copy activities with the same source and different sinks | Consolidate: land once, share (shortcut) | Medium |
 | OE-FULL-REFRESH | Workloads that run on a schedule and rewrite whole tables: an overwrite with no replaceWhere (rule NB007), INSERT OVERWRITE without a partition, CREATE OR REPLACE TABLE ... AS SELECT, a Copy whose table action is Overwrite | Optimize in place (incremental) | Medium |

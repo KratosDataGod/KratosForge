@@ -29,6 +29,7 @@ from typing import Any
 from .. import depgraph, magics, notebook_practices
 from . import impact, model
 
+_SQL_QUOTED = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\])""")
 _SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
 _PY_COMMENT = re.compile(r"(?m)^\s*#.*$")
 _SPACE = re.compile(r"\s+")
@@ -60,13 +61,25 @@ def _strip_docstrings(tree: ast.AST) -> ast.AST:
     return tree
 
 
+def _sql_norm(text: str) -> str:
+    """SQL with comments and spacing set aside and keywords and names lowercased. String literals
+    ('EU' is not 'eu') and quoted names are kept exactly as written."""
+    out = []
+    for i, part in enumerate(_SQL_QUOTED.split(text)):
+        if i % 2:  # a quoted literal or name: kept as is
+            out.append(part)
+        else:
+            out.append(_SPACE.sub(" ", _SQL_COMMENT.sub(" ", part)).lower())
+    return "".join(out).strip()
+
+
 def normalize_cell(source: str) -> str:
     """A cell's code with what doesn't change what it does set aside: comments, docstrings, spacing,
     and the letter case of SQL. Python is compared by its syntax tree. Empty when the cell has no code."""
     cell = magics.cell(source)
     body = cell.body
     if cell.language == "sql":
-        return "sql:" + _SPACE.sub(" ", _SQL_COMMENT.sub(" ", body)).strip().lower()
+        return "sql:" + _sql_norm(body)
     if cell.language == "python":
         try:
             tree = _strip_docstrings(ast.parse(body))
@@ -131,12 +144,18 @@ def duplicate_notebooks(workloads: list[dict[str, Any]], ctx: Context) -> list[d
         by_lh: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
         for w in same:
             by_lh[w.get("default_lakehouse")].append(w)
-        known = [k for k in by_lh if k is not None]
         reads, writes = _tables(same[0].get("cells") or [])
-        if len(known) > 1 and None not in by_lh:
-            out.append(_same_code_other_data(same, fp, reads, writes))
-            continue
-        out.append(_duplicate(same, fp, reads, writes, unknown_lh=None in by_lh, ctx=ctx))
+        # Only notebooks on the same, known default lakehouse process the same data; only those
+        # can be duplicates, and only one of them is ever marked to remove.
+        for lh, group in by_lh.items():
+            if lh is not None and len(group) >= 2:
+                out.append(_duplicate(group, fp, reads, writes, ctx=ctx))
+        unknown = by_lh.get(None, [])
+        if len(unknown) >= 2:
+            out.append(_suspected(unknown, fp))
+        known = [w for lh, group in by_lh.items() if lh is not None for w in group]
+        if len({w["default_lakehouse"] for w in known}) >= 2:
+            out.append(_same_code_other_data(known, fp, reads, writes))
     return out
 
 
@@ -145,8 +164,7 @@ def _keep_order(w: dict[str, Any]) -> tuple[int, int, str]:
     return (-(r["runs"] or 0), -(r["scheduled"] or 0), w["name"].lower())
 
 
-def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: list[str], *, unknown_lh: bool,
-               ctx: Context) -> dict[str, Any]:
+def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: list[str], *, ctx: Context) -> dict[str, Any]:
     keep, *rest = sorted(same, key=_keep_order)
     running = [w for w in rest if w["runs"]["read"] and (w["runs"]["runs"] or 0) > 0]
     unread = [w for w in rest if not w["runs"]["read"]]
@@ -154,9 +172,8 @@ def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: li
     ev = [model.evidence("identical_code", f"{len(same)} notebooks have the same code once comments, spacing and "
                          "docstrings are set aside, compared cell by cell", INVENTORY, fingerprint=fp[:16],
                          items=[w["item_id"] for w in same], cells=len(same[0].get("cells") or []))]
-    if not unknown_lh:
-        ev.append(model.evidence("same_lakehouse", "They all have the same default lakehouse, so they read and "
-                                 "write the same tables", INVENTORY, lakehouse=same[0].get("default_lakehouse")))
+    ev.append(model.evidence("same_lakehouse", "They all have the same default lakehouse, and the same code, so "
+                             "they read and write the same tables", INVENTORY, lakehouse=same[0].get("default_lakehouse")))
     if reads or writes:
         ev.append(model.evidence("tables", f"Reads {', '.join(reads) or 'no named table'}; writes "
                                  f"{', '.join(writes) or 'no named table'}", "notebook code, read by depgraph",
@@ -165,9 +182,6 @@ def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: li
     validation = ["Check nothing else calls the copies by name (pipelines, notebookutils.notebook.run, schedules).",
                   "Run the kept notebook once and compare its output tables with the last run of each copy "
                   "(row counts and content)."]
-    if unknown_lh:
-        validation.insert(0, "Check both notebooks use the same lakehouse: one has no default lakehouse in its "
-                          "definition, so it may read other data through absolute paths or parameters.")
     if unread:
         validation.append("Read the run history of " + ", ".join(w["name"] for w in unread) + "; it couldn't be read.")
     if running:
@@ -186,7 +200,7 @@ def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: li
         alternatives=["Keep both if they must stay isolated (separate owners, security or release cycles); record why.",
                       "Turn the shared code into one parameterized notebook that each caller runs."],
         effort="low", risk="low" if not running else "medium",
-        confidence="high" if unknown_lh or unread else "proven",
+        confidence="high" if unread else "proven",
         validation=validation, rollback="Turn the copy's schedule back on; nothing is deleted until the copy is "
                                         "retired, and retiring is a separate, confirmed step in Fabric.",
         source="duplicate notebook analyzer (OE-001)", next_step=_open(same, "Compare the notebooks"),
@@ -194,6 +208,30 @@ def _duplicate(same: list[dict[str, Any]], fp: str, reads: list[str], writes: li
         impact=impact.avoidable(running, ctx.usage, ctx.now, price=ctx.price) if running
         else {"basis": "no runs to avoid", "note": "The copies didn't run in the period read; retiring them saves "
                                                    "maintenance and confusion, not capacity."})
+
+
+def _suspected(same: list[dict[str, Any]], fp: str) -> dict[str, Any]:
+    """The same code with no default lakehouse in any definition: what data each reads isn't known,
+    so nothing is marked to remove and no saving is claimed until someone checks."""
+    return model.make(
+        rule="OE-DUP-NB-SUSPECT", category="duplicate_processing", action="consolidate",
+        title=f"{len(same)} notebooks have the same code; check whether they process the same data",
+        artifacts=[model.artifact(w, "reads") for w in same],
+        current=f"The same code is kept in {len(same)} notebooks with no default lakehouse.",
+        problem="They may run the same work twice, or the same code on different data; their definitions don't say which.",
+        evidence=[model.evidence("identical_code", "Same code once comments, spacing and docstrings are set aside",
+                                 INVENTORY, fingerprint=fp[:16], items=[w["item_id"] for w in same]),
+                  model.evidence("no_default_lakehouse", "None of them has a default lakehouse in its definition, "
+                                 "so which data each one reads can't be told from the code", INVENTORY)]
+        + _run_evidence(same),
+        recommendation="Check what each notebook reads when it runs (parameters, attached lakehouse, paths). If they "
+                       "read the same data, keep one; if not, make one notebook with the data as a parameter.",
+        alternatives=["Leave them if each team owns its copy on purpose; record why."],
+        effort="low", risk="low", confidence="medium",
+        validation=["Confirm which lakehouse or paths each notebook uses at run time before changing anything."],
+        rollback="Nothing changes until the check is done.",
+        source="duplicate notebook analyzer (OE-001)", next_step=_open(same, "Compare the notebooks"), affects=[],
+        impact={"basis": "not known yet", "note": "No capacity is claimed until it is confirmed they process the same data."})
 
 
 def _same_code_other_data(same: list[dict[str, Any]], fp: str, reads: list[str], writes: list[str]) -> dict[str, Any]:

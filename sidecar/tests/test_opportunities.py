@@ -95,11 +95,34 @@ def test_same_code_on_other_lakehouses_is_not_duplicate_processing():
     assert param["affects"] == [] and param["counted"] is False and param["action"] == "consolidate"
 
 
-def test_an_unknown_default_lakehouse_lowers_confidence_and_asks_for_a_check():
-    r = _run([("a", "Notebook", "x", _nb(LOAD), _daily(5, 60)), ("b", "Notebook", "y", _nb(LOAD, None), _daily(5, 60))])
-    dup = next(o for o in r["opportunities"] if o["rule"] == "OE-DUP-NB")
-    assert dup["confidence"] == "high"
-    assert "same lakehouse" in dup["validation"][0]
+def test_no_default_lakehouse_is_only_a_suspected_duplicate_and_nothing_is_removed():
+    r = _run([("a", "Notebook", "x", _nb(LOAD, None), _daily(5, 60)), ("b", "Notebook", "y", _nb(LOAD, None), _daily(5, 60))])
+    assert "OE-DUP-NB" not in _rules(r)
+    o = next(o for o in r["opportunities"] if o["rule"] == "OE-DUP-NB-SUSPECT")
+    assert o["affects"] == [] and o["confidence"] == "medium"
+    assert all(a["role"] != "remove" for a in o["artifacts"])
+
+
+def test_mixed_lakehouses_never_mark_a_notebook_on_another_lakehouse_to_remove():
+    r = _run([("a", "Notebook", "a", _nb(LOAD, "lh1"), _daily(5, 60)), ("b", "Notebook", "b", _nb(LOAD, "lh1"), _daily(5, 60)),
+              ("c", "Notebook", "c", _nb(LOAD, "lh2"), _daily(5, 60)), ("d", "Notebook", "d", _nb(LOAD, None), _daily(5, 60))])
+    dups = [o for o in r["opportunities"] if o["rule"] == "OE-DUP-NB"]
+    assert len(dups) == 1
+    assert {a["item_id"] for a in dups[0]["artifacts"]} == {"a", "b"}
+    removed = {a["item_id"] for o in r["opportunities"] for a in o["artifacts"] if a["role"] == "remove"}
+    assert removed <= {"a", "b"} and len(removed) == 1
+    param = next(o for o in r["opportunities"] if o["rule"] == "OE-DUP-NB-PARAM")
+    assert {a["item_id"] for a in param["artifacts"]} == {"a", "b", "c"}
+
+
+def test_sql_string_literals_keep_their_case():
+    eu = analyzers.code_fingerprint(["%%sql\nSELECT * FROM t WHERE region = 'EU'"])
+    assert eu != analyzers.code_fingerprint(["%%sql\nSELECT * FROM t WHERE region = 'eu'"])
+    assert eu == analyzers.code_fingerprint(["%%sql\nselect *\n  from T where REGION = 'EU' -- note"])
+    assert analyzers.code_fingerprint(["%%sql\nSELECT 'it''s' AS a"]) != analyzers.code_fingerprint(["%%sql\nSELECT 'IT''S' AS a"])
+    r = _run([("a", "Notebook", "a", _nb(["%%sql\nSELECT * FROM t WHERE region = 'EU'"]), _daily(3, 5)),
+              ("b", "Notebook", "b", _nb(["%%sql\nSELECT * FROM t WHERE region = 'eu'"]), _daily(3, 5))])
+    assert "OE-DUP-NB" not in _rules(r)
 
 
 def test_python_is_compared_by_syntax_not_text():

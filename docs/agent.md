@@ -171,6 +171,8 @@ fabric-desktop agent requeue job-20261025-020000-ab12cd34ef56  # run a dead or f
 fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 
+For what each alert, log warning and incident means and how to recover, see the [runbook](agent-runbook.md).
+
 `enqueue`, `status`, `requeue` and `prune` work while the service runs; they share the queue file. Stopping the service (SIGTERM, `systemctl stop`, `docker stop`, ending the task) stops taking new jobs and waits for running ones. A job cut off anyway runs again at the next start.
 
 | Job state | Meaning | What to do |

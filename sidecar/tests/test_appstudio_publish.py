@@ -25,6 +25,7 @@ class _Fabric:
         self.writes: list[tuple] = []
         self.fail: Exception | None = None
         self.leave_behind = False
+        self.no_id = False
 
     def get_workspace(self, ws):
         return {"id": ws, "displayName": "Sales dev"}
@@ -43,7 +44,7 @@ class _Fabric:
             raise self.fail
         made = {"id": REPORT, "type": item_type, "displayName": name}
         self.items.append(made)
-        return made
+        return {} if self.no_id else made
 
     def update_item_definition(self, ws, item_id, definition):
         self.writes.append(("update", ws, item_id, definition))
@@ -176,3 +177,10 @@ def test_only_one_publish_at_a_time(svc, monkeypatch):
 def test_report_names_are_one_line():
     assert publishing.report_name("Sales\nreport", "x") == "Sales report"
     assert publishing.report_name("", "Fallback") == "Fallback"
+
+
+def test_a_create_that_returns_no_id_is_looked_up_by_name(svc):
+    svc.fabric.no_id = True
+    got = publish(svc, svc.appstudio_publish_check(svc.project))
+    assert got["done"] and got["report_id"] == REPORT
+    assert project.publish_history(svc._appstudio_project(svc.project))[-1]["report_id"] == REPORT

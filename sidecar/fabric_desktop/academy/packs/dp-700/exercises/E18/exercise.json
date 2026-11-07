@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E18",
+  "title": "Schedule a pipeline and trigger it when a file lands",
+  "objectives": [
+    "1.4.2"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Set a pipeline's nightly schedule and a storage event trigger that starts it for each new file, passing the right parameters to each.",
+  "scenario": "Load orders runs a full reload every night and should also pick up partner files as they land during the day. The current schedule runs at the wrong hour, never ends, and sends a parameter the pipeline ignores. There's no file trigger yet.",
+  "engine_label": "A model of a pipeline's schedule and storage event trigger, checked on this PC",
+  "verifies": [
+    "Your schedule and trigger start the pipeline at the right times with the right parameters, as the pipeline runs page describes them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the schedule or trigger fires in Fabric: nothing is scheduled here.",
+    "The exact names Fabric shows for time zones, event types and filters; the model uses its own fields.",
+    "Interval-based schedules (preview) and OneLake event triggers."
+  ],
+  "expected": {
+    "description": "A daily 02:00 W. Europe Standard Time schedule from 2026-11-07 to 2027-12-31 with run_mode full, and a BlobCreated trigger on orders/*.csv with run_mode incremental and the trigger's file name."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The nightly schedule won't run as the team needs.",
+      "pass": "One schedule: daily at 02:00 Amsterdam time, with an end date and the right parameter.",
+      "rules": [
+        {
+          "path": "schedules",
+          "count": 1
+        },
+        {
+          "path": "schedules.0.frequency",
+          "equals": "Daily"
+        },
+        {
+          "path": "schedules.0.time",
+          "equals": "02:00"
+        },
+        {
+          "path": "schedules.0.time_zone",
+          "equals": "W. Europe Standard Time",
+          "why": "A schedule runs in the time zone it names; 02:00 UTC is 03:00 in Amsterdam in winter."
+        },
+        {
+          "path": "schedules.0.start",
+          "equals": "2026-11-07"
+        },
+        {
+          "path": "schedules.0.end",
+          "equals": "2027-12-31",
+          "why": "A schedule needs both a start and an end date; there's no open-ended schedule."
+        },
+        {
+          "path": "schedules.0.parameters.run_mode",
+          "equals": "full",
+          "why": "Parameter names in a schedule must match the pipeline's; a mismatched name is ignored at run time."
+        },
+        {
+          "path": "schedules.0.parameters.RunMode",
+          "absent": true
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The file trigger would start on the wrong events or load the wrong file.",
+      "pass": "New .csv files in orders start an incremental run for that file.",
+      "rules": [
+        {
+          "path": "triggers",
+          "count": 1
+        },
+        {
+          "path": "triggers.0.source",
+          "equals": "Azure Blob Storage events",
+          "why": "The files land in an Azure Blob Storage account, not OneLake."
+        },
+        {
+          "path": "triggers.0.event_types",
+          "contains": "Microsoft.Storage.BlobCreated"
+        },
+        {
+          "path": "triggers.0.event_types",
+          "count": 1,
+          "why": "Only created files start a run."
+        },
+        {
+          "path": "triggers.0.subject_filter.folder",
+          "equals": "orders"
+        },
+        {
+          "path": "triggers.0.subject_filter.file_type",
+          "equals": ".csv",
+          "why": "The subject filter narrows events by folder, file name and file type."
+        },
+        {
+          "path": "triggers.0.parameters.run_mode",
+          "equals": "incremental"
+        },
+        {
+          "path": "triggers.0.parameters.file_name",
+          "equals": "@pipeline()?.TriggerEvent?.FileName",
+          "why": "The trigger passes the file that started it; a fixed name would load the same file every time."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which time zone is Amsterdam in? Is UTC the same at 02:00 in November?",
+    "Compare the schedule's parameter names with the pipeline's, character by character.",
+    "Which event types mean a new file? Which would start a run when a file is deleted?",
+    "The trigger can pass the name of the file that started it: @pipeline()?.TriggerEvent?.FileName."
+  ],
+  "explanation": "A schedule needs a frequency, a time, a time zone, and both a start and an end date. Its parameters go to the pipeline by name, and a name that doesn't match is ignored, so RunMode never reached run_mode. A storage event trigger starts the pipeline on events from a storage account; choosing only BlobCreated and filtering the subject by folder and file type keeps deletes and other files out. Passing @pipeline()?.TriggerEvent?.FileName lets each run load the file that started it.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (pipeline-runs): schedules take a type, frequency, start and end, and time zone; start and end are both required; schedule parameter names must match the pipeline's and mismatches are ignored; storage event triggers choose OneLake or Azure Blob events, event types such as Microsoft.Storage.BlobCreated, a Subject filter by folder, file name and file type, and pass @pipeline()?.TriggerEvent?.FileName.",
+    "W. Europe Standard Time is the Windows time zone id for Amsterdam; the model doesn't claim it's the label Fabric's picker shows."
+  ]
+}

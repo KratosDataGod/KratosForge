@@ -1,6 +1,6 @@
 # Incidents and your service desk (Preview)
 
-KratosForge finds problems by itself: a failed run, a late table, a run waiting on a decision, a missed reliability objective, an agent that stopped reporting, an environment it couldn't read. Each problem becomes one incident that everyone who can read the environment sees. This page covers what an incident holds, how priorities and SLAs work, how people report problems the app can't see, and where this is going. Day-to-day use of the list is in the [user guide](user-guide.md#incidents-preview); agents and their Teams routes are in the [agent guide](agent.md#incidents-preview).
+KratosForge finds problems by itself: a failed run, a late table, a run waiting on a decision, a missed reliability objective, an agent that stopped reporting, an environment it couldn't read. Each problem becomes one incident that everyone who can read the environment sees. This page covers what an incident holds, how priorities and SLAs work, how people report problems the app can't see, and where this is going. Day-to-day use of the list is in the [user guide](user-guide.md#incidents-preview); agents and their Teams routes are in the [agent guide](agent.md#incidents-preview). What to do about each kind of incident is in the [runbook](agent-runbook.md#incidents).
 
 ## What an incident holds
 

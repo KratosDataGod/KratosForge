@@ -6,7 +6,9 @@
 #     -v /srv/fabric/sales-metadata:/srv/fabric/sales-metadata:ro \
 #     -v fd-agent-home:/var/lib/fabric-desktop \
 #     fabric-desktop-agent
-FROM python:3.12-slim
+# Pinned by digest, so a rebuild uses the same base image until a PR moves it. To update, read the
+# current digest (docker buildx imagetools inspect python:3.12-slim) and replace it here.
+FROM python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
 
 RUN useradd --system --create-home --home-dir /var/lib/fabric-desktop fabric-desktop
 COPY sidecar /tmp/sidecar

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 import time
 import uuid
@@ -48,6 +49,11 @@ WRITE_ATTEMPTS = 3
 AFTER_COMMIT_ATTEMPTS = 3
 # Commit metadata naming one after-commit append, so a retry can tell the append already committed.
 APPEND_KEY = "fabric_desktop_append"
+_log = logging.getLogger(__name__)
+# A run's run-log row is appended after it lets go of the table's lock, so its last commit can be
+# seconds old with the row still on its way. Only a commit older than this, well past any lease's
+# life and the few retries of that append, counts as a run that stopped before it was recorded.
+UNLOGGED_AFTER = dt.timedelta(minutes=15)
 # Commit metadata listing the files a run read, so they count as loaded if its list wasn't saved.
 FILES_KEY = "fabric_desktop_files"
 # Most files listed there: above it the commit lists none (every history read parses the list).
@@ -425,6 +431,7 @@ class Engine:
         unsaved = ""  # the schema history's note, if it couldn't be saved: kept whatever the run's message becomes
         try:
             with self.table_lock(e):
+                self._record_unlogged(e, res)
                 self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
                 try:
                     if backfill == "migrate":
@@ -478,6 +485,49 @@ class Engine:
                     self.store.meta_append(t, r, metadata=m)
                 self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table), append)
         return res
+
+    def _record_unlogged(self, e: Entity, res: RunResult) -> None:
+        """Record the last run that committed to ``e``'s table but has no run-log row: it stopped between
+        its commit and that row (the app was closed, the PC switched off). Its rows are in the table and
+        carry its run id, so without this they name a run the Runs page has never heard of. Called under
+        the table's lock, so no other run of this table is between its commit and its row unless it let
+        go of the lock UNLOGGED_AFTER ago. Never fails the run: this is only its record."""
+        try:
+            lh = self.lakehouse(e)
+            history = self.store.history(lh, e.schema, e.table, 20)  # newest first
+            run = next((c.get("fabric_desktop_run_id") for c in history if c.get("fabric_desktop_run_id")), None)
+            if not run:
+                return
+            commits = [c for c in history if c.get("fabric_desktop_run_id") == run]
+            newest = commits[0]
+            age = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromtimestamp(
+                int(newest.get("timestamp", 0)) / 1000, dt.timezone.utc)
+            if age < UNLOGGED_AFTER:
+                return
+            logged = self.store.meta_where("run_log", (pl.col("entity") == e.name) & (pl.col("run_id") == run))
+            if logged.height:
+                return
+            version = int(newest["version"])
+            rows, _ = self.store.read_where(lh, e.schema, e.table, pl.col("_run_id") == run,
+                                            ["_run_id", "_loaded_at"], version)
+            first = dt.datetime.fromtimestamp(int(commits[-1].get("timestamp", 0)) / 1000, dt.timezone.utc)
+            loaded: Any = rows["_loaded_at"][0] if rows is not None and rows.height else None
+            note = (f"Stopped after its commit (Delta version {version}) and before it was recorded; "
+                    f"recorded from the table's history by run {self.run_id}")
+            row = {"run_id": run, "batch_id": "", "entity": e.name, "env": self.store.env, "status": "ok",
+                   "metadata": str(newest.get("fabric_desktop_metadata") or ""),
+                   "logic": str(newest.get("fabric_desktop_logic") or ""),
+                   "load_date": loaded.isoformat() if isinstance(loaded, dt.date) else str(loaded or ""),
+                   "started_at": first.isoformat(timespec="microseconds"), "seconds": None,
+                   "rows_read": None, "rows_written": rows.height if rows is not None else None, "quarantined": None,
+                   "delta_version": version, "backfill": "", "message": note, "steps": "[]"}
+        except Exception as exc:  # noqa: BLE001  only the earlier run's record is missed; this run goes on
+            _log.warning("Couldn't check %s for a run that stopped before it was recorded: %s", e.name, exc)
+            return
+        if self._after_commit(res, "the record of a run that stopped", (META_LAKEHOUSE, "meta", "run_log"),
+                              lambda m: self.store.meta_append("run_log", [row], metadata=m)):
+            res.steps.append(Step("record", 0, 0.0, f"recorded run {run}, which stopped after its commit "
+                                                    f"(Delta version {version}) and before it was recorded"))
 
     def _after_commit(self, res: RunResult, what: str, where: tuple[str, str, str],
                       write: Callable[[dict[str, str]], None]) -> bool:

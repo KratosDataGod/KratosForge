@@ -183,7 +183,7 @@ class AcademySession(SparkSession):
     def read(self) -> Reader:  # type: ignore[override]  # the exercise's reader, not DuckDB's
         return Reader(self)
 
-    def table(self, name: str) -> DataFrame:  # type: ignore[override]
+    def table(self, name: str) -> DataFrame:
         return self.read.table(name)
 
     @property

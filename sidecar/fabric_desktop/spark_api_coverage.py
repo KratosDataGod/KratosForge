@@ -32,7 +32,7 @@ from typing import Any
 try:  # the capture tool loads this file on its own, next to spark_coverage
     from .spark_coverage import STATUSES, canonical
 except ImportError:  # pragma: no cover - only in tools/capture_spark_dataframe_api.py
-    from spark_coverage import STATUSES, canonical  # type: ignore[import-not-found,no-redef]
+    from spark_coverage import STATUSES, canonical  # type: ignore[no-redef]
 
 DATA = Path(__file__).with_name("spark_dataframe_api.json")
 CLASSES = ("DataFrame", "Column", "GroupedData", "DataFrameReader", "DataFrameWriter", "DataFrameNaFunctions",

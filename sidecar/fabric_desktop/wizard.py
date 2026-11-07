@@ -200,7 +200,7 @@ def _ranges(value: Any) -> dict[str, tuple[float | None, float | None]]:
         if not sep or len(bounds) != 2 or bounds == (None, None) \
                 or any(b is not None and not math.isfinite(b) for b in bounds):
             raise ValueError(f"The range for {column} must look like 0..100, 0.. or ..100.")
-        out[column] = bounds  # type: ignore[assignment]
+        out[column] = bounds
     return out
 
 

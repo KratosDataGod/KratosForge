@@ -355,7 +355,7 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
         top, rest = name.split("/", 1)
         if top == "agent" and not agent_home:
             continue
-        dest = (agent_home if top == "agent" else data_dir) / rest  # type: ignore[operator]
+        dest = (agent_home if top == "agent" else data_dir) / rest
         plan.append({"path": name, "to": str(dest), "replaces": dest.exists()})
     result: dict[str, Any] = {"created": manifest["created"], "files": plan, "applied": False,
                               "cleaned": manifest.get("cleaned", [])}

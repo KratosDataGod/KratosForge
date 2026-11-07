@@ -64,7 +64,7 @@ class RiskMixin:
     # ---- facts
 
     def _risk_capacity(self, workspace_id: str, workspace_name: str, refresh: bool,
-                       reads: list[str], memo: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                       reads: list[str], memo: dict[Any, Any] | None = None) -> dict[str, Any] | None:
         """The capacity reading for a workspace: an environment's reading when the workspace is one
         (from the last hour unless ``refresh``), otherwise a read of that workspace now. ``memo``
         keeps readings across the checks of one batch, so each workspace is read once."""

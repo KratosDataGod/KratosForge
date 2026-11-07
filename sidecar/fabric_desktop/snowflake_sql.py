@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
@@ -179,7 +179,7 @@ def _refuse(id: str, title: str, reason: str, source: str = "") -> Note:
 def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
-        statements = [s for s in sqlglot.parse(code, read="snowflake") if s is not None]
+        statements = [cast(exp.Expression, s) for s in sqlglot.parse(code, read="snowflake") if s is not None]
     except ParseError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None
@@ -477,9 +477,9 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
         node.replace(ours[-1])
     # sqlglot rewrites a format itself when it knows the argument is a date or time; whatever it
     # couldn't map stays as letters (Q for the quarter, quoted text), so those are refused, not printed.
-    for node in list(statement.find_all(exp.TimeToStr)):
-        fmt = node.args.get("format")
-        if any(node is mine for mine in ours):
+    for t2s in list(statement.find_all(exp.TimeToStr)):
+        fmt = t2s.args.get("format")
+        if any(t2s is mine for mine in ours):
             continue
         if isinstance(fmt, exp.Literal) and re.search(r"(?<!%)[A-Za-z]", re.sub(r"%[A-Za-z%]", "", fmt.name)):
             raise _Untranslatable(_refuse("SFX-002", "Date or time format",

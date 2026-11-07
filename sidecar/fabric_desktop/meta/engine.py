@@ -16,6 +16,7 @@ import os
 import re
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, cast
@@ -915,7 +916,7 @@ class Engine:
         if e.soft_deletes:  # every row the source has is live
             stamp += [pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at")]
 
-        def tables():
+        def tables() -> Iterator[pa.Table]:
             for b in plan:
                 tb = time.perf_counter()
                 df = lf.filter(b.expr(src_col)).select(keep).collect(engine="streaming")
@@ -1015,7 +1016,7 @@ class Engine:
                         for f in schema]
                 return pa.Table.from_arrays(cols, schema=schema)
 
-            def record_batches():
+            def record_batches() -> Iterator[pa.RecordBatch]:
                 item = first
                 while item is not done:
                     # Small record batches: delta-rs holds each one until written, so one per batch

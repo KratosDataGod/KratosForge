@@ -11,6 +11,7 @@ docs/orchestration/activity-registry.md with every change here.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
 from functools import lru_cache
 from typing import Any
@@ -32,6 +33,8 @@ def _is_expression(value: Any) -> bool:
         return value.get("type") == "Expression"
     return isinstance(value, str) and value.startswith("@") and not value.startswith("@@")
 
+
+Check = Callable[[Activity, CheckContext], list[Diagnostic]]
 
 def _diag(a: Activity, code: str, severity: str, message: str, key: str, hint: str = "") -> Diagnostic:
     return Diagnostic(code, severity, message, f"{a.path}.typeProperties.{key}", a.name, hint)
@@ -113,13 +116,14 @@ def _delete(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
 
 # ---- entries
 
-def _static(type_: str, title: str, required: tuple[str, ...] = (), check=None, **kw: Any) -> ActivitySupport:
+def _static(type_: str, title: str, required: tuple[str, ...] = (), check: Check | None = None,
+            **kw: Any) -> ActivitySupport:
     props = {k: CHECKED for k in required} | kw.pop("properties", {})
     return ActivitySupport(type_, title, "static", "unit_tests", adapter=StaticAdapter(required, check),
                            properties=props, **kw)
 
 
-def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = (), check=None,
+def _local(type_: str, title: str, adapter: type, required: tuple[str, ...] = (), check: Check | None = None,
            **kw: Any) -> ActivitySupport:
     props = {k: CHECKED for k in required} | kw.pop("properties", {})
     kw.setdefault("fabric_capacity", "metered_in_fabric")

@@ -105,34 +105,12 @@ check_untyped_defs = true  # bodies of functions without annotations are checked
 strict_equality = true  # ==, is and in between types that can never match
 warn_redundant_casts = true
 warn_unused_ignores = true  # a stale ignore would hide the next real error on its line
-disallow_untyped_defs = true  # new code annotates every function (see the list below for older files)
+disallow_untyped_defs = true  # every function is annotated (tests/test_mypy_strict.py keeps it so)
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
 module = ["fabric_desktop._vendor.*"]  # vendored code stays as its authors wrote it
 ignore_errors = true
-
-# Files written before every function had to be annotated. This list ONLY SHRINKS: annotate a file's
-# functions and take it off; never add one (tests/test_mypy_strict.py fails if a file is added).
-[[tool.mypy.overrides]]
-module = [
-    "fabric_desktop.academy._bootstrap",
-    "fabric_desktop.auth",
-    "fabric_desktop.engines.runtime_worker",
-    "fabric_desktop.localdata.engine",
-    "fabric_desktop.meta.engine",
-    "fabric_desktop.meta.project",
-    "fabric_desktop.notebook",
-    "fabric_desktop.onelake",
-    "fabric_desktop.orchestration.activities",
-    "fabric_desktop.orchestration.definition",
-    "fabric_desktop.proof_runtime",
-    "fabric_desktop.proof_spark",
-    "fabric_desktop.spark_hash",
-    "fabric_desktop.sqlcompat.rules",
-]
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

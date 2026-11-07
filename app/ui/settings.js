@@ -654,10 +654,10 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
-// Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
+// Achievement celebrations (on by default) shows only while Profile (a Preview feature) can
 // award something; a switch that does nothing would only confuse.
 const MOTION_ACHIEVEMENTS = ["motion_achievements", "Achievement celebrations",
-  "A short reveal on the message when Profile awards you an achievement. Off unless you turn it on."];
+  "A short reveal on the message when Profile awards you an achievement. On unless you turn it off."];
 const motionFamilies = () => (previewShown() ? [...MOTION_FAMILIES, MOTION_ACHIEVEMENTS] : MOTION_FAMILIES);
 
 function motionSettingsCard(s, locked) {
@@ -691,7 +691,7 @@ function motionSettingsCard(s, locked) {
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Visual intensity" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
     motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Refined and Expressive.` : help,
-      toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
+      toggle(key, label, s[key]?.value ?? true, level < 2), source(key))),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),

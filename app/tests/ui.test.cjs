@@ -2511,7 +2511,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));

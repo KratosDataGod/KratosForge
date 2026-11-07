@@ -11,8 +11,7 @@
 //   2 Refined     subtle branded effects (the default)
 //   3 Expressive  the same moments with more character: extra sparks, halftone and offset rings
 // Windows' reduced-motion setting means level 0 unless the person unticked "Respect Windows'
-// reduced-motion setting". Each kind also belongs to a family the person can switch off on its own;
-// achievements are off unless turned on.
+// reduced-motion setting". Each kind also belongs to a family the person can switch off on its own.
 const MOTION_LEVELS = ["Off", "Minimal", "Refined", "Expressive"];
 const MOTION = {
   spark: { ms: 400, gap: 300, level: 2, family: "sparks" },      // a cell succeeded
@@ -129,7 +128,7 @@ function motionLevel() {
 // Decorative (branded) motion is wanted: level 2 or 3, and the window can be seen.
 function motionOn(family) {
   if (motionLevel() < 2 || document.hidden) return false;
-  return !family || motionSetting(`motion_${family}`, family !== "achievements") === true;
+  return !family || motionSetting(`motion_${family}`, true) === true;
 }
 
 // The setting, Windows' preference and the family switches, as attributes on <html>, so CSS also

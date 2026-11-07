@@ -82,7 +82,7 @@ A policy file that sets everything an organization usually wants:
 | `ui_skin` | a skin id (default `"kratosforge"`) | Which [platform skin](skins.md) the app uses. Appearance and page arrangement only: it never changes engines, connections or projects |
 | `ui_color_mode` | `"skin"`, `"light"` or `"dark"` (default `"skin"`) | `"skin"` follows the skin's own color mode |
 | `motion_wolf`, `motion_sparks`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
-| `motion_achievements` | `true` or `false` (default) | `true` turns on achievement celebrations from the developer profile |
+| `motion_achievements` | `true` (default) or `false` | `false` turns off achievement celebrations from the developer profile |
 | `motion_follow_system` | `true` (default) or `false` | `true`: Windows' reduced-motion setting turns motion off whatever the level. People can untick it to keep motion under reduced motion; set it to `true` here to stop that |
 | `forge_animations` | `true` or `false` | Kept from the first version: `false` locks `motion_level` at 0 unless the policy file also sets `motion_level` |
 | `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |

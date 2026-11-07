@@ -7,5 +7,6 @@
 # 3. You're today's reviewer too. Ana's PR (feature/ana-dedupe) is approved: complete it into main.
 # 4. Branch policy: a PR completes only when its branch has main's latest commit. Update your branch from main.
 # 5. Complete your PR into main.
+# The team's PRs complete as merge commits, so complete each one with git merge --no-ff.
 git status
 git log --oneline --all

@@ -115,6 +115,11 @@
           "of": "main"
         },
         {
+          "ancestor": "feature/ana-dedupe",
+          "of": "main^1",
+          "why": "Ana's PR completes into main before yours, so main has her work even without your merge."
+        },
+        {
           "ancestor": "feature/ben-retry",
           "of": "main",
           "why": "Your PR completes into main."
@@ -148,8 +153,8 @@
   "hints": [
     "git switch -c feature/ben-retry main starts your branch from main as it is now.",
     "Write the pipeline file as main has it, with only retry changed.",
-    "Complete Ana's PR first: switch to main and merge feature/ana-dedupe.",
-    "Then switch back to your branch and merge main into it before you merge it into main."
+    "Complete Ana's PR first: switch to main and merge feature/ana-dedupe with --no-ff, as a PR completion does.",
+    "Then switch back to your branch and merge main into it before you merge it into main with --no-ff."
   ],
   "explanation": "Branch out to another workspace creates a new Git branch from the last commit of the source workspace's branch and connects a workspace to it, so each developer works apart from main. You commit there, and a pull request takes the work back to main. When other work reaches main first, your branch is behind: updating it from main brings that work in, so your PR is tested and completed against what main really has. In Fabric, a workspace whose branch has new commits shows them under Updates, and commits are disabled until you update.",
   "remediation": [

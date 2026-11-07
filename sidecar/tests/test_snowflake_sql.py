@@ -33,9 +33,9 @@ PROBE = [
     ("TO_VARCHAR format", "select to_varchar(ts, 'YYYY-MM-DD') from t", "translated", []),
     ("TO_CHAR format", "select to_char(current_date(), 'YYYY-MM-DD')", "translated", []),
     ("VARIANT path", "select v:k.x::int as x from t", "translated", []),
-    ("LATERAL FLATTEN", "select t.id, f.value from t, lateral flatten(input => v:arr) f", "difference", ["SFD-005"]),
+    ("LATERAL FLATTEN", "select t.id, f.value from t, lateral flatten(input => v:arr) f", "translated", []),
     ("TABLE(FLATTEN)", "select t.id, f.value from t, table(flatten(input => parse_json(t.v):arr)) f",
-     "difference", ["SFD-005"]),
+     "translated", []),
     ("OBJECT_CONSTRUCT with NULL", "select object_construct('a', 1, 'b', null)", "translated", []),
     ("ARRAY_AGG WITHIN GROUP", "select grp, array_agg(id) within group (order by id) from t group by grp",
      "translated", []),
@@ -127,9 +127,43 @@ def test_sfx001_flatten_over_an_object_gives_its_keys(session):
     assert r.status == "ok" and rows(r) == [["x", 2]]
 
 
-@pytest.mark.parametrize("column", ["seq", "this"])
-def test_sfx001_flatten_columns_without_an_equivalent_are_refused(column):
-    t = sf.translate(f"select f.{column} from t, lateral flatten(input => v:arr) f")
+@pytest.mark.parametrize("code", ["select f.seq from t, lateral flatten(input => v:arr) f",
+                                  "select seq from t, lateral flatten(input => v:arr) f"])
+def test_sfx001_flatten_seq_is_refused(code):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == "SFX-001"
+
+
+def _flat(code):
+    t = sf.translate(code)
+    assert t.runnable and not t.statements[0].notes, t.statements[0].notes
+    return duckdb.connect().execute(t.duckdb_sql).fetchall()
+
+
+def test_sfx001_flatten_columns_are_snowflakes():
+    rows = _flat("SELECT f.key, f.path, f.index, f.value::int, f.this FROM TABLE(FLATTEN(INPUT => "
+                 "PARSE_JSON('{\"a\":1, \"b\":[77,88]}'), PATH => 'b')) f ORDER BY f.index")
+    assert rows == [(None, "b[0]", 0, 77, "[77,88]"), (None, "b[1]", 1, 88, "[77,88]")]
+    rows = _flat("SELECT key, path, index FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"c\": {\"d\":2}}'), "
+                 "PATH => 'c'))")
+    assert rows == [("d", "c.d", None)]
+
+
+def test_sfx001_flatten_outer_gives_one_row_for_an_empty_value_wherever_it_is():
+    assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'), OUTER => TRUE)) f") == [
+        (None, "", None, None, "[]")]
+    assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'))) f") == []
+
+
+def test_sfx001_flatten_columns_of_json_each_dont_clash_with_the_tables():
+    rows = _flat("SELECT id, type, f.value::int FROM (SELECT 1 AS id, 'x' AS type, PARSE_JSON('[5]') AS c) p, "
+                 "LATERAL FLATTEN(INPUT => p.c) f")
+    assert rows == [(1, "x", 5)]
+
+
+@pytest.mark.parametrize("path", ["a b", "a-b", "$.a", "a[x]"])
+def test_sfx001_flatten_path_that_isnt_plain_is_refused(path):
+    t = sf.translate(f"SELECT value FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{{}}'), PATH => '{path}'))")
     assert not t.runnable and t.statements[0].notes[0].id == "SFX-001"
 
 
@@ -178,7 +212,6 @@ def test_sfx004_object_construct_star_is_refused():
     ("select '2026-01-01'::timestamp_tz", "SFD-002"),
     ("select amt / 2 from t", "SFD-003"),
     ("select current_timestamp()", "SFD-004"),
-    ("select f.value from t, lateral flatten(input => v:arr) f", "SFD-005"),
     ("select date_trunc('month', ts) from t", "SFD-006"),
     ("select dateadd(week, 1, ts) from t", "SFD-006"),
     ("select typeof(v) from t", "SFD-007"),

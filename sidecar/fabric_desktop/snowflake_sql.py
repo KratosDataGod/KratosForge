@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.10"
+RULES_VERSION = "2026.11.11"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -118,11 +118,6 @@ SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
 SFD_LTZ = _n("SFD-004", "Local time zone is this PC's",
              "TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter.",
              "Set the same time zone, or compare in UTC.", f"{_DOCS}/parameters#timezone")
-SFD_FLATTEN = _n("SFD-005", "FLATTEN rows and keys",
-                 "FLATTEN runs as DuckDB's json_each: rows come back in no set order, KEY is the position for "
-                 "array elements (Snowflake gives NULL) and PATH is written differently.",
-                 "Add ORDER BY INDEX where order matters.", f"{_DOCS}/functions/flatten")
-
 SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
               "DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type "
               "isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at "
@@ -351,12 +346,15 @@ def _duck(node: exp.Expression) -> str:
     return node.sql(dialect=KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
 
 
-def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool] | None:
-    """The input and OUTER of a FLATTEN call sqlglot read as Explode, or None for another table."""
+_FLATTEN_PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])*(\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])*)*")
+
+
+def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool, str] | None:
+    """The input, OUTER and PATH of a FLATTEN call sqlglot read as Explode, or None for another table."""
     explode = node.this if isinstance(node, (exp.Lateral, exp.TableFromRows)) else None
     if not isinstance(explode, exp.Explode):
         return None
-    source, outer = None, bool(node.args.get("outer"))
+    source, outer, path = None, bool(node.args.get("outer")), ""
     for arg in [explode.this, *explode.expressions]:
         if isinstance(arg, exp.Kwarg):
             key = arg.this.name.lower()
@@ -364,54 +362,79 @@ def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool] | None:
                 source = arg.expression
             elif key == "outer":
                 outer = isinstance(arg.expression, exp.Boolean) and bool(arg.expression.this)
+            elif key == "path":
+                given = arg.expression
+                if not (isinstance(given, exp.Literal) and given.is_string and _FLATTEN_PATH.fullmatch(given.this)):
+                    raise _Untranslatable(_refuse("SFX-001", "FLATTEN with this PATH",
+                                                  "Only a PATH of plain names and [n] (b, c.d, b[0]) is rewritten.",
+                                                  f"{_DOCS}/functions/flatten"))
+                path = given.this
             else:
                 raise _Untranslatable(_refuse("SFX-001", f"FLATTEN with {key.upper()}",
                                               f"FLATTEN's {key.upper()} argument has no DuckDB equivalent.",
                                               f"{_DOCS}/functions/flatten"))
         elif source is None:
             source = arg
-    return (source, outer) if source is not None else None
+    return (source, outer, path) if source is not None else None
 
 
-def _rewrite_flatten(statement: exp.Expression) -> bool:
-    """SFX-001: LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each. True when it did."""
-    did = False
+def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression:
+    """FLATTEN's rows as a subquery over json_each, with Snowflake's columns (KEY, PATH, INDEX, VALUE, THIS):
+    KEY is NULL for an array element and INDEX for an object field, and PATH is written as Snowflake
+    writes it. Only these columns come out, so json_each's own (id, type, parent...) can't clash with the
+    person's. With OUTER, a value with nothing to flatten gives one row: NULL KEY, INDEX and VALUE, and the
+    value as THIS."""
+    from .sql import _with_args
+    this = source.copy()
+    if path:
+        this = _with_args(f"json_extract(CAST(fj_arg0 AS JSON), '{'$' if path.startswith('[') else '$.'}{path}')",
+                          [this])
+    array = "json_type(CAST(fj_arg0 AS JSON)) = 'ARRAY'"
+    field = "__sf_e.key" if not path else f"'{path}.' || __sf_e.key"
+    return _with_args(f"(SELECT CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS key, "
+                      f"CASE WHEN {array} THEN '{path}[' || __sf_e.key || ']' ELSE {field} END AS path, "
+                      f"CASE WHEN {array} THEN CAST(__sf_e.key AS INT) END AS index, __sf_e.value AS value, "
+                      "CAST(fj_arg0 AS JSON) AS this FROM json_each(fj_arg0) AS __sf_e"
+                      + (f" UNION ALL SELECT NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) WHERE NOT EXISTS "
+                         "(SELECT 1 FROM json_each(fj_arg0))" if outer else "") + ")", [this])
+
+
+def _rewrite_flatten(statement: exp.Expression) -> None:
+    """SFX-001: LATERAL FLATTEN and TABLE(FLATTEN(...)) become a lateral subquery over DuckDB's json_each
+    with Snowflake's columns and OUTER rule (see _flattened)."""
     for select in list(statement.find_all(exp.Select)):
+        source_node = select.args.get("from_")
         joins = select.args.get("joins") or []
         aliases: list[str] = []
-        for i, join in enumerate(joins):
-            parts = _flatten_parts(join.this)
+        items: list[tuple[int | None, exp.Expression]] = [(None, source_node.this)] if source_node is not None else []
+        items += [(i, j.this) for i, j in enumerate(joins)]
+        for i, item in items:
+            parts = _flatten_parts(item)
             if parts is None:
                 continue
-            source, outer = parts
-            alias_node = join.this.args.get("alias")
+            source, outer, path = parts
+            alias_node = item.args.get("alias")
             alias = alias_node.name if alias_node is not None and alias_node.name else "flatten"
             _duck(source)  # refused here when DuckDB can't take the input
-            how = f"LEFT JOIN json_each(_kf_src) AS {alias} ON TRUE" if outer else f"CROSS JOIN json_each(_kf_src) AS {alias}"
-            joins[i] = sqlglot.parse_one(f"SELECT 1 FROM _x {how}", read="duckdb").args["joins"][0]
-            # The input goes in as a tree, not as text read again: sqlglot 30.25 reads DuckDB's
-            # "v -> '$.arr'" back as a lambda (#1252).
-            next(c for c in joins[i].find_all(exp.Column) if c.name == "_kf_src").replace(source.copy())
+            rows = exp.Subquery(this=_flattened(source, path, outer).unnest(),
+                                alias=exp.TableAlias(this=exp.to_identifier(alias)))
+            if i is None:
+                if source_node is not None:
+                    source_node.set("this", rows)
+            else:
+                joins[i] = sqlglot.parse_one("SELECT 1 FROM _y CROSS JOIN LATERAL (SELECT 1) AS _x",
+                                             read="duckdb").args["joins"][0]
+                lateral = joins[i].this
+                lateral.set("this", exp.Subquery(this=rows.this))
+                lateral.set("alias", rows.args["alias"])
             aliases.append(alias.lower())
-            did = True
         if not aliases:
             continue
         for col in list(select.find_all(exp.Column)):
             table = col.table.lower()
-            if table and table not in aliases:
-                continue
-            name = col.name.lower()
-            if not table and name not in ("index", "seq", "this", "path"):
-                continue
-            if name == "index":
-                col.replace(exp.cast(exp.column("key", table=col.table or None), exp.DataType.Type.INT))
-            elif name in ("seq", "this"):
-                raise _Untranslatable(_refuse("SFX-001", f"FLATTEN's {name.upper()} column",
-                                              f"json_each has no {name.upper()} column.",
+            if col.name.lower() == "seq" and (table in aliases or (not table and len(aliases) == 1)):
+                raise _Untranslatable(_refuse("SFX-001", "FLATTEN's SEQ column", "json_each has no SEQ column.",
                                               f"{_DOCS}/functions/flatten"))
-            elif name == "path":
-                col.replace(exp.column("fullkey", table=col.table or None))
-    return did
 
 
 # Snowflake date and time format elements -> strftime, longest first. Matched without case.
@@ -1432,8 +1455,13 @@ def _differences(statement: exp.Expression) -> list[Note]:
 # Every rule and note id the code above uses, with what it covers. docs/engines.md holds docs_table()
 # word for word (a test checks), so the page can't drift from the code.
 CATALOG = (
-    ("SFX-001", "Rewritten", "LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each (INDEX, VALUE, KEY, "
-                "PATH; OUTER as a left join). SEQ, THIS, RECURSIVE and MODE aren't rewritten."),
+    ("SFX-001", "Rewritten", "LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's "
+                "columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as "
+                "Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value "
+                "with nothing to flatten, and PATH => "
+                "takes plain names and [n]. A key that isn't a plain name is written in PATH as it is, since "
+                "Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; "
+                "SFD-005 is retired."),
     ("SFX-002", "Rewritten", "TO_VARCHAR and TO_CHAR with a date or time format written in the query become "
                 "strftime. Elements with no equivalent (quarter, week) aren't rewritten."),
     ("SFX-003", "Runs only in Snowflake", "TO_VARCHAR and TO_CHAR with a number format."),
@@ -1511,7 +1539,6 @@ CATALOG = (
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
     ("SFD-003", "Runs, with a difference: " + SFD_DIV.title, SFD_DIV.reason),
     ("SFD-004", "Runs, with a difference: " + SFD_LTZ.title, SFD_LTZ.reason),
-    ("SFD-005", "Runs, with a difference: " + SFD_FLATTEN.title, SFD_FLATTEN.reason),
     ("SFD-006", "Runs, with a difference: " + SFD_DATE.title, SFD_DATE.reason),
     ("SFD-007", "Runs, with a difference: " + SFD_TYPEOF.title, SFD_TYPEOF.reason),
     ("SFD-008", "Runs, with a difference: " + SFD_NUMBER.title, SFD_NUMBER.reason),
@@ -1577,7 +1604,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
     written = {id(b) for b in brackets}
     try:
-        flattened = _rewrite_flatten(tree)
+        _rewrite_flatten(tree)
         _rewrite_to_char(tree)
         _rewrite_date_trunc(tree)
         _rewrite_object_construct(tree)
@@ -1602,8 +1629,6 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         first = (str(exc).splitlines() or ["sqlglot can't rewrite it"])[0]
         return StatementReport(n, "not_translatable", None,
                                (_refuse("SFX-000", "Not rewritten for DuckDB", first + "."),))
-    if flattened:
-        notes.append(SFD_FLATTEN)
     if unknown_brackets:
         notes.append(SFD_BRACKET)
     return StatementReport(n, "difference" if notes else "translated", sql, tuple(notes))

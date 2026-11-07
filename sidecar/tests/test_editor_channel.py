@@ -424,16 +424,22 @@ def test_the_hello_names_the_channel_api_and_refuses_an_extension_too_old_for_it
     assert status == 426 and res["error"]["code"] == "extension_too_old" and "proof" not in json.dumps(res)
 
 
-def _raw(port, data, read_timeout=15):
-    """Sends ``data`` as is and returns what comes back before the engine closes the connection."""
+def _raw(port, data, read_timeout=15, half_close=False):
+    """Sends ``data`` as is and returns what comes back before the engine closes the connection.
+    ``half_close`` ends the sending side, for data that isn't a whole request (on Windows the caller
+    check may then no longer find the connection and refuse it 403, which is a clean answer too)."""
     import socket
     s = socket.create_connection(("127.0.0.1", port), timeout=read_timeout)
     try:
         s.sendall(data)
-        s.shutdown(socket.SHUT_WR)
+        if half_close:
+            s.shutdown(socket.SHUT_WR)
         chunks = []
         while True:
-            got = s.recv(65536)
+            try:
+                got = s.recv(65536)
+            except ConnectionResetError:  # closed with bytes it didn't read: what it answered is above
+                got = b""
             if not got:
                 return b"".join(chunks)
             chunks.append(got)
@@ -443,7 +449,12 @@ def _raw(port, data, read_timeout=15):
 
 def _status(reply):
     line = reply.split(b"\r\n", 1)[0].split()
-    return int(line[1]) if len(line) > 1 and line[1].isdigit() else None
+    if len(line) > 1 and line[1].isdigit():
+        return int(line[1])
+    # Some Python releases take a malformed request line as HTTP/0.9 and send only the error page.
+    if reply.startswith(b"<!DOCTYPE HTML") and b"Error code: 400" in reply:
+        return 400
+    return None
 
 
 def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(paired):
@@ -483,7 +494,7 @@ def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(pa
     # Two words is an HTTP/0.9 request to http.server: refused 400, though some Python releases answer
     # it as HTTP/0.9 does, with the error page and no status line.
     reply = _raw(port, b"\x00\xff\xfe nonsense\r\n\r\n")
-    assert _status(reply) == 400 or (reply.startswith(b"<!DOCTYPE") and b"400" in reply), reply[:200]
+    assert _status(reply) == 400, reply[:200]
     for name, (data, want) in cases.items():
         started = time.monotonic()
         reply = _raw(port, data)
@@ -493,13 +504,14 @@ def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(pa
             json.loads(reply.split(b"\r\n\r\n", 1)[1])  # a refusal the extension can read
     # Truncated: a body shorter than its Content-Length is closed after the idle timeout, not held.
     started = time.monotonic()
-    reply = _raw(port, post(b'{"path": "x"', length=500))
-    assert time.monotonic() - started < 10 and (reply == b"" or _status(reply) in {400, 408, 500}), reply[:200]
+    reply = _raw(port, post(b'{"path": "x"', length=500), half_close=True)
+    assert time.monotonic() - started < 10 and (reply == b"" or _status(reply) in {400, 403, 408, 500}), reply[:200]
     # Random bytes after a valid start: never a crash, always an answer or a close.
     rng = random.Random(7)
     for _ in range(40):
         junk = bytes(rng.randrange(256) for _ in range(rng.randrange(1, 400)))
-        reply = _raw(port, rng.choice([b"", b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n", post(b"")]) + junk)
+        reply = _raw(port, rng.choice([b"", b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n", post(b"")]) + junk,
+                     half_close=True)
         assert reply == b"" or _status(reply) is not None, reply[:200]
     # Two requests in one connection: the second is never run, because each connection serves one.
     first = b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + b"\r\n"

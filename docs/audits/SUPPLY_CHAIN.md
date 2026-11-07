@@ -8,14 +8,14 @@ This page records what KratosForge ships, which licenses it ships under, and how
 
 | Part | What it is | Where its parts are pinned | SBOM |
 | --- | --- | --- | --- |
-| Engine | python.org's embeddable Python 3.12.10, the 76 packages the engine installs, and the engine's own package | `sidecar/engine-requirements.txt` holds versions and SHA-256 hashes. `ci.yml` holds the Python zip's MD5 and SHA-256 | `sbom-engine.cdx.json`, made by `cyclonedx-py environment` from the built engine folder |
+| Engine | python.org's embeddable Python 3.12.10, the 76 packages the engine installs, and the engine's own package | `sidecar/engine-requirements.txt` holds versions and SHA-256 hashes. `ci.yml` holds the Python zip's MD5 and SHA-256 | `sbom-engine.cdx.json`, made by `cyclonedx-py environment` from the built engine folder, plus the embeddable Python itself with its pinned SHA-256 (`.github/scripts/sbom_npm.py add-python`) |
 | Shell | The Tauri app (`app/src-tauri`) and its 243 Rust crates on Windows | `app/src-tauri/Cargo.lock` holds versions and crate checksums | `sbom-app.cdx.json`, made by `cargo cyclonedx` from `Cargo.lock` |
-| Notebook editor | CodeMirror, bundled into `app/ui/vendor/codemirror/codemirror.js` | That folder's `package.json` gives exact versions for the direct packages. The built file is committed | Its license is in `LICENSE` there |
-| Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | Its packages and licenses are in `THIRD-PARTY-NOTICES.md` there |
+| Notebook editor | CodeMirror, bundled into `app/ui/vendor/codemirror/codemirror.js` | That folder's `package.json` gives exact versions for the direct packages. The built file is committed | `sbom-ui.cdx.json`: the packages `package.json` names (build tools left out) and everything they depend on, from `package-lock.json` with its SHA-512 hashes. Its license is in `LICENSE` there |
+| Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | `sbom-ui.cdx.json`: Vega, Vega-Lite and vega-embed from `package-lock.json` with their hashes, and the packages their prebuilt files bundle from `THIRD-PARTY-NOTICES.md` (the versions the upstream build used, so no hash) |
 | Model converter | The Apache Ossie Microsoft converter, copied into `sidecar/fabric_desktop/_vendor/ossie_microsoft` | Committed source | Covered by the engine's own package |
-| VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | None needed |
+| VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | Listed as itself in `sbom-ui.cdx.json`, with no npm packages (it is packaged with `--no-dependencies`) |
 
-Every CI build makes both SBOMs: `sbom-engine` in the engine job, and `sbom-app` in its own job. Both are CycloneDX JSON. The release job attaches them to each Preview and Stable release. The engine and the shell need no new CI job.
+Every CI build makes three SBOMs: `sbom-engine` in the engine job, and `sbom-app` and `sbom-ui` in the `sbom-app` job. `sbom-ui` is made by `.github/scripts/sbom_npm.py` from the committed lock files, with no extra tool. All three are CycloneDX JSON. The release job attaches them to each Preview and Stable release, and `version.json` gives each one's SHA-256 (`sbom_engine_sha256`, `sbom_app_sha256`, `sbom_ui_sha256`). Promote to stable checks those before copying them. The engine and the shell need no new CI job.
 
 ## Licenses
 

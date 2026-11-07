@@ -210,14 +210,50 @@ def test_a_skill_reaches_master_only_with_advanced_work_over_thirty_days():
     sid = "notebooks-that-pass-validate"    # events: validate.pass (Steadfast Loader)
     p = profile(notebook("Orders", "2026-09-01T10:00:00+00:00"), notebook("Sales", "2026-09-02T10:00:00+00:00", measured=True))
     assert skill_level(p, sid) == 1         # own work without a practical: Initiate only
-    sid = "measured-optimization"           # LAB-02, check faster_than, fix.checked
+    cat = copy.deepcopy(CAT)
+    cat["skills"]["tuning"] = {"id": "tuning", "title": "Tuning", "competency": "delta-storage", "cloud": False,
+                               "evidence": {"learn": ["LM-18", "LAB-02", "LAB-12"], "checks": ["faster_than"],
+                                            "events": ["fix.checked"]}}
     p = profile(lab_pass("LAB-02", "2026-09-01T10:00:00+00:00", ("faster_than",)),
                 lab_pass("LM-18", "2026-09-10T10:00:00+00:00", ("faster_than",)),
                 fix("SQ001", "2026-09-11T10:00:00+00:00"), fix("NB001", "2026-09-12T10:00:00+00:00"))
-    assert skill_level(p, sid) == 5
+    assert levels.evaluate(p, cat)["skills"]["tuning"]["level"] == 5
     progress.add(p, lab_pass("LAB-12", "2026-10-20T10:00:00+00:00", ("faster_than",)))
-    assert skill_level(p, sid) == 6         # an advanced lab, and practice again 49 days after the first
-    assert levels.evaluate(p, CAT)["skills"][sid]["level"] < 7
+    assert levels.evaluate(p, cat)["skills"]["tuning"]["level"] == 6   # an advanced lab, practice again 49 days on
+
+
+def test_a_check_kind_never_credits_another_lessons_exercise():
+    # Review repro: table_shape exercises in LM-09 and LM-14, 9 days apart, must not count for the Gold star
+    # schema talent, whose own lessons are LAB-03 and E35.
+    from fabric_desktop.learn import content
+    mods = {m["id"]: m for m in content.modules(include_drafts=False)}
+    p = progress.empty()
+    for mid, day in (("LM-09", "2026-10-01"), ("LM-14", "2026-10-10")):
+        m = mods[mid]
+        for ex in m["exercises"]:
+            row = progress.from_lab({"module": mid, "exercise": ex["id"], "version": m.get("version", 1), "passed": True,
+                                     "results": [{"kind": "table_shape", "passed": True, "detail": "x"}]}, m)
+            row["at"] = f"{day}T10:00:00+00:00"
+            progress.add(p, row)
+    for sid in ("gold-star-schema-for-reporting", "data-quality-checks-in-code", "measured-optimization"):
+        assert skill_level(p, sid) == 0, sid
+
+
+def test_finishing_a_lab_and_passing_its_exercise_are_one_source():
+    p = profile(lab_pass("LAB-06", "2026-09-01T10:00:00+00:00"),
+                {**lesson("LAB-06", "2026-09-20T10:00:00+00:00"), "artifact": {"kind": "lab", "name": "LAB-06"}})
+    assert skill_level(p, "bronze-to-silver-that-survives-a-rerun") == 3     # not Adept: one source
+
+
+def test_adept_needs_two_sources_whose_first_passes_are_a_week_apart():
+    rows = [exercise("E22", "2026-10-01T10:00:00+00:00"), lab_pass("LM-11", "2026-10-02T10:00:00+00:00"),
+            exercise("E22", "2026-10-20T10:00:00+00:00")]
+    assert skill_level(profile(*rows), MERGE) == 3   # E22 again later doesn't spread the two sources apart
+
+
+def test_knowledge_only_academy_rows_are_knowledge_xp():
+    row = exercise("E27", "2026-10-01T10:00:00+00:00", cls="knowledge_only")
+    assert levels._category(row) == "knowledge"
 
 
 def test_practice_exam_objectives_count_as_knowledge_only_when_answered_well():

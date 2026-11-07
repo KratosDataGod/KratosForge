@@ -7,7 +7,8 @@ it out of every level. Nothing is stored here.
 
 A row counts for a skill when one of the skill's evidence hooks names it (catalog.py). Each counted row
 falls in one category: knowledge (a lesson finished, a knowledge-only exercise, a practice exam's
-objective answered well), practice (a Learn or Academy exercise or lab passed), engineering (your own
+objective answered well), practice (a Learn or Academy exercise or lab passed; only the skill's own
+lessons and labs count, and finishing a lab and passing its exercise are one source), engineering (your own
 notebook passing Validate, a fix checked with Compare) or mastery (a Prove match). Simulated Academy
 exercises check a configuration, not a service, so they are practice marked ``simulated``.
 
@@ -16,7 +17,8 @@ Levels (each needs everything the level below needs):
 1 Initiate      any counted row
 2 Apprentice    a knowledge row, or any practice row
 3 Journeyman    a practice row verified on this PC (a cloud-only skill accepts a simulated one)
-4 Adept         practice from 2 different sources at least 7 days apart, one of them independent
+4 Adept         practice from 2 different sources whose first passes are at least 7 days apart, one of
+                them independent
                 (a Learn exercise, or an Academy one with at most 1 hint, the explanation unopened and
                 no checked answers changed)
 5 Expert        engineering evidence on 2 different artifacts, and one measured result
@@ -78,15 +80,16 @@ def counts(row: dict[str, Any], skill: dict[str, Any]) -> dict[str, Any] | None:
     detail = row.get("detail") or {}
     measured = bool(row.get("measurement"))
     if t in ("module.complete", "lab.pass"):
+        # Only the skill's own lessons and labs count; a check kind never widens that (it only marks a
+        # measured result). Finishing a lab and passing its exercise are one source, the module.
         module = _module(ref)
-        by_check = t == "lab.pass" and set(detail.get("checks") or []) & set(ev.get("checks") or [])
-        if module not in (ev.get("learn") or []) and not by_check:
+        if module not in (ev.get("learn") or []):
             return None
+        lab = module.startswith("LAB-")
         if t == "module.complete":
-            lab = module.startswith("LAB-")
             return {"category": "practice" if lab else "knowledge", "source": module, "independent": lab,
                     "advanced": module in ADVANCED_LABS, "measured": False, "simulated": False, "platform": False}
-        return {"category": "practice", "source": ref, "independent": True, "advanced": module in ADVANCED_LABS,
+        return {"category": "practice", "source": module, "independent": True, "advanced": module in ADVANCED_LABS,
                 "measured": measured or "faster_than" in (detail.get("checks") or []), "simulated": False, "platform": False}
     if t == "academy.exercise":
         pack = str(detail.get("certification") or ref.split("/", 1)[0])
@@ -112,17 +115,18 @@ def counts(row: dict[str, Any], skill: dict[str, Any]) -> dict[str, Any] | None:
                 return {"category": "knowledge", "source": f"{pack}:{oid}", "independent": True, "advanced": False,
                         "measured": False, "simulated": False, "platform": False}
         return None
+    name = (row.get("artifact") or {}).get("name") or row["id"]   # an unnamed artifact is its own source
     if t == "validate.pass" and "validate.pass" in (ev.get("events") or []):
-        return {"category": "engineering", "source": str((row.get("artifact") or {}).get("name")), "independent": True,
+        return {"category": "engineering", "source": str(name), "independent": True,
                 "advanced": False, "measured": measured, "simulated": False, "platform": False}
     if t == "fix.checked":
-        rule = str((row.get("artifact") or {}).get("name"))
+        rule = str(name)
         if rule in (ev.get("rules") or []) or "fix.checked" in (ev.get("events") or []):
             return {"category": "engineering", "source": f"{rule}@{ref}", "independent": True, "advanced": False,
                     "measured": measured, "simulated": False, "platform": False}
         return None
     if t == "prove.match" and "prove.match" in (ev.get("events") or []):
-        return {"category": "mastery", "source": str((row.get("artifact") or {}).get("name")), "independent": True,
+        return {"category": "mastery", "source": str(name), "independent": True,
                 "advanced": True, "measured": measured, "simulated": False, "platform": True}
     return None
 
@@ -149,8 +153,13 @@ def level(skill: dict[str, Any], rows: list[dict[str, Any]]) -> int:
     if lv == 2 and real:
         lv = 3
     days = sorted(d for d in (_day(r["at"]) for r in real) if d)
-    if lv == 3 and len({r["source"] for r in real}) >= ADEPT_SOURCES and days and (days[-1] - days[0]).days >= ADEPT_DAYS \
-            and any(r["independent"] for r in real):
+    first: dict[str, dt.date] = {}   # each source's first pass: Adept needs two sources a week apart
+    for r in real:
+        d = _day(r["at"])
+        if d and (r["source"] not in first or d < first[r["source"]]):
+            first[r["source"]] = d
+    spread = (max(first.values()) - min(first.values())).days if len(first) >= ADEPT_SOURCES else -1
+    if lv == 3 and spread >= ADEPT_DAYS and any(r["independent"] for r in real):
         lv = 4
     work = {r["source"] for r in rows if r["category"] == "engineering"}
     if lv == 4 and len(work) >= EXPERT_ARTIFACTS and any(r["measured"] for r in rows):
@@ -227,6 +236,8 @@ def xp_breakdown(profile: dict[str, Any]) -> dict[str, int]:
 
 def _category(row: dict[str, Any] | None) -> str:
     t = (row or {}).get("type")
+    if t == "academy.exercise" and ((row or {}).get("detail") or {}).get("class") == "knowledge_only":
+        return "knowledge"
     if t == "module.complete":
         return "practice" if str((row or {}).get("ref", {}).get("id", "")).startswith("LAB-") else "knowledge"
     return {"lab.pass": "practice", "validate.pass": "engineering", "fix.checked": "engineering",

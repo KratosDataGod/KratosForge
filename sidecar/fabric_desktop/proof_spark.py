@@ -21,8 +21,15 @@ the ProofRuntime that the lakehouse module also uses, so a notebook mixing both 
 Nothing here imports Fabric Desktop: only the standard library, sqlglot, pyspark and delta.
 """
 
+from __future__ import annotations
+
 import os
 import re
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # annotations only: in Fabric this file runs on its own
+    from .proof_runtime import ProofRuntime
 
 _PATH_FORMATS = {"delta", "parquet", "csv", "json", "orc", "text", "avro", "binaryfile"}
 _SAFE_COMMANDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN", "SET", "RESET", "CLEAR", "CACHE", "UNCACHE", "ADD", "LIST"}
@@ -33,24 +40,24 @@ class ProofRefused(PermissionError):
     """Something a proof can't keep in its own folder."""
 
 
-def _quote(uri):
+def _quote(uri: Any) -> str:
     return "delta.`" + str(uri).replace("`", "``") + "`"
 
 
 class ProofSpark:
-    def __init__(self, proof, spark, name, schemas):
+    def __init__(self, proof: ProofRuntime, spark: Any, name: str | None, schemas: bool) -> None:
         """``proof`` is the bound ProofRuntime; ``name`` the attached lakehouse's name."""
         self.proof = proof
         self.spark = spark
         self.name = name or ""
         self.schemas = bool(schemas)
-        self.views = set()   # temp views the notebook made: names that aren't lakehouse tables
-        self.opened = set()  # tables opened with DeltaTable.forName before anything else changed them
-        self.orig = {}
+        self.views: set[str] = set()   # temp views the notebook made: names that aren't lakehouse tables
+        self.opened: set[str] = set()  # tables opened with DeltaTable.forName before anything else changed them
+        self.orig: dict[str, Any] = {}
 
     # ---- names and paths
 
-    def parts(self, parts):
+    def parts(self, parts: Any) -> tuple[str, str]:
         """(schema, table) for a table name's parts, as lakehouse.table_ref reads them."""
         parts = [str(p) for p in parts]
         if parts and parts[0].lower() == self.name.lower() and (len(parts) == 3 or len(parts) == 2 and not self.schemas):
@@ -62,19 +69,21 @@ class ProofSpark:
                                "pins only the attached lakehouse's tables.")
         return (parts[0], parts[1]) if len(parts) == 2 else ("dbo", parts[0])
 
-    def split(self, name) -> tuple[str, str]:
+    def split(self, name: Any) -> tuple[str, str]:
         return self.parts([p.strip("`") for p in re.findall(r"`(?:[^`]|``)+`|[^.]+", str(name))])
 
-    def local(self, name):
+    def local(self, name: str) -> bool:
         """Whether a one-part name is a temp view the notebook made, not a lakehouse table."""
         return name.lower() in self.views
 
-    def lakehouse_path(self, path):
+    def lakehouse_path(self, path: Any) -> tuple[Any, ...] | None:
         """What a path is to the proof: ("table", schema, table), ("files", rel), ("sandbox", None),
         ("onelake", None) for another lakehouse, or None for a path outside OneLake."""
         p = str(path).replace("\\", "/").rstrip("/")
         if p.lower().startswith("file:"):  # file:/lakehouse/default/... is the mount by another name
             p = "/" + p[5:].lstrip("/")
+        if self.proof.root is None:
+            raise RuntimeError("The proof isn't bound to a lakehouse yet.")
         root, mount = self.proof.root.rstrip("/"), (self.proof.mount or "/lakehouse/default").rstrip("/")
         rel = None
         for base in (root, mount):
@@ -99,18 +108,18 @@ class ProofSpark:
 
     # ---- the proof's state
 
-    def key(self, schema, table):
+    def key(self, schema: str | None, table: str) -> str:
         return self.proof.key(schema, table)
 
-    def exists(self, schema, table):
+    def exists(self, schema: str | None, table: str) -> bool:
         key = self.key(schema, table)
         return key in self.proof.log["writes"] or self.proof._pin(key)[0] is not None
 
-    def read(self, schema, table):
+    def read(self, schema: str | None, table: str) -> tuple[str, int | None]:
         """(uri, version) to read: the pinned shared table, or this side's own copy."""
         return self.proof.read_location(schema, table)
 
-    def target(self, schema, table, mode, seed=True):
+    def target(self, schema: str | None, table: str, mode: str, seed: bool = True) -> str:
         """The sandbox uri for a change to ``schema.table``. Before the first change to a table that
         existed, the pinned version is copied in (``seed``), as lakehouse.change_table does on this PC."""
         key = self.key(schema, table)
@@ -131,14 +140,14 @@ class ProofSpark:
         writes.setdefault(key, []).append(mode)
         return uri
 
-    def frame(self, schema, table):
+    def frame(self, schema: str | None, table: str) -> Any:
         uri, version = self.read(schema, table)
         reader = self.spark.read.format("delta")
         if version is not None:
             reader = reader.option("versionAsOf", version)
         return self.orig["load"](reader, uri)
 
-    def file_read(self, path):
+    def file_read(self, path: Any) -> None:
         """Hash a Files/ file the notebook reads with Spark, as the lakehouse module does."""
         where = self.lakehouse_path(path)
         if where and where[0] == "files":
@@ -146,7 +155,7 @@ class ProofSpark:
             if os.path.isfile(local):
                 self.proof.file_read(where[1], local)
 
-    def finish(self):
+    def finish(self) -> None:
         """Tables only opened with DeltaTable.forName and never changed aren't writes: drop them,
         so they compare like the PC, where opening one writes nothing."""
         for key in sorted(self.opened):
@@ -160,7 +169,7 @@ class ProofSpark:
 
     # ---- SQL
 
-    def rewrite(self, query):
+    def rewrite(self, query: str) -> str | None:
         """``query`` with every lakehouse table pointed at the proof, or None when there is
         nothing to run (CREATE TABLE IF NOT EXISTS of a table that exists)."""
         import sqlglot
@@ -191,7 +200,7 @@ class ProofSpark:
                 return query
             raise ProofRefused(f"{_REFUSED}; it doesn't drop, truncate, alter or switch tables (the statement "
                                f"was {kind.upper()}).")
-        target, mode, seed = None, None, True
+        target, mode, seed = None, "", True  # mode is set wherever target is
         if kind in ("Merge", "Update", "Delete"):
             target, mode = tree.this, kind.lower()
         elif kind == "Insert":
@@ -260,7 +269,7 @@ class ProofSpark:
             edits.append((t, text))
         return self._apply(query, edits)
 
-    def _table_parts(self, t):
+    def _table_parts(self, t: Any) -> tuple[str, str]:
         from sqlglot import exp
         if (t.db or "").lower() == "delta" and isinstance(t.this, exp.Identifier) and t.this.quoted and not t.catalog:
             where = self.lakehouse_path(t.name)
@@ -270,7 +279,7 @@ class ProofSpark:
         return self.parts([p.name for p in t.parts])
 
     @staticmethod
-    def _apply(query, edits):
+    def _apply(query: str, edits: list[tuple[Any, str]]) -> str:
         spans = []
         for node, text in edits:
             ids = node.parts
@@ -284,7 +293,7 @@ class ProofSpark:
 
     # ---- binding to Spark
 
-    def install(self):
+    def install(self) -> ProofSpark:
         """Patch Spark's entry points to tables for the rest of the run."""
         from pyspark.sql import DataFrame
         from pyspark.sql.catalog import Catalog
@@ -295,7 +304,7 @@ class ProofSpark:
         o.update(sql=session.sql, table=session.table, load=DataFrameReader.load, save=DataFrameWriter.save,
                  mode=DataFrameWriter.mode, tableExists=Catalog.tableExists)
 
-        def sql(self_, sqlQuery, args=None, **kwargs):  # noqa: N803 - Spark's names
+        def sql(self_: Any, sqlQuery: str, args: Any = None, **kwargs: Any) -> Any:  # noqa: N803 - Spark's names
             text = me.rewrite(sqlQuery)
             if text is None:
                 return o["sql"](self_, "SELECT 1 AS skipped LIMIT 0")
@@ -303,18 +312,18 @@ class ProofSpark:
         session.sql = sql
         session.table = lambda self_, tableName: me.frame(*me.split(tableName))  # noqa: N803
 
-        def reader_table(self_, tableName):  # noqa: N803
+        def reader_table(self_: Any, tableName: str) -> Any:  # noqa: N803
             return me.frame(*me.split(tableName))
         DataFrameReader.table = reader_table
 
         o["reader_option"], o["reader_options"] = DataFrameReader.option, DataFrameReader.options
 
-        def reader_option(self_, key, value):
+        def reader_option(self_: Any, key: str, value: Any) -> Any:
             if str(key).lower() == "path":
                 self_._fd_path = value
             return o["reader_option"](self_, key, value)
 
-        def reader_options(self_, **options):
+        def reader_options(self_: Any, **options: Any) -> Any:
             for k, v in options.items():
                 if str(k).lower() == "path":
                     self_._fd_path = v
@@ -322,7 +331,8 @@ class ProofSpark:
         DataFrameReader.option = reader_option
         DataFrameReader.options = reader_options
 
-        def load(self_, path=None, format=None, schema=None, **options):  # noqa: A002
+        def load(self_: Any, path: Any = None, format: str | None = None, schema: Any = None,
+                 **options: Any) -> Any:  # noqa: A002
             # A path given as an option (option("path", ...), or path= here) is read like one passed to load().
             seen = path if path is not None else next(
                 (v for k, v in options.items() if str(k).lower() == "path"), None) or getattr(self_, "_fd_path", None)
@@ -337,7 +347,7 @@ class ProofSpark:
         for fmt in ("parquet", "csv", "json", "orc", "text"):
             original = getattr(DataFrameReader, fmt)
 
-            def read_files(self_, *paths, _original=original, _fmt=fmt, **options):
+            def read_files(self_: Any, *paths: Any, _original: Any = original, _fmt: str = fmt, **options: Any) -> Any:
                 # parquet takes any number of paths; the others take one (or a list) and then options.
                 for p in paths if _fmt == "parquet" else paths[:1]:
                     for one in (p if isinstance(p, (list, tuple)) else [p]):
@@ -348,33 +358,35 @@ class ProofSpark:
                 return _original(self_, *paths, **options)
             setattr(DataFrameReader, fmt, read_files)
 
-        def mode(self_, saveMode):  # noqa: N803
+        def mode(self_: Any, saveMode: str) -> Any:  # noqa: N803
             self_._fd_mode = saveMode
             return o["mode"](self_, saveMode)
         DataFrameWriter.mode = mode
 
-        def no_path(options):
+        def no_path(options: dict[str, Any]) -> None:
             if any(str(k).lower() == "path" for k in options):
                 raise ProofRefused(f"{_REFUSED}; it doesn't take a write's path as an option. Pass the path to "
                                    "save(), or write the table by name.")
         o["option"], o["options"] = DataFrameWriter.option, DataFrameWriter.options
 
-        def writer_option(self_, key, value):
+        def writer_option(self_: Any, key: str, value: Any) -> Any:
             no_path({key: value})
             return o["option"](self_, key, value)
 
-        def writer_options(self_, **options):
+        def writer_options(self_: Any, **options: Any) -> Any:
             no_path(options)
             return o["options"](self_, **options)
         DataFrameWriter.option = writer_option
         DataFrameWriter.options = writer_options
 
-        def save_as_table(self_, name, format=None, mode=None, partitionBy=None, **options):  # noqa: A002, N803
+        def save_as_table(self_: Any, name: str, format: str | None = None, mode: str | None = None,
+                          partitionBy: Any = None, **options: Any) -> Any:  # noqa: A002, N803
             no_path(options)
             return me.write_table(self_, *me.split(name), format, mode, partitionBy, options)
         DataFrameWriter.saveAsTable = save_as_table
 
-        def save(self_, path=None, format=None, mode=None, partitionBy=None, **options):  # noqa: A002, N803
+        def save(self_: Any, path: Any = None, format: str | None = None, mode: str | None = None,
+                 partitionBy: Any = None, **options: Any) -> Any:  # noqa: A002, N803
             no_path(options)
             if path is None:
                 raise ProofRefused(f"{_REFUSED}; pass the path to save(), so the proof can see where it writes.")
@@ -389,15 +401,15 @@ class ProofSpark:
         for fmt in ("parquet", "csv", "json", "orc", "text"):
             original = getattr(DataFrameWriter, fmt)
 
-            def write_files(self_, path, *args, _original=original, **kwargs):
+            def write_files(self_: Any, path: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
                 where = me.lakehouse_path(path)
                 if where and where[0] != "sandbox":
                     raise ProofRefused(f"{_REFUSED}; it doesn't write {path} in OneLake.")
                 return _original(self_, path, *args, **kwargs)
             setattr(DataFrameWriter, fmt, write_files)
 
-        def refuse(what):
-            def refused(*args, **kwargs):
+        def refuse(what: str) -> Callable[..., Any]:
+            def refused(*args: Any, **kwargs: Any) -> Any:
                 raise ProofRefused(f"{_REFUSED}; {what}")
             return refused
         DataFrameWriter.insertInto = refuse("insertInto isn't supported in a proof. Use saveAsTable(mode=\"append\") "
@@ -409,7 +421,7 @@ class ProofSpark:
         DataStreamWriter.start = refuse("a stream's writes can't be pinned or compared in a proof.")
         DataStreamWriter.toTable = refuse("a stream's writes can't be pinned or compared in a proof.")
 
-        def table_exists(self_, tableName, dbName=None):  # noqa: N803
+        def table_exists(self_: Any, tableName: str, dbName: str | None = None) -> bool:  # noqa: N803
             names = [dbName, tableName] if dbName else [p.strip("`") for p in re.findall(r"`(?:[^`]|``)+`|[^.]+", tableName)]
             if len(names) == 1 and me.local(names[0]):
                 return o["tableExists"](self_, tableName, dbName)
@@ -424,7 +436,7 @@ class ProofSpark:
             if original is None:
                 continue
 
-            def make_view(self_, name, _original=original):
+            def make_view(self_: Any, name: str, _original: Any = original) -> Any:
                 me.views.add(str(name).lower())
                 return _original(self_, name)
             setattr(DataFrame, view, make_view)
@@ -435,10 +447,10 @@ class ProofSpark:
             return self
         o["forPath"] = DeltaTable.forPath.__func__
 
-        def for_name(cls, sparkSession, tableOrViewName):  # noqa: N803
+        def for_name(cls: Any, sparkSession: Any, tableOrViewName: str) -> Any:  # noqa: N803
             return me.open_delta(cls, sparkSession, *me.split(tableOrViewName))
 
-        def for_path(cls, sparkSession, path, *args, **kwargs):  # noqa: N803
+        def for_path(cls: Any, sparkSession: Any, path: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: N803
             where = me.lakehouse_path(path)
             if where and where[0] == "table":
                 return me.open_delta(cls, sparkSession, where[1], where[2])
@@ -453,7 +465,7 @@ class ProofSpark:
                                                                 "Use CREATE TABLE or saveAsTable.")))
         return self
 
-    def open_delta(self, cls, spark, schema, table):
+    def open_delta(self, cls: Any, spark: Any, schema: str | None, table: str) -> Any:
         """DeltaTable.forName in a proof: this side's copy, so a change through it stays there."""
         if not self.exists(schema, table):
             raise ValueError(f"Table {schema}.{table} doesn't exist.")
@@ -462,7 +474,8 @@ class ProofSpark:
             self.opened.add(key)
         return self.orig["forPath"](cls, spark, self.target(schema, table, "open"))
 
-    def write_table(self, writer, schema, table, format, mode, partitionBy, options):  # noqa: A002, N803
+    def write_table(self, writer: Any, schema: str | None, table: str, format: str | None, mode: str | None,
+                    partitionBy: Any, options: dict[str, Any]) -> Any:  # noqa: A002, N803
         """saveAsTable (or a save to a Tables/ folder) into this side's copy, with Spark's modes."""
         if format and str(format).lower() != "delta":
             raise ValueError("Lakehouse tables are Delta tables. Leave out format, or use format(\"delta\").")
@@ -482,6 +495,6 @@ class ProofSpark:
                                  partitionBy, **options)
 
 
-def bind(proof, spark, name, schemas):
+def bind(proof: ProofRuntime, spark: Any, name: str | None, schemas: bool) -> ProofSpark:
     """Make ``spark`` run as a proof from here on; returns the ProofSpark."""
     return ProofSpark(proof, spark, name, schemas).install()

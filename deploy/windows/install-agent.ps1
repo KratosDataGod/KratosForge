@@ -22,7 +22,6 @@ $ErrorActionPreference = "Stop"
 
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir, "$DataDir\agent" | Out-Null
 Invoke-Expression "$Python -m venv `"$InstallDir\venv`""
-& "$InstallDir\venv\Scripts\python.exe" -m pip install --upgrade pip
 # The exact versions CI tested (SH-9): without them pip takes whatever is newest on PyPI.
 & "$InstallDir\venv\Scripts\python.exe" -m pip install "$PSScriptRoot\..\..\sidecar" -c "$PSScriptRoot\..\..\sidecar\constraints.txt"
 if ($LASTEXITCODE) { throw "pip couldn't install the agent (exit code $LASTEXITCODE)" }

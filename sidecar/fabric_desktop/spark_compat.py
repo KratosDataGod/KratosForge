@@ -11,6 +11,7 @@ Nothing here writes anywhere; it only builds queries. ``install()`` is called by
 from __future__ import annotations
 
 import builtins
+import inspect
 import itertools
 import re
 import sys
@@ -73,10 +74,7 @@ def _name_of(c: Any) -> str:
     """A column's name, given its name or a plain column; a string literal is named by its text, as in Spark."""
     if isinstance(c, str):
         return c
-    text = str(c.expr)
-    if len(text) > 1 and text[0] == text[-1] == "'":
-        return text[1:-1].replace("''", "'")
-    return text.strip('"').replace('""', '"')
+    return _spark_text(c)
 
 
 def _lit(value: Any) -> str:
@@ -507,9 +505,10 @@ def _order_of(c: Any) -> str:
 
 
 # A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
-_RELATION = re.compile(r"\bunnamed_relation_[0-9a-f]+\.")
-# A quoted identifier in DuckDB's name ("name", quoted as a keyword): Spark writes it bare.
-_IDENTIFIER = re.compile(r'"((?:[^"]|"")*)"')
+_RELATION = re.compile(r'"?\bunnamed_relation_[0-9a-f]+"?\.')  # quoted on DuckDB 2.0
+# A quoted identifier ("name", quoted as a keyword) or a string literal ('x') in DuckDB's name, read
+# left to right in one pass so a quote inside one never pairs with the next: Spark writes each bare.
+_QUOTED = re.compile(r'"((?:[^"]|"")*)"|\'((?:[^\']|\'\')*)\'')
 
 
 def _named(col: Column, name: str) -> Column:
@@ -536,13 +535,17 @@ def _naming(fn: Any) -> Any:
     return call
 
 
+def _unquote(m: re.Match[str]) -> str:
+    return m.group(1).replace('""', '"') if m.group(1) is not None else m.group(2).replace("''", "'")
+
+
 def _spark_text(value: Any) -> str:
     """``value`` as Spark writes it inside a generated column name: a column by its name, a string as
     is, None as NULL, a double as Java writes it."""
     if isinstance(value, Column):
         if (name := vars(value).get("_fd_name")) is not None:
             return str(name)
-        return _IDENTIFIER.sub(lambda m: m.group(1).replace('""', '"'), _RELATION.sub("", value.expr.get_name()))
+        return _QUOTED.sub(_unquote, _RELATION.sub("", value.expr.get_name()))
     if value is None:
         return "NULL"
     if isinstance(value, bool):
@@ -714,6 +717,131 @@ def _install_spark_names() -> None:
     Column.when = _case_step(Column.when, "when")  # type: ignore[method-assign]
     Column.otherwise = _case_step(Column.otherwise, "otherwise")  # type: ignore[method-assign]
     F.when = _case_named(F.when)
+    for name, template in _TEXT_METHODS.items():
+        if hasattr(Column, name):
+            setattr(Column, name, _text_method_named(template, getattr(Column, name)))
+    Column.cast = _cast_named(Column.cast)  # type: ignore[method-assign]
+    for name, fn in list(vars(F).items()):
+        if (inspect.isfunction(fn) and not name.startswith("_") and name not in _UNNAMED_FUNCTIONS
+                and not getattr(fn, "_fd_named", False)):
+            setattr(F, name, _function_named(name, fn))
+
+
+# Column methods that Spark names as text, not as an operator.
+_TEXT_METHODS = {"like": "{a} LIKE {b}", "rlike": "RLIKE({a}, {b})", "ilike": "ilike({a}, {b})",
+                 "contains": "contains({a}, {b})", "startswith": "startswith({a}, {b})",
+                 "endswith": "endswith({a}, {b})"}
+
+
+def _text_method_named(template: str, fn: Any) -> Any:
+    def method(self: Column, other: Any, *rest: Any) -> Any:
+        out = fn(self, other, *rest)
+        return _named(out, template.format(a=_spark_text(self), b=_spark_text(other))) if isinstance(out, Column) else out
+    method.__doc__ = fn.__doc__
+    return method
+
+
+# A plain column, as DuckDB writes one: relation.name ("relation"."name" on DuckDB 2.0), "name" or name.
+_PLAIN_COLUMN = re.compile(r'^(?:"?unnamed_relation_[0-9a-f]+"?\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
+# Spark's SQL name for a type, from its simpleString (DuckDB's spells some types Spark's long way).
+_TYPE_SQL = {"integer": "INT", "long": "BIGINT", "short": "SMALLINT", "byte": "TINYINT"}
+
+
+def _cast_named(fn: Any) -> Any:
+    """Column.cast: a plain column keeps its name, as in Spark; anything else is CAST(x AS TYPE)."""
+    def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
+        out = fn(self, dataType)
+        if "_fd_name" not in vars(self) and _PLAIN_COLUMN.match(str(self.expr)):
+            return _named(out, _spark_text(self))
+        simple = dataType if isinstance(dataType, str) else dataType.simpleString()
+        type_sql = _TYPE_SQL.get(simple.lower(), simple.upper())
+        return _named(out, f"CAST({_spark_text(self)} AS {type_sql})")
+    cast.__doc__ = fn.__doc__
+    return cast
+
+
+# Functions that keep the name they give: a column or literal as it is, SQL text, sort orders,
+# window and grouping functions (named with their window or grouping), UDF makers.
+_UNNAMED_FUNCTIONS = {"col", "column", "expr", "when", "udf", "pandas_udf", "broadcast", "asc", "desc",
+                      "asc_nulls_first", "asc_nulls_last", "desc_nulls_first", "desc_nulls_last", "grouping",
+                      "grouping_id", "row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile", "lag",
+                      "lead", "nth_value", "posexplode", "posexplode_outer", "inline", "inline_outer", "window",
+                      "session_window", "call_function", "call_udf", "struct_field"}
+
+# Spark's name for a function where it isn't the function's own name over its arguments: {0}, {1}...
+# are the arguments, {args} all of them. Captured from Apache Spark 3.5.3.
+_FUNCTION_NAMES = {
+    "mean": "avg({args})", "variance": "var_samp({args})", "array_agg": "collect_list({args})",
+    "sumDistinct": "sum(DISTINCT {args})", "sum_distinct": "sum(DISTINCT {args})",
+    "countDistinct": "count(DISTINCT {args})", "count_distinct": "count(DISTINCT {args})",
+    "pow": "POWER({args})", "power": "POWER({args})", "positive": "(+ {0})", "isnull": "({0} IS NULL)",
+    "isnotnull": "({0} IS NOT NULL)", "explode": "col", "explode_outer": "col", "lit": "{0}",
+    **{f: f.upper() + "({args})" for f in ("sqrt", "exp", "log10", "log2", "log1p", "expm1", "ceil", "ceiling",
+                                           "floor", "signum", "cbrt", "sin", "cos", "tan", "asin", "acos", "atan",
+                                           "sinh", "cosh", "tanh", "degrees", "radians", "rint", "cot", "sec", "csc")},
+}
+# Arguments Spark shows that PySpark leaves out, by function: (number of arguments given, text added).
+_FUNCTION_DEFAULTS = {"round": (1, "0"), "bround": (1, "0"), "split": (2, "-1"), "regexp_replace": (3, "1"),
+                      "percentile_approx": (2, "10000"), "locate": (2, "1"),
+                      "from_unixtime": (1, "yyyy-MM-dd HH:mm:ss")}
+
+
+def _aliased(col: Column) -> bool:
+    """Whether ``col`` was given a name with alias (by spark_compat's own function): DuckDB's name for
+    an expression can differ from its SQL text without one (DuckDB 2.0 names count(*) count_star())."""
+    return bool(vars(col).get("_fd_alias", False))
+
+
+def _alias_marked(fn: Any) -> Any:
+    """Column.alias, marking the Column it gives as aliased (see _aliased)."""
+    def alias(self: Column, *names: Any, **kwargs: Any) -> Column:
+        out = fn(self, *names, **kwargs)
+        out._fd_alias = True
+        return cast(Column, out)
+    alias.__doc__ = fn.__doc__
+    return alias
+
+
+def _function_named(name: str, fn: Any) -> Any:
+    """An F function whose Column carries Spark's name: the function over its arguments' names."""
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):  # silent-ok: a builtin without a signature keeps DuckDB's name
+        return fn
+
+    def call(*args: Any, **kwargs: Any) -> Any:
+        out = fn(*args, **kwargs)
+        if not isinstance(out, Column):
+            return out
+        if "_fd_name" not in vars(out) and _aliased(out):  # named by the function itself (spark_compat's own)
+            return _named(out, out.expr.get_name())  # already Spark's text: unquoting it again would pair its quotes
+        # otherwise its own name, also over one a function it calls gave (nvl over coalesce)
+        try:
+            bound = signature.bind(*args, **kwargs)
+        except TypeError:  # silent-ok: fn already took these; only the name is skipped
+            return out
+        values: list[Any] = []
+        for value in bound.arguments.values():
+            values.extend(value if isinstance(value, (list, tuple)) else [value])
+        texts = [_spark_text(v) for v in values]
+        if name == "count" and texts == ["*"]:
+            return _named(out, "count(1)")
+        if name in ("first", "last", "first_value", "last_value"):  # Spark leaves ignorenulls out
+            return _named(out, f"{name}({texts[0]})")
+        if name == "log":
+            return _named(out, f"ln({texts[0]})" if len(texts) == 1 else f"LOG({', '.join(texts)})")
+        if name == "sort_array":
+            asc = bound.arguments.get("asc", True)
+            return _named(out, f"sort_array({texts[0]}, {'true' if asc else 'false'})")
+        if (default := _FUNCTION_DEFAULTS.get(name)) and len(texts) == default[0]:
+            texts.append(default[1])
+        template = _FUNCTION_NAMES.get(name, f"{name}({{args}})")
+        return _named(out, template.format(*texts, args=", ".join(texts)))
+    call.__name__ = name
+    call.__doc__ = fn.__doc__
+    call._fd_named = True  # type: ignore[attr-defined]
+    return call
+
 
 # ---- DataFrame
 
@@ -1511,6 +1639,7 @@ def install() -> None:
                     "add_months", "months_between", "element_at", "to_date", "to_timestamp") or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
+    Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]
     Column.over = _over  # type: ignore[attr-defined]
     Column.getItem = _get_item  # type: ignore[attr-defined]
     Column.between = _between  # type: ignore[attr-defined]

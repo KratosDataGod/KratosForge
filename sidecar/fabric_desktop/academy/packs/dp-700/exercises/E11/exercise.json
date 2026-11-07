@@ -1,0 +1,122 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E11",
+  "title": "Share a lakehouse: Read, Read all with the SQL analytics endpoint, Read all with Spark",
+  "objectives": [
+    "1.3.2"
+  ],
+  "mode": "challenge",
+  "minutes": 15,
+  "prerequisites": [
+    "LM-24"
+  ],
+  "objective_text": "Choose between sharing a lakehouse (with or without its two Read all boxes) and a workspace role, so four people each get the least access that works.",
+  "scenario": "SalesLH is in demand. A Power BI developer, a data scientist and an auditor from other teams want to read it, and a new engineer needs to load data into it. None of the readers should see the rest of the workspace.",
+  "engine_label": "A model of a lakehouse's sharing and workspace roles, checked on this PC",
+  "verifies": [
+    "Your choices give each person the share boxes or workspace role their work needs, and no more, as the Fabric sharing and role pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the share works in Fabric: nothing is shared here.",
+    "The DBA's SQL grants for Lena, or OneLake security roles, which decide what a Read-only user sees.",
+    "Other share options, such as subscribing to OneLake events or running Spark."
+  ],
+  "expected": {
+    "description": "Priya: share with Read all with SQL analytics endpoint. Omar: share with Read all with Apache Spark. Lena: share with neither box. Raj: Contributor, no share."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Someone reading the lakehouse can't do their job, or can do more than it needs.",
+      "pass": "Priya, Omar and Lena each get a share with just the boxes their work needs.",
+      "rules": [
+        {
+          "path": "people.Priya.share.read_all_sql_analytics_endpoint",
+          "equals": true,
+          "why": "Reading every table through the SQL analytics endpoint without SQL policy is the Read all with SQL analytics endpoint box."
+        },
+        {
+          "path": "people.Priya.share.read_all_apache_spark",
+          "equals": false,
+          "why": "Priya doesn't use Spark."
+        },
+        {
+          "path": "people.Omar.share.read_all_apache_spark",
+          "equals": true,
+          "why": "Reading lakehouse data through Spark and OneLake APIs is the Read all with Apache Spark box."
+        },
+        {
+          "path": "people.Omar.share.read_all_sql_analytics_endpoint",
+          "equals": false,
+          "why": "Omar doesn't use T-SQL."
+        },
+        {
+          "path": "people.Lena.share.read_all_sql_analytics_endpoint",
+          "equals": false,
+          "why": "Read all would skip the DBA's SQL grants; with Read alone, what she sees is what SQL grants her."
+        },
+        {
+          "path": "people.Lena.share.read_all_apache_spark",
+          "equals": false,
+          "why": "Lena doesn't use Spark."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Raj can't write to the lakehouse with that, or gets more than he needs.",
+      "pass": "Raj gets the least workspace role that writes lakehouse data.",
+      "rules": [
+        {
+          "path": "people.Raj.workspace_role",
+          "equals": "Contributor",
+          "why": "Sharing a lakehouse never gives write permission; Contributor is the least workspace role that writes lakehouse data."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Someone who only reads was given a workspace role.",
+      "pass": "Readers get a share, not a workspace role.",
+      "rules": [
+        {
+          "path": "people.Priya.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace; a share reaches only this lakehouse."
+        },
+        {
+          "path": "people.Omar.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace; a share reaches only this lakehouse."
+        },
+        {
+          "path": "people.Lena.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace; a share reaches only this lakehouse."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Sharing a lakehouse always gives Read. Each Read all box adds one way to read all the data.",
+    "Which box matches T-SQL, and which matches Spark?",
+    "Can a share ever let someone write?"
+  ],
+  "explanation": "Sharing a lakehouse gives Read on it and its SQL analytics endpoint, and never write. Read all with SQL analytics endpoint lets T-SQL read all the data without SQL policy; Read all with Apache Spark lets Spark and OneLake APIs read it. Priya and Omar each need one box. Lena needs neither, so the DBA's SQL grants decide what she sees. Raj has to write, which a share can't give, so he needs a workspace role, and Contributor is the least that writes lakehouse data.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (lakehouse-sharing): sharing grants Read on the lakehouse and SQL analytics endpoint, never write; Read all with SQL analytics endpoint reads through T-SQL without SQL policy; Read all with Apache Spark reads through Spark and OneLake APIs and doesn't replace Read."
+  ]
+}

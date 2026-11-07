@@ -17,7 +17,7 @@
 - No Import skin screen yet. Import validation is built and tested in the engine, but only the four built-in skins can be chosen.
 - The demonstration mocks the cloud parts. Nothing ran on Windows (WebView2) or a tenant.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept with limits' on the decision card on 2026-11-06 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv).
 
 ## Acceptance criteria
 

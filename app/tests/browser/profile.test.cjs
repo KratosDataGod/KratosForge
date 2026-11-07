@@ -94,16 +94,30 @@ test("Journey shows the level, milestones and badges; Achievements gives the rul
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-achievements.png"), fullPage: true });
 });
 
-test("Ranks list every rank by tier with what earns it and a picture prompt to copy (PB-125)", { skip }, async () => {
+test("Ranks shows your rank, the Forge progression, the next rank's requirements and rewards from real data (PB-125)", { skip }, async () => {
   const page = app.page;
   await page.getByRole("tab", { name: "Ranks" }).click();
+  await page.getByRole("heading", { name: "Your rank" }).waitFor();
+  const r = data.profile.ranks;
+  const pr = data.profile.progression;
+  for (const h of ["Ranks", "Next rank", "Rank rewards", `Rank requirements: ${r.next.name}`]) assert.ok(await page.getByRole("heading", { name: h, exact: true }).isVisible(), h);
+  assert.ok(await page.getByText(`${pr.xp} XP / ${pr.next_level_xp} XP`).isVisible(), "xp");
+  // The Forge tier's five ranks plus the top rank, yours marked; the top is further on, so the gap says how many ranks lie between.
+  assert.strictEqual(await page.locator(".rk-shield").count(), 6);
+  assert.strictEqual(await page.locator('.rk-shield[aria-current="step"]').count(), 1);
+  assert.match(await page.locator(".rk-shield.top").innerText(), /Legend of the Forge/);
+  assert.ok(await page.getByText("+7 ranks").isVisible(), "gap");
+  assert.ok(await page.locator(".rk-reqs").getByText(r.next.checks[0].text).isVisible(), "req");
+  assert.strictEqual(await page.locator(".rk-reqs .rk-req").count(), r.next.checks.length);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks.png"), fullPage: true });
+  await page.getByRole("button", { name: "View full rank path" }).click();
   await page.getByRole("heading", { name: "The Pack" }).waitFor();
-  for (const tier of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("heading", { name: tier }).isVisible());
+  for (const tier of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("heading", { name: tier, exact: true }).isVisible());
   assert.strictEqual(await page.locator(".profile-rank").count(), 13);
   assert.strictEqual(await page.getByRole("button", { name: "Copy picture prompt" }).count(), 13);
-  assert.ok(await page.getByText("Pass 1 different exercise").isVisible());
   assert.doesNotMatch(await page.locator(".profile").innerText(), /\bgod\b|deity|divine/i);
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks.png"), fullPage: true });
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-full.png"), fullPage: true });
+  await page.getByRole("button", { name: "Hide full rank path" }).click();
 });
 
 test("a profile picture shows on the page and the account button, and the letter comes back without one (PB-125)", { skip }, async () => {

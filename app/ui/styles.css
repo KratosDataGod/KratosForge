@@ -2,6 +2,15 @@
   /* Living Experience on Home (home-hero.js): the hero sky behind the art, the navy identity card, the warm achievement card */
   --lx-hero-sky: #01203d;
   --lx-hero-sky-low: #062e57;
+  /* Profile > Ranks (profile.js): the forge shields. Steel for ranks on the way, gold for the top rank and the glow on yours */
+  --rk-steel-face: #26344b;
+  --rk-steel-edge: #8a97ab;
+  --rk-locked-face: #3b4351;
+  --rk-locked-edge: #5d6675;
+  --rk-gold-face: #9a5a12;
+  --rk-gold-edge: #f5b52e;
+  --rk-glow: rgba(248, 153, 28, .6);
+  --rk-shield-ink: #ffffff;
   --lx-mask: #000;
  
   --lx-hero-text-w: 560px;
@@ -2383,6 +2392,62 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .profile-report em { color: var(--muted); font-size: 12px; }
 .profile-goal-input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--border-input); border-radius: 4px; font: inherit; background: var(--surface); color: inherit; }
 @media (max-width: 900px) { .profile-grid, .profile-report-layout, .profile-skills { grid-template-columns: minmax(0, 1fr); } }
+/* Profile > Ranks (Chris's mockup, 2026-11-07). The hero and the shields are drawn placeholders until the approved art
+   arrives; text and controls are real UI. Nothing here animates. */
+.rk-page { gap: 16px; }
+.rk-hero { position: relative; min-height: 190px; border-radius: 8px; overflow: hidden; display: flex; align-items: center;
+  background: linear-gradient(100deg, var(--lx-hero-sky) 0%, var(--lx-hero-sky-low) 60%, var(--accent) 100%); }
+.rk-hero-text { padding: 24px 36px; max-width: 560px; display: flex; flex-direction: column; gap: 6px; }
+.rk-hero .rk-hero-title { margin: 0; font-size: 44px; line-height: 1; color: var(--lx-hero-title); }
+.rk-hero-kicker { margin: 0; font-size: 19px; color: var(--lx-hero-line); }
+.rk-hero-line { margin: 4px 0 0; color: var(--lx-hero-line); line-height: 1.45; }
+.rk-row { display: grid; gap: 16px; align-items: stretch; }
+.rk-row-1 { grid-template-columns: minmax(240px, 1fr) minmax(0, 3.3fr); }
+.rk-row-2 { grid-template-columns: minmax(240px, 1fr) minmax(0, 1.55fr) minmax(0, 1.55fr); }
+.rk-row > .card { display: flex; flex-direction: column; gap: 12px; }
+.rk-name { font-size: 22px; font-weight: 700; display: block; }
+.rk-yours .row img { flex: none; }
+.rk-yours .pill-s { margin-top: 6px; }
+.rk-strip { list-style: none; margin: 0; padding: 26px 8px 8px; display: flex; align-items: center; overflow-x: auto; }
+.rk-shield { flex: none; width: 118px; height: 136px; }
+.rk-shield-edge { width: 100%; height: 100%; padding: 4px; box-sizing: border-box; background: var(--rk-steel-edge);
+  clip-path: polygon(50% 0, 100% 14%, 100% 64%, 50% 100%, 0 64%, 0 14%); }
+.rk-shield-face { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 0 8px 14px; box-sizing: border-box; text-align: center; color: var(--rk-shield-ink); background: var(--rk-steel-face);
+  clip-path: polygon(50% 0, 100% 14%, 100% 64%, 50% 100%, 0 64%, 0 14%); }
+.rk-shield-face svg { color: var(--brand-orange); margin-bottom: 2px; }
+.rk-shield-face svg path { fill: currentColor; }
+.rk-shield-name { font-size: 14px; line-height: 1.15; }
+.rk-shield-sub { font-size: 11px; opacity: .85; }
+.rk-shield.locked .rk-shield-edge { background: var(--rk-locked-edge); }
+.rk-shield.locked .rk-shield-face { background: var(--rk-locked-face); }
+.rk-shield.locked .rk-shield-face svg { color: var(--rk-steel-edge); }
+.rk-shield.top .rk-shield-edge { background: var(--rk-gold-edge); }
+.rk-shield.top .rk-shield-face { background: var(--rk-gold-face); }
+.rk-shield.top .rk-shield-face svg, .rk-shield.top .rk-shield-name { color: var(--rk-gold-edge); }
+.rk-shield.current { filter: drop-shadow(0 0 8px var(--rk-glow)); }
+.rk-shield.current .rk-shield-edge { background: var(--rk-gold-edge); }
+.rk-shield.current .rk-shield-name { color: var(--rk-gold-edge); }
+.rk-link { flex: 1 1 24px; min-width: 18px; height: 4px; border-radius: 2px; background: var(--border-soft); position: relative; }
+.rk-link.held { background: var(--rk-gold-edge); }
+.rk-link.gap { min-width: 64px; background: repeating-linear-gradient(90deg, var(--border-soft) 0 6px, transparent 6px 10px); }
+.rk-link.gap span { position: absolute; left: 50%; top: -20px; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.rk-next .row { align-items: center; }
+.rk-next-icon { width: 64px; height: 64px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent); }
+.rk-next-icon svg path { fill: currentColor; }
+.rk-next-bar { align-items: center; }
+.rk-next > .tool { margin-top: auto; justify-content: center; }
+.rk-reqs:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rk-req-list { list-style: none; margin: 0; padding: 0; }
+.rk-req { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); }
+.rk-req:last-child { border-bottom: 0; }
+.rk-req-mark { width: 22px; height: 22px; flex: none; border-radius: 50%; border: 2px solid var(--border-input); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; color: var(--on-accent); }
+.rk-req.met .rk-req-mark { background: var(--ok); border-color: var(--ok); }
+.rk-req-mark svg path { fill: currentColor; }
+.rk-reqs .rk-req.met > .grow { text-decoration: line-through; color: var(--muted); }
+@media (max-width: 1100px) { .rk-row-1, .rk-row-2 { grid-template-columns: minmax(0, 1fr); } }
 
 /* Optimize > Settings history */
 .sh-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }

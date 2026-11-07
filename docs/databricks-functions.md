@@ -7,10 +7,11 @@ Databricks SQL's built-in functions, with what a Databricks SQL cell does with e
 where the DuckDB engine runs it. For the functions Databricks SQL shares with Spark 3.5, each
 one's first example from Spark's documentation goes through the same translation as a cell and
 is compared with the value Databricks gives (Spark 3.5's, or Databricks' own where its reference
-shows another). Databricks' own functions, in the groups headed "Databricks only", have no value
-checks yet: each is tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN
-GROUP, a unit keyword). No Databricks workspace was used. CI runs every check again, so this page
-changes when a function is fixed or breaks.
+shows another). Databricks' own functions are in the groups headed "Databricks only": one with
+an example is compared with the value Databricks' reference documents for it, and any other is
+tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN GROUP, a unit keyword).
+No Databricks workspace was used. CI runs every check again, so this page changes when a
+function is fixed or breaks.
 
 - **Runs**: gives Databricks' value for its example.
 - **Differs**: runs, but gives another value. Check results that use it on the warehouse.
@@ -26,10 +27,10 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 367 |
+| Runs | 375 |
 | Differs | 0 |
-| Refused | 78 |
-| Fails | 71 |
+| Refused | 80 |
+| Fails | 61 |
 | Not checked | 73 |
 | **All** | **589** |
 
@@ -656,11 +657,11 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `iff` | Not checked |  |  |
-| `nullifzero` | Fails |  | DuckDB has no nullifzero, and the translation doesn't write it |
+| `nullifzero` | Runs | `SELECT nullifzero(0)` |  |
 | `try_cast` | Not checked |  |  |
-| `try_mod` | Fails |  | DuckDB has no try_mod, and the translation doesn't write it |
+| `try_mod` | Runs | `SELECT try_mod(2, 1.8)` |  |
 | `try_reflect` | Fails |  | DuckDB has no try_reflect, and the translation doesn't write it |
-| `zeroifnull` | Fails |  | DuckDB has no zeroifnull, and the translation doesn't write it |
+| `zeroifnull` | Runs | `SELECT zeroifnull(NULL)` |  |
 
 ## Databricks only: date and time
 
@@ -761,13 +762,13 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `vector_avg` | Fails |  | DuckDB has no vector_avg, and the translation doesn't write it |
-| `vector_cosine_similarity` | Fails |  | DuckDB has no vector_cosine_similarity, and the translation doesn't write it |
-| `vector_inner_product` | Fails |  | DuckDB has no vector_inner_product, and the translation doesn't write it |
-| `vector_l2_distance` | Fails |  | DuckDB has no vector_l2_distance, and the translation doesn't write it |
-| `vector_norm` | Fails |  | DuckDB has no vector_norm, and the translation doesn't write it |
-| `vector_normalize` | Fails |  | DuckDB has no vector_normalize, and the translation doesn't write it |
-| `vector_sum` | Fails |  | DuckDB has no vector_sum, and the translation doesn't write it |
+| `vector_avg` | Refused |  | vector_avg() can't run on this PC the way it runs in Databricks, so nothing ran: DuckDB has no aggregate that adds vectors element by element. Run the cell on a |
+| `vector_cosine_similarity` | Runs | `SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` |  |
+| `vector_inner_product` | Runs | `SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` |  |
+| `vector_l2_distance` | Runs | `SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` |  |
+| `vector_norm` | Runs | `SELECT vector_norm(array(3.0f, 4.0f), 2.0f)` |  |
+| `vector_normalize` | Runs | `SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)` |  |
+| `vector_sum` | Refused |  | vector_sum() can't run on this PC the way it runs in Databricks, so nothing ran: DuckDB has no aggregate that adds vectors element by element. Run the cell on a |
 
 ## Databricks only: XML
 

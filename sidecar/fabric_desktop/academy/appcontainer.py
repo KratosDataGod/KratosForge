@@ -271,15 +271,22 @@ def _icacls(*args: str) -> Any:
 
 
 def _grant(api: Any, path: Path, sid_string: str, inherit: bool) -> None:
-    """Add read and execute for ``sid_string`` to ``path``'s DACL (merged with what is there)."""
-    flags = "(OI)(CI)(RX)" if inherit and path.is_dir() else "(RX)"
-    if _icacls(str(path), "/grant", f"*{sid_string}:{flags}").returncode != 0:
-        raise OSError(f"Windows wouldn't let the exercise runtime read {path.name}.")
+    """Add read and execute for ``sid_string`` to ``path``'s DACL (merged with what is there), unless
+    it already holds exactly that grant (``acl.has_grant``). In process: one icacls per path took
+    about 117 ms on the CI runner, and the runtime has about 116 paths."""
+    from . import acl
+    try:
+        if not acl.has_grant(path, sid_string, inherit):
+            acl.grant(path, sid_string, inherit)
+    except OSError as exc:
+        raise OSError(f"Windows wouldn't let the exercise runtime read {path.name}.") from exc
 
 
 def _has_grant(path: Path, sid_string: str) -> bool:
-    got = _icacls(str(path))
-    return got.returncode == 0 and sid_string.encode("ascii") in got.stdout
+    """Whether ``path`` holds the capability's own read-and-execute grant (not inherited). A DACL
+    that can't be read raises OSError: it never counts as granted."""
+    from . import acl
+    return acl.has_grant(path, sid_string, inherit=False)
 
 
 def deny_app_packages(paths: list[Path]) -> None:
@@ -319,9 +326,12 @@ def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None
     check_grants_keep_out(paths, data_root)   # only when granting: it reads the granted files
     had = jsonfile.read_json(record, {}) if record else {}
     done = set(had.get("paths") or []) if had.get("sid") == cap_string else set()
-    if not set(wanted) <= done or not _has_grant(Path(sys.base_prefix), cap_string):
+    if not _has_grant(Path(sys.base_prefix), cap_string):
+        done = set()   # Python reinstalled, or the grants removed: check every path
+    if not set(wanted) <= done:
         for path, inherit in paths:
-            _grant(api, path, cap_string, inherit)
+            if str(path) not in done:   # each one is checked first and granted only if it lacks it
+                _grant(api, path, cap_string, inherit)
         # Paths gone since (an engine's temporary kf_learner folder, say) took their ACE with them.
         done = {p for p in done | set(wanted) if os.path.exists(p)}
         if record:

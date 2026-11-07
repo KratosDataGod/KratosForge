@@ -181,3 +181,82 @@ def test_what_databricks_would_stop_on_or_this_pc_cant_match_stops_by_name(code,
     from fabric_desktop.engines.local_sql import _databricks
     with pytest.raises(ValueError, match=match):
         _databricks(code)
+
+
+# timestampdiff counts whole units elapsed, in Spark SQL and Databricks SQL; DuckDB's date_diff counts the
+# boundaries crossed. The first three are Databricks' timediff examples (a synonym of timestampdiff).
+@pytest.mark.parametrize(("code", "want"), [
+    ("timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')", 0),
+    ("timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 12:00:00')", 1),
+    ("timediff(YEAR, DATE'2021-01-01', DATE'1900-03-28')", -120),
+    ("timestampdiff(HOUR, TIMESTAMP'2021-01-01 10:59:00', TIMESTAMP'2021-01-01 11:00:00')", 0),
+    ("datediff(DAY, TIMESTAMP'2021-01-01 23:00:00', TIMESTAMP'2021-01-02 01:00:00')", 0),
+    ("date_diff(WEEK, DATE'2021-01-01', DATE'2021-01-14')", 1),
+    ("timestampdiff(MONTH, DATE'2021-01-31', DATE'2021-02-28')", 0),  # Java's ChronoUnit: day 28 < 31
+    ("timestampdiff(MONTH, DATE'2021-03-31', DATE'2021-02-28')", -1),
+    ("timestampdiff(QUARTER, DATE'2021-01-01', DATE'2021-12-31')", 3),
+    ("timestampdiff(SECOND, TIMESTAMP'2021-01-01 00:00:01.5', TIMESTAMP'2021-01-01 00:00:00')", -1),
+    ("datediff(TIMESTAMP'2021-01-02 01:00:00', TIMESTAMP'2021-01-01 23:00:00')", 1),  # two arguments: days
+])
+def test_timestampdiff_counts_whole_units_as_spark_does(code, want):
+    from fabric_desktop import sql
+    assert _one(f"SELECT {code}") == [[want]]
+    if not code.startswith("timediff"):  # Spark SQL reads the other spellings the same way
+        con = databricks_coverage.connect()
+        assert con.sql(sql.duckdb_sql(sql.parse(f"SELECT {code}", "spark")[0])).fetchall() == [(want,)]
+
+
+def test_a_diff_spelling_inside_a_string_is_left_alone():
+    from fabric_desktop import sql
+    assert sql.diff_spellings("SELECT 'datediff(DAY, a, b)', datediff(DAY, a, b)") == (
+        "SELECT 'datediff(DAY, a, b)', timestampdiff(DAY, a, b)")
+
+
+_T = "timestamp:2014-12-28T06:30:45.887000"
+
+
+# Every example in Databricks' reference for its TIME and try_ date functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT time_from_seconds(52200.5)", "time:14:30:00.500000"), ("SELECT time_from_seconds(0)", "time:00:00:00"),
+    ("SELECT time_from_millis(52200500)", "time:14:30:00.500000"), ("SELECT time_from_millis(0)", "time:00:00:00"),
+    ("SELECT time_from_micros(52200500000)", "time:14:30:00.500000"), ("SELECT time_from_micros(0)", "time:00:00:00"),
+    ("SELECT time_to_seconds(TIME'14:30:00.5')", "decimal:52200.500000"),
+    ("SELECT time_to_seconds(TIME'00:00:00')", "decimal:0.000000"),
+    ("SELECT time_to_millis(TIME'14:30:00.5')", 52200500), ("SELECT time_to_millis(TIME'00:00:00')", 0),
+    ("SELECT time_to_micros(TIME'14:30:00.5')", 52200500000), ("SELECT time_to_micros(TIME'00:00:00')", 0),
+    ("SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')", 13),
+    ("SELECT time_diff(MINUTE, TIME'08:00:00', TIME'08:45:30')", 45),
+    ("SELECT time_diff(SECOND, TIME'10:00:00', TIME'10:00:30')", 30),
+    ("SELECT time_diff(HOUR, TIME'21:00:00', TIME'08:00:00')", -13),
+    ("SELECT time_trunc('HOUR', TIME'13:08:15.123')", "time:13:00:00"),
+    ("SELECT time_trunc('MINUTE', TIME'13:08:15.123')", "time:13:08:00"),
+    ("SELECT time_trunc('SECOND', TIME'13:08:15.123456')", "time:13:08:15"),
+    ("SELECT time_trunc('MILLISECOND', TIME'13:08:15.123456')", "time:13:08:15.123000"),
+    ("SELECT to_time('10:30:00')", "time:10:30:00"), ("SELECT to_time('10:30:00', 'HH:mm:ss')", "time:10:30:00"),
+    ("SELECT to_time('10.30.00', 'HH.mm.ss')", "time:10:30:00"),
+    ("SELECT try_to_time('10:30:00')", "time:10:30:00"), ("SELECT try_to_time('10:30:00', 'HH:mm:ss')", "time:10:30:00"),
+    ("SELECT try_to_time('not-a-time')", None), ("SELECT try_to_time('10:30:00', 'HH:mm:ss') IS NOT NULL", True),
+    ("SELECT try_to_date('2016-12-31')", "date:2016-12-31"),
+    ("SELECT try_to_date('31/12/2016', 'dd/MM/yyyy')", "date:2016-12-31"),
+    ("SELECT try_to_date('2016-12-32', 'yyyy-MM-dd')", None),
+    ("SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)", _T),
+    ("SELECT try_make_timestamp_ntz(2014, 13, 28, 6, 30, 45.887)", None),
+    ("SELECT try_make_timestamp_ntz(DATE'2014-12-28', TIME'06:30:45.887')", _T),
+    ("SELECT try_make_timestamp_ltz(2014, 13, 28, 6, 30, 45.887)", None),
+    ("SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')", _T),
+    # Databricks shows 2014-12-27 21:30:45.887 in a Los Angeles session: 05:30:45.887 UTC, the session here
+    ("SELECT try_make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887, 'CET')", "timestamp:2014-12-28T05:30:45.887000"),
+])
+def test_databricks_time_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize(("code", "match"), [
+    ("SELECT to_time('not-a-time')", "not-a-time"),  # Databricks: CAST_INVALID_INPUT
+    ("SELECT time_from_seconds(86400)", "0 to under 86400"),
+    ("SELECT time_trunc('DAY', TIME'13:08:15')", "HOUR, MINUTE, SECOND"),
+    ("SELECT parse_timestamp('2024-12-09T19:30:01')", "can't run on this PC.*#extended"),
+])
+def test_a_time_databricks_stops_on_or_this_pc_cant_read_stops(code, match):
+    with pytest.raises(Exception, match=match):
+        _one(code)

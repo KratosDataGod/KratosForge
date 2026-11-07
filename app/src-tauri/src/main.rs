@@ -3099,7 +3099,7 @@ mod embed_host_tests {
         }
         // And inside each of them, by the calling webview's label.
         for command in MAIN_WINDOW_ONLY {
-            let body = main_rs.split(&format!("fn {command}(")).nth(1).expect("the command").split("\n}").next().unwrap();
+            let body = main_rs.split(&format!("fn {command}(")).nth(1).expect("the command").split("\n\u{7d}").next().unwrap();
             let check = body.find("main_window_only(&webview)?").or_else(|| body.find("if !from_main_window(&webview)"));
             assert!(check.is_some_and(|at| at < 400), "{command} checks its window first");
         }
@@ -3127,7 +3127,7 @@ mod embed_host_tests {
         }
         assert_eq!(n, 3, "the main window, the pop-out windows and the Fabric view's pop-ups");
         // A new-window request always gets Deny; only a web link that isn't the app's own page goes to the browser.
-        assert!(main_rs.split("fn app_new_window(").nth(1).unwrap().split("\n}").next().unwrap().ends_with("NewWindowResponse::Deny"));
+        assert!(main_rs.split("fn app_new_window(").nth(1).unwrap().split("\n\u{7d}").next().unwrap().ends_with("NewWindowResponse::Deny"));
         let browser = |u: &str| new_window_opens_in_browser(&Url::parse(u).unwrap());
         assert!(browser("https://learn.microsoft.com/fabric/"));
         for page in ["http://example.com/", "tauri://localhost/index.html", "http://tauri.localhost/#", "https://tauri.localhost/index.html?popout=runs",

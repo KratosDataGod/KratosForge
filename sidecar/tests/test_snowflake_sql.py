@@ -759,3 +759,25 @@ def test_object_pick_with_one_key_column_reads_it_as_a_key():
                      "object_pick(parse_json('{\"a\": 1, \"b\": 2}'), parse_json('[\"b\"]'))::string "
                      "FROM (SELECT 'a' AS k)")
     assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":1}', '{"b":2}')
+
+
+@pytest.mark.parametrize("code,rule", [
+    ("SELECT to_decfloat('1.5')", "SFN-018"), ("SELECT try_to_decfloat(a) FROM t", "SFN-018"),
+    ("SELECT CAST(a AS DECFLOAT) FROM t", "SFN-018"),
+    ("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
+     "DEFINE x AS a > 0)", "SFN-019"),
+    ("INSERT OVERWRITE INTO t SELECT * FROM s", "SFN-020"),
+])
+def test_decfloat_match_recognize_and_insert_overwrite_are_refused_by_name(code, rule):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == rule
+
+
+def test_a_plain_insert_still_runs():
+    assert sf.translate("INSERT INTO t SELECT * FROM s").duckdb_sql == "INSERT INTO t SELECT * FROM s"
+
+
+def test_time_of_a_timestamp_is_its_time_of_day():
+    import duckdb
+    t = sf.translate("SELECT time(ts) FROM (SELECT '2024-01-01 10:20:30'::timestamp AS ts)")
+    assert str(duckdb.connect().execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"

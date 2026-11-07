@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.8"
+RULES_VERSION = "2026.11.9"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -270,6 +270,10 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
             return _refuse("SFN-011", f"{kind.title()} objects", f"A {kind.lower()} exists only in Snowflake.")
     if isinstance(statement, (exp.Grant, exp.Revoke)):
         return _refuse("SFN-010", "Access control", "Roles and grants exist only in Snowflake.")
+    if isinstance(statement, exp.Insert) and statement.args.get("overwrite"):
+        return _refuse("SFN-020", "INSERT OVERWRITE", "Snowflake empties the table and inserts in one statement "
+                       "inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT "
+                       "written here wouldn't be one statement.", f"{_DOCS}/sql/insert")
     if isinstance(statement, exp.Undrop):
         return _refuse("SFN-007", "UNDROP", "Restoring a dropped object uses Snowflake's Time Travel.")
     if isinstance(statement, (exp.Copy, exp.Put)):
@@ -299,6 +303,13 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, (exp.Func, exp.Collate)) and _function_name(node) in _TEXT_FEATURES:
             return _refuse("SFN-017", f"{_function_name(node)}: a Snowflake feature DuckDB lacks",
                            _TEXT_FEATURES[_function_name(node)], f"{_DOCS}/functions/{_function_name(node).lower()}")
+        if isinstance(node, (exp.ToDecfloat, exp.TryToDecfloat)) or (
+                isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
+            return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
+                           "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
+        if isinstance(node, exp.MatchRecognize):
+            return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
+                           f"{_DOCS}/constructs/match_recognize")
         if isinstance(node, exp.Func) and _function_name(node) in _SKETCH_FUNCTIONS:
             return _refuse("SFN-016", f"{_function_name(node)}: Snowflake sketch and bitmap states",
                            "It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB "
@@ -576,6 +587,15 @@ def _binary_valued(node: exp.Expression) -> bool:
         return node.to.this in (exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY, exp.DataType.Type.BLOB)
     return isinstance(node, (exp.Unhex, exp.FromBase64, exp.TryBase64DecodeBinary, exp.TryHexDecodeBinary)) or (
         type(node).__name__ in ("Base64DecodeBinary", "HexDecodeBinary", "ToBinary", "TryToBinary"))
+
+
+def _rewrite_time(statement: exp.Expression) -> None:
+    """SFX-017: TIME(x) is TO_TIME(x): the time of a string or of a timestamp. sqlglot writes it as a cast
+    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read."""
+    for node in list(statement.find_all(exp.Time)):
+        if node.this is None:  # TIME() with no argument: left for sqlglot, which refuses it (SFX-000)
+            continue
+        node.replace(exp.Cast(this=node.this.copy(), to=exp.DataType.build("TIME")))
 
 
 def _rewrite_strings(statement: exp.Expression) -> None:
@@ -1307,6 +1327,7 @@ CATALOG = (
                 "keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys "
                 "as text. Arguments are worked out more than once, which matters only when they aren't "
                 "deterministic."),
+    ("SFX-017", "Rewritten", "TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1349,6 +1370,11 @@ CATALOG = (
     ("SFN-017", "Runs only in Snowflake", "SEARCH and SEARCH_IP (Snowflake's search analyzers), COLLATE (Snowflake "
                 "collation specifications), HASH_AGG (Snowflake's own hash), and XML: CHECK_XML, PARSE_XML, "
                 "XMLGET, TO_XML."),
+    ("SFN-018", "Runs only in Snowflake", "DECFLOAT, TO_DECFLOAT and TRY_TO_DECFLOAT: DuckDB has no decimal "
+                "floating-point type."),
+    ("SFN-019", "Runs only in Snowflake", "MATCH_RECOGNIZE: DuckDB has no row pattern matching."),
+    ("SFN-020", "Runs only in Snowflake", "INSERT OVERWRITE: DuckDB has none, and a DELETE then INSERT wouldn't be "
+                "one statement."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -1382,6 +1408,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
         _rewrite_strings(tree)
+        _rewrite_time(tree)
         _rewrite_objects(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)

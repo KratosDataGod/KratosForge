@@ -1,6 +1,6 @@
 // Monitor > Runs, the Forge Activity view (Preview, forge-activity.js, LX-05): today's counts in the
 // header, a lane for each of the three most recent running runs with only real progress, the band
-// on by default from Refined, the outcome of a finished run once, and nothing animating in Professional.
+// on by default from Heroic, the outcome of a finished run once, and nothing animating in Professional.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -51,7 +51,7 @@ async function open() {
   await page().locator(".forge-strip").waitFor({ timeout: 10000 });
 }
 
-test("the strip counts today's runs and the band is on by default at Refined, with lanes for the three newest", { skip }, async () => {
+test("the strip counts today's runs and the band is on by default at Heroic, with lanes for the three newest", { skip }, async () => {
   meta = [...RUNNING_META, ...DONE_META];
   cloud = FABRIC_RUNNING;
   await open();
@@ -78,7 +78,7 @@ test("the strip counts today's runs and the band is on by default at Refined, wi
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("Run all on this PC shows cell N of M with a bar that follows the cells, and the wolf at Refined", { skip }, async () => {
+test("Run all on this PC shows cell N of M with a bar that follows the cells, and the wolf at Heroic", { skip }, async () => {
   meta = [];
   cloud = [];
   await page().evaluate(() => {
@@ -90,7 +90,7 @@ test("Run all on this PC shows cell N of M with a bar that follows the cells, an
   const bar = lane.getByRole("progressbar");
   assert.strictEqual(await bar.getAttribute("aria-valuenow"), "3");
   assert.strictEqual(await bar.getAttribute("aria-valuemax"), "6");
-  assert.ok(await lane.locator(".forge-wolf").isVisible(), "no wolf at Refined");
+  assert.ok(await lane.locator(".forge-wolf").isVisible(), "no wolf at Heroic");
   await page().evaluate(() => { openNotebooks.get("TPC-H data").forgeRun.done = 4; });
   await page().waitForFunction(() => /cell 5 of 6/.test(document.querySelector(".forge-lane.steps").textContent));
   assert.strictEqual(await bar.getAttribute("aria-valuenow"), "4");
@@ -154,7 +154,7 @@ test("Professional keeps the text and the bar, without the wolf or any animation
     openNotebooks.set("Quiet", { name: "Quiet", cells: [], forgeRun: { done: 1, total: 4, started: Date.now(), result: null, ended: null } });
   });
   await open();
-  assert.strictEqual(await page().locator(".forge-band").count(), 0, "the band was on below Refined");
+  assert.strictEqual(await page().locator(".forge-band").count(), 0, "the band was on below Heroic");
   await page().getByRole("checkbox", { name: "Forge view" }).check();
   const lane = page().locator(".forge-lane.steps");
   await lane.waitFor();

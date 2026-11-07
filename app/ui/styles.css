@@ -3220,14 +3220,14 @@ tr.fg-conflict { background: var(--danger-soft); }
    band with up to three lanes beside a small forge scene. Text and bars show at every level; the
    scene's loops, the wolf and the sheen only where motion.js allows them (data-motion, the ambient
    and wolf families), and nothing moves while Windows reduces motion. */
-.forge-strip { display: flex; min-height: 48px; max-height: 64px; box-sizing: border-box; background: var(--surface);
+.forge-strip { display: flex; flex-wrap: wrap; min-height: 48px; max-width: 100%; box-sizing: border-box; background: var(--surface);
   border: 1px solid var(--border); border-radius: 8px; }
 .forge-stat { display: flex; flex-direction: column; justify-content: center; padding: 6px 14px; }
 .forge-stat + .forge-stat { border-left: 1px solid var(--border); }
 .forge-stat b { font-size: 18px; line-height: 1.2; }
 .forge-stat.ok b { color: var(--ok); }
 .forge-stat.bad b { color: var(--danger); }
-.forge-strip-slot { margin-left: auto; }
+.forge-strip-slot { margin-left: auto; max-width: 100%; min-width: 0; }
 .forge-toggle { margin-left: 4px; }
 .forge-band { position: relative; flex: none; min-height: 180px; margin-bottom: 12px; border-radius: 10px; overflow: hidden;
   background: var(--forge-band); border: 1px solid var(--forge-band-edge); color: var(--text); }
@@ -3298,4 +3298,11 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   html:not([data-motion-override]) .forge-sparks { display: none; }
 }
 @media (max-width: 900px) { .forge-scene { display: none; } .forge-side { width: 100%; min-width: 0; } }
+/* Narrow windows: the counts go two by two and a lane stacks its time under its status. */
+@media (max-width: 600px) {
+  .forge-stat { flex: 1 1 45%; }
+  .forge-stat + .forge-stat { border-left: 0; }
+  .forge-lane { grid-template-columns: 1fr; gap: 4px; }
+  .forge-time { flex-direction: row; gap: 6px; text-align: left; }
+}
 @media (forced-colors: active) { .forge-band { background: Canvas; border-color: CanvasText; } .forge-glow, .forge-sparks { display: none; } }

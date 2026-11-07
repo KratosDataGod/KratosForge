@@ -43,6 +43,14 @@ export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run note
 export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on the editor channel's port, so this window "
   + "sent it nothing. Restart KratosForge, then try again.";
 
+/** The editor channel API this extension speaks (editor_channel.API_VERSION). An app that reports a
+ * newer one has changed its routes, so this window stops before it misreads a reply. */
+export const API_VERSION = 1;
+export const APP_TOO_NEW = "This KratosForge is newer than this extension. Install kratosforge.vsix from "
+  + "KratosForge's latest release, then reload this window.";
+export const EXTENSION_TOO_OLD = "This extension is too old for this KratosForge. Install kratosforge.vsix from "
+  + "KratosForge's latest release, then reload this window.";
+
 interface Reply { status: number; payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } } | null }
 
 function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer): Promise<Reply> {
@@ -77,14 +85,20 @@ export class Channel {
    * user on this PC could take the same port, and a remembered proof would still match. */
   private async prove(where: { port: number; hello: string }): Promise<void> {
     const nonce = crypto.randomBytes(24).toString("hex");
-    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}`, {});
-    const proof = reply.payload?.ok ? String((reply.payload.result as { proof?: unknown })?.proof ?? "") : "";
+    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}&api=${API_VERSION}`, {});
+    const result = (reply.payload?.ok ? reply.payload.result : null) as { proof?: unknown; api?: unknown } | null;
+    const proof = result ? String(result.proof ?? "") : "";
     const want = crypto.createHmac("sha256", where.hello).update(nonce).digest();
     const got = Buffer.from(proof, "hex");
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
       if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
+      if (reply.payload?.error?.code === "extension_too_old") throw new ChannelError(reply.status, "extension_too_old", EXTENSION_TOO_OLD);
       throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
     }
+    // Proven, so the version is KratosForge's own. An app from before versions were reported speaks 1.
+    const api = result?.api === undefined ? 1 : result.api;
+    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (api > API_VERSION) throw new ChannelError(0, "app_too_new", APP_TOO_NEW);
   }
 
   private async request(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {

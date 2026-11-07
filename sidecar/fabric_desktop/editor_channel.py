@@ -13,8 +13,9 @@ connections are open at once, and one that sends nothing for 5 seconds is closed
 ``X-KratosForge-Hello`` (only programs that can read this user's data folder have it); everything
 else needs ``Authorization: Bearer <token>`` from a pairing (editor_pairing.py).
 
-    GET    /v1/hello?nonce=         {"proof"}: HMAC-SHA256(hello, nonce), so a window can tell it's
-                                    KratosForge before it sends the hello or a token
+    GET    /v1/hello?nonce=&api=    {"proof", "api"}: HMAC-SHA256(hello, nonce), so a window can tell
+                                    it's KratosForge before it sends the hello or a token, and the
+                                    channel's API version, so either side can say which to update
     POST   /v1/pair                 {"window", "client"}  ->  {"id", "code", "expires_in"}
     GET    /v1/pair/<id>            {"state": waiting | paired | denied | expired, "token" once}
     DELETE /v1/pair                 ends this window's pairing
@@ -49,6 +50,8 @@ MAX_BODY_BYTES = 1024 * 1024
 MAX_CONNECTIONS = 16  # open at once; each holds an engine thread until it ends
 MAX_WAIT_SECONDS = 25.0
 PORT_FILE = "editor-port"
+API_VERSION = 1  # the channel's routes and replies; raised when an extension must change to keep working
+OLDEST_CLIENT_API = 1  # an extension that speaks an older API is told to update
 
 
 class Refused(Exception):
@@ -155,7 +158,12 @@ class Channel:
             nonce = _field(query, "nonce", limit=128)
             if len(nonce) < 16:
                 raise Refused(400, "invalid_input", "nonce should be at least 16 characters.")
-            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest()}
+            client_api = _int(query.get("api"), API_VERSION)
+            if client_api < OLDEST_CLIENT_API:
+                raise Refused(426, "extension_too_old", "This KratosForge extension for VS Code is too old for this "
+                              "KratosForge. Install kratosforge.vsix from KratosForge's latest release.")
+            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest(),
+                    "api": API_VERSION}
         if method == "POST" and path == "/v1/pair":
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):

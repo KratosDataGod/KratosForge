@@ -1,0 +1,154 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E14",
+  "title": "OneLake security roles for folders and tables",
+  "objectives": [
+    "1.3.3"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "LM-24"
+  ],
+  "objective_text": "Design OneLake security roles on a lakehouse so each group reads only its folders, and decide what to do with the DefaultReader role.",
+  "scenario": "SalesLH holds sales tables, HR tables and exported files. Analysts and partner auditors have ReadAll on it, and right now that shows them everything, HR salaries included. You're turning on OneLake security roles so each group sees only its part.",
+  "engine_label": "A model of a lakehouse's OneLake security roles, checked on this PC",
+  "verifies": [
+    "Your roles give each group Read on just its folders, remove the role that gives every ReadAll user all the data, and leave the Contributors out, as the OneLake security model describes it, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the roles work in Fabric: nothing is set on a lakehouse here.",
+    "Row- and column-level security inside a role, and how they combine across roles.",
+    "Shortcuts, whose access depends on passthrough or delegated identity."
+  ],
+  "expected": {
+    "description": "No DefaultReader. SalesReaders: Analysts and Mia, Read, Tables/sales. HRReaders: HR and Mia, Read, Tables/hr. AuditReaders: Auditors, Read, Files/exports/audit."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Someone with ReadAll would still see every table, HR included.",
+      "pass": "Nobody gets data just for having ReadAll.",
+      "rules": [
+        {
+          "path": "roles.DefaultReader",
+          "absent": true,
+          "why": "DefaultReader gives everyone with ReadAll all the data. Once OneLake security is on, ReadAll grants data only through it, so remove it and grant each group its folders."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A role covers the wrong data or the wrong people.",
+      "pass": "Each role covers exactly the folders its members need.",
+      "rules": [
+        {
+          "path": "roles.SalesReaders.data",
+          "contains": "Tables/sales",
+          "why": "A folder's permission applies to everything under it."
+        },
+        {
+          "path": "roles.SalesReaders.data",
+          "count": 1
+        },
+        {
+          "path": "roles.SalesReaders.members",
+          "contains": "Analysts"
+        },
+        {
+          "path": "roles.SalesReaders.members",
+          "contains": "Mia"
+        },
+        {
+          "path": "roles.HRReaders.data",
+          "contains": "Tables/hr"
+        },
+        {
+          "path": "roles.HRReaders.data",
+          "count": 1
+        },
+        {
+          "path": "roles.HRReaders.members",
+          "contains": "HR"
+        },
+        {
+          "path": "roles.HRReaders.members",
+          "contains": "Mia",
+          "why": "Roles combine as a union: Mia in both roles sees both folders."
+        },
+        {
+          "path": "roles.AuditReaders.data",
+          "contains": "Files/exports/audit"
+        },
+        {
+          "path": "roles.AuditReaders.data",
+          "count": 1,
+          "why": "Only the audit folder: not exports, not Files."
+        },
+        {
+          "path": "roles.AuditReaders.members",
+          "contains": "Auditors"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A role gives more than reading, or lists people it can't affect.",
+      "pass": "Every role is Read, and no role lists the Contributors.",
+      "rules": [
+        {
+          "path": "roles.SalesReaders.permission",
+          "equals": "Read",
+          "why": "Nobody here writes through a role; ReadWrite would let them."
+        },
+        {
+          "path": "roles.HRReaders.permission",
+          "equals": "Read",
+          "why": "Nobody here writes through a role; ReadWrite would let them."
+        },
+        {
+          "path": "roles.AuditReaders.permission",
+          "equals": "Read",
+          "why": "Nobody here writes through a role; ReadWrite would let them."
+        },
+        {
+          "path": "roles.SalesReaders.members",
+          "not_contains": "Engineers",
+          "why": "Admins, Members and Contributors have Write through the workspace; a role adds nothing for them."
+        },
+        {
+          "path": "roles.HRReaders.members",
+          "not_contains": "Engineers",
+          "why": "Admins, Members and Contributors have Write through the workspace; a role adds nothing for them."
+        },
+        {
+          "path": "roles.AuditReaders.members",
+          "not_contains": "Engineers",
+          "why": "Admins, Members and Contributors have Write through the workspace; a role adds nothing for them."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "What does DefaultReader give, and to whom?",
+    "A permission on a folder applies to its files and subfolders. Pick the smallest folder that covers each need.",
+    "Someone in two roles gets the union of both.",
+    "Do Contributors need a role to read data?"
+  ],
+  "explanation": "OneLake security is deny by default: with it on, ReadAll grants data only through the DefaultReader role, which covers everything. To limit people with ReadAll, remove DefaultReader and grant roles on the folders each group needs. A folder's permission covers everything under it, and someone in several roles gets their union, so Mia joins both. Roles only grant, never deny, and they matter only for Viewers: Admins, Members and Contributors keep access through Write.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (data-access-control-model): DefaultReader (Read, all users with ReadAll); with OneLake security on, ReadAll grants data only through DefaultReader; deny by default, Grant roles only; folder permissions apply downward; roles combine as a union; Admin, Member and Contributor keep access through Write and default roles apply only to Viewers."
+  ]
+}

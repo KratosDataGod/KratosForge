@@ -1,0 +1,55 @@
+{
+  "_about": "A model of a deployment pipeline. stages lists the stages in order. rules lists deployment rules as {stage, item, rule, value}, where rule is \"data source\", \"parameter\" or \"default lakehouse\" (a parameter rule's value is {name: value}). copied_by_deploy says, for each kind of content, whether deploying copies it (true) or it has to be set up in each stage (false).",
+  "items": {
+    "Load sales": "Notebook. Its default lakehouse is SalesLH_Dev in Development.",
+    "Sales model": "Semantic model with a parameter Environment (\"Development\" in Development).",
+    "SalesLH_Dev": "Lakehouse in Development. Test and Production each have their own lakehouse."
+  },
+  "needs": [
+    "Three stages: Development, Test and Production.",
+    "In Test, Load sales uses SalesLH_Test, and Sales model's Environment is \"Test\".",
+    "In Production, Load sales uses SalesLH_Prod, and Sales model's Environment is \"Production\"."
+  ],
+  "stages": [
+    "Development",
+    "Test",
+    "Production"
+  ],
+  "rules": [
+    {
+      "stage": "Test",
+      "item": "Load sales",
+      "rule": "default lakehouse",
+      "value": "SalesLH_Test"
+    },
+    {
+      "stage": "Test",
+      "item": "Sales model",
+      "rule": "parameter",
+      "value": {
+        "Environment": "Test"
+      }
+    },
+    {
+      "stage": "Production",
+      "item": "Load sales",
+      "rule": "default lakehouse",
+      "value": "SalesLH_Prod"
+    },
+    {
+      "stage": "Production",
+      "item": "Sales model",
+      "rule": "parameter",
+      "value": {
+        "Environment": "Production"
+      }
+    }
+  ],
+  "copied_by_deploy": {
+    "notebook code": true,
+    "lakehouse table data": false,
+    "workspace permissions": true,
+    "semantic model refresh schedule": false,
+    "semantic model data source credentials": false
+  }
+}

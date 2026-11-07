@@ -7,6 +7,7 @@ section that switches both off. Annotate a file and take it off the list; never 
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -74,3 +75,11 @@ def test_the_list_of_unannotated_files_only_shrinks():
 
 def test_no_wildcards_on_the_list():
     assert not [m for m in _unannotated() if "*" in m], "list files one by one, so the list can only shrink"
+
+
+def test_no_file_switches_the_checks_off_inline():
+    """A ``# mypy: allow-untyped-defs`` (or ``allow-incomplete-defs``) comment would get around the list."""
+    package = PYPROJECT.parent / "fabric_desktop"
+    found = [str(p.relative_to(package.parent)) for p in package.rglob("*.py")
+             if re.search(r"#\s*mypy:.*allow[-_](untyped|incomplete)[-_]defs", p.read_text(encoding="utf-8"))]
+    assert not found, f"{found} switch mypy's annotation checks off inline: annotate the functions instead"

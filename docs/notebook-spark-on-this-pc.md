@@ -62,7 +62,14 @@ and `log1p`, NULL at or below zero where DuckDB's would stop the cell; `pow` and
 (NULL below 0 or above 20) and `bin`; `locate`, `substring_index`, `translate`, `char_length` and
 `character_length`; and `split` with a `limit` (at most that many parts, the last holding the rest).
 `rand(seed)` and `randn(seed)` give the same numbers each run for a seed, also in `filter`, but not the
-numbers Spark gives, which depend on how Spark splits the data. `format_string` and `conv` aren't there yet.
+numbers Spark gives, which depend on how Spark splits the data.
+
+`format_string` and `printf` follow Java's formatter, as Spark does, in `F`, `selectExpr` and `spark.sql`:
+a NULL argument prints as `null` (`false` for `%b`), `%x` and `%o` print a negative number as its two's
+complement, `%f` rounds half up, and a double prints as Java writes it (`1.0E20`). `%d` of a double is an
+error, as in Spark. `%g`, `%c`, `%h`, `%t` and the `#`, `(` and `<` flags stop the cell with a message instead
+of printing something else. `conv` rewrites a number between bases as Spark's does. `selectExpr` and
+`F.expr` read Spark SQL as `spark.sql` does and name a column as Spark does, such as `(id + 1)`.
 
 ### DataFrame: 81 of 102
 

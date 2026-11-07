@@ -459,7 +459,7 @@ def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(pa
                 + b"Content-Type: application/json\r\nContent-Length: " + str(n).encode() + b"\r\n\r\n" + body)
 
     cases = {
-        "garbage request line": (b"\x00\xff\xfe nonsense\r\n\r\n", {400}),
+        "garbage request line": (b"\x00\xff\xfe nonsense HTTP/1.1\r\n\r\n", {501}),
         "unknown method": (b"PUT /v1/run HTTP/1.1\r\nHost: " + host + b"\r\n\r\n", {501}),
         "header line too long": (b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\nX: " + b"a" * 70000 + b"\r\n\r\n", {431, 400}),
         "too many headers": (b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n"
@@ -480,6 +480,10 @@ def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(pa
                                    + host + b"\r\n" + auth + b"\r\n", {200}),
         "query with control characters": (b"GET /v1/variables?path=%00%0d%0a HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + b"\r\n", {400, 403, 404}),
     }
+    # Two words is an HTTP/0.9 request to http.server: refused 400, though some Python releases answer
+    # it as HTTP/0.9 does, with the error page and no status line.
+    reply = _raw(port, b"\x00\xff\xfe nonsense\r\n\r\n")
+    assert _status(reply) == 400 or (reply.startswith(b"<!DOCTYPE") and b"400" in reply), reply[:200]
     for name, (data, want) in cases.items():
         started = time.monotonic()
         reply = _raw(port, data)

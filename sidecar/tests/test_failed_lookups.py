@@ -155,6 +155,7 @@ def _shown(svc):
 
 def test_a_failed_fix_leaves_the_finding_visible(vacuum_svc, monkeypatch):
     svc, _uri, _jobs = vacuum_svc
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)  # signed in: the risk check passes
     _scan(svc, dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1))
     svc.xray_vacuum("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev", finding_id=_finding_id(FINDING))
     _job(svc, monkeypatch, "InProgress")
@@ -168,6 +169,7 @@ def test_a_failed_fix_leaves_the_finding_visible(vacuum_svc, monkeypatch):
 
 def test_a_fix_counts_only_once_the_job_completes_and_a_later_scan_can_show_it_again(vacuum_svc, monkeypatch):
     svc, _uri, _jobs = vacuum_svc
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)  # signed in: the risk check passes
     now = dt.datetime.now(dt.timezone.utc)
     _scan(svc, now - dt.timedelta(hours=1))
     svc.xray_vacuum("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev", finding_id=_finding_id(FINDING))

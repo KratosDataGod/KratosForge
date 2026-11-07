@@ -270,34 +270,41 @@ async function optimizeDialog(f, box, res, refresh = false) {
   if (start.disabled) start.title = "The risk check found something that stops this run";
 }
 
-// Vacuum one table: a dry run first says what it would delete and how much history it keeps.
-async function vacuumDialog(f, box, res) {
+// Vacuum one table: a dry run first says what it would delete and how much history it keeps, with
+// the same risk check as Optimize. Blocked has no Vacuum button; warnings need the box ticked when the
+// settings ask for it. The engine checks again on start, as it does for Optimize.
+async function vacuumDialog(f, box, res, refresh = false) {
   const label = f.schema ? `${f.schema}.${f.table}` : f.table;
-  const body = h("div", {}, h("p", { class: "muted-text" }, `Checking what Vacuum would delete from ${label}...`));
+  const body = h("div", { class: "wl-confirm" }, h("p", { class: "muted-text" }, `Checking what Vacuum would delete from ${label} and its capacity...`));
   const vacuumBtn = btn("Vacuum", "delete", async () => {
+    if (ack && !ack.querySelector("input").checked) { toast("Tick \"I've looked at these\" first, or cancel.", true); return; }
     vacuumBtn.disabled = true;
-    const r = await attempt(() => rpc("xray_vacuum", vacuumArgs(f)), "Vacuum not started");
+    const r = await attempt(() => rpc("xray_vacuum", { ...vacuumArgs(f), risk_id: risk?.id || "" }), "Vacuum not started");
     if (!r) { vacuumBtn.disabled = false; return; }
     closeDialog();
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Vacuuming ${label} in Fabric, keeping ${r.keep_days} days of history. Follow it in Monitor.`, false, { log: true });
     redrawXray(box, res);
   }, "tool danger-solid");
+  let ack = null, risk = null;
   vacuumBtn.disabled = true;
   showDialog(`Vacuum ${label}`, body, [btn("Cancel", null, closeDialog, "tool outline"), vacuumBtn]);
-  const { workspace_id, lakehouse_id, table, schema, lakehouse_name } = vacuumArgs(f);
-  const p = await attempt(() => rpc("xray_vacuum_preview", { workspace_id, lakehouse_id, table, schema, lakehouse_name }),
+  const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
+  const p = await attempt(() => rpc("xray_vacuum_preview", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, refresh }),
     "Could not check the table");
   if (!p) { closeDialog(); return; }
+  risk = p.risk;
+  ack = riskAckBox(p.risk);
   const what = p.files
     ? `Vacuum deletes ${p.files.toLocaleString()} old file${p.files === 1 ? "" : "s"}${p.bytes != null ? ` (${sizeText(p.bytes)})` : ""} that no version in the last ${p.keep_days} days reads.`
     : `Nothing to delete yet: every old file is still inside the ${p.keep_days} days of history this table keeps.`;
   body.replaceChildren(
     h("p", { class: "text" }, what),
     h("p", { class: "muted-text small" }, `It keeps ${p.keep_days} days of history (${p.why}), so Restore and time travel still reach back that far. `,
-      "It runs in Fabric as table maintenance, VACUUM only, and does not compact files."),
-  );
-  vacuumBtn.disabled = !p.files;
+      "It runs in Fabric as table maintenance, VACUUM only, does not compact files, and uses capacity."),
+    riskPanel(p.risk, { onRecheck: () => { closeDialog(); vacuumDialog(f, box, res, true); }, box: ack }));
+  vacuumBtn.disabled = !p.files || p.risk?.result === "blocked";
+  if (p.risk?.result === "blocked") vacuumBtn.title = "The risk check found something that stops this run";
 }
 
 // Remove one leftover Dataflow Gen2 staging lakehouse: the engine checks again, live, that a newer
@@ -346,22 +353,43 @@ async function stagingDialog(f, box, res) {
 }
 
 // Every shown "Needs vacuum" finding, one Fabric job each, each keeping its own table's history.
-function vacuumAll(findings, box, res) {
+// Each table's risk check runs first: only tables that pass start here. A table with warnings or a
+// block is left for its own Vacuum dialog, which shows the check and asks before going ahead.
+async function vacuumAll(findings, box, res) {
+  const body = h("div", {}, h("p", { class: "muted-text" }, `Checking ${findings.length} tables and their capacity...`));
+  const go = btn(`Vacuum ${findings.length}`, "delete", () => run(), "tool danger-solid");
+  go.disabled = true;
+  showDialog(`Vacuum ${findings.length} tables`, body, [btn("Cancel", null, closeDialog, "tool outline"), go]);
+  const ready = [], held = [];
+  for (const f of findings) {
+    const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
+    try {
+      const p = await rpc("xray_vacuum_preview", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name });
+      const result = p.risk?.result;
+      if (result === "blocked" || result === "warning") held.push({ f, why: result === "blocked" ? "blocked" : "has warnings" });
+      else if (p.files) ready.push({ f, risk_id: p.risk?.id || "" });
+    } catch { held.push({ f, why: "couldn't be checked" }); }
+  }
   const run = async () => {
     closeDialog();
     let started = 0;
     const failed = [];
-    for (const f of findings) {
-      try { const r = await rpc("xray_vacuum", vacuumArgs(f)); f.fix = { state: "submitted", job_id: r.job_id }; started++; } catch { failed.push(f.table); }
+    for (const { f, risk_id } of ready) {
+      try { const r = await rpc("xray_vacuum", { ...vacuumArgs(f), risk_id }); f.fix = { state: "submitted", job_id: r.job_id }; started++; } catch { failed.push(f.table); }
     }
     toast(failed.length ? `Started ${started} vacuums. Not started: ${failed.join(", ")}` : `Started ${started} vacuums in Fabric. Follow them in Monitor.`,
       !!failed.length, { log: true });
     redrawXray(box, res);
   };
-  showDialog(`Vacuum ${findings.length} tables`, h("p", { class: "text" },
-    "Each table is vacuumed in Fabric as its own table maintenance job. Each keeps the history it promises: at least 7 days, ",
-    "or its layer's Keep history days, or its own retention setting, whichever is longest."),
-  [btn("Cancel", null, closeDialog, "tool outline"), btn(`Vacuum ${findings.length}`, "delete", run, "tool danger-solid")]);
+  const name = ({ f }) => (f.schema ? `${f.schema}.${f.table}` : f.table);
+  body.replaceChildren(
+    h("p", { class: "text" },
+      "Each table is vacuumed in Fabric as its own table maintenance job, and uses capacity. Each keeps the history it promises: at least 7 days, ",
+      "or its layer's Keep history days, or its own retention setting, whichever is longest."),
+    held.length ? h("p", { class: "reason small" }, `Not started here, so open each one's Vacuum to see its risk check: `,
+      held.map((x) => `${name(x)} (${x.why})`).join(", "), ".") : "");
+  go.replaceChildren(icon("delete", 16), `Vacuum ${ready.length}`);
+  go.disabled = !ready.length;
 }
 
 function xrayLakehouses(rows) {

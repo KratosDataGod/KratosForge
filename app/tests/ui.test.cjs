@@ -1553,6 +1553,19 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
+// X-ray's Vacuum and Vacuum all run the same risk check as Optimize, and send the id of the assessment seen.
+test("Estate X-ray's Vacuum and Vacuum all run the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function vacuumDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /rpc\("xray_vacuum_preview"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id: risk\?\.id/);
+  assert.match(dialog, /result === "blocked"/);
+  const all = /async function vacuumAll\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(all, /rpc\("xray_vacuum_preview"[\s\S]*rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id \}\)/);
+  assert.match(all, /result === "blocked" \|\| result === "warning"/, "tables with warnings or a block don't start from Vacuum all");
+  assert.ok(!/rpc\("xray_vacuum", vacuumArgs\(f\)\)/.test(xray), "every Vacuum call carries the risk id");
+});
+
 test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");

@@ -126,6 +126,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.2-q5",
+      "type": "single",
+      "stem": "A Copy activity moves a large dataset and should use as much compute as the service can give it. Which intelligent throughput optimization option should you choose?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Balanced"
+        },
+        {
+          "id": "b",
+          "text": "Auto"
+        },
+        {
+          "id": "c",
+          "text": "Standard"
+        },
+        {
+          "id": "d",
+          "text": "Maximum"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Maximum lets the service apply throughput optimization using the maximum available compute. Standard and Balanced use fewer resources, and Auto lets the service decide.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-activity-performance-and-scalability-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.2-q6",
+      "type": "single",
+      "stem": "You set a Copy activity's Degree of copy parallelism to 32, but the run used fewer parallel copies. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The setting only applies when intelligent throughput optimization is Auto"
+        },
+        {
+          "id": "b",
+          "text": "The setting only applies inside a ForEach activity"
+        },
+        {
+          "id": "c",
+          "text": "The setting is ignored unless V-Order is turned on"
+        },
+        {
+          "id": "d",
+          "text": "The setting is a maximum, and at run time the copy uses a value less than or equal to it"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Degree of copy parallelism is the maximum number of threads; at run time the copy uses a value less than or equal to it. It's independent of intelligent throughput optimization.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-activity-performance-and-scalability-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.2-q7",
+      "type": "single",
+      "stem": "A ForEach runs Copy activities for 200 tables in parallel, and the source database becomes overloaded. You want to keep some parallelism but limit it. What should you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Remove the Items expression from the ForEach"
+        },
+        {
+          "id": "b",
+          "text": "Increase each Copy activity's Degree of copy parallelism"
+        },
+        {
+          "id": "c",
+          "text": "Set the ForEach Batch count to a lower number"
+        },
+        {
+          "id": "d",
+          "text": "Select Sequential and set the Batch count to 200"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Batch count sets the maximum number of items processed at the same time when Sequential isn't selected. Sequential removes all parallelism, and higher copy parallelism adds load.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.2-q8",
+      "type": "single",
+      "stem": "A ForEach with Sequential cleared contains three child activities: Lookup, Copy and Script. How does it run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Items run one at a time, and the three child activities run in parallel"
+        },
+        {
+          "id": "b",
+          "text": "All child activities of all items start at the same time"
+        },
+        {
+          "id": "c",
+          "text": "Several items run in parallel, and for each item the three child activities run in order"
+        },
+        {
+          "id": "d",
+          "text": "Only the first child activity runs in parallel across items"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Without Sequential, multiple items run in parallel, but each item goes through the child activities in order.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.2-q9",
+      "type": "single",
+      "stem": "A pipeline uses a Copy activity to move data from lakehouse tables into a warehouse in the same workspace. Which approach could be more performant and efficient?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use CTAS or INSERT ... SELECT that reads the lakehouse table from the warehouse"
+        },
+        {
+          "id": "b",
+          "text": "Export the tables to CSV files and use a second Copy activity"
+        },
+        {
+          "id": "c",
+          "text": "Run singleton INSERT statements in a ForEach"
+        },
+        {
+          "id": "d",
+          "text": "Use a Dataflow Gen2 with staging disabled"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The warehouse guidance says CTAS or INSERT combined with SELECT FROM lakehouse tables or shortcuts could be more performant and efficient than pipelines. Singleton inserts create many small files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.2-q10",
+      "type": "multiple",
+      "stem": "Which two settings on a Copy activity's Settings tab can you change to improve its throughput? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sequential"
+        },
+        {
+          "id": "b",
+          "text": "Degree of copy parallelism"
+        },
+        {
+          "id": "c",
+          "text": "Retention"
+        },
+        {
+          "id": "d",
+          "text": "Intelligent throughput optimization"
+        },
+        {
+          "id": "e",
+          "text": "Batch count"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Intelligent throughput optimization and Degree of copy parallelism are Copy activity performance settings. Batch count and Sequential belong to ForEach, and retention belongs to other items.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-activity-performance-and-scalability-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

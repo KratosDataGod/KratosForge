@@ -125,6 +125,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.3-q5",
+      "type": "single",
+      "stem": "A warehouse query is slow the first time it runs after a load, then fast. In queryinsights.exec_requests_history, which column tells you that a cold start affected the first run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A nonzero `data_scanned_remote_storage_mb`"
+        },
+        {
+          "id": "b",
+          "text": "A nonzero `result_cache_hit`"
+        },
+        {
+          "id": "c",
+          "text": "A zero `row_count`"
+        },
+        {
+          "id": "d",
+          "text": "A `status` of Canceled"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A nonzero data_scanned_remote_storage_mb means data was read from remote storage, which indicates a cold start. result_cache_hit is about result set caching.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.3-q6",
+      "type": "multiple",
+      "stem": "You load CSV files from Azure Data Lake Storage into several warehouse tables with COPY INTO. Which two practices maximize throughput? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Convert the files to many single-row INSERT statements"
+        },
+        {
+          "id": "b",
+          "text": "Split the data into thousands of 1 MB files"
+        },
+        {
+          "id": "c",
+          "text": "Run multiple COPY INTO statements in parallel to load different tables"
+        },
+        {
+          "id": "d",
+          "text": "Load all tables with one COPY INTO statement after another in a single session"
+        },
+        {
+          "id": "e",
+          "text": "Make each file ideally between 100 MB and 1 GB"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "The guidance asks for files of 100 MB to 1 GB and parallel COPY INTO statements into different tables. Tiny files and single-row inserts hurt performance.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.3-q7",
+      "type": "single",
+      "stem": "A team wants to disable V-Order on a write-heavy staging warehouse to reduce ingestion overhead. What must they know first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "V-Order can only be disabled per table, not per warehouse"
+        },
+        {
+          "id": "b",
+          "text": "Disabling V-Order also turns off automatic statistics"
+        },
+        {
+          "id": "c",
+          "text": "Once V-Order is disabled on a warehouse, it can't be re-enabled"
+        },
+        {
+          "id": "d",
+          "text": "Disabling V-Order deletes the warehouse's query insights history"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "V-Order adds a small ingestion overhead, but disabling it on a warehouse is permanent. The other statements aren't in the guidance.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.3-q8",
+      "type": "single",
+      "stem": "Reports use a lakehouse table through its SQL analytics endpoint. After many small writes the queries slow down. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run UPDATE STATISTICS on the SQL analytics endpoint every hour"
+        },
+        {
+          "id": "b",
+          "text": "Disable result set caching on the SQL analytics endpoint"
+        },
+        {
+          "id": "c",
+          "text": "Wait, because automatic data compaction runs on lakehouse tables too"
+        },
+        {
+          "id": "d",
+          "text": "Run OPTIMIZE on the lakehouse table, because warehouse data compaction doesn't apply to the lakehouse"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Data compaction runs automatically for Fabric Data Warehouse but doesn't apply to the lakehouse; for lakehouse tables you run OPTIMIZE after big changes.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.3-q9",
+      "type": "single",
+      "stem": "A warehouse table was created with `CLUSTER BY (CustomerId)`, but most queries now filter on SaleDate. How do you change the clustering column?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run `UPDATE STATISTICS` on SaleDate"
+        },
+        {
+          "id": "b",
+          "text": "Create a new table with CTAS and `WITH (CLUSTER BY (SaleDate))`"
+        },
+        {
+          "id": "c",
+          "text": "Run `ALTER TABLE ... CLUSTER BY (SaleDate)`"
+        },
+        {
+          "id": "d",
+          "text": "Use `SELECT INTO` with a CLUSTER BY clause"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Clustering columns can't be changed after creation; you use CTAS to create a new table with the desired clustering. SELECT INTO with data clustering isn't supported.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.3-q10",
+      "type": "single",
+      "stem": "You choose a data clustering column for a large warehouse fact table. Which column is the best candidate?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An IDENTITY column used as the surrogate key"
+        },
+        {
+          "id": "b",
+          "text": "A low cardinality column such as a two-value flag"
+        },
+        {
+          "id": "c",
+          "text": "A mid-to-high cardinality column used often in WHERE predicates"
+        },
+        {
+          "id": "d",
+          "text": "A column used only in equality join conditions"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Mid-to-high cardinality columns that appear often in WHERE predicates give the best file pruning. Low cardinality columns give little pruning, equality joins don't benefit, and IDENTITY columns can't be used.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

@@ -126,6 +126,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.3-q5",
+      "type": "single",
+      "stem": "A Direct Lake on SQL analytics endpoint semantic model's refresh succeeds but shows a warning, and report queries have become slower. A table has grown past a guardrail and fallback is enabled. What is happening?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The model is falling back to DirectQuery mode for queries"
+        },
+        {
+          "id": "b",
+          "text": "The model is loading the table in Import mode until the next refresh"
+        },
+        {
+          "id": "c",
+          "text": "The model is returning cached results from the last successful refresh"
+        },
+        {
+          "id": "d",
+          "text": "The model is skipping the oversized table and returning partial results"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "For Direct Lake on SQL, exceeding a guardrail makes the model fall back to DirectQuery when fallback is enabled: refresh succeeds with a warning and queries still work but more slowly. It doesn't switch to Import or skip the table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.3-q6",
+      "type": "single",
+      "stem": "A Direct Lake on OneLake semantic model's refresh fails after a Delta table grew past the model's guardrail limits. What must you do so the model can be queried again?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete the model's refresh history"
+        },
+        {
+          "id": "b",
+          "text": "Optimize the Delta tables so that they fall within the guardrail limits"
+        },
+        {
+          "id": "c",
+          "text": "Enable DirectQuery fallback on the model"
+        },
+        {
+          "id": "d",
+          "text": "Switch the model to a larger capacity's shared workspace"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "For Direct Lake on OneLake, exceeding guardrails makes refresh fail, and the model can't be queried until the Delta tables are optimized to fit the limits. Fallback to DirectQuery applies to Direct Lake on SQL, not Direct Lake on OneLake.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.3-q7",
+      "type": "single",
+      "stem": "You use Performance Analyzer in Power BI Desktop to check whether a visual on a Direct Lake model is served in Direct Lake mode. What tells you that the model fell back?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The visual shows a Visual display metric only"
+        },
+        {
+          "id": "b",
+          "text": "The visual shows a Direct query performance metric"
+        },
+        {
+          "id": "c",
+          "text": "The visual shows a DAX query time of zero"
+        },
+        {
+          "id": "d",
+          "text": "The visual's row count is shown in red"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "If the model falls back to DirectQuery to process the visual's DAX query, Performance Analyzer shows a Direct query metric. A visual without DirectQuery processing was handled in Direct Lake mode.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-analyze-query-processing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.3-q8",
+      "type": "multiple",
+      "stem": "You trace a Direct Lake semantic model with SQL Server Profiler while users open a report. Which two statements about the trace are correct? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Any EngineEdition query in the trace proves that the model fell back"
+        },
+        {
+          "id": "b",
+          "text": "DirectQuery_Begin and DirectQuery_End events suggest that the model might have fallen back to DirectQuery"
+        },
+        {
+          "id": "c",
+          "text": "VertiPaq SE query events show that the query fell back to DirectQuery"
+        },
+        {
+          "id": "d",
+          "text": "VertiPaq SE query events show that the query was processed in Direct Lake mode"
+        },
+        {
+          "id": "e",
+          "text": "Direct Lake queries produce no events at all in a Profiler trace"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "DirectQuery Begin/End events point to a possible fallback, and VertiPaq storage engine events indicate Direct Lake processing. EngineEdition and OLS checks always use DirectQuery and don't mean a fallback.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-analyze-query-processing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.3-q9",
+      "type": "single",
+      "stem": "Reports on a Direct Lake on SQL analytics endpoint model are slow on one table only. That table is based on a SQL view in the warehouse. What is the likely reason?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Direct Lake can't load data from a SQL view, so queries on that table fall back to DirectQuery"
+        },
+        {
+          "id": "b",
+          "text": "SQL views disable V-Order on the underlying tables"
+        },
+        {
+          "id": "c",
+          "text": "SQL views are copied into Import mode at each refresh, which slows the queries"
+        },
+        {
+          "id": "d",
+          "text": "SQL views make the model refresh only once per day"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Direct Lake on SQL analytics endpoints falls back to DirectQuery when the source is a SQL view, because it can't load the data directly from a Delta table. A lakehouse materialized view creates Delta tables and avoids this.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.3-q10",
+      "type": "single",
+      "stem": "A Power Automate flow refreshes an import semantic model after a load. The refresh failed, but the model owner got no failure email, although failure notifications are turned on. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Failure emails are only sent after three consecutive failures"
+        },
+        {
+          "id": "b",
+          "text": "Failure emails are only sent for models on shared capacity"
+        },
+        {
+          "id": "c",
+          "text": "Failure emails are only sent to users outside the tenant"
+        },
+        {
+          "id": "d",
+          "text": "Refreshes triggered programmatically, such as through Power Automate, don't trigger email notifications"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "On-demand and programmatically triggered refreshes don't send failure emails; notifications apply to scheduled refresh. External users can't be recipients at all.",
+      "source": "https://learn.microsoft.com/en-us/power-bi/connect-data/refresh-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

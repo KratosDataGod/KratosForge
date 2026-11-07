@@ -125,6 +125,197 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q5",
+      "type": "single",
+      "stem": "The Native Execution Engine is enabled, but a notebook step that applies a Python user-defined function doesn't get faster. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The engine only accelerates writes, not reads"
+        },
+        {
+          "id": "b",
+          "text": "The engine doesn't support UDFs, so those operations fall back to the JVM engine"
+        },
+        {
+          "id": "c",
+          "text": "The engine needs V-Order on the source table"
+        },
+        {
+          "id": "d",
+          "text": "The engine only works with Fabric runtime 1.2"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Native Execution Engine doesn't support UDFs, array_contains or structured streaming, and those operations fall back to the JVM engine automatically. It isn't available on Runtime 1.2.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitoring-best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q6",
+      "type": "single",
+      "stem": "A new workspace runs mostly read-heavy Spark queries. New workspaces default to the writeHeavy profile. Which code switches the session to a read-optimized Spark profile?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`spark.conf.set(\"spark.sql.shuffle.partitions\", \"readHeavy\")`"
+        },
+        {
+          "id": "b",
+          "text": "`spark.conf.set(\"spark.fabric.resourceProfile\", \"writeHeavy\")`"
+        },
+        {
+          "id": "c",
+          "text": "`spark.conf.set(\"spark.fabric.resourceProfile\", \"readHeavyForSpark\")`"
+        },
+        {
+          "id": "d",
+          "text": "`spark.conf.set(\"spark.native.enabled\", \"readHeavyForPBI\")`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Resource profiles are set with spark.fabric.resourceProfile; readHeavyForSpark targets read-heavy Spark workloads. writeHeavy is the default that disables V-Order.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitoring-best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q7",
+      "type": "single",
+      "stem": "A Spark job's shuffle stages create far more tiny tasks than the data needs. Which setting, with a default of 200, should you tune based on data volume?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`spark.native.enabled`"
+        },
+        {
+          "id": "b",
+          "text": "`spark.databricks.delta.autoCompact.enabled`"
+        },
+        {
+          "id": "c",
+          "text": "`spark.sql.shuffle.partitions`"
+        },
+        {
+          "id": "d",
+          "text": "`spark.sql.files.maxPartitionBytes`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "spark.sql.shuffle.partitions defaults to 200 and should be tuned to the data volume. maxPartitionBytes tunes reads, not shuffles.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitoring-best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q8",
+      "type": "single",
+      "stem": "Several notebooks run one after another with the same lakehouse, environment and Spark settings, and each one waits for a new session to start. What reduces this startup time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn on V-Order for each table"
+        },
+        {
+          "id": "b",
+          "text": "Increase the default session timeout to 24 hours"
+        },
+        {
+          "id": "c",
+          "text": "Run VACUUM before each notebook"
+        },
+        {
+          "id": "d",
+          "text": "Enable high concurrency mode so that the notebooks share one session"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "High concurrency mode lets notebooks with the same lakehouse, environment and configs share a session and removes startup overhead. Active sessions use CU, so stop them when idle.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitoring-best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q9",
+      "type": "single",
+      "stem": "You want Spark to estimate the ideal target file size for Delta tables from table heuristics and re-evaluate it at each OPTIMIZE. Which setting do you turn on?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`spark.fabric.resourceProfile`"
+        },
+        {
+          "id": "b",
+          "text": "`spark.sql.parquet.vorder.default`"
+        },
+        {
+          "id": "c",
+          "text": "`spark.microsoft.delta.adaptiveTargetFileSize.enabled`"
+        },
+        {
+          "id": "d",
+          "text": "`spark.databricks.delta.optimizeWrite.enabled`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Adaptive target file size uses Delta table heuristics to estimate the ideal file size and re-evaluates it at each OPTIMIZE; it's recommended but not on by default.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitoring-best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q10",
+      "type": "multiple",
+      "stem": "Which two things does Adaptive Query Execution (AQE) do at run time? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Install missing Python libraries in the session"
+        },
+        {
+          "id": "b",
+          "text": "Remove unreferenced files older than seven days"
+        },
+        {
+          "id": "c",
+          "text": "Apply V-Order to files written by the query"
+        },
+        {
+          "id": "d",
+          "text": "Coalesce post-shuffle partitions"
+        },
+        {
+          "id": "e",
+          "text": "Apply skew-join optimization"
+        }
+      ],
+      "answer": [
+        "d",
+        "e"
+      ],
+      "explanation": "AQE uses runtime statistics to coalesce post-shuffle partitions, convert sort-merge joins to broadcast joins and apply skew-join optimization. V-Order, VACUUM and library installation are unrelated.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitoring-best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

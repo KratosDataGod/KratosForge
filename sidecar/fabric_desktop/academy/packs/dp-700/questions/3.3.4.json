@@ -126,6 +126,197 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q5",
+      "type": "single",
+      "stem": "Data queued into a KQL table arrives about five minutes late, and the table receives too little data to reach the size or count limits of the batching policy. The business needs it within one minute. What should you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Increase the table's caching policy"
+        },
+        {
+          "id": "b",
+          "text": "Increase MaximumRawDataSizeMB to 4096"
+        },
+        {
+          "id": "c",
+          "text": "Reduce the time limit (MaximumBatchingTimeSpan) of the ingestion batching policy"
+        },
+        {
+          "id": "d",
+          "text": "Add a materialized view on the table"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "With low data volume, batches seal on the time limit (default 5 minutes), so lowering the time limit reduces latency. Increasing size limits would make batches wait longer.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/batching-policy?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q6",
+      "type": "single",
+      "stem": "A dashboard queries a materialized view over a very large table. Users accept results that are a few minutes old in return for faster queries. What should the query use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The view name directly, which always includes the delta"
+        },
+        {
+          "id": "b",
+          "text": "The source table with `take 1000`"
+        },
+        {
+          "id": "c",
+          "text": "`materialized_view(\"ViewName\")` to query only the materialized part"
+        },
+        {
+          "id": "d",
+          "text": "`set notruncation;` before the view name"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The materialized_view() function queries only the materialized part, which is faster but isn't guaranteed to have the newest records. Querying the view directly also processes the delta.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q7",
+      "type": "single",
+      "stem": "An eventstream must handle more than 100 MB/s of incoming events. Which event throughput level should you choose?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Standard"
+        },
+        {
+          "id": "b",
+          "text": "Medium"
+        },
+        {
+          "id": "c",
+          "text": "Low"
+        },
+        {
+          "id": "d",
+          "text": "High"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Throughput levels are Low (< 10 MB/s), Medium (10-100 MB/s) and High (> 100 MB/s). Standard isn't an eventstream throughput level.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/configure-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q8",
+      "type": "single",
+      "stem": "An eventhouse is used by an alerting system that can't tolerate the few seconds of latency when the suspended service reactivates. What should you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "OneLake availability on every table"
+        },
+        {
+          "id": "b",
+          "text": "A shorter retention policy on every database"
+        },
+        {
+          "id": "c",
+          "text": "A minimum capacity in Capacity Planner so that the eventhouse is always active"
+        },
+        {
+          "id": "d",
+          "text": "The eventstream retention to 90 days"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Eventhouses suspend when not in use to save cost; for time-sensitive systems you configure Capacity Planner so the eventhouse stays active. Retention and OneLake availability don't prevent suspension.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q9",
+      "type": "single",
+      "stem": "A team keeps eventstream retention at 7 days and wants to lower costs. What should they know about retention billing?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Retention is free up to the 90-day maximum"
+        },
+        {
+          "id": "b",
+          "text": "Retention longer than one day incurs OneLake storage charges"
+        },
+        {
+          "id": "c",
+          "text": "Retention can't be changed after the eventstream is created"
+        },
+        {
+          "id": "d",
+          "text": "Retention is billed through the Eventstream Processor Per Hour operation"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Retention is billed separately, and setting it beyond one day incurs OneLake storage charges. The default is one day and the maximum is 90 days.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor-capacity-consumption",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q10",
+      "type": "multiple",
+      "stem": "Most eventhouse queries extract fields from a dynamic column and convert Unix time to datetime across millions of rows. Which two tasks should you move to ingestion time with an update policy? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Converting Unix time to the datetime data type"
+        },
+        {
+          "id": "b",
+          "text": "Picking which table goes on the left of a join"
+        },
+        {
+          "id": "c",
+          "text": "Choosing between has and contains in filters"
+        },
+        {
+          "id": "d",
+          "text": "Setting the query's servertimeout"
+        },
+        {
+          "id": "e",
+          "text": "Extracting fields from the dynamic column"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "The best practices say to materialize dynamic fields and convert Unix time to datetime at ingestion with update policies, so you pay once. Operator choice, join order and timeouts are query-time decisions.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

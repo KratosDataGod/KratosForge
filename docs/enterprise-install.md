@@ -251,6 +251,7 @@ What we suggest until signing lands:
 
 - Use the [managed update model](#pick-an-update-model): copy `kratosforge.exe` to `C:\Program Files\KratosForge\` with `"auto_update": false`. Under App Control, add a hash rule for each build.
 - Allow the engine by hash from a reference PC after the app has installed its engine once, and again for each engine build that changes packages (the release notes say when). Under AppLocker, `Get-AppLockerFileInformation` piped to `New-AppLockerPolicy -RuleType Publisher,Hash` does this. Under App Control, add a signer rule for the Python Software Foundation and `New-CIPolicy -Level FilePublisher -Fallback Hash -UserPEs` on the engine folder. A path rule on the engine folder is simpler but lets the user run anything they put there, because they can write to it.
+- Or install the engine yourself in a folder only administrators can write, so a path rule covers it ([Keep the engine in a folder only administrators can write](#keep-the-engine-in-a-folder-only-administrators-can-write-preview), Preview).
 - For notebook packages, use `notebook_package_folder` and allow its wheels' files by hash, or turn the features off with `"allow_notebook_packages": false` and `"allow_dbconnect_install": false`.
 - Run shell commands with `%%powershell` or `!command` rather than `%%cmd`; don't allow `%TEMP%`.
 - Under script enforcement PowerShell runs in Constrained Language Mode, so "also run while signed out" on a schedule can't be saved. Ordinary schedules are unaffected.

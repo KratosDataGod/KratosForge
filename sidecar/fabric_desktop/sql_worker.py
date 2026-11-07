@@ -240,6 +240,20 @@ def _take_stdin() -> Any:
     return engine
 
 
+def error_message(exc: BaseException, job: dict[str, Any]) -> tuple[str, str]:
+    """The kind and message a failed run reports: DuckDB's own words, except where they mislead."""
+    from . import disk_full
+    message = str(exc).strip() or type(exc).__name__
+    if "configuration has been locked" in message:
+        return "sql", ("A query can't change the run's settings (memory, threads, files). They come from "
+                       "Settings › SQL.")
+    if disk_full.is_spill_full(message):  # DuckDB calls a full temp drive running out of memory
+        return "disk", disk_full.spill_message(job.get("temp_dir"))
+    if disk_full.is_disk_full(exc):
+        return "disk", disk_full.message(job.get("out"), "Nothing was saved.")
+    return "sql", message
+
+
 _engine: Any = None
 
 
@@ -256,11 +270,8 @@ def main() -> None:
     try:
         run(job)
     except BaseException as exc:  # noqa: BLE001 - every failure goes back to the engine as a message
-        message = str(exc).strip() or type(exc).__name__
-        if "configuration has been locked" in message:
-            message = ("A query can't change the run's settings (memory, threads, files). They come from "
-                       "Settings › SQL.")
-        _say("error", kind="sql", message=message[:4000])
+        kind, message = error_message(exc, job)
+        _say("error", kind=kind, message=message[:4000])
     # Leave without the interpreter's shutdown. _listen is still blocked reading stdin, which the
     # engine keeps open until this process ends; on Windows closing stdin then waits for that read
     # to finish, so a normal exit would hang every finished run.

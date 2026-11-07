@@ -1557,6 +1557,20 @@ def test_a_parameter_with_an_underscore_is_refused_as_fabric_did():
     assert err.value.code == "MetadataValidationError"
 
 
+def test_a_default_on_a_dict_parameter_is_refused_as_fabric_did():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    code = files["function_app.py"].replace("operation: str,\n              args: dict)",
+                                            "operation: str,\n              args: dict = None)")
+    assert code != files["function_app.py"]
+    with pytest.raises(FabricError, match=r"Function 'call_once' \(line \d+\): Default values are not allowed for "
+                       r"'dict' type parameters") as err:
+        check_item("UserDataFunction", {**files, "function_app.py": code})
+    assert err.value.code == "MetadataValidationError"
+
+
 def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
     from tests.fabric_refusals import UDF_NO_ARTIFACT_TYPE, check_item
     files = udf.definition("ws", "sql")

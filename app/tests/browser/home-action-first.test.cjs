@@ -20,8 +20,9 @@ async function home(storage = {}) {
   return app.page;
 }
 
-// Top of each part of Home, in page order.
-const order = (p) => p.evaluate(() => [...document.querySelector(".page.home").children].map((e) =>
+// Top of each part of Home, in page order. With the Living Experience hero (Preview), the parts sit in
+// .home-main beside the progression panel.
+const order = (p) => p.evaluate(() => [...(document.querySelector(".page.home .home-main") || document.querySelector(".page.home")).children].map((e) =>
   e.matches(".home-start") ? "start" : e.matches(".ready") ? "ready" : e.querySelector?.(":scope h2")?.textContent === "Recent notebooks" ? "recent"
     : e.matches(".callout") ? "callout" : e.matches(".get-started") ? "get-started" : null).filter(Boolean));
 
@@ -46,7 +47,7 @@ test("signed out, Home asks to sign in once and says Fabric wasn't checked", { s
   assert.ok(!(await order(p)).includes("callout"));  // Ready to work already asks
   assert.strictEqual(await p.locator('.page.home button:text-is("Sign in")').count(), 1);
   assert.doesNotMatch(await p.textContent(".get-started"), /Sign in/);
-  assert.match(await p.textContent(".page.home > .sub"), /^Sign in so KratosForge can check Fabric\. Notebooks run on this PC either way\.$/);
+  assert.match(await p.textContent(".page.home .home-head + .sub"), /^Sign in so KratosForge can check Fabric\. Notebooks run on this PC either way\.$/);
 });
 
 test("with Ready to work hidden, the sign-in callout asks instead, and only it", { skip }, async () => {

@@ -15,6 +15,7 @@ from . import model_dictionary, sql_exec
 from .jsonfile import write_text
 from .meta import mesh
 from .redact import describe
+from . import known_folders
 
 METHODS = {"meta_model_dictionary", "meta_model_dictionary_export", "meta_model_dictionary_save",
            "meta_model_dictionary_preview", "meta_model_dictionary_import"}
@@ -53,7 +54,7 @@ class ModelDictionaryMixin:
     def meta_model_dictionary_export(self, layer: str | None = None) -> dict[str, Any]:
         """The dictionary as a new CSV in Downloads; never replaces a file."""
         _, layer, items, _ = self._dictionary(layer)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, f"SM_{layer.title()} data dictionary", ".csv")
         path.write_text(model_dictionary.to_csv(items), encoding="utf-8-sig")  # the mark tells Excel it's UTF-8

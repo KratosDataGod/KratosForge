@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
 
 from . import access as access_mod
@@ -28,6 +27,7 @@ from .fabric_api import FabricClient, FabricError
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
 from .redact import describe
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 RISKS_REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
@@ -160,7 +160,7 @@ class ShortcutMixin:
         if ids is not None:
             by_id = {r["id"]: r for r in rows}
             rows = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
         # The mark tells Excel it's UTF-8; newline="" keeps the CSV's own \r\n (Windows would make it \r\r\n)

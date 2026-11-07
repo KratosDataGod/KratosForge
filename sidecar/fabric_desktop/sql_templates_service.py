@@ -29,6 +29,7 @@ from typing import Any
 
 from .filenames import file_stem
 from . import jsonfile
+from . import known_folders
 
 METHODS = {"sql_templates_list", "sql_template_save", "sql_template_import", "sql_template_delete",
            "sql_template_export"}
@@ -237,7 +238,7 @@ class SqlTemplatesMixin:
         """Copies a template to a new file in Downloads; an existing file is never replaced."""
         src = self._template_file(place, name)
         text = src.read_text(encoding="utf-8")
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         stem = file_stem(src.stem, "Template")
         for n in range(1, 1000):

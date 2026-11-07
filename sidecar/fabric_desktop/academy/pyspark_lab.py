@@ -143,10 +143,11 @@ def run_reference(work: Path, code: str) -> dict[str, Any]:
     """Run first-party code (a pack's reference solution or planted wrong answer) in a ``python -I`` process
     with an empty environment. Never for a learner's answer: that is ``run_learner``."""
     jsonfile.write_text(Path(work) / ANSWER_FILE, code)
-    env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")}
+    env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")} | {"PYTHONIOENCODING": "utf-8"}
     try:
         p = subprocess.run([sys.executable, "-I", "-c", BOOTSTRAP, str(_package_dir()), str(work)], cwd=work,
-                           env=env, capture_output=True, text=True, timeout=RUN_SECONDS, check=False)
+                           env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=RUN_SECONDS, check=False)
     except subprocess.TimeoutExpired:
         return {"status": "time_limit", "stdout": "", "stderr": ""}
     return {"status": "ok" if p.returncode == 0 else "error", "stdout": p.stdout[-4000:], "stderr": p.stderr[-4000:]}

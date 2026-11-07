@@ -220,8 +220,8 @@ def _cli_token(args: list[str], run: Callable[..., Any]) -> tuple[str, float | N
         raise DatabricksAuthError("The Databricks CLI isn't installed or isn't on PATH. Install it from "
                                   "https://docs.databricks.com/dev-tools/cli/install.html, then sign in.")
     try:
-        done = run([cli, "auth", "token", *args], capture_output=True, text=True, timeout=CLI_TIMEOUT,
-                   stdin=subprocess.DEVNULL)
+        done = run([cli, "auth", "token", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                   timeout=CLI_TIMEOUT, stdin=subprocess.DEVNULL)  # the CLI (Go) writes UTF-8 whatever the code page
     except subprocess.TimeoutExpired:
         raise DatabricksAuthError("The Databricks CLI didn't answer within a minute.") from None
     except OSError as exc:   # found on PATH, but Windows or a policy wouldn't start it

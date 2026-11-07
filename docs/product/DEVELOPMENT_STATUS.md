@@ -7,6 +7,9 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
+- Acceptance, 2026-11-07: the product owner accepted PB-130 (data product promises, status and change windows) with
+  documented limitations. All three screens are Preview and untested on a Fabric tenant, Status is only as current as
+  the team's own incident check, and the change window warns but never blocks a promote.
 - Morning check, 2026-11-07: 83 PRs merged after c750da45. 2 were product data and docs audit PRs; the other 81 were
   linked, 54 of them type checks, tests and hardening (PB-101). The engine's type-check baseline is now empty, so every
   module type-checks. A stopped local Delta write cleans up after itself, and each commit is flushed to disk before the

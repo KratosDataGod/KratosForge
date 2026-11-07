@@ -303,6 +303,13 @@ const RANK_GLYPH = { check: "check", "apprentice": "flame", "forge-initiate": "a
   "master-forger": "crown", "pack-runner": "paw", "trailfinder": "eye", "wolf-guardian": "shield", "pack-leader": "paw",
   "argonaut": "spark", "cyclops-smith": "bolt", "forge-architect": "proof", "legend-of-the-forge": "spark" };
 
+// Ranks with approved shield art (docs/design/art/ranks, logged in docs/design/assets.md); the rest are drawn.
+// Literal paths only (HD-052): each rank's art is a fixed file in app/ui/art/ranks.
+const RANK_ART = {
+  "forge-initiate": (on) => (on ? h("img", { src: "art/ranks/forge-initiate-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/forge-initiate-inactive.webp", alt: "" })),
+};
+
 function rankGlyph(id, size = 34) {
   const d = RANK_GLYPHS[RANK_GLYPH[id]] || BADGE_GLYPHS[RANK_GLYPH[id]] || BADGE_GLYPHS.spark;
   const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -329,9 +336,16 @@ function rankShield(r, i) {
   const here = i === r.number - 1;
   const cls = ["rk-shield", x.held ? "held" : "locked", here ? "current" : "", i === r.ladder.length - 1 ? "top" : ""].filter(Boolean).join(" ");
   const state = here ? "your rank" : x.held ? "held" : x.coming_soon ? "coming soon" : r.next?.id === x.id ? "next" : "not yet";
-  return h("li", { class: cls, "aria-current": here ? "step" : null, "aria-label": `${x.name}, rank ${i + 1} of ${r.of}, ${state}` },
-    h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(x.id),
-      h("b", { class: "rk-shield-name" }, x.name), h("span", { class: "rk-shield-sub" }, `Rank ${i + 1}`))));
+  const label = [h("b", { class: "rk-shield-name" }, x.name), h("span", { class: "rk-shield-sub" }, `Rank ${i + 1}`)];
+  const attrs = { "aria-current": here ? "step" : null, "aria-label": `${x.name}, rank ${i + 1} of ${r.of}, ${state}` };
+  // Chris's approved shield art where it exists: the glowing one marks your rank, the plain one every other.
+  if (RANK_ART[x.id]) {
+    return h("li", { class: `${cls} has-art`, ...attrs },
+      RANK_ART[x.id](here),
+      h("div", { class: "rk-shield-label" }, ...label));
+  }
+  return h("li", { class: cls, ...attrs },
+    h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(x.id), ...label)));
 }
 
 function rankProgression(r) {
@@ -387,11 +401,11 @@ function profileRanks(p) {
   const first = nxt && (nxt.checks.find((c) => !c.met) || nxt.checks[0]);
   const nextCard = h("section", { class: "card pad rk-next" },
     h("h2", {}, "Next rank"),
-    nxt ? h("div", { class: "row" }, h("span", { class: "rk-next-icon" }, rankGlyph(nxt.id, 30)),
+    nxt ? h("div", { class: "row" }, h("span", { class: "rk-next-icon" }, RANK_ART[nxt.id] ? RANK_ART[nxt.id](false) : rankGlyph(nxt.id, 30)),
       h("div", {}, h("b", { class: "rk-name" }, nxt.name),
-        h("div", { class: "muted-text" }, nxt.coming_soon ? "Coming soon: its lessons haven't shipped yet" : first ? first.text : "")))
+        h("div", { class: "muted-text" }, first ? `${first.text}${first.coming_soon ? " (coming soon: its lessons haven't shipped yet)" : ""}` : "")))
       : h("p", { class: "muted-text" }, "You hold every rank there is."),
-    first ? h("div", { class: "row rk-next-bar" },
+    first && !first.coming_soon ? h("div", { class: "row rk-next-bar" },
       h("div", { class: "profile-bar grow", role: "progressbar", "aria-label": first.text,
         "aria-valuemin": "0", "aria-valuemax": String(first.need), "aria-valuenow": String(first.have) },
         h("div", { style: `width:${Math.round((100 * first.have) / first.need)}%` })),
@@ -410,7 +424,6 @@ function profileRanks(p) {
       reward(`The ${here.name} title on your profile`),
       reward("A picture prompt for your own profile badge",
         btn("Copy prompt", null, () => copyText(here.prompt, "Picture prompt"), "tool link small")),
-      p.settings.record ? reward("Progress and XP from verified work") : null,
       nxt ? reward(`Opens the next rank: ${nxt.name}`) : null));
   const full = profilePage.fullPath ? profileRankPath(r) : null;
   return h("div", { class: "profile-col rk-page" }, hero,

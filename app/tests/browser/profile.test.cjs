@@ -118,6 +118,19 @@ test("Ranks shows your rank, the Forge progression, the next rank's requirements
   assert.doesNotMatch(await page.locator(".profile").innerText(), /\bgod\b|deity|divine/i);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-full.png"), fullPage: true });
   await page.getByRole("button", { name: "Hide full rank path" }).click();
+  // Chris's approved art for Forge Initiate: plain while it is ahead, glowing once it is your rank. Labels stay real text.
+  const art = page.locator(".rk-shield.has-art");
+  assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-inactive.webp");
+  assert.match(await art.innerText(), /Forge Initiate\s+Rank 2/);
+  const saved = structuredClone(r);
+  Object.assign(r, { number: 2, rank: r.ladder[1].name, next: r.ladder[2] });
+  r.ladder[1].held = true;
+  await page.evaluate(() => render());
+  await page.locator('.rk-shield.has-art[aria-current="step"]').waitFor();
+  assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-active.webp");
+  assert.strictEqual(await art.locator("img").evaluate((i) => i.naturalWidth > 0), true);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-forge-initiate.png"), fullPage: true });
+  data.profile.ranks = saved;
 });
 
 test("a profile picture shows on the page and the account button, and the letter comes back without one (PB-125)", { skip }, async () => {

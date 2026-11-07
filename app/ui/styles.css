@@ -2428,6 +2428,12 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .rk-shield.current { filter: drop-shadow(0 0 8px var(--rk-glow)); }
 .rk-shield.current .rk-shield-edge { background: var(--rk-gold-edge); }
 .rk-shield.current .rk-shield-name { color: var(--rk-gold-edge); }
+.rk-shield.has-art { position: relative; width: 146px; height: 176px; margin: -20px -14px; filter: none; }
+.rk-shield.has-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.rk-shield-label { position: absolute; left: 24%; right: 24%; top: 53%; display: flex; flex-direction: column; align-items: center; text-align: center;
+  color: var(--rk-shield-ink); text-shadow: 0 1px 3px var(--lx-hero-shadow); }
+.rk-shield-label .rk-shield-name { font-size: 13px; }
+.rk-shield.has-art.current .rk-shield-name { color: var(--rk-gold-edge); }
 .rk-link { flex: 1 1 24px; min-width: 18px; height: 4px; border-radius: 2px; background: var(--border-soft); position: relative; }
 .rk-link.held { background: var(--rk-gold-edge); }
 .rk-link.gap { min-width: 64px; background: repeating-linear-gradient(90deg, var(--border-soft) 0 6px, transparent 6px 10px); }
@@ -2436,6 +2442,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .rk-next-icon { width: 64px; height: 64px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: var(--accent-soft); color: var(--accent); }
 .rk-next-icon svg path { fill: currentColor; }
+.rk-next-icon img { height: 54px; width: auto; }
 .rk-next-bar { align-items: center; }
 .rk-next > .tool { margin-top: auto; justify-content: center; }
 .rk-reqs:focus { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.9"
+RULES_VERSION = "2026.11.10"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -157,6 +157,12 @@ SFD_APPROX = _n("SFD-010", "Approximate answers use DuckDB's estimators",
                  "estimate can be off even for a few values: 11 distinct values can count as 12.",
                  "Use COUNT(DISTINCT ...) or PERCENTILE_CONT where an exact answer matters.",
                  f"{_DOCS}/functions/approx_percentile")
+SFD_LINEAR = _n("SFD-011", "INTERPOLATE_LINEAR gives a DOUBLE",
+                "Snowflake's INTERPOLATE_LINEAR returns the input's type; here the filled value is a DOUBLE, "
+                "because the input's type isn't known when the SQL is rewritten. Snowflake's docs don't say how "
+                "it rounds a filled value for a whole-number column, so no rounding is done here.",
+                "Cast the result (ROUND, or ::NUMBER) where a whole number is needed.",
+                f"{_DOCS}/functions/interpolate_bfill")
 SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
                 "Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written "
                 "with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL "
@@ -778,6 +784,153 @@ def _rewrite_objects(statement: exp.Expression) -> None:
             _object_function(node)
 
 
+_EVENT_FUNCTIONS = ("CONDITIONAL_TRUE_EVENT", "CONDITIONAL_CHANGE_EVENT", "INTERPOLATE_FFILL", "INTERPOLATE_BFILL",
+                    "INTERPOLATE_LINEAR")
+
+
+def _event_refusal(name: str, why: str) -> _Untranslatable:
+    page = "interpolate_bfill" if name.startswith("INTERPOLATE") else name.lower()
+    return _Untranslatable(_refuse("SFX-018", name, why, f"{_DOCS}/functions/{page}"))
+
+
+def _over(window: exp.Window, func: exp.Expression, frame: str, order: exp.Expression | None = None) -> exp.Window:
+    """``func`` over ``window``'s partition and order (or ``order``), with ``frame`` (a ROWS frame)."""
+    spec = cast(exp.Window, sqlglot.parse_one(f"f() OVER (ORDER BY 1 ROWS {frame})", read="duckdb")).args["spec"]
+    over = exp.Window(this=func, partition_by=[p.copy() for p in window.args.get("partition_by") or []],
+                      order=(order or window.args["order"]).copy(), spec=spec, over="OVER")
+    return over
+
+
+def _ignoring_nulls(func: type[exp.Func], value: exp.Expression) -> exp.Expression:
+    return exp.IgnoreNulls(this=func(this=value))
+
+
+def _linear(window: exp.Window, value: exp.Expression) -> exp.Expression:
+    """INTERPOLATE_LINEAR: a NULL between two values is put on the line between them, by the distance of its
+    ORDER BY value (a number, or a DATE or timestamp as seconds) from theirs."""
+    order = window.args["order"].expressions
+    if len(order) != 1:
+        raise _event_refusal("INTERPOLATE_LINEAR", "INTERPOLATE_LINEAR needs exactly one ORDER BY expression.")
+    from .sql import _with_args
+    key = _with_args("CASE WHEN variant_typeof(CAST(fj_arg0 AS VARIANT)) = 'DATE' OR variant_typeof(CAST(fj_arg0 AS "
+                     "VARIANT)) LIKE 'TIMESTAMP%' THEN epoch(CAST(CAST(fj_arg0 AS VARIANT) AS TIMESTAMP)) "
+                     "ELSE CAST(CAST(fj_arg0 AS VARIANT) AS DOUBLE) END", [order[0].this])
+    seen_key = _with_args("CASE WHEN fj_arg0 IS NOT NULL THEN fj_arg1 END", [value, key])
+    before, after = "BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING", "BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING"
+    parts = [value, exp.paren(key, copy=False),
+             _over(window, _ignoring_nulls(exp.LastValue, value.copy()), before),
+             _over(window, _ignoring_nulls(exp.LastValue, seen_key.copy()), before),
+             _over(window, _ignoring_nulls(exp.FirstValue, value.copy()), after),
+             _over(window, _ignoring_nulls(exp.FirstValue, seen_key.copy()), after)]
+    return _with_args("CASE WHEN fj_arg0 IS NOT NULL THEN fj_arg0 WHEN fj_arg5 = fj_arg3 THEN fj_arg2 "
+                      "ELSE fj_arg2 + (fj_arg4 - fj_arg2) * (fj_arg1 - fj_arg3) / (fj_arg5 - fj_arg3) END", parts)
+
+
+def _event_select(window: exp.Window) -> exp.Select:
+    """The SELECT a window function belongs to."""
+    select = window.find_ancestor(exp.Select)
+    if select is None:
+        raise _event_refusal(str(cast(exp.Anonymous, window.this).this).upper(), "It is rewritten only in a SELECT.")
+    return select
+
+
+def _hoist(select: exp.Select, flags: list[tuple[exp.Window, exp.Expression]]) -> None:
+    """Window functions can't nest in DuckDB, so each event's 0-or-1 flag (worked out with LAG or another
+    window) and its row's place are worked out in a subquery over the SELECT's FROM and WHERE, and the
+    count is a running sum over them outside it. A SELECT that joins, groups or aggregates isn't rewritten."""
+    source = select.args.get("from_")
+    name = str(cast(exp.Anonymous, flags[0][0].this).this).upper()
+    shape = ("It is rewritten in a SELECT from one table or subquery without JOIN, GROUP BY, HAVING or an "
+             "aggregate; put that SELECT in a subquery first.")
+    if (source is None or select.args.get("joins") or select.args.get("group") or select.args.get("having")
+            or select.args.get("laterals") or not isinstance(source.this, (exp.Table, exp.Subquery, exp.Values))
+            or any(isinstance(a, exp.AggFunc) and a.find_ancestor(exp.Window, exp.Select) is select
+                   for e in select.expressions for a in e.find_all(exp.AggFunc))):
+        raise _event_refusal(name, shape)
+    table = source.this
+    alias = table.alias_or_name or "__sf_source"  # a subquery without a name can only be read by column name
+    placed = exp.select(exp.Star()).from_(table.copy())
+    where = select.args.get("where")
+    if where is not None:
+        placed.set("where", where.copy())
+        select.set("where", None)
+    inner = exp.select(exp.Star()).from_(exp.Subquery(this=placed, alias=exp.TableAlias(
+        this=exp.to_identifier(alias))))
+    added = []
+    for i, (window, flag) in enumerate(flags):
+        place, mark = f"__sf_place{i}", f"__sf_flag{i}"
+        order = _over(window, exp.RowNumber(), "BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW")
+        order.set("spec", None)
+        placed.select(exp.alias_(order, place), copy=False)
+        by_place = exp.Order(expressions=[exp.Ordered(this=exp.column(place))])
+        same = _window_key(window)
+        for lag in list(flag.find_all(exp.Window)):  # LAG over the event's window reads rows in place order,
+            if _window_key(lag) == same:                # so tied ORDER BY values are taken in one order
+                lag.set("order", by_place.copy())
+        inner.select(exp.alias_(flag, mark), copy=False)
+        added += [place, mark]
+        running = _over(window, exp.Sum(this=exp.column(mark)), "BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+                        by_place)
+        window.replace(exp.Cast(this=exp.Coalesce(this=running, expressions=[exp.Literal.number(0)]),
+                                to=exp.DataType.build("BIGINT")))
+    source.set("this", exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(alias))))
+    hidden = [exp.column(n) for n in added]
+    for star in [s for e in select.expressions for s in e.find_all(exp.Star)]:
+        if star.find_ancestor(exp.Select) is select:
+            star.set("except_", [*(star.args.get("except_") or []), *[h.copy() for h in hidden]])
+
+
+def _window_key(window: exp.Window) -> tuple[str, str]:
+    """A window's PARTITION BY and ORDER BY as text, to tell two windows over the same rows in the same order."""
+    order = window.args.get("order")
+    return (", ".join(p.sql() for p in window.args.get("partition_by") or []), order.sql() if order else "")
+
+
+def _rewrite_events(statement: exp.Expression) -> None:
+    """SFX-018: CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from the partition's
+    first row (a NULL is neither true nor a change: CHANGE_EVENT(x) is TRUE_EVENT(x <> LAG(x))), and
+    INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill NULLs from the rows before and after,
+    as running windows over the ORDER BY. A window frame isn't allowed, as in Snowflake."""
+    windows = [w for w in statement.find_all(exp.Window)
+               if isinstance(w.this, exp.Anonymous) and str(w.this.this).upper() in _EVENT_FUNCTIONS]
+    hoisted: dict[int, tuple[exp.Select, list[tuple[exp.Window, exp.Expression]]]] = {}
+    for window in sorted(windows, key=lambda w: -w.depth):
+        func = cast(exp.Anonymous, window.this)
+        name = str(func.this).upper()
+        if len(func.expressions) != 1:
+            raise _event_refusal(name, f"{name} takes one value.")
+        if window.args.get("spec") is not None:
+            raise _event_refusal(name, f"{name} takes no window frame, as in Snowflake.")
+        if window.args.get("order") is None:
+            raise _event_refusal(name, f"{name} needs an ORDER BY in its OVER clause.")
+        value = exp.paren(func.expressions[0].copy(), copy=False)  # put into templates whole: o < 15 <> ...
+        upto = "BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+        if name == "INTERPOLATE_FFILL":
+            window.replace(_over(window, _ignoring_nulls(exp.LastValue, value.copy()), upto))
+        elif name == "INTERPOLATE_BFILL":
+            window.replace(_over(window, _ignoring_nulls(exp.FirstValue, value.copy()),
+                                 "BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING"))
+        elif name == "INTERPOLATE_LINEAR":
+            window.replace(_linear(window, value))
+        else:
+            from .sql import _with_args
+            if name == "CONDITIONAL_CHANGE_EVENT":
+                previous = _over(window, exp.Lag(this=value.copy()), upto)
+                previous.set("spec", None)
+                flag = _with_args("CASE WHEN fj_arg0 <> fj_arg1 THEN 1 ELSE 0 END", [value, previous])
+            else:
+                flag = _with_args("CASE WHEN CAST(fj_arg0 AS BOOLEAN) THEN 1 ELSE 0 END", [value])
+            if name == "CONDITIONAL_TRUE_EVENT" and not any(value.find_all(exp.Window)):
+                running = _over(window, exp.Sum(this=flag), upto)
+                window.replace(exp.Cast(this=exp.Coalesce(this=running, expressions=[exp.Literal.number(0)]),
+                                        to=exp.DataType.build("BIGINT")))
+                continue
+            select = _event_select(window)
+            hoisted.setdefault(id(select), (select, []))[1].append((window, flag))
+    for select, flags in hoisted.values():
+        _hoist(select, flags)
+
+
 def _in_window(node: exp.Expression) -> exp.Expression:
     """The node a cast of aggregate ``node`` wraps: its window when it has one (x(...) OVER (...))."""
     return node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
@@ -1267,6 +1420,8 @@ def _differences(statement: exp.Expression) -> list[Note]:
     if any(statement.find_all(exp.ApproxDistinct, exp.Hll, exp.ApproxQuantile)) or any(
             str(n.this).upper() == "DATASKETCHES_HLL" for n in statement.find_all(exp.Anonymous)):
         notes.append(SFD_APPROX)
+    if any(str(n.this).upper() == "INTERPOLATE_LINEAR" for n in statement.find_all(exp.Anonymous)):
+        notes.append(SFD_LINEAR)
     if any(str(n.this).upper() in _DECIMAL_FAMILY for n in statement.find_all(exp.Anonymous)):
         notes.append(SFD_NUMBER)
     return notes
@@ -1343,6 +1498,14 @@ CATALOG = (
                 "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
                 "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
                 "here."),
+    ("SFX-018", "Rewritten", "CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
+                "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "
+                "INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill a NULL from the rows before "
+                "and after it. CONDITIONAL_CHANGE_EVENT, and CONDITIONAL_TRUE_EVENT of a LAG or LEAD, are worked "
+                "out in a subquery over the SELECT's FROM and WHERE, so they are rewritten only in a SELECT from "
+                "one table or subquery without JOIN, GROUP BY, HAVING or an aggregate. A window frame isn't "
+                "allowed, as in Snowflake, and INTERPOLATE_LINEAR needs one ORDER BY expression: a number, DATE "
+                "or timestamp."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1354,6 +1517,7 @@ CATALOG = (
     ("SFD-008", "Runs, with a difference: " + SFD_NUMBER.title, SFD_NUMBER.reason),
     ("SFD-009", "Runs, with a difference: " + SFD_BRACKET.title, SFD_BRACKET.reason),
     ("SFD-010", "Runs, with a difference: " + SFD_APPROX.title, SFD_APPROX.reason),
+    ("SFD-011", "Runs, with a difference: " + SFD_LINEAR.title, SFD_LINEAR.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -1420,6 +1584,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_values(tree)
         _rewrite_soundex(tree)
         _rewrite_ratio_to_report(tree)
+        _rewrite_events(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
         _rewrite_strings(tree)

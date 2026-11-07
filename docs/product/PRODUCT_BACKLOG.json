@@ -7088,6 +7088,55 @@
         "score": 1.75,
         "priority": "P3"
       }
+    },
+    {
+      "id": "PB-134",
+      "title": "Developer classes and mastery",
+      "state": "In progress",
+      "owner": "Developer classes and mastery",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [],
+      "problem": "The profile turns verified evidence into XP, a level, ranks and achievements, but it doesn't say which data engineering skills someone has shown, to what depth, or what to learn next. So it can't back a competency conversation with a manager.",
+      "capability": "Developer classes (for example Lakehouse Warden, an enterprise data engineer) with specializations as talent trees. Each talent has a mastery level from Initiate to Grandmaster, worked out from the evidence the app already verifies. There's an interactive, accessible talent tree in a Profile tab, and a professional competency report. Character level stays separate from mastery, and nothing claims to be a certification.",
+      "evidence": [
+        "Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup",
+        "First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data",
+        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)"
+      ],
+      "features": [
+        "FEAT-DEV-01",
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "CM-01..27",
+        "Chris's Developer Class and Mastery System brief, 2026-11-07 14:17Z"
+      ],
+      "acceptance": [
+        "The class catalog is checked as data: unique ids, prerequisites form a DAG with no cycles or unreachable talents, and every evidence hook points at real Learn, Academy or rule content",
+        "Mastery levels come only from verified evidence with versioned rules: time spent, repeats, duplicate or revoked evidence add nothing, and Grandmaster needs reviewer verification",
+        "The talent tree is generated from the catalog, shows locked, available, in progress and mastered, and works by keyboard and screen reader",
+        "Every class screen and report says that levels aren't professional certifications",
+        "Everything works locally; sharing or sync is opt-in"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 3,
+        "complexity": 5,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.75,
+        "cost": 4.0,
+        "score": 1.1,
+        "priority": "P3"
+      }
     }
   ]
 }

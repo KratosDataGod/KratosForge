@@ -844,9 +844,13 @@ async function renderHome() {
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
   const started = gettingStarted();
-  const page = h("div", { class: "page home" },
+  // Living Experience (home-hero.js, Preview): the hero band and the progression panel beside the page.
+  const living = typeof homeHero === "function";
+  const hero = living ? homeHero() : null;
+  const main = h("div", { class: "home-main" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      living ? homeShowPanelLink() : null,
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
@@ -866,6 +870,10 @@ async function renderHome() {
     meshMapCard(),
     envSection,
     xray);
+  // Without the hero, Home is the same flat page it always was.
+  const panel = hero ? homeProgressPanel() : null;
+  if (!hero) main.className = "page home";
+  const page = hero ? h("div", { class: "page home living" }, hero, h("div", { class: "home-body with-aside" }, main, panel.el)) : main;
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
   const onHome = () => state.view === "home" && homeCache.page === page;
@@ -887,10 +895,17 @@ async function renderHome() {
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
     const recentList = shown.length ? homeRecentList(shown) : null;
-    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
-      notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    // With Preview off, Home keeps its one plain line (Start something already has New notebook).
+    list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query && previewShown()
+      ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet",
+        text: "Create your first notebook and run it on this PC. Nothing goes to Fabric until you publish.",
+        action: btn("New notebook", "notebook", newNotebook, "tool primary") })
+      : h("p", { class: "muted-text" }, notebooks === null ? "Couldn't list notebooks."
+        : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
     return recentList?.done;
   });
+  // The progression panel reads Profile once the notebooks are in, so Home's own lists come first.
+  if (panel) notebooksDone.then(panel.load, panel.load);
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);

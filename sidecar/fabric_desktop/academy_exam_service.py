@@ -108,16 +108,17 @@ class AcademyExamMixin:
         cert = registry.certification(pid)
         bank = exam.load_bank(pid)
         known = {o["id"]: o for o in registry.objectives(cert)}
+        seen = exam.history(self._exam_store().finished(pid))   # retakes draw unseen, then missed, questions first
         if kind == "practice":
             count, minutes = _practice(cert, len(bank["questions"]))
             session = exam.build(bank, cert_version=cert["version"], count=count,
-                                 minutes=minutes if timed else None, kind="practice")
+                                 minutes=minutes if timed else None, kind="practice", history=seen)
         elif kind == "diagnostic":
             ids = [o["id"] for o in known.values() if o["domain"] == str(domain)]
             if not ids:
                 raise exam.ExamError("Pick one of the certification's domains")
             session = exam.build(bank, cert_version=cert["version"], objectives=ids,
-                                 count=DIAGNOSTIC_PER_OBJECTIVE * len(ids), kind="diagnostic")
+                                 count=DIAGNOSTIC_PER_OBJECTIVE * len(ids), kind="diagnostic", history=seen)
             session["domain"] = str(domain)
         elif kind == "drill":
             ids = [str(o) for o in objectives or []]

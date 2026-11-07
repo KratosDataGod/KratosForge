@@ -272,7 +272,7 @@ async function renderPipelines() {
   const p = plPage.pipeline;
   if (!p) {
     setView(h("div", { class: "page" }, dfAreaTabs(), h("h1", {}, "Pipelines ", previewTag()),
-      emptyState({ icon: "flow", title: "No pipeline open", text: "Open a Fabric pipeline to see what can run on this PC.",
+      livingEmpty({ spot: "tools", fallbackIcon: "flow", title: "No pipeline open", text: "Open a Fabric pipeline to see what can run on this PC.",
         action: btn("Open a pipeline", "folderOpen", pipelineOpenDialog, "tool primary") })));
     return;
   }

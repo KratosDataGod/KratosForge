@@ -21,10 +21,10 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 161 |
+| Runs | 166 |
 | Differs | 21 |
 | Refused | 81 |
-| Fails | 5 |
+| Fails | 0 |
 | Not checked | 227 |
 | **All** | **495** |
 
@@ -439,11 +439,11 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CONDITIONAL_CHANGE_EVENT` | Fails | DuckDB has no CONDITIONAL_CHANGE_EVENT, and the rules don't rewrite it |
-| `CONDITIONAL_TRUE_EVENT` | Fails | DuckDB has no CONDITIONAL_TRUE_EVENT, and the rules don't rewrite it |
-| `INTERPOLATE_BFILL` | Fails | DuckDB has no INTERPOLATE_BFILL, and the rules don't rewrite it |
-| `INTERPOLATE_FFILL` | Fails | DuckDB has no INTERPOLATE_FFILL, and the rules don't rewrite it |
-| `INTERPOLATE_LINEAR` | Fails | DuckDB has no INTERPOLATE_LINEAR, and the rules don't rewrite it |
+| `CONDITIONAL_CHANGE_EVENT` | Runs | 3 value checks |
+| `CONDITIONAL_TRUE_EVENT` | Runs | 3 value checks |
+| `INTERPOLATE_BFILL` | Runs | 1 value check |
+| `INTERPOLATE_FFILL` | Runs | 1 value check |
+| `INTERPOLATE_LINEAR` | Runs | 1 value check; labelled SFD-011 INTERPOLATE_LINEAR gives a DOUBLE |
 | `RATIO_TO_REPORT` | Runs | 5 value checks |
 | `CUME_DIST` | Not checked |  |
 | `DENSE_RANK` | Not checked |  |

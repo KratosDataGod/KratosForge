@@ -18,6 +18,7 @@ Rules (Academy sandbox and Security):
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,17 @@ def _api() -> Any:
     return api
 
 
+def _long(path: Path) -> str:
+    """``path`` in the ``\\\\?\\`` form, so a path over 260 characters (deep in site-packages, say) works
+    whether or not long paths are turned on (icacls coped with those)."""
+    p = os.path.abspath(str(path))
+    if p.startswith("\\\\?\\"):
+        return p
+    if p.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + p[2:]
+    return "\\\\?\\" + p
+
+
 def _fail(path: Path, what: str, code: int) -> OSError:
     return OSError(f"Windows wouldn't {what} the permissions on {Path(path).name} (error {code}).")
 
@@ -111,7 +123,7 @@ def _read_dacl(api: Any, path: Path) -> tuple[Any, Any, bool]:
     """``(security descriptor, dacl, protected)``; the caller frees the descriptor with LocalFree."""
     c = api.ctypes
     sd, dacl = c.c_void_p(), c.c_void_p()
-    code = api.adv.GetNamedSecurityInfoW(str(path), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, None, None,
+    code = api.adv.GetNamedSecurityInfoW(_long(path), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, None, None,
                                          c.byref(dacl), None, c.byref(sd))
     if code != 0:
         raise _fail(path, "read", code)
@@ -180,7 +192,7 @@ def grant(path: Path, sid_string: str, inherit: bool) -> None:
             # Keep the DACL's protection from inheritance as it is (without one of these two flags,
             # Windows decides it from its own default, which could turn inheritance back on).
             keep = PROTECTED_DACL_SECURITY_INFORMATION if protected else UNPROTECTED_DACL_SECURITY_INFORMATION
-            code = api.adv.SetNamedSecurityInfoW(str(path), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | keep,
+            code = api.adv.SetNamedSecurityInfoW(_long(path), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | keep,
                                                  None, None, new_acl, None)
             if code != 0:
                 raise _fail(path, "change", code)

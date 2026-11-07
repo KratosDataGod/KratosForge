@@ -107,3 +107,19 @@ def test_a_path_whose_acl_cant_be_read_fails_closed(tmp_path):
         acl.has_grant(missing, CAP, False)
     with pytest.raises(OSError, match="exercise runtime read gone"):
         appcontainer._grant(None, missing, CAP, False)
+
+
+def test_a_path_over_260_characters_is_granted_too(tmp_path):
+    deep = Path(str(tmp_path))
+    while len(str(deep)) < 300:
+        deep = deep / ("d" * 40)
+    os.makedirs("\\\\?\\" + str(deep))   # long paths may be off on this PC; the \\?\ form works either way
+    assert not acl.has_grant(deep, CAP, True)
+    appcontainer._grant(None, deep, CAP, True)
+    assert acl.has_grant(deep, CAP, True)
+
+
+def test_long_and_unc_paths_get_the_extended_form():
+    assert acl._long(Path("C:\\x\\y")) == "\\\\?\\C:\\x\\y"
+    assert acl._long(Path("\\\\server\\share\\x")) == "\\\\?\\UNC\\server\\share\\x"
+    assert acl._long(Path("\\\\?\\C:\\x")) == "\\\\?\\C:\\x"

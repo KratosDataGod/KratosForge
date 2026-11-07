@@ -216,7 +216,7 @@ def post_flow(url: str, title: str, lines: list[str], http: Any = None) -> None:
     if http is None:
         from .. import http_session
         http = http_session.session()
-    r = http.post(url, json=flow_body(title, lines), timeout=15, allow_redirects=False)
+    r = http.post(url, json=flow_body(title, lines), timeout=(5, 15), allow_redirects=False)
     if r.status_code >= 300:
         raise RuntimeError(f"The flow answered {r.status_code}")
 

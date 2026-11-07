@@ -297,6 +297,7 @@ def test_a_busy_onelake_posts_nothing_and_doesnt_close_a_break(world, busy):
 
 
 def test_teams_down_keeps_the_break_for_the_next_check(world, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     agent = world["make"]()
     world["status"]["Tables/dbo/orders"] = 404
 

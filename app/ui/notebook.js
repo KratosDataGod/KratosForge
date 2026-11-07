@@ -961,7 +961,9 @@ document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
   if (t.closest?.(".cm-editor") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
-  if (!t.closest?.(".cells") && t !== document.body) return;
+  // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
+  // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
+  if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
   const cell = selectedCell();
   const key = e.key;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;

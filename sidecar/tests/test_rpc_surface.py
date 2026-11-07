@@ -31,6 +31,7 @@ _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
 _AS_MODELS = "App Studio model connections (AS-06): engine first, the connection screen comes with AS-10 after its mockup (docs/architecture/app-studio.md)"
+_OPPORTUNITIES = "optimization assessment (OE-001): engine first, the Assessment screen waits on its mockup (docs/optimize/engine.md)"
 _AS_PUBLISH = "App Studio publish (AS-13): engine first, the Publish dialog's button turns on after its mockup (docs/architecture/app-studio.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
@@ -38,6 +39,8 @@ _AS_PUBLISH = "App Studio publish (AS-13): engine first, the Publish dialog's bu
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # Optimization engine.
+    "optimization_assess": _OPPORTUNITIES,
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

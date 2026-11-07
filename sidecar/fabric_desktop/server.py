@@ -131,6 +131,11 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
 
+# The optimization engine's assessment (opportunities_service.py, engine only).
+from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
+
+METHODS |= OPPORTUNITY_METHODS
+
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
 from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 

@@ -12,6 +12,11 @@ from .server import main as serve
 from .service import Service
 
 
+# The commands that open or change the stores in the app's data folder: refused there when a newer
+# build's data format marks it (data_format.py). `serve` checks in server.main, the agent in its home.
+DATA_COMMANDS = {"mcp", "integrations", "run-schedule", "run-notebooks", "run-notebook", "clean-local", "restore"}
+
+
 def main(argv: list[str] | None = None) -> None:
     from . import net_trust
     net_trust.use_system_store()  # before any HTTPS: a network that inspects HTTPS signs with a root Windows trusts
@@ -222,6 +227,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--print", action="store_true", help="print the link instead of opening it")
     args = parser.parse_args(argv)
 
+    if args.command in DATA_COMMANDS:
+        from . import data_format
+        from .service import data_dir
+        try:
+            data_format.check(data_dir())
+        except data_format.NewerData as exc:
+            print(exc, file=sys.stderr)
+            raise SystemExit(2) from None
     if args.command == "mcp":
         from .integrations.mcp_server import run_stdio
         run_stdio(args.client)
@@ -306,6 +319,13 @@ def _agent(args: argparse.Namespace) -> int:
     except (FileNotFoundError, agent_config.ConfigError) as exc:
         print(exc)
         return 2
+    if args.agent_command in ("run", "enqueue", "requeue", "prune"):
+        from . import data_format
+        try:
+            data_format.check(config.home)
+        except data_format.NewerData as exc:
+            print(exc)
+            return 2
     if args.agent_command == "run":
         log = logs.setup(config.name, config.home / "logs", config.log_level)
         Agent(config, log=log).run_forever()

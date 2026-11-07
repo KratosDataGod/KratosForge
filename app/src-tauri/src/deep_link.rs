@@ -238,10 +238,11 @@ pub fn forward(data_dir: &Path, url: &str) -> bool {
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let (Ok(nonce), Ok(answers)) = (random_token(), stream.try_clone()) else { return false };
+    let Some(expected) = proof(token, &nonce) else { return false }; // a token no copy of the app wrote
     let mut answers = BufReader::new(answers);
     let mut answer = String::new();
     if writeln!(stream, "{HELLO} {nonce}").is_err() || answers.read_line(&mut answer).is_err()
-        || !same_token(answer.trim(), &proof(token, &nonce)) {
+        || !same_token(answer.trim(), &expected) {
         return false;
     }
     if writeln!(stream, "{token} {}", url.replace(['\r', '\n'], "")).is_err() {
@@ -255,15 +256,20 @@ pub fn forward(data_dir: &Path, url: &str) -> bool {
 const HELLO: &str = "hello";
 
 /// What the listener answers a hello with: HMAC-SHA256 of the nonce, keyed with the token, in hex.
-/// It shows the listener knows the token without saying anything about it.
-fn proof(token: &str, nonce: &str) -> String {
+/// It shows the listener knows the token without saying anything about it. The key is the token as
+/// it is, zero-padded to SHA-256's 64-byte block: HMAC hashes a longer key first, which this doesn't,
+/// so it takes only tokens of at most 64 bytes (random_token makes 32): None for a longer one, such as
+/// a damaged link-port file's.
+fn proof(token: &str, nonce: &str) -> Option<String> {
     use sha2::{Digest, Sha256};
+    if token.len() > 64 {
+        return None;
+    }
     let mut key = [0u8; 64];
-    let token = &token.as_bytes()[..token.len().min(64)];
-    key[..token.len()].copy_from_slice(token);
+    key[..token.len()].copy_from_slice(token.as_bytes());
     let pad = |with: u8| key.iter().map(|k| k ^ with).collect::<Vec<u8>>();
     let inner = Sha256::new().chain_update(pad(0x36)).chain_update(b"kratosforge-link-v1 ").chain_update(nonce.as_bytes()).finalize();
-    Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect()
+    Some(Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Listens for links from other copies of the app, and writes the port they use with a random
@@ -305,12 +311,14 @@ pub fn listen(data_dir: &Path, on_link: impl Fn(Link) + Send + 'static) -> std::
 
 /// One connection, all by HANDOVER_TIME from now: a hello it answers with its proof, then the line
 /// with the token and the link; the link is taken only with the token. A copy from before the hello
-/// sends the token line straight away, which is taken too.
+/// sends the token line straight away, which is taken too. That older form can go once no build
+/// people may still run predates the hello: when the oldest supported Stable sends it.
 fn take_link(mut stream: TcpStream, token: &str, links: &std::sync::mpsc::Sender<Link>) {
     let deadline = std::time::Instant::now() + HANDOVER_TIME;
     let Some(mut line) = read_line_by(&mut stream, deadline, MAX_LINK + 100) else { return };
     if let Some(nonce) = line.trim().strip_prefix(HELLO).and_then(|rest| rest.strip_prefix(' ')) {
-        if nonce.len() != 32 || !nonce.bytes().all(|b| b.is_ascii_hexdigit()) || writeln!(stream, "{}", proof(token, nonce)).is_err() {
+        let answer = proof(token, nonce).filter(|_| nonce.len() == 32 && nonce.bytes().all(|b| b.is_ascii_hexdigit()));
+        if answer.is_none_or(|answer| writeln!(stream, "{answer}").is_err()) {
             return;
         }
         let Some(next) = read_line_by(&mut stream, deadline, MAX_LINK + 100) else { return };
@@ -734,7 +742,9 @@ mod tests {
         let mac: String = Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(mac, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
         let (t, n) = (random_token().unwrap(), random_token().unwrap());
-        assert_eq!(proof(&t, &n).len(), 64);
+        assert_eq!(proof(&t, &n).unwrap().len(), 64);
+        assert_eq!(proof(&"a".repeat(65), &n), None, "a token longer than the key block isn't used");
+        assert!(proof(&"a".repeat(64), &n).is_some());
         assert_eq!(proof(&t, &n), proof(&t, &n));
         assert_ne!(proof(&t, &n), proof(&random_token().unwrap(), &n));
         assert_ne!(proof(&t, &n), proof(&t, &random_token().unwrap()));
@@ -759,7 +769,7 @@ mod tests {
         writeln!(s, "{HELLO} {nonce}").unwrap();
         let mut answer = String::new();
         answers.read_line(&mut answer).unwrap();
-        assert_eq!(answer.trim(), proof(&token, &nonce));
+        assert_eq!(answer.trim(), proof(&token, &nonce).unwrap());
         writeln!(s, "{} kratosforge://page/monitor", "0".repeat(32)).unwrap();
         answer.clear();
         let _ = answers.read_line(&mut answer);

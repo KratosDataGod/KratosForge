@@ -1,0 +1,78 @@
+{
+ "agent/queue.sqlite3": [
+  "CREATE TABLE jobs (\n    id text primary key,\n    kind text not null,\n    payload text not null,\n    state text not null,\n    source text not null default '',\n    dedupe_key text,\n    attempts integer not null default 0,\n    max_attempts integer not null,\n    next_at real not null,\n    owner text,\n    lease_until real,\n    created_at real not null,\n    started_at real,\n    finished_at real,\n    result text,\n    error text\n)",
+  "CREATE TABLE schedule_state (\n    id text primary key,\n    next_at real not null\n)",
+  "CREATE INDEX jobs_ready on jobs (state, next_at)"
+ ],
+ "alerts_outbox.sqlite": [
+  "CREATE TABLE outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, lines TEXT, attempts INTEGER DEFAULT 0, error TEXT, route TEXT DEFAULT 'default', not_before REAL DEFAULT 0)"
+ ],
+ "integrations/integrations.sqlite": [
+  "CREATE TABLE approvals (\n    id text primary key, client_id text not null, client_name text not null, capability text not null,\n    title text not null, permission text not null, summary text not null, arguments text not null,\n    args_hash text not null, state text not null, created_at real not null, decided_at real,\n    expires_at real not null, note text not null default '')",
+  "CREATE TABLE clients (\n    id text primary key, name text not null, kind text not null default 'other',\n    transport text not null default 'stdio', grants text not null default '[]', auto text not null default '[]',\n    workspaces text not null default '[]', token_hash text, created_at real not null, last_used_at real,\n    revoked_at real)",
+  "CREATE TABLE settings (key text primary key, value text not null)",
+  "CREATE INDEX approvals_state on approvals (state, created_at)"
+ ],
+ "platform/keys.sqlite": [
+  "CREATE TABLE \"catalog__admin\" (user_name TEXT NOT NULL PRIMARY KEY, added_at TEXT NULL, added_by TEXT NULL)",
+  "CREATE TABLE \"catalog__audit\" (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, by_user TEXT, action TEXT, target TEXT, detail TEXT)",
+  "CREATE TABLE \"catalog__domain\" (id TEXT NOT NULL PRIMARY KEY, name TEXT NULL, parent_id TEXT NULL, description TEXT NULL, owners TEXT NULL, fabric_domain TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL, fabric_owners TEXT NULL)",
+  "CREATE TABLE \"catalog__enrichment\" (target TEXT NOT NULL PRIMARY KEY, description TEXT NULL, tags TEXT NULL, classification TEXT NULL, terms TEXT NULL, steward TEXT NULL, certified TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__glossary\" (term TEXT NOT NULL PRIMARY KEY, definition TEXT NULL, domain_id TEXT NULL, owner TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__grant\" (id TEXT NOT NULL PRIMARY KEY, product_id TEXT NULL, project TEXT NULL, request_id TEXT NULL, granted_by TEXT NULL, granted_at TEXT NULL)",
+  "CREATE TABLE \"catalog__key_table\" (name TEXT NOT NULL PRIMARY KEY, business_key TEXT NULL, description TEXT NULL, domain_id TEXT NULL, created_at TEXT NULL, created_by TEXT NULL)",
+  "CREATE TABLE \"catalog__link\" (id TEXT NOT NULL PRIMARY KEY, consumer_project TEXT NULL, alias TEXT NULL, product_id TEXT NULL, port TEXT NULL, reads TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__policy\" (id TEXT NOT NULL PRIMARY KEY, name TEXT NULL, category TEXT NULL, owner TEXT NULL, status TEXT NULL, current_version TEXT NULL, draft_version TEXT NULL, created_at TEXT NULL, created_by TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__policy_assignment\" (id TEXT NOT NULL PRIMARY KEY, policy_id TEXT NULL, scope TEXT NULL, target TEXT NULL, settings TEXT NULL, note TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__policy_event\" (id TEXT NOT NULL PRIMARY KEY, policy_id TEXT NULL, version TEXT NULL, action TEXT NULL, at TEXT NULL, by_user TEXT NULL, detail TEXT NULL)",
+  "CREATE TABLE \"catalog__policy_version\" (id TEXT NOT NULL PRIMARY KEY, policy_id TEXT NULL, version TEXT NULL, status TEXT NULL, definition TEXT NULL, hash TEXT NULL, note TEXT NULL, created_at TEXT NULL, created_by TEXT NULL, published_at TEXT NULL, published_by TEXT NULL)",
+  "CREATE TABLE \"catalog__port\" (id TEXT NOT NULL PRIMARY KEY, product_id TEXT NULL, port TEXT NULL, entity TEXT NULL, env TEXT NULL, workspace_id TEXT NULL, workspace_name TEXT NULL, lakehouse_id TEXT NULL, lakehouse_name TEXT NULL, schema_name TEXT NULL, table_name TEXT NULL, columns TEXT NULL, updated_at TEXT NULL)",
+  "CREATE TABLE \"catalog__product\" (id TEXT NOT NULL PRIMARY KEY, project TEXT NULL, name TEXT NULL, domain_id TEXT NULL, description TEXT NULL, owner TEXT NULL, access TEXT NULL, version TEXT NULL, status TEXT NULL, deprecated_on TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__project\" (name TEXT NOT NULL PRIMARY KEY, domain_id TEXT NULL, subdomain_id TEXT NULL, team TEXT NULL, description TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__reader\" (id TEXT NOT NULL PRIMARY KEY, project TEXT NULL, source TEXT NULL, entities TEXT NULL, updated_at TEXT NULL)",
+  "CREATE TABLE \"catalog__request\" (id TEXT NOT NULL PRIMARY KEY, kind TEXT NULL, target TEXT NULL, detail TEXT NULL, project TEXT NULL, reason TEXT NULL, requested_by TEXT NULL, requested_at TEXT NULL, status TEXT NULL, decided_by TEXT NULL, decided_at TEXT NULL, note TEXT NULL)",
+  "CREATE TABLE \"catalog__shortcut\" (id TEXT NOT NULL PRIMARY KEY, workspace_id TEXT NULL, workspace_name TEXT NULL, lakehouse_id TEXT NULL, lakehouse_name TEXT NULL, path TEXT NULL, name TEXT NULL, target TEXT NULL, health TEXT NULL, health_detail TEXT NULL, checked_at TEXT NULL, first_seen TEXT NULL, last_seen TEXT NULL)",
+  "CREATE TABLE \"catalog__shortcut_change\" (id TEXT NOT NULL PRIMARY KEY, at TEXT NULL, kind TEXT NULL, shortcut_id TEXT NULL, workspace_name TEXT NULL, lakehouse_name TEXT NULL, name TEXT NULL, before_def TEXT NULL, after_def TEXT NULL, by_user TEXT NULL, how TEXT NULL, note TEXT NULL)",
+  "CREATE TABLE \"catalog__shortcut_scope\" (lakehouse_id TEXT NOT NULL PRIMARY KEY, first_scan TEXT NULL, last_scan TEXT NULL)",
+  "CREATE TABLE \"catalog__source\" (name TEXT NOT NULL PRIMARY KEY, title TEXT NULL, description TEXT NULL, owner TEXT NULL, expected_hours TEXT NULL, connections TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL, source_id TEXT NULL, code TEXT NULL, system_type TEXT NULL, active TEXT NULL)",
+  "CREATE TABLE \"config__setting\" (name TEXT NOT NULL PRIMARY KEY, value TEXT NULL)"
+ ],
+ "platform/platform-dev.sqlite": [
+  "CREATE TABLE \"catalog__admin\" (user_name TEXT NOT NULL PRIMARY KEY, added_at TEXT NULL, added_by TEXT NULL)",
+  "CREATE TABLE \"catalog__audit\" (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, by_user TEXT, action TEXT, target TEXT, detail TEXT)",
+  "CREATE TABLE \"catalog__domain\" (id TEXT NOT NULL PRIMARY KEY, name TEXT NULL, parent_id TEXT NULL, description TEXT NULL, owners TEXT NULL, fabric_domain TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL, fabric_owners TEXT NULL)",
+  "CREATE TABLE \"catalog__enrichment\" (target TEXT NOT NULL PRIMARY KEY, description TEXT NULL, tags TEXT NULL, classification TEXT NULL, terms TEXT NULL, steward TEXT NULL, certified TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__glossary\" (term TEXT NOT NULL PRIMARY KEY, definition TEXT NULL, domain_id TEXT NULL, owner TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__grant\" (id TEXT NOT NULL PRIMARY KEY, product_id TEXT NULL, project TEXT NULL, request_id TEXT NULL, granted_by TEXT NULL, granted_at TEXT NULL)",
+  "CREATE TABLE \"catalog__key_table\" (name TEXT NOT NULL PRIMARY KEY, business_key TEXT NULL, description TEXT NULL, domain_id TEXT NULL, created_at TEXT NULL, created_by TEXT NULL)",
+  "CREATE TABLE \"catalog__link\" (id TEXT NOT NULL PRIMARY KEY, consumer_project TEXT NULL, alias TEXT NULL, product_id TEXT NULL, port TEXT NULL, reads TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__policy\" (id TEXT NOT NULL PRIMARY KEY, name TEXT NULL, category TEXT NULL, owner TEXT NULL, status TEXT NULL, current_version TEXT NULL, draft_version TEXT NULL, created_at TEXT NULL, created_by TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__policy_assignment\" (id TEXT NOT NULL PRIMARY KEY, policy_id TEXT NULL, scope TEXT NULL, target TEXT NULL, settings TEXT NULL, note TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__policy_event\" (id TEXT NOT NULL PRIMARY KEY, policy_id TEXT NULL, version TEXT NULL, action TEXT NULL, at TEXT NULL, by_user TEXT NULL, detail TEXT NULL)",
+  "CREATE TABLE \"catalog__policy_version\" (id TEXT NOT NULL PRIMARY KEY, policy_id TEXT NULL, version TEXT NULL, status TEXT NULL, definition TEXT NULL, hash TEXT NULL, note TEXT NULL, created_at TEXT NULL, created_by TEXT NULL, published_at TEXT NULL, published_by TEXT NULL)",
+  "CREATE TABLE \"catalog__port\" (id TEXT NOT NULL PRIMARY KEY, product_id TEXT NULL, port TEXT NULL, entity TEXT NULL, env TEXT NULL, workspace_id TEXT NULL, workspace_name TEXT NULL, lakehouse_id TEXT NULL, lakehouse_name TEXT NULL, schema_name TEXT NULL, table_name TEXT NULL, columns TEXT NULL, updated_at TEXT NULL)",
+  "CREATE TABLE \"catalog__product\" (id TEXT NOT NULL PRIMARY KEY, project TEXT NULL, name TEXT NULL, domain_id TEXT NULL, description TEXT NULL, owner TEXT NULL, access TEXT NULL, version TEXT NULL, status TEXT NULL, deprecated_on TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__project\" (name TEXT NOT NULL PRIMARY KEY, domain_id TEXT NULL, subdomain_id TEXT NULL, team TEXT NULL, description TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL)",
+  "CREATE TABLE \"catalog__reader\" (id TEXT NOT NULL PRIMARY KEY, project TEXT NULL, source TEXT NULL, entities TEXT NULL, updated_at TEXT NULL)",
+  "CREATE TABLE \"catalog__request\" (id TEXT NOT NULL PRIMARY KEY, kind TEXT NULL, target TEXT NULL, detail TEXT NULL, project TEXT NULL, reason TEXT NULL, requested_by TEXT NULL, requested_at TEXT NULL, status TEXT NULL, decided_by TEXT NULL, decided_at TEXT NULL, note TEXT NULL)",
+  "CREATE TABLE \"catalog__shortcut\" (id TEXT NOT NULL PRIMARY KEY, workspace_id TEXT NULL, workspace_name TEXT NULL, lakehouse_id TEXT NULL, lakehouse_name TEXT NULL, path TEXT NULL, name TEXT NULL, target TEXT NULL, health TEXT NULL, health_detail TEXT NULL, checked_at TEXT NULL, first_seen TEXT NULL, last_seen TEXT NULL)",
+  "CREATE TABLE \"catalog__shortcut_change\" (id TEXT NOT NULL PRIMARY KEY, at TEXT NULL, kind TEXT NULL, shortcut_id TEXT NULL, workspace_name TEXT NULL, lakehouse_name TEXT NULL, name TEXT NULL, before_def TEXT NULL, after_def TEXT NULL, by_user TEXT NULL, how TEXT NULL, note TEXT NULL)",
+  "CREATE TABLE \"catalog__shortcut_scope\" (lakehouse_id TEXT NOT NULL PRIMARY KEY, first_scan TEXT NULL, last_scan TEXT NULL)",
+  "CREATE TABLE \"catalog__source\" (name TEXT NOT NULL PRIMARY KEY, title TEXT NULL, description TEXT NULL, owner TEXT NULL, expected_hours TEXT NULL, connections TEXT NULL, updated_at TEXT NULL, updated_by TEXT NULL, source_id TEXT NULL, code TEXT NULL, system_type TEXT NULL, active TEXT NULL)",
+  "CREATE TABLE \"config__setting\" (name TEXT NOT NULL PRIMARY KEY, value TEXT NULL)"
+ ],
+ "platform_outbox.sqlite": [
+  "CREATE TABLE outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, lines TEXT, attempts INTEGER DEFAULT 0, error TEXT, route TEXT DEFAULT 'default', not_before REAL DEFAULT 0)",
+  "CREATE TABLE sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)"
+ ],
+ "workloads.sqlite": [
+  "CREATE TABLE action (id TEXT PRIMARY KEY, wid TEXT, action TEXT, env TEXT,\n                    target TEXT, identity TEXT, by TEXT, at TEXT, status TEXT, detail TEXT, ref TEXT,\n                    ended_at TEXT)",
+  "CREATE TABLE assignment (wid TEXT, field TEXT, value TEXT, set_by TEXT, set_at TEXT,\n                    PRIMARY KEY (wid, field))",
+  "CREATE TABLE audit_out (key TEXT PRIMARY KEY, workload TEXT, action TEXT,\n                    status TEXT, entry TEXT, created TEXT, tries INTEGER, tried_at TEXT, error TEXT, sent_at TEXT)",
+  "CREATE TABLE cache (source TEXT PRIMARY KEY, collected_at TEXT, state TEXT,\n                    detail TEXT, payload TEXT)",
+  "CREATE TABLE history (id INTEGER PRIMARY KEY AUTOINCREMENT, wid TEXT, field TEXT,\n                    before TEXT, after TEXT, by TEXT, at TEXT)",
+  "CREATE TABLE link (notebook TEXT PRIMARY KEY, workspace_id TEXT, workspace_name TEXT,\n                    item_id TEXT, how TEXT, by TEXT, at TEXT)",
+  "CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT)",
+  "CREATE INDEX action_wid ON action (wid, at)"
+ ]
+}

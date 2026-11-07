@@ -100,7 +100,7 @@ class PlatformTest:
     def __init__(self, workspace_id: str, fabric: Any, execute_token: Callable[[], str], out_dir: Path,
                  client: Callable[[str, str], Any], setup: Callable[..., dict[str, Any]] = setup_mod.setup,
                  user: Callable[[], str] = lambda: "", run_id: str = "", protected_ids: set[str] | None = None,
-                 upgrade: bool = False, keep: bool = False, pause: Callable[[str], None] | None = None,
+                 upgrade: bool = False, keep: bool = False, pause: Callable[[str], object] | None = None,
                  restrict: Callable[[], str] | None = None):
         self.workspace_id = workspace_id
         self.fabric, self.execute_token, self.client_for, self.setup = fabric, execute_token, client, setup

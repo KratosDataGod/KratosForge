@@ -72,7 +72,7 @@ Where new incidents are sent, as each one opens, recovers or escalates:
 - **The app** (**Settings > Notifications > Incident alerts**): a Teams Workflows webhook address, a Power Automate flow's HTTP trigger as `flow:https://...`, or `mailto:` and up to 20 addresses separated by `;`. Email goes through the company mail server set once in **Settings > Notifications**, with its password only in Windows Credential Manager. The flow gets JSON with `title`, `lines`, `text` and `source`, and sends it on however your admin built it.
 - **An agent** (`[[incidents.route]]` and `alerts.teams_webhook_env` in agent.toml): the variable can hold a Teams address or `flow:https://...`. An agent has no mail server, so a `mailto:` route is left out with a warning in its log; send email from an agent through a flow.
 
-Every kind gets the same text: one line each, credential-shaped values removed, at most 500 characters a line and 200 lines, of which Teams and email show 20 and say how many more. A message that doesn't go through waits in the outbox and is sent with the next try, marked as delayed. Delivery is `workloads/deliver.py`, shared with platform notices.
+Every kind gets the same text: one line each, credential-shaped values removed, at most 500 characters a line and 200 lines, of which Teams and email show 20 and say how many more. A message that doesn't go through waits in the outbox and is sent with the next try, marked as delayed. A route that keeps failing rests between tries (a minute, doubling to 30 minutes), and an outbox keeps at most 500 messages, none older than three days. Delivery is `workloads/deliver.py`, shared with platform notices.
 
 ## Who's affected (Preview)
 

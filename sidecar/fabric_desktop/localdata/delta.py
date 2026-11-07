@@ -27,7 +27,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import pyarrow as pa
 import sqlglot
@@ -193,7 +193,7 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
-    found = rewrite_tree(tree, start)
+    found = rewrite_tree(cast(exp.Expression, tree), start)  # sqlglot types parse_one as its Expr base
     return (_duckdb(tree), found) if found else (sql, [])
 
 

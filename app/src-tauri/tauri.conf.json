@@ -25,6 +25,7 @@
         "script-src": "'self'",
         "style-src": "'self'",
         "img-src": "'self' data:",
+        "font-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost",
         "frame-src": "nbout: http://nbout.localhost https://nbout.localhost pbiembed: http://pbiembed.localhost https://pbiembed.localhost",
         "object-src": "'none'",

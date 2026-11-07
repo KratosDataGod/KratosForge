@@ -98,8 +98,18 @@ platform skins set these, as drawn in the "skin look and feel" mockup:
 | Databricks-familiar | DM Sans | light | inline | square | boxed | flat | bold |
 | Snowflake-familiar | Inter | none | inline | round | pill | rounded | regular |
 
-The styles that draw each choice come in the next Preview changes, so for now the attributes are set but
-nothing looks different.
+What each choice draws so far:
+
+- **font:** `segoe-variable` and `segoe` use Windows' own Segoe UI. `dm-sans` and `inter` use open-licence
+  fonts the app ships in `app/ui/vendor/fonts` (SIL Open Font License 1.1). They load from the app itself,
+  never from the internet: the app's content security policy allows fonts from its own files only.
+- **corners:** `soft` keeps KratosForge's 4, 6 and 8 px corners (`--r-sm`, `--r-md`, `--r-lg`). `square`
+  makes them 2, 3 and 4 px, and `round` makes them 6, 8 and 12 px. Pills stay pills.
+- **icons:** the app's icons are filled shapes. `bold` traces their edge so they read heavier. `regular`
+  and `light` draw them as they are.
+
+The other parts (header, rail, tabs, cells, buttons, tiles) are marked on the page but not drawn yet. They
+come in the next Preview changes.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See

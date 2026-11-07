@@ -1,0 +1,122 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E01",
+  "title": "Right-size Spark for three teams: starter pool, custom pool, autoscale and high concurrency",
+  "objectives": [
+    "1.1.1"
+  ],
+  "mode": "guided",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Choose the default pool, a custom pool's node size and scaling, and session sharing so three teams each get the Spark compute their work needs.",
+  "scenario": "One workspace serves analysts, a nightly ETL job and data scientists. Someone made a big fixed pool the default for everyone: analysts now wait minutes for a session, and the ETL pool is both too small per node and too big on quiet nights.",
+  "engine_label": "A model of a workspace's compute pool settings, checked on this PC",
+  "verifies": [
+    "Your pool settings give each team what its work needs, as the Spark compute pages describe pools, node sizes, autoscale and high concurrency, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any pool is created or any session starts: nothing runs here.",
+    "Capacity limits, such as the Spark vCores a capacity allows and the 200-node pool limit.",
+    "The exact conditions under which notebooks share a high concurrency session."
+  ],
+  "expected": {
+    "description": "Default Starter pool (Medium); NightlyETL Large, autoscale 2 to 12, dynamic allocation; high concurrency on; Analysts and DataScience on the starter pool."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Interactive sessions won't start in seconds.",
+      "pass": "Analysts start fast on the starter pool.",
+      "rules": [
+        {
+          "path": "workspace.default_pool",
+          "equals": "Starter pool",
+          "why": "A custom pool as the default makes sessions take about three minutes to start."
+        },
+        {
+          "path": "workspace.starter_pool_node_size",
+          "equals": "Medium",
+          "why": "Starter pools support only Medium nodes; another size means on-demand startup of 2 to 5 minutes."
+        },
+        {
+          "path": "team_pools.Analysts",
+          "equals": "Starter pool"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The nightly pool doesn't fit the job.",
+      "pass": "NightlyETL has 16-vCore nodes and scales between 2 and 12.",
+      "rules": [
+        {
+          "path": "custom_pools.NightlyETL.node_size",
+          "equals": "Large",
+          "why": "Large nodes have 16 vCores and 128 GB."
+        },
+        {
+          "path": "custom_pools.NightlyETL.autoscale",
+          "equals": true,
+          "why": "With autoscale the pool scales between its minimum and maximum nodes and retires them after the job."
+        },
+        {
+          "path": "custom_pools.NightlyETL.min_nodes",
+          "equals": 2
+        },
+        {
+          "path": "custom_pools.NightlyETL.max_nodes",
+          "equals": 12
+        },
+        {
+          "path": "custom_pools.NightlyETL.dynamic_executor_allocation",
+          "equals": true,
+          "why": "Dynamic allocation lets the job request more executors when tasks exceed what it has."
+        },
+        {
+          "path": "team_pools.ETL",
+          "equals": "NightlyETL"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Notebooks can't share a session, or the wrong role creates pools.",
+      "pass": "Notebooks share sessions, and only workspace Admins create pools.",
+      "rules": [
+        {
+          "path": "workspace.high_concurrency_for_notebooks",
+          "equals": true,
+          "why": "High concurrency mode lets users share a single Spark session across several notebooks."
+        },
+        {
+          "path": "who_can_create_custom_pools",
+          "equals": "Workspace Admin",
+          "why": "Creating a custom pool needs the Admin role in the workspace."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which pool starts in seconds, and what makes it slow?",
+    "Which node size has 16 vCores?",
+    "What lets one pool grow on busy nights and shrink on quiet ones?"
+  ],
+  "explanation": "The starter pool keeps Medium-node sessions ready, so they start in seconds; a different node size, or a custom pool as the default, means minutes. A custom pool fits a heavy job: Large nodes give 16 vCores, autoscale moves between a minimum and maximum, and dynamic allocation adds executors as tasks need them. High concurrency lets notebooks share one session. Only workspace Admins create custom pools.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-compute",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/create-custom-spark-pools",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06: spark-compute (starter pools start in 5-10 seconds, Medium only, other sizes mean on-demand startup of 2-5 minutes; custom pools take about three minutes; node sizes), create-custom-spark-pools (Admin role; autoscale between min and max; dynamic executor allocation), workspace-admin-settings (high concurrency shares a Spark session across notebooks)."
+  ]
+}

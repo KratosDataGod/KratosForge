@@ -66,6 +66,7 @@ class _Server(ThreadingHTTPServer):
     on the listening thread, before a thread is started for them."""
 
     daemon_threads = True
+    request_queue_size = MAX_CONNECTIONS * 2  # a burst waits in the backlog, not in connect retries
 
     def __init__(self, *args: Any, **kwargs: Any):
         self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)

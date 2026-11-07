@@ -52,7 +52,8 @@ jobs:
           fi
           # A draft pull request skips the slowest Windows work (its Windows engine tests, the engine
           # build and the shell build after it) to keep Windows runners free for pull requests that are
-          # ready. Marking it ready for review runs everything (the ready_for_review trigger above).
+          # ready; its sidecar (windows-latest) check fails on purpose instead. Marking it ready for
+          # review runs everything (the ready_for_review trigger above).
           if [ "$DRAFT" = true ]; then draft=true; else draft=false; fi
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
@@ -112,6 +113,15 @@ jobs:
       - if: env.RUN_TESTS != 'true'
         working-directory: .
         run: echo "This pull request changes nothing these tests cover on ${{ matrix.os }}; skipped."
+      # A skipped check reports success, so a draft's Windows check fails on purpose: just after "Ready
+      # for review", before the new run reports, branch protection would otherwise see a green check on
+      # a head whose Windows tests never ran. Drafts can't merge, so the red check costs nothing.
+      - if: matrix.os == 'windows-latest' && needs.changes.outputs.draft == 'true'
+        working-directory: .
+        shell: bash
+        run: |
+          echo "::error::Draft: Windows engine tests not run; mark ready for review"
+          exit 1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: env.RUN_TESTS == 'true'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

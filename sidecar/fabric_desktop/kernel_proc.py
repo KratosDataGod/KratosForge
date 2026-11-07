@@ -32,7 +32,7 @@ import threading
 import time
 import weakref
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 from . import cpu_cap, lakehouse, notebook
 from .frames import GONE, FrameGone
@@ -320,7 +320,7 @@ class ProcessKernel:
             if proc is not self._proc or proc.poll() is not None:
                 return
             self._ended = why
-            self._tree.kill()
+            cast(_Tree, self._tree).kill()  # set with every _proc
 
     def _limit_note(self, snap: dict[str, Any]) -> dict[str, Any]:
         """A finished cell that was interrupted for running too long says so, in every snapshot of it."""
@@ -511,7 +511,7 @@ class ProcessKernel:
             if proc is None or proc.poll() is not None:
                 return {"stopped": False}
             self._ended = STOPPED_TEXT
-            self._tree.kill()
+            cast(_Tree, self._tree).kill()  # set with every _proc
         proc.wait(10)
         deadline = time.monotonic() + 5
         while self._proc is proc and time.monotonic() < deadline:  # the reader marks it gone
@@ -753,7 +753,7 @@ def _kernel32() -> Any:
     """kernel32 with the Job Object calls typed, so handles pass as pointers on 64-bit Windows."""
     import ctypes
     from ctypes import wintypes
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
     kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]

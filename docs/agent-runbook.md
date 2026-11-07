@@ -15,7 +15,7 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 - **Message** (`agent.py`, log): `job failed`
 - **Message** (`agent.py`, log): `job gave up`
 
-**Means.** One of two things happened. A job **failed**: a table failed its checks, its configuration or its permissions, and retrying won't help. Or a job **gave up** (state `dead`): it hit a retryable error, such as the network, throttling or a table held by another writer, on every attempt. The Teams message names the job and its source and gives the error, up to 1,500 characters. It goes to `alerts.teams_webhook_env`.
+**Means.** One of two things happened. A job **failed**: a table failed its checks, its configuration or its permissions, and retrying won't help. Or a job **gave up** (state `dead`): it hit a retryable error, such as the network, throttling or a table held by another writer, on every attempt. The Teams message names the job and its source and gives the error, up to 1,500 characters. Its last line says how to run the job again: the `requeue` command with the job's id, or, for a job from a pipeline, to submit the request again from the pipeline. It goes to `alerts.teams_webhook_env`.
 
 **Check first.**
 
@@ -81,6 +81,9 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 - **Message** (`agent_config.py`, at start): `<path> has <n> problem<s>:`
 - **Message** (`agent_config.py`): `give exactly one of every_minutes, daily or weekly`
 - **Message** (`agent_config.py`): `every_minutes is a whole number of at least 1, like 60`
+- **Message** (`agent_config.py`): `every_minutes is a whole number from 1 to <max>, like 60`
+- **Message** (`agent_config.py`): `daily needs at least one time, like ["06:00"]`
+- **Message** (`agent_config.py`): `weekly needs at least one day and one time, like { days = ["Monday"], times = ["06:00"] }`
 - **Message** (`agent_config.py`): `times are a list, like ["06:00"]`
 - **Message** (`fabric_run.py`): `Times are HH:MM in 24-hour form, like 06:00 (got <value>)`
 - **Message** (`fabric_run.py`): `Days are Monday to Sunday (got <value>)`
@@ -94,8 +97,9 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 ### The job queue file couldn't be read
 
 - **Message** (`agent.py`, log): `the job queue file couldn't be read; started with an empty queue`
+- **Message** (`agent.py`, Teams title): `KratosForge agent <name>: its job queue file couldn't be read`
 
-**Means.** `queue.sqlite3` in the agent's home was damaged, usually by a power loss or a full disk. The agent moved it, with its `-wal` and `-shm` files, to `queue.sqlite3.corrupt-<time>` (the `moved_to` field). Then it started with an empty queue rather than failing at every start. Schedules add their next runs again on their own.
+**Means.** `queue.sqlite3` in the agent's home was damaged, usually by a power loss or a full disk. The agent moved it, with its `-wal` and `-shm` files, to `queue.sqlite3.corrupt-<time>` (the `moved_to` field). Then it started with an empty queue rather than failing at every start. Schedules add their next runs again on their own. On its first pass it sends one Teams message to `alerts.teams_webhook_env`, naming the moved file.
 
 **Check first.** Check the disk's health and free space. Look in the moved file to see which jobs were queued; SQLite can often still read most of it.
 
@@ -117,12 +121,21 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 - **Message** (`agent.py`, log): `couldn't write the shared schedule's request`
 - **Message** (`agent.py`, log): `shared schedule past its deadline; not requested`
+- **Message** (`agent.py`, log): `shared scheduled run missed: no agent requested it before its deadline`
+- **Message** (`agent.py`, log): `couldn't check whether another agent requested the shared schedule`
+- **Message** (`agent.py`, Teams title): `KratosForge agent <name>: a shared <Env> run was missed`
 
-**Means.** A shared schedule goes through the environment's pipeline mailbox, so that one agent runs each due time. The first message means this agent couldn't reach the mailbox; any agent that can reach it still writes the request and runs it. The second message means the due time was too far in the past, for example after the agent was down. It is skipped rather than run late.
+**Means.** A shared schedule goes through the environment's pipeline mailbox, so that one agent runs each due time. The first message means this agent couldn't reach the mailbox; any agent that can reach it still writes the request and runs it. The others mean this agent found a due time already past its deadline, for example after it was down. That due time is never run late. The agent then looks for the request in the mailbox:
 
-**Check first.** Can any agent reach the mailbox? Check `agent status` on the others. If none can, the run didn't happen.
+- If another agent wrote it, the run happened there, and the log says `not requested` at info level.
+- If no agent wrote it, nobody ran it. The agent logs that the run was missed and sends one Teams message to `alerts.teams_webhook_env`. It names the schedule and its due time, and gives the `agent enqueue` command that runs it now.
+- If the mailbox can't be read, the agent can't tell, so it sends the same Teams message saying it couldn't check.
 
-**Recover.** Restore access. To make up a missed run, `agent enqueue` the schedule's tables.
+Each agent sends this message once for a due time. If several agents sharing the schedule were all away, each one sends it.
+
+**Check first.** Can any agent reach the mailbox? Check `agent status` on the others, and whether they were running at the due time.
+
+**Recover.** Restore access. To make up a missed run, run the command the Teams message gives, or `agent enqueue` the schedule's tables.
 
 ## Messages to Teams or a flow
 
@@ -132,11 +145,21 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 - **Message** (`agent.py`, log): `couldn't post waiting alerts to Teams; they'll go with the next try`
 - **Message** (`agent.py`, log): `couldn't post incidents to Teams; they'll go with the next try`
 
-**Means.** Teams or the flow didn't accept a message, because of the network, an outage, or a webhook that was removed. The message waits in the agent's home: `job_alerts.sqlite3` for job alerts, `alerts.sqlite3` for incidents. It is sent with the next try, marked **Delayed**. After three days it is dropped. The webhook address is never written to the log.
+**Means.** Teams or the flow didn't accept a message, because of the network, an outage, or a webhook that was removed. The message waits in the agent's home: `job_alerts.sqlite3` for job alerts, `alerts.sqlite3` for incidents. It is sent with the next try, marked **Delayed**. After three days it is dropped; see [A message was dropped](#a-message-was-dropped). The webhook address is never written to the log.
 
 **Check first.** Can the machine reach the webhook's host? Does the Teams channel still have its workflow or connector?
 
 **Recover.** If the webhook was replaced, set the new address in the environment variable that `alerts.teams_webhook_env` (or the route's `webhook_env`) names. Then restart the agent, since it reads its environment at start. Waiting messages go with the next try.
+
+### A message was dropped
+
+- **Message** (`agent.py`, log): `Teams or flow messages waited three days without being sent and were dropped`
+
+**Means.** A job alert, incident message or shortcut break waited three days and Teams or the flow never took it, so the agent removed it unsent. The `outbox` field names where it waited (`job_alerts.sqlite3`, `alerts.sqlite3` or `shortcut_alerts.sqlite3`), and `dropped` says how many. The agent's [status record](agent.md#status-records) counts them in `messages_dropped` since its start.
+
+**Check first.** The [message to Teams didn't go](#a-message-to-teams-didnt-go) warnings before it, which give the error. Then open Monitor and the incident list to see what the dropped messages would have said.
+
+**Recover.** Fix the webhook or the network, as for a message that didn't go. Dropped messages don't come back.
 
 ### A route sends nowhere
 

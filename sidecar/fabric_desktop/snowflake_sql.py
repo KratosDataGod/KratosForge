@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.6"
+RULES_VERSION = "2026.11.7"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -215,6 +215,16 @@ _ACCOUNT_FUNCTIONS = frozenset({
 
 
 # Functions that build, merge or read a sketch or bitmap state in Snowflake's own format (SFN-016).
+# Text search, collation, Snowflake's own hash and XML: features DuckDB doesn't have (SFN-017).
+_TEXT_FEATURES = {
+    "SEARCH": "SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have.",
+    "SEARCH_IP": "SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have.",
+    "COLLATE": "Snowflake's collation specifications ('en-ci', for example) have no DuckDB equivalent.",
+    "HASH_AGG": "HASH_AGG uses Snowflake's own hash, which DuckDB's hash doesn't reproduce.",
+    "CHECK_XML": "DuckDB has no XML type.", "PARSE_XML": "DuckDB has no XML type.",
+    "XMLGET": "DuckDB has no XML type.", "TO_XML": "DuckDB has no XML type."}
+
+
 _SKETCH_FUNCTIONS = frozenset({
     "HLL_ACCUMULATE", "HLL_COMBINE", "HLL_ESTIMATE", "HLL_EXPORT", "HLL_IMPORT", "DATASKETCHES_HLL_ACCUMULATE",
     "DATASKETCHES_HLL_COMBINE", "DATASKETCHES_HLL_ESTIMATE", "APPROX_TOP_K", "APPROX_TOP_K_ACCUMULATE",
@@ -286,6 +296,9 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
             return _refuse("SFN-015", f"{_function_name(node)}: VARIANT timestamps with a time zone",
                            "DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell "
                            "TIMESTAMP_LTZ from TIMESTAMP_TZ.", f"{_DOCS}/functions/is")
+        if isinstance(node, (exp.Func, exp.Collate)) and _function_name(node) in _TEXT_FEATURES:
+            return _refuse("SFN-017", f"{_function_name(node)}: a Snowflake feature DuckDB lacks",
+                           _TEXT_FEATURES[_function_name(node)], f"{_DOCS}/functions/{_function_name(node).lower()}")
         if isinstance(node, exp.Func) and _function_name(node) in _SKETCH_FUNCTIONS:
             return _refuse("SFN-016", f"{_function_name(node)}: Snowflake sketch and bitmap states",
                            "It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB "
@@ -533,6 +546,75 @@ def _rewrite_ratio_to_report(statement: exp.Expression) -> None:
 
 
 _EARTH_RADIUS_KM = 6371
+
+
+def _soundex_p123_template() -> str:
+    """SOUNDEX's template with one change: the second letter keeps its number even when it is the
+    first letter's (Pfister is P123, not P236)."""
+    from .sql import _ANON_TEMPLATES
+    template = _ANON_TEMPLATES["SOUNDEX"]
+    old = "kf_v <> '0' AND kf_v <> kf_c[kf_i]"
+    if old not in template:  # sql.py's SOUNDEX changed: fail loudly rather than give SOUNDEX's codes
+        raise RuntimeError("SOUNDEX_P123 can't be built from the SOUNDEX template")
+    return template.replace(old, "kf_v <> '0' AND (kf_i = 1 OR kf_v <> kf_c[kf_i])")
+
+
+def _binary_valued(node: exp.Expression) -> bool:
+    """Plainly BINARY: X'..', a cast to BINARY, or a function that returns BINARY."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, (exp.HexString, exp.ByteString)):
+        return True
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        return node.to.this in (exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY, exp.DataType.Type.BLOB)
+    return isinstance(node, (exp.Unhex, exp.FromBase64, exp.TryBase64DecodeBinary, exp.TryHexDecodeBinary)) or (
+        type(node).__name__ in ("Base64DecodeBinary", "HexDecodeBinary", "ToBinary", "TryToBinary"))
+
+
+def _rewrite_strings(statement: exp.Expression) -> None:
+    """SFX-015: string, binary and number functions DuckDB has under other names or not at all.
+    OCTET_LENGTH counts bytes (strlen of text, octet_length of BINARY; a column's type isn't known, so it
+    is taken for text and a BINARY column stops with DuckDB's error rather than a wrong count).
+    MD5_NUMBER_LOWER64 and _UPPER64 read the last and first 16 hex digits of MD5 as an unsigned number.
+    WIDTH_BUCKET follows Snowflake's rules: 0 below min, num_buckets + 1 at or above max, NULL when any
+    argument is; min_value at or above max_value stops with an error rather than give a silent 0. TRY_BASE64_DECODE_* and TRY_HEX_DECODE_* give NULL where the text doesn't decode (an
+    odd number of hex digits too). SOUNDEX_P123 keeps the second letter's number. Arguments are worked
+    out more than once, which matters only when they aren't deterministic."""
+    def sql(node: exp.Expression) -> str:
+        return _duck(node)
+
+    def put(node: exp.Expr, text: str) -> None:
+        node.replace(sqlglot.parse_one(text, read="duckdb"))
+
+    for length in list(statement.find_all(exp.ByteLength)):
+        value = length.this
+        put(length, f"octet_length({sql(value)})" if _binary_valued(value) else f"strlen(CAST({sql(value)} AS VARCHAR))")
+    for md5 in list(statement.find_all(exp.MD5NumberLower64, exp.MD5NumberUpper64)):
+        digits = "right" if isinstance(md5, exp.MD5NumberLower64) else "left"
+        put(md5, f"CAST('0x' || {digits}(md5(CAST({sql(md5.this)} AS VARCHAR)), 16) AS UBIGINT)")
+    for bucket in list(statement.find_all(exp.WidthBucket)):
+        args = [bucket.this, bucket.args.get("min_value"), bucket.args.get("max_value"), bucket.args.get("num_buckets")]
+        if any(a is None for a in args):
+            raise _Untranslatable(_refuse("SFX-015", "WIDTH_BUCKET", "WIDTH_BUCKET takes a value, min_value, "
+                                          "max_value and num_buckets.", f"{_DOCS}/functions/width_bucket"))
+        e, lo, hi, n = (f"({sql(a)})" for a in args if a is not None)
+        put(bucket, f"(CASE WHEN {e} IS NULL OR {lo} IS NULL OR {hi} IS NULL OR {n} IS NULL THEN NULL "
+                  f"WHEN {lo} >= {hi} THEN error('WIDTH_BUCKET here needs min_value below max_value') "
+                  f"WHEN {e} < {lo} THEN 0 WHEN {e} >= {hi} THEN {n} + 1 "
+                  f"ELSE CAST(floor(CAST({e} - {lo} AS DOUBLE) * {n} / CAST({hi} - {lo} AS DOUBLE)) AS BIGINT) + 1 END)")
+    decoders = {exp.TryBase64DecodeBinary: "try(from_base64({0}))",
+                exp.TryBase64DecodeString: "try(decode(from_base64({0})))",
+                exp.TryHexDecodeBinary: "(CASE WHEN length({0}) % 2 = 0 THEN try(unhex({0})) END)",
+                exp.TryHexDecodeString: "(CASE WHEN length({0}) % 2 = 0 THEN try(decode(unhex({0}))) END)"}
+    for decoder in list(statement.find_all(*decoders)):
+        if any(decoder.args.get(k) is not None for k in decoder.args if k != "this"):
+            raise _Untranslatable(_refuse("SFX-015", f"{_function_name(decoder)} with an alphabet", "The "
+                                          "alphabet argument isn't rewritten; the default (+, / and =) is.",
+                                          f"{_DOCS}/functions/{_function_name(decoder).lower()}"))
+        put(decoder, decoders[type(decoder)].format(f"CAST({sql(decoder.this)} AS VARCHAR)"))
+    from .sql import _from_template
+    for soundex in list(statement.find_all(exp.SoundexP123)):
+        soundex.replace(_from_template(_soundex_p123_template(), [soundex.this]))
 
 
 def _in_window(node: exp.Expression) -> exp.Expression:
@@ -1078,6 +1160,13 @@ CATALOG = (
                 "max_log_k is dropped), and APPROX_PERCENTILE returns a DOUBLE, as in Snowflake. HLL(*) and HLL of "
                 "more than one value aren't rewritten. BITMAP_BUCKET_NUMBER and BITMAP_BIT_POSITION run as "
                 "arithmetic on 32,768-bit buckets."),
+    ("SFX-015", "Rewritten", "OCTET_LENGTH counts bytes (a column is taken for text; a BINARY column stops with "
+                "DuckDB's error). MD5_NUMBER_LOWER64 and MD5_NUMBER_UPPER64 read MD5's last and first 64 bits. "
+                "WIDTH_BUCKET gives 0 below min_value, num_buckets + 1 at or above max_value, and NULL when any "
+                "argument is NULL; min_value at or above max_value stops with an error. TRY_BASE64_DECODE_STRING, TRY_BASE64_DECODE_BINARY, TRY_HEX_DECODE_STRING and "
+                "TRY_HEX_DECODE_BINARY give NULL where the text doesn't decode; an alphabet argument isn't "
+                "rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). Arguments are "
+                "worked out more than once, which matters only when they aren't deterministic."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1117,6 +1206,9 @@ CATALOG = (
                 "APPROX_PERCENTILE_ACCUMULATE, _COMBINE and _ESTIMATE functions, MINHASH, MINHASH_COMBINE, "
                 "APPROXIMATE_SIMILARITY, APPROXIMATE_JACCARD_INDEX, BITMAP_CONSTRUCT_AGG, BITMAP_COUNT and "
                 "BITMAP_OR_AGG."),
+    ("SFN-017", "Runs only in Snowflake", "SEARCH and SEARCH_IP (Snowflake's search analyzers), COLLATE (Snowflake "
+                "collation specifications), HASH_AGG (Snowflake's own hash), and XML: CHECK_XML, PARSE_XML, "
+                "XMLGET, TO_XML."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -1149,6 +1241,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_ratio_to_report(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
+        _rewrite_strings(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)
         unknown_brackets = _type_values(tree, written)

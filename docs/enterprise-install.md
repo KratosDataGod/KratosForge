@@ -182,12 +182,11 @@ Each outbound call, what it uses, and how long it waits:
 | Fabric REST API, OneLake, Graph, Power BI | Windows proxy or `HTTPS_PROXY` | Windows store | 60 seconds unless the call names its own |
 | Managed identity on an Azure VM | Windows proxy or `HTTP_PROXY` | Not HTTPS | 60 seconds |
 | Update check and the exe download (the shell's updater) | Windows proxy or `HTTPS_PROXY` | Windows store (Python's standard library loads it) | 5 to 120 seconds, by step |
-| Engine download and engine update (the shell, with Windows' own `curl.exe`) | `HTTPS_PROXY` only: curl doesn't read the Windows proxy setting | Windows store (curl uses Windows' TLS) | 20 seconds to connect; stops when slower than 1 KB/s for 60 seconds |
+| Engine download and engine update (the shell, with Windows' own `curl.exe`) | `HTTPS_PROXY` when it's set, else the fixed proxy Windows is set to, which the app reads and passes to curl (skipping hosts on its bypass list) | Windows store (curl uses Windows' TLS) | 20 seconds to connect; stops when slower than 1 KB/s for 60 seconds |
 
 Set up the network like this:
-- The engine's first download, on each PC's first start, goes through `HTTPS_PROXY` only. On a network where the Windows proxy setting is the only way out, set `HTTPS_PROXY` as a machine environment variable, or [host the engine yourself](#host-the-engine-yourself) on a server the PCs reach directly.
 - A proxy given by a PAC file or by automatic detection (WPAD) isn't read. Set the proxy server in Internet Options, or set `HTTPS_PROXY` and `NO_PROXY` as machine environment variables (Group Policy or Intune).
-- A proxy that asks for a Windows sign-in of its own (a 407 answer asking for NTLM, Negotiate or Kerberos) isn't supported. Allow the addresses in [Network access](#network-access) without proxy sign-in. A proxy that takes Basic sign-in works only with the user name and password written into `HTTPS_PROXY` (`http://user:password@proxy:8080`), where every program the person runs can read them, so don't do that on shared or managed PCs.
+- A proxy that asks for a Windows sign-in of its own (a 407 answer asking for NTLM, Negotiate or Kerberos) isn't supported. Allow the addresses in [Network access](#network-access) without proxy sign-in. **UNVERIFIED:** a proxy that takes Basic sign-in should work only with the user name and password written into `HTTPS_PROXY` (`http://user:password@proxy:8080`), where every program the person runs can read them, so don't do that on shared or managed PCs.
 - On an Azure VM that signs in with its managed identity, add `169.254.169.254` to `NO_PROXY` or the proxy's bypass list, so the machine's identity endpoint isn't sent to the proxy.
 
 When a call fails on the network, the error starts with one line that says what to do, then the detail:
@@ -207,7 +206,7 @@ The app reads these from the PC's environment. None is needed for a normal rollo
 | `REQUESTS_CA_BUNDLE` | A certificate file trusted on top of the Windows certificate store |
 | `FABRIC_DESKTOP_CLIENT_ID` | Your own app registration's ID for this PC, between the policy file's `client_id` (which wins) and the person's own setting ([Configure Azure and Fabric](azure-setup.md#3-only-if-required-your-own-app-registration)) |
 | `FABRIC_DESKTOP_PYTHON` | For developers only. The app runs its engine from this Python instead of the one it downloads, and pip-installs the engine's packages into it. Don't set it on managed PCs |
-| `FABRIC_DESKTOP_TELEMETRY_CONNECTION_STRING` | For maintainers only. Where usage data goes when the policy file names no `telemetry_connection_string`, instead of the destination built into the release. It doesn't turn usage data on; `telemetry` does |
+| `FABRIC_DESKTOP_TELEMETRY_CONNECTION_STRING` | For maintainers only. Where usage data goes when the policy file names no `telemetry_connection_string`, instead of the destination built into the release. Ignored when the policy file turns usage data on with `"telemetry": true`. It doesn't turn usage data on; `telemetry` does |
 
 The [headless agent](agent.md) reads its own: `FABRIC_DESKTOP_HOME`, `FABRIC_DESKTOP_AGENT_CONFIG`, and the variables `agent.toml` names for secrets.
 
@@ -231,6 +230,10 @@ Every file goes through the same redaction before it is written. It takes out:
 - tenant, workspace and item ids.
 
 A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
+
+### Crash dumps
+
+KratosForge writes no crash dumps of its own. If the engine crashes, Windows Error Reporting can save a dump of its memory, and that memory can hold live sign-in tokens. Set WER by Group Policy the way your organization handles any app that signs in: turn off local dumps for `kratosforge.exe` and the engine's `python.exe` under `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps`, or keep them in a folder only administrators can read, and set **Do not send additional data** if dumps may leave the PC.
 
 ## Uninstall
 

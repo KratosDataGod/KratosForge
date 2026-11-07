@@ -26,6 +26,7 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
+from pathlib import Path
 from typing import Any, Callable
 
 from . import agent_status, policy_watch, shared_schedules, shortcut_watch
@@ -78,9 +79,10 @@ class Agent:
                                        backoff_seconds=config.backoff_seconds,
                                        max_backoff_seconds=config.max_backoff_seconds)
         self.log = log or logging.getLogger("fabric_desktop.agent")
-        if getattr(self.queue, "set_aside", None):
+        self._queue_set_aside: Path | None = getattr(self.queue, "set_aside", None)  # alerted on the first step
+        if self._queue_set_aside:
             self.log.error("the job queue file couldn't be read; started with an empty queue", extra=fields(
-                moved_to=str(self.queue.set_aside)))
+                moved_to=str(self._queue_set_aside)))
         self.clock = clock
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}
@@ -99,6 +101,9 @@ class Agent:
         self._outbox: Outbox | None = None
         self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
         self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
+        self.messages_dropped = 0  # Teams or flow messages dropped unsent since this start (in the status record)
+        self._dropped_lock = threading.Lock()  # the shortcut check sends from its own thread
+        self._missed: set[str] = set()  # shared-schedule requests already alerted as missed, this start
         self.audit = AuditLog(config.home / "audit", app="agent")
         if config.pipeline.enabled:
             p = config.pipeline
@@ -216,6 +221,7 @@ class Agent:
                 self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
             result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", self._post,
                           self.config.incidents.digest_over, now=now)
+            self._count_dropped(result, "alerts.sqlite3")
             if result.get("error"):
                 self.log.warning("couldn't post incidents to Teams; they'll go with the next try",
                                  extra=fields(queued=result["queued"], error=result["error"]))
@@ -277,6 +283,7 @@ class Agent:
                                                                                    error=describe(exc)))
         result = send_notices(checked, PlatformRouting([PlatformRoute(DEFAULT_ROUTE, url)]),
                               Outbox(box, clock=self.clock), Ledger(box, clock=self.clock), post_teams)
+        self._count_dropped(result, box.name)
         if result.get("error"):
             self.log.warning("couldn't post shortcut breaks to Teams; they'll go with the next check",
                              extra=fields(queued=result["queued"], error=_without_webhook(result["error"], url)))
@@ -346,9 +353,42 @@ class Agent:
             self.log.warning("couldn't write the shared schedule's request", extra=fields(
                 schedule=s.id, env=s.env, error=f"{type(exc).__name__}: {exc}"))
             return
-        self.log.info({"created": "shared schedule requested", "exists": "shared schedule already requested",
-                       "late": "shared schedule past its deadline; not requested"}[outcome],
+        if outcome == "late":
+            self._missed_shared(s, rid, due)
+            return
+        self.log.info({"created": "shared schedule requested", "exists": "shared schedule already requested"}[outcome],
                       extra=fields(schedule=s.id, env=s.env, request_id=rid))
+
+    def _missed_shared(self, s: Any, rid: str, due: float) -> None:
+        """A due time this agent found past its deadline. If another agent wrote its request, it ran
+        there. If none did, nobody ran it: logged, and one alert to the default route. Each agent
+        alerts once for a due time; agents that were all away each send one."""
+        if rid in self._missed:
+            return
+        self._missed.add(rid)
+        try:
+            requested = self._control(s.env).read(f"requests/{rid}.json") is not None
+        except Exception as exc:  # can't tell: say so rather than stay quiet about a run that may not have happened
+            self._controls.pop(s.env, None)
+            self.log.warning("couldn't check whether another agent requested the shared schedule", extra=fields(
+                schedule=s.id, env=s.env, request_id=rid, error=f"{type(exc).__name__}: {exc}"))
+            requested = None
+        if requested:
+            self.log.info("shared schedule past its deadline; not requested",
+                          extra=fields(schedule=s.id, env=s.env, request_id=rid))
+            return
+        when = shared_schedules.iso(due)
+        self.log.warning("shared scheduled run missed: no agent requested it before its deadline",
+                         extra=fields(schedule=s.id, env=s.env, request_id=rid, due=when))
+        first = (f"Schedule {s.id}, due {when}: no agent requested it before its deadline, so it didn't run."
+                 if requested is False else
+                 f"Schedule {s.id}, due {when}: it passed its deadline here, and the {s.env.title()} mailbox "
+                 "couldn't be read to check whether another agent ran it.")
+        self._notify(f"KratosForge agent {self.config.name}: a shared {s.env.title()} run was missed",
+                     [first, "Check that the agents with this schedule are running and can reach the mailbox. "
+                             "The next due time runs as usual.",
+                      f"To run it now: fabric-desktop agent enqueue {s.env} {' '.join(s.entities)}".rstrip()],
+                     schedule=s.id, request_id=rid)
 
     def has_free_worker(self) -> bool:
         """Whether a request claimed now would start at once: fewer jobs running or queued here than workers."""
@@ -513,15 +553,12 @@ class Agent:
             return
         with self._alert_lock:
             result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", self._post)
+        self._count_dropped(result, "job_alerts.sqlite3")
         if result.get("error"):
             self.log.warning("couldn't post waiting alerts to Teams; they'll go with the next try",
                              extra=fields(error=_without_webhook(result["error"], url)))
 
     def _alert(self, job: dict[str, Any], error: str, crashed: bool = False) -> None:
-        url = self.config.teams_webhook
-        if not self._can_send(DEFAULT_ROUTE, url):
-            return
-        self.send_waiting_alerts()  # older alerts first
         env = str(job["payload"].get("env", "")).title()
         title = f"KratosForge agent {self.config.name}: a {env} job didn't finish"
         lines = [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]]
@@ -529,6 +566,15 @@ class Agent:
             lines.append(CRASHED_NEXT)
         lines.append(PIPELINE_NEXT if str(job.get("dedupe_key") or "").startswith("pipeline:")
                      else f"Fix the cause, then run: fabric-desktop agent requeue {job['id']}")
+        self._notify(title, lines, job_id=job["id"])
+
+    def _notify(self, title: str, lines: list[str], **about: Any) -> None:
+        """Post one message to the default route (alerts.teams_webhook_env). One Teams or the flow
+        didn't take waits in job_alerts.sqlite3 and goes with the next try. ``about``: log fields."""
+        url = self.config.teams_webhook
+        if not self._can_send(DEFAULT_ROUTE, url):
+            return
+        self.send_waiting_alerts()  # older alerts first
         with self._alert_lock:
             try:
                 self._post(url, title, lines)
@@ -537,12 +583,34 @@ class Agent:
                 problem = _without_webhook(failure(exc), url)
                 self._alert_outbox().add(title, lines, problem)
         self.log.warning("couldn't post the alert to Teams; it goes with the next try",
-                         extra=fields(job_id=job["id"], error=problem))
+                         extra=fields(**about, error=problem))
+
+    def _count_dropped(self, result: dict[str, Any], outbox: str) -> None:
+        """Log and count messages an outbox dropped unsent after three days (the status record shows the count)."""
+        n = int(result.get("dropped") or 0)
+        if not n:
+            return
+        with self._dropped_lock:
+            self.messages_dropped += n
+        self.log.warning("Teams or flow messages waited three days without being sent and were dropped",
+                         extra=fields(dropped=n, outbox=outbox))
+
+    def _alert_queue_set_aside(self) -> None:
+        """Once, on the first step: the queue file couldn't be read and was moved aside at start."""
+        moved, self._queue_set_aside = self._queue_set_aside, None
+        if moved is None:
+            return
+        self._notify(f"KratosForge agent {self.config.name}: its job queue file couldn't be read",
+                     [f"It was moved to {moved.name} in the agent's home, and the agent started with an empty queue.",
+                      "Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
+                      "queue any other job again with fabric-desktop agent enqueue."],
+                     moved_to=moved.name)
 
     # ---- the loop
 
     def step(self) -> None:
         """One pass of the loop; ``run_forever`` calls it every ``poll_seconds``."""
+        self._alert_queue_set_aside()
         for job_id in self.queue.recover():
             job = self.queue.get(job_id)
             if job and job["state"] == "dead":  # its worker stopped on every attempt (say, a run that takes the agent down)
@@ -627,6 +695,9 @@ class Agent:
                                                     environments=self.config.environments,
                                                     schedules=[s.id for s in self.config.schedules],
                                                     project=str(self.config.project)))
+        from .credentials import KEY_FILE_OPEN, key_file_open
+        if key_file_open(self.config.auth):
+            self.log.warning(KEY_FILE_OPEN)
         while not self.stopping.is_set():
             try:
                 self.step()

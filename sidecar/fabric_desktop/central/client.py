@@ -62,7 +62,7 @@ class LocalPlatform:
     def call(self, op: str, **kwargs: Any) -> Any:
         if op not in core.OPERATIONS:
             raise ValueError(f"the platform has no operation {op!r}")
-        fn = core.OPERATIONS[op]
+        fn: Any = core.OPERATIONS[op]  # a mix of signatures; called with the caller's own kwargs
         if "by" in fn.__code__.co_varnames[:fn.__code__.co_argcount]:
             kwargs["by"] = self._user()
         with self._lock, self._db() as db:

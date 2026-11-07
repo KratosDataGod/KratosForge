@@ -178,6 +178,8 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e . mypy -c constraints.txt -c ci-constraints.txt
       - run: python -m ruff check --output-format github .
+      # Every workflow file reads as a workflow, so a broken one can't merge (GitHub only says so after).
+      - run: python ../.github/scripts/check_workflows.py ../.github/workflows
       # mypy, as a ratchet: fails only when a file has more type errors of a kind than
       # sidecar/mypy-baseline/ records, one JSON file per source file (hundreds predate the check).
       - run: python ../.github/scripts/mypy_ratchet.py
@@ -280,7 +282,7 @@ jobs:
           python-version: "3.12"
       - name: Python packages (sidecar/constraints.txt)
         run: |
-          python -m pip install --quiet pip-audit==2.10.1
+          python -m pip install --quiet --only-binary=:all: --require-hashes -r .github/requirements/pip-audit.txt
           ignore="$(python .github/scripts/audit_exceptions.py pip)"
           status=0
           pip-audit -r sidecar/constraints.txt --no-deps --disable-pip --progress-spinner off $ignore \

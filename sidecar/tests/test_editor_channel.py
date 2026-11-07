@@ -409,3 +409,15 @@ def test_a_connection_that_sends_nothing_is_closed_and_frees_its_slot(tmp_path, 
         assert channel._server._slots._value == MAX_CONNECTIONS
     finally:
         channel.stop()
+
+
+def test_the_hello_names_the_channel_api_and_refuses_an_extension_too_old_for_it(paired, monkeypatch):
+    from fabric_desktop import editor_channel
+    svc, window, _ = paired
+    nonce = "n" * 32
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
+    assert status == 200 and res["result"]["api"] == editor_channel.API_VERSION
+    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say is taken as current
+    monkeypatch.setattr(editor_channel, "OLDEST_CLIENT_API", editor_channel.API_VERSION + 1)
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
+    assert status == 426 and res["error"]["code"] == "extension_too_old" and "proof" not in json.dumps(res)

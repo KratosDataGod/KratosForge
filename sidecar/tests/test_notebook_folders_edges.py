@@ -46,6 +46,31 @@ def test_a_rename_that_fails_part_way_puts_every_notebook_back(shelf, monkeypatc
     assert not (shelf.folder / "EMEA").exists()
 
 
+def test_a_notebook_that_cant_be_moved_back_stays_in_the_new_folder_and_the_first_error_is_reported(shelf, monkeypatch):
+    """The rename stops on c; putting b back fails too. Nothing is deleted: a goes back, b stays in the
+    new folder, and the error is the one that stopped the rename. On Linux and macOS a folder made between
+    the exists check and the move is another such race; mkdir and the per-file check catch the rest."""
+    for name in ("a", "b", "c"):
+        save(shelf, f"Sales/{name}")
+    src, dest = shelf.folder / "Sales", shelf.folder / "EMEA"
+    plan = nf.rename_plan(shelf, "Sales", "EMEA", None)
+    real = pathlib.Path.rename
+
+    def rename(self, target):
+        if self == src / "c.ipynb":
+            raise PermissionError(32, "c is in use")
+        if self == dest / "b.ipynb":
+            raise PermissionError(32, "b is in use now")
+        return real(self, target)
+    monkeypatch.setattr(pathlib.Path, "rename", rename)
+    with pytest.raises(OSError, match="c is in use") as raised:
+        nf.rename(shelf, plan)
+    assert "Some files are still in EMEA and couldn't be moved back to Sales: b.ipynb" in str(raised.value)
+    assert isinstance(raised.value.__cause__, PermissionError)
+    assert (src / "a.ipynb").is_file() and (src / "c.ipynb").is_file()
+    assert (dest / "b.ipynb").is_file()  # split, but every notebook is still on disk
+
+
 def test_a_file_that_appears_in_the_new_folder_meanwhile_stops_the_rename_and_stays(shelf, monkeypatch):
     save(shelf, "Sales/a")
     plan = nf.rename_plan(shelf, "Sales", "EMEA", None)

@@ -24,6 +24,7 @@ mod signature;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
+mod win_proxy;
 use watchdog::Reply;
 
 const SIDECAR_EXITED: &str = "The Python sidecar stopped. It will restart on the next action.";
@@ -289,6 +290,14 @@ fn release_file(tag: &str, file: &str) -> String {
         Some(folder) => format!("{folder}/{file}"),
         None => format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}"),
     }
+}
+
+/// curl's last arguments for downloading `url`: the proxy Windows is set to, when no proxy
+/// variable is (win_proxy.rs), then the address with a cache-busting query.
+fn download_args(url: &str, nocache: impl std::fmt::Display) -> Vec<String> {
+    let mut args = win_proxy::curl_args(url);
+    args.push(format!("{url}?nocache={nocache}"));
+    args
 }
 
 /// One of Windows' own tools (curl.exe, tar.exe, rundll32.exe) by its full path. By bare name,
@@ -1174,7 +1183,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
-            .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
+            .args(download_args(&release_file(tag, "fabric-desktop-engine.zip"), nocache));
         result = run_tool(curl, "download the engine");
         if result.as_ref().is_err_and(|e| !missing_release_file(e)) {
             break;
@@ -1187,7 +1196,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
             curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                        "Cache-Control: no-cache", "-o"])
                 .arg(&release_json)
-                .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
+                .args(download_args(&release_file(tag, "version.json"), nocache));
             result = run_tool(curl, "read the engine's checksum");
             release = std::fs::read_to_string(&release_json)
                 .ok()
@@ -1310,7 +1319,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
         curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                    "Cache-Control: no-cache", "-o"])
             .arg(&release_json)
-            .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
+            .args(download_args(&release_file(tag, "version.json"), nocache));
         match run_tool(curl, "read the engine's release") {
             Ok(()) => {
                 tag_used = tag.as_str();
@@ -1353,7 +1362,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
         .arg(&zip)
-        .arg(format!("{}?nocache={nocache}", release_file(tag_used, engine_patch::UPDATE_ZIP)));
+        .args(download_args(&release_file(tag_used, engine_patch::UPDATE_ZIP), nocache));
     let checked = run_tool(curl, "download the engine update")
         .and_then(|()| sha256_file(&zip))
         .and_then(|sha| {

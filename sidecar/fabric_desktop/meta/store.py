@@ -19,7 +19,7 @@ import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from .. import delta_profile
+from .. import delta_profile, durable
 from ..errors import NotSetUp
 from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
@@ -685,7 +685,10 @@ class LocalStore(Store):
         return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, Dtype]) -> bool:
-        return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+        created = local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+        if created:
+            durable.sync_commits(self.uri(lakehouse, schema, table), 0, 0)
+        return created
 
     def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                      version: int | None = None) -> int:
@@ -695,6 +698,12 @@ class LocalStore(Store):
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
 
     removes_unwritten = True
+
+    def _committed(self, uri: str, table: DeltaTable) -> int:
+        """On this PC, each commit is also flushed to disk (durable.py) before the write returns."""
+        version = super()._committed(uri, table)
+        durable.sync_commits(uri, version, version)
+        return version
 
     def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
         root = Path(self.uri(lakehouse, schema, table))

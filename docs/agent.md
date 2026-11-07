@@ -130,6 +130,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fabric-desktop-agent
 journalctl -u fabric-desktop-agent -f
 ```
 
+If `agent.pem` can be read by every account on the machine, the agent logs a warning when it starts, and `agent check` lists it under `warnings`. It still runs, because a container's secret mount is often readable by all and holds only the agent's account.
+
 Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/fabric-desktop-agent.service).
 
 ### Linux (container)
@@ -208,6 +210,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `incidents` | Whether it checks [incidents](#incidents-preview) and how often, its quiet hours, escalation, and each route's name and filters. Webhook addresses and the variables holding them are never included |
 | `shortcut_health` | `enabled` (whether it checks this environment's [shortcuts](#shortcut-health)) and `minutes`. Other agents read it so that one of them posts each break. No webhook |
 | `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
+| `messages_dropped` | Teams or flow messages (job alerts, incidents, shortcut breaks) that waited three days unsent and were dropped, since this start. The agent's log says which outbox each came from. The same number in each environment's record |
 | `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
 | `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
 | `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |

@@ -30,7 +30,7 @@ REPLACE_BACKOFF = 0.05
 KEEP_SET_ASIDE = 5
 
 
-def write_json(path: Path, data: Any, indent: int = 2) -> None:
+def write_json(path: Path, data: Any, indent: int | None = 2) -> None:
     write_text(path, json.dumps(data, indent=indent))
 
 

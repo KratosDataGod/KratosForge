@@ -37,7 +37,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E04 | OneLake settings: external app access, file explorer, shortcut cache | 1.1.3 | G | SIM +FV | config | 15 | LM-07 |
 | E05 | Data workflow (Apache Airflow job) settings and when to use them | 1.1.4 | G | KO | quiz | 10 | |
 | E06 | Put a workspace under Git: commit, branch, resolve a conflict in an item definition | 1.2.1 | G | LV +FV | git | 25 | Source control |
-| E07 | Feature workspaces: branch out, sync, and update from Git | 1.2.1 | C | SIM +FV | git | 20 | |
+| E07 | Feature workspaces: branch out, sync, and update from Git | 1.2.1 | C | LV +FV | git | 20 | |
 | E08 | A warehouse as a database project: add a table and view, catch a breaking change | 1.2.2 | C | LV +FV | sqlproj | 25 | LM-23 |
 | E09 | Deployment pipeline: stages, deployment rules, and what doesn't deploy | 1.2.3 | G | SIM +FV | config | 20 | |
 | E10 | Least privilege workspace roles for six people | 1.3.1 | G | SIM +FV | config | 15 | |
@@ -108,7 +108,7 @@ validation checks both the fix and that nothing else changed.
 | E52 | A notebook runs out of memory: collect() on a large table and a skewed join | 3.2.3, 3.3.5 | LV | pyspark | 25 | |
 | E53 | An eventhouse loads empty rows: an ingestion mapping that doesn't match | 3.2.4 | SIM | config | 20 | |
 | E54 | An eventstream loses events: a schema change at the source | 3.2.5 | SIM | config | 20 | |
-| E55 | T-SQL errors: read the messages, fix conversion, divide-by-zero and MERGE faults | 3.2.6 | SIM | quiz + sqlproj | 25 | LAB-09 |
+| E55 | T-SQL errors: read the messages, fix conversion, divide-by-zero and MERGE faults | 3.2.6 | KO | quiz | 25 | LAB-09 |
 | E56 | A slow lakehouse table: thousands of small files and no statistics | 3.3.1 | LV +FV | delta | 25 | LM-25 |
 | E57 | An incremental load that misses late rows | 2.1.1, 2.2.9 | LV | duckdb | 20 | LM-12 |
 | E58 | A retried pipeline doubled a table | 2.2.9, 3.2.1 | LV | duckdb | 20 | LAB-04 |

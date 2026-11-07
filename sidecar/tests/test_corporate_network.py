@@ -85,8 +85,29 @@ class _Ok(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def _exclusive(sock: socket.socket) -> None:
+    """On Windows, keep the port to this socket alone. Without it, another process in the run that
+    binds the same port with SO_REUSEADDR (a server started on a "free" port found a moment before)
+    can take its connections, and the caller sees the connection closed with no answer."""
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+
+
+def _listener() -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    _exclusive(sock)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(64)
+    return sock
+
+
 class _Site(http.server.ThreadingHTTPServer):
     request_queue_size = 64  # the default 5 refuses callers on Windows when the run is busy
+    allow_reuse_address = False
+
+    def server_bind(self):
+        _exclusive(self.socket)
+        super().server_bind()
 
     def handle_error(self, request, client_address):
         # A caller that refuses the certificate drops the handshake; that is the test, not an error.
@@ -130,7 +151,7 @@ class Proxy:
 
     def __init__(self, mode: str):
         self.mode, self.asked, self.errors = mode, [], []
-        self.sock = socket.create_server(("127.0.0.1", 0))
+        self.sock = _listener()
         self.url = f"http://127.0.0.1:{self.sock.getsockname()[1]}"
         self.held: list[socket.socket] = []
         threading.Thread(target=self._serve, daemon=True).start()
@@ -187,17 +208,27 @@ class Proxy:
         upstream = self._upstream("127.0.0.1" if host == "localhost" else host, int(port))
         upstream.settimeout(None)
         conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        ends = [2]
         for a, b in ((conn, upstream), (upstream, conn)):
-            threading.Thread(target=self._pipe, args=(a, b), daemon=True).start()
+            threading.Thread(target=self._pipe, args=(a, b, ends), daemon=True).start()
 
-    @staticmethod
-    def _pipe(a: socket.socket, b: socket.socket):
+    _ends_lock = threading.Lock()
+
+    @classmethod
+    def _pipe(cls, a: socket.socket, b: socket.socket, ends: list[int]):
+        """One direction of the tunnel. When ``a`` has said all it will, pass that on to ``b`` as a
+        half-close and keep the other direction open: closing both here could drop bytes the other
+        direction hasn't passed on yet. Both sockets close when both directions are done."""
         try:
             while data := a.recv(65536):
                 b.sendall(data)
+            b.shutdown(socket.SHUT_WR)
         except OSError:
             pass
-        finally:
+        with cls._ends_lock:
+            ends[0] -= 1
+            last = ends[0] == 0
+        if last:
             for s in (a, b):
                 try:
                     s.close()
@@ -242,7 +273,11 @@ def test_the_proxy_windows_is_set_to_is_used_when_no_variable_is_set(network, mo
     proxy = network()
     monkeypatch.setattr(requests.utils, "getproxies", lambda: {"https": proxy.url})
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(company_ca / "root.pem"))
-    assert http_session.session().get(f"{site}/v1/workspaces", timeout=10).status_code == 200
+    try:
+        r = http_session.session().get(f"{site}/v1/workspaces", timeout=10)
+    except requests.RequestException as e:   # say what the test's own proxy saw, to tell where it failed
+        pytest.fail(f"{e!r}; the proxy saw {proxy.asked} and raised {proxy.errors}")
+    assert r.status_code == 200
     assert len(proxy.asked) == 1 and proxy.asked[0].startswith("CONNECT localhost:")
 
 

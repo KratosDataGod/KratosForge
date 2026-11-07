@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A deployment rule"
+          "text": "A deployment rule on the storage account folder"
         },
         {
           "id": "b",
-          "text": "A schedule every minute"
+          "text": "A schedule that runs every minute"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "A Git webhook"
+          "text": "A Git webhook on the workspace's repository"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Event-based triggers start a pipeline when events such as a file being created occur, so it runs as soon as the file arrives instead of polling.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.2-q2",
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Nothing; triggers can't filter"
+          "text": "Nothing; event triggers can't filter, so they fire for every file in the storage account"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "A ForEach activity that ignores other files"
+          "text": "A ForEach activity in the pipeline that skips every file not ending in .csv"
         },
         {
           "id": "d",
-          "text": "A second pipeline to delete other files"
+          "text": "A second pipeline that deletes other files before the trigger fires"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Event triggers can filter events by folder name, file name, file type and container through the Subject field, so only matching files start the pipeline.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.2-q3",
@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "In the Git panel"
+          "text": "In the Git panel of the workspace"
         },
         {
           "id": "b",
@@ -79,7 +79,7 @@
         },
         {
           "id": "c",
-          "text": "In the lakehouse settings"
+          "text": "In the default lakehouse's settings"
         },
         {
           "id": "d",
@@ -91,9 +91,9 @@
       ],
       "explanation": "Each pipeline has a schedule with a frequency, start time and time zone.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.2-q4",

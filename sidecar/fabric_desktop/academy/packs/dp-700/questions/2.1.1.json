@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Load only rows whose OrderID is greater than the largest OrderID already loaded"
+          "text": "Load only rows whose OrderID is greater than the largest OrderID saved by the last successful pipeline run"
         },
         {
           "id": "b",
-          "text": "Reload the whole table every night and overwrite the bronze copy"
+          "text": "Reload the whole table every night and overwrite the bronze copy to catch every change"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "Take a weekly full copy and skip the days in between"
+          "text": "Take a weekly full copy of the table and skip the incremental loads on the days in between"
         }
       ],
       "answer": [
@@ -30,9 +30,9 @@
       "explanation": "LastModified changes on every insert and update, so a watermark on it picks up new and changed rows while reading about 1% of the table. An OrderID watermark finds new orders but misses updates to old ones, a nightly full reload rereads 400 million rows to catch 4 million changes, and a weekly copy leaves data up to a week stale.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
       "case": "larkspur-orders",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.1-q2",
@@ -267,11 +267,11 @@
       "options": [
         {
           "id": "a",
-          "text": "`df.write.mode(\"append\").option(\"mergeSchema\", \"true\").saveAsTable(\"sales\")`"
+          "text": "`df.write.format(\"delta\").mode(\"append\").option(\"mergeSchema\", \"true\").option(\"maxRecordsPerFile\", \"1000000\").saveAsTable(\"sales\")`"
         },
         {
           "id": "b",
-          "text": "`df.write.mode(\"overwrite\").saveAsTable(\"sales\")`"
+          "text": "`df.write.mode(\"overwrite\").option(\"overwriteSchema\", \"true\").partitionBy(\"sale_date\").format(\"delta\").saveAsTable(\"sales\")`"
         },
         {
           "id": "c",
@@ -279,7 +279,7 @@
         },
         {
           "id": "d",
-          "text": "`df.write.mode(\"ignore\").saveAsTable(\"sales\")`"
+          "text": "`df.write.mode(\"ignore\").option(\"mergeSchema\", \"true\").partitionBy(\"sale_date\").saveAsTable(\"sales\")`"
         }
       ],
       "answer": [
@@ -287,7 +287,7 @@
       ],
       "explanation": "replaceWhere atomically overwrites only the rows that match the predicate, so a rerun replaces the month instead of adding it again. Append duplicates the month on a rerun, a plain overwrite replaces the whole table, and ignore writes nothing if the table exists.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/delta/selective-overwrite",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

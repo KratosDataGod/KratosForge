@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "df.addColumn(\"total\", \"qty * price\")"
+          "text": "df.addColumn(\"total\", (F.col(\"qty\") * F.col(\"price\")))"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "df[\"total\"] == df[\"qty\"] * df[\"price\"]"
+          "text": "df[\"total\"] == F.col(\"qty\") * F.col(\"price\")"
         },
         {
           "id": "d",
-          "text": "df.select(\"total\" = qty * price)"
+          "text": "df.select(\"total\" = F.col(\"qty\") * F.col(\"price\"))"
         }
       ],
       "answer": [
@@ -29,7 +29,7 @@
       ],
       "explanation": "withColumn returns a new DataFrame with the column added. DataFrames have no addColumn method, df[\"total\"] == ... is a comparison rather than an assignment, and select(\"total\" = ...) isn't valid Python.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -71,15 +71,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Events | count by DeviceId every 5m"
+          "text": "Events | count() by DeviceId, Timestamp every 5m"
         },
         {
           "id": "b",
-          "text": "Events | group DeviceId, Timestamp/5"
+          "text": "Events | group by DeviceId, Timestamp / 5m | count()"
         },
         {
           "id": "c",
-          "text": "Events | summarize DeviceId by count(), 5m"
+          "text": "Events | summarize DeviceId by count(), bin(Timestamp, 5m)"
         },
         {
           "id": "d",
@@ -91,9 +91,9 @@
       ],
       "explanation": "summarize aggregates rows by the given groups, and bin() rounds each timestamp down to its five-minute interval.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/summarize-operator",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.6-q4",
@@ -205,15 +205,15 @@
         },
         {
           "id": "b",
-          "text": "The ten newest events"
+          "text": "The ten newest events, sorted by Timestamp descending"
         },
         {
           "id": "c",
-          "text": "The ten oldest events from the last day"
+          "text": "The ten oldest events from the last day, in Timestamp order"
         },
         {
           "id": "d",
-          "text": "An error, because take needs a by clause"
+          "text": "An error, because take needs a by clause to choose rows"
         }
       ],
       "answer": [
@@ -221,9 +221,9 @@
       ],
       "explanation": "take returns the requested number of rows with no ordering guarantee. To get the newest, use top 10 by Timestamp desc.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/take-operator",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.6-q8",

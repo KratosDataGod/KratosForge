@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "So that the tables no longer need keys"
+          "text": "So that the dimension tables no longer need surrogate keys"
         },
         {
           "id": "b",
-          "text": "So that every attribute is stored only once"
+          "text": "So that every attribute value is stored only once in the model"
         },
         {
           "id": "c",
-          "text": "So that storage use goes down"
+          "text": "So that the tables use less storage in OneLake"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Flattening related attributes into one dimension per subject gives a star schema that reporting tools query with few joins. It stores some values more than once, which is the accepted trade-off.",
       "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.7-q2",

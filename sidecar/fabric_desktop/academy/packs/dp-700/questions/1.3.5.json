@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "The Git repository"
+          "text": "Label files stored in the Git repository connected to the workspace"
         },
         {
           "id": "b",
@@ -17,7 +17,7 @@
         },
         {
           "id": "c",
-          "text": "Each workspace's own label list"
+          "text": "Each workspace's own label list, defined by its workspace admin"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Fabric uses the sensitivity labels an organization publishes for its tenant.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
-      "version": 2,
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.5-q2",
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Labels never move from one item to another"
+          "text": "Labels never move from one item to another, so each one must be set on every item by hand"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "The report is deleted"
+          "text": "The report is deleted until an owner applies the same label to it"
         },
         {
           "id": "d",
-          "text": "The lakehouse loses its label"
+          "text": "The lakehouse loses its label once other items are built on top of it"
         }
       ],
       "answer": [
@@ -61,9 +61,9 @@
       "explanation": "With downstream inheritance, items created from a labeled item can receive its label, so protection follows the data.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
       "case": "harbor-analytics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.5-q3",
@@ -76,11 +76,11 @@
         },
         {
           "id": "b",
-          "text": "The label is shown as text in cell A1"
+          "text": "The label is written as plain text in cell A1 of the first worksheet"
         },
         {
           "id": "c",
-          "text": "The label is dropped on export"
+          "text": "The label is always dropped on export, so the Excel file leaves Fabric unprotected"
         },
         {
           "id": "d",
@@ -92,9 +92,9 @@
       ],
       "explanation": "Labels persist on supported exports such as Excel, PowerPoint and PDF, so the file stays protected outside Fabric.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.5-q4",
@@ -103,7 +103,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A Git connection on the workspace"
+          "text": "A Git connection on the workspace, which syncs the label list from the connected repository"
         },
         {
           "id": "b",
@@ -115,7 +115,7 @@
         },
         {
           "id": "d",
-          "text": "A deployment pipeline"
+          "text": "A deployment pipeline whose stage settings publish labels to the workspace"
         }
       ],
       "answer": [
@@ -123,9 +123,9 @@
       ],
       "explanation": "Labels must be defined and published for the organization, and a Fabric admin must turn on the tenant setting that allows users to apply them.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
-      "version": 2,
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.5-q5",
@@ -200,15 +200,15 @@
         },
         {
           "id": "b",
-          "text": "The lakehouse can't be created"
+          "text": "The lakehouse can't be created at all until a Fabric admin also turns on default labeling for the whole tenant"
         },
         {
           "id": "c",
-          "text": "The lakehouse gets the highest label automatically"
+          "text": "The lakehouse automatically gets the organization's highest-priority label when it is saved"
         },
         {
           "id": "d",
-          "text": "The user must pick a label before saving, as for Power BI reports"
+          "text": "The user must pick a label before saving, exactly as for Power BI reports and semantic models"
         }
       ],
       "answer": [
@@ -216,7 +216,7 @@
       ],
       "explanation": "Mandatory labeling is fully supported only for Power BI items. For lakehouses, pipelines and warehouses, the logic isn't enforced.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

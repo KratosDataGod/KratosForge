@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Split it into 300 pipelines run by hand"
+          "text": "Split it into 300 separate pipelines, one per region, and run them by hand each night"
         },
         {
           "id": "b",
-          "text": "Add a Wait activity between iterations"
+          "text": "Add a Wait activity between iterations so that each region's copy runs with less contention"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "Increase the retry count"
+          "text": "Increase the retry count on the Copy activity inside the ForEach"
         }
       ],
       "answer": [
@@ -30,9 +30,9 @@
       "explanation": "A ForEach runs iterations in parallel unless Sequential is set; the batch count limits how many run at once.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
       "case": "fernway-telemetry",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.2-q2",
@@ -41,15 +41,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Add a schedule"
+          "text": "Add a separate schedule for each Copy activity"
         },
         {
           "id": "b",
-          "text": "Turn on high concurrency"
+          "text": "Turn on high concurrency mode for the pipeline's activities"
         },
         {
           "id": "c",
-          "text": "Put them in a ForEach with Sequential on"
+          "text": "Put them in a ForEach activity with the Sequential option on"
         },
         {
           "id": "d",
@@ -61,7 +61,7 @@
       ],
       "explanation": "Activities with no dependency between them run in parallel.",
       "source": "https://learn.microsoft.com/en-us/azure/data-factory/concepts-pipelines-activities",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -72,11 +72,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Turn off the destination"
+          "text": "Turn off the destination's auto create table option so that the copy skips writing the table's schema each time"
         },
         {
           "id": "b",
-          "text": "Add a Wait activity"
+          "text": "Add a Wait activity before the Copy activity so that the source database has enough time to prepare its partitioned read"
         },
         {
           "id": "c",
@@ -84,7 +84,7 @@
         },
         {
           "id": "d",
-          "text": "Copy the table one row at a time"
+          "text": "Copy the table one row at a time in a ForEach, so each read stays small and fast"
         }
       ],
       "answer": [
@@ -92,9 +92,9 @@
       ],
       "explanation": "Partitioned reads let the Copy activity read slices of the table in parallel.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.2-q4",
@@ -103,7 +103,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Copy each table twice"
+          "text": "Copy each table twice, once to a staging area and once to the destination"
         },
         {
           "id": "b",
@@ -111,11 +111,11 @@
         },
         {
           "id": "c",
-          "text": "Add a notebook between every copy"
+          "text": "Add a notebook between every copy to warm up the Spark session first"
         },
         {
           "id": "d",
-          "text": "Lower the pipeline's timeout"
+          "text": "Lower the pipeline's timeout so slow copies are stopped sooner"
         }
       ],
       "answer": [
@@ -123,9 +123,9 @@
       ],
       "explanation": "Independent copies running in parallel use the time otherwise spent waiting. Extra steps only add time.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.2-q5",
@@ -262,11 +262,11 @@
         },
         {
           "id": "b",
-          "text": "Export the tables to CSV files and use a second Copy activity"
+          "text": "Export the tables to CSV files in OneLake and load them with a second Copy activity"
         },
         {
           "id": "c",
-          "text": "Run singleton INSERT statements in a ForEach"
+          "text": "Run singleton INSERT statements for each row in a ForEach over the lakehouse table"
         },
         {
           "id": "d",
@@ -278,7 +278,7 @@
       ],
       "explanation": "The warehouse guidance says CTAS or INSERT combined with SELECT FROM lakehouse tables or shortcuts could be more performant and efficient than pipelines. Singleton inserts create many small files.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

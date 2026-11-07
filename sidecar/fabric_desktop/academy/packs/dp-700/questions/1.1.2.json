@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A capacity that only one department can use"
+          "text": "A capacity reserved for a single department, used to isolate its compute from other teams"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "A network boundary that blocks traffic between workspaces"
+          "text": "A network boundary that blocks traffic between workspaces that belong to different business units"
         },
         {
           "id": "d",
-          "text": "A type of lakehouse that holds master data"
+          "text": "A special type of lakehouse that holds the master data shared by all workspaces in the tenant"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Domains group workspaces by business area, such as Sales or Finance, so data can be organized and governed the way the business is, in the spirit of data mesh.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.2-q2",
@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "In each item's settings, one by one"
+          "text": "In each item's settings, by setting the domain on items one by one"
         },
         {
           "id": "b",
@@ -79,11 +79,11 @@
         },
         {
           "id": "c",
-          "text": "In the capacity settings"
+          "text": "In the capacity settings of the capacity that hosts the workspace"
         },
         {
           "id": "d",
-          "text": "Only by asking Microsoft Support"
+          "text": "Only by asking Microsoft Support to move the workspace into the domain"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Domain contributors can assign workspaces they are admins of to the domain from the workspace's own settings.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.2-q4",
@@ -200,7 +200,7 @@
       "options": [
         {
           "id": "a",
-          "text": "It joins the Sales domain automatically"
+          "text": "It joins the Sales domain automatically, because capacity assignment covers future workspaces"
         },
         {
           "id": "b",
@@ -208,11 +208,11 @@
         },
         {
           "id": "c",
-          "text": "It is blocked from being created until a domain admin approves it"
+          "text": "It is blocked from being created on the capacity until a domain admin approves its domain"
         },
         {
           "id": "d",
-          "text": "It joins the Sales domain after the next daily sync"
+          "text": "It joins the Sales domain after the next daily sync between the capacity and domain settings"
         }
       ],
       "answer": [
@@ -220,7 +220,7 @@
       ],
       "explanation": "Assigning by capacity affects existing workspaces only. A workspace assigned to the capacity later must be assigned some other way, for example through a default domain.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -231,11 +231,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Assign the Marketing domain by capacity once a week"
+          "text": "Assign the Marketing domain by capacity once a week to catch new ones"
         },
         {
           "id": "b",
-          "text": "Make every member of the group a domain admin"
+          "text": "Make every member of the Marketing group a domain admin of Marketing"
         },
         {
           "id": "c",
@@ -243,7 +243,7 @@
         },
         {
           "id": "d",
-          "text": "Assign the Marketing domain by workspace name"
+          "text": "Assign the Marketing domain to workspaces by matching the workspace name"
         }
       ],
       "answer": [
@@ -251,7 +251,7 @@
       ],
       "explanation": "A default domain assigns new workspaces created by the specified users or groups to that domain. Assigning by name or capacity only covers workspaces that already exist.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

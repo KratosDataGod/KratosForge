@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "It is deleted from the source as well"
+          "text": "It is deleted from the cache and from the source storage account as well"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "The shortcut stops working"
+          "text": "The shortcut stops resolving until someone resets the workspace's cache"
         },
         {
           "id": "d",
-          "text": "It stays in the cache forever"
+          "text": "It stays in the cache permanently, since retention applies only to newly cached files"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Each access resets the retention period. A file not read within it is purged from the cache, and the next read goes to the source and caches it again. The source is never changed.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.3-q3",
@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "`sql://<workspace>.onelake/<item>`"
+          "text": "`sql://<workspace>.onelake.fabric.microsoft.com/<item>.Lakehouse/Files/...`"
         },
         {
           "id": "b",
@@ -79,11 +79,11 @@
         },
         {
           "id": "c",
-          "text": "`file://onelake/<workspace>/<item>`"
+          "text": "`file://onelake.fabric.microsoft.com/<workspace>/<item>.Lakehouse/Files/<folder>/...`"
         },
         {
           "id": "d",
-          "text": "`https://<workspace>.blob.core.windows.net/<item>`"
+          "text": "`https://<workspace>.blob.core.windows.net/<item>.Lakehouse/Files/...`"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "OneLake supports the ADLS Gen2 APIs, with the workspace as the container and the item, with its type, as the top folder.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.3-q4",
@@ -164,11 +164,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Delete and recreate each shortcut"
+          "text": "Delete and recreate each shortcut so its cached files are rebuilt"
         },
         {
           "id": "b",
-          "text": "Lower the retention period to one day and wait"
+          "text": "Lower the retention period to one day and wait for the purge to run"
         },
         {
           "id": "c",
@@ -184,7 +184,7 @@
       ],
       "explanation": "Reset cache removes all files from the workspace's shortcut cache immediately. Lowering the retention period only purges files over time.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -235,15 +235,15 @@
         },
         {
           "id": "b",
-          "text": "The workspace's shortcut caching setting"
+          "text": "The workspace's shortcut caching setting in the OneLake tab of each workspace's settings"
         },
         {
           "id": "c",
-          "text": "The workspace's default domain"
+          "text": "The default domain assigned to the user's security group in the admin portal"
         },
         {
           "id": "d",
-          "text": "High concurrency mode in the workspace's Spark settings"
+          "text": "High concurrency mode for notebooks in the workspace's Spark compute settings"
         }
       ],
       "answer": [
@@ -251,7 +251,7 @@
       ],
       "explanation": "When that tenant setting is off, the app can't start for anyone in the organization. The other settings don't control the app.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-file-explorer",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -293,11 +293,11 @@
       "options": [
         {
           "id": "a",
-          "text": "It is moved to the lakehouse's recycle bin"
+          "text": "It is moved to the lakehouse's recycle bin for seven days"
         },
         {
           "id": "b",
-          "text": "It is deleted too"
+          "text": "It is deleted too, because shortcuts cascade deletes to the target"
         },
         {
           "id": "c",
@@ -305,7 +305,7 @@
         },
         {
           "id": "d",
-          "text": "It becomes read-only"
+          "text": "It becomes read-only until a new shortcut is created"
         }
       ],
       "answer": [
@@ -313,7 +313,7 @@
       ],
       "explanation": "Shortcuts don't cascade deletes. Deleting the shortcut removes only the shortcut, though deleting a file inside a shortcut does delete it in the target if you have permission there.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     }

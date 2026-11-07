@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "It deletes old rows"
+          "text": "It deletes old rows from the Delta table that fall outside the incremental refresh window in the model"
         },
         {
           "id": "b",
-          "text": "It imports a full copy of the table into the model"
+          "text": "It imports a full copy of the Delta table's rows into the model's in-memory storage, as in import mode"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "It rewrites the Delta table"
+          "text": "It rewrites the Delta table's Parquet files with V-Order and Z-Order so that the model can read them in Direct Lake mode"
         }
       ],
       "answer": [
@@ -61,9 +61,9 @@
       "explanation": "For Direct Lake, a refresh (framing) points the model at the latest table version. It's quick and cheap because no data is imported.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview",
       "case": "fernway-telemetry",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.3-q3",
@@ -72,11 +72,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A shortcut to the model"
+          "text": "A shortcut to the model in the lakehouse the pipeline loads"
         },
         {
           "id": "b",
-          "text": "A deployment rule"
+          "text": "A deployment rule on the model's refresh schedule"
         },
         {
           "id": "c",
@@ -84,7 +84,7 @@
         },
         {
           "id": "d",
-          "text": "A second schedule an hour later"
+          "text": "A second refresh schedule an hour after the pipeline's schedule"
         }
       ],
       "answer": [
@@ -92,9 +92,9 @@
       ],
       "explanation": "The Semantic model refresh activity refreshes a model as a pipeline step, so it runs only after the load succeeds.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/semantic-model-refresh-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.3-q4",
@@ -103,11 +103,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The model was deleted"
+          "text": "The model was deleted automatically after the failed refreshes, so there's no schedule left to run"
         },
         {
           "id": "b",
-          "text": "The capacity was paused by Microsoft"
+          "text": "Microsoft paused the workspace's capacity because of the failed refreshes, so no refresh can run"
         },
         {
           "id": "c",
@@ -115,7 +115,7 @@
         },
         {
           "id": "d",
-          "text": "The refresh moved to Direct Lake by itself"
+          "text": "The model switched itself to Direct Lake storage mode after the failures, and Direct Lake models have no refresh schedule"
         }
       ],
       "answer": [
@@ -123,9 +123,9 @@
       ],
       "explanation": "After four consecutive failures Power BI deactivates the refresh schedule. Check the refresh history for the error, fix it, and re-enable the schedule.",
       "source": "https://learn.microsoft.com/en-us/power-bi/connect-data/refresh-scheduled-refresh",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.3-q5",
@@ -165,7 +165,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Delete the model's refresh history"
+          "text": "Delete the model's refresh history so the failed refresh is cleared"
         },
         {
           "id": "b",
@@ -173,7 +173,7 @@
         },
         {
           "id": "c",
-          "text": "Enable DirectQuery fallback on the model"
+          "text": "Enable DirectQuery fallback on the model so oversized tables are queried"
         },
         {
           "id": "d",
@@ -185,7 +185,7 @@
       ],
       "explanation": "For Direct Lake on OneLake, exceeding guardrails makes refresh fail, and the model can't be queried until the Delta tables are optimized to fit the limits. Fallback to DirectQuery applies to Direct Lake on SQL, not Direct Lake on OneLake.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -294,15 +294,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Failure emails are only sent after three consecutive failures"
+          "text": "Failure emails are only sent after three consecutive failures of the same refresh in a row"
         },
         {
           "id": "b",
-          "text": "Failure emails are only sent for models on shared capacity"
+          "text": "Failure emails are only sent for models in workspaces on shared capacity, not for models on Fabric capacity"
         },
         {
           "id": "c",
-          "text": "Failure emails are only sent to users outside the tenant"
+          "text": "Failure emails are only sent to users outside the tenant who are listed as model contacts"
         },
         {
           "id": "d",
@@ -314,7 +314,7 @@
       ],
       "explanation": "On-demand and programmatically triggered refreshes don't send failure emails; notifications apply to scheduled refresh. External users can't be recipients at all.",
       "source": "https://learn.microsoft.com/en-us/power-bi/connect-data/refresh-data",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     }

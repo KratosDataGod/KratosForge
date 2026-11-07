@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "It encrypts the column on disk"
+          "text": "It encrypts the column's values on disk, so they can be read only by users holding the decryption key"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "It removes the column from the table"
+          "text": "It removes the column from the table and stores its values in a separate secured table that only UNMASK users can read"
         },
         {
           "id": "d",
-          "text": "It blocks every query on the table"
+          "text": "It blocks every query on the table for users without the UNMASK permission until an admin approves"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Masking changes what non-privileged users see in results. The data itself is stored unchanged.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.4-q2",
@@ -109,15 +109,15 @@
       "options": [
         {
           "id": "a",
-          "text": "It applies to warehouse admins too"
+          "text": "It applies to workspace Admins, Members and Contributors too, so no workspace role can ever see the unmasked values"
         },
         {
           "id": "b",
-          "text": "It makes masked values impossible to infer"
+          "text": "It makes masked values impossible to infer, because filters such as WHERE or LIKE on a masked column are always blocked"
         },
         {
           "id": "c",
-          "text": "It replaces the need for row-level security"
+          "text": "It replaces the need for row-level security, because rows with masked values are also filtered out of query results for non-privileged users"
         },
         {
           "id": "d",
@@ -129,9 +129,9 @@
       ],
       "explanation": "Masking limits exposure in results, but a user with SELECT can run queries such as WHERE Email LIKE 'a%' to learn about values. Use it alongside column and row permissions.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.4-q5",
@@ -140,11 +140,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Masks apply only to queries from Power BI"
+          "text": "Masks apply only to queries that come from Power BI reports, not from T-SQL"
         },
         {
           "id": "b",
-          "text": "The mask was applied with the wrong function"
+          "text": "The mask was applied with the default() function instead of the partial() function"
         },
         {
           "id": "c",
@@ -152,7 +152,7 @@
         },
         {
           "id": "d",
-          "text": "Contributors see masked values only in the SQL analytics endpoint"
+          "text": "Contributors see masked values only when querying the table through the SQL analytics endpoint"
         }
       ],
       "answer": [
@@ -160,7 +160,7 @@
       ],
       "explanation": "Workspace Admins, Members and Contributors have CONTROL on the database by design, and CONTROL includes UNMASK, so they see unmasked data.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

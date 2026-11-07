@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "A deployment pipeline"
+          "text": "A deployment pipeline that moves the events from the hub into the lakehouse"
         },
         {
           "id": "b",
-          "text": "A Dataflow Gen2 scheduled every minute"
+          "text": "A Dataflow Gen2 that reads the event hub and is scheduled to refresh once every minute"
         },
         {
           "id": "c",
-          "text": "A notebook that runs a COPY INTO statement once a day"
+          "text": "A notebook that runs a COPY INTO statement from the event hub once a day"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Eventstreams capture, transform and route streaming events without code, and a lakehouse is one of their destinations. A dataflow or a daily notebook runs in batches rather than continuously, and deployment pipelines move content between workspaces.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.3-q2",
@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "So that the stream can be read with T-SQL"
+          "text": "So that the stream's output can be queried with T-SQL through the SQL analytics endpoint"
         },
         {
           "id": "b",
-          "text": "So that Spark keeps a second copy of the Delta table"
+          "text": "So that Spark keeps a second, backup copy of the Delta table that it can restore from after a driver failure"
         },
         {
           "id": "c",
-          "text": "So that V-Order is applied to the files it writes"
+          "text": "So that V-Order and optimized write are applied to the Parquet files the stream writes"
         },
         {
           "id": "d",
@@ -60,7 +60,7 @@
       ],
       "explanation": "The checkpoint records which source data the query has processed and what it has committed. After a restart the query reads it and carries on from that point, which is what gives exactly-once writes to a Delta sink.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Delete the table's _delta_log folder"
+          "text": "Delete the table's _delta_log folder so Spark rebuilds the file list from the data files"
         },
         {
           "id": "b",
-          "text": "Turn off the checkpoint"
+          "text": "Turn off the stream's checkpoint so it writes fewer files on each trigger"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "Switch the table from Delta to CSV"
+          "text": "Switch the table from Delta to CSV so appends go into a single growing file"
         }
       ],
       "answer": [
@@ -91,7 +91,7 @@
       ],
       "explanation": "Frequent small appends create many small files. OPTIMIZE rewrites them into fewer, larger files, and a longer trigger interval writes fewer files to begin with. Deleting the log destroys the table, CSV loses Delta's features, and dropping the checkpoint breaks recovery.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -231,15 +231,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Delete the checkpoint folder before restarting the query"
+          "text": "Delete the checkpoint folder before restarting so the query starts with a clean batch ID"
         },
         {
           "id": "b",
-          "text": "Call `persist()` on the batch DataFrame before writing it"
+          "text": "Call `persist()` on the batch DataFrame before writing it so Spark remembers committed rows"
         },
         {
           "id": "c",
-          "text": "Change the output mode of the stream from append to update"
+          "text": "Change the stream's output mode from append to update so replayed rows overwrite themselves"
         },
         {
           "id": "d",
@@ -251,7 +251,7 @@
       ],
       "explanation": "With txnAppId and txnVersion bound to the batch ID, Delta Lake skips a write it has already committed. Persisting doesn't deduplicate, the output mode doesn't make writes idempotent, and deleting the checkpoint makes the stream lose its progress.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/foreach",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

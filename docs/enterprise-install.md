@@ -231,6 +231,10 @@ Every file goes through the same redaction before it is written. It takes out:
 
 A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
 
+### Crash dumps
+
+KratosForge writes no crash dumps of its own. If the engine crashes, Windows Error Reporting can save a dump of its memory, and that memory can hold live sign-in tokens. Set WER by Group Policy the way your organization handles any app that signs in: turn off local dumps for `kratosforge.exe` and the engine's `python.exe` under `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps`, or keep them in a folder only administrators can read, and set **Do not send additional data** if dumps may leave the PC.
+
 ## Uninstall
 
 Remove the packaged app, which deletes the exe. Each user's `%LOCALAPPDATA%\FabricDesktop` (engine, notebooks, settings, sign-in cache) stays until you remove it; a cleanup script can delete it at sign-out. Schedules on a PC live in Windows Task Scheduler under the `FabricDesktop` folder and should be removed first. Nothing in Fabric is removed. If Academy exercises ran in the Windows AppContainer, the engine folder keeps a read permission for KratosForge's own exercise sandbox, which nothing else can use; to remove it first, choose **Remove exercise permissions** under Settings > Advanced > Exercise sandbox before uninstalling. More in [Install: Uninstall](install.md#uninstall).

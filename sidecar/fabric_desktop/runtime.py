@@ -15,7 +15,7 @@ from typing import Any, Callable
 from .agent_config import AgentConfig
 from .auth import EXECUTE_SCOPES, ONELAKE_SCOPES
 from .cloud_service import CloudMixin
-from .credentials import Credential, from_config
+from .credentials import KEY_FILE_OPEN, Credential, from_config, key_file_open
 from .dataops_service import DataOpsMixin
 from .fabric_api import FabricClient
 from .jsonfile import read_json, write_json
@@ -152,6 +152,8 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
             cfg = project.environments.get(env, {})
             out["environments"][env] = {"target": cfg.get("target", "onelake" if env != "dev" else "local"),
                                         "workspace_id": cfg.get("workspace_id", "")}
+        if key_file_open(self.config.auth):
+            out["warnings"] = [KEY_FILE_OPEN]
         needs_cloud = any(v["target"] != "local" for v in out["environments"].values())
         if needs_cloud:
             out["identity"] = self.auth.signed_in_user()

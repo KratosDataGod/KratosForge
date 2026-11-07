@@ -1255,6 +1255,37 @@ def _known(df: DataFrame, names: Any) -> list[str]:
     return out
 
 
+_WHOLE = re.compile(r"^(tinyint|smallint|int|integer|bigint)$", re.I)
+
+
+def _number_aggregate(fn: str, col: str, type_: str) -> Column:
+    """``fn(col)`` as GroupedData names it; the sum of whole numbers is a bigint, as in Spark (DuckDB 1.x
+    makes it a hugeint)."""
+    out = getattr(F, fn)(F.col(col))
+    return out.cast("bigint").alias(f"sum({col})") if fn == "sum" and _WHOLE.match(type_) else out
+
+
+def _numeric_aggregate(name: str) -> Any:
+    """GroupedData.max/min/sum/avg/mean as Spark's: the named number columns, or every number column
+    (grouping ones too) when none is named, each as ``fn(col)``; a column that isn't a number is an error."""
+    fn = "avg" if name == "mean" else name
+
+    def aggregate(self: GroupedData, *cols: str) -> DataFrame:
+        from duckdb.experimental.spark.errors import AnalysisException
+        df = self._df
+        types_ = dict(_types(df))
+        names = _known(df, list(_flat(cols)))
+        for c in names:
+            if not _NUMERIC.match(types_[c]):
+                raise AnalysisException(message=f'"{c}" is not a numeric column. Aggregation function can only '
+                                        "be applied on a numeric column.")
+        names = names or [c for c, t in _types(df) if _NUMERIC.match(t)]
+        return self.agg(*(_number_aggregate(fn, c, types_[c]) for c in names)) if names else self.agg()
+
+    aggregate.__name__ = name
+    return aggregate
+
+
 def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
     if isinstance(value, dict):
         fills = dict(zip(_known(self, value), value.values(), strict=True))
@@ -1349,6 +1380,20 @@ def _summary(self: DataFrame, *statistics: str) -> DataFrame:
     return _stats(self, names, stats)
 
 
+# Spark's stddev: the running (Welford) update its aggregate makes row by row, which can differ from DuckDB's
+# stddev_samp in the last digits
+_WELFORD = ("lambda kf_m, kf_v: {'n': kf_m.n + 1, 'avg': kf_m.avg + (kf_v.avg - kf_m.avg) / (kf_m.n + 1), "
+            "'m2': kf_m.m2 + (kf_v.avg - kf_m.avg) * ((kf_v.avg - kf_m.avg) - (kf_v.avg - kf_m.avg) / (kf_m.n + 1))}")
+
+
+def _list_stddev(values: str) -> str:
+    """DuckDB SQL for Spark's stddev of a DOUBLE[] in row order: NULL for fewer than two values."""
+    moments = (f"LIST_REDUCE(LIST_TRANSFORM(LIST_FILTER({values}, lambda kf_v: kf_v IS NOT NULL), "
+               f"lambda kf_v: {{'n': 1::DOUBLE, 'avg': kf_v, 'm2': 0::DOUBLE}}), {_WELFORD}, "
+               "{'n': 0::DOUBLE, 'avg': 0::DOUBLE, 'm2': 0::DOUBLE})")
+    return f"SQRT({moments}.m2 / NULLIF(GREATEST({moments}.n - 1, 0), 0))"
+
+
 def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
     types_ = dict(_types(self))
     rows = []
@@ -1357,15 +1402,22 @@ def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
         for c in names:
             q = _col_sql(c)
             numeric = bool(_NUMERIC.match(types_[c]))
+            # Spark takes the mean and stddev of text as numbers (NULL where it isn't one)
+            x = f"CAST({q} AS DOUBLE)" if numeric else f"TRY_CAST({q} AS DOUBLE)"
             if pct := _PERCENT.match(stat):  # Spark's approximate percentile is an actual value, as quantile_disc
-                sql = f"quantile_disc({q}, {float(pct.group(1)) / 100})" if numeric else "NULL"
+                sql = f"quantile_disc({q}, {float(pct.group(1)) / 100})" if numeric else "max(NULL)"
             else:
-                sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
-                       "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})",
-                       "count_distinct": f"count(DISTINCT {q})",
+                sql = {"count": f"count({q})", "mean": f"avg({x})", "stddev": f"list({x})",
+                       "min": f"min({q})", "max": f"max({q})", "count_distinct": f"count(DISTINCT {q})",
                        "approx_count_distinct": f"approx_count_distinct({q})"}[stat]
-            parts.append(f"CAST({sql} AS VARCHAR) AS {q}")
-        rows.append(self.relation.aggregate(f"'{stat}' AS summary, {', '.join(parts)}"))
+            parts.append(f"{sql} AS {q}")
+        row = self.relation.aggregate(f"'{stat}' AS summary, {', '.join(parts)}")
+        quoted = [_col_sql(c) for c in names]
+        if stat == "stddev":
+            row = row.project(", ".join(["summary", *(f"{_list_stddev(q)} AS {q}" for q in quoted)]))
+        # each value as Spark writes it as text (a double as Java writes it)
+        rows.append(row.project(", ".join(
+            ["summary", *(f"CAST({spark_builtins_sql.java_value_text(q)} AS VARCHAR) AS {q}" for q in quoted)])))
     out = rows[0]
     for row in rows[1:]:
         out = out.union(row)
@@ -1577,6 +1629,58 @@ def spark_type_name(dt: Any) -> str:
     if isinstance(dt, T.TimestampType):
         return "timestamp"
     return str(dt.simpleString())
+
+
+def _tree_type_name(dt: Any) -> str:
+    """``dt`` as Spark's printSchema names it (its typeName): long, integer, short, byte, and a nested
+    type by its kind alone, as its parts follow on their own lines."""
+    from duckdb.experimental.spark.sql import types as T
+    for kind, name in ((T.ArrayType, "array"), (T.MapType, "map"), (T.StructType, "struct"), (T.LongType, "long"),
+                       (T.IntegerType, "integer"), (T.ShortType, "short"), (T.ByteType, "byte")):
+        if isinstance(dt, kind):
+            return name
+    return spark_type_name(dt)
+
+
+_SCHEMA_ESCAPES = str.maketrans({"\n": "\\n", "\r": "\\r", "\t": "\\t", "\f": "\\f", "\b": "\\b",
+                                  "\v": "\\v", "\a": "\\a"})
+
+
+def _tree_lines(dt: Any, prefix: str, depth: int, out: list[str]) -> None:
+    """Spark's buildFormattedString: the parts of a nested type, each a level further in."""
+    from duckdb.experimental.spark.sql import types as T
+    if depth <= 0:
+        return
+    inner = prefix + "    |"
+    if isinstance(dt, T.StructType):
+        for f in dt.fields:
+            out.append(f"{prefix}-- {f.name.translate(_SCHEMA_ESCAPES)}: {_tree_type_name(f.dataType)} "
+                       f"(nullable = {str(bool(f.nullable)).lower()})")
+            _tree_lines(f.dataType, inner, depth - 1, out)
+    elif isinstance(dt, T.ArrayType):
+        out.append(f"{prefix}-- element: {_tree_type_name(dt.elementType)} "
+                   f"(containsNull = {str(bool(dt.containsNull)).lower()})")
+        _tree_lines(dt.elementType, inner, depth - 1, out)
+    elif isinstance(dt, T.MapType):
+        out.append(f"{prefix}-- key: {_tree_type_name(dt.keyType)}")
+        _tree_lines(dt.keyType, inner, depth - 1, out)
+        out.append(f"{prefix}-- value: {_tree_type_name(dt.valueType)} "
+                   f"(valueContainsNull = {str(bool(dt.valueContainsNull)).lower()})")
+        _tree_lines(dt.valueType, inner, depth - 1, out)
+
+
+def tree_string(schema: Any, level: int | None = None) -> str:
+    """Spark's StructType.treeString: root, then each field and its nested parts down to ``level``
+    levels (all of them when level is None, 0 or less), each line ending in a newline."""
+    out = ["root"]
+    _tree_lines(schema, " |", level if level and level > 0 else sys.maxsize, out)
+    return "\n".join(out) + "\n"
+
+
+def _print_schema(self: DataFrame, level: int | None = None) -> None:
+    """``df.printSchema()`` as Spark prints it: Spark's type names (long, not bigint) and nested types
+    one part per line (every level when ``level`` is None, 0 or less, as in Spark)."""
+    print(tree_string(self.schema, level))
 
 
 def _dtypes(self: DataFrame) -> list[tuple[str, str]]:
@@ -1892,6 +1996,10 @@ def install() -> None:
     DataFrame.rollup = _grouping_sets("rollup")  # type: ignore[attr-defined]
     vars(F).update(grouping=_grouping, grouping_id=_grouping_id)
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
+    DataFrame.printSchema = _print_schema  # type: ignore[method-assign]
+    from duckdb.experimental.spark.sql import types as T
+    for kind in (T.IntegerType, T.TimestampType, T.TimestampNTZType, T.ArrayType, T.MapType, T.StructType):
+        kind.simpleString = spark_type_name  # type: ignore[method-assign,assignment]  # int and timestamp, as DuckDB 2.0 and Spark say
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]
     DataFrame.withColumn = _decimal_with_column(DataFrame.withColumn)  # type: ignore[method-assign]
@@ -1921,5 +2029,7 @@ def install() -> None:
     DataFrame.select = _naming(DataFrame.select)  # type: ignore[method-assign]
     DataFrame.agg = _naming(DataFrame.agg)  # type: ignore[attr-defined]
     GroupedData.agg = _naming(GroupedData.agg)  # type: ignore[method-assign]
+    for name in ("max", "min", "sum", "avg", "mean"):
+        setattr(GroupedData, name, _numeric_aggregate(name))
     # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

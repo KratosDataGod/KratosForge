@@ -6,7 +6,7 @@ a publish, a promote, a write to OneLake, a schedule, a setting) adds one line t
 
 Each line holds:
 
-    at, action, outcome (ok or error), seconds, and reason (one of REASONS) when a call that
+    at, action, outcome (ok or error; "started" before a call in FAIL_CLOSED), seconds, and reason (one of REASONS) when a call that
              returned rather than raised refused or partly failed
     who (the signed-in account), tenant, host, os user, app version, compute ("this PC")
     target   the call's short identifying values: workspace, lakehouse, environment, entity,
@@ -124,6 +124,27 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
         else:
             out[key] = "(given)"
     return out
+
+
+# Calls that must not run without a record: a "started" line is written before them, and they are
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always, and any
+# other call only when it is given a confirmation, an approval, a typed name or a risk-check
+# acknowledgement (a non-empty value), so an ordinary query or edit still runs as before when its
+# line can't be written.
+FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_vacuum", "shortcut_repoint",
+                         "shortcut_repoint_many", "shortcut_undo"})
+_GUARD_PARAMS = ("confirm", "approv", "typed", "risk_id", "acknowledg")
+
+
+def fails_closed(method: str, params: Any) -> bool:
+    """Whether this call of ``method`` with ``params`` runs only once its line is written."""
+    return method in FAIL_CLOSED or (isinstance(params, dict) and any(
+        value not in (None, False, "", 0, [], {}) and any(w in str(key) for w in _GUARD_PARAMS)
+        for key, value in params.items()))
+
+
+NOT_RECORDED = ("The audit log couldn't be written, so this didn't run ({error}). Free some disk space for "
+                "KratosForge's data folder, or close what holds its audit file, then try again.")
 
 
 # Why a call that returned (rather than raised) still counts as an error: one of these fixed codes,

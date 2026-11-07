@@ -118,8 +118,10 @@ test("Ranks shows your rank, the Forge progression, the next rank's requirements
   assert.doesNotMatch(await page.locator(".profile").innerText(), /\bgod\b|deity|divine/i);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-full.png"), fullPage: true });
   await page.getByRole("button", { name: "Hide full rank path" }).click();
-  // Chris's approved art for Forge Initiate: plain while it is ahead, glowing once it is your rank. Labels stay real text.
-  const art = page.locator(".rk-shield.has-art");
+  // Chris's approved art: plain while a rank is ahead, glowing once it is yours. Labels stay real text.
+  assert.deepStrictEqual(await page.locator(".rk-shield.has-art img").evaluateAll((l) => l.map((i) => i.getAttribute("src"))),
+    ["forge-initiate", "iron-forger", "steel-forger"].map((id) => `art/ranks/${id}-inactive.webp`));
+  const art = page.locator(".rk-shield.has-art").filter({ hasText: "Forge Initiate" });
   assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-inactive.webp");
   assert.match(await art.innerText(), /Forge Initiate\s+Rank 2/);
   const saved = structuredClone(r);

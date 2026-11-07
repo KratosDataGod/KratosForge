@@ -2430,10 +2430,10 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .rk-shield.current .rk-shield-name { color: var(--rk-gold-edge); }
 .rk-shield.has-art { position: relative; width: 146px; height: 176px; margin: -20px -14px; filter: none; }
 .rk-shield.has-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.rk-shield-label { position: absolute; left: 24%; right: 24%; top: 53%; display: flex; flex-direction: column; align-items: center; text-align: center;
+.rk-shield-label { position: absolute; left: 24%; right: 24%; top: 62%; display: flex; flex-direction: column; align-items: center; text-align: center;
   color: var(--rk-shield-ink); text-shadow: 0 1px 3px var(--lx-hero-shadow); }
-.rk-shield-label .rk-shield-name { font-size: 13px; }
-.rk-shield.has-art.current .rk-shield-name { color: var(--rk-gold-edge); }
+.rk-shield-label .rk-shield-name { font-size: 12px; line-height: 1.1; }
+.rk-shield-label .rk-shield-sub { font-size: 10px; }
 .rk-link { flex: 1 1 24px; min-width: 18px; height: 4px; border-radius: 2px; background: var(--border-soft); position: relative; }
 .rk-link.held { background: var(--rk-gold-edge); }
 .rk-link.gap { min-width: 64px; background: repeating-linear-gradient(90deg, var(--border-soft) 0 6px, transparent 6px 10px); }

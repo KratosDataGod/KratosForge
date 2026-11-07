@@ -308,6 +308,10 @@ const RANK_GLYPH = { check: "check", "apprentice": "flame", "forge-initiate": "a
 const RANK_ART = {
   "forge-initiate": (on) => (on ? h("img", { src: "art/ranks/forge-initiate-active.webp", alt: "" })
     : h("img", { src: "art/ranks/forge-initiate-inactive.webp", alt: "" })),
+  "iron-forger": (on) => (on ? h("img", { src: "art/ranks/iron-forger-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/iron-forger-inactive.webp", alt: "" })),
+  "steel-forger": (on) => (on ? h("img", { src: "art/ranks/steel-forger-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/steel-forger-inactive.webp", alt: "" })),
 };
 
 function rankGlyph(id, size = 34) {

@@ -325,7 +325,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: |
           cargo cyclonedx --version 2>/dev/null | grep -qwF 0.5.9 || cargo install --locked cargo-cyclonedx --version 0.5.9
-          cd app/src-tauri && cargo cyclonedx --format json --override-filename sbom-app
+          cd app/src-tauri && rustup toolchain install && cargo cyclonedx --format json --override-filename sbom-app
           mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -493,7 +493,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          toolchain: stable
+          # The version in app/src-tauri/rust-toolchain.toml, which cargo uses in that folder.
+          toolchain: "1.99.1"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: app/src-tauri

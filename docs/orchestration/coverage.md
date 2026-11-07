@@ -44,7 +44,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 
 ## Expression functions
 
-88 functions: 59 runs, 0 differs, 1 fails, 8 not checked, 20 refused.
+88 functions: 67 runs, 0 differs, 0 fails, 10 not checked, 11 refused.
 
 - **runs:** it gives the reference's value for the reference's own example.
 - **differs:** it runs but gives another value for that example, so check results that use it in Fabric.
@@ -103,29 +103,33 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | Function | Status | Example | Reference value | Value here |
 | --- | --- | --- | --- | --- |
 | `array` | runs | `array('hello')` | ["hello"] |  |
-| `base64` | refused |  |  |  |
+| `base64` | runs | `base64('hello')` | "aGVsbG8=" |  |
 | `base64ToBinary` | refused |  |  |  |
-| `base64ToString` | refused |  |  |  |
+| `base64ToString` | runs | `base64ToString('aGVsbG8=')` | "hello" |  |
 | `binary` | refused |  |  |  |
 | `bool` | runs | `bool(1)` | true |  |
 | `coalesce` | runs | `coalesce(null, true, false)` | true |  |
 | `createArray` | runs | `createArray('h', 'e', 'l', 'l', 'o')` | ["h", "e", "l", "l", "o"] |  |
-| `dataUri` | refused |  |  |  |
+| `dataUri` | runs | `dataUri('hello')` | "data:text/plain;charset=utf-8;base64,aGVsbG8=" |  |
 | `dataUriToBinary` | refused |  |  |  |
-| `dataUriToString` | refused |  |  |  |
-| `decodeBase64` | refused |  |  |  |
+| `dataUriToString` | runs | `dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')` | "hello" |  |
+| `decodeBase64` | runs | `decodeBase64('aGVsbG8=')` | "hello" |  |
 | `decodeDataUri` | refused |  |  |  |
-| `decodeUriComponent` | refused |  |  |  |
-| `encodeUriComponent` | refused |  |  |  |
+| `decodeUriComponent` | runs | `decodeUriComponent('http%3A%2F%2Fcontoso.com')` | "http://contoso.com" |  |
+| `encodeUriComponent` | runs | `encodeUriComponent('https://contoso.com')` | "https%3A%2F%2Fcontoso.com" |  |
 | `float` | runs | `float('10.333')` | 10.333 |  |
 | `int` | runs | `int('10')` | 10 |  |
 | `json` | runs | `json('[1, 2, 3]')` | [1, 2, 3] |  |
 | `string` | runs | `string(10)` | "10" |  |
-| `uriComponent` | refused |  |  |  |
+| `uriComponent` | not checked |  |  |  |
 | `uriComponentToBinary` | refused |  |  |  |
-| `uriComponentToString` | refused |  |  |  |
+| `uriComponentToString` | not checked |  |  |  |
 | `xml` | refused |  |  |  |
 | `xpath` | refused |  |  |  |
+
+`decodeUriComponent`: The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an s; unescaping can't, so `http://contoso.com` is the value checked.
+
+`encodeUriComponent`: The reference prints `http%3A%2F%2Fcontoso.com` for `https://contoso.com`, which drops the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.
 
 ### Math
 
@@ -139,7 +143,7 @@ This page lists every Data Factory pipeline activity type the local runner knows
 | `mul` | runs | `mul(1, 2)` | 2 |  |
 | `rand` | refused |  |  |  |
 | `range` | runs | `range(1, 4)` | [1, 2, 3, 4] |  |
-| `sub` | fails | `sub(10.3, .3)` | 10 | "error: unexpected '.'" |
+| `sub` | runs | `sub(10.3, .3)` | 10 |  |
 
 ### Date
 

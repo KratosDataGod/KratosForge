@@ -63,7 +63,7 @@ Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `fi
 
 ## 4. PR sequence and status
 
-Status checked against `main` at 1aad08e (2026-11-03). Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
+Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
 
 | PR | Content | Status |
 | --- | --- | --- |
@@ -74,11 +74,11 @@ Status checked against `main` at 1aad08e (2026-11-03). Merged PRs are listed so 
 | X-ray into Optimize | X-ray findings written to the central lakehouse; Optimize acts on this PC's X-ray | Merged (#343, #865, #1454) |
 | OPT-003 (part 1) | `optimize/local_runs.py` and `optimize_share_local_runs`: notebook writes to OneLake tables and scheduled notebook runs | Merged (#356), engine only, no button yet |
 | FINOPS-005 | `calibration.py`: Fabric CU avoided only from Fabric runs of the same workload, else Unknown | Merged (owned by FinOps) |
-| **OPT-006** | **Offline queue and sync status** | **Next** |
-| OPT-010 | Opportunities: Effort column and Dismiss for this PC's findings (approved action-first mockup) | Planned |
-| OPT-011 | Estate X-ray: an action for every finding, and empty, DataflowsStaging and FUAM lakehouses handled | Planned |
+| OPT-006 | Offline queue and sync status | Merged (#1726, #1733) |
+| OPT-010 | Opportunities: Effort column and Dismiss for this PC's findings (approved action-first mockup) | Merged (#1834, #1876) |
+| OPT-011 | Estate X-ray: an action for every finding, and empty, DataflowsStaging and FUAM lakehouses handled | Planned, mockup first (new guides on the page) |
 | OPT-007 | Multiple lakehouses: the rest | Planned |
-| OPT-003 (part 2) | Local execution: the rest | Planned |
+| OPT-003 (part 2) | Local execution: metadata runs and measured proof runs (engine) | In review; the Share button waits for a mockup |
 | OPT-004 | Measurements and savings rows | Planned |
 | OPT-012 | Optimize motion events | Planned, with OPT-004 |
 | OPT-013 | Local vs Fabric advisor screen (FinOps advisor) | Planned, mockup first |
@@ -90,7 +90,7 @@ OPT-010 to 013 were found missing in the closed-thread audit of 2026-11-03: Chri
 
 One PR per row, in this order. Each engine PR comes with tests on local Delta folders; each UI PR waits for a mockup Chris has reacted to.
 
-### OPT-006: Offline queue and sync status (next)
+### OPT-006: Offline queue and sync status
 What's wrong today: when the lakehouse can't be reached, a finished X-ray scan keeps the error with its result and its findings never reach the lakehouse (`xray_service.py`, "never fails the scan"). Shared local runs are only sent when someone asks.
 - A local SQLite outbox under the app's data folder, modelled on `jobqueue.py`: one row per pending batch, keyed by lakehouse id, with attempts, next try and the last error (secrets removed with `redact.py`).
 - A write that fails for a transient reason (`retrying.py`'s classes: network, throttling, a lost commit race) goes in the outbox instead of being dropped. A permission error, a read-only lakehouse or the policy switch being off is not queued: it's shown, as today.
@@ -119,8 +119,8 @@ FINOPS-005's placement advice (RECOMMEND LOCAL, RECOMMEND FABRIC, EITHER, INSUFF
 Register, switch and disconnect are in (#186). Left: an explicit **Upgrade** for a lakehouse on an older schema (asks first; upgrades only add), **Check all** in Settings that validates each registered lakehouse read-only, and showing each one's pending outbox rows from OPT-006.
 
 ### OPT-003 part 2: Local execution, the rest
-- Metadata runs from `run_log` (seconds, rows read and written).
-- CPU time and peak memory only where they were measured (`measure.RunMeter` in Prove); empty, never 0, elsewhere.
+- Metadata runs from `run_log` (seconds, rows written), from environments kept on this PC only. Built.
+- Proof runs, with CPU time and peak memory only where they were measured (`measure.RunMeter` in Prove); empty, never 0, elsewhere. Built.
 - A **Share runs from this PC** button on Optimize (mockup first), using the existing confirm text.
 
 ### OPT-004: Measurements and savings

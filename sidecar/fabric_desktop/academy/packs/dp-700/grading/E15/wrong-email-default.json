@@ -1,0 +1,35 @@
+{
+  "_about": "A model of dynamic data masking on the Customers table. For each column set mask to null (no mask) or {\"function\": \"default\" | \"email\" | \"random\" | \"partial\", ...}: random takes start and end, partial takes prefix, padding and suffix. unmask lists the roles granted UNMASK. salary_protection is \"masking\" or \"column-level security\".",
+  "table": "Customers",
+  "needs": {
+    "Email": "Agents may see that an address exists and its first letter, never the full address.",
+    "CardNumber": "Agents confirm a card by its last four digits only.",
+    "Gender": "Agents never need it; show nothing of it.",
+    "BirthMonth": "A number 1-12. Agents never need it, but test screens must show plausible values.",
+    "Salary": "Agents must not be able to learn a customer's salary at all, even by filtering on it."
+  },
+  "readers": "Agents and SupportLeads are workspace Viewers who query through the SQL analytics endpoint. SupportLeads handle disputes and must see real values.",
+  "masks": {
+    "Email": {
+      "function": "default"
+    },
+    "CardNumber": {
+      "function": "partial",
+      "prefix": 0,
+      "padding": "XXXX-XXXX-XXXX-",
+      "suffix": 4
+    },
+    "Gender": {
+      "function": "default"
+    },
+    "BirthMonth": {
+      "function": "random",
+      "start": 1,
+      "end": 12
+    }
+  },
+  "unmask": [
+    "SupportLeads"
+  ],
+  "salary_protection": "column-level security"
+}

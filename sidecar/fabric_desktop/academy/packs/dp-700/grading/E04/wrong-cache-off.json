@@ -1,0 +1,20 @@
+{
+  "_about": "A model of OneLake settings. tenant holds two tenant settings; workspace holds the OneLake tab's shortcut cache. expectations records what you expect the cache to do.",
+  "needs": [
+    "Analysts browse lakehouse files from Windows with the OneLake file explorer app.",
+    "The workspace reads an Amazon S3 shortcut many times a day; cut repeated egress by caching it, keeping cached files for a week after they were last read.",
+    "One file behind the shortcut, sensor_dump.parquet, is 3 GB."
+  ],
+  "tenant": {
+    "users_can_access_onelake_with_apps_external_to_fabric": true,
+    "users_can_sync_data_with_onelake_file_explorer": true
+  },
+  "workspace": {
+    "shortcut_cache": false,
+    "cache_retention_days": 7
+  },
+  "expectations": {
+    "sensor_dump_is_cached": false,
+    "reading_a_cached_file_resets_its_retention": true
+  }
+}

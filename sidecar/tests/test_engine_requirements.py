@@ -48,3 +48,39 @@ def test_every_engine_package_has_a_sha256():
 def test_the_engine_build_installs_with_require_hashes():
     assert "--require-hashes --no-deps -r sidecar\\engine-requirements.txt" in CI
     assert "-m pip check" in CI
+
+
+def _engine_steps() -> list[str]:
+    """The engine job's step names, in order."""
+    job = CI.split("\n  engine:\n", 1)[1].split("\n  shell:\n", 1)[0]
+    return [name or uses for name, uses in re.findall(r"^      - (?:name: (.+)|uses: (\S+))", job, re.M)]
+
+
+def _hashed_file(path: Path) -> dict[str, list[str]]:
+    entries: dict[str, list[str]] = {}
+    current = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if (m := PIN.match(line)):
+            current = canonicalize_name(m.group(1))
+            entries[current] = []
+        elif current and (h := re.search(r"--hash=sha256:([0-9a-f]{64})\b", line)):
+            entries[current].append(h.group(1))
+    return entries
+
+
+def test_the_engine_jobs_build_tools_come_from_hashed_files():
+    for name, tool in (("engine-build.txt", "setuptools"), ("sbom.txt", "cyclonedx-bom")):
+        entries = _hashed_file(SIDECAR.parent / ".github" / "requirements" / name)
+        assert tool in entries and all(entries.values()), name
+        assert f"--require-hashes -r .github\\requirements\\{name}" in CI
+    assert "pip wheel --no-build-isolation --no-deps" in CI
+    assert "cyclonedx-bom==" not in CI  # installed only from the hashed file
+
+
+def test_nothing_runs_on_the_engine_between_signing_and_its_hash():
+    # The zip step hashes the engine; the shell bakes that hash in. A step between signing and the
+    # zip could change the folder after it was checked, so the zip comes straight after signing.
+    steps = _engine_steps()
+    sign, zip_ = steps.index("Sign the engine's packages"), steps.index("Zip the engine")
+    assert zip_ == sign + 1, steps[sign:zip_ + 1]
+    assert steps.index("List every package in the engine (SBOM)") > zip_

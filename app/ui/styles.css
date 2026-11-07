@@ -1059,6 +1059,12 @@ body.pop-out .page.monitor { padding: 12px; }
   .home-hero-text { width: 60%; }
   .home-hero-title { font-size: 34px; }
 }
+@media (max-width: 720px) {
+  .home-hero { height: auto; min-height: 120px; }
+  .home-hero-art { display: none; }
+  .home-hero-text { width: auto; padding: 18px 20px; }
+  .home-hero-title { font-size: 28px; }
+}
 @media (forced-colors: active) {
   .home-hero, .home-id, .home-latest { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
   .home-hero-art { display: none; }

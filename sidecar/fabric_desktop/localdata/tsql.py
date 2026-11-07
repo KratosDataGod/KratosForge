@@ -115,7 +115,7 @@ class KfTSQL(TSQL):
     ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
     ``CAST(0.1 AS FLOAT)`` came back as 0.10000000149."""
 
-    class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
+    class Tokenizer(TSQL.Tokenizer):  # sqlglot sets Tokenizer per dialect at run time
         KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
 
     # In T-SQL, W is weekday (as DW), not week: DATEPART(w, d) is 1 to 7.

@@ -6899,6 +6899,7 @@
       "capability": "A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.",
       "evidence": [
         "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb",
+        "Owner scores (Data mesh, 2026-11-07, from the code on main and the Wave 2 reviews; they replace values copied from PB-052): developer value 2, product teams set a promise in the product dialog and readers open a Status view, not daily work for most developers; CU reduction 1, no Fabric compute moves, and status reports add a UDF_Platform call only when a status changes (incident_service._report_product_status); enterprise value 4, promises, Red/Amber/Green status and a change window are governance signals buyers ask for, but all are Preview, warn only and not a rollout condition; differentiation 3, UNVERIFIED, COMPETITIVE_CAPABILITY_MATRIX.md has no row for data product promises or status; strategic alignment 3, data mesh governance supports deploying to Fabric but isn't the local develop-and-run core; complexity 3, five PRs adding catalog.product.promise and catalog.product_status, a promise incident kind, platform operations and screens on three pages; risk 3, writes are limited to new catalog rows behind require_member and changes only warn, but the new UDF_Platform operations haven't run on a tenant and core.py needs Finish or repair",
         "Implementation review docs/product/reviews/PB-130-promises.md recommends Accept with documented limitations: the screens are Preview and untested on a tenant, Status is only as current as the team's own incident check, and the change window advises without blocking. 408 engine tests and 18 browser tests pass on main at 56e3826b",
         "Implementation review docs/product/reviews/PB-130-promises.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst); limitations: all three screens are Preview and untested on a Fabric tenant; Status is only as current as the team's own incident check; the change window warns and never blocks a promote"
       ],
@@ -6918,9 +6919,9 @@
       "scores": {
         "developer_value": 2,
         "cu_reduction": 1,
-        "enterprise_value": 5,
+        "enterprise_value": 4,
         "differentiation": 3,
-        "strategic_alignment": 4,
+        "strategic_alignment": 3,
         "complexity": 3,
         "risk": 3
       },
@@ -6941,10 +6942,10 @@
         "Data mesh Wave 2"
       ],
       "computed": {
-        "benefit": 3.0,
+        "benefit": 2.6,
         "cost": 3.0,
-        "score": 1.8,
-        "priority": "P2"
+        "score": 1.56,
+        "priority": "P3"
       }
     },
     {

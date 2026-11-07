@@ -122,6 +122,9 @@ def test_pip_that_couldnt_reach_the_index_is_told_apart_from_a_missing_package()
     assert net_trust.pip_unreachable(proxy, "Ask IT.").startswith("The proxy refused pip's connection")
     cert = "Could not fetch URL https://pypi.org/simple/x/: ... [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
     assert "root certificate" in net_trust.pip_unreachable(cert, "Ask IT.")
+    answered = ("Could not fetch URL https://pkgs.contoso.com/simple/x/: 403 Client Error: Forbidden for url: "
+                "https://pkgs.contoso.com/simple/x/ - skipping\n" + PIP_MISSING)
+    assert net_trust.pip_unreachable(answered, "Ask IT.") is None  # the index answered, so it was reached
 
 
 def test_a_notebook_environment_install_offline_says_so(tmp_path, no_proxy, monkeypatch):

@@ -404,11 +404,17 @@ function paletteItems(text) {
   for (const f of railFeatures().concat(railFeatures(true))) {
     if (hit("go to", f.rail.label)) items.push({ group: "Pages", label: f.rail.label, icon: f.rail.icon, run: () => go(Object.keys(f.views)[0]) });
   }
+  // The skin's primary and bar commands for this page come first, under the skin's names (skins.js).
+  const placed = typeof skinPlacedCommands === "function" ? skinPlacedCommands(state.view) : [];
+  const rank = (c) => (placed.includes(c.action) ? placed.indexOf(c.action) : placed.length);
+  const actions = [];
   for (const c of features.commands) {
     if (c.preview && !previewShown()) continue;
     if (c.when && !c.when()) continue;
-    if (hit(c.label, c.keywords || "")) items.push({ group: "Actions", label: c.label, icon: c.icon || "flash", run: c.run });
+    if (hit(c.label, c.keywords || "")) actions.push(c);
   }
+  actions.sort((x, y) => rank(x) - rank(y));  // stable: definition order otherwise
+  for (const c of actions) items.push({ group: "Actions", label: c.label, icon: c.icon || "flash", run: c.run });
   if (q) {
     for (const n of (palette.notebooks || []).filter((n) => hit(n.name)).slice(0, 6)) {
       items.push({ group: "Notebooks", label: n.name, icon: "notebook", run: () => openNotebook(n.name) });

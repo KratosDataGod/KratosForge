@@ -126,9 +126,10 @@ def explain(exc: BaseException) -> str | None:
 
 
 # What pip prints when it couldn't reach the package index at all. pip then ends with "No matching
-# distribution found", the same words as for a package that doesn't exist.
+# distribution found", the same words as for a package that doesn't exist. Not "Could not fetch URL",
+# which pip also prints when the index answered with an HTTP error.
 _PIP_UNREACHABLE = ("NameResolutionError", "NewConnectionError", "Failed to establish a new connection",
-                    "ConnectTimeoutError", "Read timed out", "ProxyError", "Could not fetch URL")
+                    "ConnectTimeoutError", "Read timed out", "ProxyError")
 
 
 def pip_unreachable(log: str, fix: str) -> str | None:

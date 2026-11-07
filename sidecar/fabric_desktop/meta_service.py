@@ -249,7 +249,7 @@ class MetaMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
         if self._keys_in_platform(project, env):
-            return self._platform_keys(env)  # type: ignore[attr-defined,return-value]
+            return self._platform_keys(env)  # type: ignore[attr-defined]
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
             return LocalStore(project.local_data / f"keys-{env}", env)
         ws = cfg.get("keys_workspace_id")

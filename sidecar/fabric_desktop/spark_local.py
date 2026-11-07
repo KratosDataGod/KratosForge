@@ -1692,7 +1692,7 @@ def watch_connections(ident: int, connections: Any) -> None:
         _cell_connections.pop(ident, None)
         return
     if duckdb.connect is not _connect:
-        duckdb.connect = _connect  # type: ignore[assignment]
+        duckdb.connect = _connect
     _cell_connections[ident] = connections
 
 

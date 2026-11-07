@@ -148,7 +148,7 @@ class CloudMixin:
         runs: list[dict[str, Any]] = []
         unavailable: dict[str, str] = {}
         for env in ENVIRONMENTS:
-            cfg = self._env_cfg(project, env)  # type: ignore[attr-defined]
+            cfg = self._env_cfg(project, env)
             local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
             if not local and not cfg.get("workspace_id"):
                 continue  # not set up yet
@@ -244,10 +244,10 @@ class CloudMixin:
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == item_name), item)
         if item.get("id") and hasattr(self, "_record_notebook_item"):  # the workload keeps the item by id
-            self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
+            self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])
         if item.get("id"):
             try:
-                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc,  # type: ignore[attr-defined]
+                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc,
                                                   name=item_name)
             except (OSError, ValueError) as exc:  # the publish happened; only the next change check is lost
                 _log.warning("Couldn't keep what was published for %r: %s", name, describe(exc))
@@ -261,7 +261,7 @@ class CloudMixin:
         """How the notebook's Fabric item changed since this app last published it, or None when
         that isn't known (never published from here, or the item is gone). ``target``, when given,
         is the item Publish writes, already looked up (_published_item)."""
-        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None
         if not link or link["workspace_id"] != workspace_id:
             return None
         # Check the item Publish writes: the linked one while it is there; when it is gone, the one with
@@ -278,7 +278,7 @@ class CloudMixin:
         if item["id"] != link["item_id"]:
             return {"changed": True, "item_id": item["id"], "other_item": True,
                     "fabric": [{"kind": "other item", "position": None, "diff": []}], "mine": []}
-        base = notebook_files.published(Path(self.root) / "published", link["item_id"])  # type: ignore[attr-defined]
+        base = notebook_files.published(Path(self.root) / "published", link["item_id"])
         if not base:
             return None
         try:
@@ -417,7 +417,7 @@ class CloudMixin:
         item this app recorded for it in that workspace, found by id so a rename here or in Fabric
         doesn't make a second item. When that one was deleted, it is the notebook with its name (None:
         Publish creates one). With no recorded item it is None, and save_notebook matches by name as before."""
-        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None
         if link and link.get("workspace_id") == workspace_id and link.get("item_id"):
             item = self.fabric.get_notebook(workspace_id, link["item_id"])  # type: ignore[attr-defined]
             if item is not None:
@@ -430,7 +430,7 @@ class CloudMixin:
     def _fabric_item_name(self, name: str, item: dict[str, Any]) -> str:
         """The name to give ``item`` on publish: the notebook's (without its folders) when it was renamed
         here since it was last published to that item, else the item's own, so a rename in Fabric stays."""
-        last = notebook_files.published(Path(self.root) / "published", item["id"]) or {}  # type: ignore[attr-defined]
+        last = notebook_files.published(Path(self.root) / "published", item["id"]) or {}
         local = leaf_name(name)
         return local if last.get("name") and last["name"] != local else item.get("displayName") or local
 
@@ -446,7 +446,7 @@ class CloudMixin:
         if not hasattr(self, "workload_store"):
             return
         item_name = leaf_name(name)
-        for other, link in self.workload_store.links().items():  # type: ignore[attr-defined]
+        for other, link in self.workload_store.links().items():
             if (other != name and leaf_name(other) == item_name and link.get("workspace_id") == ws["workspace_id"]
                     and self.notebooks._taken(other)):  # type: ignore[attr-defined]  # noqa: SLF001
                 raise ValueError(f"{other} already publishes to the Fabric notebook {item_name} in "

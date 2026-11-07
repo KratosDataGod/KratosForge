@@ -29,8 +29,10 @@ function defineAction(a) {
   const problem = actionProblem(a);
   if (problem) throw new Error(`Action ${a?.id || "(no id)"}: ${problem}`);
   actionRegistry.actions.set(a.id, a);
-  features.commands.push({ label: a.label, icon: a.icon || "flash", keywords: a.keywords || "", preview: !!a.preview,
-    feature: `action:${a.id}`, when: () => actionApplies(a, actionContext()), run: () => runAction(a.id, actionContext()) });
+  // The command bar shows the skin's name for it, and its own name stays a search word.
+  features.commands.push({ get label() { return actionLabel(a); }, icon: a.icon || "flash", keywords: `${a.keywords || ""} ${a.label}`,
+    preview: !!a.preview, action: a.id, feature: `action:${a.id}`, when: () => actionApplies(a, actionContext()),
+    run: () => runAction(a.id, actionContext()) });
   return a;
 }
 
@@ -64,6 +66,11 @@ function actionApplies(a, ctx) {
   return a.contexts.includes(ctx.view) && (!a.preview || previewShown());
 }
 
+// An action's name as the person sees it: the skin's name for it when the skin gives one (skins.js).
+function actionLabel(a) {
+  return (typeof skinCommandLabel === "function" && skinCommandLabel(a.id)) || a.label;
+}
+
 // Whether an action can be used here and now, and if not, why, in words the person can be shown.
 function actionState(id, ctx) {
   const a = actionRegistry.actions.get(id);
@@ -87,13 +94,13 @@ async function runAction(id, ctx = actionContext()) {
   const s = actionState(id, ctx);
   if (!s) return undefined;
   const a = s.action;
-  if (!s.available) { toast(`${a.label}: ${s.reason}`, true, { quiet: true }); return undefined; }
+  if (!s.available) { toast(`${actionLabel(a)}: ${s.reason}`, true, { quiet: true }); return undefined; }
   if (a.confirm) {
     const c = typeof a.confirm === "function" ? a.confirm(ctx) : a.confirm;
     if (!(await confirmDialog(c.title, c.text, c.verb || a.label, { danger: a.risk === "high", typeToConfirm: c.typeToConfirm }))) return undefined;
   }
   if (a.riskCheck && !(await riskGate(a.riskCheck(ctx)))) return undefined;
-  const result = await attempt(() => a.run(ctx), `${a.label} didn't work`, { retry: !!a.safeToRepeat });
+  const result = await attempt(() => a.run(ctx), `${actionLabel(a)} didn't work`, { retry: !!a.safeToRepeat });
   if (result !== undefined && a.done) {
     const d = a.done(result, ctx);
     if (d?.text) doneToast(d.text, d.next || [], ctx);
@@ -138,7 +145,7 @@ function recommend(ctx = actionContext(), limit = 3) {
     try { evidence = r.when(ctx); } catch { evidence = null; }  // a rule that can't read its evidence recommends nothing
     if (!evidence) continue;
     // label: the button's words when the step reads better than the action's own name ("Review warnings").
-    found.push({ id: r.id, reason: r.reason, basis: r.basis, why: r.why(evidence, ctx), label: (typeof r.label === "function" ? r.label(evidence, ctx) : r.label) || s.action.label, evidence, state: s });
+    found.push({ id: r.id, reason: r.reason, basis: r.basis, why: r.why(evidence, ctx), label: (typeof r.label === "function" ? r.label(evidence, ctx) : r.label) || actionLabel(s.action), evidence, state: s });
   }
   const rank = (x) => RECOMMENDATION_REASONS.indexOf(x.reason);
   found.sort((x, y) => rank(x) - rank(y));  // stable: definition order within a reason
@@ -171,7 +178,7 @@ function actionBar(ctx = actionContext()) {
   const all = actionsFor(ctx);
   const top = recommend(ctx, 1);
   const lead = (top.ranked && top.items[0]?.state) || all.find((s) => s.action.primary) || null;
-  const button = (s, cls) => btn(s.action.label, s.action.icon || null, () => runAction(s.action.id, ctx), cls,
+  const button = (s, cls) => btn(actionLabel(s.action), s.action.icon || null, () => runAction(s.action.id, ctx), cls,
     { "data-action": s.action.id, "aria-disabled": s.available ? null : "true", title: s.available ? null : s.reason,
       "aria-description": s.available ? null : s.reason });
   const rest = all.filter((s) => s !== lead && s.action.id !== lead?.action.id);
@@ -179,4 +186,59 @@ function actionBar(ctx = actionContext()) {
     lead ? button(lead, "tool primary") : null,
     rest.length ? btn("More", "chevronDown", (e) => showMenu(e.currentTarget,
       rest.map((s) => button(s, "tool"))), "tool outline", { "aria-haspopup": "menu" }) : null);
+}
+
+// ---------- a skin's command group ----------
+
+// Reasons pressing enough to take a skin's primary slot: something failed, is unsafe or was found wrong.
+const SKIN_PRIMARY_REASONS = ["failure", "safety", "validation"];
+
+// The command group a skin places on a view (workflow.commands, docs/skins.md; mockup "skin command
+// placement"): its primary, up to 3 more buttons in its order, and More with every other action of the
+// view in the order they're defined, so none can be hidden. A pressing recommendation (a failed cell)
+// takes the primary slot; the skin's primary moves beside it and the last button drops into More, so
+// the group never grows. Unavailable actions stay where they are, marked, still focusable, and say why
+// when chosen (runAction). Null when the skin places nothing, so the view keeps its own buttons.
+function skinCommandGroup(ctx = actionContext()) {
+  const placed = typeof skinCommands === "function" ? skinCommands(ctx.view) : null;
+  if (!placed) return null;
+  const all = actionsFor(ctx);
+  const byId = new Map(all.map((s) => [s.action.id, s]));
+  const wanted = [placed.primary, ...(placed.bar || [])].filter((id) => byId.has(id));
+  const top = recommend(ctx, 1);
+  const rec = top.ranked && SKIN_PRIMARY_REASONS.includes(top.items[0]?.reason) ? top.items[0] : null;
+  const ids = [...new Set([rec?.state.action.id, ...wanted].filter(Boolean))].slice(0, Math.max(wanted.length, rec ? 1 : 0));
+  const button = (s, cls, label = actionLabel(s.action)) => btn(label, s.action.icon || null, () => runAction(s.action.id, ctx), cls,
+    { "data-action": s.action.id, "aria-disabled": s.available ? null : "true", title: s.available ? null : s.reason,
+      "aria-description": s.available ? null : s.reason });
+  const rest = all.filter((s) => !ids.includes(s.action.id));
+  // An action with options keeps them beside it: a split chevron on the bar (split), or the items that
+  // follow it under More (moreAfter), as Publish keeps "Change publish workspace".
+  const placedButton = (s, i) => {
+    const b = button(s, i === 0 ? "tool primary" : "tool", rec && i === 0 ? rec.label : undefined);
+    if (!s.action.split || !s.available) return b;
+    const label = `${actionLabel(s.action)} options`;
+    return h("div", { class: "split" }, b, h("button", { class: "tool split-more", "aria-label": label, title: label,
+      "aria-haspopup": "menu", onclick: (e) => showMenu(e.currentTarget, s.action.split(ctx)) }, icon("chevronDown", 14)));
+  };
+  const moreItems = () => rest.flatMap((s) => [button(s, "tool"), ...(s.available && s.action.moreAfter ? s.action.moreAfter(ctx) : [])]);
+  return h("div", { class: "skin-commands row", role: "group", "aria-label": "Notebook commands" },
+    ...ids.map((id, i) => placedButton(byId.get(id), i)),
+    rest.length ? btn("More", "chevronDown", (e) => showMenu(e.currentTarget, moreItems()), "tool outline",
+      { "aria-haspopup": "menu", "data-skin-more": true }) : null);
+}
+
+// Draws the group again in place when what it shows can change without a redraw (a run starting or ending).
+function refreshSkinCommandGroup() {
+  const old = document.querySelector(".skin-commands");
+  const next = old && skinCommandGroup();
+  if (!next) return;
+  // Keep a keyboard user's place: focus the same command (or More, or a split's chevron) in the new group.
+  const had = old.contains(document.activeElement) ? document.activeElement : null;
+  const sel = !had ? null : had.dataset.action ? `[data-action="${CSS.escape(had.dataset.action)}"]`
+    : had.hasAttribute("data-skin-more") ? "[data-skin-more]"
+    : had.getAttribute("aria-label") ? `[aria-label="${CSS.escape(had.getAttribute("aria-label"))}"]` : null;
+  old.replaceWith(next);
+  if (sel) (next.querySelector(sel) || next.querySelector("button"))?.focus();
+  else if (had) next.querySelector("button")?.focus();
 }

@@ -76,7 +76,7 @@ def schema_matches(con: duckdb.DuckDBPyConnection, table: str, columns: list[dic
         if typ and not got[1].startswith(str(typ).upper()):
             return _no(kind, f"{table}.{got[0]} is {got[1]}; it should be {str(typ).upper()}.")
         if col.get("nullable") is False and got[2]:
-            nulls = one_row(con.execute(f"SELECT count(*) FROM {_ident(table)} WHERE {_ident(got[0])} IS NULL"))[0]  # type: ignore[index]
+            nulls = one_row(con.execute(f"SELECT count(*) FROM {_ident(table)} WHERE {_ident(got[0])} IS NULL"))[0]
             if nulls:
                 return _no(kind, f"{table}.{got[0]} must never be empty; {nulls:,} rows are NULL.")
     wanted = [str(c["name"]).lower() for c in columns]
@@ -95,7 +95,7 @@ def schema_matches(con: duckdb.DuckDBPyConnection, table: str, columns: list[dic
             return _no(kind, f"{table} has no column {missing[0]} for its key.")
         cols = ", ".join(_ident(have[k.lower()][0]) for k in key)
         dupes = one_row(con.execute(
-            f"SELECT count(*) FROM (SELECT {cols} FROM {_ident(table)} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
+            f"SELECT count(*) FROM (SELECT {cols} FROM {_ident(table)} GROUP BY ALL HAVING count(*) > 1)"))[0]
         if dupes:
             return _no(kind, f"{dupes:,} values of the key {', '.join(key)} appear more than once in {table}.")
     return _ok(kind, f"{table} has the columns{', types' if any(c.get('type') for c in columns) else ''}"
@@ -115,11 +115,11 @@ def _rule_count(con: duckdb.DuckDBPyConnection, table: str, rule: dict[str, Any]
             raise ValueError(f"{table} has no column {c}.")
     q = [_ident(have[c.lower()][0]) for c in cols]
     if name == "unique":
-        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {', '.join(q)} FROM {t} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {', '.join(q)} FROM {t} GROUP BY ALL HAVING count(*) > 1)"))[0]
         return int(n), f"{n:,} values of {', '.join(cols)} appear more than once"
     if name == "not_null":
         cond = " OR ".join(f"{c} IS NULL" for c in q)
-        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {cond}"))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {cond}"))[0]
         return int(n), f"{n:,} rows have an empty (NULL) {' or '.join(cols)}"
     if name == "range":
         lo, hi = rule.get("min"), rule.get("max")
@@ -132,7 +132,7 @@ def _rule_count(con: duckdb.DuckDBPyConnection, table: str, rule: dict[str, Any]
             args.append(hi)
         if not parts:
             raise ValueError("A range rule needs min or max.")
-        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {' OR '.join(parts)}", args))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {' OR '.join(parts)}", args))[0]
         bounds = " and ".join(x for x in (f"at least {lo}" if lo is not None else "", f"at most {hi}" if hi is not None else "") if x)
         return int(n), f"{n:,} rows have a {cols[0]} outside the range ({bounds})"
     if name == "accepted":
@@ -140,17 +140,17 @@ def _rule_count(con: duckdb.DuckDBPyConnection, table: str, rule: dict[str, Any]
         if not values:
             raise ValueError("An accepted rule needs values.")
         marks = ", ".join("?" for _ in values)
-        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {q[0]} IS NOT NULL AND {q[0]} NOT IN ({marks})", values))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM {t} WHERE {q[0]} IS NOT NULL AND {q[0]} NOT IN ({marks})", values))[0]
         return int(n), f"{n:,} rows have a {cols[0]} that isn't one of {', '.join(map(str, values))}"
     if name == "references":
         parent = str(rule["parent"])
         pc = str(rule.get("parent_column") or cols[0])
         n = one_row(con.execute(
             f"SELECT count(*) FROM {t} c WHERE c.{q[0]} IS NOT NULL AND NOT EXISTS "
-            f"(SELECT 1 FROM {_ident(parent)} p WHERE p.{_ident(pc)} = c.{q[0]})"))[0]  # type: ignore[index]
+            f"(SELECT 1 FROM {_ident(parent)} p WHERE p.{_ident(pc)} = c.{q[0]})"))[0]
         return int(n), f"{n:,} rows have a {cols[0]} that {parent} doesn't have"
     if name == "row_count":
-        n = int(one_row(con.execute(f"SELECT count(*) FROM {t}"))[0])  # type: ignore[index]
+        n = int(one_row(con.execute(f"SELECT count(*) FROM {t}"))[0])
         lo, hi = rule.get("min"), rule.get("max")
         if rule.get("equals") is not None and n != int(rule["equals"]):
             return 1, f"it has {n:,} rows; the answer has {int(rule['equals']):,}"
@@ -524,7 +524,7 @@ def snapshot(con: duckdb.DuckDBPyConnection, tables: list[str]) -> dict[str, tup
         if not _columns(con, table):
             out[table] = None
             continue
-        n, fp = one_row(con.execute(f"SELECT count(*), coalesce(sum(hash(t)::HUGEINT), 0) FROM {_ident(table)} t"))  # type: ignore[misc]
+        n, fp = one_row(con.execute(f"SELECT count(*), coalesce(sum(hash(t)::HUGEINT), 0) FROM {_ident(table)} t"))
         out[table] = (int(n), int(fp))
     return out
 

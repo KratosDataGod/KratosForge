@@ -134,6 +134,11 @@ def _explain(res: subprocess.CompletedProcess[str]) -> str:
     if "0x80070569" in low or "-2147023511" in low or "logon type" in low:
         return ("Your organization doesn't allow runs while you're signed out (Windows refused the "
                 "'Log on as a batch job' right); nothing changed.")
+    if "language mode" in low:
+        return ("Your organization's application control runs PowerShell in Constrained Language Mode, which "
+                "stops KratosForge saving a schedule that runs while you're signed out; nothing changed. Keep this "
+                "schedule to times you're signed in, or ask IT (the enterprise install guide covers it under "
+                "Application control).")
     return f"Task Scheduler: {text or 'the task was not saved'}"
 
 

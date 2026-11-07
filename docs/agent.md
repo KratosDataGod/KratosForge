@@ -216,6 +216,8 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
 | `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |
 
+**Sleep and clock changes.** After the machine sleeps, or its clock jumps either way, the agent renews the leases of the jobs still running on it before it recovers any, writes its status record first, and runs its periodic work (status, incidents, mailbox, pruning) again from the new time rather than waiting out a jump back. A schedule's next run, a job's retry and lease, and a failing Teams route's rest are never kept much further off than their own longest wait. A small correction of a few seconds or minutes changes nothing. A jump forward can still make messages that have waited look older than they are: one past three days is dropped as usual, and counted.
+
 Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity`, `credential` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
 
 ### Incidents (Preview)

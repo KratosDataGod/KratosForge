@@ -297,6 +297,8 @@ class DuckDBSession(_SqlSession):
         target = str(Path(config.database)) if config.database else ":memory:"
         self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
         keep_try_cast(self._con)
+        from .. import databricks_ip
+        databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":

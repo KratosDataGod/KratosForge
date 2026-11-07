@@ -283,3 +283,135 @@ def test_databricks_time_examples_give_its_values(code, want):
 def test_a_time_databricks_stops_on_or_this_pc_cant_read_stops(code, match):
     with pytest.raises(Exception, match=match):
         _one(code)
+
+
+# Every example in Databricks' reference for its IP address functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT hex(ip_as_binary('192.168.1.1'))", 'C0A80101'),
+    ("SELECT hex(ip_as_binary('2001:db8::1'))", '20010DB8000000000000000000000001'),
+    ("SELECT hex(ip_as_binary('192.168.1.5/24'))", 'C0A8010018'),
+    ("SELECT hex(ip_as_binary(X'C0A80101'))", 'C0A80101'),
+    ('SELECT ip_as_binary(NULL)', None),
+    ("SELECT ip_as_string('192.168.1.1')", '192.168.1.1'),
+    ("SELECT ip_as_string('2001:0db8:0000:0000:0000:0000:0000:0001')", '2001:db8::1'),
+    ("SELECT ip_as_string('192.168.1.5/24')", '192.168.1.0/24'),
+    ("SELECT ip_as_string(X'C0A80101')", '192.168.1.1'),
+    ("SELECT ip_as_string(X'20010DB8000000000000000000000001')", '2001:db8::1'),
+    ('SELECT ip_as_string(NULL)', None),
+    ("SELECT ip_cidr('192.168.1.100/24')", '192.168.1.0/24'),
+    ("SELECT ip_cidr('2001:0db8:0000:0000:0000:0000:0000:0001/32')", '2001:db8::/32'),
+    ("SELECT ip_cidr('::ffff:192.0.2.128/120')", '::ffff:192.0.2.0/120'),
+    ("SELECT hex(ip_cidr(X'C0A8016418'))", 'C0A8010018'),
+    ('SELECT ip_cidr(NULL)', None),
+    ("SELECT ip_cidr_contains('192.168.1.0/24', '192.168.2.1')", False),
+    ("SELECT ip_cidr_contains('2001:db8::/32', '2001:db8::1')", True),
+    ("SELECT ip_cidr_contains('::ffff:192.168.1.0/120', '192.168.1.100')", True),
+    ("SELECT ip_cidr_contains(X'C0A8010018', X'C0A80164')", True),
+    ("SELECT ip_cidr_contains('192.168.1.0/24', X'C0A80164')", True),
+    ("SELECT ip_cidr_contains(NULL, '192.168.1.1')", None),
+    ("SELECT ip_cidr_contains('192.168.1.0/24', NULL)", None),
+    ('SELECT ip_cidr_contains(NULL, NULL)', None),
+    ("SELECT ip_host('192.168.1.5')", '192.168.1.5'),
+    ("SELECT ip_host('2001:0db8:0000:0000:0000:0000:0000:0001')", '2001:db8::1'),
+    ("SELECT ip_host('2001:DB8::1')", '2001:db8::1'),
+    ("SELECT ip_host('::ffff:192.0.2.128')", '::ffff:192.0.2.128'),
+    ("SELECT hex(ip_host(X'C0A80101'))", 'C0A80101'),
+    ('SELECT ip_host(NULL)', None),
+    ("SELECT ip_network('192.168.1.100/24')", '192.168.1.0'),
+    ("SELECT ip_network('10.32.1.5/16')", '10.32.0.0'),
+    ("SELECT ip_network('2001:db8::1/32')", '2001:db8::'),
+    ("SELECT ip_network('::ffff:192.0.2.128/120')", '::ffff:192.0.2.0'),
+    ("SELECT hex(ip_network(X'C0A8016418'))", 'C0A80100'),
+    ('SELECT ip_network(NULL)', None),
+    ("SELECT ip_network_first('192.168.1.100/24')", '192.168.1.0'),
+    ("SELECT ip_network_first('10.32.1.5/16')", '10.32.0.0'),
+    ("SELECT ip_network_first('2001:db8::1/32')", '2001:db8::'),
+    ("SELECT ip_network_first('::ffff:192.0.2.128/120')", '::ffff:192.0.2.0'),
+    ("SELECT hex(ip_network_first(X'C0A8016418'))", 'C0A80100'),
+    ('SELECT ip_network_first(NULL)', None),
+    ("SELECT ip_network_last('192.168.1.0/24')", '192.168.1.255'),
+    ("SELECT ip_network_last('2001:db8::/32')", '2001:db8:ffff:ffff:ffff:ffff:ffff:ffff'),
+    ("SELECT ip_network_last('::ffff:192.0.2.0/120')", '::ffff:192.0.2.255'),
+    ("SELECT hex(ip_network_last(X'C0A8016418'))", 'C0A801FF'),
+    ('SELECT ip_network_last(NULL)', None),
+    ("SELECT ip_prefix_length('192.168.1.1/24')", 24),
+    ("SELECT ip_prefix_length('2001:db8::1/64')", 64),
+    ("SELECT ip_prefix_length('::ffff:192.0.2.1/96')", 96),
+    ("SELECT ip_prefix_length(X'C0A8010118')", 24),
+    ('SELECT ip_prefix_length(NULL)', None),
+    ("SELECT ip_version('192.168.1.5')", 4),
+    ("SELECT ip_version('192.168.1.0/24')", 4),
+    ("SELECT ip_version('2001:db8::1')", 6),
+    ("SELECT ip_version('2001:db8::/32')", 6),
+    ("SELECT ip_version('::ffff:192.168.1.1')", 6),
+    ("SELECT ip_version(X'C0A80101')", 4),
+    ('SELECT ip_version(NULL)', None),
+    ("SELECT hex(try_ip_as_binary('192.168.1.1'))", 'C0A80101'),
+    ("SELECT hex(try_ip_as_binary('192.168.1.5/24'))", 'C0A8010018'),
+    ("SELECT hex(try_ip_as_binary('2001:db8::1'))", '20010DB8000000000000000000000001'),
+    ("SELECT hex(try_ip_as_binary('::ffff:192.168.1.1'))", '00000000000000000000FFFFC0A80101'),
+    ("SELECT hex(try_ip_as_binary(X'C0A80101'))", 'C0A80101'),
+    ("SELECT try_ip_as_binary('invalid')", None),
+    ("SELECT try_ip_as_binary(X'')", None),
+    ('SELECT try_ip_as_binary(NULL)', None),
+    ("SELECT try_ip_as_string('192.168.1.1')", '192.168.1.1'),
+    ("SELECT try_ip_as_string('2001:0db8:0000:0000:0000:0000:0000:0001')", '2001:db8::1'),
+    ("SELECT try_ip_as_string('192.168.1.5/24')", '192.168.1.0/24'),
+    ("SELECT try_ip_as_string(X'C0A80101')", '192.168.1.1'),
+    ("SELECT try_ip_as_string(X'20010DB8000000000000000000000001')", '2001:db8::1'),
+    ("SELECT try_ip_as_string('invalid')", None),
+    ("SELECT try_ip_as_string(X'')", None),
+    ('SELECT try_ip_as_string(NULL)', None),
+    ("SELECT try_ip_cidr('192.168.1.100/24')", '192.168.1.0/24'),
+    ("SELECT try_ip_cidr('2001:0db8:0000:0000:0000:0000:0000:0001/32')", '2001:db8::/32'),
+    ("SELECT try_ip_cidr('::ffff:192.0.2.128/120')", '::ffff:192.0.2.0/120'),
+    ("SELECT hex(try_ip_cidr(X'C0A8016418'))", 'C0A8010018'),
+    ("SELECT try_ip_cidr('invalid')", None),
+    ("SELECT try_ip_cidr(X'')", None),
+    ('SELECT try_ip_cidr(NULL)', None),
+    ("SELECT try_ip_host('192.168.1.5')", '192.168.1.5'),
+    ("SELECT try_ip_host('2001:0db8:0000:0000:0000:0000:0000:0001')", '2001:db8::1'),
+    ("SELECT try_ip_host('2001:DB8::1')", '2001:db8::1'),
+    ("SELECT try_ip_host('::ffff:192.0.2.128')", '::ffff:192.0.2.128'),
+    ("SELECT hex(try_ip_host(X'C0A80101'))", 'C0A80101'),
+    ("SELECT try_ip_host('invalid')", None),
+    ("SELECT try_ip_host(X'')", None),
+    ('SELECT try_ip_host(NULL)', None),
+])
+def test_databricks_ip_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT ip_as_binary('invalid.ip')", 'INVALID_IP_ADDRESS_OR_CIDR_BLOCK'),
+    ("SELECT ip_as_string('invalid.ip')", 'INVALID_IP_ADDRESS_OR_CIDR_BLOCK'),
+    ("SELECT ip_cidr('192.168.1.5')", 'INVALID_CIDR_BLOCK'),
+    ("SELECT ip_cidr_contains('invalid', '192.168.1.1')", 'INVALID_CIDR_BLOCK'),
+    ("SELECT ip_host('invalid.ip')", 'INVALID_IP_ADDRESS'),
+    ("SELECT ip_network('192.168.1.5')", 'INVALID_CIDR_BLOCK'),
+    ("SELECT ip_network_first('192.168.1.5')", 'INVALID_CIDR_BLOCK'),
+    ("SELECT ip_network_last('192.168.1.5')", 'INVALID_CIDR_BLOCK'),
+    ("SELECT ip_prefix_length('192.168.1.5')", 'INVALID_CIDR_BLOCK'),
+    ("SELECT ip_version('invalid.ip')", 'INVALID_IP_ADDRESS_OR_CIDR_BLOCK'),
+])
+def test_a_bad_ip_stops_with_databricks_error_class(code, error):
+    with pytest.raises(duckdb.Error, match=re.escape(f"[{error}]")):
+        _one(code)
+
+
+def test_an_ip_column_gives_strings_and_a_binary_one_says_how_to_mark_it():
+    assert _one("SELECT ip_host(c) FROM VALUES ('10.0.0.1'), (NULL), ('::1') AS t(c)") == [
+        ["10.0.0.1"], ["::1"], [None]]
+    assert _one("SELECT ip_host(CAST(c AS BINARY)) FROM VALUES (X'C0A80101') AS t(c)") == [["binary:c0a80101"]]
+    with pytest.raises(duckdb.Error, match=r"CAST\(\.\.\. AS BINARY\)"):
+        _one("SELECT ip_host(c) FROM VALUES (X'C0A80101') AS t(c)")
+
+
+def test_the_engine_session_has_the_ip_functions():
+    from fabric_desktop.engines.contract import SessionConfig
+    from fabric_desktop.engines.local_sql import DuckDBSession
+    session = DuckDBSession(SessionConfig(notebook="ip"))
+    try:
+        assert session._con.sql("SELECT __kf_ip('ip_version:fixed', 'VARCHAR', hex('::1'))").fetchall() == [("6",)]
+    finally:
+        session.close()

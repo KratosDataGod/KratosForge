@@ -85,6 +85,8 @@ def connect() -> Any:
     from .engines.local_sql import _DUCKDB_CLOSED
     con = duckdb.connect(config=dict(_DUCKDB_CLOSED))
     con.execute("SET TimeZone = 'UTC'")
+    from . import databricks_ip
+    databricks_ip.register(con)  # as engines.local_sql's DuckDB session does
     return con
 
 

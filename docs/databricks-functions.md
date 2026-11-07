@@ -27,10 +27,10 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 389 |
+| Runs | 403 |
 | Differs | 0 |
 | Refused | 82 |
-| Fails | 45 |
+| Fails | 31 |
 | Not checked | 73 |
 | **All** | **589** |
 
@@ -702,20 +702,20 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `ip_as_binary` | Fails |  | DuckDB has no ip_as_binary, and the translation doesn't write it |
-| `ip_as_string` | Fails |  | DuckDB has no ip_as_string, and the translation doesn't write it |
-| `ip_cidr` | Fails |  | DuckDB has no ip_cidr, and the translation doesn't write it |
-| `ip_cidr_contains` | Fails |  | DuckDB has no ip_cidr_contains, and the translation doesn't write it |
-| `ip_host` | Fails |  | DuckDB has no ip_host, and the translation doesn't write it |
-| `ip_network` | Fails |  | DuckDB has no ip_network, and the translation doesn't write it |
-| `ip_network_first` | Fails |  | DuckDB has no ip_network_first, and the translation doesn't write it |
-| `ip_network_last` | Fails |  | DuckDB has no ip_network_last, and the translation doesn't write it |
-| `ip_prefix_length` | Fails |  | DuckDB has no ip_prefix_length, and the translation doesn't write it |
-| `ip_version` | Fails |  | DuckDB has no ip_version, and the translation doesn't write it |
-| `try_ip_as_binary` | Fails |  | DuckDB has no try_ip_as_binary, and the translation doesn't write it |
-| `try_ip_as_string` | Fails |  | DuckDB has no try_ip_as_string, and the translation doesn't write it |
-| `try_ip_cidr` | Fails |  | DuckDB has no try_ip_cidr, and the translation doesn't write it |
-| `try_ip_host` | Fails |  | DuckDB has no try_ip_host, and the translation doesn't write it |
+| `ip_as_binary` | Runs | `SELECT hex(ip_as_binary('192.168.1.1'))` |  |
+| `ip_as_string` | Runs | `SELECT ip_as_string('192.168.1.1')` |  |
+| `ip_cidr` | Runs | `SELECT ip_cidr('192.168.1.100/24')` |  |
+| `ip_cidr_contains` | Runs | `SELECT ip_cidr_contains('192.168.1.0/24', '192.168.2.1')` |  |
+| `ip_host` | Runs | `SELECT ip_host('192.168.1.5')` |  |
+| `ip_network` | Runs | `SELECT ip_network('192.168.1.100/24')` |  |
+| `ip_network_first` | Runs | `SELECT ip_network_first('192.168.1.100/24')` |  |
+| `ip_network_last` | Runs | `SELECT ip_network_last('192.168.1.0/24')` |  |
+| `ip_prefix_length` | Runs | `SELECT ip_prefix_length('192.168.1.1/24')` |  |
+| `ip_version` | Runs | `SELECT ip_version('192.168.1.5')` |  |
+| `try_ip_as_binary` | Runs | `SELECT hex(try_ip_as_binary('192.168.1.1'))` |  |
+| `try_ip_as_string` | Runs | `SELECT try_ip_as_string('192.168.1.1')` |  |
+| `try_ip_cidr` | Runs | `SELECT try_ip_cidr('192.168.1.100/24')` |  |
+| `try_ip_host` | Runs | `SELECT try_ip_host('192.168.1.5')` |  |
 
 ## Databricks only: miscellaneous
 

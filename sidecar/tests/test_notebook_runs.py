@@ -152,3 +152,26 @@ def test_a_fabric_job_seen_ending_gets_one_audit_line(svc, monkeypatch):
     assert line["target"] == {"job_id": "j1", "kind": "Notebook run", "name": "Daily sales", "workspace_id": "ws1",
                               "item_id": "it1", "status": "Failed"}
     assert "Out of memory" not in str(line)  # Fabric's message stays in the run log, not the audit line
+
+
+@pytest.mark.parametrize("status, outcome, reason", [("Completed", "ok", ""), ("Cancelled", "error", "cancelled"),
+                                                     ("Deduped", "error", "refused")])
+def test_a_fabric_jobs_end_line_says_how_it_ended_and_how_long_it_took(svc, monkeypatch, status, outcome, reason):
+    _fabric(svc, started_at="2026-10-20T07:00:00+00:00")
+
+    class Fabric:
+        def job_instance(self, ws, item, job):
+            return {"status": status, "endTimeUtc": "2026-10-20T07:02:30.5Z"}
+
+    monkeypatch.setattr(Service, "_quiet_fabric", lambda self: Fabric())
+    svc.notebook_runs("Daily sales", refresh=True)
+    (line,) = [e for e in svc.audit.recent() if e["action"] == "fabric_run_finished"]
+    assert (line["outcome"], line.get("reason", "")) == (outcome, reason)
+    assert line["seconds"] == 150.5
+
+
+def test_a_fabric_jobs_duration_is_zero_when_a_time_is_missing_or_odd():
+    from fabric_desktop.cloud_service import _seconds
+    assert _seconds("2026-10-20T07:00:00+00:00", None) == 0.0
+    assert _seconds("soon", "2026-10-20T07:00:00Z") == 0.0
+    assert _seconds("2026-10-20T07:00:10", "2026-10-20T07:00:00Z") == 0.0  # never negative

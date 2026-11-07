@@ -169,7 +169,7 @@ NOT_RECORDED = ("The audit log couldn't be written, so this didn't run ({error})
 
 # Why a call that returned (rather than raised) still counts as an error: one of these fixed codes,
 # never anything taken from the reply's text.
-REASONS = ("refused", "busy", "policy", "preview", "invalid", "partial", "failed")
+REASONS = ("refused", "busy", "policy", "preview", "invalid", "partial", "failed", "cancelled")
 _DONE = ("ok", "skipped")
 
 

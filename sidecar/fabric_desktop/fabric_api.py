@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import re
 import time
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from urllib.parse import urljoin
 
 import requests
@@ -147,7 +147,7 @@ def _sent_to(url: str) -> Any:
     """The URL as requests will send it, parsed the way urllib3 will connect to it. Checking the
     standard library's reading instead lets "https://evil.example\\.fabric.microsoft.com/" pass as a
     Fabric host while requests connects to evil.example."""
-    return parse_url(requests.Request("GET", url).prepare().url)
+    return parse_url(cast(str, requests.Request("GET", url).prepare().url))  # prepare() always sets the URL
 
 
 def followable_url(url: str, came_from: str) -> str:

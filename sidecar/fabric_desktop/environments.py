@@ -175,7 +175,7 @@ class Environments:
                         "updated": info.get("updated")})
         return out
 
-    def installed(self, name: str) -> list[dict[str, str]]:
+    def installed(self, name: str) -> builtins.list[dict[str, str]]:
         """What is in the environment's folder that the engine doesn't already have."""
         folder = self.site_packages(name)
         if not folder.is_dir():
@@ -345,7 +345,7 @@ class Environments:
             if re.sub(r"[-_.]+", "-", dist.metadata.get("Name") or "").lower() != wanted:
                 continue
             root = target.resolve()
-            folders = set()
+            folders: set[Path] = set()
             for f in dist.files or []:
                 p = (target / f).resolve()
                 if p.is_relative_to(root) and p.is_file():

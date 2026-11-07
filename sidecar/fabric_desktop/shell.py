@@ -80,8 +80,8 @@ def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> i
 
 def _run(args: str | list[str], shell: bool = False, stdin: str | None = None,
          echo: Callable[[str], None] | None = None) -> tuple[int, list[str]]:
-    echo = echo or sys.stdout.write
-    flags: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+    write: Callable[[str], Any] = echo or sys.stdout.write
+    flags: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"  # type: ignore[attr-defined]  # Windows-only
                              else {"start_new_session": True})
     proc = subprocess.Popen(args, shell=shell, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,  # noqa: S602 - the person's own command
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
@@ -108,7 +108,7 @@ def _run(args: str | list[str], shell: bool = False, stdin: str | None = None,
         # Short waits, so Cancel (an exception raised in this thread) lands between them.
         while (line := _next(lines)) is not None:
             out.append(line.rstrip("\r\n"))
-            echo(line)
+            write(line)
         return proc.wait(), out
     except BaseException:
         end(proc)

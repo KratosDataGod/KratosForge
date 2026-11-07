@@ -340,7 +340,7 @@ class ScheduleMixin:
         gone either way, so a full disk never holds the schedule up."""
         try:
             label = target_label(self.pc_schedules.get(schedule_id)["target"])
-        except (KeyError, ValueError, OSError):  # the schedule was removed since
+        except (LookupError, ValueError, OSError):  # the schedule was removed since (LocalSchedules.get: LookupError)
             label = schedule_id
         # Only what this app writes in a lock goes into the history, and only from this schedule's own
         # lock: the file is anyone's to edit, and the history is what Monitor shows.

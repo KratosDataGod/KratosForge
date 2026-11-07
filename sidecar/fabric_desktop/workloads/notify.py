@@ -188,16 +188,18 @@ def _messages(changes: list[dict[str, Any]], source: str, digest_over: int) -> l
 def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source: str,
          post: Callable[[str, str, list[str]], None], digest_over: int = DIGEST_OVER,
          now: dt.datetime | None = None) -> dict[str, Any]:
-    """Post what these changes need, after anything still waiting. Never raises."""
+    """Post what these changes need, after anything still waiting. Never raises. ``dropped`` counts
+    messages that waited longer than KEEP_TRYING and were removed without being sent."""
     if not routing.routes:
-        return {"sent": 0, "queued": 0, "held": 0, "skipped": "no Teams webhook set"}
+        return {"sent": 0, "queued": 0, "held": 0, "dropped": 0, "skipped": "no Teams webhook set"}
     now = now or dt.datetime.fromtimestamp(outbox.clock()).astimezone()
     t = outbox.clock()
-    sent = queued = held = 0
+    sent = queued = held = dropped = 0
     down: dict[str, str] = {}  # route name -> the error it gave this time
     for item in outbox.pending():
-        if t - item["created"] > KEEP_TRYING:
+        if t - item["created"] > KEEP_TRYING:  # never sent: the caller logs and counts it
             outbox.done(item["id"])
+            dropped += 1
             continue
         if item["not_before"] > t:
             continue
@@ -248,4 +250,5 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
                 down[name] = error = failure(exc)
                 outbox.add(title, lines, error, route=name)
                 queued += 1
-    return {"sent": sent, "queued": queued, "held": held, "error": error or next(iter(down.values()), None)}
+    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped,
+            "error": error or next(iter(down.values()), None)}

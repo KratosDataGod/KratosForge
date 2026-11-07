@@ -81,7 +81,7 @@ def locked(folder: Path) -> Iterator[None]:
             f.seek(0)
             while True:
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # retries for about a second, then raises
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]  # Windows-only; retries for about a second, then raises
                     break
                 except OSError:
                     time.sleep(0.05)
@@ -89,7 +89,7 @@ def locked(folder: Path) -> Iterator[None]:
                 yield
             finally:
                 f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]  # Windows-only
         else:
             import fcntl
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)

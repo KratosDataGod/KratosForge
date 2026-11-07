@@ -21,6 +21,8 @@ from urllib.parse import unquote
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
+from . import durable
+
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
 VERSIONS_BEFORE_VACUUM = 30
@@ -180,6 +182,7 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None) ->
 
 def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history."""
+    before = DeltaTable(uri).version()
     set_retention(uri, days)
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
@@ -188,6 +191,7 @@ def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
     staged = _remove(uri, _stale_staged(uri))
+    durable.sync_commits(uri, before + 1, DeltaTable(uri).version())  # the compacted files and their commits
     return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
             "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
 

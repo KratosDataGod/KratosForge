@@ -344,16 +344,14 @@ function renderCell(cell) {
       else if (multiSelected()) clearSelection();
       if (!e.target.closest(".cm-editor, input, select, textarea, button")) {
         setMode("command");
-        setTimeout(() => { if (!document.activeElement?.closest?.(".cm-editor, input, select")) node.focus({ preventScroll: true }); });
+        // The cell as drawn now: selecting it can redraw the notebook (the Edit tab follows the cell),
+        // which replaces this node, and focusing a node that's gone leaves focus on the view, where the
+        // command-mode keys don't reach the cell.
+        setTimeout(() => {
+          if (document.activeElement?.closest?.(".cm-editor, input, select")) return;
+          document.querySelector(`[data-cell="${cell.id}"]`)?.focus({ preventScroll: true });
+        });
       }
-    },
-    // Newer Chromium (WebView2 updates on its own) moves focus again on mouseup after a press on the
-    // draggable grip, to the view, where the command-mode keys don't reach the cell. So a click that
-    // ends with focus outside the cell puts it back.
-    onclick: (e) => {
-      if (e.target.closest(".cm-editor, input, select, textarea, button, a")) return;
-      const el = document.querySelector(`[data-cell="${cell.id}"]`);
-      if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
     },
   });
   const head = h("div", { class: "cell-head" },

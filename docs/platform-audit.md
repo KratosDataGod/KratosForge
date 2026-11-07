@@ -89,4 +89,7 @@ To find a request's id, look it up in `catalog.request` by `target`, `requested_
 
 - Rows written before this release keep their older shape: a sent row without `request`, and a revoke without the grant's fields. Join those on `target` and time.
 - The platform's trail is append-only through its functions but isn't tamper-evident (no hash chain, unlike the app's per-PC log): its integrity rests on who can write to `SQL_Platform`, so keep write access to the Platform workspace for the central team.
-- Reading the platform writes no rows, except the first admin's claim on an empty platform (`claim admin`). A refused change writes none either.
+- Reading the platform writes no rows, except the first admin's claim on an empty platform (`claim admin`). A refused read writes none either. A refused change writes its `refused <operation>` row ([Refused changes](#refused-changes)).
+- `refused` covers every change the platform turns down: missing rights, and also a check on what was asked (a name in the wrong form, a missing value). Tell them apart by who and what was attempted, not by the row.
+- The 300-an-hour cap is shared: one caller refused over and over can use it up, and other callers' refusals in that hour are then not recorded. They're still refused.
+- The rate checks read `catalog.audit` by `action` and `at`, which have no index yet. An index on (`action`, `at`) is planned.

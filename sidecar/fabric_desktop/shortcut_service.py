@@ -41,6 +41,7 @@ def _skipped_problem(skipped: list[dict[str, Any]]) -> str:
             "product in that lakehouse, can. The next scan by one of them records it.")
 
 class ShortcutMixin:
+    _all_shortcuts: dict[str, Any] | None  # the estate's shortcut cache, set by EstateMixin
 
     # ---- what the command center shows
 

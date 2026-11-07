@@ -127,20 +127,40 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # Calls that must not run without a record: a "started" line is written before them, and they are
-# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always, and any
-# other call only when it is given a confirmation, an approval, a typed name or a risk-check
-# acknowledgement (a non-empty value), so an ordinary query or edit still runs as before when its
-# line can't be written.
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always; any other
+# call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
+# confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
+# value). An ordinary query or edit still runs as before when its line can't be written.
 FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_vacuum", "shortcut_repoint",
-                         "shortcut_repoint_many", "shortcut_undo"})
-_GUARD_PARAMS = ("confirm", "approv", "typed", "risk_id", "acknowledg")
+                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
+# Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
+# one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
+GUARD_PARAMS = frozenset({
+    "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
+    "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
+    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
+NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
+_PROD_PARAMS = ("env", "envs", "target")
+
+
+def _given(value: Any) -> bool:
+    return value not in (None, False, "", 0, [], {})
+
+
+def _is_prod(value: Any) -> bool:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_is_prod(v) for v in value)
+    return isinstance(value, str) and value.strip().lower() == "prod"
 
 
 def fails_closed(method: str, params: Any) -> bool:
     """Whether this call of ``method`` with ``params`` runs only once its line is written."""
-    return method in FAIL_CLOSED or (isinstance(params, dict) and any(
-        value not in (None, False, "", 0, [], {}) and any(w in str(key) for w in _GUARD_PARAMS)
-        for key, value in params.items()))
+    if method in FAIL_CLOSED:
+        return True
+    if not isinstance(params, dict):
+        return False
+    return any((key in GUARD_PARAMS and _given(value)) or (key in _PROD_PARAMS and _is_prod(value))
+               for key, value in params.items())
 
 
 NOT_RECORDED = ("The audit log couldn't be written, so this didn't run ({error}). Free some disk space for "

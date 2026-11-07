@@ -790,7 +790,7 @@ Each line says:
 | --- | --- |
 | `at`, `seconds` | When it started (UTC) and how long it took |
 | `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
-| `started` lines | Actions given a confirmation, an approval, a typed name or a risk-check acknowledgement, and Prod changes such as promote, rollback, restore and vacuum, get a line with `outcome` `started` before they run, then their usual line after. If that first line can't be written (a full disk, a locked file), the action doesn't run and says why. Everything else still runs when its line can't be written |
+| `started` lines | Actions given a confirmation, an approval, a typed name, a risk-check acknowledgement or an override, actions aimed at the Prod environment, and Prod changes such as promote, rollback, restore, vacuum and accepting a shortcut risk, get a line with `outcome` `started` before they run, then their usual line after. If that first line can't be written (a full disk, a locked file), the action doesn't run and says why. Everything else still runs when its line can't be written |
 | `reason` | Only when an action ended without an error message but didn't do what was asked: `refused`, `busy`, `policy`, `preview`, `invalid`, `partial` (some of it failed) or `failed`. A metadata run that fails gets an `error` outcome whether the app, a schedule on this PC or the agent started it (the reason can differ: a schedule records `failed`) |
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |

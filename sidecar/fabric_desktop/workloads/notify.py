@@ -34,6 +34,7 @@ MAX_WAITING = 500  # messages an outbox keeps; beyond this the oldest are droppe
 MAX_PER_TRY = 25  # waiting messages sent to one route in one call, so a recovery doesn't flood the channel
 BACKOFF_FIRST = 60.0  # seconds a route rests after its first failure, doubling with each one after
 BACKOFF_MAX = 1800.0  # the longest a failing route rests between tries
+CLOCK_MARGIN = 300.0  # a rest ending further off than BACKOFF_MAX plus this was set before the clock went back
 DEFAULT_ROUTE = "default"
 LINE_MAX = 500  # characters in one title or line of a Teams message
 
@@ -178,12 +179,13 @@ class Outbox:
 
     def resting(self, addresses: dict[str, str]) -> dict[str, str]:
         """Routes resting after failures, with their last error: route name -> error. A route
-        whose address changed since it failed isn't resting."""
+        whose address changed since it failed isn't resting, and neither is one whose next try is
+        further off than BACKOFF_MAX (set before the clock went back)."""
         t = self.clock()
         with self._db() as db:
             rows = db.execute("SELECT route, address, next_try, error FROM route_state").fetchall()
         return {r[0]: r[3] or "" for r in rows
-                if r[0] in addresses and r[1] == _fingerprint(addresses[r[0]]) and r[2] > t}
+                if r[0] in addresses and r[1] == _fingerprint(addresses[r[0]]) and t < r[2] <= t + BACKOFF_MAX + CLOCK_MARGIN}
 
     def route_failed(self, route: str, address: str, error: str) -> float:
         """Count a failure and set when the route is next tried. Returns that wait in seconds."""

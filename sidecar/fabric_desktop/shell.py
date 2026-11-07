@@ -72,10 +72,25 @@ def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> i
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write("@echo off\r\n" + body.replace("\r\n", "\n").replace("\n", "\r\n"))
-            return _run(["cmd.exe", "/d", "/c", name], echo=echo)[0]
+            code, out = _run(["cmd.exe", "/d", "/c", name], echo=echo)
+            if hint := cmd_blocked_hint(code, out):
+                (echo or sys.stdout.write)(hint + "\n")
+            return code
         finally:
             Path(name).unlink(missing_ok=True)
     raise ValueError(f"Unknown shell {kind!r}")
+
+
+CMD_BLOCKED = ("%%cmd runs its commands from a script file in your Temp folder, and your organization's "
+               "application control blocks scripts there. Run them with %%powershell or !command instead; "
+               "IT can see the enterprise install guide (Application control).")
+
+
+def cmd_blocked_hint(code: int, out: list[str]) -> str | None:
+    """The line to add when cmd.exe refused the cell's script file because policy blocks it."""
+    if code and any("blocked by group policy" in line.lower() for line in out):
+        return CMD_BLOCKED
+    return None
 
 
 def _run(args: str | list[str], shell: bool = False, stdin: str | None = None,

@@ -303,9 +303,14 @@ fn network_failure(err: &str) -> bool {
 /// A failed engine download, after one line that says what to do when the network was the cause.
 /// The original line stays in brackets for IT.
 fn explain_download(err: &str, host: &str) -> String {
-    let hint = if err.contains("curl: (35)") || err.contains("curl: (60)") {
+    let hint = if err.contains("curl: (60)") {
         format!("HTTPS to {host} was refused because its certificate isn't trusted on this PC. If your network \
                  inspects HTTPS, ask IT to add its root certificate to Windows.")
+    } else if err.contains("curl: (35)") {
+        // A failed TLS handshake. On Windows this is often a certificate revocation check that can't
+        // reach its list through the network, rather than an untrusted certificate.
+        format!("HTTPS to {host} couldn't be set up: the certificate or its revocation check failed. If your \
+                 network inspects HTTPS or blocks certificate revocation lists, ask IT to allow them.")
     } else if err.contains("curl: (5)") || err.contains("curl: (56)") || err.contains("curl: (97)") {
         "The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy Windows is \
          set to, or HTTPS_PROXY; a proxy that asks for a Windows sign-in of its own (407) isn't supported."
@@ -578,6 +583,31 @@ fn apply_release_rule(latest: &mut Value) {
     }
 }
 
+/// Windows' answers when application control refuses to start a program: AppLocker or Software
+/// Restriction Policies (ERROR_ACCESS_DISABLED_BY_POLICY), App Control for Business / WDAC
+/// (ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION).
+const APP_CONTROL_BLOCKED: [i32; 2] = [1260, 4551];
+
+/// Why the engine's Python didn't start, in words that say what to do: application control is
+/// named with the folder IT allows, and a missing file isn't called blocked (or the reverse).
+fn python_failed(e: &std::io::Error) -> String {
+    let folder = python().ok().and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
+        .unwrap_or_else(|| engine_root().display().to_string());
+    python_failed_text(e.raw_os_error(), &e.to_string(), &folder)
+}
+
+fn python_failed_text(code: Option<i32>, error: &str, folder: &str) -> String {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => format!(
+            "Your organization's application control (AppLocker or App Control for Business) blocked the \
+             engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
+             the enterprise install guide lists the rules (Application control). ({error})"
+        ),
+        Some(2 | 3) => format!("Python was not found ({error})."),
+        _ => format!("Python could not be started ({error})."),
+    }
+}
+
 fn updater(args: &[&str]) -> Result<Command, String> {
     // Run from the app's own data folder so no stray .py file in the current
     // folder can shadow a standard library module.
@@ -595,7 +625,7 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Could not run Python: {e}"))?;
+        .map_err(|e| python_failed(&e))?;
     let mut tail = VecDeque::new();
     for line in BufReader::new(child.stdout.take().expect("updater stdout")).lines() {
         let line = line.unwrap_or_default();
@@ -805,7 +835,7 @@ impl SidecarState {
     /// Starts the engine into an empty slot, as the first call after startup does.
     fn start_into(&self, guard: &mut Option<Arc<Sidecar>>) -> Result<(), String> {
         if guard.is_none() {
-            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {e}"))?;
+            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {}", python_failed(&e)))?;
             *self.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
             *guard = Some(Arc::new(sidecar));
         }
@@ -1092,9 +1122,7 @@ async fn check_components(app: tauri::AppHandle) -> Result<Value, String> {
             "latest": { "commit": null, "error": null },
         })
     } else {
-        let out = updater(&["check"])?
-            .output()
-            .map_err(|e| format!("Python was not found ({e})."))?;
+        let out = updater(&["check"])?.output().map_err(|e| python_failed(&e))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             return Err(format!("Python could not run the startup check. {}", stderr.trim()));
@@ -1117,7 +1145,7 @@ async fn check_components(app: tauri::AppHandle) -> Result<Value, String> {
 /// The channel's newest build (updater.py latest), put through the release rule, which also
 /// makes it the build update_app may install.
 fn channel_latest() -> Result<Value, String> {
-    let out = updater(&["latest"])?.output().map_err(|e| format!("Python was not found ({e})."))?;
+    let out = updater(&["latest"])?.output().map_err(|e| python_failed(&e))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         return Err(format!("Python could not run the update check. {}", stderr.trim()));
@@ -2752,6 +2780,18 @@ mod integrity_tests {
     }
 
     #[test]
+    fn a_python_that_application_control_blocks_says_so_and_names_the_folder() {
+        let folder = r"C:\Users\a\AppData\Local\FabricDesktop\engine\abc";
+        for code in [1260, 4551] {
+            let text = python_failed_text(Some(code), "This program is blocked by group policy. (os error 1260)", folder);
+            assert!(text.starts_with("Your organization's application control"), "{text}");
+            assert!(text.contains(folder) && text.ends_with("(This program is blocked by group policy. (os error 1260))"));
+        }
+        assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
+        assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
+    }
+
+    #[test]
     fn a_download_the_network_stopped_says_what_to_do() {
         let offline = explain_download("Could not download the engine: curl: (6) Could not resolve host: github.com", "github.com");
         assert!(offline.starts_with("This PC couldn't reach github.com. If it's offline"), "{offline}");
@@ -2761,6 +2801,8 @@ mod integrity_tests {
         assert!(explain_download("curl: (28) Operation too slow", "github.com").starts_with("github.com didn't answer in time"));
         assert!(explain_download("curl: (60) SSL certificate problem: unable to get local issuer certificate", "github.com")
             .starts_with("HTTPS to github.com was refused because its certificate"));
+        assert!(explain_download("curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK", "github.com")
+            .starts_with("HTTPS to github.com couldn't be set up: the certificate or its revocation check failed."));
         assert!(explain_download("curl: (56) CONNECT tunnel failed, response 407", "github.com").starts_with("The proxy server refused"));
         for other in ["curl: (22) The requested URL returned error: 503", "The engine's checksum doesn't match."] {
             assert_eq!(explain_download(other, "github.com"), other);

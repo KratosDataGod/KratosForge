@@ -41,8 +41,8 @@ def _lookup(folder_id: str) -> Path | None:
     guid = GUID(u.time_low, u.time_mid, u.time_hi_version, (ctypes.c_ubyte * 8)(*u.bytes[8:]))
     out = ctypes.c_wchar_p()
     try:
-        shell32 = ctypes.windll.shell32  # Windows only
-        ole32 = ctypes.windll.ole32  # Windows only
+        shell32 = ctypes.windll.shell32  # Windows only: mypy (on Linux) skips this after the platform return
+        ole32 = ctypes.windll.ole32
         hr = shell32.SHGetKnownFolderPath(ctypes.byref(guid), _KF_FLAG_DONT_VERIFY, None, ctypes.byref(out))
         try:
             return Path(out.value) if hr == 0 and out.value else None

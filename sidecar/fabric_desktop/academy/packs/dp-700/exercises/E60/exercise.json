@@ -59,16 +59,29 @@
           "count": 1
         },
         {
-          "path": "properties.activities.2.dependsOn.0.activity",
-          "equals": "Load each table"
+          "path": "properties.activities.2.dependsOn",
+          "count": 1,
+          "where": {
+            "activity": "Load each table",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          "why": "A dimension needs every table loaded successfully, so it depends on the load with Succeeded."
         },
         {
           "path": "properties.activities.3.dependsOn",
           "count": 1
         },
         {
-          "path": "properties.activities.3.dependsOn.0.activity",
-          "equals": "Load each table",
+          "path": "properties.activities.3.dependsOn",
+          "count": 1,
+          "where": {
+            "activity": "Load each table",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
           "why": "Activities that don't depend on each other can run in parallel; a dependency that isn't needed only makes one wait for the other."
         }
       ]
@@ -87,14 +100,21 @@
           "path": "properties.activities.4.dependsOn",
           "count": 1,
           "where": {
-            "activity": "Build DimCustomer"
-          }
+            "activity": "Build DimCustomer",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          "why": "Completed would also run after a failed dimension; FactSales needs both to succeed."
         },
         {
           "path": "properties.activities.4.dependsOn",
           "count": 1,
           "where": {
-            "activity": "Build DimProduct"
+            "activity": "Build DimProduct",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
           }
         }
       ]

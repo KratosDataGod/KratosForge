@@ -399,6 +399,12 @@ def test_a_bad_ip_stops_with_databricks_error_class(code, error):
         _one(code)
 
 
+def test_an_ipv6_zone_is_not_an_address():
+    assert _one("SELECT try_ip_host('fe80::1%eth0')") == [[None]]
+    with pytest.raises(duckdb.Error, match=re.escape("[INVALID_IP_ADDRESS]")):
+        _one("SELECT ip_host('fe80::1%eth0')")
+
+
 def test_an_ip_column_gives_strings_and_a_binary_one_says_how_to_mark_it():
     assert _one("SELECT ip_host(c) FROM VALUES ('10.0.0.1'), (NULL), ('::1') AS t(c)") == [
         ["10.0.0.1"], ["::1"], [None]]

@@ -50,6 +50,8 @@ def _read(kind: str, hex_text: str) -> Address | Network:
         raise _Bad
     try:
         text = raw.decode("utf-8").strip()
+        if "%" in text:  # an IPv6 zone (fe80::1%eth0): Python reads it, but it has no BINARY form
+            raise _Bad
         return ipaddress.ip_network(text, strict=False) if "/" in text else ipaddress.ip_address(text)
     except ValueError:  # silent-ok: a bad address is Databricks' error class, raised by the caller
         raise _Bad from None

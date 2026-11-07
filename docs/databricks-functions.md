@@ -20,7 +20,8 @@ function is fixed or breaks.
 - **Not checked**: no example whose value can be compared (random values, the clock or the session, or no example), or DuckDB accepts it but no check compares its value yet.
 
 AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions
-aren't listed: they need Databricks' own services.
+aren't listed: they need Databricks' own services. The IP address functions (`ip_`) run in Python,
+one row at a time, so a query that calls them on millions of rows takes seconds longer here.
 
 One example per function is a first check, not proof: [Engines](engines.md#databricks-sql-functions-on-this-pc)
 lists more checks and the differences known in more detail.

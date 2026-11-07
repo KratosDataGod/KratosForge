@@ -5,6 +5,7 @@ import json
 import os
 import statistics
 import time
+import warnings
 from pathlib import Path
 
 import polars as pl
@@ -140,7 +141,10 @@ def test_the_flush_costs_a_fraction_of_the_write(tmp_path, monkeypatch):
     w, f = statistics.median(write_ms), statistics.median(flush_ms)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
+        line = (f"Local Delta commit flush ({os.name}): write of 300,000 rows {w:.1f} ms, "
+                f"flush {f:.1f} ms ({f / w:.0%} of the write)")
         with open(summary, "a", encoding="utf-8") as out:
-            out.write(f"\nLocal Delta commit flush ({os.name}): write of 300,000 rows {w:.1f} ms, "
-                      f"flush {f:.1f} ms ({f / w:.0%} of the write)\n")
+            out.write(f"\n{line}\n")
+        # Also in the job's log (its warnings summary), which can be read where the step summary can't.
+        warnings.warn(line, stacklevel=1)
     assert f < 2 * w + 200, (w, f)

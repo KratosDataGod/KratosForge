@@ -15,7 +15,7 @@ function assessHours(secs) {
 
 // A run-time measurement in hours; CU and money use the shared measureFigure (estate.js).
 function assessRun(m) {
-  if (!m || m.value === null || m.value === undefined) return h("span", {}, "Unknown ", measureBadge(m || { classification: "unknown" }));
+  if (!m || m.value === null || m.value === undefined) return h("span", {}, "Not known ", measureBadge(m || { classification: "unknown" }));
   return h("span", {}, assessHours(m.value), " ", measureBadge(m));
 }
 
@@ -57,9 +57,9 @@ async function optimizeAssessPanel(body) {
   };
   const drawScope = () => {
     const demo = !!a.result?.fixture;
-    const seg = h("span", { class: "assess-seg", role: "radiogroup", "aria-label": "Assess" },
+    const seg = h("span", { class: "assess-seg", role: "group", "aria-label": "Assess" },
       [["workspace", "A workspace"], ["capacity", "A capacity"]].map(([id, label]) =>
-        h("button", { type: "button", class: "chip", role: "radio", "aria-checked": a.scope === id ? "true" : "false",
+        h("button", { type: "button", class: "chip", "aria-pressed": a.scope === id ? "true" : "false",
           onclick: () => { a.scope = id; drawScope(); } }, label)));
     const pick = h("select", { "aria-label": a.scope === "capacity" ? "Capacity" : "Workspace", class: "assess-pick" },
       h("option", { value: "" }, "Sign in to list them..."));
@@ -120,8 +120,11 @@ function assessEmpty(tryDemo) {
 
 function assessResult(r) {
   const out = [];
-  if (r.fixture) out.push(h("div", { class: "assess-fixture", role: "note" }, h("b", {}, "DEMONSTRATION FIXTURE. "),
-    String(r.fixture_note || "").replace(/^Demonstration fixture:\s*/i, "")));
+  if (r.fixture) {
+    const note = String(r.fixture_note || "").replace(/^Demonstration fixture:\s*/i, "");
+    out.push(h("div", { class: "assess-fixture", role: "note" }, h("b", {}, "DEMONSTRATION FIXTURE. "),
+      note.charAt(0).toUpperCase() + note.slice(1)));
+  }
   const ops = r.opportunities;
   const top = ops.find((o) => o.id === r.next_action.opportunity_id);
   out.push(h("div", { class: "assess-summary" }, assessNext(r, top), assessTotals(r)));
@@ -148,7 +151,7 @@ function assessNext(r, top) {
     h("div", { class: "row" }, h("span", { class: `pill-s ${ASSESS_CONF[top.confidence]}` }, cap1(top.confidence)),
       h("span", { class: "pill-s neu" }, `Effort ${cap1(top.effort)}`), h("span", { class: "pill-s neu" }, `Risk ${cap1(top.risk)}`),
       top.impact.run_seconds_per_month ? h("span", { class: "muted-text small" }, assessRun(top.impact.run_seconds_per_month), " of Fabric run time a month") : null),
-    h("div", { class: "row" }, btn("See evidence and rollback", "open", () => assessEvidence(r, top), "tool primary")));
+    h("div", { class: "row" }, btn("See evidence and rollback", null, () => assessEvidence(r, top), "tool primary")));
   return card;
 }
 

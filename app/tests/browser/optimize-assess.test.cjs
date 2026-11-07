@@ -46,7 +46,8 @@ test("the demonstration fixture is labelled everywhere and its totals say incomp
   const call = app.calls.find((c) => c.method === "optimization_assess");
   assert.deepStrictEqual(call.params, { demo: true });
   const text = await page().locator(".assess-view").textContent();
-  assert.match(text, /DEMONSTRATION FIXTURE/);
+  assert.match(text, /DEMONSTRATION FIXTURE\. [A-Z]/);
+  assert.doesNotMatch(text, /Unknown Unknown/);
   assert.ok((await page().locator(".fx-chip").count()) >= 3, "chip on next action, totals and opportunities");
   assert.match(text, /Incomplete:/);
   assert.match(text, /This is capacity freed, not money saved/);

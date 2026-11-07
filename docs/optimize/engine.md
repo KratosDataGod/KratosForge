@@ -19,6 +19,8 @@ Reads only. No Fabric job starts, and nothing is written to Fabric or OneLake.
 | Notebook and pipeline definitions | `POST /workspaces/{id}/items/{id}/getDefinition` | The code and activities to analyze. Up to 300 per workspace. |
 | Their job history | `GET /workspaces/{id}/items/{id}/jobs/instances` | How often they run, on a schedule or not, and for how long. |
 
+One assessment makes at most 1,500 Fabric reads and stops reading after 4 minutes. Anything past that budget is listed as not read, and `scope.budget` says the budget was reached.
+
 On this PC it also reads the usage files you imported (Optimize > Cost and savings), which are the only
 source of measured CU, and the price per CU hour.
 

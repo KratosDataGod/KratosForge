@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -24,8 +26,30 @@ _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
 MAX_WORKSPACES = 25  # per capacity assessment; the result says when more were left out
 MAX_ITEMS = 300  # definitions and histories read per workspace
 WORKERS = 4
+MAX_CALLS = 1500  # Fabric reads per assessment, all workspaces together
+MAX_SECONDS = 240.0  # wall time for those reads; what's left unread is reported, never guessed
 MIN_DAYS, MAX_DAYS = 1, 90
 METHODS = {"optimization_assess"}
+
+
+class _Budget:
+    """How many Fabric reads one assessment may still make, and until when. Shared by the workers."""
+
+    def __init__(self, calls: int, seconds: float):
+        self.calls, self.deadline, self.used = calls, time.monotonic() + seconds, 0
+        self.spent = False
+        self._lock = threading.Lock()
+
+    def take(self) -> bool:
+        with self._lock:
+            if self.used >= self.calls or time.monotonic() >= self.deadline:
+                self.spent = True
+                return False
+            self.used += 1
+            return True
+
+    def report(self) -> dict[str, Any]:
+        return {"max_calls": self.calls, "max_seconds": MAX_SECONDS, "calls": self.used, "reached": self.spent}
 
 
 def _guid(value: Any, what: str) -> str:
@@ -65,7 +89,8 @@ class OpportunitiesMixin:
                      "note": "Only the workspaces you can see on this capacity are read."}
         else:
             raise ValueError("Pick a workspace or a capacity to assess.")
-        sources = [self._opportunity_source(fabric, w) for w in workspaces]
+        budget = _Budget(MAX_CALLS, MAX_SECONDS)
+        sources = [self._opportunity_source(fabric, w, budget) for w in workspaces]
         cost = self._cost_settings()  # type: ignore[attr-defined]
         saved = (self._settings().get("cost") or {})  # type: ignore[attr-defined]
         price = {"price_per_cu_hour": cost.get("price_per_cu_hour"), "currency": cost.get("currency"),
@@ -74,12 +99,18 @@ class OpportunitiesMixin:
         result = assess.assess(sources, usage_imports=self._usage.all(), price=price,  # type: ignore[attr-defined]
                                now=dt.datetime.now(dt.timezone.utc), days=days, scope=scope)
         result["scope"]["workspaces_left_out"] = truncated
+        result["scope"]["budget"] = budget.report()
+        if budget.spent:
+            result["scope"]["note"] = (f"The read budget ({MAX_CALLS} Fabric calls or {MAX_SECONDS:.0f} s) ran out; "
+                                       "items past it are listed as not read. Assess fewer workspaces to cover them.")
         return result
 
-    def _opportunity_source(self, fabric: Any, workspace: dict[str, Any]) -> dict[str, Any]:
+    def _opportunity_source(self, fabric: Any, workspace: dict[str, Any], budget: _Budget) -> dict[str, Any]:
         """One workspace's items, definitions and job history. A failed read is recorded, never raised,
         so one unreadable item doesn't stop the assessment."""
         ws = str(workspace.get("id") or "")
+        if not budget.take():
+            return {"workspace": workspace, "items": [], "problem": "Not read: the assessment's read budget ran out."}
         try:
             items = fabric.list_items(ws)
         except Exception as exc:  # noqa: BLE001 - the workspace is reported as unread
@@ -87,6 +118,8 @@ class OpportunitiesMixin:
         wanted = [it for it in items if it.get("type") in inventory.ANALYZED][:MAX_ITEMS]
 
         def definition(it: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+            if not budget.take():
+                return it["id"], {"error": "Not read: the assessment's read budget ran out."}
             try:
                 fmt = "ipynb" if it.get("type") == "Notebook" else None
                 return it["id"], fabric.get_item_definition(ws, it["id"], fmt)
@@ -94,6 +127,8 @@ class OpportunitiesMixin:
                 return it["id"], {"error": describe(exc)}
 
         def history(it: dict[str, Any]) -> tuple[str, list[dict[str, Any]] | None]:
+            if not budget.take():
+                return it["id"], None
             try:
                 return it["id"], fabric.list_job_instances(ws, it["id"])
             except Exception:  # noqa: BLE001 - None means "not read", which the workload shows

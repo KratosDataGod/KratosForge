@@ -354,3 +354,20 @@ def test_a_workspace_or_capacity_id_is_needed(svc, kwargs):
 def test_the_call_is_a_read_and_not_quick():
     assert "optimization_assess" in server.METHODS and "optimization_assess" in audit.READ_ONLY
     assert "optimization_assess" not in server.QUICK
+
+
+def test_a_read_budget_stops_reads_and_says_so(svc, monkeypatch):
+    from fabric_desktop import opportunities_service as ops
+    monkeypatch.setattr(ops, "MAX_CALLS", 3)
+    r = svc.optimization_assess(workspace_id=WS["id"])
+    b = r["scope"]["budget"]
+    assert b["reached"] is True and b["calls"] == 3
+    assert len([c for c in svc.fake.calls if c[0] != "get_workspace"]) == 3
+    assert "budget" in r["scope"]["note"]
+    assert any("budget" in (n["problem"] or "") for n in r["coverage"]["not_read"]) or r["coverage"]["history_not_read"]
+
+
+def test_a_huge_sql_cell_is_scanned_only_up_to_the_cap():
+    cell = "%%sql\n" + "CREATE OR REPLACE TABLE t " * 50_000
+    r = _run([("a", "Notebook", "nb", _nb([cell]), _daily(2, 1))])
+    assert isinstance(r["opportunities"], list)

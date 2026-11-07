@@ -33,9 +33,10 @@ _SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
 _PY_COMMENT = re.compile(r"(?m)^\s*#.*$")
 _SPACE = re.compile(r"\s+")
 _SQL_FULL = re.compile(r"(?is)\b(insert\s+overwrite(?:\s+table\b)?+\s+[\w.`\[\]]++(?!\s*partition)|"
-                       r"create\s+or\s+replace\s+table\s+[\w.`\[\]]+[^;]*?\bas\s+select)\b")
+                       r"create\s+or\s+replace\s+table\s+[\w.`\[\]]+[^;]{0,4000}?\bas\s+select)\b")
 _SPARK_SQL = re.compile(r"""(?is)\bspark\.sql\(\s*(?:[rfbu]{0,2})(\"\"\"|'''|"|')(.*?)\1""")
 _VOLATILE = {"annotations", "description"}
+MAX_SQL_SCAN = 200_000  # characters of one cell searched for full rewrites, so a huge cell can't stall the scan
 _ONLY_NB007 = {r.id: {"enabled": r.id == "NB007"} for r in notebook_practices.RULES}
 INVENTORY = "KratosForge workspace inventory (item definitions read with getDefinition)"
 
@@ -320,7 +321,7 @@ def _sql_full(cells: list[str]) -> list[tuple[int, str]]:
         cell = magics.cell(c)
         texts = [cell.body] if cell.language == "sql" else [m.group(2) for m in _SPARK_SQL.finditer(cell.body)]
         for t in texts:
-            for m in _SQL_FULL.finditer(t):
+            for m in _SQL_FULL.finditer(t[:MAX_SQL_SCAN]):
                 hits.append((n, _SPACE.sub(" ", m.group(1))[:120]))
     return hits
 

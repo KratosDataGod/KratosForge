@@ -13,15 +13,15 @@
         },
         {
           "id": "b",
-          "text": "Keep the rows whose IngestedAt is the overall maximum in the table"
+          "text": "Keep only the rows whose IngestedAt equals the overall maximum IngestedAt value in the staging table"
         },
         {
           "id": "c",
-          "text": "SELECT DISTINCT * FROM staging"
+          "text": "SELECT DISTINCT * FROM staging so that repeated versions of each OrderID collapse into one"
         },
         {
           "id": "d",
-          "text": "GROUP BY OrderID and take MAX of every column"
+          "text": "GROUP BY OrderID and take MAX of every column, so each order keeps its newest values"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "ROW_NUMBER partitioned by the key and ordered by recency picks exactly one, newest, row per order. DISTINCT removes only rows identical in every column, MAX of each column can mix values from different versions, and the overall maximum keeps only the last batch.",
       "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/row-number-transact-sql",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.9-q2",
@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Load the orders with a NULL customer key forever"
+          "text": "Load the orders with a NULL customer key and leave that key NULL permanently, even after the customer reaches the Customer dimension later"
         },
         {
           "id": "b",
-          "text": "Stop the pipeline with an error"
+          "text": "Stop the pipeline with an error and rerun the whole load from scratch once the CRM sends the missing customer records"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "Drop the orders until the customer arrives"
+          "text": "Drop those orders from the load and insert them only once the customer has arrived in the Customer dimension"
         }
       ],
       "answer": [
@@ -61,9 +61,9 @@
       "explanation": "An inferred member gives the fact row a real surrogate key now. When the customer's details arrive, the same row is updated, so the facts already loaded need no change.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
       "case": "larkspur-orders",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.9-q3",

@@ -964,11 +964,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
         self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant, reason=reason)
 
-    def _audit_finished(self, action: str, ok: bool, seconds: float, params: dict[str, Any]) -> None:
+    def _audit_finished(self, action: str, reason: str, seconds: float, params: dict[str, Any]) -> None:
         """The line for work that ended after the call that started it had returned (a pipeline run on
-        this PC, a job in Fabric): ``ok`` or ``error`` with reason "failed". Never fails the work."""
+        this PC, a job in Fabric): ``ok`` when ``reason`` is "", else ``error`` with that reason
+        ("failed", "cancelled", "refused"). Never fails the work."""
         try:
-            self._audit_sql_run(action, "ok" if ok else "error", seconds, params, reason="" if ok else "failed")
+            self._audit_sql_run(action, "error" if reason else "ok", seconds, params, reason=reason)
         except Exception as exc:  # noqa: BLE001 - the run has ended either way; stderr says the line is missing
             print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
 

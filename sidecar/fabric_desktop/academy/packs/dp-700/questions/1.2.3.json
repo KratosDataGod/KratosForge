@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A separate deployment pipeline for each lakehouse"
+          "text": "A separate deployment pipeline for each lakehouse, one per target stage"
         },
         {
           "id": "b",
-          "text": "A shortcut from Production to Development"
+          "text": "A shortcut in Production that points at the Development lakehouse tables"
         },
         {
           "id": "c",
@@ -60,9 +60,9 @@
       ],
       "explanation": "Deployment rules change item settings such as data sources or parameter values when content is deployed to a stage, so each stage points at its own data.",
       "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.2.3-q3",
@@ -102,7 +102,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Only the data, not the item"
+          "text": "Only the Test lakehouse's table data, without the item"
         },
         {
           "id": "b",
@@ -110,7 +110,7 @@
         },
         {
           "id": "c",
-          "text": "A shortcut to the Test lakehouse"
+          "text": "A shortcut in Production that points to the Test lakehouse's tables"
         },
         {
           "id": "d",
@@ -123,9 +123,9 @@
       "explanation": "Deployment pipelines copy item definitions and metadata, not lakehouse data. Production's lakehouse is loaded by its own pipelines.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-git-deployment-pipelines",
       "case": "harbor-analytics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.2.3-q5",
@@ -174,11 +174,11 @@
         },
         {
           "id": "b",
-          "text": "Admin on the target workspace only"
+          "text": "Admin on the target workspace only, with no role on the source"
         },
         {
           "id": "c",
-          "text": "None; being pipeline admin is enough"
+          "text": "None; the pipeline admin role alone covers both workspaces"
         },
         {
           "id": "d",
@@ -190,7 +190,7 @@
       ],
       "explanation": "Deploying requires pipeline admin plus at least Contributor on the workspaces of both stages. A pipeline admin without workspace roles can't deploy.",
       "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -232,7 +232,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A data source rule on the lakehouse"
+          "text": "A data source rule on the lakehouse item in the Test stage"
         },
         {
           "id": "b",
@@ -240,11 +240,11 @@
         },
         {
           "id": "c",
-          "text": "A data source rule on the notebook"
+          "text": "A data source rule on the notebook in the Test stage"
         },
         {
           "id": "d",
-          "text": "A parameter rule on the notebook"
+          "text": "A parameter rule on the notebook in the Test stage"
         }
       ],
       "answer": [
@@ -252,7 +252,7 @@
       ],
       "explanation": "Notebooks support default lakehouse rules, which set the lakehouse the notebook uses in the target stage. Data source and parameter rules aren't available for notebooks.",
       "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

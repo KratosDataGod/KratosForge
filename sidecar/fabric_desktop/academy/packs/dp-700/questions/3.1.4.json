@@ -44,15 +44,15 @@
         },
         {
           "id": "b",
-          "text": "Turn off retries"
+          "text": "Turn off retries on every activity so failures show up sooner in the Monitor hub"
         },
         {
           "id": "c",
-          "text": "Schedule the pipeline twice"
+          "text": "Schedule the pipeline twice so a second run starts and covers for a failed first run"
         },
         {
           "id": "d",
-          "text": "Add a Wait activity"
+          "text": "Add a Wait activity at the end of the pipeline that pauses the run until someone checks its status in the hub"
         }
       ],
       "answer": [
@@ -61,7 +61,7 @@
       "explanation": "A notification activity connected Upon failure runs when that activity fails. Use one per monitored activity, because an activity wired to several only fires when all of them fail.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/outlook-activity",
       "case": "fernway-telemetry",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -76,15 +76,15 @@
         },
         {
           "id": "b",
-          "text": "Export the visual to Excel each day"
+          "text": "Export the visual's data to Excel each day and check the value"
         },
         {
           "id": "c",
-          "text": "Add a sensitivity label"
+          "text": "Add a sensitivity label that alerts when the value changes"
         },
         {
           "id": "d",
-          "text": "Ask for a new pipeline"
+          "text": "Ask for a new pipeline that refreshes the report more often"
         }
       ],
       "answer": [
@@ -92,9 +92,9 @@
       ],
       "explanation": "Power BI visuals can create Activator alerts that watch the value and send an email or Teams message.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.4-q4",
@@ -202,11 +202,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Nobody until the rule is started"
+          "text": "Nobody, until the rule is started and an event matches"
         },
         {
           "id": "b",
-          "text": "The workspace Admins"
+          "text": "The workspace Admins of the rule's workspace"
         },
         {
           "id": "c",
@@ -214,7 +214,7 @@
         },
         {
           "id": "d",
-          "text": "Everyone in the on-call team"
+          "text": "Everyone in the on-call team listed in the Action card"
         }
       ],
       "answer": [
@@ -222,7 +222,7 @@
       ],
       "explanation": "The test alert always goes to you, whatever the recipient field says. It needs at least one past event for which the condition is true.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-create-activators",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -237,11 +237,11 @@
         },
         {
           "id": "b",
-          "text": "Add a second identical rule with an OR condition"
+          "text": "Add a second identical rule with an OR condition so the alerts are grouped together"
         },
         {
           "id": "c",
-          "text": "Send the alert to a Teams channel instead of email"
+          "text": "Send the alert to a Teams channel instead of email so repeated alerts are collapsed into one"
         },
         {
           "id": "d",
@@ -253,7 +253,7 @@
       ],
       "explanation": "Stateless filters evaluate each event alone and can be noisy; stateful conditions like DECREASES or BECOMES fire on transitions and reduce spam. Changing the channel or threshold doesn't fix the repeat firing.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-rules-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

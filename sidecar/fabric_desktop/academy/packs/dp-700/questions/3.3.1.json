@@ -41,11 +41,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A way to sort pipeline activities"
+          "text": "A way to sort a pipeline's activities so that dependent steps always run in the right order"
         },
         {
           "id": "b",
-          "text": "A type of sensitivity label"
+          "text": "A type of sensitivity label that marks Parquet files as verified for every engine"
         },
         {
           "id": "c",
@@ -53,7 +53,7 @@
         },
         {
           "id": "d",
-          "text": "A kind of shortcut"
+          "text": "A kind of shortcut that orders files from external storage for faster reads"
         }
       ],
       "answer": [
@@ -61,7 +61,7 @@
       ],
       "explanation": "V-Order reorganizes the Parquet layout when files are written (row-group distribution, encoding and compression), so Fabric engines read them faster. The files stay standard Parquet.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -76,15 +76,15 @@
         },
         {
           "id": "b",
-          "text": "It compacts small files"
+          "text": "It compacts small data files into larger ones and rewrites the table's latest version, without affecting the time travel history at all"
         },
         {
           "id": "c",
-          "text": "It deletes the table's history and data"
+          "text": "It deletes the table's whole transaction history and its data files, leaving an empty table with the same schema"
         },
         {
           "id": "d",
-          "text": "It adds statistics"
+          "text": "It collects column statistics into the transaction log so later queries can skip files, without removing any files"
         }
       ],
       "answer": [
@@ -92,7 +92,7 @@
       ],
       "explanation": "VACUUM frees storage by removing old, unreferenced files. Time travel to versions that needed those files stops working. The default retention is seven days.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-lake-vacuum",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -167,11 +167,11 @@
         },
         {
           "id": "b",
-          "text": "The table must be a Hive table in Parquet format"
+          "text": "The table must first be converted to a Hive table in Parquet format before VACUUM can run on it"
         },
         {
           "id": "c",
-          "text": "VACUUM can only run on tables that use V-Order"
+          "text": "VACUUM can only run on tables written with V-Order, and this table was written without it"
         },
         {
           "id": "d",
@@ -183,7 +183,7 @@
       ],
       "explanation": "The default retention threshold is seven days and shorter intervals fail unless `spark.databricks.delta.retentionDurationCheck.enabled` is set to false. A shorter retention also reduces time travel history.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-table-maintenance",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -225,11 +225,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Z-Order on the timestamp column"
+          "text": "Z-Order on the timestamp column so each write is merged into sorted files"
         },
         {
           "id": "b",
-          "text": "VACUUM with a one-hour retention"
+          "text": "VACUUM with a one-hour retention to merge the small files after each write"
         },
         {
           "id": "c",
@@ -237,7 +237,7 @@
         },
         {
           "id": "d",
-          "text": "`OPTIMIZE FULL` after every write"
+          "text": "`OPTIMIZE FULL` after every write, run from the streaming job itself"
         }
       ],
       "answer": [
@@ -245,7 +245,7 @@
       ],
       "explanation": "Auto compaction checks partition health after each write and runs a synchronous OPTIMIZE when there are too many small files. OPTIMIZE FULL is costly and meant to run rarely, and VACUUM only removes unreferenced files.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

@@ -13,11 +13,11 @@
         },
         {
           "id": "b",
-          "text": "A backup of the warehouse's data"
+          "text": "A full backup of the warehouse's data and schema"
         },
         {
           "id": "c",
-          "text": "A CSV file per table"
+          "text": "A CSV file of each table's rows plus a schema file"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Building a SQL project validates its object definitions and produces a .dacpac, a package of the schema that deployment tools compare with a target and apply.",
       "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.2.2-q2",
@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "As a list of ALTER scripts that must be run in order"
+          "text": "As an ordered list of ALTER and migration scripts that you must run one after another against each target warehouse"
         },
         {
           "id": "b",
-          "text": "As a single connection string"
+          "text": "As a single connection string that points to a reference warehouse, whose live schema is read and copied again at every deployment"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "As a copy of the data in each table"
+          "text": "As a copy of the data in each table, exported so deployment can reload the tables in the target"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "A project holds the desired state of each object. Deployment compares it with the target and generates the changes, so you don't write migration scripts by hand.",
       "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.2.2-q3",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The .dacpac's data is copied into every table"
+          "text": "The .dacpac's data is copied into every table, replacing the rows the target warehouse already holds"
         },
         {
           "id": "b",
-          "text": "Nothing changes until someone runs the ALTER scripts by hand"
+          "text": "Nothing changes in the target until someone runs the generated ALTER scripts by hand afterwards"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "The target warehouse is dropped and recreated from scratch"
+          "text": "The target warehouse is dropped and then recreated from scratch from the object definitions in the .dacpac"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Publishing calculates the difference between the source .dacpac and the target database and deploys the changes, so the target ends up matching the project.",
       "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.2.2-q4",
@@ -202,11 +202,11 @@
         },
         {
           "id": "b",
-          "text": "Objects in the project that aren't in the target are skipped"
+          "text": "Objects in the project that don't exist in the target are skipped instead of created"
         },
         {
           "id": "c",
-          "text": "The warehouse's permissions are copied into the project"
+          "text": "The target warehouse's permissions and role members are copied back into the project's scripts"
         },
         {
           "id": "d",
@@ -218,7 +218,7 @@
       ],
       "explanation": "DropObjectsNotInSource removes target objects that the project doesn't define, which can delete important tables and data in production.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -260,11 +260,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Edit the .dacpac file before each deployment"
+          "text": "Edit the .dacpac file's options before each deployment to each environment"
         },
         {
           "id": "b",
-          "text": "Create a separate project for each environment"
+          "text": "Create a separate project for each environment with its own option values"
         },
         {
           "id": "c",
@@ -280,7 +280,7 @@
       ],
       "explanation": "Publish options can be saved to a publish profile and reused, with different profiles for different environments.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

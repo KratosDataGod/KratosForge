@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": ".show version"
+          "text": ".show ingestion mappings"
         },
         {
           "id": "d",
-          "text": ".show tables"
+          "text": ".show tables details"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": ".show ingestion failures lists failed ingestion operations with their error details.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/ingestion-failures",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q2",
@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Run the same query again"
+          "text": "Run the same query again, since the result limit resets after each failed run"
         },
         {
           "id": "b",
-          "text": "Add a sensitivity label"
+          "text": "Add a sensitivity label to the database so larger results are allowed"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "Switch to a warehouse"
+          "text": "Switch to a warehouse, which returns the same millions of raw rows without any size limit"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Query results are limited in rows and size by default. Queries for people should summarize or filter, which is also faster.",
       "source": "https://learn.microsoft.com/en-us/kusto/concepts/query-limits",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q3",
@@ -75,15 +75,15 @@
         },
         {
           "id": "b",
-          "text": "The workspace role"
+          "text": "The workspace role of the identity that ingests the data"
         },
         {
           "id": "c",
-          "text": "The caching policy"
+          "text": "The table's caching policy, so the renamed field is kept in hot cache"
         },
         {
           "id": "d",
-          "text": "The table's retention policy"
+          "text": "The table's retention policy, so new fields are kept"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Ingestion mappings map source fields to table columns. When a field is renamed, update the mapping.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/mappings",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The semantic model settings"
+          "text": "The refresh history in the settings of the Power BI semantic model built on the target table"
         },
         {
           "id": "b",
-          "text": "The capacity metrics only"
+          "text": "The capacity metrics only, since update policies fail only when the capacity is throttled"
         },
         {
           "id": "c",
@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "The Git panel"
+          "text": "The Git panel, which shows whether the update policy was committed"
         }
       ],
       "answer": [
@@ -122,9 +122,9 @@
       ],
       "explanation": "An update policy's failures appear as ingestion failures. Its query may fail on new data, such as an unexpected type.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q5",
@@ -261,15 +261,15 @@
         },
         {
           "id": "b",
-          "text": "Change the table's retention policy"
+          "text": "Change the table's retention policy so the query scans less history"
         },
         {
           "id": "c",
-          "text": "Set truncationmaxrecords to a higher value"
+          "text": "Set truncationmaxrecords to a higher value so that the query can run for longer"
         },
         {
           "id": "d",
-          "text": "Split the eventhouse into two databases"
+          "text": "Split the eventhouse into two databases and query each one separately"
         }
       ],
       "answer": [
@@ -277,7 +277,7 @@
       ],
       "explanation": "The default query timeout is four minutes and can be raised up to one hour, for example with servertimeout. Truncation settings control result size, not time.",
       "source": "https://learn.microsoft.com/en-us/kusto/concepts/query-limits?view=microsoft-fabric",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

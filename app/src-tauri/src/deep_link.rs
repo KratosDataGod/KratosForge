@@ -222,7 +222,10 @@ pub fn claim_or_forward(data_dir: &Path, url: &str, updating: bool, tries: u32, 
     }
 }
 
-/// Hands `url` to the copy of the app that's already running. True when it took it.
+/// Hands `url` to the copy of the app that's already running. True when it took it. The listener
+/// first proves it knows the token (it answers a fresh nonce with `proof`), so the token and the
+/// link are never sent to some other program that holds the port now, such as another Windows
+/// account's on a shared PC, after the copy that wrote link-port stopped listening.
 pub fn forward(data_dir: &Path, url: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(data_dir.join("link-port")) else { return false };
     let mut parts = text.split_whitespace();
@@ -234,11 +237,33 @@ pub fn forward(data_dir: &Path, url: &str) -> bool {
         return false;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let (Ok(nonce), Ok(answers)) = (random_token(), stream.try_clone()) else { return false };
+    let mut answers = BufReader::new(answers);
+    let mut answer = String::new();
+    if writeln!(stream, "{HELLO} {nonce}").is_err() || answers.read_line(&mut answer).is_err()
+        || !same_token(answer.trim(), &proof(token, &nonce)) {
+        return false;
+    }
     if writeln!(stream, "{token} {}", url.replace(['\r', '\n'], "")).is_err() {
         return false;
     }
-    let mut answer = String::new();
-    BufReader::new(stream).read_line(&mut answer).is_ok() && answer.trim() == OK
+    answer.clear();
+    answers.read_line(&mut answer).is_ok() && answer.trim() == OK
+}
+
+/// The first line a copy handing over a link sends: `hello <nonce>`, 32 hex characters it just made.
+const HELLO: &str = "hello";
+
+/// What the listener answers a hello with: HMAC-SHA256 of the nonce, keyed with the token, in hex.
+/// It shows the listener knows the token without saying anything about it.
+fn proof(token: &str, nonce: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut key = [0u8; 64];
+    let token = &token.as_bytes()[..token.len().min(64)];
+    key[..token.len()].copy_from_slice(token);
+    let pad = |with: u8| key.iter().map(|k| k ^ with).collect::<Vec<u8>>();
+    let inner = Sha256::new().chain_update(pad(0x36)).chain_update(b"kratosforge-link-v1 ").chain_update(nonce.as_bytes()).finalize();
+    Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Listens for links from other copies of the app, and writes the port they use with a random
@@ -278,9 +303,19 @@ pub fn listen(data_dir: &Path, on_link: impl Fn(Link) + Send + 'static) -> std::
     Ok(())
 }
 
-/// One connection: its line, by HANDOVER_TIME from now; the link is taken only with the token.
+/// One connection, all by HANDOVER_TIME from now: a hello it answers with its proof, then the line
+/// with the token and the link; the link is taken only with the token. A copy from before the hello
+/// sends the token line straight away, which is taken too.
 fn take_link(mut stream: TcpStream, token: &str, links: &std::sync::mpsc::Sender<Link>) {
-    let Some(line) = read_line_by(&mut stream, std::time::Instant::now() + HANDOVER_TIME, MAX_LINK + 100) else { return };
+    let deadline = std::time::Instant::now() + HANDOVER_TIME;
+    let Some(mut line) = read_line_by(&mut stream, deadline, MAX_LINK + 100) else { return };
+    if let Some(nonce) = line.trim().strip_prefix(HELLO).and_then(|rest| rest.strip_prefix(' ')) {
+        if nonce.len() != 32 || !nonce.bytes().all(|b| b.is_ascii_hexdigit()) || writeln!(stream, "{}", proof(token, nonce)).is_err() {
+            return;
+        }
+        let Some(next) = read_line_by(&mut stream, deadline, MAX_LINK + 100) else { return };
+        line = next;
+    }
     let Some((sent, url)) = line.trim().split_once(' ') else { return };
     if !same_token(sent, token) {
         return;
@@ -318,8 +353,8 @@ fn read_line_by(stream: &mut TcpStream, deadline: std::time::Instant, limit: usi
     String::from_utf8(line).ok()
 }
 
-/// For an organization that turned links off (policy `register_link_scheme: false`): no copy listens,
-/// and the port an earlier run wrote is removed, so a copy started later never sends its token to a
+/// For an organization that turned links off (policy `register_link_scheme: false`), or when this
+/// copy couldn't listen: the port an earlier run wrote is removed, so a copy started later never sends its token to a
 /// port some other program may hold now.
 pub fn forget_port(data_dir: &Path) {
     let _ = std::fs::remove_file(data_dir.join("link-port"));
@@ -640,6 +675,104 @@ mod tests {
         drop(s);
         assert!(rx.recv_timeout(Duration::from_millis(500)).is_err(), "nothing shown");
         assert!(forward(&dir, "kratosforge://page/monitor"), "and it still takes a real one");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_token_goes_only_to_a_listener_that_proves_it_knows_it() {
+        let dir = std::env::temp_dir().join(format!("kf-squat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Another program holds the port link-port names: it reads what comes, and answers anything.
+        let squatter = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+        let port = squatter.local_addr().unwrap().port();
+        let token = random_token().unwrap();
+        std::fs::write(dir.join("link-port"), format!("{port} {token}")).unwrap();
+        let heard = std::thread::spawn(move || {
+            let mut heard = String::new();
+            // Garbage, the nonce echoed back, a proof-shaped guess, nothing at all, and the old protocol's OK.
+            for answer in ["wrong", "echo", &"0".repeat(64), "silent", OK] {
+                let Ok((s, _)) = squatter.accept() else { break };
+                s.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
+                let mut reader = BufReader::new(s.try_clone().unwrap());
+                let mut line = String::new();
+                let _ = reader.read_line(&mut line);
+                heard.push_str(&line);
+                match answer {
+                    "echo" => { let _ = writeln!(&s, "{}", line.trim().trim_start_matches(HELLO).trim()); }
+                    "silent" => {}
+                    other => { let _ = writeln!(&s, "{other}"); }
+                }
+                line.clear();
+                let _ = reader.read_line(&mut line);
+                heard.push_str(&line);
+            }
+            heard
+        });
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            assert!(!forward(&dir, "kratosforge://notebook?path=C%3A%5Csecret.ipynb"));
+            assert!(started.elapsed() < Duration::from_secs(4), "a silent listener is given up on");
+        }
+        let heard = heard.join().unwrap();
+        assert!(!heard.contains(&token) && !heard.contains("secret"), "{heard}");
+        assert_eq!(heard.matches(HELLO).count(), 5, "only hellos: {heard}");
+        let nonces: std::collections::BTreeSet<&str> = heard.lines().filter_map(|l| l.strip_prefix("hello ")).collect();
+        assert_eq!(nonces.len(), 5, "a new nonce each time");
+        assert!(nonces.iter().all(|n| n.len() == 32 && n.bytes().all(|b| b.is_ascii_hexdigit())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_proof_is_hmac_sha256_and_a_bad_hello_gets_nothing() {
+        // RFC 4231 test case 2, through the same construction.
+        use sha2::{Digest, Sha256};
+        let mut key = [0u8; 64];
+        key[..4].copy_from_slice(b"Jefe");
+        let pad = |with: u8| key.iter().map(|k| k ^ with).collect::<Vec<u8>>();
+        let inner = Sha256::new().chain_update(pad(0x36)).chain_update(b"what do ya want for nothing?").finalize();
+        let mac: String = Sha256::new().chain_update(pad(0x5c)).chain_update(inner).finalize().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(mac, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+        let (t, n) = (random_token().unwrap(), random_token().unwrap());
+        assert_eq!(proof(&t, &n).len(), 64);
+        assert_eq!(proof(&t, &n), proof(&t, &n));
+        assert_ne!(proof(&t, &n), proof(&random_token().unwrap(), &n));
+        assert_ne!(proof(&t, &n), proof(&t, &random_token().unwrap()));
+        // The listener answers only a well-formed hello, and still wants the token after it.
+        let dir = std::env::temp_dir().join(format!("kf-hello-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        listen(&dir, move |link| tx.send(link).unwrap()).unwrap();
+        let (addr, token) = port_and_token(&dir);
+        for hello in ["hello\n", "hello \n", "hello zz\n", "hello 0123\n", "helloabcdef0123456789abcdef0123456789\n"] {
+            let mut s = TcpStream::connect(addr).unwrap();
+            s.set_read_timeout(Some(HANDOVER_TIME * 2)).unwrap();
+            s.write_all(hello.as_bytes()).unwrap();
+            let mut answer = String::new();
+            let _ = BufReader::new(s).read_line(&mut answer);
+            assert!(answer.trim().is_empty(), "{hello:?} got {answer:?}");
+        }
+        let nonce = random_token().unwrap();
+        let mut s = TcpStream::connect(addr).unwrap();
+        s.set_read_timeout(Some(HANDOVER_TIME * 2)).unwrap();
+        let mut answers = BufReader::new(s.try_clone().unwrap());
+        writeln!(s, "{HELLO} {nonce}").unwrap();
+        let mut answer = String::new();
+        answers.read_line(&mut answer).unwrap();
+        assert_eq!(answer.trim(), proof(&token, &nonce));
+        writeln!(s, "{} kratosforge://page/monitor", "0".repeat(32)).unwrap();
+        answer.clear();
+        let _ = answers.read_line(&mut answer);
+        assert_ne!(answer.trim(), OK, "a hello doesn't stand in for the token");
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
+        // A copy from before the hello still hands its link straight over.
+        let mut s = TcpStream::connect(addr).unwrap();
+        s.set_read_timeout(Some(HANDOVER_TIME * 2)).unwrap();
+        writeln!(s, "{token} kratosforge://page/monitor").unwrap();
+        answer.clear();
+        let _ = BufReader::new(s).read_line(&mut answer);
+        assert_eq!(answer.trim(), OK);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Link::Page("monitor".into()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

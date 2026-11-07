@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Drop the table"
+          "text": "Drop and recreate the table so that the conflicting transaction's row locks are released"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "Switch the warehouse to read uncommitted"
+          "text": "Switch the warehouse to READ UNCOMMITTED isolation so that concurrent updates to the table don't conflict"
         },
         {
           "id": "d",
-          "text": "Disable transactions"
+          "text": "Disable transactions on the table so each update commits on its own without conflicts"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Fabric warehouse transactions use snapshot isolation, and concurrent updates to the same table can conflict. Retry, or schedule writers so they don't overlap.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/transactions",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.6-q2",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The OneLake catalog"
+          "text": "The lineage view of the warehouse in the OneLake catalog hub"
         },
         {
           "id": "b",
-          "text": "The Spark UI"
+          "text": "The Spark UI of the warehouse's last session"
         },
         {
           "id": "c",
@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "The eventstream runtime logs"
+          "text": "The eventstream runtime logs for the warehouse's workspace and capacity"
         }
       ],
       "answer": [
@@ -122,9 +122,9 @@
       ],
       "explanation": "Query insights keeps a history of completed requests on the warehouse, which is where you look for failed or canceled queries.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.6-q5",
@@ -133,7 +133,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Retry the command in a tight loop immediately"
+          "text": "Retry the command in a tight loop immediately on the same connection"
         },
         {
           "id": "b",
@@ -141,11 +141,11 @@
         },
         {
           "id": "c",
-          "text": "Recreate the warehouse from a backup"
+          "text": "Recreate the warehouse from yesterday's automatic restore point"
         },
         {
           "id": "d",
-          "text": "Disable V-Order on the warehouse"
+          "text": "Disable V-Order on the warehouse and reconnect"
         }
       ],
       "answer": [
@@ -153,7 +153,7 @@
       ],
       "explanation": "For transient errors, the guidance is not to retry immediately but to wait 5 to 10 minutes, establish a new connection and retry; most reconfiguration events finish in under 60 seconds.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -168,11 +168,11 @@
         },
         {
           "id": "b",
-          "text": "Turn off result set caching"
+          "text": "Turn off result set caching for the warehouse's session"
         },
         {
           "id": "c",
-          "text": "Wrap the query in an explicit transaction"
+          "text": "Wrap the query in an explicit transaction with BEGIN TRAN and COMMIT"
         },
         {
           "id": "d",
@@ -184,7 +184,7 @@
       ],
       "explanation": "Queries can fail when tempdb runs out of space; the steps include updating statistics, reducing GROUP BY and ORDER BY columns, and rerunning when nothing else runs.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -195,7 +195,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Run UPDATE STATISTICS on every table"
+          "text": "Run UPDATE STATISTICS on every table the SELECT reads, then rerun the query"
         },
         {
           "id": "b",
@@ -203,7 +203,7 @@
         },
         {
           "id": "c",
-          "text": "Add OPTION (MAXDOP 1) to the query"
+          "text": "Add OPTION (MAXDOP 1) to the query so it runs on one backend thread"
         },
         {
           "id": "d",
@@ -215,7 +215,7 @@
       ],
       "explanation": "A CTAS sends the result to a table instead of the client. If it succeeds and fills the table, the original failure is likely caused by the front end or the client.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Write the date to a text file and have the notebook search for it"
+          "text": "Write the date to a text file in the lakehouse and have the notebook search the whole Files folder for it on each run"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "Use a deployment rule"
+          "text": "Use a deployment rule on the notebook that sets the date variable in each stage"
         },
         {
           "id": "d",
-          "text": "Hard-code the date in the notebook before each run"
+          "text": "Hard-code the date in the notebook's first cell and edit it in the notebook before each pipeline run"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Values set as base parameters in the Notebook activity override the variables in the notebook's parameters cell when it runs.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/notebook-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q2",
@@ -44,7 +44,7 @@
         },
         {
           "id": "b",
-          "text": "GETDATE('yyyy/MM/dd')"
+          "text": "FORMAT(GETDATE(), 'yyyy/MM/dd', 'en-US')"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "${date:yyyy/MM/dd}"
+          "text": "${formatDate(currentDate(), 'yyyy/MM/dd')}"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Pipeline expressions start with @ and use functions such as utcNow() and formatDateTime().",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/expression-language",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q3",
@@ -75,15 +75,15 @@
         },
         {
           "id": "b",
-          "text": "A deployment pipeline"
+          "text": "A deployment pipeline with one stage per notebook"
         },
         {
           "id": "c",
-          "text": "A loop of %run magic commands in five threads"
+          "text": "A loop of %run magic commands started in five Python threads"
         },
         {
           "id": "d",
-          "text": "Five separate pipelines"
+          "text": "Five separate pipelines, each with a Notebook activity"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "runMultiple runs several notebooks in parallel or in a declared order within the same session.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Write the value to the notebook's markdown"
+          "text": "Write the value into a markdown cell of the notebook, which the pipeline reads from the activity output"
         },
         {
           "id": "b",
-          "text": "Print the value and parse the logs"
+          "text": "Print the value with print() and have the pipeline parse it from the Spark driver logs afterwards"
         },
         {
           "id": "c",
@@ -122,9 +122,9 @@
       ],
       "explanation": "notebook.exit ends the notebook with a value that the pipeline reads from the Notebook activity's output with an expression.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q5",
@@ -133,15 +133,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Move the child to another workspace"
+          "text": "Move the child notebook to another workspace with a larger pool"
         },
         {
           "id": "b",
-          "text": "Call notebookutils.notebook.exit in the parent"
+          "text": "Call notebookutils.notebook.exit in the parent before the run() call starts"
         },
         {
           "id": "c",
-          "text": "Turn on high concurrency mode"
+          "text": "Turn on high concurrency mode so the child gets its own session"
         },
         {
           "id": "d",
@@ -153,7 +153,7 @@
       ],
       "explanation": "run() takes a timeout_seconds argument that defaults to 90 seconds, so a long child needs a larger value.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -164,7 +164,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Convert the value to an integer before exit()"
+          "text": "Convert the value to an integer with int() before calling exit()"
         },
         {
           "id": "b",
@@ -172,7 +172,7 @@
         },
         {
           "id": "c",
-          "text": "Wrap exit() in a second try-except block"
+          "text": "Wrap exit() in a second, nested try-except block to catch and rethrow its error"
         },
         {
           "id": "d",
@@ -184,7 +184,7 @@
       ],
       "explanation": "exit() doesn't take effect inside exception handling and must be called at the top level, ideally in its own cell.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -266,15 +266,15 @@
         },
         {
           "id": "b",
-          "text": "Use the same base parameters in every activity"
+          "text": "Give every Notebook activity identical base parameters so their Spark sessions can be matched by name"
         },
         {
           "id": "c",
-          "text": "Put all notebooks in one ForEach activity"
+          "text": "Put all the Notebook activities inside one ForEach activity with Sequential checked"
         },
         {
           "id": "d",
-          "text": "Give each notebook a parameters cell"
+          "text": "Give each notebook a parameters cell that declares the session tag as a variable"
         }
       ],
       "answer": [
@@ -282,7 +282,7 @@
       ],
       "explanation": "Session tags reuse an existing Spark session only when high concurrency mode for pipelines running multiple notebooks is turned on in the workspace's Spark settings.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/notebook-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

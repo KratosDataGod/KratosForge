@@ -52,6 +52,17 @@ def test_option_ids_never_give_the_answer_away(bank):
             assert q["answer"] != sorted(q["answer"]), q["id"]
 
 
+def test_the_longest_option_is_not_a_reliable_cue(bank):
+    # By chance the key is the longest of four options about a quarter of the time; keep it well under half.
+    singles = [q for q in bank["questions"].values() if q["type"] == "single"]
+    longest = 0
+    for q in singles:
+        lengths = {o["id"]: len(o["text"]) for o in q["options"]}
+        key = q["answer"][0]
+        longest += lengths[key] > max(v for k, v in lengths.items() if k != key)
+    assert longest < 0.35 * len(singles), f"{longest} of {len(singles)}"
+
+
 def test_every_case_study_is_used(bank):
     used = {q.get("case") for q in bank["questions"].values()}
     assert set(bank["cases"]) <= used

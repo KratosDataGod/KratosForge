@@ -131,11 +131,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Use one Copy activity and select both gateways in its source and destination connections"
+          "text": "Use one Copy activity and select gateway A in its source connection and gateway B in its destination connection"
         },
         {
           "id": "b",
-          "text": "Use one Copy activity with built-in workspace staging between the two gateways"
+          "text": "Use one Copy activity with built-in workspace staging enabled, so that the data moves through staging between the two gateways"
         },
         {
           "id": "c",
@@ -143,7 +143,7 @@
         },
         {
           "id": "d",
-          "text": "Use one Copy activity and enable fault tolerance so that it can switch gateways"
+          "text": "Use one Copy activity and enable fault tolerance so that it switches gateways between source and sink"
         }
       ],
       "answer": [
@@ -151,7 +151,7 @@
       ],
       "explanation": "A Copy activity can use only one on-premises data gateway, so data between two gateways must go through an intermediate cloud store in two Copy activities.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -228,15 +228,15 @@
         },
         {
           "id": "b",
-          "text": "Enable compression on the workspace staging store"
+          "text": "Enable compression on the workspace staging store to shorten the copy"
         },
         {
           "id": "c",
-          "text": "Raise the degree of copy parallelism to 256"
+          "text": "Raise the degree of copy parallelism to 256 so it finishes within the hour"
         },
         {
           "id": "d",
-          "text": "Switch intelligent throughput optimization to Maximum"
+          "text": "Switch intelligent throughput optimization to Maximum for the copy"
         }
       ],
       "answer": [
@@ -244,7 +244,7 @@
       ],
       "explanation": "Workspace staging times out after 60 minutes, so long-running jobs should stage in external storage.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

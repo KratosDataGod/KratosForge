@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "The OneLake file explorer"
+          "text": "The OneLake file explorer, which lists each notebook run's job, stage and log files"
         },
         {
           "id": "b",
@@ -17,7 +17,7 @@
         },
         {
           "id": "c",
-          "text": "The semantic model settings"
+          "text": "The refresh history in the settings of the lakehouse's default semantic model"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "The Spark application detail page shows the application's jobs, stages, resources and logs, and links to the Spark UI.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-detail-monitoring",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.2-q2",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The Git history"
+          "text": "The commit history of the warehouse in the workspace's Git panel"
         },
         {
           "id": "b",
-          "text": "The pipeline's output"
+          "text": "The output of the pipeline's Script activity that ran the warehouse queries"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "The Spark UI"
+          "text": "The Spark UI of the warehouse's SQL analytics endpoint"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Query insights keeps history of completed queries, with durations, so you can find long-running ones.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.2-q4",

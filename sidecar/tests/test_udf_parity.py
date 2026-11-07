@@ -91,7 +91,7 @@ def _has_context_decorator(fn_def: ast.FunctionDef) -> bool:
 def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
     """Every difference between the generated functions in `source` and `operations`, by operation."""
     tree = ast.parse(source)
-    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name != "_run"}
+    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")}  # helpers, as functions.json skips them
     problems: dict[str, list[str]] = {}
 
     for op, impl in operations.items():

@@ -642,7 +642,7 @@ def breaking_changes(project: Project, published: list[dict[str, Any]], env: str
             out = sorted({f"{c['consumer_project']} (link {c.get('alias') or '?'} accepts {c.get('accepts')})" for c in shut})
             if not out:
                 notes.append(f"{what}; publishing it as version {version}")
-            elif told:
+            elif told and stops is not None:  # told means stops is set; this says so to the type check
                 notes.append(f"{what}; publishing it as version {version}. {len(out)} "
                              f"{_plural(len(out), 'link doesn', 'links don')}'t accept it ({'; '.join(out)}), but "
                              f"the product was deprecated on {stops.isoformat()}, so "

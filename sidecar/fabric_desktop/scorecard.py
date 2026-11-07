@@ -81,7 +81,7 @@ def _pc_cost(record: dict[str, Any]) -> dict[str, Any]:
     reads and writes still use capacity and aren't measured, so its total is not available."""
     out = {"kind": "not available", "text": PC_CAPACITY}
     at = record.get("finished_at") or record.get("started_at")
-    ids = {"run_id": record.get("id")} if record.get("id") else {}
+    ids: dict[str, Any] = {"run_id": record.get("id")} if record.get("id") else {}
     if not at:
         why = "The proof record has no run time."
         return out | {"measurement": ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids)}

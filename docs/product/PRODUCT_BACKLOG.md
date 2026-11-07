@@ -69,14 +69,14 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 4 | 9 |
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 1 | 1 | 6 | 5 | 13 |
-| [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 3 | 1 | 5 |
+| [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 2 | 5 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 2 | 16 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 8 | 2 | 0 | 13 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **7** | **33** | **60** | **21** | **121** |
+| **Total** | **7** | **33** | **59** | **22** | **121** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -884,7 +884,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Accepted |
 | [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | Accepted |
 | [PB-105](#pb-105) | Simplified incident management | P3 | Simplified incident management | L | In progress |
-| [PB-130](#pb-130) | Data product promises, status and change windows | P2 | Data mesh | M | In progress |
+| [PB-130](#pb-130) | Data product promises, status and change windows | P3 | Data mesh | M | In progress |
 
 ### PB-052
 
@@ -951,11 +951,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-130
 
-**Data product promises, status and change windows** · P2 (score 1.8) · M · confidence Medium · In progress
+**Data product promises, status and change windows** · P3 (score 1.56) · M · confidence Medium · In progress
 
 - **Problem:** Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.
 - **Proposed capability:** A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.
-- **Current-state evidence:** Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb
+- **Current-state evidence:** Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb; Owner scores (Data mesh, 2026-11-07, from the code on main and the Wave 2 reviews; they replace values copied from PB-052): developer value 2, product teams set a promise in the product dialog and readers open a Status view, not daily work for most developers; CU reduction 1, no Fabric compute moves, and status reports add a UDF_Platform call only when a status changes (incident_service._report_product_status); enterprise value 4, promises, Red/Amber/Green status and a change window are governance signals buyers ask for, but all are Preview, warn only and not a rollout condition; differentiation 3, UNVERIFIED, COMPETITIVE_CAPABILITY_MATRIX.md has no row for data product promises or status; strategic alignment 3, data mesh governance supports deploying to Fabric but isn't the local develop-and-run core; complexity 3, five PRs adding catalog.product.promise and catalog.product_status, a promise incident kind, platform operations and screens on three pages; risk 3, writes are limited to new catalog rows behind require_member and changes only warn, but the new UDF_Platform operations haven't run on a tenant and core.py needs Finish or repair
 - **Inventory features:** [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04), [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-MESH-05](FEATURE_INVENTORY.md#feat-mesh-05)
 - **Dependencies:** [PB-002](#pb-002)
 - **Owner:** Data mesh (Data mesh Wave 2)

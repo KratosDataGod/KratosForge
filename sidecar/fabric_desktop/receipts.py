@@ -123,7 +123,7 @@ class ReceiptStore:
         """Summaries, newest first. Receipts that fail their check are listed as such, not hidden."""
         if not self.folder.exists():
             return []
-        rows = []
+        rows: list[dict[str, Any]] = []
         for path in self.folder.glob("*.json"):
             rid = path.stem
             try:

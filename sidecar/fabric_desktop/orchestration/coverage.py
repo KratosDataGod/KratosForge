@@ -127,9 +127,16 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "dayOfWeek": ("dayOfWeek('2018-03-15T13:27:36Z')", 4),
     "dayOfYear": ("dayOfYear('2018-03-15T13:27:36Z')", 74),
     "ticks": ("ticks('2018-03-15T13:27:36Z')", 636567172560000000),
+    "convertFromUtc": ("convertFromUtc('2018-01-01T08:00:00.0000000Z', 'Pacific Standard Time')", "2018-01-01T00:00:00Z"),
+    "convertTimeZone": ("convertTimeZone('2018-01-01T08:00:00.0000000Z', 'UTC', 'Pacific Standard Time')",
+                        "2018-01-01T00:00:00.0000000"),
+    "convertToUtc": ("convertToUtc('01/01/2018 00:00:00', 'Pacific Standard Time')", "2018-01-01T08:00:00.0000000Z"),
 }
 # Where the reference's printed value is wrong, the value above is the corrected one, and this says why.
 NOTES: dict[str, str] = {
+    "convertFromUtc": "The reference's two examples of the same conversion disagree: convertFromUtc's ends in Z with no "
+                      "fractions, convertTimeZone's (`2018-01-01T00:00:00.0000000`) has no Z. A local run writes "
+                      "convertTimeZone's form for both. Which one Fabric writes hasn't been checked.",
     "encodeUriComponent": "The reference prints `http%3A%2F%2Fcontoso.com` for `https://contoso.com`, which drops "
                           "the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.",
     "decodeUriComponent": "The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an "

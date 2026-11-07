@@ -30,7 +30,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import pyarrow as pa
 from duckdb.experimental.spark.sql.dataframe import DataFrame
@@ -478,7 +478,7 @@ class StreamWriter:
                 rows = sink(_arrow(self._df), batch_id)  # the DataFrame as transformed, over this batch
             finally:
                 conn.unregister(src.view)
-                conn.register(src.view, src.arrow_schema.empty_table())
+                conn.register(src.view, cast(pa.Schema, src.arrow_schema).empty_table())  # set when the stream started
             if state_file:
                 jsonfile.write_json(state_file, {"source": src.id, "batch": batch_id, "offsets": new_state,
                                                  "updated": datetime.now(timezone.utc).isoformat()})
@@ -583,6 +583,6 @@ def _ident(name: str) -> str:
 def install() -> None:
     """``spark.readStream``, ``df.writeStream`` and ``df.isStreaming``."""
     from .spark_local import LocalSparkSession
-    LocalSparkSession.readStream = property(lambda self: StreamReader(self))  # type: ignore[attr-defined]
+    setattr(LocalSparkSession, "readStream", property(lambda self: StreamReader(self)))  # noqa: B010 - a patch mypy refuses as an assignment
     DataFrame.writeStream = property(lambda self: StreamWriter(self))  # type: ignore[attr-defined]
     DataFrame.isStreaming = property(is_streaming)  # type: ignore[attr-defined]

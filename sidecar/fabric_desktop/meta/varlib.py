@@ -14,7 +14,7 @@ only the Key Vault secret's name, as in the source systems file.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from .keys import CONNECTION_FIELDS, ENVIRONMENTS
 
@@ -87,7 +87,7 @@ def _boolean(v: Any) -> bool:
     return text == "true"
 
 
-_TYPES = {"Integer": _integer, "Number": float, "Boolean": _boolean}
+_TYPES: dict[str, Callable[[Any], Any]] = {"Integer": _integer, "Number": float, "Boolean": _boolean}
 
 
 def _json(path: str, text: str) -> dict[str, Any]:

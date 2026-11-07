@@ -89,7 +89,8 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("to names at least one person or role")
     out["to"] = {"people": people, "roles": roles}
     opened = event.get("open") or {}
-    if not isinstance(opened, dict) or opened.get("view") not in VIEWS or opened.get("tab") not in VIEWS[opened.get("view")]:
+    view = opened.get("view") if isinstance(opened, dict) else None
+    if not isinstance(view, str) or view not in VIEWS or opened.get("tab") not in VIEWS[view]:
         raise ValueError("open is {view: platform, tab: requests}, {view: shortcuts, tab: health}, "
                          "{view: metadata, tab: links}, {view: incident, tab: detail}, {view: onelake, tab: products} "
                          "or {view: governance, tab: exceptions}")

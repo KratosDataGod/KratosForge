@@ -80,7 +80,8 @@ class EditorMixin:
     def _editor_state(self) -> dict[str, Any]:
         state = getattr(self, "_editor", None)
         if state is None:
-            state = self._editor = {"lock": threading.Lock(), "channel": None, "asks": {}}
+            state = {"lock": threading.Lock(), "channel": None, "asks": {}}
+            self._editor: dict[str, Any] = state
         return state
 
     def _editor_settings_path(self) -> Any:

@@ -110,7 +110,7 @@ def _patch(showing: Any) -> None:
     for name in (SHOWING, "bokeh.io", "bokeh.plotting"):
         module = sys.modules.get(name)
         if module is not None and getattr(module, "show", None) is original:
-            module.show = show
+            setattr(module, "show", show)  # noqa: B010 - mypy: a module has no declared show
 
 
 def _patch_altair(altair: Any) -> None:
@@ -126,7 +126,7 @@ def _patch_altair(altair: Any) -> None:
 
     show._fabric_desktop = True  # type: ignore[attr-defined]
     show.__doc__ = original.__doc__
-    mixin.show = show
+    setattr(mixin, "show", show)  # noqa: B010 - mypy: mixin is Any | None here
 
 
 def _patch_plotly(module: Any) -> None:

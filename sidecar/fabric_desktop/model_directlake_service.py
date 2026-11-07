@@ -136,7 +136,7 @@ class ModelDirectLakeMixin:
         except Exception as exc:  # noqa: BLE001 - the person picks the capacity instead
             _log.info("Capacity not known for the Direct Lake check: %s", describe(exc))
             return ""
-        e = next((x for x in doc.get("environments", []) if x.get("env") == env), {})
+        e: dict[str, Any] = next((x for x in doc.get("environments", []) if x.get("env") == env), {})
         return str((e.get("capacity") or {}).get("sku") or "")
 
     def meta_model_directlake_setup(self, env: str = "test") -> dict[str, Any]:

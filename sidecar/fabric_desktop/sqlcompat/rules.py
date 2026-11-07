@@ -606,7 +606,7 @@ def _functions(s: Stmt):
             yield _hit("FN-002", t)
         if name in _TSQL_ONLY:
             # IIF: Spark has if(); whether a runtime also accepts iif isn't documented, so it's a warning
-            yield _hit("FN-003", t, name=name, fix=_TSQL_ONLY[name], **({"severity": "warning"} if name == "IIF" else {}))
+            yield _hit("FN-003", t, None, name=name, fix=_TSQL_ONLY[name], **({"severity": "warning"} if name == "IIF" else {}))
         if name in _SPARK_ONLY and name not in _WAREHOUSE_UNSUPPORTED_FN:
             yield _hit("FN-004", t, name=name, fix=_SPARK_ONLY[name])
         if name in _REGEX_PREVIEW:

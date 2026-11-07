@@ -41,7 +41,8 @@ def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[d
         latest = next((r for r in mine if r.get("status") in ("ok", "failed", "needs_decision")), None)
         owner = str(spec.get("owner") or "")
         owner = "" if owner.strip().lower() in model.PLACEHOLDER_OWNERS else owner
-        declared = spec.get("objectives") if isinstance(spec.get("objectives"), dict) else {}
+        objectives = spec.get("objectives")
+        declared = objectives if isinstance(objectives, dict) else {}
         crit = str(declared.get("criticality") or criticality.get(name) or "")
         base = {"workload": wid, "name": name, "owner": owner, "team": team, "criticality": crit}
         if latest and latest.get("status") == "failed":

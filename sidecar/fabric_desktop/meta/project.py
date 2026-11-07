@@ -222,8 +222,9 @@ class Entity:
     def logic_hash(self) -> str:
         logic = {k: self.spec.get(k) for k in LOGIC_KEYS}
         for section, key in OPERATIONAL_KEYS:  # how a run reads, not what it produces
-            if isinstance(logic.get(section), dict) and key in logic[section]:
-                logic[section] = {k: v for k, v in logic[section].items() if k != key}
+            part = logic.get(section)
+            if isinstance(part, dict) and key in part:
+                logic[section] = {k: v for k, v in part.items() if k != key}
         return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode()).hexdigest()[:8]
 
     def sources(self) -> list[str]:

@@ -57,7 +57,7 @@ class TenantHistoryMixin:
         reads = self._rows(lake, th.FAMILY.table("read")) + self._rows(lake, _CAPACITY_TABLES["read"])
         changes.sort(key=lambda r: r.get("changed_by_time") or "", reverse=True)
         reads.sort(key=lambda r: r.get("read_at") or "", reverse=True)
-        last = {}
+        last: dict[str | None, Any] = {}
         for r in reads:  # newest successful read per kind of scope
             if r.get("outcome") == "read":
                 last.setdefault(r.get("scope_type"), r.get("read_at"))

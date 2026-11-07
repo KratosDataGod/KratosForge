@@ -171,7 +171,8 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
         problems.append("The definition has no mashup.pq, so its queries can't be shown.")
     found = queries(mashup)
     by_name = {q["name"]: q for q in found}
-    flags = meta.get("queriesMetadata") if isinstance(meta.get("queriesMetadata"), dict) else {}
+    got = meta.get("queriesMetadata")
+    flags: dict[str, Any] = got if isinstance(got, dict) else {}
     rows = []
     for q in found:
         info = flags.get(q["name"])

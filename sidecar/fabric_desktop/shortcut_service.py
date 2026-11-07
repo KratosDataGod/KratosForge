@@ -137,7 +137,7 @@ class ShortcutMixin:
         requests = [q for q in self._sc_call("list_requests", problems, []) if q.get("kind") == "shortcut"]
         week = [c for c in self._sc_call("shortcut_changes", problems, [], days=7)
                 if c["kind"] in ("added", "removed", "repointed")]
-        last = {}
+        last: dict[str, Any] = {}
         for c in self._sc_call("shortcut_changes", problems, [], days=3650, limit=5000):
             last.setdefault(c["shortcut_id"], c)
         for r in rows:
@@ -211,7 +211,7 @@ class ShortcutMixin:
         Returns {candidate: {workspace_id, workspace_name, lakehouse_id, lakehouse_name} or None,
         found: [shortcut ids], missing: [shortcut ids]}."""
         name = next((s.get("target_lakehouse_name") for s in shortcuts if s.get("target_lakehouse_name")), "")
-        gone = next((s.get("item_id") for s in shortcuts if s.get("item_id")), "")
+        gone = next((s.get("item_id") for s in shortcuts if s.get("item_id")), "") or ""
         empty = {"candidate": None, "found": [], "missing": [s["id"] for s in shortcuts], "name": name}
         if not name or not shortcuts:
             return empty

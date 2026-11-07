@@ -433,6 +433,7 @@ def test_a_legacy_connector_webhook_that_cant_be_reached_is_not_stored_with_the_
 
 
 def test_an_alert_teams_didnt_take_waits_and_goes_marked_delayed_after_the_next_run(svc, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     from fabric_desktop import dataops_service
     from fabric_desktop.schedule_service import SCHEDULE_ALERTS
     svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])

@@ -24,7 +24,7 @@ import polars as pl
 if TYPE_CHECKING:
     import pyarrow as pa  # annotations only; loads import it where they need it
 
-from .. import retrying
+from .. import disk_full, retrying
 from . import batches as batches_mod
 from . import drift as drift_mod
 from . import keys as keys_mod
@@ -40,7 +40,7 @@ from .project import (
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, META_SCHEMAS, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, META_SCHEMAS, LocalStore, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -475,6 +475,11 @@ class Engine:
         except Exception as ex:  # custom code and source errors are reported, not raised
             from ..retrying import is_retryable
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
+            if disk_full.is_disk_full(ex):  # delta-rs words it as a parse or copy error; say what it is
+                res.steps.append(Step("error", 0, 0.0, res.message[:2000]))
+                res.message = disk_full.message(
+                    self._local_path((self.lakehouse(e), e.schema, e.table)),
+                    "The table was not changed." if res.delta_version is None else "")
         finally:
             self._pending_quarantine = []  # a run that didn't commit quarantines nothing
             if unsaved and unsaved not in res.message:  # a failure after the commit replaced the message
@@ -565,10 +570,19 @@ class Engine:
             retrying.retry_call(once, lambda exc: True, AFTER_COMMIT_ATTEMPTS, lambda n: 0.2 * n, time.sleep)
             return True
         except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
-            note = f"couldn't save {what} ({type(exc).__name__}: {exc})"
+            if disk_full.is_disk_full(exc):
+                free = disk_full.free_space(self._local_path(where))
+                note = (f"couldn't save {what}, as the disk is full{f' ({free})' if free else ''}. The table's "
+                        "write stands; free some space before the next run")
+            else:
+                note = f"couldn't save {what} ({type(exc).__name__}: {exc})"
             res.steps.append(Step("record", 0, 0.0, note))
             res.message = f"{res.message}; {note}" if res.message else note
             return False
+
+    def _local_path(self, where: tuple[str, str, str]) -> str | None:
+        """The folder of a table on this PC, for the free space a disk-full message names; None in OneLake."""
+        return self.store.uri(*where) if isinstance(self.store, LocalStore) else None
 
     def _flush_quarantine(self, res: RunResult) -> None:
         pending, self._pending_quarantine = self._pending_quarantine, []

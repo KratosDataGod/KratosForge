@@ -1,0 +1,144 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A notebook runs pdf = orders.toPandas() on a 200-million-row table to loop over it in Python, and the driver runs out of memory. What's the cause, and the better fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "toPandas caches the table on every node; unpersist the table first so memory is freed"
+        },
+        {
+          "id": "b",
+          "text": "toPandas brings every row to the driver; keep the work in Spark and write the result to a table"
+        },
+        {
+          "id": "c",
+          "text": "toPandas runs on one executor; add executors so the rows are spread across more of them"
+        },
+        {
+          "id": "d",
+          "text": "toPandas needs Arrow turned off; disable Arrow so the conversion streams rows to the driver"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Even with Arrow, toPandas() collects all records in the DataFrame to the driver program and should be done on a small subset of the data.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pandas/pyspark-pandas-conversion"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "A sort-merge join of sales to customers is slow: one task runs far longer than the rest because one customer has 40% of the rows. Adaptive query execution is on. What does its skew handling do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It switches the join to a broadcast join, because a skewed table counts as a small table"
+        },
+        {
+          "id": "b",
+          "text": "It drops the rows of the skewed key and logs them, so the rest of the join can finish"
+        },
+        {
+          "id": "c",
+          "text": "It retries the long task on the driver, which has more memory than the executors"
+        },
+        {
+          "id": "d",
+          "text": "It splits the skewed tasks, replicating if needed, into roughly evenly sized tasks"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "AQE dynamically handles skew in sort merge join and shuffle hash join by splitting, and replicating if needed, skewed tasks into roughly evenly sized tasks.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/optimizations/aqe"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "When does adaptive query execution treat a partition as skewed, with the default settings?",
+      "options": [
+        {
+          "id": "a",
+          "text": "When its task runs longer than the stage's other tasks combined, measured at runtime"
+        },
+        {
+          "id": "b",
+          "text": "When it holds more than 30 MB, the same size as the runtime broadcast threshold"
+        },
+        {
+          "id": "c",
+          "text": "When it's more than twice the average partition size, whatever its size in bytes"
+        },
+        {
+          "id": "d",
+          "text": "When it's more than 5 times the median partition size and larger than 256 MB"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A partition is skewed only when both are true: its size is more than skewedPartitionFactor (5) times the median partition size, and more than skewedPartitionThresholdInBytes (256MB).",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/optimizations/aqe"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "The products table in that join is small, but Spark still shuffles the big sales table. Which change asks Spark to broadcast products instead?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A broadcast hint on the join, sales.join(broadcast(products), ...), or a higher autoBroadcastJoinThreshold"
+        },
+        {
+          "id": "b",
+          "text": "A repartition of products into one partition, so the join treats it as a single broadcast block"
+        },
+        {
+          "id": "c",
+          "text": "A lower spark.sql.shuffle.partitions, so the shuffle of sales turns into a broadcast by itself"
+        },
+        {
+          "id": "d",
+          "text": "A cache of the sales table, so the shuffle reads from memory and is no longer needed at all"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "You can change the join type by setting spark.sql.autoBroadcastJoinThreshold, or set a join hint with the DataFrame APIs: dataframe.join(broadcast(df2)).",
+      "source": "https://learn.microsoft.com/en-us/azure/synapse-analytics/spark/apache-spark-performance"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "Where does Fabric point out data skew in a Spark application, without you reading every task?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The lakehouse's table maintenance pane, which flags skewed tables before a join runs"
+        },
+        {
+          "id": "b",
+          "text": "The pipeline's run output, which reports skew for each notebook activity it started"
+        },
+        {
+          "id": "c",
+          "text": "The Spark advisor in the notebook's monitoring, which detects skew and shows an analysis"
+        },
+        {
+          "id": "d",
+          "text": "The capacity metrics app, which lists skewed partitions for each workspace's notebooks"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Data skew is a common issue; the Spark advisor supports skew detection, and if skew is detected, an analysis is displayed.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitor-debug"
+    }
+  ]
+}

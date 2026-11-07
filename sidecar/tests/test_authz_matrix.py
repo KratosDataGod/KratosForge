@@ -9,6 +9,7 @@ import functools
 import importlib.util
 import inspect
 import io
+import re
 from pathlib import Path
 
 from fabric_desktop.central import core
@@ -62,5 +63,8 @@ def test_the_committed_matrix_is_what_the_generator_writes():
     with contextlib.redirect_stdout(out):
         authz_matrix.main()
     doc = (ROOT / "docs" / "audits" / "AUTHORIZATION_MATRIX.md").read_text(encoding="utf-8")
-    assert out.getvalue() == doc, ("docs/audits/AUTHORIZATION_MATRIX.md is out of date: from sidecar/, run "
+    # Line numbers move with every edit above a method; only what the rows say is compared.
+    def lineless(text):
+        return re.sub(r"(\.py):\d+", r"\1", text)
+    assert lineless(out.getvalue()) == lineless(doc), ("docs/audits/AUTHORIZATION_MATRIX.md is out of date (line numbers aside): from sidecar/, run "
                                    "python ../.github/scripts/authz_matrix.py > ../docs/audits/AUTHORIZATION_MATRIX.md")

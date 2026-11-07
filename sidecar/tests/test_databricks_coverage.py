@@ -213,6 +213,15 @@ def test_timestampdiff_counts_whole_units_as_spark_does(code, want):
         assert con.sql(sql.duckdb_sql(sql.parse(f"SELECT {code}", "spark")[0])).fetchall() == [(want,)]
 
 
+def test_a_timestampdiff_inside_another_counts_whole_units_too():
+    from fabric_desktop import sql
+    code = ("SELECT timestampdiff(DAY, DATE'2021-01-01', date_add(DATE'2021-01-01', "
+            "timestampdiff(HOUR, TIMESTAMP'2021-01-01 10:59:00', TIMESTAMP'2021-01-01 11:00:00')))")
+    assert _one(code) == [[0]]
+    con = databricks_coverage.connect()
+    assert con.sql(sql.duckdb_sql(sql.parse(code, "spark")[0])).fetchall() == [(0,)]
+
+
 def test_a_diff_spelling_inside_a_string_is_left_alone():
     from fabric_desktop import sql
     assert sql.diff_spellings("SELECT 'datediff(DAY, a, b)', datediff(DAY, a, b)") == (

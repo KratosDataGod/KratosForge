@@ -982,7 +982,8 @@ def _diff_template(sql_text: str, **args: exp.Expression) -> exp.Expression:
 
 def _spark_timestampdiff(statement: exp.Expression) -> exp.Expression:
     """timestampdiff (and the datediff, date_diff and timediff spellings of it) counting whole units, as Spark does."""
-    for node in list(statement.find_all(exp.TimestampDiff)):
+    # innermost first, so one inside another's arguments is written before the outer one copies them
+    for node in reversed(list(statement.find_all(exp.TimestampDiff, bfs=False))):
         unit = node.text("unit").upper()
         start, end = node.expression, node.this
         if unit in _DIFF_MICROS:

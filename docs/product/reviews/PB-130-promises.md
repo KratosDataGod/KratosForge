@@ -13,7 +13,7 @@
 
 **Accepted with Documented Limitations** (recommended). All three criteria are met on a local platform. Each screen is Preview. The Status view is only as current as the team's own incident check, and the change window only advises.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept with limits' on the decision card on 2026-11-07 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst).
 
 ## Acceptance criteria
 

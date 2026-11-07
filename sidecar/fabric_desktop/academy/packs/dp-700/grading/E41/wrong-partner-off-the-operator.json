@@ -1,0 +1,81 @@
+{
+  "_about": "A model of one eventstream. operators, derived_streams and destinations are keyed by name; each has an input, which is the source's name, an operator's name or a derived stream's name. A Filter keeps the events whose field meets condition (equals, not equals, greater than, less than, is null, is not null) and value. Manage fields keeps the listed fields. Group by groups on the listed fields and has aggregations, each a function (Sum, Average, Minimum, Maximum) of a field. An Eventhouse destination has an ingestion_mode: \"Direct ingestion\" or \"Event processing before ingestion\".",
+  "needs": [
+    "Only freezers' events go anywhere downstream. DeviceType is freezer or test-rig today, and more kinds of device will join the stream next quarter.",
+    "The Lakehouse table freezer_readings keeps every freezer reading with only EventTime, DeviceId, StoreId, TempC and DoorOpen.",
+    "The operations dashboard reads the Eventhouse table store_temps: each store's average and highest TempC, not raw readings.",
+    "A partner's app reads the filtered freezer events, all fields, from a custom endpoint."
+  ],
+  "source": {
+    "name": "freezer-telemetry",
+    "fields": [
+      "EventTime",
+      "DeviceId",
+      "StoreId",
+      "Region",
+      "DeviceType",
+      "TempC",
+      "DoorOpen",
+      "Firmware"
+    ]
+  },
+  "operators": {
+    "freezers_only": {
+      "type": "Filter",
+      "input": "freezer-telemetry",
+      "field": "DeviceType",
+      "condition": "equals",
+      "value": "freezer"
+    },
+    "reading_fields": {
+      "type": "Manage fields",
+      "input": "freezers_only",
+      "keep": [
+        "EventTime",
+        "DeviceId",
+        "StoreId",
+        "TempC",
+        "DoorOpen"
+      ]
+    },
+    "store_temps": {
+      "type": "Group by",
+      "input": "freezers_only",
+      "group_by": [
+        "StoreId"
+      ],
+      "aggregations": [
+        {
+          "function": "Average",
+          "field": "TempC"
+        },
+        {
+          "function": "Maximum",
+          "field": "TempC"
+        }
+      ]
+    }
+  },
+  "derived_streams": {
+    "freezer-events": {
+      "input": "freezers_only"
+    }
+  },
+  "destinations": {
+    "lakehouse": {
+      "type": "Lakehouse",
+      "input": "reading_fields",
+      "table": "freezer_readings"
+    },
+    "eventhouse": {
+      "type": "Eventhouse",
+      "input": "store_temps",
+      "ingestion_mode": "Event processing before ingestion",
+      "table": "store_temps"
+    },
+    "partner": {
+      "type": "Custom endpoint",
+      "input": "freezers_only"
+    }
+  }
+}

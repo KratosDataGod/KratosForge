@@ -58,6 +58,7 @@ def test_a_lock_without_a_real_pid_counts_as_running(pid):
     assert ss._pid_alive(pid) is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.kill(pid, 0) is the POSIX check; Windows asks OpenProcess")
 def test_another_users_process_counts_as_running(monkeypatch):
     def kill(pid, sig):
         raise PermissionError(1, "Operation not permitted")

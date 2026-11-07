@@ -37,15 +37,44 @@ param(
 $ErrorActionPreference = "Stop"
 $removed = New-Object System.Collections.Generic.List[string]
 
+# Only ever the folders and file this script is about: a full path ending in the expected name, so an
+# unset LOCALAPPDATA (a path relative to the current folder) or a mistyped -AppPath deletes nothing.
+function Assert-Target([string] $Path, [string[]] $Leaves, [string] $What) {
+    if (-not [IO.Path]::IsPathRooted($Path) -or $Leaves -notcontains (Split-Path -Leaf $Path)) {
+        throw "Not removing $What '$Path': it must be a full path ending in $($Leaves -join ' or ')."
+    }
+}
+Assert-Target $DataDir @("FabricDesktop") "the data folder"
+Assert-Target $WebViewDir @("com.kratosbi.fabricdesktop") "the app window's profile"
+if ($AppPath) { Assert-Target $AppPath @("kratosforge.exe", "fabric-desktop.exe") "the app" }
+
 $running = Get-Process -Name kratosforge, fabric-desktop -ErrorAction SilentlyContinue
 if ($running -and -not $WhatIfPreference) {
     throw "Close KratosForge first (it is running as process $($running.Id -join ', '))."
 }
 
+# Deletes a file or folder without following links: a junction or symbolic link inside it is removed
+# as a link, never what it points to (Remove-Item -Recurse on Windows PowerShell 5.1 can follow one).
+function Remove-Tree([string] $Path) {
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName, $false) } else { [IO.File]::Delete($item.FullName) }
+        return
+    }
+    if ($item.PSIsContainer) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force)) { Remove-Tree $child.FullName }
+        $item.Attributes = [IO.FileAttributes]::Directory
+        [IO.Directory]::Delete($item.FullName, $false)
+    } else {
+        $item.Attributes = [IO.FileAttributes]::Normal
+        [IO.File]::Delete($item.FullName)
+    }
+}
+
 function Remove-IfThere([string] $Path) {
     if (Test-Path -LiteralPath $Path) {
         if ($PSCmdlet.ShouldProcess($Path, "Remove")) {
-            Remove-Item -LiteralPath $Path -Recurse -Force
+            if ($Path -like "HK*:*") { Remove-Item -LiteralPath $Path -Recurse -Force } else { Remove-Tree $Path }
             $removed.Add($Path)
         }
     }

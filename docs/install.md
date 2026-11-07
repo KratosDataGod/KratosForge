@@ -131,7 +131,7 @@ What stays when you keep your data holds no usable token: connected AI tools' an
 
 ## Going back to an older build
 
-An update keeps everything in `%LOCALAPPDATA%\FabricDesktop`: each store is upgraded in place when the new build first opens it, and older builds can still open what newer ones saved. The folder carries a data format mark (`data-format.json`). If a future build ever has to change your data in a way older builds can't read, it raises that mark, and an older build then refuses to start rather than damage the data: the app and its commands say "saved by a newer KratosForge" and name the folder. To go back past such a build, restore a [backup](backup.md) taken before the upgrade, or run the newer build again. Builds made before the mark don't read it.
+An update keeps everything in `%LOCALAPPDATA%\FabricDesktop`: each store is upgraded in place when the new build first opens it, and older builds can still open what newer ones saved. The folder carries a data format mark (`data-format.json`). If a future build ever has to change your data in a way older builds can't read, it raises that mark, and an older build then refuses to start rather than damage the data: the app and its commands say "saved by a newer KratosForge" and name the folder. To go back past such a build, restore a [backup](backup.md) taken before the upgrade, or run the newer build again. Builds made before the mark don't read it, so this protection starts with the build that adds it: the current Stable build and the builds before it would open the folder whatever its mark says.
 
 ## For developers: run from source
 

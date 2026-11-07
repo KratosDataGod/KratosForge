@@ -127,7 +127,7 @@ The app installs only an engine whose `version.json` names the app's own build a
 There is no one-click rollback yet.
 
 - **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer promotes the earlier build to Stable again, and PCs move to it at their next start.
-- **Data:** a rolled-back build opens what the newer one saved, unless the newer one raised the data format mark, in which case it refuses to start and says so ([Going back to an older build](install.md#going-back-to-an-older-build)). No build has raised it yet.
+- **Data:** a rolled-back build opens what the newer one saved, unless the newer one raised the data format mark, in which case it refuses to start and says so ([Going back to an older build](install.md#going-back-to-an-older-build)). No build has raised it yet, and builds from before the mark (including the current Stable build and its rollback target) don't read it.
 - **Managed:** deploy the older exe. A PC that has to download the engine gets that build's engine from its `build-*` release while the release is kept (see above). Keep a copy of each exe and its engine files; with [your own engine folder](#host-the-engine-yourself) a rolled-back exe gets its engine from there.
 
 ## If an update fails

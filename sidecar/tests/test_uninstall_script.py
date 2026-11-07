@@ -32,6 +32,11 @@ def test_it_removes_every_sign_in_and_token_the_app_keeps_outside_backups():
     assert '-eq "Agent") { continue }' in text
     assert "ProgramData" not in re.sub(r"(?s)<#.*?#>", "", text)
     assert "SupportsShouldProcess" in text and "Close KratosForge first" in text
+    # Deletes never follow links, and only full paths with the expected names are touched.
+    assert "Remove-Item -LiteralPath $Path -Recurse -Force } else { Remove-Tree $Path }" in text
+    assert text.count("Remove-Item -LiteralPath") == 1, "Remove-Item -Recurse is used only for the registry key"
+    for leaf in ('@("FabricDesktop")', '@("com.kratosbi.fabricdesktop")', '@("kratosforge.exe", "fabric-desktop.exe")'):
+        assert leaf in text
 
 
 def _ps(*args: str) -> subprocess.CompletedProcess:
@@ -42,13 +47,18 @@ def _ps(*args: str) -> subprocess.CompletedProcess:
 @pytest.mark.skipif(sys.platform != "win32", reason="runs the script on Windows")
 def test_on_windows_it_removes_the_app_and_keeps_the_data_until_asked(tmp_path):
     tag = uuid.uuid4().hex[:8]
-    data, webview, app = tmp_path / "FabricDesktop", tmp_path / "webview", tmp_path / "kratosforge.exe"
+    data, webview, app = tmp_path / "FabricDesktop", tmp_path / "com.kratosbi.fabricdesktop", tmp_path / "kratosforge.exe"
+    outside = tmp_path / "elsewhere"
+    (outside / "keep.txt").parent.mkdir(parents=True)
+    (outside / "keep.txt").write_text("not the app's")
     for rel in ("engine/abc/python.exe", "bin/fabric-desktop-mcp.cmd", "fabric-view/Default/Cookies", "msal_cache.bin",
                 "fabric-view-signin.bin", "link-port", "notebooks/keep.ipynb", "settings.json", "workloads.sqlite"):
         (data / rel).parent.mkdir(parents=True, exist_ok=True)
         (data / rel).write_text("x")
     (webview / "EBWebView").mkdir(parents=True)
     app.write_text("exe")
+    # A junction inside the data folder to a folder that isn't the app's: removing the folder removes the link only.
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(data / "notebooks" / "linked"), str(outside)], check=True, capture_output=True)
     folder, key, cred = f"\\KFTest{tag}\\", f"HKCU:\\Software\\Classes\\kratosforge-test-{tag}", f"KratosForge-test/{tag}"
     setup = (f"New-Item -Path '{key}' -Force | Out-Null; "
              f"Register-ScheduledTask -TaskPath '{folder}' -TaskName 'Schedule1' -Action (New-ScheduledTaskAction -Execute 'cmd.exe') | Out-Null; "
@@ -77,6 +87,15 @@ def test_on_windows_it_removes_the_app_and_keeps_the_data_until_asked(tmp_path):
         everything = _ps(*common, "-RemoveData")
         assert everything.returncode == 0, everything.stderr
         assert not data.exists()
+        assert (outside / "keep.txt").read_text() == "not the app's", "the junction was followed"
+        # Only full paths with the expected names: anything else is refused before anything is removed.
+        for bad in (["-DataDir", "FabricDesktop"], ["-DataDir", str(outside)], ["-AppPath", str(outside / "keep.txt")],
+                    ["-WebViewDir", str(outside)]):
+            args = dict(zip(common[::2], common[1::2], strict=True))
+            args.update(dict(zip(bad[::2], bad[1::2], strict=True)))
+            refused = _ps(*[x for kv in args.items() for x in kv], "-RemoveData")
+            assert refused.returncode != 0 and "Not removing" in refused.stdout + refused.stderr, bad
+        assert (outside / "keep.txt").exists()
     finally:
         subprocess.run(["powershell.exe", "-NoProfile", "-Command",
                         f"Remove-Item '{key}' -Recurse -Force -ErrorAction SilentlyContinue; "

@@ -132,11 +132,12 @@ AppLocker's default rules and App Control for Business path rules allow programs
 The app uses the folder only when all of these hold:
 - the policy file passes the same check as for `engine_download_url`;
 - the path is a full local path (no network share);
-- the folder, the build's folder, `python.exe`, `pythonw.exe`, `Lib` and `Lib\site-packages` are owned by SYSTEM, Administrators or TrustedInstaller, and nobody else may create, change or delete anything in them.
+- the folder, the build's folder, `python.exe`, `pythonw.exe`, `python3*.dll`, `python3*._pth`, `python3*.zip`, `pyvenv.cfg`, `DLLs`, `Lib`, `Lib\site-packages` and each folder directly in it are owned by SYSTEM, Administrators or TrustedInstaller, and nobody else may create, change or delete anything in them;
+- every folder above it, up to the drive, is owned by one of those and lets nobody else delete, rename or replace what is in it (creating new folders there is fine, as on `C:\`).
 
 Otherwise the engine doesn't start, and the app says why. It never installs or repairs an engine there, and it never falls back to the per-user engine, because that is the one your rules block. **Settings > Help and about** shows a setting it can't use.
 
-The app checks those folders, not every file below them, so leave the permissions the folders pass down unchanged. Notebook-environment packages still install in the user's profile; see `notebook_package_folder`.
+The app checks those files and folders, not every file below them, so leave the permissions the folders pass down unchanged. Notebook-environment packages still install in the user's profile; see `notebook_package_folder`.
 
 This is Preview. It hasn't yet been tried on a PC with AppLocker or App Control for Business enforced.
 

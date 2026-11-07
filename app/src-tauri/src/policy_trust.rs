@@ -35,6 +35,19 @@ pub fn admin_only_engine(_path: &Path) -> Result<(), String> {
     Err("it is only trusted on Windows".into())
 }
 
+/// For a folder above IT's engine folder: owned by SYSTEM or Administrators, and nobody else may
+/// delete, rename or replace what is in it or take over its permissions. Creating new folders is
+/// allowed, as everyone may on C:\.
+#[cfg(windows)]
+pub fn admin_only_ancestor(path: &Path) -> Result<(), String> {
+    win::check(path, win::FOLDER_RIGHTS)
+}
+
+#[cfg(not(windows))]
+pub fn admin_only_ancestor(_path: &Path) -> Result<(), String> {
+    Err("it is only trusted on Windows".into())
+}
+
 #[cfg(windows)]
 mod win {
     use std::os::windows::ffi::OsStrExt;

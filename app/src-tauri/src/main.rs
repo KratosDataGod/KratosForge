@@ -420,8 +420,12 @@ fn it_engine() -> Option<Result<PathBuf, String>> {
     let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
     let trusted = policy_trust::admin_only(&file);
     let text = std::fs::read_to_string(&file).ok()?;
-    engine_folder::resolve(&text, policy_allows_updates(&text), trusted, BUILD_COMMIT, &policy_trust::admin_only_engine)
-        .transpose()
+    let checks = engine_folder::Checks {
+        policy: trusted,
+        engine: &policy_trust::admin_only_engine,
+        ancestor: &policy_trust::admin_only_ancestor,
+    };
+    engine_folder::resolve(&text, policy_allows_updates(&text), BUILD_COMMIT, checks).transpose()
 }
 
 /// This build's engine, or failing that another build's, which can still run the

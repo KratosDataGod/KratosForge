@@ -132,6 +132,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.1-q5",
+      "type": "single",
+      "stem": "A user with the Contributor role wants to share a report from the workspace with a colleague outside it. What lets them do this without changing their workspace role?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Membership in the workspace's domain"
+        },
+        {
+          "id": "b",
+          "text": "The Build permission on the semantic model"
+        },
+        {
+          "id": "c",
+          "text": "Nothing; only Admins can share items"
+        },
+        {
+          "id": "d",
+          "text": "Reshare permission on the report"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Admins and Members can share items. Contributors and Viewers can also share an item if they have Reshare permission on it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.1-q6",
+      "type": "single",
+      "stem": "A team lead must add new engineers to the workspace and share its content, but must not be able to delete the workspace or add Admins. Which role fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Contributor"
+        },
+        {
+          "id": "b",
+          "text": "Viewer"
+        },
+        {
+          "id": "c",
+          "text": "Admin"
+        },
+        {
+          "id": "d",
+          "text": "Member"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Members can add people with lower permissions and share content. Only Admins can delete the workspace and add or remove other Admins.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.1-q7",
+      "type": "single",
+      "stem": "Only one person should be able to create a workspace identity for a workspace. Which role must that person have?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Admin"
+        },
+        {
+          "id": "b",
+          "text": "Member"
+        },
+        {
+          "id": "c",
+          "text": "Viewer"
+        },
+        {
+          "id": "d",
+          "text": "Contributor"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Creating a workspace identity is an Admin-only capability.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.1-q8",
+      "type": "single",
+      "stem": "An operator must start and cancel pipeline runs and notebook runs in a workspace but shouldn't share content or manage people. What is the least role?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Viewer"
+        },
+        {
+          "id": "b",
+          "text": "Admin"
+        },
+        {
+          "id": "c",
+          "text": "Contributor"
+        },
+        {
+          "id": "d",
+          "text": "Member"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Contributors can execute and cancel pipelines and notebooks. Viewers can only see execution output, and Members can also share.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.1-q9",
+      "type": "single",
+      "stem": "Marta has the Viewer role in a workspace and was also given direct access to one of its reports. You remove her item permission on the report, but she can still open it. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reports can't have item permissions removed"
+        },
+        {
+          "id": "b",
+          "text": "Item permissions take up to a week to expire"
+        },
+        {
+          "id": "c",
+          "text": "She has a cached copy of the report"
+        },
+        {
+          "id": "d",
+          "text": "Her Viewer role still gives access to all content in the workspace"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Workspace roles apply to every item in the workspace. To stop her viewing the report, you also have to remove her Viewer role.",
+      "source": "https://learn.microsoft.com/en-us/fabric/security/permission-model",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.1-q10",
+      "type": "multiple",
+      "stem": "Which two can a user with the Viewer workspace role do? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Read lakehouse data through Spark and the OneLake APIs"
+        },
+        {
+          "id": "b",
+          "text": "View the execution output of pipelines and notebooks"
+        },
+        {
+          "id": "c",
+          "text": "Execute or cancel pipeline runs"
+        },
+        {
+          "id": "d",
+          "text": "Subscribe to OneLake events"
+        },
+        {
+          "id": "e",
+          "text": "Connect to the SQL analytics endpoint of a lakehouse"
+        }
+      ],
+      "answer": [
+        "b",
+        "e"
+      ],
+      "explanation": "Viewers can connect to SQL analytics endpoints and see execution output. Reading through Spark or OneLake APIs, running pipelines and subscribing to OneLake events need Contributor or higher.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

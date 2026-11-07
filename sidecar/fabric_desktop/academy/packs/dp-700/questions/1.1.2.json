@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.2-q5",
+      "type": "single",
+      "stem": "A domain admin of the Sales domain wants to add a colleague as a second domain admin of Sales. Who can do this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The current domain admin, from the Domains tab"
+        },
+        {
+          "id": "b",
+          "text": "Any workspace admin of a workspace in the domain"
+        },
+        {
+          "id": "c",
+          "text": "A domain contributor, from the workspace settings"
+        },
+        {
+          "id": "d",
+          "text": "A Fabric admin"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Fabric admins specify domain admins. Domain admins can define contributors and edit the description, but they can't add or delete other domain admins.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.2-q6",
+      "type": "single",
+      "stem": "The Finance domain has a subdomain named Payroll. Who are the domain admins of Payroll?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The domain contributors of the Finance domain"
+        },
+        {
+          "id": "b",
+          "text": "Users a Fabric admin assigns to Payroll separately"
+        },
+        {
+          "id": "c",
+          "text": "The domain admins of the parent Finance domain"
+        },
+        {
+          "id": "d",
+          "text": "The workspace admins of the workspaces in Payroll"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Subdomains don't have their own domain admins. They use the admins of their parent domain.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.2-q7",
+      "type": "single",
+      "stem": "A Fabric admin assigns the Sales domain to every workspace on the Sales capacity. Next week a new workspace is created on that capacity. What is its domain?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It joins the Sales domain automatically"
+        },
+        {
+          "id": "b",
+          "text": "It isn't affected: assignment by capacity applies only to workspaces that existed at the time"
+        },
+        {
+          "id": "c",
+          "text": "It is blocked from being created until a domain admin approves it"
+        },
+        {
+          "id": "d",
+          "text": "It joins the Sales domain after the next daily sync"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Assigning by capacity affects existing workspaces only. A workspace assigned to the capacity later must be assigned some other way, for example through a default domain.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.2-q8",
+      "type": "single",
+      "stem": "Every new workspace created by members of the Marketing security group must land in the Marketing domain without anyone assigning it. What do you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Assign the Marketing domain by capacity once a week"
+        },
+        {
+          "id": "b",
+          "text": "Make every member of the group a domain admin"
+        },
+        {
+          "id": "c",
+          "text": "Make Marketing the default domain for the Marketing security group"
+        },
+        {
+          "id": "d",
+          "text": "Assign the Marketing domain by workspace name"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A default domain assigns new workspaces created by the specified users or groups to that domain. Assigning by name or capacity only covers workspaces that already exist.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.2-q9",
+      "type": "multiple",
+      "stem": "Which two tenant-level settings can a domain admin override for their own domain when the tenant admin delegates them? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Git provider the domain's workspaces connect to"
+        },
+        {
+          "id": "b",
+          "text": "The certification settings, including which experts can certify items"
+        },
+        {
+          "id": "c",
+          "text": "The workspace roles of every user in the domain"
+        },
+        {
+          "id": "d",
+          "text": "A default sensitivity label for items in the domain's workspaces"
+        },
+        {
+          "id": "e",
+          "text": "The capacity that the domain's workspaces run on"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Delegated domain settings include a domain-level default sensitivity label and certification settings such as the certifiers. Workspace roles, capacities and Git connections aren't domain settings.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.2-q10",
+      "type": "single",
+      "stem": "A workspace is assigned to the Finance domain. A manager asks whether this now lets everyone in Finance open the workspace's lakehouse. What is the answer?",
+      "options": [
+        {
+          "id": "a",
+          "text": "No, only domain admins get access to the domain's items"
+        },
+        {
+          "id": "b",
+          "text": "No, domain assignment doesn't change who can see or access items"
+        },
+        {
+          "id": "c",
+          "text": "Yes, domain members get Viewer access to every workspace in the domain"
+        },
+        {
+          "id": "d",
+          "text": "Yes, but only for items endorsed as Master data"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Access still comes from workspace roles and item permissions. Domains organize and govern workspaces but don't grant access.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

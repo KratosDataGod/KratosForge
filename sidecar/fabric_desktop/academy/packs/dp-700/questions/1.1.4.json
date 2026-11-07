@@ -130,6 +130,200 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.4-q5",
+      "type": "single",
+      "stem": "A developer uses the starter pool for Apache Airflow jobs and leaves the environment idle for 30 minutes. What has happened to the Airflow runtime?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It was converted to a custom pool"
+        },
+        {
+          "id": "b",
+          "text": "It was deleted with its DAGs"
+        },
+        {
+          "id": "c",
+          "text": "It is still running and billing"
+        },
+        {
+          "id": "d",
+          "text": "It shut down after 20 minutes of inactivity and takes up to 5 minutes to resume"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The starter pool shuts down after 20 minutes of inactivity, and resuming takes up to 5 minutes. Custom pools stay on until paused.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.4-q6",
+      "type": "single",
+      "stem": "A custom Airflow pool can't run enough DAGs at the same time. Which pool property adds capacity for more concurrent DAGs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Startup latency"
+        },
+        {
+          "id": "b",
+          "text": "Extra nodes"
+        },
+        {
+          "id": "c",
+          "text": "Pool name"
+        },
+        {
+          "id": "d",
+          "text": "Default environment"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Extra nodes let the pool run more DAGs concurrently, and each one adds capacity for three more workers.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.4-q7",
+      "type": "single",
+      "stem": "You create a custom Airflow pool for simple DAGs that run a few lightweight tasks. Which compute node size does the guidance suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "XX-Large"
+        },
+        {
+          "id": "b",
+          "text": "Large"
+        },
+        {
+          "id": "c",
+          "text": "X-Large"
+        },
+        {
+          "id": "d",
+          "text": "Small"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Airflow pools offer Small for simpler DAGs and Large for complex or production DAGs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.4-q8",
+      "type": "order",
+      "stem": "Put the steps to switch a workspace's Airflow jobs from the starter pool to a new custom pool in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Select Create"
+        },
+        {
+          "id": "b",
+          "text": "Expand Default Data Workflow Setting and select New Pool"
+        },
+        {
+          "id": "c",
+          "text": "In the Data Factory section, select Apache Airflow Runtime Settings"
+        },
+        {
+          "id": "d",
+          "text": "Set the name, compute node size, autoscale and extra nodes"
+        },
+        {
+          "id": "e",
+          "text": "Open the workspace settings"
+        }
+      ],
+      "answer": [
+        "e",
+        "c",
+        "b",
+        "d",
+        "a"
+      ],
+      "explanation": "The custom pool is created from the workspace's Apache Airflow runtime settings by choosing New Pool in the default data workflow setting, configuring it, then creating it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.4-q9",
+      "type": "single",
+      "stem": "A workspace admin turns off the setting that lets items customize compute configurations. Which pool do Apache Airflow jobs in the workspace use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "No pool, so jobs fail to start"
+        },
+        {
+          "id": "b",
+          "text": "The starter pool, for all environments in the workspace"
+        },
+        {
+          "id": "c",
+          "text": "A Spark custom pool"
+        },
+        {
+          "id": "d",
+          "text": "The last custom pool someone created"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With item-level compute customization turned off, the starter pool is used for all Airflow environments in the workspace.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.4-q10",
+      "type": "single",
+      "stem": "A team's Apache Airflow job runs one Airflow version and they need a different version. What should they do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Create a new Apache Airflow job with the version they want"
+        },
+        {
+          "id": "b",
+          "text": "Change the version in the workspace's Airflow runtime settings"
+        },
+        {
+          "id": "c",
+          "text": "Upgrade the version from a DAG file"
+        },
+        {
+          "id": "d",
+          "text": "Change the version in the job's settings"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "You can't change the Airflow version of an existing job. You create a new job with the version you need.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

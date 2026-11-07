@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.4.1-q5",
+      "type": "single",
+      "stem": "Leo is a data engineer with no Spark experience. Each night he must copy raw files from many sources into the bronze layer of a lakehouse without changing them. What should he use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline Copy activity"
+        },
+        {
+          "id": "b",
+          "text": "A notebook with PySpark code"
+        },
+        {
+          "id": "c",
+          "text": "A Spark job definition"
+        },
+        {
+          "id": "d",
+          "text": "An eventstream"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The Copy activity is low-code, connects to many sources and suits raw copies at scale. Notebooks need Spark skills, and eventstreams are for real-time events.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.1-q6",
+      "type": "single",
+      "stem": "Adam must extract and transform large volumes of semi-structured and unstructured customer review data into Delta tables, using open-source libraries. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline Lookup activity"
+        },
+        {
+          "id": "b",
+          "text": "Spark code in a notebook"
+        },
+        {
+          "id": "c",
+          "text": "A Copy job with incremental copy"
+        },
+        {
+          "id": "d",
+          "text": "A pipeline Copy activity with column mapping"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Spark processes large structured, semi-structured and unstructured data in parallel and supports open-source libraries. The Copy activity handles only lightweight transformations.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.1-q7",
+      "type": "single",
+      "stem": "While copying files into a lakehouse, a team must convert types, map columns and flatten a nested hierarchy. They want no code. What do you recommend?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL update policy"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline Copy activity, which handles these lightweight transformations"
+        },
+        {
+          "id": "c",
+          "text": "A notebook, because any transformation needs Spark"
+        },
+        {
+          "id": "d",
+          "text": "A deployment pipeline rule"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Type conversion, column mapping, merge or split files and flattening hierarchies are the lightweight transformations the Copy activity supports without code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.1-q8",
+      "type": "multiple",
+      "stem": "When does Spark in a notebook fit better than a pipeline Copy activity? Which two reasons justify choosing the notebook? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The job only copies files without changing them"
+        },
+        {
+          "id": "b",
+          "text": "The team writes Python, Scala, Spark SQL or R"
+        },
+        {
+          "id": "c",
+          "text": "The team's skills are ETL, SQL and JSON"
+        },
+        {
+          "id": "d",
+          "text": "The team wants a wizard and canvas with no code"
+        },
+        {
+          "id": "e",
+          "text": "The transformation needs native Spark and open-source libraries"
+        }
+      ],
+      "answer": [
+        "b",
+        "e"
+      ],
+      "explanation": "Spark is code-first and supports complex transformations with open-source libraries. Wizard and canvas authoring, ETL and JSON skills, and plain copies point to the Copy activity.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.1-q9",
+      "type": "single",
+      "stem": "A process must keep checking a REST API until it reports that the source is ready, then run a notebook, then post a message to a Teams channel. What should orchestrate it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline with Until, Web, Notebook and Teams activities"
+        },
+        {
+          "id": "c",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "d",
+          "text": "A notebook that calls time.sleep in a loop"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Pipelines provide control flow activities such as Until for do-until loops, Web for REST calls and Teams for messages, and they can run notebooks as steps.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.1-q10",
+      "type": "single",
+      "stem": "A notebook step in a nightly pipeline sometimes fails because a source is briefly busy. The pipeline should try the notebook again after a short wait. Where do you configure this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A second schedule on the pipeline"
+        },
+        {
+          "id": "b",
+          "text": "A try-except block around notebookutils.notebook.exit"
+        },
+        {
+          "id": "c",
+          "text": "Retry and Retry interval in the Notebook activity's General settings"
+        },
+        {
+          "id": "d",
+          "text": "The Spark session timeout in workspace settings"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Every pipeline activity has Retry and Retry interval settings, so the pipeline handles transient failures without extra code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

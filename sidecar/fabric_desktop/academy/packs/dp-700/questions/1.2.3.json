@@ -126,6 +126,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.3-q5",
+      "type": "multiple",
+      "stem": "You deploy a lakehouse and a semantic model from Test to Production. Which two are not copied to Production? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Item relationships"
+        },
+        {
+          "id": "b",
+          "text": "The data"
+        },
+        {
+          "id": "c",
+          "text": "Permissions on the workspace or items"
+        },
+        {
+          "id": "d",
+          "text": "Model metadata"
+        },
+        {
+          "id": "e",
+          "text": "Parameters"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Deployment copies metadata such as model metadata, parameters and relationships. Data and permissions stay behind.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.3-q6",
+      "type": "single",
+      "stem": "A pipeline admin must deploy items from Test to Production. What workspace access do they need?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Contributor or higher on both the source and target workspaces"
+        },
+        {
+          "id": "b",
+          "text": "Admin on the target workspace only"
+        },
+        {
+          "id": "c",
+          "text": "None; being pipeline admin is enough"
+        },
+        {
+          "id": "d",
+          "text": "Viewer on both workspaces"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Deploying requires pipeline admin plus at least Contributor on the workspaces of both stages. A pipeline admin without workspace roles can't deploy.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.3-q7",
+      "type": "single",
+      "stem": "Where do you create a deployment rule so that a semantic model in Production uses the production data source?",
+      "options": [
+        {
+          "id": "a",
+          "text": "On the Development stage, so it travels with the model"
+        },
+        {
+          "id": "b",
+          "text": "On the Production stage, then deploy to Production"
+        },
+        {
+          "id": "c",
+          "text": "On the deployment pipeline's settings page, for all stages"
+        },
+        {
+          "id": "d",
+          "text": "In the Git repository's branch policy"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Rules are defined on the target stage and take effect the next time you deploy to it. They can't be created in the development stage.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.3-q8",
+      "type": "single",
+      "stem": "After deployment, a notebook in Test still uses the Development lakehouse as its default. Which deployment rule fixes this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A data source rule on the lakehouse"
+        },
+        {
+          "id": "b",
+          "text": "A default lakehouse rule on the notebook in the Test stage"
+        },
+        {
+          "id": "c",
+          "text": "A data source rule on the notebook"
+        },
+        {
+          "id": "d",
+          "text": "A parameter rule on the notebook"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Notebooks support default lakehouse rules, which set the lakehouse the notebook uses in the target stage. Data source and parameter rules aren't available for notebooks.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.3-q9",
+      "type": "single",
+      "stem": "A report named Sales was created separately in both the Dev and Test workspaces after they were assigned to the pipeline, so the two aren't paired. What happens when you deploy Sales from Dev to Test?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The deployment fails with a name conflict"
+        },
+        {
+          "id": "b",
+          "text": "Nothing is deployed"
+        },
+        {
+          "id": "c",
+          "text": "A duplicate copy is created in Test and paired with the Dev report"
+        },
+        {
+          "id": "d",
+          "text": "It overwrites the Test report because the names match"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Only paired items overwrite each other. An unpaired item with the same name results in a new copy that is paired with the source item.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.3-q10",
+      "type": "single",
+      "stem": "You select a single report for deployment, but it depends on a semantic model that doesn't exist in the target stage. How do you avoid a failed deployment?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deploy backward first"
+        },
+        {
+          "id": "b",
+          "text": "Create a deployment rule on the report"
+        },
+        {
+          "id": "c",
+          "text": "Use Select related to add the items it depends on"
+        },
+        {
+          "id": "d",
+          "text": "Turn on autobinding in the pipeline settings"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Select related adds the items that provide dependencies. Without them the deployment fails because the linked item isn't in the target stage.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

@@ -131,6 +131,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.6-q5",
+      "type": "single",
+      "stem": "A Contributor in a workspace wants to mark a lakehouse they built as ready for reuse. No admin has given them any special rights. Which endorsement can they apply?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Certified"
+        },
+        {
+          "id": "b",
+          "text": "None; endorsement always needs a Fabric admin"
+        },
+        {
+          "id": "c",
+          "text": "Master data"
+        },
+        {
+          "id": "d",
+          "text": "Promoted"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Any user with write permission on an item can promote it. Certified and Master data need users specified by a Fabric admin.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/endorsement-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.6-q6",
+      "type": "single",
+      "stem": "A team wants to certify the most-used Power BI dashboard in the organization. What happens?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It can be certified like any other item"
+        },
+        {
+          "id": "b",
+          "text": "It can only be promoted"
+        },
+        {
+          "id": "c",
+          "text": "It can be certified only by a domain admin"
+        },
+        {
+          "id": "d",
+          "text": "It can't be promoted or certified, because Power BI dashboards are excluded"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "All Fabric and Power BI items can be promoted or certified except Power BI dashboards.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/endorsement-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.6-q7",
+      "type": "single",
+      "stem": "Which item can be labeled as Master data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline that loads the customer list"
+        },
+        {
+          "id": "b",
+          "text": "A Power BI dashboard on customers"
+        },
+        {
+          "id": "c",
+          "text": "A notebook that cleans the customer list"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse that holds the customer list"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Master data can only be applied to items that contain data, such as lakehouses and semantic models.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/endorsement-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.6-q8",
+      "type": "single",
+      "stem": "Finance and HR want different expert reviewers to certify the items in their own areas. What makes this possible?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Creating a separate tenant for each department"
+        },
+        {
+          "id": "b",
+          "text": "Delegating certification to domain administrators, so each domain can specify its own reviewers"
+        },
+        {
+          "id": "c",
+          "text": "Giving each reviewer the Admin role on every workspace"
+        },
+        {
+          "id": "d",
+          "text": "Promoting items instead of certifying them"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Certification can be delegated to the domain level, where domain admins specify their own certifiers.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/endorsement-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.6-q9",
+      "type": "single",
+      "stem": "Users see the Promoted option for their items, but the Certified option is unavailable to everyone. What is the likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The workspace is on a trial capacity"
+        },
+        {
+          "id": "b",
+          "text": "A Fabric administrator hasn't enabled certification for the organization"
+        },
+        {
+          "id": "c",
+          "text": "The items have no sensitivity label"
+        },
+        {
+          "id": "d",
+          "text": "The items aren't connected to Git"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Certification and Master data are available only after a Fabric administrator enables them. Promotion is always available to people with write permission.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/endorsement-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.6-q10",
+      "type": "multiple",
+      "stem": "Which two statements about endorsement are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only users specified by a Fabric administrator can label items as Master data"
+        },
+        {
+          "id": "b",
+          "text": "Only the item's creator can promote it"
+        },
+        {
+          "id": "c",
+          "text": "Promoting an item copies it to every workspace in the domain"
+        },
+        {
+          "id": "d",
+          "text": "Any user can request certification for an item"
+        },
+        {
+          "id": "e",
+          "text": "An item can carry Promoted and Certified badges at the same time"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "Anyone can request certification, but only authorized users certify or label Master data. Promotion is open to anyone with write permission, and an item gets one of the three badges.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/endorsement-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

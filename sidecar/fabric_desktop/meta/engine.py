@@ -901,6 +901,7 @@ class Engine:
                 del df  # not held while the next batch is read
             if rebuild and e.keys:  # rows the table has whose keys the source no longer has stay, as before
                 old = self.store.scan(lh, e.schema, e.table, read_version)
+                assert old is not None  # read_version is this table's
                 seen = pl.concat(state["keys"]).unique()
                 old_counts = old.group_by(col).len().collect(engine="streaming")
                 for b in batches_mod.plan(old_counts, col, self.batch_rows or batches_mod.batch_rows(est, free)):

@@ -885,9 +885,15 @@ const APP_ORIGINS: [&str; 3] = ["http://tauri.localhost", "https://tauri.localho
 /// not from its frames. The frames also can't reach the IPC protocol at all: their policies allow
 /// no connections (tests notebook_output_frame_has_no_network_and_only_opens_in_the_app and
 /// the_embed_host_page_allows_no_connections). Loosening either policy needs a security read.
-fn invoke_allowed(_command: &str, origin: Option<&str>) -> bool {
-    origin.is_none_or(|o| APP_ORIGINS.contains(&o))
+///
+/// The window matters too: a pop-out window draws one section from the engine the main window started
+/// (popout.js, startPopOut), so the commands that check, update or start the app, or hand over a
+/// kratosforge:// link, answer the main window only.
+fn invoke_allowed(command: &str, origin: Option<&str>, webview: &str) -> bool {
+    origin.is_none_or(|o| APP_ORIGINS.contains(&o)) && (webview == "main" || !MAIN_WINDOW_ONLY.contains(&command))
 }
+
+const MAIN_WINDOW_ONLY: [&str; 6] = ["check_components", "confirm_started", "check_for_update", "update_sidecar", "update_app", "take_pending_link"];
 
 const INVOKE_REFUSED: &str = "Only KratosForge's own page can use the app's commands.";
 
@@ -897,7 +903,7 @@ fn guarded<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     move |invoke| {
         let origin = invoke.message.headers().get(tauri::http::header::ORIGIN).map(|v| v.to_str().unwrap_or("not text"));
-        if !invoke_allowed(invoke.message.command(), origin) {
+        if !invoke_allowed(invoke.message.command(), origin, invoke.message.webview_ref().label()) {
             invoke.resolver.reject(INVOKE_REFUSED);
             return true;
         }
@@ -2224,7 +2230,8 @@ fn is_app_page(url: &Url) -> bool {
         && matches!((url.scheme(), url.host_str()), ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost")))
 }
 
-/// A pop-out window stays on the app's own pages; a web link opens in the default browser.
+/// The main window and the pop-out windows stay on the app's own pages; a web link opens in the
+/// default browser.
 fn app_page(url: &Url) -> bool {
     if is_app_page(url) {
         return true;
@@ -2233,6 +2240,32 @@ fn app_page(url: &Url) -> bool {
         let _ = open_in_browser(url);
     }
     false
+}
+
+/// A new window asked for by the app's own page (a link opened with Ctrl or Shift, window.open):
+/// a web link opens in the default browser, and nothing opens inside the app. Without this, WebView2
+/// would open a window of its own, with no navigation filter.
+fn app_new_window(url: Url, _features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<tauri::Wry> {
+    if new_window_opens_in_browser(&url) {
+        let _ = open_in_browser(&url);
+    }
+    NewWindowResponse::Deny
+}
+
+fn new_window_opens_in_browser(url: &Url) -> bool {
+    matches!(url.scheme(), "https" | "http") && !is_app_page(url)
+}
+
+/// The main window, from tauri.conf.json (where it has "create": false), with the same filters as
+/// the pop-out windows: the config file can't give a window a navigation or new-window filter.
+fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
+    let config = app.config().app.windows.iter().find(|w| w.label == "main").cloned()
+        .expect("tauri.conf.json has the main window");
+    tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .on_navigation(app_page)
+        .on_new_window(app_new_window)
+        .build()
+        .map(|_| ())
 }
 
 /// Opens a section in its own window, or brings its window forward if it is open already.
@@ -2251,7 +2284,8 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
         .min_inner_size(360.0, 260.0)
         .zoom_hotkeys_enabled(true)  // Ctrl+= / Ctrl+- / Ctrl+0, as in the main window (tauri.conf.json)
         .always_on_top(on_top.unwrap_or(false))
-        .on_navigation(app_page);
+        .on_navigation(app_page)
+        .on_new_window(app_new_window);
     let screens: Vec<_> = app.available_monitors().unwrap_or_default().iter()
         .map(|m| (m.position().x as f64, m.position().y as f64, m.size().width as f64, m.size().height as f64, m.scale_factor()))
         .collect();
@@ -2586,6 +2620,7 @@ fn main() {
     tauri::Builder::default()
         .manage(PendingLink(Mutex::new(pending)))
         .setup(move |app| {
+            build_main_window(app)?;
             let handle = app.handle().clone();
             if !links_on {
                 deep_link::forget_port(&data_dir());
@@ -3026,15 +3061,67 @@ mod embed_host_tests {
         assert!(commands.len() >= 22 && commands.contains(&"rpc") && commands.contains(&"update_app") && commands.contains(&"open_link"), "{commands:?}");
         for command in &commands {
             for ok in [None, Some("http://tauri.localhost"), Some("https://tauri.localhost"), Some("tauri://localhost")] {
-                assert!(invoke_allowed(command, ok), "{command} {ok:?}");
+                assert!(invoke_allowed(command, ok, "main"), "{command} {ok:?}");
             }
             for bad in ["null", "http://nbout.localhost", "http://pbiembed.localhost", "http://tauri.localhost.evil",
                     "http://tauri.localhost.evil.com", "http://tauri.localhost:8080", "http://evil.tauri.localhost",
                     "https://app.fabric.microsoft.com", "http://localhost", "HTTP://TAURI.LOCALHOST", "",
                     "http://tauri.localhost/", "not text"] {
-                assert!(!invoke_allowed(command, Some(bad)), "{command} {bad}");
+                assert!(!invoke_allowed(command, Some(bad), "main"), "{command} {bad}");
             }
         }
+        // A pop-out window has the same page, less what checks, updates or starts the app.
+        for command in MAIN_WINDOW_ONLY {
+            assert!(commands.contains(&command), "{command} is a command");
+            for view in ["pop-out-runs", "pop-out-fabric", "fabric", ""] {
+                assert!(!invoke_allowed(command, Some("http://tauri.localhost"), view), "{command} from {view}");
+            }
+        }
+        for command in ["rpc", "open_link", "open_doc", "pop_out_close", "pop_out_on_top", "pop_out_open_in_fabric", "fabric_view_show"] {
+            assert!(invoke_allowed(command, Some("http://tauri.localhost"), "pop-out-runs"), "{command}");
+        }
+    }
+
+    #[test]
+    fn every_window_of_the_apps_own_page_keeps_to_it_and_sends_web_links_to_the_browser() {
+        // The main window is built in code so it can have the filters (build_main_window).
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows = conf["app"]["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!((windows[0]["label"].as_str(), windows[0]["create"].as_bool()), (Some("main"), Some(false)));
+        // Every window the shell builds sets both filters.
+        let main_rs = include_str!("main.rs");
+        let (new, from_config) = (["WebviewWindowBuilder::", "new("].concat(), ["WebviewWindowBuilder::", "from_config("].concat());
+        let builders = main_rs.split(new.as_str()).skip(1).chain(main_rs.split(from_config.as_str()).skip(1));
+        let mut n = 0;
+        for rest in builders {
+            let chain = rest.split(".build()").next().unwrap();
+            assert!(chain.contains(".on_navigation(") && chain.contains(".on_new_window("), "{chain}");
+            n += 1;
+        }
+        assert_eq!(n, 3, "the main window, the pop-out windows and the Fabric view's pop-ups");
+        // A new-window request always gets Deny; only a web link that isn't the app's own page goes to the browser.
+        assert!(main_rs.split("fn app_new_window(").nth(1).unwrap().split("\n}").next().unwrap().ends_with("NewWindowResponse::Deny"));
+        let browser = |u: &str| new_window_opens_in_browser(&Url::parse(u).unwrap());
+        assert!(browser("https://learn.microsoft.com/fabric/") && browser("http://example.com/"));
+        for page in ["tauri://localhost/index.html", "http://tauri.localhost/#", "https://tauri.localhost/index.html?popout=runs",
+                     "javascript:alert(1)", "file:///C:/x.ipynb", "about:blank", "nbout://frame", "ms-settings:privacy"] {
+            assert!(!browser(page), "{page}");
+        }
+    }
+
+    #[test]
+    fn the_main_windows_policy_allows_no_eval_wildcard_or_remote_connection() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = conf["app"]["security"]["csp"].as_object().unwrap();
+        assert_eq!(csp["default-src"], "'none'");
+        assert_eq!(csp["connect-src"], "ipc: http://ipc.localhost");
+        for (name, value) in csp {
+            let value = value.as_str().unwrap();
+            assert!(!value.contains("unsafe-") && !value.contains('*'), "{name}: {value}");
+            assert!(!value.split_whitespace().any(|s| matches!(s, "https:" | "http:" | "data:" | "blob:") && name != "img-src"), "{name}: {value}");
+        }
+        assert!(conf["app"]["security"].get("dangerousDisableAssetCspModification").is_none());
     }
 
     #[test]

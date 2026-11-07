@@ -177,11 +177,15 @@ def test_a_cancelled_clone_removes_only_the_folder_it_made(tmp_path, monkeypatch
 def test_a_cancel_pressed_before_git_started_still_stops_it(tmp_path, monkeypatch):
     git_says(monkeypatch, "import time; time.sleep(30)")
     o = ops.Operations()
-    real = subprocess.Popen
+    real, pressed = subprocess.Popen, []
 
     def popen(*a, **kw):
-        (op_id,) = o._ops
-        o.cancel(op_id)  # pressed while the thread was still starting git: no process to stop yet
+        # subprocess.Popen is patched for every caller, taskkill on Windows included: press Cancel once,
+        # for git, while the thread is still starting it and there is no process to stop yet.
+        if not pressed:
+            pressed.append(True)
+            (op_id,) = o._ops
+            o.cancel(op_id)
         return real(*a, **kw)
     monkeypatch.setattr(ops.subprocess, "Popen", popen)
     began = time.monotonic()

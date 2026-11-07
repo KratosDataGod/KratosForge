@@ -78,7 +78,8 @@ function homeProgressCards(p) {
   const into = Math.max(0, Math.min(span, pr.xp - pr.level_xp));
   const toNext = Math.max(0, pr.next_level_xp - pr.xp);
   const openProfile = (tab) => () => { profilePage.tab = tab; go("profile"); };
-  const hide = btn("", "dismiss", () => { setHomePanelHidden(true); homeCache.done = false; render(); }, "tool link small home-id-hide",
+  const hideNow = () => { setHomePanelHidden(true); homeCache.done = false; render(); };
+  const hide = btn("", "dismiss", hideNow, "tool link small home-id-hide",
     { "aria-label": "Hide your progress on Home", title: "Hide your progress on Home. Show it again from the link at the top of Home." });
 
   const identity = h("section", { class: "home-id", "aria-label": "Your developer profile" },

@@ -1,0 +1,34 @@
+git switch -c feature/ben-retry main
+write Ingest.DataPipeline/pipeline-content.json
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "Copy orders",
+        "type": "Copy",
+        "policy": {
+          "timeout": "0.01:00:00",
+          "retry": 3,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "source": {
+            "type": "LakehouseTableSource"
+          },
+          "sink": {
+            "type": "LakehouseTableSink"
+          }
+        }
+      }
+    ]
+  }
+}
+end
+git add Ingest.DataPipeline/pipeline-content.json
+git commit -m "Retry the copy 3 times"
+git switch main
+git merge --no-ff feature/ana-dedupe -m "Merge PR: drop duplicate orders"
+git switch feature/ben-retry
+git merge main -m "Update from main"
+git switch main
+git merge --no-ff feature/ben-retry -m "Merge PR: retry the copy 3 times"

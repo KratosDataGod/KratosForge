@@ -1022,8 +1022,8 @@ def test_how_a_run_ended_gets_its_own_audit_line(tmp_path):
     lines = []
 
     class Audited(Svc):
-        def _audit_finished(self, action, ok, seconds, params):
-            lines.append((action, ok, params))
+        def _audit_finished(self, action, reason, seconds, params):
+            lines.append((action, reason, params))
 
     svc = Audited(tmp_path)
     good = svc.pipeline_run_start(path=str(REFERENCE), mocks=MOCKS, wait_scale=0)["run_id"]
@@ -1034,4 +1034,4 @@ def test_how_a_run_ended_gets_its_own_audit_line(tmp_path):
     while len(lines) < 2 and time.monotonic() < end:  # written just after the record is saved
         time.sleep(0.02)
     by_run = {p["run_id"]: (a, ok, p["state"]) for a, ok, p in lines}
-    assert by_run == {good: ("pipeline_run_finished", True, "succeeded"), bad: ("pipeline_run_finished", False, "failed")}
+    assert by_run == {good: ("pipeline_run_finished", "", "succeeded"), bad: ("pipeline_run_finished", "failed", "failed")}

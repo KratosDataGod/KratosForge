@@ -64,12 +64,13 @@ def test_a_zip_without_a_manifest_is_not_a_backup(tmp_path):
     assert backup.validate(z)[1] == ["It has no readable manifest.json, so it isn't a KratosForge backup."]
 
 
-def test_a_name_in_the_zip_twice_is_refused(tmp_path, recwarn):
+def test_a_name_in_the_zip_twice_is_refused(tmp_path):
     data = b"{}"
     import hashlib
     entry = {"path": "app/settings.json", "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
     manifest = json.dumps({"schema": backup.SCHEMA, "created": "x", "files": [entry]}).encode()
-    z = make_zip(tmp_path / "b.zip", [(backup.MANIFEST, manifest), ("app/settings.json", data), ("app/settings.json", data)])
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        z = make_zip(tmp_path / "b.zip", [(backup.MANIFEST, manifest), ("app/settings.json", data), ("app/settings.json", data)])
     _, problems = backup.validate(z)
     assert "app/settings.json is in the zip twice" in problems
 
@@ -81,7 +82,6 @@ def test_in_use_check(tmp_path, monkeypatch):
     assert backup._in_use(plain) is False
 
     db = tmp_path / "real.db"
-    sqlite3.connect(db).close()
     db.write_bytes(backup.SQLITE_HEADER + b"\x00" * 100)
     real_open = Path.open
 

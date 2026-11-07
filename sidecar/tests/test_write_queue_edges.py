@@ -85,10 +85,18 @@ def test_wait_returns_for_cancelled_and_failed_writes_and_busy_says_when_one_is_
 
 def test_flush_with_cancel_drops_writes_that_havent_started():
     q = wq.Queue(workers=1, memory_cap=1 << 30)
-    gate = threading.Event()
-    q.submit("t", "running", 0, lambda: gate.wait(5))
-    q.submit("t", "waiting", 0, lambda: pytest.fail("a cancelled write ran"))
-    threading.Timer(0.05, gate.set).start()
+    started, gate = threading.Event(), threading.Event()
+
+    def running():
+        started.set()
+        return gate.wait(5)
+
+    q.submit("t", "running", 0, running)
+    waiting = q.submit("t", "waiting", 0, lambda: pytest.fail("a cancelled write ran"))
+    assert started.wait(5)
+    # "waiting" starts only after "running" ends (same table), and "running" ends only once
+    # "waiting" is cancelled: so the cancel always comes first, however busy the machine is.
+    waiting.add_done_callback(lambda _f: gate.set())
     assert q.flush(cancel=True) == ["waiting: not written (the cell was cancelled)"]
 
 

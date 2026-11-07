@@ -19,39 +19,27 @@ function homeLivingOn() {
   return previewShown() && chosenMotionLevel() > 0;
 }
 
-// Stand-in art: an original drawn forge scene with the KratosForge emblem. The painted Kratos and wolf
-// hero (art-brief.md, 2400x800) replaces the scene once it is logged in docs/design/assets.md.
+// Chris's approved title artwork (docs/design/assets.md): Kratos and the wolf at dawn, characters on the
+// right and a text-safe navy sky on the left. Static: nothing in it moves. The half-size file serves
+// ordinary windows and the full one high-density screens; object-position keeps the characters in view.
 function homeHeroArt() {
-  const svg = (tag, attrs, ...kids) => {
-    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-    el.append(...kids);
-    return el;
-  };
-  const scene = svg("svg", { class: "home-hero-scene", viewBox: "0 0 640 210", preserveAspectRatio: "xMidYMax slice", "aria-hidden": "true" },
-    svg("path", { d: "M0 210 V120 L70 70 L120 104 L200 40 L270 96 L330 62 L420 118 L500 58 L560 92 L640 70 V210 Z", fill: "#c9d6ea" }),
-    svg("path", { d: "M200 40 L216 62 L204 58 L192 74 Z M500 58 L512 76 L502 72 Z", fill: "#ffffff" }),
-    svg("path", { d: "M0 210 V156 L90 122 L160 150 L250 118 L340 154 L430 126 L520 150 L640 124 V210 Z", fill: "#244a70" }),
-    svg("path", { d: "M0 210 V182 L120 166 L260 186 L400 168 L520 184 L640 170 V210 Z", fill: "#122a4f" }),
-    // The anvil the emblem stands on, with a glow from the forge.
-    svg("ellipse", { cx: "470", cy: "178", rx: "120", ry: "22", fill: "#f8991c", opacity: ".35" }),
-    svg("path", { d: "M410 150 H530 L556 160 H520 V170 L540 190 H400 L420 170 V160 H410 Z", fill: "#0b1420" }),
-    // Embers, drawn still.
-    ...[[380, 120, 3], [404, 96, 2], [540, 110, 3], [560, 84, 2], [440, 70, 2], [512, 60, 3]].map(([cx, cy, r]) =>
-      svg("circle", { cx: String(cx), cy: String(cy), r: String(r), fill: "#ffb347" })));
-  return h("div", { class: "home-hero-art", "aria-hidden": "true" }, scene,
-    h("img", { class: "home-hero-emblem", src: "wolf-forge-emblem.png", width: 112, height: 112, alt: "" }));
+  return h("img", { class: "home-hero-img", alt: "", "aria-hidden": "true", decoding: "async",
+    src: "art/experience/home/home-hero-1086.webp",
+    srcset: "art/experience/home/home-hero-1086.webp 1086w, art/experience/home/home-hero.webp 2172w",
+    sizes: "(max-width: 720px) 0px, calc(100vw - 72px)" });
 }
 
-// The hero: 180 to 220 px, text on a light text-safe field at left, art at right. No controls.
-function homeHero() {
+// The hero: full width under the top bar. The welcome and the primary actions are real UI in the navy
+// sky at left (Chris, 2026-11-07); the characters stay at right and nothing is drawn over them.
+function homeHero({ welcome, actions = [] } = {}) {
   if (!homeLivingOn()) return null;
   return h("section", { class: "home-hero", "aria-label": "KratosForge" },
     homeHeroArt(),
     h("div", { class: "home-hero-text" },
       h("span", { class: "home-hero-kicker" }, "KratosForge"),
       h("span", { class: "home-hero-title" }, "Build. Test. Optimize."),
-      h("p", {}, "A local-first data development environment for Microsoft Fabric and beyond.")));
+      h("h1", { class: "home-hero-welcome" }, welcome || "Welcome to KratosForge"),
+      h("div", { class: "row wrap home-hero-actions" }, actions)));
 }
 
 // The side column: the identity card, Your journey, Latest achievement and Forge stats, all from

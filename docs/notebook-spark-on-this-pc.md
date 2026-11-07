@@ -24,7 +24,8 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 refuses a row with a null there, as Spark does (also inside structs, and for array elements or map values a `StructType` declares
 non-nullable, with PySpark's
 `[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
-table's catalog. `df.schema` shows every field as nullable on this PC.
+table's catalog. `df.schema` shows every field as nullable on this PC. A `NaN` in the data stays `NaN`, as in Spark (inside an array or struct it
+becomes NULL with the DuckDB this app ships), and `F.isnan` of a NULL is false.
 
 `sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
 other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened.

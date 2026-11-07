@@ -28,6 +28,7 @@ import duckdb
 import pyarrow as pa
 from duckdb.experimental.spark.context import SparkContext
 from duckdb.experimental.spark.sql import dataframe as _dataframe
+from duckdb.experimental.spark.sql import session as _session_module
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
@@ -1146,6 +1147,29 @@ class LocalSparkSession(SparkSession):
             changed |= wanted != text
             exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
         return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
+
+
+def _nan(value: Any) -> bool:
+    return isinstance(value, float) and value != value
+
+
+def _keeping_nan(combine: Any) -> Any:
+    """DuckDB 1.x's createDataFrame with a schema makes each value a duckdb.Value of the field's type,
+    which turns a float NaN into NULL (DuckDB 2.0 keeps it). A NaN field is passed as the float itself
+    instead, and the frame is cast to the schema's types afterwards, so Spark's NaN stays NaN. (A NaN
+    inside an array or struct still becomes NULL on DuckDB 1.x: its parameters do the same.)"""
+    def combined(data: Any, schema: Any) -> list[Any]:
+        rows = list(data)
+        values = combine(rows, schema)
+        if not any(isinstance(row, (list, tuple)) and any(_nan(v) for v in row) for row in rows):
+            return values
+        return [[raw if _nan(raw) else made for raw, made in zip(row, made_row, strict=False)]
+                if isinstance(row, (list, tuple)) else made_row for row, made_row in zip(rows, values, strict=True)]
+    return combined
+
+
+if hasattr(_session_module, "_combine_data_and_schema"):  # DuckDB 1.x
+    _session_module._combine_data_and_schema = _keeping_nan(_session_module._combine_data_and_schema)
 
 
 # A DDL schema string has a type after a name ("id int") or a comma; one bare word is a column name.

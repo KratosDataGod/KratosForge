@@ -558,6 +558,11 @@ def split(str: Any, pattern: str, limit: int = -1) -> Column:  # noqa: A002 - Py
                 f"ELSE list_concat({parts}[1:{limit - 1}], [substring({s}, CAST({before} + 1 AS BIGINT))]) END)")
 
 
+def isnan(col: Any) -> Column:
+    """Whether the value is NaN: false, not NULL, for a NULL, as in Spark."""
+    return _sql(f"coalesce(isnan(CAST({_arg(col)} AS DOUBLE)), false)")
+
+
 def _seeded(seed: int, salt: int) -> str:
     """A number in [0, 1) for each row, the same each run for a seed: the row's place hashed with it."""
     return f"(CAST(hash(row_number() OVER (), {int(seed)}, {salt}) >> 11 AS DOUBLE) / 9007199254740992.0)"
@@ -1810,7 +1815,7 @@ def install() -> None:
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
-                    "split", "rand") or not hasattr(F, name):
+                    "split", "rand", "isnan") or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]

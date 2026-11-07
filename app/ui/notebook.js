@@ -100,20 +100,25 @@ function renderNotebook() {
   const toggleBtn = (label, iconName, on, onClick, attrs = {}) =>
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
+  // A skin that places the notebook's commands (skins.js, actions.js skinCommandGroup) gets its group
+  // where Run all, Save and Publish are; everything else on the Home ribbon stays as it is. Publish's
+  // workspace choice goes with Publish, on the bar or under More.
+  const skinGroup = skinCommandGroup({ view: "notebook", nb, busy });
   const toolbars = {
-    home: [runAllBtn, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
+    home: [skinGroup || runAllBtn, skinGroup ? h("div", { class: "sep" }) : null, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
         "Side by side, Validate and Prove (also on the Run tab)"),
       h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
-      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
+      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb),
+      skinGroup ? null : btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
       ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
         "Save a copy, Versions and Export"),
       vscodeButton(nb),
       ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
         "Schedule this notebook and see its recent runs (also on the Run tab)"),
-      h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
-        { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
-      h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
-        onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))],
+      skinGroup ? null : h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
+          { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
+        h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
+          onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))].filter(Boolean),
     edit: [btn("Code", "add", () => addCell("code")), btn("Markdown", "add", () => addCell("markdown")),
       h("div", { class: "sep" }), btn("Move up", "up", () => moveCell(-1)), btn("Move down", "down", () => moveCell(1)),
       btn("Split cell", "code", () => splitCell(sel)), btn("Merge with below", "down", () => mergeBelow(sel)),
@@ -1659,6 +1664,7 @@ function setKernel(status, nb = state.notebook) {
   if (bar) bar.replaceChildren(h("span", { class: `dot ${status}` }), kernelLabel());
   document.querySelectorAll("[data-run]").forEach((b) => { b.disabled = status === "busy" || b.hasAttribute("data-local-only"); });
   document.querySelectorAll("[data-stop]").forEach((b) => { b.disabled = status !== "busy"; });
+  refreshSkinCommandGroup();  // a skin's run buttons say "A run is already going." while busy
 }
 
 // Cancel stops the running cell and keeps variables. Code stuck inside a native library can't be

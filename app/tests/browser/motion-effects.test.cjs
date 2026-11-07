@@ -17,7 +17,7 @@ async function open({ reducedMotion = "no-preference" } = {}) {
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion });
   await app.page.evaluate(async () => { await loadSettings(); go("settings"); });
-  await app.page.getByRole("radiogroup", { name: "Visual intensity" }).waitFor();
+  await app.page.getByRole("radiogroup", { name: "Experience mode" }).waitFor();
   await app.page.evaluate(() => {
     window.__fx = [];
     new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => {

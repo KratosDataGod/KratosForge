@@ -790,6 +790,7 @@ Each line says:
 | --- | --- |
 | `at`, `seconds` | When it started (UTC) and how long it took |
 | `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
+| `reason` | Only when an action ended without an error message but didn't do what was asked: `refused`, `busy`, `policy`, `preview`, `invalid`, `partial` (some of it failed) or `failed`. A metadata run reads the same whether the app, a schedule on this PC or the agent started it |
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |

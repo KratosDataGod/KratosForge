@@ -108,8 +108,17 @@ What each choice draws so far:
 - **icons:** the app's icons are filled shapes. `bold` traces their edge so they read heavier. `regular`
   and `light` draw them as they are.
 
-The other parts (header, rail, tabs, cells, buttons, tiles) are marked on the page but not drawn yet. They
-come in the next Preview changes.
+- **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
+  its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
+  its room. It uses the rail's own colors, so it works on a light or a dark rail.
+- **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
+  text, buttons and lettering turn to `--on-accent`, and the search box sits on `--accent-dark`. `none`
+  blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and
+  the account in every skin. `dark` and `hero` belong to the KratosForge skin's redraw and draw as
+  `light` until it lands.
+
+The other parts (tabs, cells, buttons, tiles) are marked on the page but not drawn yet. They come in the
+next Preview changes.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See

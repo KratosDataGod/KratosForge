@@ -884,7 +884,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Accepted |
 | [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | Accepted |
 | [PB-105](#pb-105) | Simplified incident management | P3 | Simplified incident management | L | In progress |
-| [PB-130](#pb-130) | Data product promises, status and change windows | P2 | Data mesh | M | In progress |
+| [PB-130](#pb-130) | Data product promises, status and change windows | P2 | Data mesh | M | In review |
 
 ### PB-052
 
@@ -951,11 +951,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-130
 
-**Data product promises, status and change windows** · P2 (score 1.8) · M · confidence Medium · In progress
+**Data product promises, status and change windows** · P2 (score 1.8) · M · confidence Medium · In review
 
 - **Problem:** Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.
 - **Proposed capability:** A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.
-- **Current-state evidence:** Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb
+- **Current-state evidence:** Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb; Implementation review docs/product/reviews/PB-130-promises.md recommends Accept with documented limitations: the screens are Preview and untested on a tenant, Status is only as current as the team's own incident check, and the change window advises without blocking. 408 engine tests and 18 browser tests pass on main at 56e3826b
 - **Inventory features:** [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04), [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-MESH-05](FEATURE_INVENTORY.md#feat-mesh-05)
 - **Dependencies:** [PB-002](#pb-002)
 - **Owner:** Data mesh (Data mesh Wave 2)

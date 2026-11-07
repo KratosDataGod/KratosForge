@@ -327,7 +327,7 @@ class Environments:
         for i, cmd in enumerate(commands):
             source = ("your organization's package folder" if "--no-index" in cmd
                       else "PyPI, after your organization's package folder" if folder else "PyPI")
-            done = subprocess.run(cmd, capture_output=True, text=True, timeout=INSTALL_SECONDS,
+            done = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=INSTALL_SECONDS,
                                   creationflags=flags, check=False)
             log.append(f"From {source}:\n" + done.stdout + done.stderr)
             if done.returncode == 0:

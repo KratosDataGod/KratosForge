@@ -117,6 +117,17 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Recover.** Restore access or the network. The next beat writes the record, and the offline incident recovers.
 
+### The machine slept or its clock changed
+
+- **Message** (`agent.py`, log): `the clock moved more than a status beat since the last pass (sleep, or a clock change); publishing the status first`
+- **Message** (`agent.py`, log): `schedule's next run was further off than it can be; the clock went back, so it is worked out again`
+
+**Means.** The first message means the time between two passes was longer than a status beat, or the clock went back: the machine slept or hibernated, or the clock was changed (NTP, a time-zone change, or by hand). The agent renews the leases of the jobs still running on it, so they aren't started a second time, and writes its status record before anything slower. Peers may already have taken over its pipeline requests while it slept. If so, it stops its copy before the next table. The second message means a schedule's next run was further off than its interval allows, because the clock went back. The agent works it out again from now. Nothing runs twice for one due time.
+
+**Check first.** Does the machine sleep? A server running the agent shouldn't. Check its power plan, and whether its clock syncs with NTP.
+
+**Recover.** Nothing for a single message. If the first one is frequent, turn off sleep on the machine.
+
 ### A shared schedule's request wasn't written
 
 - **Message** (`agent.py`, log): `couldn't write the shared schedule's request`

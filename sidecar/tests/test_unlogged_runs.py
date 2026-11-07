@@ -74,3 +74,40 @@ def test_a_history_that_cant_be_read_never_fails_the_run(tmp_path, monkeypatch):
     monkeypatch.setattr(s.store, "history", history)
     res = s.run(day=DAY3)
     assert res.status == "ok"
+
+
+def _tampered(s: Setup, monkeypatch, **fields) -> None:
+    """The table's history as if another writer (a notebook, say) had set these commit fields."""
+    real = s.store.history
+
+    def history(*a, **kw):
+        commits = real(*a, **kw)
+        for c in commits:
+            if c.get("fabric_desktop_run_id"):
+                c.update(fields)
+        return commits
+    monkeypatch.setattr(s.store, "history", history)
+
+
+def test_a_commit_this_app_didnt_make_is_never_recorded_as_a_run(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    stopped_after_commit(s)
+    before = run_log(s).height
+    monkeypatch.setattr(engine_mod, "UNLOGGED_AFTER", dt.timedelta(0))
+    _tampered(s, monkeypatch, fabric_desktop_run_id="made-up")
+    res = s.run(day=DAY3)
+    assert run_log(s).height == before + 1  # only this run's own row
+    assert "made-up" not in run_log(s)["run_id"].to_list()
+    assert not any(st.name == "record" for st in res.steps)
+
+
+def test_a_recorded_run_keeps_only_metadata_in_this_app_s_formats(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    stopped = stopped_after_commit(s)
+    monkeypatch.setattr(engine_mod, "UNLOGGED_AFTER", dt.timedelta(0))
+    _tampered(s, monkeypatch, fabric_desktop_logic="x" * 500, fabric_desktop_metadata=["not", "text"])
+    res = s.engine(DAY3).run("bronze.events")
+    # With no logic of a known form on the last run, this run can't tell its logic is unchanged: it asks.
+    assert res.status == "needs_decision"
+    row = run_log(s).filter(pl.col("run_id") == stopped).row(0, named=True)
+    assert (row["logic"], row["metadata"]) == ("", "")

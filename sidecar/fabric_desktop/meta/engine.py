@@ -54,6 +54,16 @@ _log = logging.getLogger(__name__)
 # seconds old with the row still on its way. Only a commit older than this, well past any lease's
 # life and the few retries of that append, counts as a run that stopped before it was recorded.
 UNLOGGED_AFTER = dt.timedelta(minutes=15)
+# What this app writes in a commit's metadata (new_run_id, Project.version, Project.fingerprint). Any
+# writer to the table can set commit metadata, so a run is recorded from it only in these formats.
+_RUN_ID = re.compile(r"r-\d{8}-\d{6}-[0-9a-f]{12}")
+_VERSION = re.compile(r"[0-9a-f]{7}")
+_LOGIC = re.compile(r"[0-9a-f]{8}")
+
+
+def _ours(value: Any, form: re.Pattern[str]) -> str:
+    """``value`` when it is a string in this app's ``form``, else ""."""
+    return value if isinstance(value, str) and form.fullmatch(value) else ""
 # Commit metadata listing the files a run read, so they count as loaded if its list wasn't saved.
 FILES_KEY = "fabric_desktop_files"
 # Most files listed there: above it the commit lists none (every history read parses the list).
@@ -496,8 +506,8 @@ class Engine:
             lh = self.lakehouse(e)
             history = self.store.history(lh, e.schema, e.table, 20)  # newest first
             run = next((c.get("fabric_desktop_run_id") for c in history if c.get("fabric_desktop_run_id")), None)
-            if not run:
-                return
+            if not _ours(run, _RUN_ID):
+                return  # not a run id this app made: no run of ours to record
             commits = [c for c in history if c.get("fabric_desktop_run_id") == run]
             newest = commits[0]
             age = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromtimestamp(
@@ -515,8 +525,8 @@ class Engine:
             note = (f"Stopped after its commit (Delta version {version}) and before it was recorded; "
                     f"recorded from the table's history by run {self.run_id}")
             row = {"run_id": run, "batch_id": "", "entity": e.name, "env": self.store.env, "status": "ok",
-                   "metadata": str(newest.get("fabric_desktop_metadata") or ""),
-                   "logic": str(newest.get("fabric_desktop_logic") or ""),
+                   "metadata": _ours(newest.get("fabric_desktop_metadata"), _VERSION),
+                   "logic": _ours(newest.get("fabric_desktop_logic"), _LOGIC),
                    "load_date": loaded.isoformat() if isinstance(loaded, dt.date) else str(loaded or ""),
                    "started_at": first.isoformat(timespec="microseconds"), "seconds": None,
                    "rows_read": None, "rows_written": rows.height if rows is not None else None, "quarantined": None,

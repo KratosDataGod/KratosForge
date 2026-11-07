@@ -21,7 +21,8 @@ def rows():
 
 
 def test_every_function_has_one_status(rows):
-    assert [r["name"] for r in rows] == [f["name"] for f in spark_coverage.load()]
+    assert [r["name"] for r in rows] == [f["name"] for f in spark_coverage.load()] + [
+        f["name"] for f in databricks_coverage.load()]
     assert {r["status"] for r in rows} <= set(databricks_coverage.STATUSES)
 
 
@@ -81,3 +82,18 @@ def test_the_docs_page_is_up_to_date(rows):
 def test_the_docs_link_the_list():
     assert "databricks-functions.md" in (ROOT / "docs" / "engines.md").read_text(encoding="utf-8")
     assert re.search(r'=\s*"databricks-functions\.md"', (ROOT / "zensical.toml").read_text(encoding="utf-8"))
+
+
+def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
+    own = [f["name"] for f in databricks_coverage.load()]
+    assert own == sorted(set(own)) and len(own) > 100
+    assert not set(own) & {f["name"] for f in spark_coverage.load()}
+    for name in ("zeroifnull", "try_parse_json", "ip_host", "vector_l2_distance", "kll_sketch_agg_bigint"):
+        assert name in own
+    assert not [n for n in own if n.startswith(("ai_", "h3_", "st_", "read_"))]  # need Databricks' services
+
+
+def test_a_databricks_function_with_no_check_is_probed(rows):
+    status = {r["name"]: r["status"] for r in rows}
+    assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
+    assert status["vector_norm"] == "fails"  # DuckDB has none and nothing writes it

@@ -217,7 +217,7 @@ def _drop_imports(source: str, drops: dict[ast.stmt, set[str]]) -> str:
     lines = source.split("\n")
     # From the bottom, so earlier line numbers stay right.
     for stmt, names in sorted(drops.items(), key=lambda kv: -kv[0].lineno):
-        keep = [a for a in stmt.names if _bound(a, stmt) not in names]  # type: ignore[arg-type]
+        keep = [a for a in stmt.names if _bound(a, stmt) not in names]  # type: ignore[arg-type, attr-defined]  # an Import or ImportFrom
         first, last = stmt.lineno - 1, stmt.end_lineno  # type: ignore[operator]
         if keep:
             new = (ast.Import(names=keep) if isinstance(stmt, ast.Import)
@@ -287,7 +287,7 @@ def _print_lines(source: str) -> list[int]:
 
 # ---- the plan
 
-def _tidy(cells: list[dict[str, Any]], chosen: set[str] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+def _tidy(cells: list[dict[str, Any]], chosen: set[str] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str | None]]:
     """The cells after the chosen tidy-ups (all when ``chosen`` is None), the changes found,
     and the cell ids removed."""
     drops, changes = _import_edits(cells)
@@ -316,7 +316,7 @@ def _tidy(cells: list[dict[str, Any]], chosen: set[str] | None) -> tuple[list[di
         changes.append(_change("empty_cells", f"Remove {_plural(len(empty), 'empty cell')}",
                                f"{_cells(empty)} {'has' if len(empty) == 1 else 'have'} no code.", empty))
 
-    removed: list[str] = []
+    removed: list[str | None] = []
     for n, c in enumerate(new, 1):
         before = c.get("source") or ""
         after = before

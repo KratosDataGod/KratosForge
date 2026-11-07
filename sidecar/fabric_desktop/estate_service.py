@@ -37,7 +37,7 @@ from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
 from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
-from .meta.project import ENVIRONMENTS
+from .meta.project import ENVIRONMENTS, GateError
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
 from .redact import describe, one_line
@@ -123,8 +123,12 @@ class EstateMixin:
 
         An incremental table's watermark moves back to the restored data, so its next run loads
         again what came after. Tables downstream are not changed: rebuild them if they took in
-        the bad load."""
+        the bad load. In Test and Prod the workspace role check of a rollback applies first."""
         project = self._project()  # type: ignore[attr-defined]
+        if env != "dev":
+            errors, _ = self._duties_gate(project, env, env, separation=False)  # type: ignore[attr-defined]
+            if errors:
+                raise GateError("restore", errors)
         e, store, uri = self._entity_uri(project, name, env)
         result = restore_mod.restore(uri, store.options(), int(version),
                                      {"fabric_desktop_restored_to": str(version),

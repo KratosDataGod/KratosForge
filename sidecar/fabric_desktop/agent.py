@@ -50,6 +50,9 @@ from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, fail
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
+CRASHED_NEXT = ("Its worker stopped on every attempt: look in the service log for an out-of-memory kill or a crash, "
+                "then lower agent.concurrency or run its tables in smaller jobs.")
+PIPELINE_NEXT = "Fix the cause, then submit the request again from the pipeline."
 AGENT_NO_EMAIL = ("Email routes are sent from the KratosForge app; on an agent use a Power Automate flow "
                   "(flow:https://...). This route's messages go nowhere")
 
@@ -514,7 +517,7 @@ class Agent:
             self.log.warning("couldn't post waiting alerts to Teams; they'll go with the next try",
                              extra=fields(error=_without_webhook(result["error"], url)))
 
-    def _alert(self, job: dict[str, Any], error: str) -> None:
+    def _alert(self, job: dict[str, Any], error: str, crashed: bool = False) -> None:
         url = self.config.teams_webhook
         if not self._can_send(DEFAULT_ROUTE, url):
             return
@@ -522,6 +525,10 @@ class Agent:
         env = str(job["payload"].get("env", "")).title()
         title = f"KratosForge agent {self.config.name}: a {env} job didn't finish"
         lines = [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]]
+        if crashed:
+            lines.append(CRASHED_NEXT)
+        lines.append(PIPELINE_NEXT if str(job.get("dedupe_key") or "").startswith("pipeline:")
+                     else f"Fix the cause, then run: fabric-desktop agent requeue {job['id']}")
         with self._alert_lock:
             try:
                 self._post(url, title, lines)
@@ -541,7 +548,7 @@ class Agent:
             if job and job["state"] == "dead":  # its worker stopped on every attempt (say, a run that takes the agent down)
                 self.log.error("job gave up: its worker stopped on every attempt",
                                extra=fields(job_id=job_id, error=job["error"]))
-                self._alert(job, job["error"] or "")
+                self._alert(job, job["error"] or "", crashed=True)
             else:
                 self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
         self.tick_schedules()

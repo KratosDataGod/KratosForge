@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 93 |
-| Differs | 6 |
+| Runs | 95 |
+| Differs | 5 |
 | Refused | 15 |
-| Fails | 49 |
+| Fails | 48 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -31,7 +31,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Differs | `df.agg(sf.min(df.age)).show()`: {"printed": "+------------------------------------------+\n\|min(unname here, {"printed": "+--------+\n\|min(age)\|\n+--------+\n\|       2\|\n+-------- in Spark |
+| `agg` | Runs |  |
 | `alias` | Fails | `joined_df.select( "df_as1.name", "df_as2.name", "df_as2.a...`: BinderException: Binder Error: Referenced table "df_as1" not found! |
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
@@ -121,7 +121,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `toPandas` | Not checked |  |
 | `to_koalas` | Not checked |  |
 | `to_pandas_on_spark` | Not checked |  |
-| `transform` | Fails | `df.transform(cast_all_to_int).transform(sort_columns_asc)...`: BinderException: Binder Error: Referenced column "CAST(float AS INTEGER)" not found in FROM clause! |
+| `transform` | Runs |  |
 | `union` | Runs |  |
 | `unionAll` | Not checked |  |
 | `unionByName` | Runs |  |

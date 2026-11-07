@@ -294,6 +294,7 @@ def test_the_token_cache_in_the_data_folder_is_refused(tmp_path):
     assert "PermissionError" in err
 
 
+@pytest.mark.machine_wide_grants
 def test_grants_are_recorded_checked_and_removed(tmp_path):
     from fabric_desktop import jsonfile
     work = tmp_path / "w"
@@ -312,6 +313,7 @@ def test_grants_are_recorded_checked_and_removed(tmp_path):
     assert got["status"] == "ok" and got["runs_as"] == appcontainer.RUNS_AS, got["stderr"]
 
 
+@pytest.mark.machine_wide_grants
 def test_settings_shows_the_grants_and_removes_them(tmp_path, monkeypatch):
     # What Settings > Advanced > Exercise sandbox calls, end to end on Windows: a run in the
     # AppContainer leaves grants on record, Remove takes them all off, and the count goes to 0.
@@ -332,6 +334,7 @@ def test_settings_shows_the_grants_and_removes_them(tmp_path, monkeypatch):
     assert not appcontainer._has_grant(Path(sys.base_prefix), appcontainer.capability_sid(appcontainer._api())[1])
 
 
+@pytest.mark.machine_wide_grants
 def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
     work = tmp_path / "w"
     work.mkdir()
@@ -347,6 +350,7 @@ def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
     assert appcontainer.revoke_runtime(tmp_path)["removed"] >= 1
 
 
+@pytest.mark.machine_wide_grants
 def test_a_box_whose_profile_wont_close_still_lets_remove_run(tmp_path, monkeypatch):
     work = tmp_path / "w"
     work.mkdir()
@@ -428,6 +432,7 @@ def test_profiles_left_by_a_crash_are_swept(tmp_path, monkeypatch):
         fresh.close()
 
 
+@pytest.mark.machine_wide_grants
 def test_a_tampered_grants_record_only_ever_removes_the_capabilitys_own_ace(tmp_path, monkeypatch):
     """The record is the person's to write (a v1 learner process could too): its SID is never used,
     and option-like or relative paths in it are skipped."""

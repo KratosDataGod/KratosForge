@@ -1,0 +1,51 @@
+{
+  "_about": "A model of an Activator item. object says which eventstream it reads, the column that identifies each object, and its properties. Each rule has a property, a condition (kind \"each event\" for a stateless comparison, \"becomes\" for a change of state, or \"no data\" for a heartbeat) and an action.",
+  "needs": [
+    "Each freezer is watched on its own; a store has many freezers.",
+    "When a freezer's TempC rises above -15, post once to the store operations Teams channel, and start the Log incident pipeline. Don't post again for every reading while it stays warm.",
+    "If a freezer sends nothing for 10 minutes, email maintenance@contoso.example."
+  ],
+  "object": {
+    "eventstream": "freezer-telemetry",
+    "id_column": "FreezerId",
+    "properties": [
+      "TempC",
+      "DoorOpen"
+    ]
+  },
+  "rules": [
+    {
+      "name": "Too warm",
+      "property": "TempC",
+      "condition": {
+        "kind": "becomes",
+        "operator": "greater than",
+        "value": -18
+      },
+      "actions": [
+        {
+          "type": "Teams message",
+          "to": "Store operations channel"
+        },
+        {
+          "type": "Run pipeline",
+          "to": "Log incident"
+        }
+      ]
+    },
+    {
+      "name": "Silent freezer",
+      "property": "TempC",
+      "condition": {
+        "kind": "no data",
+        "minutes": 10
+      },
+      "actions": [
+        {
+          "type": "Send email",
+          "to": "maintenance@contoso.example"
+        }
+      ]
+    }
+  ]
+}

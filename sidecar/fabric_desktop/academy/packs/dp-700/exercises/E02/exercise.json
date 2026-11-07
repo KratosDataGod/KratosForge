@@ -1,0 +1,102 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E02",
+  "title": "An environment for a notebook: libraries, resources and the default environment",
+  "objectives": [
+    "1.1.1"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Put public and custom libraries and a small data file in the right parts of an environment, publish it the right way, and make it the workspace default.",
+  "scenario": "The sales team's notebooks each pip-install what they need at the top, and runs break when a package changes. You're moving everything into one environment, but the draft has the wheel and the CSV swapped and was never published.",
+  "engine_label": "A model of a Fabric environment's settings, checked on this PC",
+  "verifies": [
+    "Your environment puts each library and file where it belongs, is published in the mode production needs, and is the workspace default, as the environment pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the environment publishes or that the libraries install: nothing runs here.",
+    "Spark properties and compute settings in the environment.",
+    "Your organization's rules on where packages may come from."
+  ],
+  "expected": {
+    "description": "great-expectations public; the wheel custom; country_codes.csv a resource; Full mode, published; SalesEnv the workspace default."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A library or file is in the wrong place.",
+      "pass": "Public and custom libraries and the lookup file are where they belong.",
+      "rules": [
+        {
+          "path": "environment.libraries.public",
+          "contains": "great-expectations",
+          "why": "Install libraries from public sources such as PyPI."
+        },
+        {
+          "path": "environment.libraries.custom",
+          "contains": "contoso_rules-1.2.0-py3-none-any.whl",
+          "why": "Upload libraries your organization built as custom libraries."
+        },
+        {
+          "path": "environment.libraries.custom",
+          "count": 1,
+          "why": "A CSV is a file the notebook reads, not a library; small files like it go in the environment's resources."
+        },
+        {
+          "path": "environment.resources",
+          "contains": "country_codes.csv",
+          "why": "Resources hold small files notebooks can read; they change in real time without a publish."
+        },
+        {
+          "path": "environment.resources",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The libraries won't reach notebooks as the team needs.",
+      "pass": "Published in Full mode and set as the workspace default.",
+      "rules": [
+        {
+          "path": "environment.published",
+          "equals": true,
+          "why": "Library and compute changes take effect only after you save and publish."
+        },
+        {
+          "path": "environment.publish_mode",
+          "equals": "Full",
+          "why": "Full mode makes a stable, reproducible library snapshot; Quick mode installs them when the session first runs code in that language."
+        },
+        {
+          "path": "workspace_default_environment",
+          "equals": "SalesEnv",
+          "why": "A workspace admin can make an environment the workspace default, so notebooks use it without attaching it."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which part of an environment is for code you install, and which for small files you read?",
+    "When do library changes take effect?",
+    "Which publish mode gives a reproducible snapshot?"
+  ],
+  "explanation": "An environment holds Spark compute settings, libraries and resources. Public libraries come from sources such as PyPI and custom libraries are files you upload; resources are small files notebooks read, and change without a publish. Library and compute changes apply only once published. Full mode builds a stable snapshot, which suits production; Quick mode publishes fast and installs libraries when a session first runs code in that language. Making the environment the workspace default saves attaching it to every notebook.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/create-and-use-environment",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06: create-and-use-environment (compute, libraries, resources; public and custom libraries; publish needed for compute and libraries, not resources; Quick and Full modes) and workspace-admin-settings (a workspace admin sets the default environment)."
+  ]
+}

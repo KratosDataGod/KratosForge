@@ -117,8 +117,15 @@ What each choice draws so far:
   the account in every skin. `dark` and `hero` belong to the KratosForge skin's redraw and draw as
   `light` until it lands.
 
-The other parts (tabs, cells, buttons, tiles) are marked on the page but not drawn yet. They come in the
-next Preview changes.
+- **tabs:** `underline` is KratosForge's. `boxed` raises the chosen tab like a file tab on the line below
+  it. `pill` fills the chosen tab as a pill, with no line under the row.
+- **cells:** `bordered` is KratosForge's, with an accent edge on the chosen cell. `card` gives cells a
+  soft border, larger corners and an accent ring when chosen. `flat` keeps square cells with their header
+  bar always shown. `rounded` uses large corners and a soft ring. In every style, a cell being edited
+  keeps KratosForge's orange edge, so edit and command mode still look different.
+
+`buttons` and `tiles` belong to the KratosForge skin's redraw (`forge` buttons, `duotone` tiles). Until
+it lands they draw as `accent` and `plain`.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See

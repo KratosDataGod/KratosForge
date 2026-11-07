@@ -3184,3 +3184,25 @@ body[data-skin-header="brand"] .topbar .avatar { background: var(--surface); col
 body[data-skin-header="brand"] .topbar .brand-name { filter: brightness(0) invert(1); }
 body[data-skin-header="none"] .topbar { background: var(--canvas); border-bottom-color: transparent; }
 body[data-skin-header="none"] .topbar .search { background: var(--surface); }
+/* Tabs: underline is KratosForge's. Boxed draws the chosen tab as a raised file tab on the line below it;
+   pill draws it as a filled pill, with no line under the row. */
+body[data-skin-tabs="boxed"] .tab { border: 1px solid transparent; border-bottom: 0; border-radius: var(--r-sm) var(--r-sm) 0 0; margin-bottom: -1px; }
+body[data-skin-tabs="boxed"] .tab.active { border-color: var(--border); background: var(--surface); box-shadow: 0 1px 0 var(--surface); }
+body[data-skin-tabs="boxed"] .ribbon-tabs { border-bottom: 1px solid var(--border); background: var(--canvas); padding-top: 4px; }
+body[data-skin-tabs="pill"] .tab { min-height: 30px; margin: 5px 0; border-bottom: 0; border-radius: 999px; }
+body[data-skin-tabs="pill"] .tab.active { background: var(--accent-soft); color: var(--accent-dark); }
+body[data-skin-tabs="pill"] .subtabs { border-bottom: 0; }
+/* Notebook cells: bordered is KratosForge's (accent stripe on the chosen cell). Card lifts each cell on a
+   soft border with larger corners; flat keeps square cells with their header bar always shown; rounded
+   uses large corners and rings the chosen cell. */
+body[data-skin-cells="card"] .cell:not(.markdown) .cell-box { border-color: var(--border-soft); border-radius: var(--r-lg); }
+body[data-skin-cells="card"] .cell.selected .cell-box { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+body[data-skin-cells="flat"] .cell-box { border-radius: var(--r-sm); }
+body[data-skin-cells="flat"] .cell:not(.markdown) .cell-head { visibility: visible; background: var(--surface-2); }
+body[data-skin-cells="flat"] .cell.selected .cell-box { box-shadow: none; border-color: var(--accent); }
+body[data-skin-cells="rounded"] .cell:not(.markdown) .cell-box { border-radius: var(--r-lg); }
+body[data-skin-cells="rounded"] .cell.selected .cell-box { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* While a cell is being edited it keeps KratosForge's orange edge, so edit and command mode still differ. */
+body[data-skin-cells="card"] .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange), 0 0 0 1px var(--accent); }
+body[data-skin-cells="flat"] .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
+body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange), 0 0 0 3px var(--accent-soft); }

@@ -72,7 +72,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, jsonfile, sql, sql_policy, warehouse
+from . import app_settings, free_memory, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -88,11 +88,18 @@ TARGET_ALLOWS = {"lakehouse": ("read_only", "local_mutation"),
 LOCAL_DIALECTS = ("duckdb", "spark", "tsql")
 
 
-def memory_mb(percent: int) -> int:
-    """``percent`` of this PC's memory in MB (8 GB assumed when it can't be read), at least 256."""
+def memory_budget(percent: int) -> dict[str, Any]:
+    """A run's memory (free_memory.budget): ``percent`` of this PC's memory (8 GB assumed when it
+    can't be read), held to most of what is free when the run starts, so a busy PC's run spills to
+    disk or stops with a clear message instead of running the PC out of memory."""
     from .side_by_side import _memory_gb
     total = _memory_gb()
-    return max(256, int((total or 8) * 1024 * percent / 100))
+    return free_memory.budget(int((total or 8) * 1024 * percent / 100), free_memory.available())
+
+
+def memory_mb(percent: int) -> int:
+    """A run's DuckDB memory limit in MB (memory_budget's ``duckdb_mb``)."""
+    return int(memory_budget(percent)["duckdb_mb"])
 
 
 def run_threads(limits: dict[str, Any]) -> int:
@@ -214,8 +221,8 @@ class SqlExecutions:
         configured = str(self._limits().get("sql_temp_dir") or "")
         return Path(configured) if configured else self.root / "sql-runs"
 
-    def _memory_mb(self, percent: int) -> int:
-        return memory_mb(percent)
+    def _memory_budget(self, percent: int) -> dict[str, Any]:
+        return memory_budget(percent)
 
     # ---- starting and stopping
 
@@ -440,8 +447,10 @@ class SqlExecutions:
             job = {"query": run.query, "dialect": run.dialect, "allow": list(run.allow),
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
                    "work_dir": str(self.root), "out": str(run.snapshot), "temp_dir": str(run.folder / "spill"),
-                   "memory_mb": self._memory_mb(int(limits["sql_memory_limit_percent"])),
                    "threads": run_threads(limits)}
+            memory = self._memory_budget(int(limits["sql_memory_limit_percent"]))
+            job.update(memory_mb=memory["duckdb_mb"], memory_cap_mb=memory["cap_mb"],
+                       memory_bound=memory["bound"], free_mb=memory["free_mb"])
         if self.test_lake and run.target == "lakehouse":  # tests only: local Delta folders instead of OneLake
             job["lakehouse"]["schemas_enabled"] = False
             job["local_root"] = str(self.test_lake)
@@ -567,7 +576,8 @@ class SqlExecutions:
             else:
                 run.state, run.error_kind = "failed", "engine"
                 run.error = (f"The query's process stopped unexpectedly (exit code {code}). It may have run out of "
-                             "memory: lower the result size, or raise the memory share in Settings › SQL.")
+                             "memory: close other apps and run it again, or narrow the query (a filter, fewer "
+                             "columns), or raise the memory share in Settings › SQL.")
             if run.state != "completed":
                 shutil.rmtree(run.folder, ignore_errors=True)
             self._finished(run)

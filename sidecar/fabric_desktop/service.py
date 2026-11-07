@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import logging
 import os
 import math
@@ -956,11 +957,20 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 resolve_warehouse=lambda ref: warehouse.resolve(self.fabric, ref))
         return self._sql_runs
 
-    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
+    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any],
+                       reason: str = "") -> None:
         auth = getattr(self, "_auth", None)  # only an account already signed in; never sign in here
         who = (auth.signed_in_user() or "") if auth is not None else ""
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
-        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
+        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant, reason=reason)
+
+    def _audit_finished(self, action: str, ok: bool, seconds: float, params: dict[str, Any]) -> None:
+        """The line for work that ended after the call that started it had returned (a pipeline run on
+        this PC, a job in Fabric): ``ok`` or ``error`` with reason "failed". Never fails the work."""
+        try:
+            self._audit_sql_run(action, "ok" if ok else "error", seconds, params, reason="" if ok else "failed")
+        except Exception as exc:  # noqa: BLE001 - the run has ended either way; stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",

@@ -1016,3 +1016,22 @@ def test_nested_shared_arrays_count_every_time_they_appear():
     scope.variables["a"] = [[list(range(400))] * 400]
     with pytest.raises(ExpressionError, match=f"more than {ev.MAX_ITEMS:,} items"):
         evaluate("@createArray(variables('a'))", scope)
+
+
+def test_how_a_run_ended_gets_its_own_audit_line(tmp_path):
+    lines = []
+
+    class Audited(Svc):
+        def _audit_finished(self, action, ok, seconds, params):
+            lines.append((action, ok, params))
+
+    svc = Audited(tmp_path)
+    good = svc.pipeline_run_start(path=str(REFERENCE), mocks=MOCKS, wait_scale=0)["run_id"]
+    bad = svc.pipeline_run_start(text=pipeline(fail("F")), wait_scale=0)["run_id"]
+    for rid in (good, bad):
+        finish(svc, rid)
+    end = time.monotonic() + 10
+    while len(lines) < 2 and time.monotonic() < end:  # written just after the record is saved
+        time.sleep(0.02)
+    by_run = {p["run_id"]: (a, ok, p["state"]) for a, ok, p in lines}
+    assert by_run == {good: ("pipeline_run_finished", True, "succeeded"), bad: ("pipeline_run_finished", False, "failed")}

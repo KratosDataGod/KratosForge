@@ -347,6 +347,14 @@ function renderCell(cell) {
         setTimeout(() => { if (!document.activeElement?.closest?.(".cm-editor, input, select")) node.focus({ preventScroll: true }); });
       }
     },
+    // Newer Chromium (WebView2 updates on its own) moves focus again on mouseup after a press on the
+    // draggable grip, to the view, where the command-mode keys don't reach the cell. So a click that
+    // ends with focus outside the cell puts it back.
+    onclick: (e) => {
+      if (e.target.closest(".cm-editor, input, select, textarea, button, a")) return;
+      const el = document.querySelector(`[data-cell="${cell.id}"]`);
+      if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    },
   });
   const head = h("div", { class: "cell-head" },
     h("select", { class: "lang", "aria-label": "Cell language", disabled: meta.frozen || null,

@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # ready_for_review: a draft runs without its Windows engine tests and engine build (see the
+    # changes job), so marking it ready runs everything on the same head.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # Read-only unless a job asks for more; only the release job writes.
 permissions:
@@ -32,6 +35,7 @@ jobs:
       windows: ${{ steps.paths.outputs.windows }}
       ubuntu: ${{ steps.paths.outputs.ubuntu }}
       compat: ${{ steps.paths.outputs.compat }}
+      draft: ${{ steps.paths.outputs.draft }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: github.event_name == 'pull_request'
@@ -39,11 +43,18 @@ jobs:
           fetch-depth: 2
       - id: paths
         shell: bash
+        env:
+          DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\n' >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\ndraft=false\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A draft pull request skips the slowest Windows work (its Windows engine tests, the engine
+          # build and the shell build after it) to keep Windows runners free for pull requests that are
+          # ready. Marking it ready for review runs everything (the ready_for_review trigger above).
+          if [ "$DRAFT" = true ]; then draft=true; else draft=false; fi
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
           # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
           # it changes against the base it will merge into. -z lists every path as itself: without it, git
           # quotes and escapes a path with non-ASCII letters, a quote or a tab, and the patterns below
@@ -58,7 +69,8 @@ jobs:
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
           # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
-          if [ "$docs_only" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
+          # A draft skips them until it is marked ready.
+          if [ "$docs_only" = true ] || [ "$draft" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
           # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
           # host list, links), so a docs change runs them here too.
           if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then echo "ubuntu=true"; else echo "ubuntu=false"; fi >> "$GITHUB_OUTPUT"
@@ -351,7 +363,7 @@ jobs:
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
     needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: windows-latest
     # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
     outputs:

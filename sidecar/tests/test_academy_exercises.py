@@ -77,7 +77,8 @@ def test_the_starter_does_not_pass_yet(tmp_path):
             continue
         if ex["adapter"] == "pyspark_lab":   # the starter code, graded like any answer
             ref = pyspark_lab.reference(PACK, eid)
-            res = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], ref["starter"], ref["solution"], pyspark_lab.run_reference)
+            res = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], ref["starter"], ref["solution"], pyspark_lab.run_reference,
+                                    ref["assets"])
             assert not res["passed"], eid
             continue
         ref = exercises.reference(PACK, eid)

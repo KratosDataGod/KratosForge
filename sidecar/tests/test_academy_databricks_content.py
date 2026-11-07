@@ -44,13 +44,13 @@ def test_the_troubleshooting_exercise_starts_from_the_broken_job():
 
 def test_the_packs_python_has_no_undefined_names_or_syntax_errors():
     """The packs folder is outside the repo's ruff and mypy runs (its code runs with the exercise's
-    ``spark``), so typos in a starter, solution or wrong answer are caught here. Starters import what the
+    ``spark``, and a Fabric notebook's with ``notebookutils``), so typos in a starter, solution or wrong answer are caught here. Starters import what the
     learner will need, so an unused import is fine."""
     ruff = shutil.which("ruff")
     if not ruff:
         pytest.skip("ruff isn't installed here")
     packs = Path(exercises.registry.ROOT)
     p = subprocess.run([ruff, "check", "--isolated", "--select", "F,E9", "--ignore", "F401",
-                        "--config", 'builtins=["spark"]', "--output-format", "concise", str(packs)],
+                        "--config", 'builtins=["spark", "notebookutils"]', "--output-format", "concise", str(packs)],
                        capture_output=True, text=True, timeout=120, check=False)
     assert p.returncode == 0, p.stdout + p.stderr

@@ -104,6 +104,8 @@ const motionStats = { played: {}, skipped: {}, events: {}, live: 0, loadMs: 0, d
 let loadTasks = [];
 let dropUntil = 0;
 let typedAt = [];
+// An Achievement Reveal that came while the person was typing: the latest one waits for the pause.
+let heldAchieve = null;
 
 // A key pressed where text is written: a field, a text area, an editable region or a code editor.
 function noteTyping(e) {
@@ -118,6 +120,21 @@ function deepWork() {
   const now = Date.now();
   const recent = typedAt.filter((t) => now - t < DEEP_WINDOW_MS);
   return recent.length >= DEEP_KEYS || (recent.length > 0 && now - recent[recent.length - 1] < DEEP_PAUSE_MS);
+}
+
+// Hold one Achievement Reveal until typing pauses, then play it through fx(), which checks again that
+// the message is still shown and the level and switch still allow it. A timer runs only while one waits.
+function holdAchieve(anchor) {
+  const first = !heldAchieve;
+  heldAchieve = anchor;
+  if (!first) return;
+  const retry = () => {
+    if (deepWork()) return setTimeout(retry, DEEP_PAUSE_MS / 4);
+    const held = heldAchieve;
+    heldAchieve = null;
+    fx(held, "achieve");
+  };
+  setTimeout(retry, DEEP_PAUSE_MS / 4);
 }
 
 function reducedMotion() {
@@ -185,7 +202,10 @@ function fx(anchor, kind) {
   if (!anchor || !m) return null;
   if (motionLevel() < m.level || document.hidden) return skipFx("level");
   if (!motionOn(m.family)) return skipFx("family");
-  if (m.celebrate && deepWork()) return skipFx("deepwork");
+  if (m.celebrate && deepWork()) {
+    if (kind === "achieve") holdAchieve(anchor);
+    return skipFx("deepwork");
+  }
   if (!anchor.isConnected) return skipFx("gone");
   if (anchor.querySelector(":scope > .fx")) return skipFx("busy");
   if (motionStats.live >= MAX_LIVE_FX) return skipFx("budget");

@@ -109,8 +109,9 @@ compositor draws them without layout. The engine keeps them cheap:
 - If the app's main thread is busy (long tasks adding up to 0.5 s within 5 s), effects drop one
   level for 30 s.
 - While you are typing in a cell, query, field or editor (a key in the last 2 s, or 8 keys in 10 s),
-  the celebrations (Anvil Strike, Wolf Run and Achievement Reveal) don't play. Sparks, embers and
-  progress still do, and the result is always in the app as text. Only when keys were pressed is
+  the Anvil Strike and Wolf Run don't play, and an Achievement Reveal waits until you pause (the
+  latest one, if its message is still shown). Sparks, embers and progress still play, and the result
+  is always in the app as text. Only when keys were pressed is
   noted, never which keys or what you wrote.
 - Every effect removes itself when it ends; a redraw of the page removes any still playing.
 

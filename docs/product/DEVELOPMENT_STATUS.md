@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-06 11:42 UTC, main de881016.** Covers the PRs merged from #135 to #1953.
+**Product check of 2026-11-06 23:42 UTC, main c750da45.** Covers the PRs merged from #135 to #2058.
 
 ## Summary
 
+- Evening check, 2026-11-06: 97 PRs merged after de881016. 3 were product data PRs; the other 94 were linked, 52 of
+  them type checks, tests and hardening (PB-101). Screen readers now hear dialog descriptions, command bar results and
+  page changes (PB-063; the Windows Narrator pass is still to come). Every outbound call works behind a corporate
+  proxy, and the build pins its base image and build tools (PB-124). Academy gained Git, database project and access
+  control exercises (PB-128), the skin color tokens are finished (PB-129), and workloads and incidents are stricter
+  about unknown states (PB-105).
 - Acceptance, 2026-11-06: the product owner accepted PB-129 (platform skins) with documented limitations: appearance
   and workflow come in one skin, there's no Import skin screen yet, and the demonstration mocks the cloud parts. The
   first two follow as PB-132 and PB-133 (Proposed).

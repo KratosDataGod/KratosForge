@@ -34,6 +34,19 @@ def test_the_redacted_stream_removes_credentials_and_keeps_the_rest():
     assert "plain line" in text and "dev.azure.com/org/_git/repo" in text
 
 
+def test_a_credential_split_across_writes_is_redacted_whole():
+    raw = io.StringIO()
+    stream = server._RedactedStream(raw)
+    opaque = "Zq" + "9xR4tY7uP2wK5mN8bV3cX6zL1"
+    print("Authorization: Bearer", opaque, file=stream)  # three writes: the words, the token, the newline
+    for chunk in ("client_secret", "=", opaque[:10], opaque[10:]):
+        stream.write(chunk)
+    assert opaque[:10] not in raw.getvalue()  # held until the line ends or a flush
+    stream.flush()
+    assert opaque not in raw.getvalue() and opaque[:10] not in raw.getvalue(), raw.getvalue()
+    assert "Authorization" in raw.getvalue()
+
+
 _SERVE = textwrap.dedent("""
     import sys, threading, warnings
     from fabric_desktop import server

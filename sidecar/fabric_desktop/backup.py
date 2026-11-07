@@ -164,6 +164,10 @@ def create(out_dir: Path, data_dir: Path, agent_home: Path | None = None, now: d
     return {"path": str(target), "files": len(entries), "cleaned": cleaned}
 
 
+# Files older backups carry that are now left out: restored by no one and quietly passed over.
+NO_LONGER_BACKED_UP = {"app/link-port"}
+
+
 def _safe(name: str) -> bool:
     path = PurePosixPath(name)
     return (not path.is_absolute() and ".." not in path.parts and "\\" not in name and ":" not in name
@@ -186,12 +190,17 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
             return {}, [f"It isn't a {SCHEMA} backup."]
         problems = []
         listed = {}
+        kept = []
         for entry in manifest.get("files") or []:
             name = str(entry.get("path", ""))
+            if name in NO_LONGER_BACKED_UP:
+                continue
+            kept.append(entry)
             if not _safe(name):
                 problems.append(f"{name!r} would be written outside the app's folders or is never restored")
             listed[name] = entry
-        names = set(z.namelist()) - {MANIFEST}
+        manifest = dict(manifest, files=kept)
+        names = set(z.namelist()) - {MANIFEST} - NO_LONGER_BACKED_UP
         for name in sorted(names - listed.keys()):
             problems.append(f"{name} is in the zip but not in its manifest")
         for name, entry in sorted(listed.items()):

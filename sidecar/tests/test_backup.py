@@ -1,5 +1,6 @@
 """Backup and restore: what goes in, what never does, and checks before anything is written."""
 
+import hashlib
 import json
 import sqlite3
 import zipfile
@@ -182,7 +183,6 @@ def test_a_changed_or_unsafe_backup_is_refused_before_writing(app, tmp_path):
         backup.restore(changed, app, apply=True)
     assert json.loads((app / "app-settings.json").read_text()) == {"channel": "preview"}
 
-    import hashlib
     evil = b"x"
     entry = {"path": "app/../../evil.txt", "size": 1, "sha256": hashlib.sha256(evil).hexdigest()}
     unsafe = _tamper(zip_path, tmp_path, "app/../../evil.txt", evil, entry)
@@ -237,3 +237,16 @@ def test_a_damaged_database_is_backed_up_as_it_is_and_doesnt_stop_the_backup(app
     assert {e["path"] for e in manifest["files"]} >= {"app/integrations.sqlite", "app/workloads.sqlite"}
     with closing(sqlite3.connect(app / "workloads.sqlite")) as db:  # the healthy one is untouched
         assert db.execute("select name from w").fetchall() == [("orders",)]
+
+
+def test_a_backup_from_before_link_port_was_left_out_still_restores_and_skips_it(app, tmp_path):
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    stale = b"40000 " + b"cd" * 16
+    entry = {"path": "app/link-port", "size": len(stale), "sha256": hashlib.sha256(stale).hexdigest()}
+    older = _tamper(zip_path, tmp_path, "app/link-port", stale, entry)  # as backups made before carried it
+    live = (app / "link-port").read_text()
+    manifest, problems = backup.validate(older)
+    assert problems == [] and "app/link-port" not in {f["path"] for f in manifest["files"]}
+    result = backup.restore(older, app, apply=True)
+    assert result["applied"] and "app/link-port" not in {f["path"] for f in result["files"]}
+    assert (app / "link-port").read_text() == live  # the running app's token is left alone

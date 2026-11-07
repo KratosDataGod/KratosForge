@@ -440,13 +440,19 @@ class _SafeFormatter(logging.Formatter):
 
 
 class _RedactedStream(io.TextIOBase):
-    """The engine's stderr, which the shell keeps in sidecar.log: every write passes through
+    """The engine's stderr, which the shell keeps in sidecar.log: every line passes through
     ``redact.secrets`` first. Log records already do; this covers what doesn't go through them:
     tracebacks, ``warnings``, third-party loggers' last-resort handler and anything a library prints.
-    Native code writing to the file descriptor directly isn't seen here."""
+    Writes are held until a newline, so a credential split across writes (``print("Bearer", token)``)
+    is redacted whole; ``flush`` writes out a part line, and a line past ``HOLD`` characters goes out
+    as it is. Native code writing to the file descriptor directly isn't seen here."""
+
+    HOLD = 64 * 1024
 
     def __init__(self, stream: IO[str]):
         self.stream = stream
+        self._part = ""
+        self._lock = threading.Lock()
 
     def writable(self) -> bool:
         return True
@@ -462,10 +468,21 @@ class _RedactedStream(io.TextIOBase):
         return False
 
     def write(self, text: str) -> int:
-        self.stream.write(secrets(text))
+        with self._lock:
+            held = self._part + text
+            cut = held.rfind("\n") + 1
+            if len(held) - cut > self.HOLD:
+                cut = len(held)
+            self._part = held[cut:]
+            if cut:
+                self.stream.write(secrets(held[:cut]))
         return len(text)
 
     def flush(self) -> None:
+        with self._lock:
+            part, self._part = self._part, ""
+            if part:
+                self.stream.write(secrets(part))
         self.stream.flush()
 
 

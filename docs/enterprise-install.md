@@ -139,7 +139,7 @@ Otherwise the engine doesn't start, and the app says why. It never installs or r
 
 The app checks those files and folders, not every file below them, so leave the permissions the folders pass down unchanged. Notebook-environment packages still install in the user's profile; see `notebook_package_folder`.
 
-This is Preview. It hasn't yet been tried on a PC with AppLocker or App Control for Business enforced.
+This is Preview. It's a setting in the policy file, not a screen, so Settings > Preview features doesn't list it. It hasn't yet been tried on a PC with AppLocker or App Control for Business enforced.
 
 ## Roll back
 

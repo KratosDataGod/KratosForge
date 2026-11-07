@@ -30,3 +30,20 @@ def test_each_bundled_javascript_build_has_a_hashed_lock_file():
         assert packages and all(v.get("integrity", "").startswith("sha512-") for v in packages.values()), name
         for dep, version in wanted.items():  # the lock holds exactly the versions package.json names
             assert packages[f"node_modules/{dep}"]["version"] == version, (name, dep)
+
+
+def test_ci_tools_install_from_hashed_files():
+    # A tool CI installs on its own (not the engine with its constraints, not a local package) comes from a
+    # hashed file under .github/requirements, never a bare name==version that trusts PyPI's file that day.
+    loose = []
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for line in workflow.read_text(encoding="utf-8").splitlines():
+            if "pip install" not in line or "-c constraints.txt" in line or "--target" in line:
+                continue
+            if "--require-hashes -r .github" not in line:
+                loose.append(f"{workflow.name}: {line.strip()}")
+    assert not loose, loose
+    for path in (ROOT / ".github" / "requirements").glob("*.txt"):
+        pins = re.findall(r"^\S+==\S+ \\$", path.read_text(encoding="utf-8"), re.M)
+        hashes = re.findall(r"--hash=sha256:[0-9a-f]{64}", path.read_text(encoding="utf-8"))
+        assert pins and len(hashes) >= len(pins), path.name

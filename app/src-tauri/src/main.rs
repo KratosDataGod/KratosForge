@@ -893,6 +893,15 @@ fn invoke_allowed(command: &str, origin: Option<&str>, webview: &str) -> bool {
     origin.is_none_or(|o| APP_ORIGINS.contains(&o)) && (webview == "main" || !MAIN_WINDOW_ONLY.contains(&command))
 }
 
+/// The same rule again inside each of those commands, so it holds whatever calls them.
+fn from_main_window<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> bool {
+    webview.label() == "main"
+}
+
+fn main_window_only<R: tauri::Runtime>(webview: &tauri::Webview<R>) -> Result<(), String> {
+    if from_main_window(webview) { Ok(()) } else { Err("Only the main window can do this.".into()) }
+}
+
 const MAIN_WINDOW_ONLY: [&str; 6] = ["check_components", "confirm_started", "check_for_update", "update_sidecar", "update_app", "take_pending_link"];
 
 const INVOKE_REFUSED: &str = "Only KratosForge's own page can use the app's commands.";
@@ -1015,7 +1024,10 @@ const CONFIRM_LIMIT: std::time::Duration = std::time::Duration::from_secs(20 * 6
 /// previous one (exe.old) can go. It goes once its process has exited. Not when this is the wrong
 /// build: the exe that started it is putting itself back.
 #[tauri::command]
-fn confirm_started() {
+fn confirm_started(webview: tauri::Webview) {
+    if !from_main_window(&webview) {
+        return;
+    }
     if START_CONFIRMED.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -1091,7 +1103,8 @@ fn watch_start(app: tauri::AppHandle) {
 /// Reports this exe's build, the Python and sidecar it will use, and the
 /// latest release. Fails only when Python itself cannot run.
 #[tauri::command]
-async fn check_components(app: tauri::AppHandle) -> Result<Value, String> {
+async fn check_components(app: tauri::AppHandle, webview: tauri::Webview) -> Result<Value, String> {
+    main_window_only(&webview)?;
     let updated_to = updated_to_arg();
     // The window is up and the UI has asked for this check, so this exe started. After an update,
     // the exe that started this one waits for this marker, then exits. From here this exe watches
@@ -1165,7 +1178,8 @@ fn offered_now() -> Result<String, String> {
 /// release rule as the startup check, so update_app will install it. Leaves the engine alone: the
 /// new build's startup check updates it.
 #[tauri::command]
-async fn check_for_update() -> Result<Value, String> {
+async fn check_for_update(webview: tauri::Webview) -> Result<Value, String> {
+    main_window_only(&webview)?;
     let latest = channel_latest()?;
     Ok(json!({
         "commit": if BUILD_COMMIT.is_empty() { Value::Null } else { json!(BUILD_COMMIT) },
@@ -1179,7 +1193,8 @@ async fn check_for_update() -> Result<Value, String> {
 /// engine's build, which can be newer than this exe when the release has moved on (never with
 /// `"auto_update": false`, which installs only this build's engine).
 #[tauri::command]
-async fn update_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>) -> Result<Value, String> {
+async fn update_sidecar(app: tauri::AppHandle, webview: tauri::Webview, state: tauri::State<'_, SidecarState>) -> Result<Value, String> {
+    main_window_only(&webview)?;
     if BUILD_COMMIT.is_empty() {
         return Err("This is a local build, so it cannot pick a sidecar version. Install it with pip.".into());
     }
@@ -1556,7 +1571,8 @@ impl update_guard::Handover for ExeHandover<'_> {
 /// on (a newer Preview was published since), or moves during the download, the build it names
 /// now is installed instead, so an update never chases a build the release no longer holds.
 #[tauri::command]
-async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>, commit: String) -> Result<(), String> {
+async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri::State<'_, SidecarState>, commit: String) -> Result<(), String> {
+    main_window_only(&webview)?;
     if !update_guard::is_commit(&commit) {
         return Err(format!("{commit} is not a build commit"));
     }
@@ -2243,7 +2259,7 @@ fn app_page(url: &Url) -> bool {
 }
 
 /// A new window asked for by the app's own page (a link opened with Ctrl or Shift, window.open):
-/// a web link opens in the default browser, and nothing opens inside the app. Without this, WebView2
+/// always denied. An https link opens in the default browser, and nothing opens inside the app. Without this, WebView2
 /// would open a window of its own, with no navigation filter.
 fn app_new_window(url: Url, _features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<tauri::Wry> {
     if new_window_opens_in_browser(&url) {
@@ -2252,8 +2268,9 @@ fn app_new_window(url: Url, _features: tauri::webview::NewWindowFeatures) -> New
     NewWindowResponse::Deny
 }
 
+/// The same rule as open_link: https only.
 fn new_window_opens_in_browser(url: &Url) -> bool {
-    matches!(url.scheme(), "https" | "http") && !is_app_page(url)
+    url.scheme() == "https" && !is_app_page(url)
 }
 
 /// The main window, from tauri.conf.json (where it has "create": false), with the same filters as
@@ -2534,7 +2551,10 @@ fn embed_host(webview: &str, path: &str) -> tauri::http::Response<Vec<u8>> {
 struct PendingLink(Mutex<Option<String>>);
 
 #[tauri::command]
-fn take_pending_link(state: tauri::State<'_, PendingLink>) -> Option<String> {
+fn take_pending_link(webview: tauri::Webview, state: tauri::State<'_, PendingLink>) -> Option<String> {
+    if !from_main_window(&webview) {
+        return None;
+    }
     state.0.lock().ok().and_then(|mut l| l.take())
 }
 
@@ -3077,6 +3097,12 @@ mod embed_host_tests {
                 assert!(!invoke_allowed(command, Some("http://tauri.localhost"), view), "{command} from {view}");
             }
         }
+        // And inside each of them, by the calling webview's label.
+        for command in MAIN_WINDOW_ONLY {
+            let body = main_rs.split(&format!("fn {command}(")).nth(1).expect("the command").split("\n}").next().unwrap();
+            let check = body.find("main_window_only(&webview)?").or_else(|| body.find("if !from_main_window(&webview)"));
+            assert!(check.is_some_and(|at| at < 400), "{command} checks its window first");
+        }
         for command in ["rpc", "open_link", "open_doc", "pop_out_close", "pop_out_on_top", "pop_out_open_in_fabric", "fabric_view_show"] {
             assert!(invoke_allowed(command, Some("http://tauri.localhost"), "pop-out-runs"), "{command}");
         }
@@ -3103,8 +3129,8 @@ mod embed_host_tests {
         // A new-window request always gets Deny; only a web link that isn't the app's own page goes to the browser.
         assert!(main_rs.split("fn app_new_window(").nth(1).unwrap().split("\n}").next().unwrap().ends_with("NewWindowResponse::Deny"));
         let browser = |u: &str| new_window_opens_in_browser(&Url::parse(u).unwrap());
-        assert!(browser("https://learn.microsoft.com/fabric/") && browser("http://example.com/"));
-        for page in ["tauri://localhost/index.html", "http://tauri.localhost/#", "https://tauri.localhost/index.html?popout=runs",
+        assert!(browser("https://learn.microsoft.com/fabric/"));
+        for page in ["http://example.com/", "tauri://localhost/index.html", "http://tauri.localhost/#", "https://tauri.localhost/index.html?popout=runs",
                      "javascript:alert(1)", "file:///C:/x.ipynb", "about:blank", "nbout://frame", "ms-settings:privacy"] {
             assert!(!browser(page), "{page}");
         }

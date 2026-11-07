@@ -224,6 +224,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q8",
+      "type": "single",
+      "stem": "Which PySpark code keeps only rows where country is UK and amount is over 100?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`df.filter((col(\"country\") == \"UK\") & (col(\"amount\") > 100))`"
+        },
+        {
+          "id": "b",
+          "text": "`df.select((col(\"country\") == \"UK\") & (col(\"amount\") > 100))`"
+        },
+        {
+          "id": "c",
+          "text": "`df.filter((col(\"country\") == \"UK\") | (col(\"amount\") > 100))`"
+        },
+        {
+          "id": "d",
+          "text": "`df.filter(col(\"country\") == \"UK\" and col(\"amount\") > 100)`"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Conditions combine with & for AND, each in parentheses. Python's and doesn't work on columns, | is OR, and select returns a boolean column instead of filtering rows.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.6-q9",
+      "type": "single",
+      "stem": "A DataFrame has a column named cust_nm that must be called customer_name before it's written to the silver table. Which code does this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`df.withColumnRenamed(\"customer_name\", \"cust_nm\")`"
+        },
+        {
+          "id": "b",
+          "text": "`df.select(\"customer_name\")`"
+        },
+        {
+          "id": "c",
+          "text": "`df.withColumn(\"cust_nm\", \"customer_name\")`"
+        },
+        {
+          "id": "d",
+          "text": "`df.withColumnRenamed(\"cust_nm\", \"customer_name\")`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "withColumnRenamed takes the existing name and then the new name. withColumn adds or replaces a column from an expression, and select can't rename a column that doesn't exist.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.6-q10",
+      "type": "single",
+      "stem": "In a KQL table, each Orders row has a dynamic column Items that holds an array of line items. You need one row per line item, with the order's other columns repeated. Which operator should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`mv-expand`"
+        },
+        {
+          "id": "b",
+          "text": "`project-away`"
+        },
+        {
+          "id": "c",
+          "text": "`extend`"
+        },
+        {
+          "id": "d",
+          "text": "`summarize make_list()`"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "mv-expand creates a record for each element of the array and duplicates the other columns. make_list does the opposite, and project-away and extend don't add rows.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/mv-expand-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.6-q11",
+      "type": "single",
+      "stem": "A warehouse table must be loaded from a lakehouse table in the same workspace by using T-SQL. Which statement does this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`COPY INTO MyWarehouseTable FROM MyLakehouse.dbo.MyLakehouseTable;`"
+        },
+        {
+          "id": "b",
+          "text": "`INSERT INTO MyWarehouseTable EXEC MyLakehouse.dbo.MyLakehouseTable;`"
+        },
+        {
+          "id": "c",
+          "text": "`SELECT * INTO MyLakehouse.dbo.MyLakehouseTable FROM MyWarehouseTable;`"
+        },
+        {
+          "id": "d",
+          "text": "`INSERT INTO MyWarehouseTable SELECT * FROM MyLakehouse.dbo.MyLakehouseTable;`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A cross-database INSERT ... SELECT with a three-part name reads the lakehouse table. COPY INTO loads files, EXEC runs procedures, and the last statement writes in the wrong direction.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.6-q12",
+      "type": "single",
+      "stem": "A KQL query reads `Devices | join (Readings) on DeviceId` and has no kind parameter. Which join flavor runs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "leftouter, which keeps every row of the left table"
+        },
+        {
+          "id": "b",
+          "text": "inner, which returns every matching pair from both sides"
+        },
+        {
+          "id": "c",
+          "text": "innerunique, which deduplicates the left side before it joins"
+        },
+        {
+          "id": "d",
+          "text": "fullouter, which keeps unmatched rows from both tables"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The default KQL join flavor is innerunique: an inner join with left-side deduplication. For a standard inner join you must set kind=inner.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/join-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.6-q13",
+      "type": "multiple",
+      "stem": "Which two statements about DataFrame save modes are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "`append` replaces data that has the same file names"
+        },
+        {
+          "id": "b",
+          "text": "`overwrite` replaces only the rows whose keys appear in the DataFrame"
+        },
+        {
+          "id": "c",
+          "text": "By default, the write fails if data already exists at the target"
+        },
+        {
+          "id": "d",
+          "text": "By default, the write appends to any data that already exists"
+        },
+        {
+          "id": "e",
+          "text": "`ignore` silently skips the write if data already exists at the target"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "Without a mode the write fails if data exists, and ignore skips silently. overwrite replaces all existing data, and append adds data.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

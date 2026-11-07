@@ -132,6 +132,197 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q5",
+      "type": "single",
+      "stem": "Log records are appended to a Delta table, and the source sometimes resends records that are already in the table. Each record has a uniqueId. Which statement adds only the new records?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`INSERT INTO logs SELECT * FROM newDedupedLogs`"
+        },
+        {
+          "id": "b",
+          "text": "`INSERT OVERWRITE logs SELECT * FROM newDedupedLogs`"
+        },
+        {
+          "id": "c",
+          "text": "`MERGE INTO logs USING newDedupedLogs ON logs.uniqueId = newDedupedLogs.uniqueId WHEN NOT MATCHED THEN INSERT *`"
+        },
+        {
+          "id": "d",
+          "text": "`MERGE INTO logs USING newDedupedLogs ON logs.uniqueId = newDedupedLogs.uniqueId WHEN MATCHED THEN UPDATE SET *`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "An insert-only merge inserts only records whose uniqueId isn't already in the table. A plain insert duplicates resent records, an update-only merge never adds new ones, and an overwrite drops existing data.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/delta/merge",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q6",
+      "type": "single",
+      "stem": "A MERGE into a silver Delta table fails because several source rows match the same target row. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run the same MERGE again, because the second attempt picks one row"
+        },
+        {
+          "id": "b",
+          "text": "Add a WHEN NOT MATCHED BY SOURCE THEN DELETE clause"
+        },
+        {
+          "id": "c",
+          "text": "Change WHEN MATCHED THEN UPDATE to WHEN NOT MATCHED THEN INSERT"
+        },
+        {
+          "id": "d",
+          "text": "Deduplicate the source so that only one row per key remains before the merge"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Only one source row can match a given target row; otherwise the update is ambiguous. Preprocess the source to remove the multiple matches.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/delta/merge",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q7",
+      "type": "single",
+      "stem": "A stream receives duplicate events with the same guid up to 6 hours apart. Which code removes all duplicates while keeping the state bounded?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`df.distinct()` with no watermark"
+        },
+        {
+          "id": "b",
+          "text": "`df.withWatermark(\"eventTime\", \"10 hours\").dropDuplicatesWithinWatermark([\"guid\"])`"
+        },
+        {
+          "id": "c",
+          "text": "`df.dropDuplicatesWithinWatermark([\"guid\"])` with no watermark"
+        },
+        {
+          "id": "d",
+          "text": "`df.withWatermark(\"eventTime\", \"1 hour\").dropDuplicatesWithinWatermark([\"guid\"])`"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The watermark threshold must be greater than the largest time gap between duplicates (6 hours), and dropDuplicatesWithinWatermark requires a watermark. A 1-hour watermark misses late duplicates, and distinct without a watermark lets state grow indefinitely.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/watermarks",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q8",
+      "type": "single",
+      "stem": "Last week a fact load inserted an inferred member for customer C-881, with Unknown attributes and IsInferredMember set to TRUE. Today the customer's real details arrive. What should the dimension load do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Leave the inferred row and insert a second row for the real customer"
+        },
+        {
+          "id": "b",
+          "text": "Expire the inferred row and insert a new SCD type 2 version"
+        },
+        {
+          "id": "c",
+          "text": "Update the attributes on the existing row and set IsInferredMember to FALSE"
+        },
+        {
+          "id": "d",
+          "text": "Delete the inferred row and insert the customer with a new surrogate key"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Changes to an inferred member are treated as late arriving details, not SCD changes: update the attributes in place and clear the flag, so facts keep their key.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q9",
+      "type": "single",
+      "stem": "A customer DataFrame must drop rows only where both c_acctbal and c_custkey are null, and keep rows where only one of them is null. Which code does this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`df.na.fill(\"0\", subset=[\"c_acctbal\", \"c_custkey\"])`"
+        },
+        {
+          "id": "b",
+          "text": "`df.na.drop()`"
+        },
+        {
+          "id": "c",
+          "text": "`df.na.drop(\"all\", subset=[\"c_acctbal\", \"c_custkey\"])`"
+        },
+        {
+          "id": "d",
+          "text": "`df.na.drop(\"any\", subset=[\"c_acctbal\", \"c_custkey\"])`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "na.drop with all drops a row only when all listed columns are null. any drops a row if either is null, no arguments checks every column for any null, and fill replaces nulls instead of dropping rows.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q10",
+      "type": "multiple",
+      "stem": "A streaming aggregation uses `withWatermark(\"event_time\", \"10 minutes\")`. Which two statements about late-arriving records are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Records later than the threshold are guaranteed to be included in their window"
+        },
+        {
+          "id": "b",
+          "text": "A longer watermark tolerates later data but keeps more state and delays results"
+        },
+        {
+          "id": "c",
+          "text": "Records that arrive within the 10-minute threshold are always processed"
+        },
+        {
+          "id": "d",
+          "text": "Watermarks are optional for stream-stream outer joins"
+        },
+        {
+          "id": "e",
+          "text": "The watermark has no effect on how much state the query keeps"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Records within the threshold are always processed; later ones might be, with no guarantee. Longer watermarks raise late-data tolerance at the cost of state and latency. Watermarks are mandatory for outer joins and they bound state.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/watermarks",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

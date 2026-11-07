@@ -266,6 +266,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.4-q9",
+      "type": "single",
+      "stem": "An update policy parses a raw KQL table into a clean table. In production, a transient failure of the policy must never leave the clean table missing rows that reached the raw table. How should you set the policy?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set PropagateIngestionProperties to true"
+        },
+        {
+          "id": "b",
+          "text": "Define a second update policy with the same query"
+        },
+        {
+          "id": "c",
+          "text": "Set IsTransactional to true"
+        },
+        {
+          "id": "d",
+          "text": "Set IsEnabled to false and run the query on a schedule"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "With IsTransactional true, a failed policy means data is ingested into neither table, so the two stay consistent. With the default false, data can land only in the source table.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q10",
+      "type": "single",
+      "stem": "Raw JSON lands in a staging KQL table, and an update policy writes the parsed rows to a target table. The raw rows aren't needed after parsing. What should you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A materialized view over the source table with take_any"
+        },
+        {
+          "id": "b",
+          "text": "A `.set-or-replace` command that empties the source after each ingestion"
+        },
+        {
+          "id": "c",
+          "text": "A soft-delete period of 0 seconds on the target table, with a non-transactional policy"
+        },
+        {
+          "id": "d",
+          "text": "A soft-delete period of 0 seconds on the source table, with a transactional update policy"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Set the source table's soft-delete period to 0 seconds; when you do, any update policy that references it must be transactional.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q11",
+      "type": "single",
+      "stem": "You need an update policy that moves parsed rows from RawEvents into CleanEvents. On which table do you define the policy?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Both tables, with matching policies"
+        },
+        {
+          "id": "b",
+          "text": "CleanEvents, the target table"
+        },
+        {
+          "id": "c",
+          "text": "RawEvents, the source table"
+        },
+        {
+          "id": "d",
+          "text": "The database, as a database-level policy"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The update policy is defined on the target table and names the source table in its Source property.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q12",
+      "type": "single",
+      "stem": "A dashboard queries a materialized view of the latest reading per device. It can tolerate results a few minutes old and needs the fastest queries. How should it query the view?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`external_table(\"LatestReadings\")`"
+        },
+        {
+          "id": "b",
+          "text": "`LatestReadings | union SourceReadings`"
+        },
+        {
+          "id": "c",
+          "text": "`materialized_view(\"LatestReadings\")`"
+        },
+        {
+          "id": "d",
+          "text": "`LatestReadings`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "materialized_view() queries only the materialized part, which is always faster but might miss the newest records. Querying by name also processes the delta.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q13",
+      "type": "single",
+      "stem": "An update policy calls a function that uses the join operator, and the eventhouse has default settings. What must you change for the policy to work?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Move the source table into a different database"
+        },
+        {
+          "id": "b",
+          "text": "Replace the function with a materialized view"
+        },
+        {
+          "id": "c",
+          "text": "Set IsTransactional to false"
+        },
+        {
+          "id": "d",
+          "text": "Disable the streaming ingestion policy on the table"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Streaming ingestion is enabled by default on eventhouse tables, and an update policy that uses join requires it to be disabled. Source and target must also be in the same database.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q14",
+      "type": "multiple",
+      "stem": "Which two statements about KQL update policies are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The target table must have exactly the same schema as the source table"
+        },
+        {
+          "id": "b",
+          "text": "The policy runs on a schedule, independently of ingestion"
+        },
+        {
+          "id": "c",
+          "text": "Only one update policy can be defined on a table"
+        },
+        {
+          "id": "d",
+          "text": "The source and target tables must be in the same database"
+        },
+        {
+          "id": "e",
+          "text": "The policy query can't make callouts by using a plugin"
+        }
+      ],
+      "answer": [
+        "d",
+        "e"
+      ],
+      "explanation": "Source and target must share a database, and the query can't call plugins. Targets can have a different schema, policies run when data is ingested into the source, and several policies can be defined on a table.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

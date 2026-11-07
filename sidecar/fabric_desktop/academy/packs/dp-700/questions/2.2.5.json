@@ -123,6 +123,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.5-q5",
+      "type": "single",
+      "stem": "A pipeline must move data from an on-premises Oracle server, reached through gateway A, to an on-premises SQL Server, reached through gateway B. How should you design it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use one Copy activity and select both gateways in its source and destination connections"
+        },
+        {
+          "id": "b",
+          "text": "Use one Copy activity with built-in workspace staging between the two gateways"
+        },
+        {
+          "id": "c",
+          "text": "Copy through gateway A to an intermediate cloud store, then copy from there through gateway B in a second Copy activity"
+        },
+        {
+          "id": "d",
+          "text": "Use one Copy activity and enable fault tolerance so that it can switch gateways"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A Copy activity can use only one on-premises data gateway, so data between two gateways must go through an intermediate cloud store in two Copy activities.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.5-q6",
+      "type": "single",
+      "stem": "Auditors require proof that each tabular copy wrote as many rows to the destination as it read from the source, allowing for skipped incompatible rows. Which Copy activity setting should you enable?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Intelligent throughput optimization"
+        },
+        {
+          "id": "b",
+          "text": "Degree of copy parallelism"
+        },
+        {
+          "id": "c",
+          "text": "Data consistency verification"
+        },
+        {
+          "id": "d",
+          "text": "Enable staging"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Data consistency verification checks the total row count after the job against rows read, copied and skipped. The other settings tune performance or staging.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.5-q7",
+      "type": "single",
+      "stem": "A nightly Copy activity fails when a few source rows don't fit the destination's data types. The business wants the copy to finish and skip those rows. What should you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Adaptive performance tuning on the Settings tab"
+        },
+        {
+          "id": "b",
+          "text": "Fault tolerance on the Settings tab"
+        },
+        {
+          "id": "c",
+          "text": "Query timeout on the Source tab"
+        },
+        {
+          "id": "d",
+          "text": "Data consistency verification on the Settings tab"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Fault tolerance ignores errors such as incompatible rows during the copy, and logging can record the skipped rows. Data consistency verification checks counts but doesn't skip rows.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.5-q8",
+      "type": "single",
+      "stem": "A staged Copy activity that uses built-in workspace staging fails after running for about an hour on a large load. What should you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use external staging with an Azure Blob Storage or ADLS Gen2 connection"
+        },
+        {
+          "id": "b",
+          "text": "Enable compression on the workspace staging store"
+        },
+        {
+          "id": "c",
+          "text": "Raise the degree of copy parallelism to 256"
+        },
+        {
+          "id": "d",
+          "text": "Switch intelligent throughput optimization to Maximum"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Workspace staging times out after 60 minutes, so long-running jobs should stage in external storage.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.5-q9",
+      "type": "single",
+      "stem": "You want the Copy activity to pick the best throughput level for each source and destination pair without tuning it yourself. Which Intelligent throughput optimization value should you choose?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Standard"
+        },
+        {
+          "id": "b",
+          "text": "Auto"
+        },
+        {
+          "id": "c",
+          "text": "Balanced"
+        },
+        {
+          "id": "d",
+          "text": "A custom value of 4"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Auto applies the optimal setting dynamically based on the source-destination pair and data pattern. Standard, Balanced and custom values are fixed choices.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.5-q10",
+      "type": "multiple",
+      "stem": "On a Copy activity's Source tab for a SQL database, which two options can you use instead of selecting a table? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Query"
+        },
+        {
+          "id": "b",
+          "text": "Notebook output"
+        },
+        {
+          "id": "c",
+          "text": "Dataflow query"
+        },
+        {
+          "id": "d",
+          "text": "Stored procedure"
+        },
+        {
+          "id": "e",
+          "text": "KQL function"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "Besides a table, the source can read with a query or a stored procedure. The other options aren't Copy activity source modes.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

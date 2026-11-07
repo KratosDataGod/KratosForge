@@ -162,6 +162,197 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q6",
+      "type": "single",
+      "stem": "Row-level changes in an Azure SQL database must reach Fabric as a real-time stream, without code, so that they can be transformed and routed to several destinations. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Spark structured streaming notebook that polls the database"
+        },
+        {
+          "id": "b",
+          "text": "A Dataflow Gen2 with a one-minute refresh schedule"
+        },
+        {
+          "id": "c",
+          "text": "A pipeline Copy activity with a tumbling window trigger"
+        },
+        {
+          "id": "d",
+          "text": "An eventstream with the Azure SQL Database CDC source"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The eventstream Azure SQL Database CDC source captures a snapshot and then every row-level change as events, without code. The other options are code, batch or scheduled copies.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q7",
+      "type": "single",
+      "stem": "Events already flow through an eventstream. A team has a Spark Structured Streaming notebook with custom logic that should process those events. What should it add to the eventstream?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Spark Notebook destination that loads the existing notebook"
+        },
+        {
+          "id": "b",
+          "text": "An Activator destination that starts the notebook"
+        },
+        {
+          "id": "c",
+          "text": "A custom endpoint destination that the notebook polls"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse destination, after which the notebook runs on a schedule"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The Spark Notebook destination (preview) loads a notebook in the workspace to process the default or derived streams with a Spark Structured Streaming job.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q8",
+      "type": "single",
+      "stem": "Inside an eventstream, a developer wants to write the stream logic as code, with windowing, joins and aggregations, instead of drag-and-drop operators. What should they use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2"
+        },
+        {
+          "id": "b",
+          "text": "A Spark job definition"
+        },
+        {
+          "id": "c",
+          "text": "A KQL queryset"
+        },
+        {
+          "id": "d",
+          "text": "The SQL operator"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Eventstreams support a SQL operator (preview) for code-first stream processing, including windowing, joins and aggregations. The other items aren't part of an eventstream.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q9",
+      "type": "single",
+      "stem": "Security logs arrive as semi-structured JSON with long free-text messages, and analysts need fast text search over them as they stream in. Where should the events be stored?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Fabric Data Warehouse"
+        },
+        {
+          "id": "b",
+          "text": "A SQL database in Fabric"
+        },
+        {
+          "id": "c",
+          "text": "An eventhouse"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Eventhouses are the preferred engine for semi-structured and free-text analysis of time-based streaming events.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q10",
+      "type": "single",
+      "stem": "Sensor events stream into Fabric. When a reading passes a threshold, an operator must be emailed automatically, with no code. Which eventstream destination should you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Custom endpoint"
+        },
+        {
+          "id": "b",
+          "text": "Activator"
+        },
+        {
+          "id": "c",
+          "text": "Lakehouse"
+        },
+        {
+          "id": "d",
+          "text": "Eventhouse"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Activator destination monitors for conditions and acts, for example by alerting users, when data reaches thresholds. The other destinations store or pass on data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q11",
+      "type": "multiple",
+      "stem": "A team is choosing an eventhouse for streaming telemetry. Which two statements about eventhouses are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventhouse suspends when not in use unless you enable always-on"
+        },
+        {
+          "id": "b",
+          "text": "An eventhouse can hold several KQL databases that share capacity and resources"
+        },
+        {
+          "id": "c",
+          "text": "An eventhouse can hold only one KQL database"
+        },
+        {
+          "id": "d",
+          "text": "An eventhouse is designed for OLTP workloads with enforced foreign keys"
+        },
+        {
+          "id": "e",
+          "text": "An eventhouse stores only structured data, so JSON must be flattened first"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "An eventhouse is a container for multiple databases that share capacity, and it suspends when idle unless always-on is enabled. It handles structured, semi-structured and unstructured event data and isn't an OLTP store.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

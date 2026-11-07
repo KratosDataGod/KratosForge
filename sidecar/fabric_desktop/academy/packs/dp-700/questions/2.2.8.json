@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.8-q5",
+      "type": "single",
+      "stem": "What does this query return? `SELECT Region, Territory, SUM(Sales) AS TotalSales FROM Sales GROUP BY ROLLUP(Region, Territory);`",
+      "options": [
+        {
+          "id": "a",
+          "text": "Totals for every combination, including per territory across all regions"
+        },
+        {
+          "id": "b",
+          "text": "Totals per region and territory, a subtotal per region, and a grand total"
+        },
+        {
+          "id": "c",
+          "text": "Totals per region and territory only, with no subtotals"
+        },
+        {
+          "id": "d",
+          "text": "Only one grand total row"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "ROLLUP moves right to left, giving (Region, Territory), (Region) and the grand total. Totals per territory across regions come from CUBE.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-group-by-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.8-q6",
+      "type": "single",
+      "stem": "A report needs sales totals per region and territory, per region, per territory across all regions, and a grand total, from one query. Which GROUP BY should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`GROUP BY Region, Territory`"
+        },
+        {
+          "id": "b",
+          "text": "`GROUP BY ROLLUP(Region, Territory)`"
+        },
+        {
+          "id": "c",
+          "text": "`GROUP BY GROUPING SETS(Region, ())`"
+        },
+        {
+          "id": "d",
+          "text": "`GROUP BY CUBE(Region, Territory)`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "CUBE creates groups for all combinations of the columns plus the grand total. ROLLUP has no per-territory totals, plain GROUP BY has no subtotals, and GROUPING SETS(Region, ()) gives only region totals and the grand total.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-group-by-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.8-q7",
+      "type": "single",
+      "stem": "Which query returns the total sales per region and one grand total row, and nothing else?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`SELECT Region, SUM(Sales) FROM Sales GROUP BY CUBE(Region, Territory);`"
+        },
+        {
+          "id": "b",
+          "text": "`SELECT Region, SUM(Sales) FROM Sales GROUP BY ();`"
+        },
+        {
+          "id": "c",
+          "text": "`SELECT Region, SUM(Sales) FROM Sales GROUP BY GROUPING SETS(Region, ());`"
+        },
+        {
+          "id": "d",
+          "text": "`SELECT Region, SUM(Sales) FROM Sales GROUP BY Region;`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "GROUPING SETS combines the Region grouping with the empty group (), which is the grand total. GROUP BY Region has no grand total, and GROUP BY () alone can't return Region.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-group-by-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.8-q8",
+      "type": "single",
+      "stem": "A Sales table has 40 rows whose Region is NULL. A query groups total sales by Region. How do these rows appear?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They are added to the grand total only"
+        },
+        {
+          "id": "b",
+          "text": "As 40 separate groups, one per row"
+        },
+        {
+          "id": "c",
+          "text": "They are dropped from the result"
+        },
+        {
+          "id": "d",
+          "text": "As one group whose Region is NULL"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The Database Engine treats all NULL values in a grouping column as equal and puts them in one group.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-group-by-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.8-q9",
+      "type": "single",
+      "stem": "A KQL column y holds the values null, 5, 5 and 5. What does `summarize sum(y), avg(y)` return?",
+      "options": [
+        {
+          "id": "a",
+          "text": "sum_y = 20 and avg_y = 5"
+        },
+        {
+          "id": "b",
+          "text": "sum_y = null and avg_y = null"
+        },
+        {
+          "id": "c",
+          "text": "sum_y = 15 and avg_y = 3.75"
+        },
+        {
+          "id": "d",
+          "text": "sum_y = 15 and avg_y = 5"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Aggregates ignore nulls: the sum is 15, and the average divides by the 3 non-null values, giving 5.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/summarize-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.8-q10",
+      "type": "multiple",
+      "stem": "Which two statements about GROUP BY in a Fabric warehouse are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Every column used in a nonaggregate expression in the SELECT list must be in the GROUP BY list, unless you use GROUP BY ALL"
+        },
+        {
+          "id": "b",
+          "text": "GROUP BY ALL adds all non-aggregated columns from the SELECT list to the grouping"
+        },
+        {
+          "id": "c",
+          "text": "NULL values in a grouping column are left out of the result"
+        },
+        {
+          "id": "d",
+          "text": "ROLLUP(a, b) returns the groups (a, b), (a), (b) and ()"
+        },
+        {
+          "id": "e",
+          "text": "GROUPING SETS removes duplicate groups, such as two grand totals, automatically"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Nonaggregated SELECT columns must be grouped, and GROUP BY ALL, available in Fabric Data Warehouse, adds them automatically. GROUPING SETS doesn't consolidate duplicates, ROLLUP has no (b) group, and NULLs form one group.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-group-by-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

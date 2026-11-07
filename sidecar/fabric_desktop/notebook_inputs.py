@@ -68,7 +68,7 @@ def _widgets(cell: dict[str, Any]) -> list[dict[str, Any]]:
                 and isinstance(f.value.value, ast.Name) and f.value.value.id == "dbutils"):
             continue
         names = _WIDGET_ARGS if f.attr != "text" else ("name", "defaultValue", "label")
-        args: dict[str, Any] = {}
+        args: dict[str | None, Any] = {}  # a **kwargs keyword has no name
         literal = True
         # A call can give fewer positional arguments than the widget takes: strict=False on purpose.
         for key, arg in [*zip(names, node.args, strict=False), *((k.arg, k.value) for k in node.keywords)]:

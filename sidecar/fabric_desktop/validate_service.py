@@ -199,7 +199,7 @@ class ValidateMixin:
 
     def _validate_kernel(self, lakehouse_ref: dict[str, str] | None) -> ProcessKernel:
         from .service import _apply_limits
-        schemas = bool(lakehouse_ref) and self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
+        schemas = bool(lakehouse_ref) and self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined, index]  # not indexed when None
         kernel = _CleanKernel(lakehouse_ref, schemas, Path(self.root),  # type: ignore[attr-defined]
                               token=self._token_for,  # type: ignore[attr-defined]
                               load_notebook=lambda nb: self.notebooks.load(nb)["cells"],  # type: ignore[attr-defined]

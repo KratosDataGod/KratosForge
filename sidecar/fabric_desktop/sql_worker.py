@@ -64,7 +64,7 @@ def run(job: dict[str, Any]) -> None:
     if job.get("local_root"):  # tests: the lakehouse's tables are local Delta folders
         from deltalake import DeltaTable
         root = Path(job["local_root"])
-        lakehouse.open_table = lambda name: DeltaTable(str(root / lakehouse.table_ref(name).table))
+        setattr(lakehouse, "open_table", lambda name: DeltaTable(str(root / lakehouse.table_ref(name).table)))  # noqa: B010 - tests only
 
     statements = sql.parse(job["query"], job["dialect"])
     verdicts = sql_policy.classify(statements)

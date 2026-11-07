@@ -48,7 +48,7 @@ import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import sqlglot
 from sqlglot import exp
@@ -167,7 +167,8 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     if writes:
         return _change_verdicts(query)
     try:
-        statements = [s for s in sqlglot.parse(_AS_OF.sub("", query), read="tsql", error_level=ErrorLevel.RAISE)
+        statements = [cast(exp.Expression, s)  # sqlglot types parse as its Expr base
+                      for s in sqlglot.parse(_AS_OF.sub("", query), read="tsql", error_level=ErrorLevel.RAISE)
                       if s is not None]
     except ParseError as exc:
         raise ValueError("The query couldn't be read as T-SQL, so it can't be shown to only read: "
@@ -234,7 +235,8 @@ def _change_verdicts(query: str) -> list[sql_policy.Verdict]:
                                           .rstrip()))
             continue
         try:
-            statements = [st for st in sqlglot.parse(_AS_OF.sub("", batch), read="tsql", error_level=ErrorLevel.RAISE)
+            statements = [cast(exp.Expression, st)  # sqlglot types parse as its Expr base
+                          for st in sqlglot.parse(_AS_OF.sub("", batch), read="tsql", error_level=ErrorLevel.RAISE)
                           if st is not None]
         except ParseError:
             out.append(sql_policy.Verdict(n, "fabric_mutation", "it couldn't be read as T-SQL, so it can't be checked; "

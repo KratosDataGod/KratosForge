@@ -12,7 +12,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from . import app_settings, jsonfile, measurement, redact, retrying
 from .auth import ONELAKE_SCOPES
@@ -321,6 +321,7 @@ class OptimizeMixin:
                              "lakehouse with schemas for tables only some people may read.")
         lake, installation = self.central_family(family)
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        conn = cast(dict[str, Any], conn)  # central_family raised if there were none
         ws, item = conn["workspace_id"], conn["lakehouse_id"]
         tenant = self.auth.signed_in_tenant() or ""
 

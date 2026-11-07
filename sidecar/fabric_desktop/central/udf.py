@@ -36,6 +36,22 @@ import fabric.functions as fn
 udf = fn.UserDataFunctions()
 
 
+def _refused(conn, op, ctx, kwargs):
+    # The refused change is rolled back first; the row goes in on its own, and the refusal is raised
+    # unchanged even when it can't be written.
+    try:
+        conn.rollback()
+        change = _platform.refused_operation(op, kwargs)
+        if change:
+            user = ctx.executing_user if ctx is not None else {}
+            _platform.record_refusal(Db(conn, "tsql"), user.get("PreferredUsername") or user.get("Oid", ""), change)
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
 def _run(sqlDB, op, ctx=None, **kwargs):
     conn = sqlDB.connect()
     try:
@@ -45,6 +61,7 @@ def _run(sqlDB, op, ctx=None, **kwargs):
             kwargs["by"] = ctx.executing_user.get("PreferredUsername") or ctx.executing_user.get("Oid", "")
         return fn_(db, **kwargs)
     except PlatformError as exc:
+        _refused(conn, op, ctx, kwargs)
         raise fn.UserThrownError(str(exc), {"operation": op})
     finally:
         conn.close()

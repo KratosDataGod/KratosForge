@@ -50,6 +50,19 @@ So a revoke's `detail.request` leads back to the request that gave the access.
 
 Every other change writes a row too, each with its own `action`: `save domain`, `save source`, `save landing zone`, `save term`, `save shortcut rules`, `save Entra group naming`, `link Entra group` and `unlink Entra group`, `publish product`, `add product item` and `remove product item`, `add product term` and `remove product term`, `change project` and `project member`. Keys, shortcuts and the landing zone write theirs as well (for example `stage keys`, `keys live`, `shortcut scan`, `switch landing reads`), and so do actions taken from a workload page (`workload <action> <status>`). Filter on the exact names, not on a prefix. Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
 
+## Refused changes
+
+A change the platform refuses (the caller isn't an admin, an owner or a member, or a check on what was asked fails) leaves a `refused <operation>` row, for example `refused delete_domain`, whoever called: the app, a script, or another tool calling `UDF_Platform` directly. The change itself is rolled back first, and the row is written on its own.
+
+| Column | What it holds |
+| --- | --- |
+| `by_user` | The caller as the platform resolved it (Fabric's `executing_user` in Fabric, the signed-in person on one PC), never a name sent with the call |
+| `action` | `refused` and the operation's fixed name. A change sent through `call_once` is named by the operation it carried; a name the platform doesn't know is recorded as `refused call_once` |
+| `target` | Empty |
+| `detail` | `count`: how many refusals of that operation, by that caller, the row stands for |
+
+The row never holds the call's arguments or the refusal's message, which can quote them. Refused reads leave no row. Each row is a write the capacity pays for, so one caller and operation get at most one row a minute (later refusals in that minute are counted into the next row the same process writes), and the platform writes at most 300 refused rows an hour. A row that can't be written never changes the refusal the caller gets.
+
 ## Pulling one request's trail
 
 In the Fabric SQL database (T-SQL):

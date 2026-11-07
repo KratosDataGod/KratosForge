@@ -65,6 +65,7 @@ import datetime as dt
 import json
 import math
 import re
+import threading
 import time
 import uuid
 from typing import Any, Callable, cast
@@ -1481,6 +1482,52 @@ def save_term(db: Db, term: dict[str, Any], by: str = "") -> dict[str, Any]:
     _audit(db, by, "save term", name)
     db.commit()
     return row
+
+
+# A change the platform refused leaves a "refused <operation>" row, so a refusal is on the platform's own
+# audit even when the caller wasn't the app (a script, another tool with Execute rights). The row says
+# who (the platform's resolved identity) and which operation, never its arguments or the refusal's
+# words, which can quote them. Every row is a write the capacity pays for, so a person and operation get
+# at most one row a minute, with how many refusals it stands for, and the platform at most
+# REFUSAL_CAP rows an hour.
+REFUSAL_EVERY = 60
+REFUSAL_CAP = 300
+_REFUSALS: dict[tuple[str, str], int] = {}  # refusals this process saw since its last row, per (who, op)
+_REFUSALS_LOCK = threading.Lock()
+
+
+def refused_operation(op: str, kwargs: dict[str, Any]) -> str:
+    """The change a refused call was for, by its fixed name: call_once's own operation when it carried
+    one; "" for a read, which leaves no row. Never a name taken from the caller as it is."""
+    if op == "call_once" and str(kwargs.get("operation") or "") in OPERATIONS:
+        op = str(kwargs["operation"])
+    if op not in OPERATIONS or op in READ_OPERATIONS:
+        return ""
+    return op
+
+
+def record_refusal(db: Db, by: str, op: str) -> bool:
+    """Write the "refused <op>" row in a transaction of its own, after the refused change was rolled
+    back; True when a row was written. Callers raise the refusal unchanged whatever happens here."""
+    who, action = str(by or "").strip(), f"refused {op}"
+    with _REFUSALS_LOCK:
+        if len(_REFUSALS) > 10_000:  # a long-lived process: start the counts again rather than grow
+            _REFUSALS.clear()
+        _REFUSALS[(who, op)] = _REFUSALS.get((who, op), 0) + 1
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    minute = (now - dt.timedelta(seconds=REFUSAL_EVERY)).isoformat()
+    hour = (now - dt.timedelta(hours=1)).isoformat()
+    if db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?", (action, who, minute)):
+        return False
+    recent = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' AND at > ?",
+                     (hour,))
+    if recent[0]["n"] >= REFUSAL_CAP:
+        return False
+    with _REFUSALS_LOCK:
+        count = _REFUSALS.pop((who, op), 1)
+    _audit(db, who, action, "", {"count": count})
+    db.commit()
+    return True
 
 
 def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:

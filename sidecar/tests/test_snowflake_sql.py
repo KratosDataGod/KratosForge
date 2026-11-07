@@ -751,3 +751,11 @@ def test_object_functions_stop_where_snowflake_does(code, error):
 def test_object_forms_that_are_not_rewritten_say_so(code):
     (note,) = sf.translate(code).statements[0].notes
     assert note.id == "SFX-016"
+
+
+def test_object_pick_with_one_key_column_reads_it_as_a_key():
+    import duckdb
+    t = sf.translate("SELECT object_pick(parse_json('{\"a\": 1, \"b\": 2}'), k)::string, "
+                     "object_pick(parse_json('{\"a\": 1, \"b\": 2}'), parse_json('[\"b\"]'))::string "
+                     "FROM (SELECT 'a' AS k)")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":1}', '{"b":2}')

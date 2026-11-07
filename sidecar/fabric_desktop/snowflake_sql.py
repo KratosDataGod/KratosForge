@@ -698,8 +698,9 @@ def _object_function(node: exp.Anonymous) -> None:
     if name in ("OBJECT_DELETE", "OBJECT_PICK"):
         if len(args) < 2:
             raise _object_refusal(name, f"{name} takes an object and at least one key.")
-        one_array = len(args) == 2 and name == "OBJECT_PICK" and not (isinstance(args[1], exp.Literal)
-                                                                       and args[1].is_string)
+        # OBJECT_PICK(obj, array): only a value plainly an array is taken for one; a single column or other
+        # expression is a key (a key column is the usual case, and an ARRAY column stops with DuckDB's error)
+        one_array = len(args) == 2 and name == "OBJECT_PICK" and isinstance(args[1], (exp.Array, exp.ParseJSON))
         listed = ("CAST(fj_arg1 AS VARCHAR[])" if one_array
                   else "[" + ", ".join(f"fj_arg{i}" for i in range(1, len(args))) + "]")
         keep = "" if name == "OBJECT_PICK" else "NOT "
@@ -1298,7 +1299,11 @@ CATALOG = (
     ("SFX-016", "Rewritten", "OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT run "
                 "on DuckDB JSON with Snowflake's NULL rules: a SQL NULL key or value is left out and JSON null is "
                 "kept; an existing key in OBJECT_INSERT without updateFlag, a repeated key in OBJECT_AGG and "
-                "arrays of unequal length stop with an error. OBJECT_AGG(DISTINCT ...) isn't rewritten. Objects "
+                "arrays of unequal length stop with an error (OBJECT_AGG's text is DuckDB's \"Map keys must be unique\"). "
+                "OBJECT_INSERT of a SQL NULL value leaves the object as it is, an existing key too, as the docs "
+                "don't say otherwise; OBJECT_AGG of no rows is NULL. OBJECT_PICK with one argument takes it for an "
+                "array only when it is written as one ([...], ARRAY_CONSTRUCT or PARSE_JSON); a column is a key. "
+                "OBJECT_AGG(DISTINCT ...) isn't rewritten. Objects "
                 "keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys "
                 "as text. Arguments are worked out more than once, which matters only when they aren't "
                 "deterministic."),

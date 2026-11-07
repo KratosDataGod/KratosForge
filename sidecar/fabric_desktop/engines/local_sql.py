@@ -282,7 +282,10 @@ def _databricks(code: str) -> list[Any]:
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
         raise ValueError("The query is empty.")
-    return [sql.spark_fixes(s, databricks=True) for s in statements]
+    # then Databricks' own functions, written for DuckDB or refused by name; not in sql.spark_fixes, which
+    # the Academy's learner package carries without them
+    from .. import databricks_builtins_sql
+    return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
 
 
 class DuckDBSession(_SqlSession):

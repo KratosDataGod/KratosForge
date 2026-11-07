@@ -99,7 +99,7 @@ class ModelDirectLakeMixin:
     def _directlake_uri(self, workspace_id: str, lakehouse_id: str, schema: str, table: str) -> tuple[str, dict[str, str]]:
         """Where a Direct Lake table's Delta table is, with the options to read it."""
         ref = TableRef(workspace_id, lakehouse_id, schema or "dbo", table, flat=not schema)
-        return ref.uri, self._onelake_options()  # type: ignore[attr-defined]
+        return ref.uri, self._onelake_options()
 
     def _onelake_options(self) -> dict[str, str]:
         from .onelake import storage_options

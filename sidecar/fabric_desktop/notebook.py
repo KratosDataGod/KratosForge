@@ -585,7 +585,7 @@ def _routers() -> tuple[_Router, _Router]:
         sys.stdout = _Router(sys.stdout)
     if not isinstance(sys.stderr, _Router):
         sys.stderr = _Router(sys.stderr)
-    return sys.stdout, sys.stderr  # type: ignore[return-value]
+    return sys.stdout, sys.stderr
 
 
 def _to_running_cell(output: dict[str, Any]) -> bool:

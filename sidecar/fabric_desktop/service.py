@@ -285,7 +285,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def _checks(self, name: str | None) -> dict[str, Any]:
         """What compute_check (and Prove's and Validate's checks) need to follow the code that
         notebook ``name`` runs: the other notebooks by name, and its resources folder for %run -b."""
-        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}  # type: ignore[attr-defined]
+        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}
 
     def _notebook_of(self, name: str) -> dict[str, Any]:
         """Another notebook by name, for compute_check: its cells and its own lakehouse."""
@@ -424,7 +424,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             user = self.auth.signed_in_user()
         except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
             user = None
-        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
+        fabric = self._quiet_fabric() if user else None
         if user and fabric is None:
             user = None  # the saved sign-in has expired: the row offers Sign in
 

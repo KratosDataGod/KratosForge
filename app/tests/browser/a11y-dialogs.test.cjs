@@ -201,7 +201,7 @@ const CASES = [
   ["platform.js:requestDialog", "Request a key table", () => { requestDialog("key_table", "supplier", () => {}); }],
   ["settings.js:usageDialog", "What's sent", () => { usageDialog({ today: "2026-11-05", install_id: null, waiting: [] }); }],
   ["settings.js:writeTestDialog", "Test a write to OneLake", () => { writeTestDialog(() => {}); }],
-  ["settings.js:showMotionGallery", "Motion & effects", () => { showMotionGallery(); }],
+  ["settings.js:showMotionGallery", "Living Experience", () => { showMotionGallery(); }],
   ["meta.js:newKeyTableDialog", "New key table", () => { newKeyTableDialog(() => {}); }],
   ["meta.js:useKeyTableDialog", "Use a key table", () => {
     useKeyTableDialog({ key_tables: [{ name: "customer" }], central_key_tables: [{ name: "customer" }, { name: "supplier", description: "One row per supplier" }] }, () => {}); }],

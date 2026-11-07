@@ -1,4 +1,4 @@
-// Motion & effects (docs/forge-animations.md) in the real UI: the four levels and their switches in
+// Living Experience (docs/forge-animations.md) in the real UI: the four levels and their switches in
 // Settings, kept by the real engine; the Preview effects window, whose Energy Flow follows a real
 // three-step pipeline run on this PC (two waits and a variable; nothing is read, written or sent);
 // reduced motion; and effects never taking focus or catching the pointer.
@@ -29,22 +29,22 @@ async function open({ reducedMotion = "no-preference" } = {}) {
 
 after(async () => { for (const app of apps) await app.close(); });
 
-test("Settings > Appearance > Motion & effects: Refined by default, each level kept and applied at once", { skip }, async () => {
+test("Settings > Appearance > Living Experience: Heroic by default, each level kept and applied at once", { skip }, async () => {
   const app = await open();
   const { page } = app;
-  assert.strictEqual(await page.getByRole("radio", { name: /^2 Refined/ }).isChecked(), true);
+  assert.strictEqual(await page.getByRole("radio", { name: /^Heroic \(default\)/ }).isChecked(), true);
   assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "2");
   await page.evaluate(() => { document.getElementById("toast").hidden = true; });
   if (SHOTS) await page.locator(".motion-settings").screenshot({ path: path.join(SHOTS, "motion-settings.png") });
-  await page.getByRole("radio", { name: /^3 Expressive/ }).check();
+  await page.getByRole("radio", { name: /^Legendary/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motionLevel === "3");
   assert.strictEqual(await page.evaluate(async () => (await rpc("app_settings")).motion_level.value), 3, "the level wasn't kept");
-  await page.getByRole("radio", { name: /^1 Minimal/ }).check();
+  await page.getByRole("radio", { name: /^Subtle/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motionLevel === "1");
-  // Below Refined the family switches have nothing to switch, so they're greyed out.
+  // Below Heroic the family switches have nothing to switch, so they're greyed out.
   // The level applies before Settings draws again, so wait for the redraw rather than read it at once.
   await page.waitForFunction(() => document.querySelector('input[aria-label="Forge sparks"]')?.disabled === true);
-  await page.getByRole("radio", { name: /^2 Refined/ }).check();
+  await page.getByRole("radio", { name: /^Heroic/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motionLevel === "2");
   await page.getByRole("checkbox", { name: "Forge sparks" }).uncheck();
   await page.waitForFunction(() => document.documentElement.dataset.fxSparks === "off");
@@ -57,7 +57,7 @@ test("Preview effects plays each effect, follows a real local pipeline run, and 
   const { page } = app;
   await page.evaluate(() => saveSettings({ motion_level: 3 }));
   await page.getByRole("button", { name: "Preview effects" }).click();
-  const dialog = page.getByRole("dialog", { name: "Motion & effects" });
+  const dialog = page.getByRole("dialog", { name: "Living Experience" });
   await dialog.waitFor();
   const plays = dialog.getByRole("button", { name: "Play" });
   for (let i = 0; i < await plays.count(); i += 1) {
@@ -94,7 +94,7 @@ test("Windows reduced motion: nothing plays, unless the person opts out of follo
   await page.getByText("Off now: Windows asks apps to reduce motion.").waitFor();
   assert.strictEqual(await page.evaluate(() => motionLevel()), 0);
   await page.getByRole("button", { name: "Preview effects" }).click();
-  await page.getByRole("dialog", { name: "Motion & effects" }).getByRole("button", { name: "Play" }).first().click();
+  await page.getByRole("dialog", { name: "Living Experience" }).getByRole("button", { name: "Play" }).first().click();
   assert.deepStrictEqual(await page.evaluate(() => window.__fx), [], "an effect played under reduced motion");
   await page.evaluate(() => closeDialog());
   await page.getByRole("checkbox", { name: "Respect Windows' reduced-motion setting" }).uncheck();

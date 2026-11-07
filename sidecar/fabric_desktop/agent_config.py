@@ -75,7 +75,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .fabric_run import schedule_configuration
+from .fabric_run import MAX_EVERY_MINUTES, schedule_configuration
 from .local_schedules import local_configuration
 from .meta.project import ENVIRONMENTS
 from .redact import one_line
@@ -263,6 +263,17 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     times = value.get("times", []) if kinds[0] == "weekly" else value
     if kinds[0] != "every_minutes" and not isinstance(times, list):  # list("06:00") is five one-letter "times"
         errors.append(f"{where}: times are a list, like [\"06:00\"]")
+        return None
+    # Said here for agent.toml, naming the key: the shared checks below word them for the app's form.
+    if kinds[0] == "every_minutes" and not 1 <= value <= MAX_EVERY_MINUTES:
+        errors.append(f"{where}: every_minutes is a whole number from 1 to {MAX_EVERY_MINUTES}, like 60")
+        return None
+    if kinds[0] == "daily" and not times:
+        errors.append(f"{where}: daily needs at least one time, like [\"06:00\"]")
+        return None
+    if kinds[0] == "weekly" and not (value.get("days") and times):
+        errors.append(f"{where}: weekly needs at least one day and one time, "
+                      "like { days = [\"Monday\"], times = [\"06:00\"] }")
         return None
     try:
         if kinds[0] == "every_minutes":

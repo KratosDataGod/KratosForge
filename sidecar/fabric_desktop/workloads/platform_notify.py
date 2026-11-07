@@ -249,14 +249,16 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
     """Post what these (validated) events need, after anything still waiting. Never raises.
 
     Returns counts plus one result per event: ``sent``, ``queued`` (Teams unreachable, retried
-    on the next call), ``held`` (quiet hours), or ``skipped`` with the reason."""
+    on the next call), ``held`` (quiet hours), or ``skipped`` with the reason. ``dropped`` counts
+    messages that waited longer than KEEP_TRYING and were removed without being sent."""
     now = now or dt.datetime.fromtimestamp(outbox.clock()).astimezone()
     t = outbox.clock()
-    sent = queued = held = 0
+    sent = queued = held = dropped = 0
     down: dict[str, str] = {}
     for item in outbox.pending():
-        if t - item["created"] > KEEP_TRYING:
+        if t - item["created"] > KEEP_TRYING:  # never sent: the caller logs and counts it
             outbox.done(item["id"])
+            dropped += 1
             continue
         route = routing.by_name(item["route"]) or routing.by_name(DEFAULT_ROUTE)
         if item["not_before"] > t or route is None or not route.url or route.name in down:
@@ -313,5 +315,5 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                 ledger.forget(event["dedupe"])  # the next fix of the next break is news again
                 ledger.forget(opened)
         results.append({"dedupe": event["dedupe"], "result": outcome, "routes": [r.name for r in routes]})
-    return {"sent": sent, "queued": queued, "held": held, "events": results,
+    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "events": results,
             "error": next(iter(down.values()), None)}

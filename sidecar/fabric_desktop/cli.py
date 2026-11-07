@@ -327,8 +327,13 @@ def _agent(args: argparse.Namespace) -> int:
             print(exc)
             return 2
     if args.agent_command == "run":
+        from .mailbox import ControlFolderInUse
         log = logs.setup(config.name, config.home / "logs", config.log_level)
-        Agent(config, log=log).run_forever()
+        try:
+            Agent(config, log=log).run_forever()
+        except ControlFolderInUse as exc:
+            print(exc)
+            return 2
         return 0
     if args.agent_command == "check":
         from .runtime import Runtime

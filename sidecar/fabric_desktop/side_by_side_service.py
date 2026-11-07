@@ -20,6 +20,7 @@ from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .fabric_step import STEP_REFUSED, is_step
 from .onelake import DFS_HOST, FileStore, storage_options
+from .redact import describe
 
 _log = logging.getLogger(__name__)
 _SAVE_LOCK = threading.Lock()  # side_by_side.jsonl is read, changed and written back whole
@@ -317,6 +318,11 @@ class SideBySideMixin:
                 record["speed"] = sbs.speed(record["local"]["seconds"], f.get("total_seconds"), f.get("run_seconds"),
                                             record["local"].get("processing_seconds"))
                 record["speed"]["cores"] = sbs.cores_line(record["machine"], f.get("vcores"))
+            if record["verdict"].get("same") is True:
+                try:
+                    record["earned"] = self._progress_observe_side_by_side(record | {"state": "done"})  # type: ignore[attr-defined]
+                except Exception as exc:  # noqa: BLE001 - the profile never changes a comparison's result
+                    _log.warning("The side-by-side run couldn't be added to the profile: %s", describe(exc))
             record["state"] = "done"
         except _Cancelled:
             record["state"], record["message"] = "cancelled", "Cancelled."

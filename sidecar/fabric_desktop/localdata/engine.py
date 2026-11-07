@@ -30,6 +30,7 @@ import re
 import shutil
 import sys
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 import time
 import uuid
@@ -505,7 +506,7 @@ class LocalEngine:
                 raise
             raise
 
-        def batches():
+        def batches() -> Iterator[pa.RecordBatch]:
             try:
                 for batch in inner:
                     if state.get("cancelled") or state.get("timed_out"):  # an interrupt DuckDB missed
@@ -529,7 +530,8 @@ class LocalEngine:
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False, change: bool = False,
                confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None,
-               lazy: bool = False):
+               lazy: bool = False
+               ) -> Iterator[tuple[Any, dict[str, Any]]]:  # (DuckDB result or relation, run record)
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -548,7 +550,7 @@ class LocalEngine:
                 raise QueryCancelled("The query was cancelled.")
             timer = None
             if timeout and timeout > 0:
-                def expire():
+                def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
                 timer = threading.Timer(timeout, expire)
@@ -1114,7 +1116,7 @@ class LocalEngine:
         return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
-    def _shadow(self, folder: Path):
+    def _shadow(self, folder: Path) -> Iterator[Path]:
         """A copy of the Delta table at ``folder`` to try a change on: its log copied, its data files
         hard-linked (copied where links aren't possible). delta-rs only adds files and log entries,
         so nothing the copy does reaches the table."""
@@ -1489,7 +1491,7 @@ class ResultStream:
         self._generator = generator
         self.reader = pa.RecordBatchReader.from_batches(schema, batches)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
         return iter(self.reader)
 
     def read_next_batch(self) -> pa.RecordBatch:

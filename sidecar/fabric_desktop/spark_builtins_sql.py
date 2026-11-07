@@ -216,6 +216,13 @@ def java_double_text(x: str) -> str:
             f"WHEN ABS({x}) >= 0.001 AND ABS({x}) < 10000000 THEN {plain} ELSE {sci} END END)")
 
 
+def java_value_text(a: str) -> str:
+    """DuckDB SQL for Java's String.valueOf of a value, as Spark writes one as text, ready to run (its
+    lambdas written as this DuckDB reads them)."""
+    from .sql import duckdb_sql  # sql imports this module
+    return duckdb_sql(cast(exp.Expression, sqlglot.parse_one(_java_text(a), read="duckdb")))
+
+
 def _java_text(a: str) -> str:
     """Java's String.valueOf of a value, as %s prints it (a double as Java writes it)."""
     return (f"(CASE WHEN TYPEOF({a}) = 'DOUBLE' THEN {java_double_text(f'TRY_CAST({a} AS DOUBLE)')} "

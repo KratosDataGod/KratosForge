@@ -438,12 +438,13 @@ def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
     return {"cleared": names}
 
 
-def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
+def issue_keys(db: Db, name: str, business_keys: list[Any], by: str = "") -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
     New keys are inserted in business key order inside one transaction, under a lock on the
     range they would go in, so two runs asking at the same time never get two keys for one
-    business key. Returns {"keys": {bk: sk}, "inserted": n}."""
+    business key. Returns {"keys": {bk: sk}, "inserted": n}. A call that issued new keys adds one
+    "issue keys" audit row (who, the table, how many); a call that only looked keys up adds none."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
     _require_open(db)
@@ -465,8 +466,11 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
             f"SELECT k.{name}_bk AS bk, k.{name}_sk AS sk, @inserted AS inserted FROM {t} k JOIN @in i ON i.bk = k.{name}_bk;",
             (json.dumps(bks),))
         issued = cur.fetchall()
+        inserted = int(issued[0][2]) if issued else 0
+        if inserted:
+            _audit(db, by, "issue keys", f"keys:{name}", {"count": inserted})
         db.commit()
-        return {"keys": {r[0]: int(r[1]) for r in issued}, "inserted": int(issued[0][2]) if issued else 0}
+        return {"keys": {r[0]: int(r[1]) for r in issued}, "inserted": inserted}
     def found() -> dict[str, int]:
         out: dict[str, int] = {}
         for i in range(0, len(bks), 500):
@@ -482,6 +486,8 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     new = [(b, _now()) for b in bks if b not in have]
     db.conn.executemany(f"INSERT INTO {t} ({name}_bk, create_date) VALUES (?, ?)", new)
     out = found() if new else have
+    if new:
+        _audit(db, by, "issue keys", f"keys:{name}", {"count": len(new)})
     db.commit()
     return {"keys": out, "inserted": len(new)}
 

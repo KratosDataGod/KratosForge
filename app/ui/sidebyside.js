@@ -73,6 +73,7 @@ async function followSideBySide(nb, id) {
   logActivity({ id: `sbs:${id}`, status: s.state === "done" && s.verdict?.same !== false ? "ok" : "error",
     title: `${nb.name} · Side by side`, text });
   toast(`${nb.name}: ${text}`, s.state === "failed");
+  if (s.state === "done") profileEarned(s.earned);  // every table matched: recorded in Profile as a proof
 }
 
 // One status from the engine: copy this PC's cell results back and redraw. False once the run has ended.

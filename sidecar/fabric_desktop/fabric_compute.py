@@ -20,7 +20,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 RUNNER = "nb_fabric_desktop_runner"
 BUNDLE_DIR = "Files/_fabric_desktop/current"
@@ -138,9 +138,10 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
     project = Project(work / "project")
     env = config["env"]
     if stores is None:
-        store = OneLakeStore(env, config["workspace_id"], config["lakehouse_ids"], storage_token, work / "cache",
+        token = cast(Callable[[], str], storage_token)  # Fabric's notebook passes it whenever stores is None
+        store = OneLakeStore(env, config["workspace_id"], config["lakehouse_ids"], token, work / "cache",
                              lakehouse_workspaces=config.get("lakehouse_workspaces"))
-        keys_store = (OneLakeStore(env, config["keys_workspace_id"], config["keys_lakehouse_ids"], storage_token,
+        keys_store: Any = (OneLakeStore(env, config["keys_workspace_id"], config["keys_lakehouse_ids"], token,
                                    work / "cache") if config.get("keys_workspace_id") else None)
         if config.get("platform_keys") and fabric_token:  # keys in SQL_Platform, through UDF_Platform
             from .central.client import FabricPlatform, PlatformKeys

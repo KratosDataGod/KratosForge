@@ -88,7 +88,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E45 | Semantic model refresh: read the history, spot a Direct Lake fallback | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
 | E46 | Alerts: Activator rules for warm and silent freezers | 3.1.4 | C | SIM +FV | config | 20 | |
 | E47 | Capacity Metrics: find the throttled hour and what caused it | 3.1.2 | C | SIM | duckdb (`runs`) | 20 | FinOps |
-| E60 | Optimize a pipeline: parallel ForEach, fewer sequential steps | 3.3.2 | C | SIM +FV | pipeline | 25 | |
+| E60 | Optimize a pipeline: parallel ForEach, fewer sequential steps | 3.3.2 | C | SIM +FV | config | 25 | |
 | E61 | Optimize a warehouse: loads, data types, statistics and result set caching | 3.3.3 | G | KO +FV | quiz | 15 | |
 | E62 | Optimize an eventhouse: caching, retention, materialized views and query shape | 3.3.4 | G | KO +FV | quiz | 15 | |
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
@@ -105,7 +105,7 @@ validation checks both the fix and that nothing else changed.
 | E49 | A ForEach loads the wrong tables: a parameter type mismatch | 3.2.1 | LV | pipeline | 25 | |
 | E50 | A Dataflow Gen2 loads nothing: a destination type mismatch and a broken step | 3.2.2 | SIM | config | 20 | Dataflow reader |
 | E51 | A notebook append fails: schema drift on a Delta table | 3.2.3 | LV | pyspark | 25 | LM-22 |
-| E52 | A notebook runs out of memory: collect() on a large table and a skewed join | 3.2.3, 3.3.5 | LV | pyspark | 25 | |
+| E52 | A notebook runs out of memory: collect() on a large table and a skewed join | 3.2.3, 3.3.5 | KO | quiz | 25 | |
 | E53 | An eventhouse loads empty rows: an ingestion mapping that doesn't match | 3.2.4 | SIM | config | 20 | |
 | E54 | An eventstream loses events: a schema change at the source | 3.2.5 | SIM | config | 20 | |
 | E55 | T-SQL errors: read the messages, fix conversion, divide-by-zero and MERGE faults | 3.2.6 | KO | quiz | 25 | LAB-09 |

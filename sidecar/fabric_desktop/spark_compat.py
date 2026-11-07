@@ -369,11 +369,25 @@ def initcap(col: Any) -> Column:
 
 
 def expr(text: str) -> Column:
-    """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(spark_sql.spark_integer_casts(_parse(text))))
-    if isinstance(parsed, exp.Alias):
-        return _sql(spark_sql.duckdb_sql(parsed.this)).alias(parsed.alias)
-    return _sql(spark_sql.duckdb_sql(parsed))
+    """A Spark SQL expression, read as spark.sql reads one. ``AS name`` names the column;
+    otherwise it is named as Spark names the expression, not after its DuckDB SQL."""
+    read = _parse(text)
+    # as spark.sql reads it, in a SELECT (a rewrite replaces a node in its parent)
+    select = spark_sql.spark_legacy_times(spark_sql.spark_fixes(exp.select(read.copy())))
+    item = cast(exp.Select, select).expressions[0]
+    body = item.this if isinstance(item, exp.Alias) else item
+    if isinstance(read, exp.Alias):
+        return _sql(spark_sql.duckdb_sql(body)).alias(read.alias)
+    col = _sql(spark_sql.duckdb_sql(body))
+    if isinstance(read, (exp.Column, exp.Star)):
+        return col
+    shown = read.copy()  # Spark's name drops a string literal's quotes
+    for literal in list(shown.find_all(exp.Literal)):
+        if literal.is_string:
+            if literal is shown:
+                return _named(col, literal.this)
+            literal.replace(exp.Var(this=literal.this))
+    return _named(col, spark_sql.spark_name(shown))
 
 
 def to_date(col: Any, format: str | None = None) -> Column:  # noqa: A002 - PySpark's name
@@ -563,6 +577,36 @@ def isnan(col: Any) -> Column:
     return _sql(f"coalesce(isnan(CAST({_arg(col)} AS DOUBLE)), false)")
 
 
+def _over_columns(template: exp.Expression, cols: Any) -> Column:
+    """A Spark SQL rewrite (fj_arg0, fj_arg1, ... for the columns) written as DuckDB SQL."""
+    args = [cast(exp.Expression, sqlglot.parse_one(_col_sql(c), read="duckdb")) for c in cols]
+    return _sql(spark_sql.duckdb_sql(spark_builtins_sql._with_args(template, args)))
+
+
+def format_string(format: str, *cols: Any) -> Column:  # noqa: A002 - PySpark's name
+    """Java's String.format over the columns, as in Spark: a NULL prints as null (false for %b)."""
+    return _over_columns(cast(exp.Expression, sqlglot.parse_one(
+        spark_builtins_sql.java_format_sql(format, len(cols)), read="duckdb")), cols)
+
+
+def printf(format: Any, *cols: Any) -> Column:  # noqa: A002 - PySpark's name
+    """format_string, with the format as a literal Column (F.lit("%s")) or as text."""
+    if isinstance(format, Column):
+        text = str(format.expr)
+        if not (text.startswith("'") and text.endswith("'")):
+            raise TypeError("printf() takes its format as text or F.lit(...) on this PC, not a column.")
+        format = text[1:-1].replace("''", "'")  # noqa: A001
+    return format_string(format, *cols)
+
+
+def conv(col: Any, fromBase: int, toBase: int) -> Column:  # noqa: N803 - PySpark's names
+    """A number written in ``fromBase`` rewritten in ``toBase`` (negative: signed), as in Spark."""
+    template = spark_sql._from_template(spark_sql._ANON_TEMPLATES["CONV"],
+                                        [exp.column("fj_arg0"), exp.Literal.number(int(fromBase)),
+                                         exp.Literal.number(int(toBase))])
+    return _over_columns(template, [col])
+
+
 def _seeded(seed: int, salt: int) -> str:
     """A number in [0, 1) for each row, the same each run for a seed: the row's place hashed with it."""
     return f"(CAST(hash(row_number() OVER (), {int(seed)}, {salt}) >> 11 AS DOUBLE) / 9007199254740992.0)"
@@ -683,7 +727,8 @@ def _named(col: Column, name: str) -> Column:
 
 def _spark_named_cols(cols: Any) -> Any:
     """Columns given to select or agg, each one that carries Spark's name aliased to it."""
-    return [c.alias(vars(c)["_fd_name"]) if isinstance(c, Column) and vars(c).get("_fd_name") else c for c in cols]
+    return [c.alias(vars(c).get("_fd_top") or vars(c)["_fd_name"]) if isinstance(c, Column) and vars(c).get("_fd_name")
+            else c for c in cols]
 
 
 def _naming(fn: Any) -> Any:
@@ -910,14 +955,15 @@ _TYPE_SQL = {"integer": "INT", "long": "BIGINT", "short": "SMALLINT", "byte": "T
 
 
 def _cast_named(fn: Any) -> Any:
-    """Column.cast: a plain column keeps its name, as in Spark; anything else is CAST(x AS TYPE)."""
+    """Column.cast: named CAST(x AS TYPE), as in Spark, but a plain column selected as it is keeps its name."""
     def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
         out = fn(self, dataType)
-        if "_fd_name" not in vars(self) and _PLAIN_COLUMN.match(str(self.expr)):
-            return _named(out, _spark_text(self))
         simple = dataType if isinstance(dataType, str) else dataType.simpleString()
         type_sql = _TYPE_SQL.get(simple.lower(), simple.upper())
-        return _named(out, f"CAST({_spark_text(self)} AS {type_sql})")
+        named = _named(out, f"CAST({_spark_text(self)} AS {type_sql})")
+        if "_fd_name" not in vars(self) and _PLAIN_COLUMN.match(str(self.expr)):
+            named._fd_top = _spark_text(self)  # type: ignore[attr-defined]  # selected, it keeps its name
+        return named
     cast.__doc__ = fn.__doc__
     return cast
 
@@ -1815,7 +1861,7 @@ def install() -> None:
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice", "add_months",
                     "months_between", "element_at", "to_date", "to_timestamp", "ln", "log2", "pow", "factorial",
-                    "split", "rand", "isnan") or not hasattr(F, name):
+                    "split", "rand", "isnan", "printf") or not hasattr(F, name):
             setattr(F, name, fn)
     vars(F).update(expr=expr)  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.alias = _alias_marked(Column.alias)  # type: ignore[method-assign]

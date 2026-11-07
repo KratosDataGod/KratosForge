@@ -19,13 +19,13 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.7"
+RULES_VERSION = "2026.11.8"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -179,7 +179,7 @@ def _refuse(id: str, title: str, reason: str, source: str = "") -> Note:
 def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
-        statements = [s for s in sqlglot.parse(code, read="snowflake") if s is not None]
+        statements = [cast(exp.Expression, s) for s in sqlglot.parse(code, read="snowflake") if s is not None]
     except ParseError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None
@@ -477,9 +477,9 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
         node.replace(ours[-1])
     # sqlglot rewrites a format itself when it knows the argument is a date or time; whatever it
     # couldn't map stays as letters (Q for the quarter, quoted text), so those are refused, not printed.
-    for node in list(statement.find_all(exp.TimeToStr)):
-        fmt = node.args.get("format")
-        if any(node is mine for mine in ours):
+    for t2s in list(statement.find_all(exp.TimeToStr)):
+        fmt = t2s.args.get("format")
+        if any(t2s is mine for mine in ours):
             continue
         if isinstance(fmt, exp.Literal) and re.search(r"(?<!%)[A-Za-z]", re.sub(r"%[A-Za-z%]", "", fmt.name)):
             raise _Untranslatable(_refuse("SFX-002", "Date or time format",
@@ -487,8 +487,14 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
                                           f"{_DOCS}/functions-conversion#date-and-time-formats-in-conversion-functions"))
 
 
+def _object_key(key: exp.Expression) -> exp.Expression:
+    """A key as text: an OBJECT constant's {'a': 1} reads its key as a name, which would be a column."""
+    return exp.Literal.string(key.name) if isinstance(key, exp.Identifier) else key
+
+
 def _rewrite_object_construct(statement: exp.Expression) -> None:
-    """SFX-004: OBJECT_CONSTRUCT drops pairs whose value is SQL NULL and keeps JSON nulls."""
+    """SFX-004: OBJECT_CONSTRUCT drops pairs whose value is SQL NULL and keeps JSON nulls. Keys are put in
+    order, as Snowflake keeps them, so two objects with the same pairs are equal however they were written."""
     for _node in list(statement.find_all(exp.StarMap)):
         raise _Untranslatable(_refuse("SFX-004", "OBJECT_CONSTRUCT(*)", "Building an object from every column "
                                       "isn't rewritten.", f"{_DOCS}/functions/object_construct"))
@@ -499,9 +505,10 @@ def _rewrite_object_construct(statement: exp.Expression) -> None:
             continue
         if not all(isinstance(p, exp.PropertyEQ) for p in pairs):
             continue
-        entries = ", ".join(f"{{'k': {_duck(p.this)}, 'v': to_json({_duck(p.expression)})}}" for p in pairs)
+        entries = ", ".join(f"{{'k': {_duck(_object_key(p.this))}, 'v': to_json({_duck(p.expression)})}}"
+                            for p in pairs)
         node.replace(sqlglot.parse_one(
-            f"to_json(map_from_entries(list_filter([{entries}], x -> x.v IS NOT NULL)))", read="duckdb"))
+            f"to_json(map_from_entries(list_sort(list_filter([{entries}], x -> x.v IS NOT NULL))))", read="duckdb"))
 
 
 def _rewrite_soundex(statement: exp.Expression) -> None:
@@ -615,6 +622,128 @@ def _rewrite_strings(statement: exp.Expression) -> None:
     from .sql import _from_template
     for soundex in list(statement.find_all(exp.SoundexP123)):
         soundex.replace(_from_template(_soundex_p123_template(), [soundex.this]))
+
+
+def _entries(obj: str) -> str:
+    return f"map_entries(CAST({obj} AS MAP(VARCHAR, JSON)))"
+
+
+def _object(entries: str) -> str:
+    """An object from {key, value} entries, keys in order as Snowflake keeps them."""
+    return f"to_json(map_from_entries(list_sort({entries})))"
+
+
+def _as_json(value: str) -> str:
+    """``value`` as JSON whatever its type: a VARIANT round trip gives 21 for 21 and "Joe" for 'Joe'."""
+    return f"CAST(CAST({value} AS VARIANT) AS JSON)"
+
+
+def _bind(names: list[str], body: str) -> str:
+    """A template in which the arguments (fj_arg0, fj_arg1...) are worked out once, as __sf_a.<name>, and
+    ``body`` reads them there: a nested call would otherwise repeat its argument at every level."""
+    fields = ", ".join(f"'{name}': fj_arg{i}" for i, name in enumerate(names))
+    return f"list_extract(list_transform([{{{fields}}}], __sf_a -> {body}), 1)"
+
+
+def _put(node: exp.Expr, template: str, args: list[exp.Expression]) -> None:
+    """``node`` becomes ``template`` with the argument nodes put in (not their text, so a deep nest of
+    calls isn't read again from SQL)."""
+    from .sql import _with_args
+    node.replace(_with_args(template, args))
+
+
+def _object_refusal(name: str, why: str) -> _Untranslatable:
+    return _Untranslatable(_refuse("SFX-016", name, why, f"{_DOCS}/functions/{name.lower()}"))
+
+
+def _object_insert(insert: exp.ObjectInsert) -> None:
+    args = [insert.args["this"], insert.args["key"], insert.args["value"]]
+    obj, key, value = "__sf_a.o", "__sf_a.k", "__sf_a.v"
+    flag = insert.args.get("update_flag")
+    entries = (f"list_append(list_filter({_entries(obj)}, __sf_e -> __sf_e.key <> {key}), "
+               f"{{'key': CAST({key} AS VARCHAR), 'value': {_as_json(value)}}})")
+    exists = f"list_contains(map_keys(CAST({obj} AS MAP(VARCHAR, JSON))), {key})"
+    duplicate = f"error(concat('Duplicate field key ', {key}))"
+    names = ["o", "k", "v"]
+    if isinstance(flag, exp.Boolean) and flag.this is True:
+        guard = ""
+    elif flag is not None:
+        guard = f"WHEN {exists} AND NOT coalesce(__sf_a.u, FALSE) THEN {duplicate} "
+        names.append("u")
+        args.append(flag)
+    else:
+        guard = f"WHEN {exists} THEN {duplicate} "
+    _put(insert, _bind(names, f"CASE WHEN {key} IS NULL OR {value} IS NULL THEN {obj} {guard}"
+                              f"ELSE {_object(entries)} END"), args)
+
+
+def _object_agg(agg: exp.ObjectAgg) -> None:
+    if isinstance(agg.this, exp.Distinct) or agg.expression is None:
+        raise _object_refusal("OBJECT_AGG", "OBJECT_AGG(DISTINCT ...) isn't rewritten; OBJECT_AGG(key, value) is.")
+    from .sql import _with_args
+    listed = _with_args("list({'key': CAST(fj_arg0 AS VARCHAR), 'value': " + _as_json("fj_arg1") + "}) "
+                        "FILTER (WHERE fj_arg0 IS NOT NULL AND fj_arg1 IS NOT NULL)", [agg.this, agg.expression])
+    target = _in_window(agg)  # OBJECT_AGG(...) OVER (...): the list is the window's, the object built outside it
+    if target is not agg:
+        agg.replace(listed)
+        listed = target.copy()
+    _put(target, _object("fj_arg0"), [listed])
+
+
+def _object_function(node: exp.Anonymous) -> None:
+    name = str(node.this).upper()
+    args = list(node.expressions)
+    if name == "OBJECTAGG":
+        raise _object_refusal("OBJECT_AGG", "Write OBJECT_AGG; the OBJECTAGG spelling isn't rewritten.")
+    if name in ("OBJECT_DELETE", "OBJECT_PICK"):
+        if len(args) < 2:
+            raise _object_refusal(name, f"{name} takes an object and at least one key.")
+        # OBJECT_PICK(obj, array): only a value plainly an array is taken for one; a single column or other
+        # expression is a key (a key column is the usual case, and an ARRAY column stops with DuckDB's error)
+        one_array = len(args) == 2 and name == "OBJECT_PICK" and isinstance(args[1], (exp.Array, exp.ParseJSON))
+        listed = ("CAST(fj_arg1 AS VARCHAR[])" if one_array
+                  else "[" + ", ".join(f"fj_arg{i}" for i in range(1, len(args))) + "]")
+        keep = "" if name == "OBJECT_PICK" else "NOT "
+        _put(node, _object(f"list_filter({_entries('fj_arg0')}, __sf_e -> {keep}list_contains({listed}, "
+                           "__sf_e.key))"), args)
+    elif name == "TO_OBJECT":
+        if len(args) != 1:
+            raise _object_refusal(name, "TO_OBJECT takes one value.")
+        value = "CAST(__sf_a.v AS JSON)"
+        _put(node, _bind(["v"], f"CASE WHEN {value} IS NULL OR json_type({value}) = 'NULL' THEN NULL "
+                                f"WHEN json_type({value}) = 'OBJECT' THEN {value} "
+                                "ELSE error('TO_OBJECT needs an OBJECT') END"), args)
+    elif name == "ARRAYS_TO_OBJECT":
+        if len(args) != 2:
+            raise _object_refusal(name, "ARRAYS_TO_OBJECT takes a key array and a value array.")
+        ks, vs = "__sf_a.k", "__sf_a.v"
+        value = _as_json(f"list_extract({vs}, __sf_i)")
+        entries = (f"list_filter(list_transform(range(1, len({ks}) + 1), __sf_i -> {{'key': "
+                   f"CAST(list_extract({ks}, __sf_i) AS VARCHAR), 'value': {value}}}), __sf_e -> __sf_e.key IS NOT NULL)")
+        _put(node, _bind(["k", "v"], f"CASE WHEN {ks} IS NULL OR {vs} IS NULL THEN NULL WHEN len({ks}) <> len({vs}) "
+                                     "THEN error('Key array and value array had unequal lengths in ARRAYS_TO_OBJECT') "
+                                     f"ELSE {_object(entries)} END"), args)
+
+
+_OBJECT_FUNCTIONS = ("OBJECT_DELETE", "OBJECT_PICK", "TO_OBJECT", "ARRAYS_TO_OBJECT", "OBJECTAGG")
+
+
+def _rewrite_objects(statement: exp.Expression) -> None:
+    """SFX-016: OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT on
+    DuckDB JSON, through a MAP of JSON values, with Snowflake's NULL rules: OBJECT_INSERT and
+    ARRAYS_TO_OBJECT leave out a SQL NULL key, OBJECT_INSERT and OBJECT_AGG a SQL NULL value (JSON null is
+    kept); an existing key in OBJECT_INSERT without updateFlag, a repeated key in OBJECT_AGG and arrays of
+    unequal length stop with an error. Inner calls are rewritten first, so an outer one takes them as
+    they now are."""
+    found = [n for n in statement.find_all(exp.ObjectInsert, exp.ObjectAgg, exp.Anonymous)
+             if not isinstance(n, exp.Anonymous) or str(n.this).upper() in _OBJECT_FUNCTIONS]
+    for node in sorted(found, key=lambda n: -n.depth):
+        if isinstance(node, exp.ObjectInsert):
+            _object_insert(node)
+        elif isinstance(node, exp.ObjectAgg):
+            _object_agg(node)
+        elif isinstance(node, exp.Anonymous):
+            _object_function(node)
 
 
 def _in_window(node: exp.Expression) -> exp.Expression:
@@ -1167,6 +1296,17 @@ CATALOG = (
                 "TRY_HEX_DECODE_BINARY give NULL where the text doesn't decode; an alphabet argument isn't "
                 "rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). Arguments are "
                 "worked out more than once, which matters only when they aren't deterministic."),
+    ("SFX-016", "Rewritten", "OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT run "
+                "on DuckDB JSON with Snowflake's NULL rules: a SQL NULL key or value is left out and JSON null is "
+                "kept; an existing key in OBJECT_INSERT without updateFlag, a repeated key in OBJECT_AGG and "
+                "arrays of unequal length stop with an error (OBJECT_AGG's text is DuckDB's \"Map keys must be unique\"). "
+                "OBJECT_INSERT of a SQL NULL value leaves the object as it is, an existing key too, as the docs "
+                "don't say otherwise; OBJECT_AGG of no rows is NULL. OBJECT_PICK with one argument takes it for an "
+                "array only when it is written as one ([...], ARRAY_CONSTRUCT or PARSE_JSON); a column is a key. "
+                "OBJECT_AGG(DISTINCT ...) isn't rewritten. Objects "
+                "keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys "
+                "as text. Arguments are worked out more than once, which matters only when they aren't "
+                "deterministic."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1242,6 +1382,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
         _rewrite_strings(tree)
+        _rewrite_objects(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)
         unknown_brackets = _type_values(tree, written)

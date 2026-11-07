@@ -285,6 +285,48 @@ fn missing_release_file(err: &str) -> bool {
     err.contains("returned error: 404")
 }
 
+/// The host the engine comes from: IT's own folder (engine_download_url) or GitHub.
+fn download_host() -> String {
+    engine_mirror()
+        .and_then(|folder| Url::parse(&folder).ok()?.host_str().map(str::to_string))
+        .unwrap_or_else(|| "github.com".into())
+}
+
+/// Whether a failed download means the network didn't let curl through (offline, a host or proxy
+/// that couldn't be reached, a timeout, a certificate or proxy refusal), as opposed to the server
+/// answering with an error or a file that failed its checks.
+fn network_failure(err: &str) -> bool {
+    ["(5)", "(6)", "(7)", "(28)", "(35)", "(56)", "(60)", "(97)"].iter().any(|code| err.contains(&format!("curl: {code}")))
+}
+
+/// A failed engine download, after one line that says what to do when the network was the cause.
+/// The original line stays in brackets for IT.
+fn explain_download(err: &str, host: &str) -> String {
+    let hint = if err.contains("curl: (60)") {
+        format!("HTTPS to {host} was refused because its certificate isn't trusted on this PC. If your network \
+                 inspects HTTPS, ask IT to add its root certificate to Windows.")
+    } else if err.contains("curl: (35)") {
+        // A failed TLS handshake. On Windows this is often a certificate revocation check that can't
+        // reach its list through the network, rather than an untrusted certificate.
+        format!("HTTPS to {host} couldn't be set up: the certificate or its revocation check failed. If your \
+                 network inspects HTTPS or blocks certificate revocation lists, ask IT to allow them.")
+    } else if err.contains("curl: (5)") || err.contains("curl: (56)") || err.contains("curl: (97)") {
+        "The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy Windows is \
+         set to, or HTTPS_PROXY; a proxy that asks for a Windows sign-in of its own (407) isn't supported."
+            .into()
+    } else if err.contains("curl: (28)") {
+        format!("{host} didn't answer in time. If your network uses a proxy or a firewall, check that it allows \
+                 {host}, then choose Retry.")
+    } else if network_failure(err) {
+        format!("This PC couldn't reach {host}. If it's offline, connect and choose Retry. If your network blocks \
+                 {host}, ask IT to allow it, or to keep the engine on a server of your own (engine_download_url \
+                 in the policy file).")
+    } else {
+        return err.to_string();
+    };
+    format!("{hint} ({err})")
+}
+
 fn release_file(tag: &str, file: &str) -> String {
     match engine_mirror() {
         Some(folder) => format!("{folder}/{file}"),
@@ -1188,6 +1230,10 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         Ok(None) => {}
         Err(e) => {
             let _ = std::fs::remove_dir_all(&staging);
+            if network_failure(&e) {
+                // The whole engine comes from the same host: trying it would only wait again.
+                return Err(explain_download(&e, &download_host()));
+            }
             say(&format!("{e} Downloading the whole engine instead."));
         }
     }
@@ -1256,7 +1302,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
                 BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
             ));
         }
-        return Err(e);
+        return Err(explain_download(&e, &download_host()));
     }
     // An out-of-date version.json would install an older engine than the channel last offered.
     let state = update_state();
@@ -2715,6 +2761,25 @@ mod integrity_tests {
         }
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
+    }
+
+    #[test]
+    fn a_download_the_network_stopped_says_what_to_do() {
+        let offline = explain_download("Could not download the engine: curl: (6) Could not resolve host: github.com", "github.com");
+        assert!(offline.starts_with("This PC couldn't reach github.com. If it's offline"), "{offline}");
+        assert!(offline.contains("engine_download_url") && offline.ends_with("(Could not download the engine: curl: (6) Could not resolve host: github.com)"));
+        let refused = explain_download("Could not download the engine: curl: (7) Failed to connect to files.contoso.com port 443", "files.contoso.com");
+        assert!(refused.starts_with("This PC couldn't reach files.contoso.com."), "{refused}");
+        assert!(explain_download("curl: (28) Operation too slow", "github.com").starts_with("github.com didn't answer in time"));
+        assert!(explain_download("curl: (60) SSL certificate problem: unable to get local issuer certificate", "github.com")
+            .starts_with("HTTPS to github.com was refused because its certificate"));
+        assert!(explain_download("curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK", "github.com")
+            .starts_with("HTTPS to github.com couldn't be set up: the certificate or its revocation check failed."));
+        assert!(explain_download("curl: (56) CONNECT tunnel failed, response 407", "github.com").starts_with("The proxy server refused"));
+        for other in ["curl: (22) The requested URL returned error: 503", "The engine's checksum doesn't match."] {
+            assert_eq!(explain_download(other, "github.com"), other);
+            assert!(!network_failure(other));
+        }
     }
 
     #[test]

@@ -24,7 +24,7 @@ from __future__ import annotations
 import getpass
 import os
 import time
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from duckdb.experimental.spark.sql.dataframe import DataFrame
@@ -187,7 +187,7 @@ def _q(name: str) -> str:
 def _duckdb_expr(expr: str) -> str:
     """A Spark SQL expression in DuckDB SQL."""
     from . import sql as spark_sql
-    return spark_sql.duckdb_sql(spark_sql.spark_substring(sqlglot.parse_one(f"SELECT {expr}", read="spark")))[len("SELECT "):]
+    return spark_sql.duckdb_sql(spark_sql.spark_substring(cast(sqlglot.exp.Expression, sqlglot.parse_one(f"SELECT {expr}", read="spark"))))[len("SELECT "):]
 
 
 def _new(df: DataFrame, rel: Any) -> DataFrame:
@@ -208,7 +208,7 @@ def explain(self: DataFrame, extended: Any = None, mode: str | None = None) -> N
 
 
 def createTempView(self: DataFrame, name: str) -> None:  # noqa: N802
-    if self.session._is_local(name):
+    if self.session._is_local(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
         raise ValueError(f"Temporary view {name!r} already exists. Use createOrReplaceTempView.")
     self.createOrReplaceTempView(name)
 
@@ -367,7 +367,7 @@ def _not_implemented(attr: Any, error: type) -> bool:
     import inspect
     fn = attr.fget if isinstance(attr, property) else attr
     try:
-        src = inspect.getsource(fn)
+        src = inspect.getsource(fn)  # type: ignore[arg-type]  # None raises TypeError, caught below
     except (OSError, TypeError):
         return False
     return error.__name__ in src and src.count("\n") < 25 and "raise" in src

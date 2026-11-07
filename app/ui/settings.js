@@ -891,7 +891,8 @@ async function renderSettings() {
   // Advanced (UX-006): what most people never change, folded until opened once.
   const advanced = advancedSection(s, locked, limitRow);
 
-  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
+  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine. Hidden for now
+  // (USAGE_DATA_SHOWN), except while it's on, as a policy file can set it.
   const usage = await usageSection(s);
 
   // Notifications
@@ -1191,11 +1192,17 @@ function sqlSettingsSection(s, locked) {
 
 // ---------- Usage data ----------
 
+// The Usage data card is hidden until there's a need for it: this build has nowhere to send usage data.
+// Set to true to bring the card back. The engine (telemetry.py), the setting and its off default are
+// unchanged. While usage data is on (a policy file can turn it on for everyone) the card shows anyway,
+// so nobody sends it without seeing that it's on, what's sent, and a way to turn it off.
+const USAGE_DATA_SHOWN = false;
+
 const USAGE_WHERE = { kratosbi: "KratosBI's Application Insights", organization: "your organization's Application Insights" };
 
 async function usageSection(s) {
   const u = await rpc("telemetry_status").catch(() => null);
-  if (!u) return null;
+  if (!u || (!USAGE_DATA_SHOWN && !u.on)) return null;
   const locked = s.telemetry?.source === "policy";
   const today = u.waiting.find((w) => w.day === u.today);
   const actions = today ? Object.values(today.features).reduce((n, f) => n + f.count, 0) : 0;
@@ -1204,7 +1211,7 @@ async function usageSection(s) {
     ? `${u.waiting.length} day${u.waiting.length === 1 ? "" : "s"}${today ? `; today so far ${actions} action${actions === 1 ? "" : "s"}, ${failures} failed` : ""}`
     : "Nothing yet";
   const toggle = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: u.on ? true : null,
-    disabled: locked || !u.available ? true : null,
+    disabled: locked || (!u.available && !u.on) ? true : null,  // turning it off is always allowed
     onchange: async (e) => { if (await saveSettings({ telemetry: e.target.checked })) { toast(e.target.checked ? "Usage data on" : "Usage data off; nothing waiting is sent"); render(); } } }),
   h("span", {}, u.on ? "On" : "Off"));
   return h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),

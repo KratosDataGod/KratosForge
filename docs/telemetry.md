@@ -1,10 +1,10 @@
 # Usage data
 
-KratosForge can send a small daily summary of which actions were used, how often they failed and how long they took. It is **off** until you turn it on in **Settings > Usage data**. Your organization can turn it off, or on, for everyone. This feature is in Preview.
+KratosForge can send a small daily summary of which actions were used, how often they failed and how long they took. It is **off**, and this build has nowhere to send it, so it sends nothing. The **Usage data** card in Settings is hidden for now, so you can't turn it on there. Your organization can turn it on for everyone with the policy file, sending to its own Application Insights ([For IT admins](#for-it-admins)); while it's on, **Settings > Usage data** shows, with what's sent and a way to turn it off. This feature is in Preview.
 
 ## What is sent
 
-One record per day, after the day is over. **Settings > Usage data > See what's sent** shows the exact text waiting to go. Every field is listed here:
+One record per day, after the day is over. While usage data is on, **Settings > Usage data > See what's sent** shows the exact text waiting to go. Every field is listed here:
 
 | Field | Example | What it is |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ One record per day, after the day is over. **Settings > Usage data > See what's 
 
 The records go to Azure Monitor Application Insights over HTTPS, as one custom event named `daily_usage` per day.
 
-- By default they go to KratosBI's Application Insights. A build without a KratosBI destination has the switch but sends nothing, and Settings says so.
+- By default they go to KratosBI's Application Insights. A build without a KratosBI destination sends nothing. Current builds have none.
 - An organization can send them to its own Application Insights instead. Set `telemetry_connection_string` in the policy file. Nothing then goes to KratosBI.
 
 ## When it is sent
@@ -60,4 +60,4 @@ Allow the `IngestionEndpoint` host of the connection string through your proxy (
 
 ## For maintainers
 
-A build sends to KratosBI only when the repository variable `TELEMETRY_CONNECTION_STRING` holds an Application Insights connection string. CI writes it into the engine's `engine.json`. Leave the variable unset to ship builds that never send. The code is in `sidecar/fabric_desktop/telemetry.py`.
+A build sends to KratosBI only when the repository variable `TELEMETRY_CONNECTION_STRING` holds an Application Insights connection string. CI writes it into the engine's `engine.json`. Leave the variable unset to ship builds that never send. The code is in `sidecar/fabric_desktop/telemetry.py`. To show the Settings card again, set `USAGE_DATA_SHOWN` to `true` in `app/ui/settings.js`.

@@ -27,10 +27,10 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 375 |
+| Runs | 389 |
 | Differs | 0 |
-| Refused | 80 |
-| Fails | 61 |
+| Refused | 82 |
+| Fails | 45 |
 | Not checked | 73 |
 | **All** | **589** |
 
@@ -673,29 +673,29 @@ lists more checks and the differences known in more detail.
 | `localtime` | Not checked |  |  |
 | `make_time` | Not checked |  |  |
 | `monthname` | Not checked |  |  |
-| `parse_timestamp` | Fails |  | DuckDB has no parse_timestamp, and the translation doesn't write it |
+| `parse_timestamp` | Refused |  | parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8601, |
 | `time` | Not checked |  |  |
 | `time_bucket` | Not checked |  |  |
-| `time_diff` | Fails |  | Binder Error: Referenced column "HOUR" was not found because the FROM clause is missing |
-| `time_from_micros` | Fails |  | DuckDB has no time_from_micros, and the translation doesn't write it |
-| `time_from_millis` | Fails |  | DuckDB has no time_from_millis, and the translation doesn't write it |
-| `time_from_seconds` | Fails |  | DuckDB has no time_from_seconds, and the translation doesn't write it |
-| `time_to_micros` | Fails |  | DuckDB has no time_to_micros, and the translation doesn't write it |
-| `time_to_millis` | Fails |  | DuckDB has no time_to_millis, and the translation doesn't write it |
-| `time_to_seconds` | Fails |  | DuckDB has no time_to_seconds, and the translation doesn't write it |
-| `time_trunc` | Fails |  | Catalog Error: Scalar Function with name time_trunc does not exist! |
-| `timediff` | Fails |  | DuckDB has no timediff, and the translation doesn't write it |
+| `time_diff` | Runs | `SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')` |  |
+| `time_from_micros` | Runs | `SELECT time_from_micros(52200500000)` |  |
+| `time_from_millis` | Runs | `SELECT time_from_millis(52200500)` |  |
+| `time_from_seconds` | Runs | `SELECT time_from_seconds(52200.5)` |  |
+| `time_to_micros` | Runs | `SELECT time_to_micros(TIME'14:30:00.5')` |  |
+| `time_to_millis` | Runs | `SELECT time_to_millis(TIME'14:30:00.5')` |  |
+| `time_to_seconds` | Runs | `SELECT time_to_seconds(TIME'14:30:00.5')` |  |
+| `time_trunc` | Runs | `SELECT time_trunc('HOUR', TIME'13:08:15.123')` |  |
+| `timediff` | Runs | `SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')` |  |
 | `timestamp_nanos` | Fails |  | DuckDB has no timestamp_nanos, and the translation doesn't write it |
 | `timestampadd` | Not checked |  |  |
 | `timestampdiff` | Not checked |  |  |
-| `to_time` | Fails |  | DuckDB has no to_time, and the translation doesn't write it |
+| `to_time` | Runs | `SELECT to_time('10:30:00')` |  |
 | `try_make_interval` | Fails |  | DuckDB has no try_make_interval, and the translation doesn't write it |
 | `try_make_timestamp` | Fails |  | DuckDB has no try_make_timestamp, and the translation doesn't write it |
-| `try_make_timestamp_ltz` | Fails |  | DuckDB has no try_make_timestamp_ltz, and the translation doesn't write it |
-| `try_make_timestamp_ntz` | Fails |  | DuckDB has no try_make_timestamp_ntz, and the translation doesn't write it |
-| `try_parse_timestamp` | Fails |  | DuckDB has no try_parse_timestamp, and the translation doesn't write it |
-| `try_to_date` | Fails |  | DuckDB has no try_to_date, and the translation doesn't write it |
-| `try_to_time` | Fails |  | DuckDB has no try_to_time, and the translation doesn't write it |
+| `try_make_timestamp_ltz` | Runs | `SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')` |  |
+| `try_make_timestamp_ntz` | Runs | `SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
+| `try_parse_timestamp` | Refused |  | try_parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8 |
+| `try_to_date` | Runs | `SELECT try_to_date('2016-12-31')` |  |
+| `try_to_time` | Runs | `SELECT try_to_time('10:30:00')` |  |
 | `unix_nanos` | Fails |  | DuckDB has no unix_nanos, and the translation doesn't write it |
 
 ## Databricks only: IP addresses

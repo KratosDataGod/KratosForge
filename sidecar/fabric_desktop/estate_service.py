@@ -259,7 +259,7 @@ class EstateMixin:
             if cached is not None and not refresh:
                 return dict(cached)
             token = self.auth._token(ONELAKE_SCOPES)  # type: ignore[attr-defined]  # here: MSAL stays on one thread
-            self._all_shortcuts = {"pending": True, "items": {}, "errors": {}}
+            self._all_shortcuts: dict[str, Any] | None = {"pending": True, "items": {}, "errors": {}}
 
         def read(ref: dict[str, str]) -> tuple[str, list[dict[str, Any]] | None, str | None]:
             try:
@@ -607,7 +607,8 @@ class EstateMixin:
         the attached lakehouse's environment; any other library is read (never changed) from the
         attached lakehouse's workspace, with its active value set, as Fabric reads the notebook's."""
         from . import lakehouse
-        ws = lakehouse._attached.workspace_id if lakehouse._attached else None
+        attached = lakehouse._attached
+        ws = attached.workspace_id if attached else None
         if library == varlib_mod.LIBRARY:
             try:
                 project = self._project()  # type: ignore[attr-defined]
@@ -622,7 +623,7 @@ class EstateMixin:
         if found is None:
             raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
         # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
-        return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}
+        return varlib_mod.read(*found) | {FROM_KEY: (attached.workspace_name if attached else None) or ws}
 
 
 

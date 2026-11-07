@@ -68,7 +68,7 @@ def from_schedule_runs(rows: list[dict[str, Any]], notebooks: set[str], installa
                     "project": r["label"], "artifact_key": None, "workload_type": "notebook_run", "engine": ENGINE,
                     "started_at": started, "finished_at": finished, "seconds": _seconds(r.get("seconds")), "rows": None,
                     "bytes": None, "cpu_seconds": None, "peak_memory_bytes": None,
-                    "result": _RESULT.get(r.get("status"), "failed"), "fabric_workload_type": "Notebook",
+                    "result": _RESULT.get(r.get("status") or "", "failed"), "fabric_workload_type": "Notebook",
                     "counts_for": None})
     return out
 

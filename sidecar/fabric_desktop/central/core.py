@@ -463,9 +463,9 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
             "COMMIT TRANSACTION; "
             f"SELECT k.{name}_bk AS bk, k.{name}_sk AS sk, @inserted AS inserted FROM {t} k JOIN @in i ON i.bk = k.{name}_bk;",
             (json.dumps(bks),))
-        found = cur.fetchall()
+        issued = cur.fetchall()
         db.commit()
-        return {"keys": {r[0]: int(r[1]) for r in found}, "inserted": int(found[0][2]) if found else 0}
+        return {"keys": {r[0]: int(r[1]) for r in issued}, "inserted": int(issued[0][2]) if issued else 0}
     def found() -> dict[str, int]:
         out: dict[str, int] = {}
         for i in range(0, len(bks), 500):
@@ -591,7 +591,7 @@ def save_domain(db: Db, domain: dict[str, Any], by: str = "") -> dict[str, Any]:
             raise PlatformError("A domain can't be its own parent")
     current = _row(db, "domain", "id", did)
     linked = (current or {}).get("fabric_domain") or ""
-    if linked and (name != current["name"] or (parent or None) != (current.get("parent_id") or None)):
+    if linked and current is not None and (name != current["name"] or (parent or None) != (current.get("parent_id") or None)):
         raise PlatformError(f"{current['name']} comes from Fabric: rename or move it in Fabric (Admin portal > "
                             "Domains), then choose Import from Fabric")
     row = {"id": did, "name": name, "parent_id": parent, "description": str(domain.get("description") or ""),
@@ -1319,7 +1319,7 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
            "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by,
            "accepts": accepts or None, "columns": json.dumps(columns) if columns else None}
     _upsert(db, "catalog", "link", "id", row)
-    _audit(db, by, "link", row["id"], {"product": product_id, "port": port, "reads": reads, "accepts": accepts,
+    _audit(db, by, "link", lid, {"product": product_id, "port": port, "reads": reads, "accepts": accepts,
                                        "columns": sorted(columns)})
     db.commit()
     return row
@@ -1516,7 +1516,7 @@ def log_workload_action(db: Db, workload: str, action: str, status: str, entry: 
 # --------------------------------------------------------------------------- who may change what
 
 
-def _who(by: str) -> str:
+def _who(by: str | None) -> str:
     return str(by or "").strip().lower()
 
 
@@ -3137,7 +3137,8 @@ def record_endorsements(db: Db, items: list[dict[str, Any]], by: str = "",
     scan looked for but didn't confirm: their last reading goes, so they show unknown, never an old badge."""
     require_admin(db, by, "save endorsement from Fabric's tenant scan")
     ensure_trust_badges(db)
-    at, counts = _now(), {}
+    at = _now()
+    counts: dict[str, int] = {}
     gone = 0
     for cid in cleared or []:
         cid = str(cid or "").strip().lower()

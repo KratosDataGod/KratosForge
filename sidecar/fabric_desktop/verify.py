@@ -218,7 +218,8 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
     keys = [(f"CAST(a.{x} AS VARCHAR)", f"CAST(b.{y} AS VARCHAR)") if t else (f"a.{x}", f"b.{y}")
             for (x, y), t in zip(kq, text, strict=True)]
     on = " AND ".join(f"{x} IS NOT DISTINCT FROM {y}" for x, y in keys)
-    checks, metrics = [], []
+    checks = []
+    metrics: list[tuple[Any, str | None, str | None]] = []  # None: the column has no number difference
     for name_a, name_b, ka, kb in cols["common"]:
         qa, qb = _q(name_a), _q(name_b)
         if qa in key_names:

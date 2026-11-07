@@ -51,7 +51,8 @@ class CapacityHistoryMixin:
             setup.write(lake, me, "snapshot", snapshots, family=ch.FAMILY)
             setup.write(lake, me, "change", changes, family=ch.FAMILY)
         ids = sorted({str(c["id"]).lower() for c in capacities if c.get("id")})
-        setup.write(lake, me, "read", [ch.read_row(i, read_by, at, "read", None) for i in ids or [None]] + reads,
+        scope_ids: list[str | None] = list(ids) or [None]
+        setup.write(lake, me, "read", [ch.read_row(i, read_by, at, "read", None) for i in scope_ids] + reads,
                     family=ch.FAMILY)
         return {"outcome": "read", "read_at": at, "capacities": len(ids), "first_read": not before,
                 "overrides": admin_out,

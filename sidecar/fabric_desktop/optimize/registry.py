@@ -51,7 +51,7 @@ class Registry:
             raise ValueError("A connection needs a workspace and a lakehouse")
         with self._lock:
             data = self._load()
-            old = next((c for c in data["connections"] if c["lakehouse_id"] == conn["lakehouse_id"]), {})
+            old: dict[str, Any] = next((c for c in data["connections"] if c["lakehouse_id"] == conn["lakehouse_id"]), {})
             entry = old | {k: conn[k] for k in conn if k in FIELDS or k in ("schema_version", "access", "checked_at")}
             entry.setdefault("added_at", now())
             data["connections"] = [c for c in data["connections"] if c["lakehouse_id"] != conn["lakehouse_id"]] + [entry]

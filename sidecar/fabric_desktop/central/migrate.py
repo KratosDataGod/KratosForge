@@ -28,7 +28,7 @@ def migrate(project: Any, lakehouse: Any, service: Any, keep_numbers: bool = Tru
             report.append({"table": kt.name, "copied": 0, "checked": 0, "match": True, "note": "not in LH_Keys yet"})
             continue
         real = df.filter(pl.col(kt.sk) != keys_mod.UNKNOWN_KEY).sort(kt.sk)
-        rows = [[int(r[kt.sk]), str(r[kt.bk]), str(r["create_date"])] for r in real.iter_rows(named=True)]
+        rows: list[list[Any]] = [[int(r[kt.sk]), str(r[kt.bk]), str(r["create_date"])] for r in real.iter_rows(named=True)]
         if not keep_numbers:
             service.ensure(kt.name)
             report.append(add_renumbering(rows, kt.name, service))

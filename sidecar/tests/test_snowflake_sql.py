@@ -671,3 +671,30 @@ def test_approximate_functions_in_a_window_are_cast_outside_it():
 def test_hll_forms_that_are_not_rewritten_say_so(code):
     (note,) = sf.translate(code).statements[0].notes
     assert note.id == "SFX-014"
+
+
+@pytest.mark.parametrize("name", sorted(sf._TEXT_FEATURES))
+def test_text_search_collation_hash_agg_and_xml_are_refused_by_name(name):
+    code = {"COLLATE": "SELECT a FROM t ORDER BY a COLLATE 'en-ci'", "SEARCH": "SELECT search(a, 'x') FROM t",
+            "SEARCH_IP": "SELECT search_ip(a, '10.0.0.1') FROM t", "XMLGET": "SELECT xmlget(a, 'b') FROM t"}
+    t = sf.translate(code.get(name, f"SELECT {name.lower()}(a) FROM t"))
+    (note,) = t.statements[0].notes
+    assert not t.runnable and note.id == "SFN-017" and note.title.startswith(name)
+
+
+def test_octet_length_of_a_column_is_taken_for_text():
+    assert sf.translate("SELECT octet_length(a) FROM t").duckdb_sql == "SELECT STRLEN(CAST(a AS TEXT)) FROM t"
+
+
+def test_try_decoders_give_null_for_an_odd_number_of_hex_digits_and_bad_utf8():
+    import duckdb
+    t = sf.translate("SELECT try_hex_decode_binary('414'), try_hex_decode_string('FF'), "
+                     "try_base64_decode_string('/w==')")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == (None, None, None)
+
+
+@pytest.mark.parametrize("code", ["SELECT try_base64_decode_binary(a, '$') FROM t",
+                                  "SELECT try_base64_decode_string(a, '$') FROM t"])
+def test_decoders_with_an_alphabet_say_so(code):
+    (note,) = sf.translate(code).statements[0].notes
+    assert note.id == "SFX-015" and "alphabet" in note.title

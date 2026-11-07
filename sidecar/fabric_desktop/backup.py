@@ -285,13 +285,6 @@ def _zip_sha256(z: zipfile.ZipFile, name: str) -> str:
     return digest.hexdigest()
 
 
-def _write_synced(path: Path, data: bytes) -> None:
-    """Written and flushed to disk, so a PC that stops right after the swap still has it."""
-    with open(path, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -388,8 +381,10 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 tmp = dest.with_name(dest.name + ".restoring")
                 staged.append(tmp)
-                with z.open(item["path"]) as src:
-                    _write_synced(tmp, src.read())
+                with z.open(item["path"]) as src, open(tmp, "wb") as out:
+                    shutil.copyfileobj(src, out, 1 << 20)  # streamed: a member's size is the backup's to claim
+                    out.flush()
+                    os.fsync(out.fileno())
                 if _sha256(tmp) != hashes[item["path"]]:
                     raise BackupError(f"{item['path']} didn't write correctly to {dest}; nothing was changed.")
             # 2. A copy of every file it replaces, kept in restore-safety.
@@ -397,7 +392,10 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                 if item["replaces"]:
                     keep = safety / item["path"]
                     keep.parent.mkdir(parents=True, exist_ok=True)
-                    _write_synced(keep, Path(item["to"]).read_bytes())
+                    with open(item["to"], "rb") as src, open(keep, "wb") as out:
+                        shutil.copyfileobj(src, out, 1 << 20)
+                        out.flush()
+                        os.fsync(out.fileno())
             # 3. The swaps. If one fails, the files already swapped are put back as they were.
             for item, tmp in zip(plan, staged, strict=True):
                 dest, keep = Path(item["to"]), safety / item["path"]

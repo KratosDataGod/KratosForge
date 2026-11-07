@@ -63,7 +63,7 @@ Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `fi
 
 ## 4. PR sequence and status
 
-Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
+Status checked against `main` on 2026-11-07. Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
 
 | PR | Content | Status |
 | --- | --- | --- |
@@ -78,13 +78,13 @@ Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so 
 | OPT-010 | Opportunities: Effort column and Dismiss for this PC's findings (approved action-first mockup) | Merged (#1834, #1876) |
 | OPT-011 | Estate X-ray: an action for every finding, and empty, DataflowsStaging and FUAM lakehouses handled | Planned, mockup first (new guides on the page) |
 | OPT-007 | Multiple lakehouses: the rest | Planned |
-| OPT-003 (part 2) | Local execution: metadata runs and measured proof runs (engine) | In review; the Share button waits for a mockup |
+| OPT-003 (part 2) | Local execution: metadata runs and measured proof runs (engine) | Merged (#2040); the Share button waits for a mockup |
 | OPT-004 | Measurements and savings rows | Planned |
-| OPT-012 | Optimize motion events | Planned, with OPT-004 |
+| OPT-012 | Optimize motion events | Merged (#2147); the savings effect waits for Measured savings |
 | OPT-013 | Local vs Fabric advisor screen (FinOps advisor) | Planned, mockup first |
 | OPT-005 | Dashboard and reports | Planned, mockup first |
-| OPT-008 | Security and retention | Security doc in review; the retention action needs a mockup first |
-| OPT-009 | Optimize's own overhead | Planned |
+| OPT-008 | Security and retention | Part 1 merged (#2147); the retention action needs a mockup first |
+| OPT-009 | Optimize's own overhead | In review (seconds, rows and commits; bytes not yet) |
 
 OPT-010 to 013 were found missing in the closed-thread audit of 2026-11-03: Chris asked for them (unit testing items 9 and 10 on 2026-10-18, the action-first go on 2026-10-26, the FinOps brief's FINOPS-005 screen, the motion brief's Optimization experience) and the threads that held them closed without building them.
 
@@ -137,6 +137,7 @@ Overview totals read from the shared tables, grouped by classification, with eac
 - Retention: `retention_days` exists as a setting but nothing enforces it. Deleting shared rows is destructive, so retention will be an administrator action with a dry run that lists what would go, never automatic, and recorded in `fdopt_audit`.
 
 ### OPT-009: Optimize's own overhead
+Built, except bytes: seconds, rows and commits per sync, using `measurement.py`'s new `count` unit. Bytes written aren't measured yet.
 Each sync records what it cost on the PC and in OneLake: rows, commits, bytes written and seconds taken, as Measured local figures in `fdopt_measurements`. OneLake reads and writes use capacity, so the docs say that, but no CU figure is given for them until it's measured.
 
 ### Savings claims

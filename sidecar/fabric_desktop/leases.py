@@ -91,7 +91,7 @@ def _file_lock(path: Path) -> Iterator[None]:
             f.seek(0)
             while True:
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # retries for about 10 s, then raises
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]  # Windows-only; retries for about 10 s, then raises
                     break
                 except OSError:
                     continue
@@ -99,7 +99,7 @@ def _file_lock(path: Path) -> Iterator[None]:
                 yield
             finally:
                 f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]  # Windows-only
         else:
             import fcntl
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)

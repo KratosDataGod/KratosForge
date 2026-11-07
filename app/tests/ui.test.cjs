@@ -1763,6 +1763,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Page header art: a path from the shipped manifest (art/experience/heroes.js), under the app's own art folder;
+    // the manifest test checks every entry is <page>/<id> with both files present.
+    "home-hero.js: src: `${base}-1086.webp`, srcset: `${base}-1086.webp 1086w, ${base}.webp 2172w`,",
     // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
     "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
@@ -3052,8 +3055,8 @@ test("every page links to its section of the user guide", () => {
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
   // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
-  // and Monitor's is in monitorAbout beside its tabs.
-  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
+  // Monitor's is in monitorAbout beside its tabs, and Source control's in gitTitle beside its repository.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout", source: "gitTitle" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));

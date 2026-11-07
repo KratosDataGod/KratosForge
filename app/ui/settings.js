@@ -808,13 +808,19 @@ function mailServerOnly() {
   return box;
 }
 
+// Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
+// gears painted on it are decoration: none is a control or stands for a section below.
+function settingsPageView(...children) {
+  const hero = typeof pageHero === "function" ? pageHero("settings", "Settings") : null;
+  return h("div", { class: hero ? "page settings living-head" : "page settings" }, hero || h("h1", {}, "Settings"), ...children);
+}
+
 async function renderSettings() {
-  setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
+  setView(settingsPageView(h("p", { class: "muted-text" }, "Loading...")));
   const s = await loadSettings();
   if (state.view !== "settings") return;
   if (!s) {
-    setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"),
-      h("p", { class: "muted-text" }, "Settings load once the local engine is running.")));
+    setView(settingsPageView(h("p", { class: "muted-text" }, "Settings load once the local engine is running.")));
     return;
   }
   // Policy or an environment variable sets it: the field shows the value, read-only, and says which.
@@ -941,9 +947,7 @@ async function renderSettings() {
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
   if (state.view !== "settings") return;
-  setView(h("div", { class: "page settings" },
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
+  setView(settingsPageView(pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")),
     tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);

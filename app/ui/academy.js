@@ -49,11 +49,13 @@ async function renderAcademy() {
   if (academyPage.open) return renderAcademyExercise(academyPage.open);
   if (!ACADEMY_TABS.some(([id]) => id === academyPage.tab)) academyPage.tab = "home";
   const body = h("div", { class: "academy-body" }, h("p", { class: "muted-text" }, "Reading the certification..."));
-  setView(h("div", { class: "page academy" },
-    h("div", { class: "page-head" }, h("div", {},
-      h("h1", {}, "Academy ", previewTag()),
-      pageIntro("Certification prep you practise on this PC, checked the way each exercise says. ", docLink("academy-guide.md", "Learn more"))),
-      h("div", { class: "head-actions" })),
+  const intro = pageIntro("Certification prep you practise on this PC, checked the way each exercise says. ", docLink("academy-guide.md", "Learn more"));
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. An open
+  // exercise is a working view and keeps its plain heading.
+  const hero = typeof pageHero === "function" ? pageHero("academy", "Academy ", { tag: previewTag() }) : null;
+  setView(h("div", { class: hero ? "page academy living-head" : "page academy" },
+    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, intro), h("div", { class: "head-actions" }))]
+      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Academy ", previewTag()), intro), h("div", { class: "head-actions" })),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Academy" }, ACADEMY_TABS.map(([id, label]) =>
       h("button", { class: `tab${academyPage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": academyPage.tab === id ? "true" : "false",
         onclick: () => { academyPage.tab = id; render(); } }, label))),

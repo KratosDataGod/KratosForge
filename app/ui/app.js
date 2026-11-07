@@ -1030,8 +1030,13 @@ function tile(iconName, title, desc, onClick) {
 }
 
 function renderCreate() {
-  setView(h("div", { class: "page" },
-    h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
+  // Living Experience (home-hero.js, Preview): Chris's header art with "Create" and the two items most
+  // people start with in its text-safe left side. Off, the plain heading.
+  const hero = typeof pageHero === "function"
+    ? pageHero("create", "Create", { actions: [btn("New notebook", "notebook", () => newNotebook(), "tool primary"),
+      btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool hero-outline")] }) : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" },
+    hero || h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
@@ -1167,10 +1172,17 @@ async function renderMonitor() {
   const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
   const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
   const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
-  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
-    POP_OUT ? null : h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name and its button on
+  // the sky. Not in a pop-out window, not over the docked Fabric hub (the working area keeps its height),
+  // and not above the Forge Activity band, which carries its own Monitor art (#2226): one picture per screen.
+  const hero = !POP_OUT && !hubShown && !forgeBandSlot && typeof pageHero === "function"
+    ? pageHero("monitor", "Monitor", { actions: [h("div", { class: "head-actions" }, popOutHere)] }) : null;
+  const context = h("p", { class: "sub monitor-context" }, monitorAbout(...about));
+  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}${hero ? " living-head" : ""}` },
+    POP_OUT ? null : hero ? [hero, h("div", { class: "page-head" }, h("div", {}, context), forgeStripSlot)]
+      : h("div", { class: "page-head" },
+        h("div", {}, h("h1", {}, "Monitor"), context),
+        forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
     tabs, runsBand ? null : viewRow,
     hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
       : h("section", { class: "card monitor-fabric" }, slot))
@@ -1367,7 +1379,9 @@ async function renderWorkspaces() {
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky.
+  const hero = typeof pageHero === "function" ? pageHero("workspace", "Workspaces") : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" }, hero || h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     pageIntro("Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {

@@ -1085,16 +1085,32 @@ body.pop-out .page.monitor { padding: 12px; }
   .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
   .home-hero { height: 230px; }
 }
+/* A tab's header (pageHero: Create, Workspaces, Platform): the same band at the top of the page; the page below keeps its plain layout. */
+.page.living-head > .home-hero { margin-bottom: 18px; max-width: none; }
+.page.living-head .home-hero-text { padding-top: 40px; gap: 10px; }
+.page.living-head h1.home-hero-title { margin: 0; font-size: 64px; color: var(--lx-hero-title); font-weight: 800; letter-spacing: 0; }
+.page.living-head .home-hero-actions { margin-top: 14px; }
+.page.living-head .home-hero-actions:empty { display: none; }
+.page.living-head .profile-name { margin: 0 0 4px; font-size: 24px; font-weight: 600; }
+/* A tab's own buttons on the sky: outline buttons read as the hero's outline, light on navy. */
+.home-hero-actions .tool.outline { background: transparent; color: var(--lx-hero-title); border: 1px solid var(--lx-hero-line); }
 /* Between the wide layout and the 960 px hide, the title steps down so its ink stays on the art's empty sky, left of the cape. */
 @media (max-width: 1250px) { .home-hero-title { font-size: 42px; } }
 @media (max-width: 1180px) { .home-hero-title { font-size: 32px; } }
 @media (max-width: 1040px) { .home-hero-title { font-size: 28px; } .page .home-hero-welcome { font-size: 18px; } }
+.page.living-head h1.home-hero-title.long { font-size: 52px; }
+@media (max-width: 1250px) { .page.living-head h1.home-hero-title { font-size: 56px; } .page.living-head h1.home-hero-title.long { font-size: 42px; } }
+@media (max-width: 1100px) { .page.living-head h1.home-hero-title { font-size: 48px; } .page.living-head h1.home-hero-title.long { font-size: 36px; } }
+@media (max-width: 1040px) { .page.living-head h1.home-hero-title.long { font-size: 30px; } }
 @media (max-width: 960px) { .home-hero-img { display: none; } }
 @media (max-width: 720px) {
   .home-hero { height: auto; min-height: 120px; margin: 0; }
   .home-hero-img { display: none; }
   .home-hero-text { width: auto; padding: 18px 20px; }
   .home-hero-title { font-size: 28px; }
+  .page.living-head h1.home-hero-title, .page.living-head h1.home-hero-title.long { font-size: 40px; }
+  .page.living-head .home-hero-text { padding-top: 18px; }
+  .page.living-head h1.home-hero-title { white-space: normal; }
 }
 @media (forced-colors: active) {
   .home-hero, .home-id, .home-latest { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }

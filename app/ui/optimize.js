@@ -25,11 +25,14 @@ async function renderOptimize() {
   const sync = h("p", { class: "sub optimize-sync", hidden: true });
   const actions = h("div", { class: "head-actions" });
   const body = h("div", { class: "optimize-body" });
-  setView(h("div", { class: "page optimize" },
-    h("div", { class: "page-head" }, h("div", {},
-      h("h1", {}, "Optimize ", previewTag()), band, sync,
-      pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
-        learnMore("optimize-preview"))), actions),
+  const intro = pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
+    learnMore("optimize-preview"));
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
+  // shared-lakehouse line and its setup buttons stay under it, buttons at the right.
+  const hero = typeof pageHero === "function" ? pageHero("optimize", "Optimize ", { tag: previewTag() }) : null;
+  setView(h("div", { class: hero ? "page optimize living-head" : "page optimize" },
+    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, band, sync, intro), actions)]
+      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Optimize ", previewTag()), band, sync, intro), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
       h("button", { class: `tab${optimizePage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": optimizePage.tab === id ? "true" : "false",
         onclick: () => { optimizePage.tab = id; render(); } }, label))),

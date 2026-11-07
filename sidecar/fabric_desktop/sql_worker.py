@@ -34,9 +34,14 @@ BATCH_ROWS = 65_536
 PROGRESS_SECONDS = 0.25
 
 
+_say_lock = threading.Lock()  # the memory watch's thread says its error while the run may be mid-event
+
+
 def _say(event: str, **fields: Any) -> None:
-    sys.stdout.write(json.dumps({"event": event, **fields}, default=str) + "\n")
-    sys.stdout.flush()
+    line = json.dumps({"event": event, **fields}, default=str) + "\n"
+    with _say_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def run(job: dict[str, Any]) -> None:
@@ -70,6 +75,8 @@ def run(job: dict[str, Any]) -> None:
                      + _advice(stop.kind))
         return
 
+    if job.get("memory_cap_mb"):
+        _hold_to(int(job["memory_cap_mb"]), job)
     con = keep_try_cast(duckdb.connect())
     con.execute("SET TimeZone = 'UTC'")  # as in sql.run: Fabric's Spark sessions are UTC
     if job.get("memory_mb"):
@@ -113,6 +120,40 @@ def run(job: dict[str, Any]) -> None:
                 last = time.monotonic()
     _say("done", rows=rows, batches=batches,
          columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+
+
+MEMORY_WATCH_SECONDS = 0.2
+
+
+def _hold_to(cap_mb: int, job: dict[str, Any]) -> None:
+    """Stop this process, with a message saying why, once it uses more than ``cap_mb``: DuckDB's
+    memory_limit doesn't cover the Arrow reads of lakehouse tables (free_memory.py), and past what
+    the PC had free the OS would end the process without a word, or page the whole PC."""
+    from .kernel_proc import memory_used
+
+    cap, pid = cap_mb << 20, os.getpid()
+
+    def watch() -> None:
+        while True:
+            time.sleep(MEMORY_WATCH_SECONDS)
+            used = memory_used(pid)
+            if used is None or used <= cap:
+                continue
+            if job.get("memory_bound") == "free":
+                why = (f"this PC had {_gb(int(job.get('free_mb') or 0))} free when it started, and the query "
+                       f"may use {_gb(cap_mb)} of it. Close other apps and run it again, or narrow the query "
+                       "(a filter, fewer columns or tables).")
+            else:
+                why = ("that is the memory share set in Settings › SQL. Narrow the query (a filter, fewer "
+                       "columns or tables), or raise the share.")
+            _say("error", kind="memory", message=f"Stopped: the query needed more than {_gb(cap_mb)} of memory; {why}")
+            os._exit(3)  # the result so far is incomplete; the engine removes it
+
+    threading.Thread(target=watch, daemon=True, name="memory-watch").start()
+
+
+def _gb(mb: int) -> str:
+    return f"{mb / 1024:.1f} GB"
 
 
 def _quote(text: str) -> str:

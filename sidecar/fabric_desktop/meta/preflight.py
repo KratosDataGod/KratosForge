@@ -9,13 +9,14 @@ date, 1 for a flag, and ``STRING_BYTES`` for each text value. It is an estimate,
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
+
+from .. import free_memory
 
 STRING_BYTES = 32  # average for a text value in memory: Arrow's offsets plus typical short text
 HEADROOM = 3.0  # the read plus the copies later steps make: a 5M-row first load peaked at 2.5x the estimate
@@ -88,28 +89,7 @@ def estimate(table: DeltaTable, columns: list[str], schema: dict[str, pl.DataTyp
 
 def available_memory() -> int | None:
     """Bytes of memory free for a new allocation on this machine, or None when it can't be told."""
-    try:
-        if os.name == "nt":
-            import ctypes
-
-            class _Status(ctypes.Structure):
-                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-            status = _Status()
-            status.dwLength = ctypes.sizeof(_Status)
-            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
-                return None
-            return int(status.ullAvailPhys)
-        with open("/proc/meminfo", encoding="ascii") as f:
-            for line in f:
-                if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) * 1024
-    except (OSError, ValueError, AttributeError):
-        return None
-    return None  # macOS and others: no guard
+    return free_memory.available()
 
 
 def too_big(est: Estimate, available: int | None) -> str:

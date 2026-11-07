@@ -1,6 +1,6 @@
 """The text encoding functions a local pipeline run gained from the coverage list: base64, base64ToString,
 decodeBase64, dataUri, dataUriToString, uriComponent, encodeUriComponent, uriComponentToString and
-decodeUriComponent. The ones that return a binary value stay refused until Fabric's form is checked."""
+decodeUriComponent. The ones that return a binary value are in test_pipeline_xml_binary_functions.py."""
 
 from __future__ import annotations
 
@@ -37,8 +37,6 @@ def test_encoding_functions(expr, want):
     ("dataUriToString('hello')", r"isn't a data URI"),
     ("dataUriToString('data:text/plain;base64,@@@')", r"couldn't read"),
     ("decodeUriComponent('%FF')", r"aren't UTF-8 text"),
-    ("binary('hello')", r"binary\(\) isn't supported in local runs yet"),
-    ("base64ToBinary('aGVsbG8=')", r"isn't supported in local runs yet"),
 ])
 def test_encoding_functions_refuse_what_they_cant_do(expr, message):
     with pytest.raises(ExpressionError, match=message):

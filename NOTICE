@@ -13,6 +13,9 @@ It also includes third-party software under its own licenses:
   app/ui/vendor/vega, listed with their licenses in THIRD-PARTY-NOTICES.md there.
 - CodeMirror, in app/ui/vendor/codemirror, under the MIT License (LICENSE in
   that folder).
+- The Windows to IANA time zone map from Unicode CLDR, in
+  sidecar/fabric_desktop/orchestration/windows_zones.py, under the Unicode
+  License v3 (its text is at the top of that file).
 
 The engine download also contains Python packages under their own licenses
 (listed in sbom-engine.cdx.json on each release) and Microsoft ODBC Driver 18

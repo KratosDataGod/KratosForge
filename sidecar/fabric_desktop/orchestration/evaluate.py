@@ -15,13 +15,15 @@ import binascii
 import calendar
 import json
 import math
+import random
 import urllib.parse
 import uuid
 from collections import ChainMap
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any, Callable
 
+from . import expr_binary, expr_xml
 from .expressions import tokens
 
 
@@ -223,6 +225,8 @@ def _member(value: Any, key: Any, safe: bool) -> Any:
 def _text(v: Any) -> str:
     if isinstance(v, str):
         return v
+    if expr_binary.is_binary(v):
+        return expr_binary.binary_text(v)   # string() of a binary value is its UTF-8 text
     if isinstance(v, bool):
         return "True" if v else "False"
     if v is None:
@@ -373,20 +377,27 @@ def _json(v: Any) -> Any:
 # .NET date format tokens, longest first, mapped to strftime (the common ones only).
 _DATE_TOKENS = [("yyyy", "%Y"), ("yy", "%y"), ("MMMM", "%B"), ("MMM", "%b"), ("MM", "%m"), ("dddd", "%A"),
                 ("ddd", "%a"), ("dd", "%d"), ("HH", "%H"), ("hh", "%I"), ("mm", "%M"), ("ss", "%S"),
-                ("tt", "%p"), ("fffffff", "%f0"), ("ffffff", "%f"), ("fff", "%f3")]
+                ("tt", "%p"), ("fffffff", "%f0"), ("ffffff", "%f"), ("fff", "%f3"),
+                # one letter: the number without a leading zero
+                ("d", "#day"), ("M", "#month"), ("H", "#hour"), ("h", "#hour12"), ("m", "#minute"), ("s", "#second")]
 _STANDARD = {"o": "yyyy-MM-ddTHH:mm:ss.fffffffK", "s": "yyyy-MM-ddTHH:mm:ss", "u": "yyyy-MM-dd HH:mm:ssZ",
-             "d": "MM/dd/yyyy"}
+             "d": "MM/dd/yyyy", "D": "dddd, MMMM d, yyyy"}
 
 
 def _parse_time(v: Any) -> datetime:
+    t = _parse_raw(v)
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def _parse_raw(v: Any) -> datetime:
+    """The date and time as written: with its offset when it has one, without one when it doesn't."""
     if isinstance(v, datetime):
         return v
     text = _text(v).strip()
     try:
-        t = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        t = _parse_invariant(text)
-    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        return _parse_invariant(text)
 
 
 # Besides ISO 8601, the month-first forms .NET's invariant culture reads, as in the reference's own
@@ -403,10 +414,15 @@ def _parse_invariant(text: str) -> datetime:
     raise ExpressionError(f"{text!r} isn't a date and time this PC can read (use ISO 8601 or MM/dd/yyyy HH:mm:ss)")
 
 
-def _format_time(t: datetime, fmt: str | None) -> str:
-    t = t.astimezone(timezone.utc)
+def _format_time(t: datetime, fmt: str | None, local: bool = False) -> str:
+    """``t`` in .NET format ``fmt``, as UTC (ending in Z by default). ``local`` writes the wall-clock
+    time of ``t``'s own zone with no zone marker, as Fabric writes convertFromUtc's result."""
+    t = t if local else t.astimezone(timezone.utc)
     if not fmt or fmt == "o":
-        return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond:06d}0Z"
+        return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond:06d}0" + ("" if local else "Z")
+    if len(fmt) == 1 and fmt not in _STANDARD:
+        # .NET reads any one-character format as a standard format ("M" is "March 15"), never as a token.
+        raise ExpressionError(f"standard date format {fmt!r} isn't supported in local runs yet")
     fmt = _STANDARD.get(fmt, fmt)
     out, i = [], 0
     while i < len(fmt):
@@ -418,7 +434,10 @@ def _format_time(t: datetime, fmt: str | None) -> str:
             continue
         for tok, code in _DATE_TOKENS:
             if fmt.startswith(tok, i):
-                if code == "%f3":
+                if code.startswith("#"):
+                    n = t.hour % 12 or 12 if code == "#hour12" else getattr(t, code[1:])
+                    out.append(str(n))
+                elif code == "%f3":
                     out.append(f"{t.microsecond // 1000:03d}")
                 elif code == "%f0":
                     out.append(f"{t.microsecond:06d}0")
@@ -429,7 +448,7 @@ def _format_time(t: datetime, fmt: str | None) -> str:
         else:
             ch = fmt[i]
             if ch == "K":
-                out.append("Z")
+                out.append("" if local else "Z")
             elif ch.isalpha() and ch not in "TZ":
                 raise ExpressionError(f"date format {fmt!r} uses {ch!r}, which this PC doesn't support")
             else:
@@ -491,6 +510,40 @@ def _subtract_from_time(ts: Any, n: Any, unit: Any, fmt: Any = None) -> str:
     return _format_time(_shift(_parse_time(ts), -_num(n, "subtractFromTime"), unit, "subtractFromTime"), fmt)
 
 
+def _zone(name: Any, fn: str) -> tzinfo:
+    """A Windows time zone id (as Fabric takes them: "Pacific Standard Time", "UTC") as a zone."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    from .windows_zones import WINDOWS_TO_IANA
+    key = _text(name).strip()
+    iana = WINDOWS_TO_IANA.get(key) or next((v for k, v in WINDOWS_TO_IANA.items() if k.lower() == key.lower()), None)
+    if iana is None:
+        raise ExpressionError(f"{fn}() needs a Windows time zone id such as 'Pacific Standard Time', not {key!r}")
+    try:
+        return ZoneInfo(iana)
+    except ZoneInfoNotFoundError:
+        raise ExpressionError(f"{fn}(): this PC has no time zone data for {key!r}") from None
+
+
+def _wall(ts: Any, zone: tzinfo) -> datetime:
+    """A time as a wall-clock time in ``zone``: one written without an offset is taken to be in it."""
+    t = _parse_raw(ts)
+    return t.astimezone(zone) if t.tzinfo else t.replace(tzinfo=zone)
+
+
+def _convert_from_utc(ts: Any, dest: Any, fmt: Any = None) -> str:
+    return _format_time(_parse_time(ts).astimezone(_zone(dest, "convertFromUtc")), fmt, local=True)
+
+
+def _convert_to_utc(ts: Any, src: Any, fmt: Any = None) -> str:
+    return _format_time(_wall(ts, _zone(src, "convertToUtc")), fmt)
+
+
+def _convert_time_zone(ts: Any, src: Any, dest: Any, fmt: Any = None) -> str:
+    t = _wall(ts, _zone(src, "convertTimeZone")).astimezone(_zone(dest, "convertTimeZone"))
+    return _format_time(t, fmt, local=True)
+
+
 def _ticks(ts: Any) -> int:
     """100-nanosecond intervals since 0001-01-01T00:00:00 UTC, as .NET counts them."""
     t = _parse_time(ts).astimezone(timezone.utc)
@@ -539,6 +592,8 @@ def _if(c: Any, a: Any, b: Any) -> Any:
 
 
 def _base64(v: Any) -> str:
+    if expr_binary.is_binary(v):
+        return base64.b64encode(expr_binary.binary_bytes(v)).decode("ascii")
     return base64.b64encode(_text(v).encode("utf-8")).decode("ascii")
 
 
@@ -564,6 +619,15 @@ def _data_uri_text(v: Any) -> str:
         return raw.decode(charset)
     except (binascii.Error, LookupError, ValueError):
         raise ExpressionError("dataUriToString() couldn't read the data URI's text") from None
+
+
+def _rand(lo: Any, hi: Any) -> int:
+    """rand(): a whole number from lo up to, but not including, hi."""
+    if isinstance(lo, bool) or isinstance(hi, bool) or not isinstance(lo, int) or not isinstance(hi, int):
+        raise ExpressionError(f"rand() needs two whole numbers, not {lo!r} and {hi!r}")
+    if lo >= hi:
+        raise ExpressionError(f"rand() needs its minimum ({lo}) to be less than its maximum ({hi})")
+    return random.randrange(lo, hi)
 
 
 def _uri_encode(v: Any) -> str:
@@ -593,7 +657,7 @@ _PURE: dict[str, Callable[..., Any]] = {
     "mul": lambda a, b: _num(a, "mul") * _num(b, "mul"), "div": _div, "mod": _mod,
     "min": lambda *a: min(_num(x, "min") for x in (a[0] if len(a) == 1 and isinstance(a[0], list) else a)),
     "max": lambda *a: max(_num(x, "max") for x in (a[0] if len(a) == 1 and isinstance(a[0], list) else a)),
-    "range": _range,
+    "range": _range, "rand": _rand,
     # strings
     "concat": lambda *a: "".join(_text(x) for x in a),
     "substring": _substring, "replace": lambda s, a, b: _text(s).replace(_text(a), _text(b)),
@@ -618,6 +682,12 @@ _PURE: dict[str, Callable[..., Any]] = {
     "datauri": lambda v: "data:text/plain;charset=utf-8;base64," + _base64(v), "datauritostring": _data_uri_text,
     "uricomponent": _uri_encode, "encodeuricomponent": _uri_encode,
     "uricomponenttostring": _uri_decode, "decodeuricomponent": _uri_decode,
+    "binary": lambda v: expr_binary.to_binary(_text(v)),
+    "base64tobinary": lambda v: expr_binary.base64_to_binary(_text(v)),
+    "datauritobinary": lambda v: expr_binary.data_uri_to_binary(_text(v), "dataUriToBinary"),
+    "decodedatauri": lambda v: expr_binary.data_uri_to_binary(_text(v), "decodeDataUri"),
+    "uricomponenttobinary": lambda v: expr_binary.uri_component_to_binary(_text(v)),
+    "xml": expr_xml.to_xml, "xpath": expr_xml.xpath,
     # dates
     "formatdatetime": lambda ts, fmt=None: _format_time(_parse_time(ts), fmt),
     "adddays": _add_time("days"), "addhours": _add_time("hours"), "addminutes": _add_time("minutes"),
@@ -628,6 +698,7 @@ _PURE: dict[str, Callable[..., Any]] = {
     "dayofweek": lambda ts: (_parse_time(ts).astimezone(timezone.utc).weekday() + 1) % 7,   # Sunday is 0
     "dayofyear": lambda ts: _parse_time(ts).astimezone(timezone.utc).timetuple().tm_yday,
     "ticks": _ticks,
+    "convertfromutc": _convert_from_utc, "converttoutc": _convert_to_utc, "converttimezone": _convert_time_zone,
 }
 
 _SCOPED: dict[str, Callable[..., Any]] = {
@@ -707,5 +778,7 @@ def call(name: str, args: list[Any], scope: Scope) -> Any:
             return _bounded(name, _PURE[fn](*args))
     except TypeError:
         raise ExpressionError(f"{name}() was given {len(args)} argument(s), which it doesn't take") from None
+    except (expr_xml.XmlError, expr_binary.BinaryError) as e:
+        raise ExpressionError(str(e) if str(e).lower().startswith(fn + "(") else f"{name}(): {e}") from None
     raise ExpressionError(f"{name}() isn't supported in local runs yet")
 

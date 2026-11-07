@@ -1195,14 +1195,18 @@ function sqlSettingsSection(s, locked) {
 // The Usage data card is hidden until there's a need for it: this build has nowhere to send usage data.
 // Set to true to bring the card back. The engine (telemetry.py), the setting and its off default are
 // unchanged. While usage data is on (a policy file can turn it on for everyone) the card shows anyway,
-// so nobody sends it without seeing that it's on, what's sent, and a way to turn it off.
+// so nobody sends it without seeing that it's on and what's sent. A policy-set value stays locked (only the
+// organization changes it); otherwise the switch can always turn it off.
 const USAGE_DATA_SHOWN = false;
 
 const USAGE_WHERE = { kratosbi: "KratosBI's Application Insights", organization: "your organization's Application Insights" };
 
 async function usageSection(s) {
   const u = await rpc("telemetry_status").catch(() => null);
-  if (!u || (!USAGE_DATA_SHOWN && !u.on)) return null;
+  // Status unreadable while the setting says on: still say it's on, rather than hide it.
+  if (!u) return s.telemetry?.value ? h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),
+    h("p", { class: "muted-text" }, "Usage data is on, but its status couldn't be read. Open Settings again to retry.")) : null;
+  if (!USAGE_DATA_SHOWN && !u.on) return null;
   const locked = s.telemetry?.source === "policy";
   const today = u.waiting.find((w) => w.day === u.today);
   const actions = today ? Object.values(today.features).reduce((n, f) => n + f.count, 0) : 0;

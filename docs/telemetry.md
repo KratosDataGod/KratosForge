@@ -1,6 +1,6 @@
 # Usage data
 
-KratosForge can send a small daily summary of which actions were used, how often they failed and how long they took. It is **off**, and this build has nowhere to send it, so it sends nothing. The **Usage data** card in Settings is hidden for now, so you can't turn it on there. Your organization can turn it on for everyone with the policy file, sending to its own Application Insights ([For IT admins](#for-it-admins)); while it's on, **Settings > Usage data** shows, with what's sent and a way to turn it off. This feature is in Preview.
+KratosForge can send a small daily summary of which actions were used, how often they failed and how long they took. It is **off**, and this build has nowhere to send it, so it sends nothing. The **Usage data** card in Settings is hidden for now, so you can't turn it on there. Your organization can turn it on for everyone with the policy file, sending to its own Application Insights ([For IT admins](#for-it-admins)); while it's on, **Settings > Usage data** shows that it's on and what's sent. A policy setting can only be changed by your organization. This feature is in Preview.
 
 ## What is sent
 

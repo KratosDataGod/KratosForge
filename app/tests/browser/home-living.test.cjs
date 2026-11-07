@@ -34,7 +34,15 @@ before(async () => {
   const out = spawnSync(python, ["-c", BUILD], { cwd: path.join(__dirname, "..", "..", "..", "sidecar"), encoding: "utf8" });
   assert.strictEqual(out.status, 0, out.stderr);
   profile = JSON.parse(out.stdout);
-  app = await openApp({ engine: ["app_settings", "app_settings_save"], mocks: { profile_get: () => profile, list_notebooks: () => [] } });
+  // This PC's run logs: four local runs in the last 7 days (one metadata run went to Fabric and doesn't
+  // count), two in the 7 before, so Forge stats reads 4 and +100%.
+  const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
+  app = await openApp({ engine: ["app_settings", "app_settings_save"], mocks: {
+    profile_get: () => profile, list_notebooks: () => [],
+    meta_runs_all: () => ({ runs: [{ started_at: ago(1) }, { started_at: ago(2), compute: "local" }, { started_at: ago(3), compute: "fabric" }, { started_at: ago(9) }], unavailable: {} }),
+    pc_schedule_runs: () => [{ started: ago(0.5) }, { started: ago(10) }],
+    pipeline_runs: () => ({ runs: [{ started: ago(4) }] }),
+  } });
   await page().waitForFunction(() => state.settings && "show_preview" in state.settings && !state.starting);
 });
 
@@ -49,10 +57,16 @@ test("Home shows the hero and the progression panel from profile_get", { skip },
   await page().locator(".home-id").waitFor();
   const p = profile.progression;
   assert.ok(await page().getByText(`Level ${p.level}`, { exact: true }).isVisible());
-  assert.ok(await page().getByText(`${p.next_level_xp - p.xp} XP to level ${p.level + 1}`).isVisible());
+  assert.ok(await page().locator(".home-id-level").getByText(`${p.xp.toLocaleString("en-US")} / ${p.next_level_xp.toLocaleString("en-US")} XP`).isVisible());
   assert.ok(await page().locator(".home-id-rank").getByText(p.title, { exact: true }).isVisible());
   assert.ok(await page().getByText("First Flame", { exact: true }).isVisible());
-  assert.ok(await page().getByText("Not measured").isVisible());
+  // Forge stats: runs counted from this PC's run logs, week against week; CU and optimized never guessed.
+  const runs = page().locator(".home-stat").filter({ hasText: "Runs on this PC" });
+  await runs.locator("b").getByText("4", { exact: true }).waitFor();
+  assert.match(await runs.innerText(), /\+100%/);
+  for (const label of ["Fabric CU avoided (est.)", "Workloads optimized"]) {
+    assert.match(await page().locator(".home-stat").filter({ hasText: label }).innerText(), /Not measured yet/);
+  }
   // The welcome and the primary actions are real UI in the hero's text side; none sits on the art.
   assert.ok(await page().locator(".home-hero h1").getByText("Welcome to KratosForge").isVisible());
   assert.ok(await page().locator(".home-hero-actions").getByRole("button", { name: "New notebook" }).isVisible());

@@ -1411,9 +1411,12 @@ function gettingStarted() {
   const tiles = new Map();
   const grid = h("div", { class: "gs-grid" }, points.map(([key, ic, title, text, verb, run]) => {
     const tile = h("div", { class: `gs-tile${key === "lakehouse" && done("lakehouse") ? " done" : ""}` },
-      h("div", { class: "row gs-title" }, icon(ic, 16), h("b", { class: "grow" }, title), h("span", { class: "gs-tick", title: "Tried" }, icon("ok", 14))),
-      h("div", { class: "muted-text small" }, text),
-      btn(verb, null, run, "tool link small"));
+      h("span", { class: "gs-icon" }, icon(ic, 30)),
+      h("div", { class: "gs-text" },
+        h("b", { class: "gs-name" }, title),
+        h("div", { class: "gs-desc" }, text),
+        btn(verb, null, run, "tool link gs-go")),
+      h("span", { class: "gs-tick", title: "Done" }, icon("ok", 12), h("span", { class: "sr-only" }, "Done")));
     tiles.set(key, tile);
     return tile;
   }));

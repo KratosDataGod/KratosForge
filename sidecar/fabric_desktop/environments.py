@@ -38,7 +38,7 @@ from packaging.utils import (InvalidSdistFilename, InvalidWheelFilename, canonic
                              parse_wheel_filename)
 from packaging.version import Version
 
-from . import jsonfile, net_trust
+from . import app_control, jsonfile, net_trust
 
 INSTALL_SECONDS = 15 * 60
 # Spark itself: notebooks' spark is the engine's local one (spark_local), and these bring a second
@@ -331,6 +331,8 @@ class Environments:
                                   creationflags=flags, check=False)
             log.append(f"From {source}:\n" + done.stdout + done.stderr)
             if done.returncode == 0:
+                if line := app_control.blocked_line(app_control.blocked_packages(target)):
+                    log.append(line)
                 job["log"] = "\n".join(log)[-20000:]
                 return True
             missing = any(text in done.stdout + done.stderr for text in _NOT_FOUND)

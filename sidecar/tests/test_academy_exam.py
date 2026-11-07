@@ -82,8 +82,9 @@ def _edit(packs: Path, objective: str, change) -> None:
     (lambda d: d["questions"][0].update(case="nowhere"), "unknown case study"),
     (lambda d: d["questions"][0].update(explanation=""), "explanation is empty"),
     (lambda d: d.update(objective="2.2.8"), "objective doesn't match"),
-    (lambda d: d["questions"].pop(), "has 3 live questions; needs 4"),
-    (lambda d: d["questions"][1].update(status="draft"), "has 3 live questions; needs 4"),
+    (lambda d: d.update(questions=d["questions"][:3]), "has 3 live questions; needs 4"),
+    (lambda d: (d.update(questions=d["questions"][:4]), d["questions"][1].update(status="draft")),
+     "has 3 live questions; needs 4"),
 ])
 def test_problems_catch_each_kind_of_broken_question(tmp_path, change, expect):
     packs = _pack_copy(tmp_path)

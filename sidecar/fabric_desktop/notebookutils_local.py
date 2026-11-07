@@ -618,7 +618,7 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
             self.refresh()
             return super().__ne__(other)
 
-        __hash__ = None  # type: ignore[assignment]  # a dict, so unhashable
+        __hash__ = None  # a dict, so unhashable
 
         def pop(self, key: str, *default: Any) -> Any:
             self.refresh()

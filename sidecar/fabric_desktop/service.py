@@ -99,6 +99,7 @@ from .debugger import check_breakpoints
 from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_notebook_name, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 MAX_ITEM_PINS = 50  # items pinned to Home
@@ -186,11 +187,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def support_bundle_preview(self) -> dict[str, Any]:
         from . import support_bundle
         shown = support_bundle.preview(self.root, self._bundle_agent_home())
-        return shown | {"folder": str(Path.home() / "Downloads")}
+        return shown | {"folder": str(known_folders.downloads())}
 
     def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
         from . import support_bundle
-        target = Path(folder) if folder else Path.home() / "Downloads"
+        target = Path(folder) if folder else known_folders.downloads()
         if not target.is_absolute():
             raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
         try:
@@ -285,7 +286,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def _checks(self, name: str | None) -> dict[str, Any]:
         """What compute_check (and Prove's and Validate's checks) need to follow the code that
         notebook ``name`` runs: the other notebooks by name, and its resources folder for %run -b."""
-        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}  # type: ignore[attr-defined]
+        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}
 
     def _notebook_of(self, name: str) -> dict[str, Any]:
         """Another notebook by name, for compute_check: its cells and its own lakehouse."""
@@ -424,7 +425,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             user = self.auth.signed_in_user()
         except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
             user = None
-        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
+        fabric = self._quiet_fabric() if user else None
         if user and fabric is None:
             user = None  # the saved sign-in has expired: the row offers Sign in
 
@@ -835,7 +836,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
@@ -926,7 +927,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -1034,7 +1035,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.

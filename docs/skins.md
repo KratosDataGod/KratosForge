@@ -41,7 +41,8 @@ A skin is a small JSON file, checked by `fabric_desktop/skins.py` whether it shi
 imports it. It holds two things:
 
 - **appearance**: the color mode it starts in, its density, and colors for the tokens above, for light and dark.
-- **workflow**: the order of the left rail's pages, by page id, and short labels for them.
+- **workflow**: the order of the left rail's pages, by page id, and short labels for them, and which
+  notebook commands go on the Home ribbon (see [Notebook commands](#notebook-commands-preview)).
 
 ```json
 {
@@ -72,6 +73,57 @@ What a skin file can't do, because the check refuses it:
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See
 [the settings file](azure-setup.md).
+
+## Notebook commands (Preview)
+
+A skin can place the notebook's commands on the left of the Home ribbon, the way its platform's
+notebooks put them. It sets `workflow.commands.notebook`:
+
+```json
+"commands": {
+  "notebook": {
+    "primary": "notebook.run_all",
+    "bar": ["notebook.run_cell", "notebook.restart_run_all", "notebook.publish"],
+    "labels": {"notebook.run_cell": "Run cell", "notebook.restart_run_all": "Clear state and run all"}
+  }
+}
+```
+
+- **primary** is the solid button, and **bar** holds up to 3 more, in the skin's order.
+- **More** lists every notebook command the skin didn't place, in the order the app defines them. A skin
+  can't hide a command.
+- **labels** rename a command, in 40 characters or fewer. Only a low or moderate command that stays on
+  this PC can be renamed, so Publish to OneLake and Run in Fabric always keep their names. A label can't
+  be another command's own name, or a name the skin gives another command (case doesn't matter), so a
+  renamed command never reads as a different one.
+- The ids are the notebook's 9 commands: `notebook.run_all`, `notebook.run_cell`,
+  `notebook.restart_run_all`, `notebook.validate`, `notebook.save`, `notebook.publish`,
+  `notebook.run_in_fabric`, `notebook.go_failed` and `notebook.pin`. A test keeps the engine's list equal
+  to the app's.
+
+What stays the same in every skin:
+
+- A command asks what it asked before, runs the same risk check and is unavailable in the same cases.
+  One that can't run now stays where the skin put it, marked, and says why when chosen.
+- After a failed run, Go to the failed cell takes the primary slot. The skin's primary moves beside it
+  and its last bar command drops into More, so the group never grows.
+- Everything else on the Home ribbon stays where it is: Cancel, the engine, Check, Add data items,
+  Share and Schedule.
+- Publish keeps its options. On the bar it has its chevron, as on KratosForge's ribbon; under More,
+  Change publish workspace follows it.
+- The command bar (Ctrl+K) lists the skin's primary and bar commands first, under the skin's names. A
+  command's own name still finds it.
+
+The KratosForge skin places no commands, so its ribbon keeps Run all, Save and Publish to OneLake where
+they've always been. The three platform skins place them like this:
+
+| Skin | Primary | Beside it |
+| --- | --- | --- |
+| Fabric-familiar | Run all | Run cell, Save |
+| Databricks-familiar | Run all | Run cell, Clear state and run all, Publish to OneLake |
+| Snowflake-familiar | Run all | Run, Save |
+
+A skin that breaks these rules is refused with every reason listed, and the skin in use stays on.
 
 ## Choosing a skin (Preview)
 

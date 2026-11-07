@@ -212,13 +212,38 @@ The app reads these from the PC's environment. None is needed for a normal rollo
 
 The [headless agent](agent.md) reads its own: `FABRIC_DESKTOP_HOME`, `FABRIC_DESKTOP_AGENT_CONFIG`, and the variables `agent.toml` names for secrets.
 
+## Application control
+
+This covers AppLocker and App Control for Business (WDAC). It comes from reading the code and hasn't yet been tested on a PC with either enforced, so run it in audit mode on a pilot PC first.
+
+Until releases are code signed, Windows' default rules block the app on a standard user's PC:
+
+| What | Where | AppLocker default rules | App Control default policies |
+| --- | --- | --- | --- |
+| The MSI | Wherever you deploy it from | Blocked (unsigned) | Blocked |
+| `kratosforge.exe`, self-updating | The user's `AppData\Local\Programs` folder | Blocked (not a default path) | Blocked |
+| `kratosforge.exe`, managed | `C:\Program Files\...` | Allowed | Blocked (unsigned) |
+| The engine's `python.exe`, `pythonw.exe` and packages | `%LOCALAPPDATA%\FabricDesktop\engine\<build>` | Blocked | Blocked, except files signed by the Python Software Foundation once you allow that signer |
+| Packages installed into notebook environments | `%LOCALAPPDATA%\FabricDesktop\environments` | Allowed unless DLL rules are on | Blocked if they contain unsigned `.pyd` or `.dll` files |
+| `%%cmd` cells | A script file in `%TEMP%` | Blocked by script rules | Not enforced |
+
+What we suggest until signing lands:
+
+- Use the [managed update model](#pick-an-update-model): copy `kratosforge.exe` to `C:\Program Files\KratosForge\` with `"auto_update": false`. Under App Control, add a hash rule for each build.
+- Allow the engine by hash from a reference PC after the app has installed its engine once, and again for each engine build that changes packages (the release notes say when). Under AppLocker, `Get-AppLockerFileInformation` piped to `New-AppLockerPolicy -RuleType Publisher,Hash` does this. Under App Control, add a signer rule for the Python Software Foundation and `New-CIPolicy -Level FilePublisher -Fallback Hash -UserPEs` on the engine folder. A path rule on the engine folder is simpler but lets the user run anything they put there, because they can write to it.
+- For notebook packages, use `notebook_package_folder` and allow its wheels' files by hash, or turn the features off with `"allow_notebook_packages": false` and `"allow_dbconnect_install": false`.
+- Run shell commands with `%%powershell` or `!command` rather than `%%cmd`; don't allow `%TEMP%`.
+- Under script enforcement PowerShell runs in Constrained Language Mode, so "also run while signed out" on a schedule can't be saved. Ordinary schedules are unaffected.
+
+When something is blocked, the app says so. It names the engine folder when the engine's Python is blocked, names the packages when engine or notebook-environment files are blocked, and suggests `%%powershell` when a `%%cmd` cell is blocked.
+
 ## What the support bundle collects
 
 When your help desk needs logs, ask for a support bundle: **Settings > Help and about > Save support bundle**, or `fabric-desktop support-bundle --out <folder>`. It saves a zip to the PC and never sends it anywhere. This is what it holds, from `sidecar/fabric_desktop/support_bundle.py`:
 
 | File | What it holds |
 | --- | --- |
-| `about.json` | The app and engine versions, Python and Windows versions, and where each setting comes from. The policy file's state: whether it applies, or the last copy that could be read stands in, and the names of the settings it sets, never their values. The file's SHA-256 and the last change this PC recorded (`policy_record`), to compare with `Get-FileHash` of the file you shipped |
+| `about.json` | The app and engine versions, Python and Windows versions, and where each setting comes from. The policy file's state: whether it applies, or the last copy that could be read stands in, and the names of the settings it sets, never their values. The file's SHA-256 and the last change this PC recorded (`policy_record`), to compare with `Get-FileHash` of the file you shipped. Under `paths`, facts about the app's data folder that can trip programs up, without the path itself: its length, whether its name has non-ASCII letters or a space, whether it's on a network share, and whether Windows allows long paths |
 | `sidecar.log` | The last 2,000 lines of the engine's log |
 | `sidecar.prev.log` | The last 2,000 lines of the run before, when the engine has restarted |
 | `agent.log` | On an agent server, with `--agent-home`: the last 2,000 lines of the agent's log |
@@ -236,6 +261,14 @@ A setting that holds a secret, or an internal address such as your help desk lin
 ### Crash dumps
 
 KratosForge writes no crash dumps of its own. If the engine crashes, Windows Error Reporting can save a dump of its memory, and that memory can hold live sign-in tokens. Set WER by Group Policy the way your organization handles any app that signs in: turn off local dumps for `kratosforge.exe` and the engine's `python.exe` under `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps`, or keep them in a folder only administrators can read, and set **Do not send additional data** if dumps may leave the PC.
+
+## User profiles
+
+KratosForge keeps its data in `%LOCALAPPDATA%\FabricDesktop`, which a roaming profile doesn't copy between PCs, so the engine and caches stay on each PC. Backups, notebooks and local Delta tables are tested under a profile path with spaces and non-ASCII letters, but not yet on a Windows PC with such a user name.
+
+- **Exports and support bundles** go to the Downloads folder Windows reports. The default metadata folder is under the Documents folder Windows reports. Both follow OneDrive's known folder move and folder redirection.
+- **Long paths.** The engine's tables and caches sit a few folders deep under `%LOCALAPPDATA%`, and a long table name with partition folders can pass 260 characters. Turn on **Enable Win32 long paths** (Computer Configuration > Administrative Templates > System > Filesystem), which sets `LongPathsEnabled`. The support bundle's `about.json` says whether it's on.
+- **Profiles on a network share.** `kratosforge://` links and **Open in VS Code** open notebooks only on a drive letter. A `\\server\share` path is refused, so a link can't make Windows contact another host with the person's sign-in. Where Documents is redirected to a share, map it to a drive letter.
 
 ## Uninstall
 

@@ -187,11 +187,11 @@ def build(display: Callable[..., Any], clear_output: Callable[..., None]) -> typ
                      display_svg=display_kind(SVG), display_png=display_kind(Image), display_jpeg=display_kind(Image))
     pkg = types.ModuleType("IPython", "IPython isn't installed here; KratosForge provides IPython.display.")
     pkg.display = mod  # type: ignore[attr-defined]
-    pkg.__path__ = []  # type: ignore[attr-defined]  # so "import IPython.display" finds the submodule
+    pkg.__path__ = []  # so "import IPython.display" finds the submodule
     # Older notebooks import from IPython.core.display: the same module.
     core = types.ModuleType("IPython.core", "IPython.core.display only, as KratosForge provides it.")
     core.display = mod  # type: ignore[attr-defined]
-    core.__path__ = []  # type: ignore[attr-defined]
+    core.__path__ = []
     pkg.core = core  # type: ignore[attr-defined]
     pkg.get_ipython = lambda: None  # type: ignore[attr-defined]  # no interactive shell, so libraries take their plain path
     pkg.version_info = (8, 30, 0, "")  # type: ignore[attr-defined]  # the IPython.display API this stands in for
@@ -217,7 +217,7 @@ class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
 
     def create_module(self, spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
         assert self.pkg is not None
-        return {"IPython": self.pkg, "IPython.core": self.pkg.core}.get(spec.name, self.pkg.display)  # type: ignore[attr-defined]
+        return {"IPython": self.pkg, "IPython.core": self.pkg.core}.get(spec.name, self.pkg.display)
 
     def exec_module(self, module: types.ModuleType) -> None:
         return None
@@ -234,8 +234,8 @@ def install(pkg: types.ModuleType) -> None:
     if _finder not in sys.meta_path:
         sys.meta_path.append(_finder)
     if getattr(sys.modules.get("IPython"), "__kratosforge__", False):
-        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display), ("IPython.core", pkg.core),  # type: ignore[attr-defined]
-                            ("IPython.core.display", pkg.display)):  # type: ignore[attr-defined]
+        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display), ("IPython.core", pkg.core),
+                            ("IPython.core.display", pkg.display)):
             mod = sys.modules.get(name)
             if mod is not None:
                 mod.__dict__.update({k: v for k, v in fresh.__dict__.items() if not k.startswith("__")})

@@ -10,7 +10,8 @@
   "engines": { "vscode": "^1.95.0" },
   "categories": ["Notebooks", "Data Science"],
   "keywords": ["fabric", "notebook", "lakehouse", "spark", "kratosforge"],
-  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "capabilities": { "untrustedWorkspaces": { "supported": false }, "virtualWorkspaces": false },
+  "extensionKind": ["ui"],
   "activationEvents": ["onNotebook:jupyter-notebook"],
   "main": "./out/extension.js",
   "contributes": {

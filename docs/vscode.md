@@ -99,6 +99,7 @@ What a paired window can and can't do:
 - A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all. When the organization sets `integrations_editors` to `false`, the next call from any window is refused, every pairing ends and the engine stops listening.
 - Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
 - HTML a cell displays is shown as it is in VS Code's notebook output, as Jupyter kernels' is; tables KratosForge renders are escaped.
+- If KratosForge restarts while a cell runs, the cell ends with "the notebook's session ended" rather than looking finished; run it again. A pairing kept for 8 hours or 7 days carries on after a restart; one kept until KratosForge closes asks to pair again. When the app has too many editor connections open, the window tries again a few times before saying so.
 - AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).
 - The OneLake question is a guard rail, not a security control. It covers KratosForge's own write paths in the cell's thread; code that starts its own threads or processes, or calls OneLake directly with your sign-in, isn't asked about. A cell runs as you, as your own cells here do. To stop VS Code running cells at all, turn the switch off, or set `integrations_editors` to `false` in the policy file: that is the control.
 
@@ -116,3 +117,14 @@ How it connects: while the switch is on, the engine listens on `127.0.0.1` on a 
 | Let VS Code run notebooks | Nothing | `editor-port` while it's on; `editor\settings.json` |
 | Pairing a window | The window's folder and name, as it sends them | `editor\pairings.json` (a hash of the token) for 8-hour and 7-day pairings |
 | A cell run from a paired window | What the cell reads | What the cell writes on this PC; OneLake only after you allow it |
+
+## For IT: allowing the extension
+
+What the KratosForge extension for VS Code does and doesn't do, for teams that review extensions before allowing them:
+
+- **Workspace Trust.** It doesn't support untrusted workspaces, so in Restricted Mode VS Code doesn't start it: it runs nothing and doesn't contact KratosForge until the workspace is trusted. It also doesn't run in virtual workspaces.
+- **Runs on this PC only.** It's a UI extension, so in a Remote, WSL or dev container window it runs on the PC, not the remote host, and only notebooks saved on this PC can be run with it.
+- **Secrets.** A pairing kept for 8 hours or 7 days is stored only in VS Code's SecretStorage, which VS Code encrypts with the operating system's protection (DPAPI on Windows). A pairing kept until KratosForge closes is held in memory only. Nothing goes into settings, global or workspace state, or files.
+- **Network.** It connects only to KratosForge's editor channel on `127.0.0.1`. It makes no other requests and has no telemetry, so `telemetry.telemetryLevel` has nothing to turn off. VS Code sends loopback requests directly, so `http.proxy` and `http.proxySupport` don't affect it and need no exception.
+- **Allow lists.** It's published as `kratosbi.kratosforge`. Where `extensions.allowed` is set, allow that id (or the `kratosbi` publisher). It isn't on the VS Code Marketplace yet: install `kratosforge.vsix` from the release, check it with `gh attestation verify`, or host it in your private extension gallery. It has no runtime dependencies.
+- **Turning it off.** Turning off **Let VS Code run notebooks**, or setting `integrations_editors` to `false` in the policy file, stops every window whatever the extension does.

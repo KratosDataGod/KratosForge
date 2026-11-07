@@ -761,6 +761,52 @@ def test_object_pick_with_one_key_column_reads_it_as_a_key():
     assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":1}', '{"b":2}')
 
 
+@pytest.mark.parametrize("code,rule", [
+    ("SELECT to_decfloat('1.5')", "SFN-018"), ("SELECT try_to_decfloat(a) FROM t", "SFN-018"),
+    ("SELECT CAST(a AS DECFLOAT) FROM t", "SFN-018"),
+    ("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
+     "DEFINE x AS a > 0)", "SFN-019"),
+    ("INSERT OVERWRITE INTO t SELECT * FROM s", "SFN-020"),
+])
+def test_decfloat_match_recognize_and_insert_overwrite_are_refused_by_name(code, rule):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == rule
+
+
+def test_a_plain_insert_still_runs():
+    assert sf.translate("INSERT INTO t SELECT * FROM s").duckdb_sql == "INSERT INTO t SELECT * FROM s"
+
+
+def test_time_of_a_timestamp_is_its_time_of_day():
+    import duckdb
+    t = sf.translate("SELECT time(ts) FROM (SELECT '2024-01-01 10:20:30'::timestamp AS ts)")
+    assert str(duckdb.connect().execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT TIME(CURRENT_TIMESTAMP)",
+    "SELECT TIME(CURRENT_TIMESTAMP())",
+    "SELECT TIME(SYSDATE())",
+    "SELECT TIME('2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ)",
+    "SELECT TIME('2024-01-01 10:20:30'::TIMESTAMP_LTZ)",
+    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ))",
+])
+def test_time_of_a_zoned_timestamp_runs(code):
+    import duckdb
+    t = sf.translate(code)
+    assert t.runnable
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    value = con.execute(t.duckdb_sql).fetchone()[0]
+    assert type(value).__name__ == "time"
+
+
+def test_time_of_a_timestamp_tz_is_the_local_time():
+    import duckdb
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
+    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "08:20:30"
 _EVENTS = ("SELECT * FROM VALUES ('a', 1, 5), ('a', 2, NULL), ('a', 3, 5), ('a', 4, 7), ('b', 1, NULL), ('b', 2, 9) "
            "AS t(p, o, x)")
 
@@ -834,3 +880,13 @@ def test_sfx018_qualified_columns_still_resolve():
     rows = _rows("SELECT t.o, CONDITIONAL_CHANGE_EVENT(t.x) OVER (ORDER BY t.o) FROM VALUES (1, 2), (2, 3) AS t(o, x) "
                  "ORDER BY t.o")
     assert rows == [(1, 0), (2, 1)]
+
+
+def test_sfx018_lag_and_running_count_read_tied_rows_in_one_order():
+    sql = sf.translate("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o), CONDITIONAL_TRUE_EVENT("
+                       "LAG(x) OVER (PARTITION BY p ORDER BY o) > 1) OVER (PARTITION BY p ORDER BY o) FROM s").duckdb_sql
+    assert "LAG((x)) OVER (PARTITION BY p ORDER BY __sf_place0)" in sql
+    assert "LAG(x) OVER (PARTITION BY p ORDER BY __sf_place1)" in sql
+    rows = _rows("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM VALUES (1, 'a'), (1, 'b'), (1, 'a'), "
+                 "(2, 'a') AS t(o, x)")
+    assert max(r[0] for r in rows) in (1, 2, 3)  # tied rows come in some order, but one order for LAG and count

@@ -276,6 +276,10 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
             return _refuse("SFN-011", f"{kind.title()} objects", f"A {kind.lower()} exists only in Snowflake.")
     if isinstance(statement, (exp.Grant, exp.Revoke)):
         return _refuse("SFN-010", "Access control", "Roles and grants exist only in Snowflake.")
+    if isinstance(statement, exp.Insert) and statement.args.get("overwrite"):
+        return _refuse("SFN-020", "INSERT OVERWRITE", "Snowflake empties the table and inserts in one statement "
+                       "inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT "
+                       "written here wouldn't be one statement.", f"{_DOCS}/sql/insert")
     if isinstance(statement, exp.Undrop):
         return _refuse("SFN-007", "UNDROP", "Restoring a dropped object uses Snowflake's Time Travel.")
     if isinstance(statement, (exp.Copy, exp.Put)):
@@ -305,6 +309,13 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         if isinstance(node, (exp.Func, exp.Collate)) and _function_name(node) in _TEXT_FEATURES:
             return _refuse("SFN-017", f"{_function_name(node)}: a Snowflake feature DuckDB lacks",
                            _TEXT_FEATURES[_function_name(node)], f"{_DOCS}/functions/{_function_name(node).lower()}")
+        if isinstance(node, (exp.ToDecfloat, exp.TryToDecfloat)) or (
+                isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
+            return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
+                           "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
+        if isinstance(node, exp.MatchRecognize):
+            return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
+                           f"{_DOCS}/constructs/match_recognize")
         if isinstance(node, exp.Func) and _function_name(node) in _SKETCH_FUNCTIONS:
             return _refuse("SFN-016", f"{_function_name(node)}: Snowflake sketch and bitmap states",
                            "It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB "
@@ -584,6 +595,27 @@ def _binary_valued(node: exp.Expression) -> bool:
         type(node).__name__ in ("Base64DecodeBinary", "HexDecodeBinary", "ToBinary", "TryToBinary"))
 
 
+def _rewrite_time(statement: exp.Expression) -> None:
+    """SFX-017: TIME(x) is TO_TIME(x): the time of a string or of a timestamp. sqlglot writes it as a cast
+    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read."""
+    for node in list(statement.find_all(exp.Time)):
+        if node.this is None:  # TIME() with no argument: left for sqlglot, which refuses it (SFX-000)
+            continue
+        value = node.this.copy()
+        if _zoned(value):  # DuckDB has no TIMESTAMPTZ -> TIME cast; TIMESTAMP is the session zone's local time
+            value = exp.Cast(this=value, to=exp.DataType.build("TIMESTAMP"))
+        node.replace(exp.Cast(this=value, to=exp.DataType.build("TIME")))
+
+
+def _zoned(node: exp.Expression) -> bool:
+    """Whether ``node`` is plainly a timestamp with a time zone in DuckDB: CURRENT_TIMESTAMP or a cast to
+    TIMESTAMP_TZ or TIMESTAMP_LTZ (SYSDATE and CONVERT_TIMEZONE already give a TIMESTAMP there)."""
+    if isinstance(node, exp.CurrentTimestamp):
+        return not node.args.get("sysdate")
+    return isinstance(node, exp.Cast) and node.to.this in (exp.DataType.Type.TIMESTAMPTZ,
+                                                           exp.DataType.Type.TIMESTAMPLTZ)
+
+
 def _rewrite_strings(statement: exp.Expression) -> None:
     """SFX-015: string, binary and number functions DuckDB has under other names or not at all.
     OCTET_LENGTH counts bytes (strlen of text, octet_length of BINARY; a column's type isn't known, so it
@@ -817,20 +849,28 @@ def _hoist(select: exp.Select, flags: list[tuple[exp.Window, exp.Expression]]) -
         raise _event_refusal(name, shape)
     table = source.this
     alias = table.alias_or_name or "__sf_source"  # a subquery without a name can only be read by column name
-    inner = exp.select(exp.Star()).from_(table.copy())
+    placed = exp.select(exp.Star()).from_(table.copy())
     where = select.args.get("where")
     if where is not None:
-        inner.set("where", where.copy())
+        placed.set("where", where.copy())
         select.set("where", None)
+    inner = exp.select(exp.Star()).from_(exp.Subquery(this=placed, alias=exp.TableAlias(
+        this=exp.to_identifier(alias))))
     added = []
     for i, (window, flag) in enumerate(flags):
         place, mark = f"__sf_place{i}", f"__sf_flag{i}"
         order = _over(window, exp.RowNumber(), "BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW")
         order.set("spec", None)
-        inner.select(exp.alias_(order, place), exp.alias_(flag, mark), copy=False)
+        placed.select(exp.alias_(order, place), copy=False)
+        by_place = exp.Order(expressions=[exp.Ordered(this=exp.column(place))])
+        same = _window_key(window)
+        for lag in list(flag.find_all(exp.Window)):  # LAG over the event's window reads rows in place order,
+            if _window_key(lag) == same:                # so tied ORDER BY values are taken in one order
+                lag.set("order", by_place.copy())
+        inner.select(exp.alias_(flag, mark), copy=False)
         added += [place, mark]
         running = _over(window, exp.Sum(this=exp.column(mark)), "BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
-                        exp.Order(expressions=[exp.Ordered(this=exp.column(place))]))
+                        by_place)
         window.replace(exp.Cast(this=exp.Coalesce(this=running, expressions=[exp.Literal.number(0)]),
                                 to=exp.DataType.build("BIGINT")))
     source.set("this", exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(alias))))
@@ -838,6 +878,12 @@ def _hoist(select: exp.Select, flags: list[tuple[exp.Window, exp.Expression]]) -
     for star in [s for e in select.expressions for s in e.find_all(exp.Star)]:
         if star.find_ancestor(exp.Select) is select:
             star.set("except_", [*(star.args.get("except_") or []), *[h.copy() for h in hidden]])
+
+
+def _window_key(window: exp.Window) -> tuple[str, str]:
+    """A window's PARTITION BY and ORDER BY as text, to tell two windows over the same rows in the same order."""
+    order = window.args.get("order")
+    return (", ".join(p.sql() for p in window.args.get("partition_by") or []), order.sql() if order else "")
 
 
 def _rewrite_events(statement: exp.Expression) -> None:
@@ -1448,6 +1494,10 @@ CATALOG = (
                 "keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys "
                 "as text. Arguments are worked out more than once, which matters only when they aren't "
                 "deterministic."),
+    ("SFX-017", "Rewritten", "TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. "
+                "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
+                "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
+                "here."),
     ("SFX-018", "Rewritten", "CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "
                 "INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill a NULL from the rows before "
@@ -1499,6 +1549,11 @@ CATALOG = (
     ("SFN-017", "Runs only in Snowflake", "SEARCH and SEARCH_IP (Snowflake's search analyzers), COLLATE (Snowflake "
                 "collation specifications), HASH_AGG (Snowflake's own hash), and XML: CHECK_XML, PARSE_XML, "
                 "XMLGET, TO_XML."),
+    ("SFN-018", "Runs only in Snowflake", "DECFLOAT, TO_DECFLOAT and TRY_TO_DECFLOAT: DuckDB has no decimal "
+                "floating-point type."),
+    ("SFN-019", "Runs only in Snowflake", "MATCH_RECOGNIZE: DuckDB has no row pattern matching."),
+    ("SFN-020", "Runs only in Snowflake", "INSERT OVERWRITE: DuckDB has none, and a DELETE then INSERT wouldn't be "
+                "one statement."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -1533,6 +1588,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
         _rewrite_strings(tree)
+        _rewrite_time(tree)
         _rewrite_objects(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)

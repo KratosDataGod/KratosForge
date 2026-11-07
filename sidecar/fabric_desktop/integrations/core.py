@@ -99,7 +99,7 @@ def error_from(exc: BaseException) -> IntegrationError:
             return IntegrationError("upstream", message, retryable=True, hint="Fabric is busy or can't be reached; try again shortly.")
         return IntegrationError("upstream", message)
     if hasattr(exc, "errors"):  # a metadata gate: its message lists every reason
-        return IntegrationError("failed", message, details={"reasons": [redact_secrets(str(e)) for e in exc.errors]})  # type: ignore[attr-defined]
+        return IntegrationError("failed", message, details={"reasons": [redact_secrets(str(e)) for e in exc.errors]})
     if isinstance(exc, PermissionError):
         return IntegrationError("permission_denied", message)
     if isinstance(exc, (FileNotFoundError, LookupError)):  # LookupError covers KeyError

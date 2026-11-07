@@ -170,6 +170,18 @@ def windows_log_race(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
 
 
+_STAGED_COMMIT = re.compile(r"\d{20}\.json#\d+")
+
+
+def staged_commit_race(exc: BaseException) -> bool:
+    """Windows: two writers committing the same next version both stage it under one temporary name,
+    ``_delta_log/NNN.json#1``, and the one that loses can't open it (os error 5). Elsewhere that
+    loser is told the version exists and delta-rs makes its commit on the next one. Nothing was
+    committed, so an append is safe to send again."""
+    text = str(exc)
+    return windows_log_race(exc) and "Unable to open file" in text and bool(_STAGED_COMMIT.search(text))
+
+
 _DROPPED = ("error sending request", "timed out", "connection reset", "connection closed", "broken pipe",
             "status code: 500", "status code: 502", "status code: 503", "status code: 504", "status code: 408",
             "status code: 429")

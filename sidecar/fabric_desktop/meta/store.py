@@ -13,6 +13,7 @@ import fnmatch
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -24,7 +25,7 @@ from deltalake.exceptions import TableNotFoundError
 from .. import delta_profile, durable
 from ..errors import NotSetUp
 from ..leases import LeaseLost, check_held
-from ..retrying import local_retry
+from ..retrying import local_retry, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -34,6 +35,8 @@ _LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease,
 
 # How many versions an append may move up past other writers' commits before it gives up.
 APPEND_COMMIT_RETRIES = 100
+# How many times an append is sent again after losing the Windows staged-commit race (retrying.staged_commit_race).
+APPEND_RACE_ATTEMPTS = 10
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
 # Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
@@ -301,10 +304,17 @@ class Store:
             # Appends never conflict with each other, so one that loses the race for a version is made on
             # the next; delta-rs's default 15 tries ran out with four runs appending to the run log at once.
             retries = APPEND_COMMIT_RETRIES if mode == "append" else None
-            write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
-                            schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
-                            commit_properties=CommitProperties(custom_metadata=metadata, max_commit_retries=retries)
-                            if metadata or retries else None)
+            for attempt in range(APPEND_RACE_ATTEMPTS):
+                try:
+                    write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
+                                    schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                                    commit_properties=CommitProperties(custom_metadata=metadata, max_commit_retries=retries)
+                                    if metadata or retries else None)
+                    break
+                except OSError as exc:  # on Windows that same race can surface as the staged commit refused
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
         except Exception as exc:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc

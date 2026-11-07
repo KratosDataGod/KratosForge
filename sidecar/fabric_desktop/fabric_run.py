@@ -1034,6 +1034,7 @@ def _side(reasons: list[dict[str, Any]], unknown: list[dict[str, Any]]) -> dict[
 
 # ---- schedules
 
+MAX_EVERY_MINUTES = 5270400  # Fabric's longest interval between runs (about ten years)
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
@@ -1050,7 +1051,7 @@ def schedule_configuration(kind: str, times: list[str] | None = None, every_minu
         if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
             raise ValueError(f"Times are HH:MM in 24-hour form, like 06:00 (got {t!r})")
     if kind == "cron":
-        if not every_minutes or not 1 <= int(every_minutes) <= 5270400:
+        if not every_minutes or not 1 <= int(every_minutes) <= MAX_EVERY_MINUTES:
             raise ValueError("Pick how many minutes between runs")
         return config | {"type": "Cron", "interval": int(every_minutes)}
     if kind == "daily":

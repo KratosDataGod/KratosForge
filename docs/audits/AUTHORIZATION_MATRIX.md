@@ -48,9 +48,9 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 |---|---|---|
 | `accept_shortcut_risk` | `sidecar/fabric_desktop/central/core.py:3020` | is_admin, require_admin |
 | `add_admin` | `sidecar/fabric_desktop/central/core.py:1571` | is_admin, require_admin |
-| `add_product_item` | `sidecar/fabric_desktop/central/core.py:3211` | _can_edit_product, _product_owners, is_admin |
+| `add_product_item` | `sidecar/fabric_desktop/central/core.py:3212` | _can_edit_product, _product_owners, is_admin |
 | `adopt_sources` | `sidecar/fabric_desktop/central/core.py:1755` | is_admin, require_admin |
-| `call_once` | `sidecar/fabric_desktop/central/core.py:3278` | none: runs another change once; that change makes its own check |
+| `call_once` | `sidecar/fabric_desktop/central/core.py:3279` | none: runs another change once; that change makes its own check |
 | `claim_admin` | `sidecar/fabric_desktop/central/core.py:1556` | is_admin |
 | `claim_exception_warning` | `sidecar/fabric_desktop/central/policy.py:558` | none: records that a notice went, on the exception's own row |
 | `clear_keys` | `sidecar/fabric_desktop/central/core.py:424` | is_admin, require_admin |
@@ -60,14 +60,14 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 | `decide_request` | `sidecar/fabric_desktop/central/core.py:2421` | _product_owners, is_admin |
 | `delete_domain` | `sidecar/fabric_desktop/central/core.py:715` | is_admin, require_admin |
 | `delete_landing_zone` | `sidecar/fabric_desktop/central/core.py:1953` | is_admin, require_admin |
-| `delete_policy_template` | `sidecar/fabric_desktop/central/policy.py:1083` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
+| `delete_policy_template` | `sidecar/fabric_desktop/central/policy.py:1087` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
 | `delete_source` | `sidecar/fabric_desktop/central/core.py:1791` | is_admin, require_admin |
 | `discard_policy_draft` | `sidecar/fabric_desktop/central/policy.py:330` | require_admin |
 | `end_policy_exception` | `sidecar/fabric_desktop/central/policy.py:525` | require_admin |
 | `ensure_key_table` | `sidecar/fabric_desktop/central/core.py:329` | is_admin, require_admin |
 | `ensure_policy_schema` | `sidecar/fabric_desktop/central/policy.py:96` | none: adds missing tables and columns; changes no row |
 | `ensure_schema` | `sidecar/fabric_desktop/central/core.py:251` | none: adds missing tables and columns; changes no row |
-| `ensure_template_schema` | `sidecar/fabric_desktop/central/policy.py:991` | none: adds missing tables and columns; changes no row |
+| `ensure_template_schema` | `sidecar/fabric_desktop/central/policy.py:995` | none: adds missing tables and columns; changes no row |
 | `follow_product` | `sidecar/fabric_desktop/central/core.py:914` | none: the caller's own follow |
 | `import_fabric_domains` | `sidecar/fabric_desktop/central/core.py:630` | is_admin, require_admin |
 | `import_keys` | `sidecar/fabric_desktop/central/core.py:492` | _require_open, is_admin, require_admin |
@@ -86,7 +86,7 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 | `register_project` | `sidecar/fabric_desktop/central/core.py:728` | _product_owners, is_admin, require_member |
 | `remove_admin` | `sidecar/fabric_desktop/central/core.py:1583` | is_admin, require_admin |
 | `remove_assignment` | `sidecar/fabric_desktop/central/policy.py:703` | _may_assign, is_admin, require_admin |
-| `remove_product_item` | `sidecar/fabric_desktop/central/core.py:3237` | _can_edit_product, _product_owners, is_admin |
+| `remove_product_item` | `sidecar/fabric_desktop/central/core.py:3238` | _can_edit_product, _product_owners, is_admin |
 | `report_product_status` | `sidecar/fabric_desktop/central/core.py:973` | _product_owners, is_admin, require_member |
 | `request` | `sidecar/fabric_desktop/central/core.py:2292` | none: anyone may ask; deciding is checked (decide_request) |
 | `revoke_grant` | `sidecar/fabric_desktop/central/core.py:2520` | _product_owners, is_admin |
@@ -96,20 +96,20 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 | `save_enrichment` | `sidecar/fabric_desktop/central/core.py:1400` | _product_owners, _require_certifier, is_admin, require_member |
 | `save_entra_group_naming` | `sidecar/fabric_desktop/central/core.py:1103` | is_admin, require_admin |
 | `save_landing_zone` | `sidecar/fabric_desktop/central/core.py:1882` | is_admin, require_admin |
-| `save_policy_as_template` | `sidecar/fabric_desktop/central/policy.py:1111` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
+| `save_policy_as_template` | `sidecar/fabric_desktop/central/policy.py:1115` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
 | `save_policy_draft` | `sidecar/fabric_desktop/central/policy.py:292` | _require_open, require_admin |
-| `save_policy_template` | `sidecar/fabric_desktop/central/policy.py:1060` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
+| `save_policy_template` | `sidecar/fabric_desktop/central/policy.py:1064` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
 | `save_shortcut_rules` | `sidecar/fabric_desktop/central/core.py:2979` | is_admin, require_admin |
 | `save_source` | `sidecar/fabric_desktop/central/core.py:1743` | is_admin, require_admin |
 | `save_term` | `sidecar/fabric_desktop/central/core.py:1468` | is_admin |
 | `set_policy_status` | `sidecar/fabric_desktop/central/policy.py:378` | _require_open, require_admin |
 | `set_project_member` | `sidecar/fabric_desktop/central/core.py:2084` | _product_owners, is_admin, require_member |
-| `set_template_authors` | `sidecar/fabric_desktop/central/policy.py:1125` | _may_add_templates, _template_authors, is_admin, require_admin |
+| `set_template_authors` | `sidecar/fabric_desktop/central/policy.py:1129` | _may_add_templates, _template_authors, is_admin, require_admin |
 | `stage_keys` | `sidecar/fabric_desktop/central/core.py:408` | is_admin, require_admin |
 | `switch_landing_reads` | `sidecar/fabric_desktop/central/core.py:1923` | is_admin, require_admin |
 | `unfollow_product` | `sidecar/fabric_desktop/central/core.py:928` | none: the caller's own follow |
 | `unlink_entra_group` | `sidecar/fabric_desktop/central/core.py:1240` | _require_domain_owner, is_admin |
-| `use_policy_template` | `sidecar/fabric_desktop/central/policy.py:1101` | require_admin |
+| `use_policy_template` | `sidecar/fabric_desktop/central/policy.py:1105` | require_admin |
 | `withdraw_request` | `sidecar/fabric_desktop/central/core.py:2497` | is_admin |
 | `withdraw_shortcut_risk` | `sidecar/fabric_desktop/central/core.py:3040` | is_admin, require_admin |
 
@@ -185,10 +185,10 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `delete_notebook_schedule` | `sidecar/fabric_desktop/cloud_service.py:480` | Fabric or OneLake | Fabric's own rights |
 | `delete_pc_schedule` | `sidecar/fabric_desktop/schedule_service.py:185` | this PC | the signed-in Windows user's own files |
 | `delete_shortcut` | `sidecar/fabric_desktop/estate_service.py:308` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights |
-| `editor_decide_pairing` | `sidecar/fabric_desktop/editor_service.py:164` | this PC | confirm or approve argument |
-| `editor_decide_write` | `sidecar/fabric_desktop/editor_service.py:167` | this PC | confirm or approve argument |
-| `editor_end_pairing` | `sidecar/fabric_desktop/editor_service.py:175` | this PC | the signed-in Windows user's own files |
-| `editor_set_enabled` | `sidecar/fabric_desktop/editor_service.py:147` | this PC | PermissionError |
+| `editor_decide_pairing` | `sidecar/fabric_desktop/editor_service.py:165` | this PC | confirm or approve argument |
+| `editor_decide_write` | `sidecar/fabric_desktop/editor_service.py:168` | this PC | confirm or approve argument |
+| `editor_end_pairing` | `sidecar/fabric_desktop/editor_service.py:176` | this PC | the signed-in Windows user's own files |
+| `editor_set_enabled` | `sidecar/fabric_desktop/editor_service.py:148` | this PC | PermissionError |
 | `engine_cancel` | `sidecar/fabric_desktop/engines_service.py:769` | this PC | the signed-in Windows user's own files |
 | `engine_close` | `sidecar/fabric_desktop/engines_service.py:772` | this PC | the signed-in Windows user's own files |
 | `engine_connection_remove` | `sidecar/fabric_desktop/engines_service.py:507` | this PC | the signed-in Windows user's own files |

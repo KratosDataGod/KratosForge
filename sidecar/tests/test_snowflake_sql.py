@@ -807,3 +807,86 @@ def test_time_of_a_timestamp_tz_is_the_local_time():
     con.execute("SET TimeZone = 'UTC'")
     t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
     assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "08:20:30"
+_EVENTS = ("SELECT * FROM VALUES ('a', 1, 5), ('a', 2, NULL), ('a', 3, 5), ('a', 4, 7), ('b', 1, NULL), ('b', 2, 9) "
+           "AS t(p, o, x)")
+
+
+def _rows(code):
+    t = sf.translate(code)
+    assert t.runnable, t.first_refusal()
+    return duckdb.connect().execute(t.duckdb_sql).fetchall()
+
+
+def test_sfx018_change_event_keeps_the_select_star_and_where():
+    rows = _rows(f"SELECT *, CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o) AS e "
+                 f"FROM ({_EVENTS}) AS s WHERE o > 1 ORDER BY p, o")
+    # the WHERE drops o = 1 before the events are counted, and SELECT * shows only the table's columns
+    assert rows == [("a", 2, None, 0), ("a", 3, 5, 0), ("a", 4, 7, 1), ("b", 2, 9, 0)]
+
+
+def test_sfx018_a_null_is_not_a_change_on_either_side():
+    rows = _rows(f"SELECT p, o, CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o) FROM ({_EVENTS}) "
+                 "ORDER BY p, o")
+    assert [r[2] for r in rows] == [0, 0, 0, 1, 0, 0]
+
+
+def test_sfx018_true_event_counts_true_rows_and_skips_null():
+    rows = _rows(f"SELECT CONDITIONAL_TRUE_EVENT(x > 4) OVER (PARTITION BY p ORDER BY o) FROM ({_EVENTS}) "
+                 "ORDER BY p, o")
+    assert [r[0] for r in rows] == [1, 1, 2, 3, 0, 1]
+
+
+def test_sfx018_fill_functions():
+    rows = _rows(f"SELECT INTERPOLATE_FFILL(x) OVER (PARTITION BY p ORDER BY o), "
+                 f"INTERPOLATE_BFILL(x) OVER (PARTITION BY p ORDER BY o) FROM ({_EVENTS}) ORDER BY p, o")
+    assert rows == [(5, 5), (5, 5), (5, 5), (7, 7), (None, 9), (9, 9)]
+
+
+@pytest.mark.parametrize("order, expected", [
+    ("o", 6.0),
+    ("o * 1.5", 6.0),
+    ("'2025-01-0' || o::varchar::date", 6.0),
+    ("('2025-01-01 10:0' || o::varchar || ':00')::timestamp", 6.0),
+])
+def test_sfx018_linear_by_a_number_date_or_timestamp(order, expected):
+    code = (f"SELECT INTERPOLATE_LINEAR(x) OVER (ORDER BY {order}) FROM VALUES (1, 4), (2, NULL), (3, 8), (4, NULL) "
+            "AS t(o, x) ORDER BY o")
+    code = code.replace("'2025-01-0' || o::varchar::date", "('2025-01-0' || o::varchar)::date")
+    t = sf.translate(code)
+    assert [n.id for s in t.statements for n in s.notes] == ["SFD-011"]
+    assert [r[0] for r in duckdb.connect().execute(t.duckdb_sql).fetchall()] == [4.0, expected, 8.0, None]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT INTERPOLATE_BFILL(x) OVER (ORDER BY o ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t",
+    "SELECT CONDITIONAL_TRUE_EVENT(x) OVER (PARTITION BY p) FROM t",
+    "SELECT INTERPOLATE_LINEAR(x) OVER (ORDER BY a, b) FROM t",
+    "SELECT INTERPOLATE_FFILL(x, y) OVER (ORDER BY o) FROM t",
+    "SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM t JOIN u ON t.id = u.id",
+    "SELECT p, CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY p) FROM t GROUP BY p, x",
+])
+def test_sfx018_refuses_what_it_cant_do_faithfully(code):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == "SFX-018"
+
+
+def test_sfx018_true_event_without_a_window_inside_runs_after_a_join():
+    rows = _rows("SELECT CONDITIONAL_TRUE_EVENT(a.x > 1) OVER (ORDER BY a.o) FROM VALUES (1, 2), (2, 0) AS a(o, x) "
+                 "JOIN VALUES (1), (2) AS b(o) ON a.o = b.o ORDER BY a.o")
+    assert rows == [(1,), (1,)]
+
+
+def test_sfx018_qualified_columns_still_resolve():
+    rows = _rows("SELECT t.o, CONDITIONAL_CHANGE_EVENT(t.x) OVER (ORDER BY t.o) FROM VALUES (1, 2), (2, 3) AS t(o, x) "
+                 "ORDER BY t.o")
+    assert rows == [(1, 0), (2, 1)]
+
+
+def test_sfx018_lag_and_running_count_read_tied_rows_in_one_order():
+    sql = sf.translate("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o), CONDITIONAL_TRUE_EVENT("
+                       "LAG(x) OVER (PARTITION BY p ORDER BY o) > 1) OVER (PARTITION BY p ORDER BY o) FROM s").duckdb_sql
+    assert "LAG((x)) OVER (PARTITION BY p ORDER BY __sf_place0)" in sql
+    assert "LAG(x) OVER (PARTITION BY p ORDER BY __sf_place1)" in sql
+    rows = _rows("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM VALUES (1, 'a'), (1, 'b'), (1, 'a'), "
+                 "(2, 'a') AS t(o, x)")
+    assert max(r[0] for r in rows) in (1, 2, 3)  # tied rows come in some order, but one order for LAG and count

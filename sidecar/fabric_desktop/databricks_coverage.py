@@ -13,7 +13,8 @@ that same path and gives each function a status:
     not checked it has no example whose value can be compared (random values, the clock, the session)
 
 Databricks SQL's built-ins are Spark's with Databricks' own added, so this is the shared part;
-the values are Spark 3.5's with ANSI mode off, and every example here answers the same with it on.
+the values are Spark 3.5's with ANSI mode off. Databricks SQL warehouses run with ANSI mode on, which
+changes overflow and bad-input cases rather than these examples, but that isn't checked here.
 ``docs/databricks-functions.md`` is ``markdown()``'s output, and tests/test_databricks_coverage.py
 fails when it is stale.
 """

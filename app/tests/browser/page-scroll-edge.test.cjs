@@ -25,8 +25,11 @@ test("in a wide window Home and Settings scroll at the window's right edge, cont
   assert.ok(Math.abs(home.right - home.parentRight) < 1, `Home fills its area (${home.right} vs ${home.parentRight})`);
   // With the Living Experience hero (Preview), the hero and the column beside the progression panel are
   // capped at 1460px, and the page's own content column inside stays at 1136px.
+  // The hero art runs full width under the top bar by design; the rest stays capped.
   const living = await p.$(".page.home.living");
-  assert.ok(home.widest <= (living ? 1460.5 : 1136.5), `Home content keeps its width (${home.widest}px)`);
+  const capped = living ? await p.$eval(".page.home", (el) => Math.max(...[...el.children].filter((c) => !c.matches(".home-hero"))
+    .map((c) => c.getBoundingClientRect().width))) : home.widest;
+  assert.ok(capped <= (living ? 1460.5 : 1136.5), `Home content keeps its width (${capped}px)`);
   if (living) {
     const main = await measure(p, ".page.home .home-main");
     assert.ok(main.widest <= 1136.5, `Home's main column keeps its width (${main.widest}px)`);

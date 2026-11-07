@@ -600,7 +600,7 @@ function profileForget() {
 }
 
 // Called by Validate and Prove when a run earned something; shown after their own message, with the
-// Achievement Reveal on that message when Achievement celebrations is on (motion.js, off by default).
+// Achievement Reveal on that message when Achievement celebrations is on (motion.js, on by default).
 function profileEarned(earned) {
   if (!earned?.length) return;
   const seen = profileCelebrated();

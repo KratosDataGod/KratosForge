@@ -491,6 +491,18 @@ Click a pipeline run to see its activities underneath: each one's status, its ty
 
 **Runs** also lists pipeline, copy job and dataflow runs in Fabric, from the run history of those items in the workspaces Monitor > Fabric > Schedules lists: pinned workspaces, your environments' workspaces and your notebooks' workspaces. They say **Pipeline run in Fabric**, how they were started (scheduled, by hand, or by another pipeline) and the workspace under **Ran on**. A run this app started is listed once. Copy job and dataflow runs say **Copy job run in Fabric** and **Dataflow refresh in Fabric**, and clicking one opens it in Fabric. Reading that history runs in the background, so Runs first says **Reading pipeline, copy job and dataflow runs in Fabric...** and fills in when it's done; after that it shows what it read until you press **Refresh**, and each row says **as of** when it was read. A run that was still going when it was read more than 10 minutes ago shows **Stale** instead of **Running**; with **Problems first**, Stale and Unknown rows come after real failures. Click a Fabric pipeline run to see its activities, read from Fabric when you open it and again only after **Refresh**: each one's status, type, start, how long it took and its error, with **Input** and **Output** to open. Secrets are removed from them, and a very long one is cut short. If your account can't read a run's activities, the row says **Not authorized to read activities**. **Open in Fabric** opens the pipeline in Fabric. All of this only reads: it starts no Fabric job and uses no capacity.
 
+### Forge Activity view (Preview)
+
+**Runs** shows today's counts in the page header: **Running now**, **Succeeded today**, **Failed today**, and **Ran on this PC (24 h)**, how many of the runs in the last day ran here rather than in Fabric. Succeeded and failed count by when a run ended, so one that ran past midnight counts today. They are counted from the runs the page read, whatever the filters, so they cover the same runs as the table.
+
+Tick **Forge view** on the view row for a band above the table with a lane for each of the three most recent running runs, beside a small forge. It is on by default when **Living Experience** is Heroic or Legendary, and off in Professional or Subtle; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
+
+- **Run all** in a notebook on this PC shows **Running, cell N of M** with a bar, and the wolf on it when the wolf effects are on.
+- A run in Fabric shows a still ring and **Waiting on Fabric**, with the time since it started. Fabric doesn't report how far along it is, so there is no bar.
+- Any other run shows **Running, total not known yet** and the elapsed time only.
+
+More than three running runs adds **N more running, see the table below**. When nothing is running, the band shows the last run that finished in the past ten minutes: a success strikes the anvil once (**Forged clean**), a failure cools the forge (**The forge cooled**). Otherwise it says **The forge is quiet**. The table stays the full record. In Professional or Subtle, or with Windows reducing motion, the text and the bars stay and nothing moves.
+
 ### Pop-out windows (Preview)
 
 **Pop out runs** (top right on the KratosForge tab) and **Pop out hub** (top right on the Fabric tab) open that section in a window of its own, to keep on another screen while you build a notebook or work elsewhere in the app. Monitor then shows a band for it, with **Show window** (brings the window forward) and **Dock back**.
@@ -790,8 +802,9 @@ Each line says:
 | --- | --- |
 | `at`, `seconds` | When it started (UTC) and how long it took |
 | `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
-| `started` lines | Actions given a confirmation, an approval, a typed name or a risk-check acknowledgement, and Prod changes such as promote, rollback, restore and vacuum, get a line with `outcome` `started` before they run, then their usual line after. If that first line can't be written (a full disk, a locked file), the action doesn't run and says why. Everything else still runs when its line can't be written |
+| `started` lines | Actions given a confirmation, an approval, a typed name, a risk-check acknowledgement or an override, actions aimed at the Prod environment, and Prod changes such as promote, rollback, restore, vacuum and accepting a shortcut risk, get a line with `outcome` `started` before they run, then their usual line after. If that first line can't be written (a full disk, a locked file), the action doesn't run and says why. Everything else still runs when its line can't be written |
 | `reason` | Only when an action ended without an error message but didn't do what was asked: `refused`, `busy`, `policy`, `preview`, `invalid`, `partial` (some of it failed) or `failed`. A metadata run that fails gets an `error` outcome whether the app, a schedule on this PC or the agent started it (the reason can differ: a schedule records `failed`) |
+| `pipeline_run_finished`, `fabric_run_finished` | A pipeline run on this PC, and a Fabric job this app started, get a second line when they end, with `ok` or `error` (reason `failed`) and the run's id and final state, so the trail says how they ended and not only that they started. A Fabric job's line is written when the app next checks the job's status and sees it ended, so a job that ends while the app is closed gets its line later. Notebook cells have no finished line |
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |

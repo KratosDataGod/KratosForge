@@ -131,3 +131,24 @@ def test_a_failure_reason_from_fabric_is_kept_as_one_line_without_a_token(svc, m
     monkeypatch.setattr(Service, "_quiet_fabric", lambda self: Fabric())
     message = svc.notebook_runs("Daily sales", refresh=True)[0]["message"]
     assert message.startswith("Out of memory Bearer [removed]") and "\n" not in message and len(message) <= 1000
+
+
+def test_a_fabric_job_seen_ending_gets_one_audit_line(svc, monkeypatch):
+    _fabric(svc, started_at="2026-10-20T07:00:00+00:00")
+    status = {"now": "InProgress"}
+
+    class Fabric:
+        def job_instance(self, ws, item, job):
+            return {"status": status["now"], "endTimeUtc": None, "failureReason": {"message": "Out of memory"}}
+
+    monkeypatch.setattr(Service, "_quiet_fabric", lambda self: Fabric())
+    svc.notebook_runs("Daily sales", refresh=True)
+    assert [e for e in svc.audit.recent() if e["action"] == "fabric_run_finished"] == []  # still running
+    status["now"] = "Failed"
+    svc.notebook_runs("Daily sales", refresh=True)
+    svc.notebook_runs("Daily sales", refresh=True)  # already ended: no second line
+    (line,) = [e for e in svc.audit.recent() if e["action"] == "fabric_run_finished"]
+    assert (line["outcome"], line["reason"]) == ("error", "failed")
+    assert line["target"] == {"job_id": "j1", "kind": "Notebook run", "name": "Daily sales", "workspace_id": "ws1",
+                              "item_id": "it1", "status": "Failed"}
+    assert "Out of memory" not in str(line)  # Fabric's message stays in the run log, not the audit line

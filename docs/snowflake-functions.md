@@ -21,8 +21,8 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 166 |
-| Differs | 21 |
+| Runs | 167 |
+| Differs | 20 |
 | Refused | 81 |
 | Fails | 0 |
 | Not checked | 227 |
@@ -551,7 +551,7 @@ the known differences in more detail.
 | `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
 | `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
 | `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |
-| `LATERAL FLATTEN` | Differs | `SELECT f.value FROM t, LATERAL FLATTEN(input => PARSE_JSON('[1, 2]')) f` | SFD-005 FLATTEN rows and keys |
+| `LATERAL FLATTEN` | Runs |  | 5 value checks |
 | `SAMPLE` | Not checked | `SELECT * FROM t SAMPLE (50)` |  |
 | `MATCH_RECOGNIZE` | Refused | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | MATCH_RECOGNIZE. DuckDB has no row pattern matching. |
 | `GENERATOR` | Not checked | `SELECT SEQ4() FROM TABLE(GENERATOR(ROWCOUNT => 3))` |  |

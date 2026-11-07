@@ -53,11 +53,46 @@ test("Home shows the hero and the progression panel from profile_get", { skip },
   assert.ok(await page().locator(".home-id-rank").getByText(p.title, { exact: true }).isVisible());
   assert.ok(await page().getByText("First Flame", { exact: true }).isVisible());
   assert.ok(await page().getByText("Not measured").isVisible());
-  // The hero holds no control.
-  assert.strictEqual(await page().locator(".home-hero button, .home-hero a, .home-hero input").count(), 0);
+  // The welcome and the primary actions are real UI in the hero's text side; none sits on the art.
+  assert.ok(await page().locator(".home-hero h1").getByText("Welcome to KratosForge").isVisible());
+  assert.ok(await page().locator(".home-hero-actions").getByRole("button", { name: "New notebook" }).isVisible());
+  assert.strictEqual(await page().locator(".home-hero button, .home-hero a, .home-hero input").count(),
+    await page().locator(".home-hero-text button, .home-hero-text a, .home-hero-text input").count());
+  assert.strictEqual(await page().locator(".home-hero-img").getAttribute("alt"), "");
   // Never a god name, never a capacity figure.
   assert.ok(!(await page().locator(".home-aside").innerText()).includes("Data God"));
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "home-living.png") });
+  // Chris's art is never cropped or stretched: the drawn picture keeps 3:1 and sits whole inside the hero.
+  for (const width of [1440, 1920]) {
+    await page().setViewportSize({ width, height: 940 });
+    await page().waitForFunction(() => document.querySelector(".home-hero-img")?.complete);
+    const box = await page().evaluate(() => {
+      const img = document.querySelector(".home-hero-img").getBoundingClientRect();
+      const hero = document.querySelector(".home-hero").getBoundingClientRect();
+      return { ratio: img.width / img.height, inside: img.left >= hero.left - 0.5 && img.right <= hero.right + 0.5 && img.top >= hero.top - 0.5 && img.bottom <= hero.bottom + 0.5 };
+    });
+    assert.ok(Math.abs(box.ratio - 2172 / 724) < 0.02, `ratio at ${width}: ${box.ratio}`);
+    assert.ok(box.inside, `the picture sits whole inside the hero at ${width}`);
+    if (SHOTS && width === 1920) await page().screenshot({ path: path.join(SHOTS, "home-living-1920.png") });
+  }
+  // At any width the picture shows, the text ends before the art's 27% line, where the cape starts: text may sit on the empty sky only.
+  for (const width of [1440, 1330, 1251, 1200, 1181, 1180, 1101, 1100, 1041, 1000, 961, 850]) {
+    await page().setViewportSize({ width, height: 940 });
+    const clear = await page().evaluate(() => {
+      const img = document.querySelector(".home-hero-img");
+      if (getComputedStyle(img).display === "none") return { shown: false, ok: true };
+      // The ink, not the boxes: block headings and the action row span the whole column.
+      const ink = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().right; };
+      const textRight = Math.max(...[...document.querySelectorAll(".home-hero-kicker, .home-hero-title, .home-hero-welcome")].map(ink),
+        ...[...document.querySelectorAll(".home-hero-actions > *")].map((e) => e.getBoundingClientRect().right));
+      const art = img.getBoundingClientRect();
+      const hero = document.querySelector(".home-hero").getBoundingClientRect();
+      const cape = art.left + 0.27 * art.width;
+      return { shown: true, ok: cape >= textRight && Math.abs(art.height - hero.height) < 1 && Math.abs(art.width / art.height - 2172 / 724) < 0.02, left: cape, textRight };
+    });
+    assert.ok(clear.ok, `at ${width} the cape starts at ${clear.left}, the text ends at ${clear.textRight}; the art fills the hero height`);
+  }
+  await page().setViewportSize({ width: 1440, height: 940 });
 });
 
 test("hiding the panel closes the gap, and the link brings it back", { skip }, async () => {

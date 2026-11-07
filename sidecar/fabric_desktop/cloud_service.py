@@ -116,10 +116,14 @@ class CloudMixin:
                 unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
                 continue
             unreachable = 0
+            was = r.get("status")
             r["status"] = job.get("status", r["status"])
             r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
             reason = job.get("failureReason") or {}
             r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
+            if was not in TERMINAL and r["status"] in TERMINAL:  # first seen ending: the start already has its line
+                self._audit_finished("fabric_run_finished", r["status"] == "Completed", 0.0,  # type: ignore[attr-defined]
+                                     {k: r.get(k) for k in ("job_id", "kind", "name", "workspace_id", "item_id", "status")})
         return unchecked
 
     def _quiet_fabric(self) -> FabricClient | None:

@@ -54,7 +54,7 @@ def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["IFF"] == "runs"
     assert status["/"] == "runs"  # it stops on a zero divisor, as in Snowflake (SFX-010)
-    assert status["TYPEOF"] == "differs" and status["LATERAL FLATTEN"] == "differs"  # SFD-007, SFD-005
+    assert status["TYPEOF"] == "differs" and status["LATERAL FLATTEN"] == "runs"  # SFD-007; SFX-001 checks
     assert status["CREATE STREAM"] == "refused" and status["PARSE_URL"] == "refused"
     assert status["TO_DECFLOAT"] == "refused" and status["GROUPING"] == "runs"  # SFN-018; probes need groups
     assert status["CONDITIONAL_CHANGE_EVENT"] == "runs" and status["INTERPOLATE_LINEAR"] == "runs"  # SFX-018

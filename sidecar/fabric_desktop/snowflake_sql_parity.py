@@ -443,6 +443,27 @@ CASES: tuple[Case, ...] = (
     _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0),
     _c("HAVERSINE (docs example)", "Geospatial", "SELECT haversine(40.7127, -74.0059, 34.0500, -118.2500)",
        3936.385096389, page="haversine"),
+    _c("LATERAL FLATTEN (docs example)", "Semi-structured",
+       "SELECT listagg(key || '|' || path || '|' || coalesce(to_varchar(index), 'NULL'), ',') WITHIN GROUP (ORDER BY "
+       "path) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"b\":[77,88], \"c\": {\"d\":\"X\"}}')))",
+       "a|a|NULL,b|b|NULL,c|c|NULL", page="flatten"),
+    _c("LATERAL FLATTEN (PATH, docs example)", "Semi-structured",
+       "SELECT listagg(coalesce(key, 'NULL') || '|' || path || '|' || index || '|' || value, ',') WITHIN GROUP "
+       "(ORDER BY index) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"b\":[77,88]}'), PATH => 'b'))",
+       "NULL|b[0]|0|77,NULL|b[1]|1|88", page="flatten"),
+    _c("LATERAL FLATTEN (empty array, docs example)", "Semi-structured",
+       "SELECT count(*) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]')))", 0, page="flatten"),
+    _c("LATERAL FLATTEN (OUTER, docs example)", "Semi-structured",
+       "SELECT coalesce(key, 'NULL') || '|' || path || '|' || coalesce(to_varchar(index), 'NULL') || '|' || "
+       "coalesce(to_varchar(value), 'NULL') || '|' || to_varchar(this) FROM TABLE(FLATTEN(INPUT => "
+       "PARSE_JSON('[]'), OUTER => TRUE))", "NULL||NULL|NULL|[]", page="flatten"),
+    _c("LATERAL FLATTEN (nested, docs example)", "Semi-structured",
+       "SELECT listagg(p.id || ':' || f1.value:type::string || '=' || f1.value:content::string, ',') WITHIN GROUP "
+       "(ORDER BY p.id, f1.index) FROM (SELECT column1 AS id, PARSE_JSON(column2) AS c FROM VALUES "
+       "(12712555, '{\"contact\": [{\"business\": [{\"type\": \"phone\", \"content\": \"555-1234\"}, "
+       "{\"type\": \"email\", \"content\": \"j.smith@example.com\"}]}]}')) p, LATERAL FLATTEN(INPUT => p.c, "
+       "PATH => 'contact') f, LATERAL FLATTEN(INPUT => f.value:business) f1",
+       "12712555:phone=555-1234,12712555:email=j.smith@example.com", page="flatten"),
     _c("CONDITIONAL_CHANGE_EVENT (docs example)", "Window",
        f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
        f"conditional_change_event(o_col) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",

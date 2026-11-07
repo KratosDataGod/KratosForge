@@ -221,9 +221,30 @@ def test_which_calls_fail_closed():
     for method, params in (("sql_start", {"query": "x", "confirm_name": "Sales"}), ("xray_optimize", {"risk_id": "r-1"}),
                            ("platform_share_keys", {"approve": True}), ("integrations_decide", {"approval_id": "a1"}),
                            ("databricks_bundle_deploy", {"typed": "prod"}), ("local_drop_delta", {"confirm": True}),
-                           ("set_risk_settings", {"require_acknowledgement": True})):
+                           ("set_risk_settings", {"require_acknowledgement": True}),
+                           ("meta_run", {"env": "prod"}), ("meta_optimize", {"env": " PROD "}),
+                           ("meta_publish_varlib", {"env": "prod"}), ("databricks_bundle_deploy", {"target": "prod"}),
+                           ("platform_entra_save", {"envs": ["dev", "prod"]}), ("git_commit", {"allow_secrets": True}),
+                           ("pipeline_run_start", {"allow_uncontained": True}), ("git_delete_branch", {"force": True})):
         assert audit.fails_closed(method, params), method
     for method, params in (("sql_start", {"query": "x"}), ("sql_start", {"query": "x", "confirm": False, "confirm_name": ""}),
                            ("xray_optimize", {"risk_id": ""}), ("save_notebook", {"name": "n"}), ("start_cell", {"code": "x"}),
-                           ("meta_run", {"env": "prod"})):
+                           ("meta_run", {"env": "dev"}), ("meta_run", {"env": "production-copy"}),
+                           ("sql_start", {"query": "x", "target": "lakehouse"}), ("sql_query_save", {"expect": "v3"}),
+                           ("save_notebook", {"name": "prod"}), ("pipeline_run_start", {"unconfirmed": True})):
         assert not audit.fails_closed(method, params), (method, params)
+
+
+def test_every_go_ahead_parameter_has_been_reviewed():
+    """A new parameter that looks like a confirmation, approval or override must be put in
+    audit.GUARD_PARAMS (fails closed when given) or audit.NOT_GUARD_PARAMS, so none is missed."""
+    import inspect
+    import re
+
+    from fabric_desktop.service import Service
+    looks = re.compile(r"confirm|approv|typed|risk|acknowledg|allow|force|override|expect|accept|sure|danger")
+    unreviewed = sorted({(name, method) for method in server.METHODS if audit.audited(method)
+                         for name in inspect.signature(getattr(Service, method)).parameters
+                         if looks.search(name) and name not in audit.GUARD_PARAMS | audit.NOT_GUARD_PARAMS})
+    assert unreviewed == []
+    assert not audit.GUARD_PARAMS & audit.NOT_GUARD_PARAMS

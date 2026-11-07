@@ -80,7 +80,7 @@ one with the strictest rules.
     - Any key, click or scroll ends it at once and gives the window back exactly as it was. Focus
       never moves.
     - The milestone text is in the app before the Titan starts, so skipping loses nothing.
-    - Off unless the person turns on **Achievement celebrations** (policy key
+    - Only while **Achievement celebrations** is on (the default; policy key
       `motion_achievements`), and only at Expressive.
     - It is the one exception to "no effect covers content" in [Motion and effects](forge-animations.md),
       and that page must say so when the first Titan ships.

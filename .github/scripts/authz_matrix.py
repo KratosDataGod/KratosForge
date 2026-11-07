@@ -73,7 +73,7 @@ def _guards(path: str, name: str, depth: int = 0, seen: dict | None = None) -> s
 
 
 def _rel(path: str) -> str:
-    return "sidecar/fabric_desktop/" + path.split("fabric_desktop/", 1)[1]
+    return "sidecar/fabric_desktop/" + Path(path).as_posix().split("fabric_desktop/", 1)[1]  # Windows paths use backslashes
 
 
 def platform_ops() -> list[tuple[str, str, str]]:

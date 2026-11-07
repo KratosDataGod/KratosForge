@@ -117,3 +117,14 @@ How it connects: while the switch is on, the engine listens on `127.0.0.1` on a 
 | Let VS Code run notebooks | Nothing | `editor-port` while it's on; `editor\settings.json` |
 | Pairing a window | The window's folder and name, as it sends them | `editor\pairings.json` (a hash of the token) for 8-hour and 7-day pairings |
 | A cell run from a paired window | What the cell reads | What the cell writes on this PC; OneLake only after you allow it |
+
+## For IT: allowing the extension
+
+What the KratosForge extension for VS Code does and doesn't do, for teams that review extensions before allowing them:
+
+- **Workspace Trust.** It doesn't support untrusted workspaces, so in Restricted Mode VS Code doesn't start it: it runs nothing and doesn't contact KratosForge until the workspace is trusted. It also doesn't run in virtual workspaces.
+- **Runs on this PC only.** It's a UI extension, so in a Remote, WSL or dev container window it runs on the PC, not the remote host, and only notebooks saved on this PC can be run with it.
+- **Secrets.** A pairing kept for 8 hours or 7 days is stored only in VS Code's SecretStorage (Windows Credential Manager on Windows). A pairing kept until KratosForge closes is held in memory only. Nothing goes into settings, global or workspace state, or files.
+- **Network.** It connects only to KratosForge's editor channel on `127.0.0.1`. It makes no other requests and has no telemetry, so `telemetry.telemetryLevel` has nothing to turn off. VS Code sends loopback requests directly, so `http.proxy` and `http.proxySupport` don't affect it and need no exception.
+- **Allow lists.** It's published as `kratosbi.kratosforge`. Where `extensions.allowed` is set, allow that id (or the `kratosbi` publisher). It isn't on the VS Code Marketplace yet: install `kratosforge.vsix` from the release, check it with `gh attestation verify`, or host it in your private extension gallery. It has no runtime dependencies.
+- **Turning it off.** Turning off **Let VS Code run notebooks**, or setting `integrations_editors` to `false` in the policy file, stops every window whatever the extension does.

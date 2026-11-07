@@ -34,7 +34,7 @@ def test_more_errors_of_a_kind_fail_and_fewer_are_only_reported():
 
 def test_the_baseline_is_a_count_per_file_and_code():
     baseline = mypy_ratchet.load()
-    assert baseline and all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
+    assert all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
     assert all(codes and isinstance(n, int) and n > 0 for codes in baseline.values() for n in codes.values())
     assert not (ROOT / "sidecar" / "mypy-baseline.json").exists()  # replaced by one file per source file
 

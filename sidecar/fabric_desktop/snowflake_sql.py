@@ -595,7 +595,19 @@ def _rewrite_time(statement: exp.Expression) -> None:
     for node in list(statement.find_all(exp.Time)):
         if node.this is None:  # TIME() with no argument: left for sqlglot, which refuses it (SFX-000)
             continue
-        node.replace(exp.Cast(this=node.this.copy(), to=exp.DataType.build("TIME")))
+        value = node.this.copy()
+        if _zoned(value):  # DuckDB has no TIMESTAMPTZ -> TIME cast; TIMESTAMP is the session zone's local time
+            value = exp.Cast(this=value, to=exp.DataType.build("TIMESTAMP"))
+        node.replace(exp.Cast(this=value, to=exp.DataType.build("TIME")))
+
+
+def _zoned(node: exp.Expression) -> bool:
+    """Whether ``node`` is plainly a timestamp with a time zone in DuckDB: CURRENT_TIMESTAMP or a cast to
+    TIMESTAMP_TZ or TIMESTAMP_LTZ (SYSDATE and CONVERT_TIMEZONE already give a TIMESTAMP there)."""
+    if isinstance(node, exp.CurrentTimestamp):
+        return not node.args.get("sysdate")
+    return isinstance(node, exp.Cast) and node.to.this in (exp.DataType.Type.TIMESTAMPTZ,
+                                                           exp.DataType.Type.TIMESTAMPLTZ)
 
 
 def _rewrite_strings(statement: exp.Expression) -> None:
@@ -1327,7 +1339,10 @@ CATALOG = (
                 "keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys "
                 "as text. Arguments are worked out more than once, which matters only when they aren't "
                 "deterministic."),
-    ("SFX-017", "Rewritten", "TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp."),
+    ("SFX-017", "Rewritten", "TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. "
+                "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
+                "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
+                "here."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),

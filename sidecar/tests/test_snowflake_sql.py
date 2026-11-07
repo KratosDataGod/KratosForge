@@ -781,3 +781,29 @@ def test_time_of_a_timestamp_is_its_time_of_day():
     import duckdb
     t = sf.translate("SELECT time(ts) FROM (SELECT '2024-01-01 10:20:30'::timestamp AS ts)")
     assert str(duckdb.connect().execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT TIME(CURRENT_TIMESTAMP)",
+    "SELECT TIME(CURRENT_TIMESTAMP())",
+    "SELECT TIME(SYSDATE())",
+    "SELECT TIME('2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ)",
+    "SELECT TIME('2024-01-01 10:20:30'::TIMESTAMP_LTZ)",
+    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ))",
+])
+def test_time_of_a_zoned_timestamp_runs(code):
+    import duckdb
+    t = sf.translate(code)
+    assert t.runnable
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    value = con.execute(t.duckdb_sql).fetchone()[0]
+    assert type(value).__name__ == "time"
+
+
+def test_time_of_a_timestamp_tz_is_the_local_time():
+    import duckdb
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
+    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "08:20:30"

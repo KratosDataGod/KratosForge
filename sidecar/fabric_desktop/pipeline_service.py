@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -363,7 +364,7 @@ _LIST_DEPTH = 4      # folder levels searched under a repository's root
 _SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 
 
-def _pipeline_folders(root: Path, depth: int = 0):
+def _pipeline_folders(root: Path, depth: int = 0) -> Iterator[Path]:
     """``<name>.DataPipeline`` folders under root, a few levels down, in name order."""
     try:
         entries = sorted((p for p in root.iterdir() if p.is_dir() and not p.is_symlink()), key=lambda p: p.name.lower())

@@ -24,6 +24,7 @@ for older callers. The rough scenario's plain numbers are called ``scenario_cu_h
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from typing import Any, cast
 
 from . import calibration
@@ -282,7 +283,7 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
         """What a group avoided in Fabric, only when estimated from Fabric runs; unknown counts as 0."""
         return g["evidence"]["avoided_cost"]["value"] or 0.0
 
-    def grouped(key) -> list[dict[str, Any]]:
+    def grouped(key: Callable[[dict[str, Any]], Any]) -> list[dict[str, Any]]:
         groups: dict[Any, list[dict[str, Any]]] = {}
         for r in kept:
             groups.setdefault(key(r), []).append(r)

@@ -143,13 +143,17 @@ function forgePaintSteps(lane, l) {
   if (fill) fill.style.width = `${l.total ? Math.round((l.done / l.total) * 100) : 0}%`;
 }
 
-// The scene: an anvil with the wolf beside it, drawn from the app's own marks until the painted art
-// exists (docs/design/assets.md). Loops only while something runs; an outcome plays once.
+// The scene: Chris's approved Monitor banner (docs/design/assets.md), Kratos and the wolf at the forge,
+// whole at its own 3:1 ratio on the right; the lanes stay real UI on the navy at left. The picture never
+// moves: only the anvil's glow and sparks, laid over its fire, run, and only while a run is going. The
+// half-size file serves ordinary windows and the full one high-density screens.
 function forgeScene() {
   return h("div", { class: "forge-scene", "aria-hidden": "true" },
-    h("span", { class: "forge-glow" }), h("span", { class: "forge-anvil" }, svgIcon(ANVIL_PATH, 72)),
-    h("span", { class: "forge-sparks" }, h("i"), h("i"), h("i")),
-    h("span", { class: "forge-scene-wolf" }, svgIcon(WOLF_PATH, 40)));
+    h("img", { class: "forge-art", alt: "", decoding: "async", src: "art/experience/monitor/monitor-banner-1086.webp",
+      srcset: "art/experience/monitor/monitor-banner-1086.webp 1086w, art/experience/monitor/monitor-banner.webp 2172w",
+      sizes: "(max-width: 900px) 0px, 750px" }),
+    h("span", { class: "forge-glow" }), h("span", { class: "forge-anvil" }),
+    h("span", { class: "forge-sparks" }, h("i"), h("i"), h("i")));
 }
 
 function forgeSection(m) {

@@ -5,15 +5,16 @@
 // FORGE_EVENTS says which effect, if any, that is. Other features add an event and a kind here and
 // its CSS, rather than animating on their own.
 //
-// Visual intensity (Settings > Appearance > Motion & effects, engine setting motion_level):
-//   0 Off         no motion at all
-//   1 Minimal     functional transitions only: page changes, progress easing. No branded effects.
-//   2 Refined     subtle branded effects (the default)
-//   3 Expressive  the same moments with more character: extra sparks, halftone and offset rings
+// Experience mode (Settings > Appearance > Living Experience, engine setting motion_level). The
+// stored values are unchanged; only the names are new (they were Off, Minimal, Refined, Expressive):
+//   0 Professional  no decorative motion at all
+//   1 Subtle        functional transitions only: page changes, progress easing. No branded effects.
+//   2 Heroic        branded effects: sparks, the wolf, the forge strike (the default)
+//   3 Legendary     the same moments with more character: extra sparks, halftone and offset rings
 // Windows' reduced-motion setting means level 0 unless the person unticked "Respect Windows'
 // reduced-motion setting". Each kind also belongs to a family the person can switch off on its own;
 // achievements are off unless turned on.
-const MOTION_LEVELS = ["Off", "Minimal", "Refined", "Expressive"];
+const MOTION_LEVELS = ["Professional", "Subtle", "Heroic", "Legendary"];
 const MOTION = {
   spark: { ms: 400, gap: 300, level: 2, family: "sparks" },      // a cell succeeded
   fail: { ms: 450, gap: 300, level: 2, family: "sparks" },       // something failed: an ember goes out
@@ -93,7 +94,7 @@ const WOLF_PATH = "M1.70 8.48 3.15 5.33 5.33 0.24 5.70 3.64 7.76 6.79 10.91 9.45
 const ANVIL_PATH = "M1 7h15.5c2.5 0 5 .8 6.5 2.5h-6.2c-.6 1.6-2 2.7-3.6 3.1V15h2.3l1.5 3H5l1.5-3h2.3v-2.4C5.5 12 3 10.2 1 7Z"
   + "M4 19.5h14V22H4Z";
 const motionLast = {};
-// What the effects did, for Settings > Motion & effects > Preview and for tests.
+// What the effects did, for Settings > Living Experience > Preview and for tests.
 const motionStats = { played: {}, skipped: {}, events: {}, live: 0, loadMs: 0, drop: 0 };
 let loadTasks = [];
 let dropUntil = 0;

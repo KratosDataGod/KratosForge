@@ -115,10 +115,10 @@ test("With motion Off nothing decorative is made, and the run still shows its pr
   // The setting is kept for the next start, and Settings shows it.
   assert.strictEqual(await page.evaluate(async () => (await rpc("app_settings")).motion_level.value), 0);
   await page.evaluate(() => go("settings"));
-  const off = page.getByRole("radio", { name: /^0 Off/ });
+  const off = page.getByRole("radio", { name: /^Professional/ });
   await off.waitFor();
   assert.strictEqual(await off.isChecked(), true);
-  await page.getByRole("radio", { name: /^2 Refined/ }).check();
+  await page.getByRole("radio", { name: /^Heroic/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motion === "on");
   assert.deepStrictEqual(app.errors, []);
 });
@@ -131,7 +131,7 @@ test("Windows reduced motion turns the effects off whatever the setting says", {
   await page.waitForFunction(() => document.getElementById("announce").textContent === "Run finished: 3 cells succeeded", null, { timeout: 30000 });
   assert.deepStrictEqual(await page.evaluate(() => window.__fx), []);
   await page.evaluate(() => go("settings"));
-  await page.getByText("Off now: Windows asks apps to reduce motion.").waitFor();
+  await page.getByText("Still now: Windows asks apps to reduce motion.").waitFor();
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-settings-reduced.png") });
   assert.deepStrictEqual(app.errors, []);
 });

@@ -11,6 +11,7 @@ import threading
 from contextlib import contextmanager
 
 import polars as pl
+import pytest
 from test_large_tables import DAY1, DAY2, Setup, rows
 from test_write_failures import ids
 
@@ -141,3 +142,48 @@ def test_a_commit_a_sync_client_set_aside_is_reported_until_its_file_is_deleted(
     assert ids(s) == [0, 1, 2, 10]  # the run itself goes ahead
     aside.unlink()
     assert "another PC" not in s.run(day=DAY2).message
+
+
+# The error Windows gave the losing writer in CI (run 42383460709), with this test's folder.
+def _race(log):
+    return OSError("Generic LocalFileSystem error\n   ↳ Unable to open file "
+                   f"{log}\\00000000000000000003.json#1\n   ↳ Access is denied. (os error 5)\n")
+
+
+def test_an_append_that_loses_the_windows_staged_commit_race_is_sent_again(tmp_path, monkeypatch):
+    store = LocalStore(tmp_path, "dev")
+    store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [1]}))
+    log = tmp_path / "LH_Bronze" / "Tables" / "dbo" / "t" / "_delta_log"
+    real, refused = store_mod.write_deltalake, [2]
+
+    def racing(*a, **kw):
+        if refused[0]:
+            refused[0] -= 1
+            raise _race(log)
+        return real(*a, **kw)
+    monkeypatch.setattr(store_mod, "write_deltalake", racing)
+    store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [2]}), mode="append")
+    assert sorted(store.read("LH_Bronze", "dbo", "t")["id"].to_list()) == [1, 2]  # once, after two refusals
+
+
+def test_only_an_append_refused_its_staged_commit_is_sent_again(tmp_path, monkeypatch):
+    store = LocalStore(tmp_path, "dev")
+    store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [1]}))
+    log = tmp_path / "LH_Bronze" / "Tables" / "dbo" / "t" / "_delta_log"
+    calls = []
+
+    def refuse(error):
+        def write(*a, **kw):
+            calls.append(kw["mode"])
+            raise error
+        return write
+    # An overwrite isn't sent again: it is made against the version it read.
+    monkeypatch.setattr(store_mod, "write_deltalake", refuse(_race(log)))
+    with pytest.raises(OSError):
+        store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [2]}))
+    # A commit file refused once it is in place may have been made: not sent again either.
+    monkeypatch.setattr(store_mod, "write_deltalake", refuse(OSError(
+        f"Generic LocalFileSystem error: Unable to open file {log}\\00000000000000000003.json: Access is denied. (os error 5)")))
+    with pytest.raises(OSError):
+        store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [2]}), mode="append")
+    assert calls == ["overwrite", "append"]

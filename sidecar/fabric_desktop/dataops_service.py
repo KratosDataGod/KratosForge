@@ -12,7 +12,8 @@ import datetime as dt
 import hashlib
 import json
 import logging
-from typing import Any
+import time
+from typing import Any, Callable
 
 import polars as pl
 import pyarrow as pa
@@ -54,13 +55,13 @@ class DataOpsMixin:
 
     # ---- compare
 
-    def _table(self, project: Any, name: str, env: str, version: int | None) -> pl.DataFrame | None:
+    def _table(self, project: Any, name: str, env: str, version: int | str | None) -> pl.DataFrame | None:
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
         return store.read(project.layer(e.layer).lakehouse, e.schema, e.table,
                           None if version in (None, "") else int(version))
 
-    def _delta(self, project: Any, name: str, env: str, version: int | None) -> Any:
+    def _delta(self, project: Any, name: str, env: str, version: int | str | None) -> Any:
         """The table's Delta log (no data) at ``version``, default the latest; None when there's none."""
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
@@ -361,12 +362,21 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
                         "version": "1.4", "body": body}}]}
 
 
-def post_teams(url: str, title: str, lines: list[str]) -> None:
+# Teams posts happen in the agent's loop and in app requests, so one card never holds them long: a
+# webhook that doesn't answer gives up after TEAMS_TIMEOUT, and throttling is waited out at most
+# TEAMS_ATTEMPTS - 1 times for TEAMS_WAIT_CAP each. The caller's outbox keeps the card for later.
+TEAMS_TIMEOUT = (5, 15)  # seconds to connect, then to each read
+TEAMS_ATTEMPTS = 3
+TEAMS_WAIT_CAP = 10.0
+
+
+def post_teams(url: str, title: str, lines: list[str], sleep: Callable[[float], None] = time.sleep) -> None:
     """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
-    Retry-After says; after a 5xx or a dropped connection the card may have been posted, so the
-    caller's outbox decides whether to send it again."""
+    Retry-After says (capped); after a 5xx or a dropped connection the card may have been posted,
+    so the caller's outbox decides whether to send it again."""
     http = http_session.session()
-    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=15), "POST")
+    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=TEAMS_TIMEOUT), "POST",
+                        sleep=sleep, attempts=TEAMS_ATTEMPTS, wait_cap=TEAMS_WAIT_CAP)
     if r.status_code >= 300:
         raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
 

@@ -182,7 +182,8 @@ Each outbound call, what it uses, and how long it waits:
 | Fabric REST API, OneLake, Graph, Power BI | Windows proxy or `HTTPS_PROXY` | Windows store | 60 seconds unless the call names its own |
 | Managed identity on an Azure VM | Windows proxy or `HTTP_PROXY` | Not HTTPS | 60 seconds |
 | Update check and the exe download (the shell's updater) | Windows proxy or `HTTPS_PROXY` | Windows store (Python's standard library loads it) | 5 to 120 seconds, by step |
-| Engine download and engine update (the shell, with Windows' own `curl.exe`) | `HTTPS_PROXY` when it's set, else the fixed proxy Windows is set to, which the app reads and passes to curl (skipping hosts on its bypass list) | Windows store (curl uses Windows' TLS) | 20 seconds to connect; stops when slower than 1 KB/s for 60 seconds |
+| Engine download and engine update (the shell, with Windows' own `curl.exe`) | `HTTPS_PROXY` when it's set, else the fixed proxy Windows is set to, which the app reads and passes to curl (skipping hosts on its bypass list) | Windows store (curl uses Windows' TLS) | 20 seconds to connect; stops when slower than 1 KB/s for 60 seconds. When the network stops the small engine update, the whole engine isn't tried from the same host |
+| Notebook packages and Databricks Connect (`pip`) | Windows proxy or `HTTPS_PROXY` | Windows store (pip uses it) | 15 seconds per try, 3 tries per address; the whole install stops after 15 or 20 minutes |
 
 Set up the network like this:
 - A proxy given by a PAC file or by automatic detection (WPAD) isn't read. Set the proxy server in Internet Options, or set `HTTPS_PROXY` and `NO_PROXY` as machine environment variables (Group Policy or Intune).
@@ -192,9 +193,10 @@ Set up the network like this:
 When a call fails on the network, the error starts with one line that says what to do, then the detail:
 - "HTTPS was refused because the server's certificate isn't trusted on this PC": add the root certificate to Windows.
 - "The proxy server refused the connection or couldn't be reached": check the proxy address and that it doesn't ask for a sign-in of its own.
+- "This PC couldn't reach the server": the PC is offline, the name didn't resolve, or the firewall refused the connection. Connect, or allow the host in [Network access](#network-access).
 - "The server didn't answer in time": the proxy or firewall dropped the call without answering.
 
-The update check says the same in its own words. No call waits forever: `sidecar/tests/test_corporate_network.py` fails when an outbound call is written without a timeout, and runs sign-in, a Fabric call and the update check through a local proxy with a made-up company root certificate, a proxy that answers 407, and one that never answers. These tests run on Linux in CI and stand in for the Windows proxy setting, so the Windows proxy and certificate store themselves are UNVERIFIED until a pilot PC behind your proxy confirms them.
+The update check and the engine download say the same in their own words, naming the host they couldn't reach. When `pip` can't reach the package index (offline, or PyPI blocked), the install log ends with a line saying so, rather than pip's own "No matching distribution found", which reads as if the package didn't exist. pip tries each address 3 times, not its default 6, so a blocked index fails within about a minute. On a PC that can't reach PyPI, use `notebook_package_folder` for notebook packages and `dbconnect_index_url` for Databricks Connect ([the keys](azure-setup.md#4-push-settings-to-everyone)). No call waits forever: `sidecar/tests/test_corporate_network.py` fails when an outbound call is written without a timeout, and runs sign-in, a Fabric call and the update check through a local proxy with a made-up company root certificate, a proxy that answers 407, and one that never answers. These tests run on Linux in CI and stand in for the Windows proxy setting, so the Windows proxy and certificate store themselves are UNVERIFIED until a pilot PC behind your proxy confirms them.
 
 ### Environment variables
 

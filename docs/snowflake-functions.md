@@ -21,11 +21,11 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 145 |
+| Runs | 157 |
 | Differs | 21 |
 | Refused | 77 |
-| Fails | 24 |
-| Not checked | 228 |
+| Fails | 13 |
+| Not checked | 227 |
 | **All** | **495** |
 
 ## String and binary
@@ -251,7 +251,7 @@ the known differences in more detail.
 | `TRY_TO_TIMESTAMP_NTZ` | Not checked |  |  |
 | `TRY_TO_TIMESTAMP_TZ` | Differs |  | SFD-002 TIMESTAMP_TZ loses its offset |
 | `TO_ARRAY` | Not checked |  |  |
-| `TO_OBJECT` | Fails |  | DuckDB has no TO_OBJECT, and the rules don't rewrite it |
+| `TO_OBJECT` | Runs |  | 2 value checks |
 | `TO_VARIANT` | Not checked |  |  |
 
 ## Semi-structured
@@ -273,11 +273,11 @@ the known differences in more detail.
 | `ARRAY_CONSTRUCT_COMPACT` | Not checked |  |  |
 | `ARRAY_CONTAINS` | Runs |  | 1 value check |
 | `ARRAY_DISTINCT` | Not checked |  |  |
-| `ARRAY_EXCEPT` | Fails |  | Parser Error: syntax error at or near "[" |
+| `ARRAY_EXCEPT` | Runs |  | 4 value checks |
 | `ARRAY_FLATTEN` | Not checked |  |  |
 | `ARRAY_GENERATE_RANGE` | Not checked |  |  |
 | `ARRAY_INSERT` | Not checked | `SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)` |  |
-| `ARRAY_INTERSECTION` | Fails |  | Binder Error: No function matches the given name and argument types 'array_intersect("NULL")'. You might need to add explicit type casts. |
+| `ARRAY_INTERSECTION` | Runs |  | 3 value checks |
 | `ARRAY_MAX` | Not checked |  |  |
 | `ARRAY_MIN` | Not checked |  |  |
 | `ARRAY_POSITION` | Not checked |  |  |
@@ -292,19 +292,19 @@ the known differences in more detail.
 | `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
 | `ARRAY_UNIQUE_AGG` | Not checked |  |  |
 | `ARRAYS_OVERLAP` | Not checked |  |  |
-| `ARRAYS_TO_OBJECT` | Fails |  | DuckDB has no ARRAYS_TO_OBJECT, and the rules don't rewrite it |
+| `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
 | `ARRAYS_ZIP` | Not checked |  |  |
-| `OBJECT_AGG` | Fails |  | DuckDB has no OBJECT_AGG, and the rules don't rewrite it |
-| `OBJECT_CONSTRUCT` | Not checked |  |  |
+| `OBJECT_AGG` | Runs |  | 1 value check |
+| `OBJECT_CONSTRUCT` | Runs |  | 1 value check |
 | `OBJECT_CONSTRUCT_KEEP_NULL` | Not checked |  |  |
-| `OBJECT_DELETE` | Fails |  | DuckDB has no OBJECT_DELETE, and the rules don't rewrite it |
-| `OBJECT_INSERT` | Fails |  | Parser Error: syntax error at or near ":=" |
-| `OBJECT_PICK` | Fails |  | DuckDB has no OBJECT_PICK, and the rules don't rewrite it |
+| `OBJECT_DELETE` | Runs |  | 2 value checks |
+| `OBJECT_INSERT` | Runs |  | 3 value checks |
+| `OBJECT_PICK` | Runs |  | 2 value checks |
 | `OBJECT_KEYS` | Runs |  | 1 value check |
-| `FILTER` | Fails |  | Binder Error: Invalid lambda expression! |
+| `FILTER` | Runs |  | 2 value checks |
 | `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
-| `TRANSFORM` | Fails |  | Binder Error: Invalid lambda expression! |
-| `MAP_CAT` | Fails |  | Parser Error: syntax error at or near "[" |
+| `TRANSFORM` | Runs |  | 2 value checks |
+| `MAP_CAT` | Runs |  | 2 value checks |
 | `MAP_CONTAINS_KEY` | Not checked |  |  |
 | `MAP_DELETE` | Not checked |  |  |
 | `MAP_ENTRIES` | Not checked |  |  |

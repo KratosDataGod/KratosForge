@@ -867,7 +867,7 @@ def _spark_json(databricks: bool, statement: exp.Expression) -> exp.Expression:
         else:
             replacement = _with_args(_STR_TO_MAP, [node.this, node.args.get("pair_delim") or exp.Literal.string(","),
                                                    node.args.get("key_value_delim") or exp.Literal.string(":")])
-        if node is statement:
+        if cast(Any, node) is statement:  # sqlglot's Func isn't typed as an Expression
             return replacement
         node.replace(replacement)
     return statement
@@ -1000,7 +1000,7 @@ def spark_name(column: exp.Expression) -> str:
         if isinstance(node.parent, exp.Paren) or node.find_ancestor(exp.Lambda):
             continue  # a lambda's body keeps the form it was written in (Spark names it lambdafunction(...))
         wrapper = exp.Paren()
-        if node is copy:
+        if cast(Any, node) is copy:  # sqlglot's Condition isn't typed as an Expression
             wrapper.set("this", node)
             copy = wrapper
         else:

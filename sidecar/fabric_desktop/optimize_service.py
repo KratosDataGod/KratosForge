@@ -10,9 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
+import uuid
 from typing import Any, Callable, cast
 
-from . import app_settings, jsonfile, redact, retrying
+from . import app_settings, jsonfile, measurement, redact, retrying
 from .auth import ONELAKE_SCOPES
 from .fabric_api import FabricError
 from .meta.project import ENVIRONMENTS
@@ -25,6 +27,24 @@ from .optimize.registry import Registry
 from .optimize.shared import Shared
 
 _log = logging.getLogger(__name__)
+OVERHEAD_SOURCE = "Optimize sync on this PC"
+
+
+def _record_overhead(shared: Shared, kind: str, began: str, seconds: float, rows: int, commits: int) -> None:
+    """What one sync took on this PC and wrote to OneLake, as Measured figures (PR-OPT-009): seconds,
+    rows handed to the lakehouse and commits. Its own commit isn't counted in it. Bytes aren't
+    measured yet, and no CU figure is given: OneLake reads and writes use capacity, but that use
+    hasn't been measured. A failure here never fails the sync."""
+    ended = now()
+    ids: dict[str, Any] = {"run_id": uuid.uuid4().hex, "workload_id": f"optimize.sync.{kind}", "source": OVERHEAD_SOURCE,
+           "collected_at": ended, "period_start": began, "period_end": ended}
+    try:
+        shared.record_measurements([
+            measurement.make(measurement.MEASURED, "optimize_sync_seconds", measurement.SECONDS, round(seconds, 3), **ids),
+            measurement.make(measurement.MEASURED, "optimize_sync_rows", measurement.COUNT, rows, **ids),
+            measurement.make(measurement.MEASURED, "optimize_sync_commits", measurement.COUNT, commits, **ids)])
+    except Exception as exc:  # noqa: BLE001 - the results were written; only their cost wasn't
+        _log.info("A sync's own cost wasn't recorded: %s", redact.describe(exc))
 
 DEFAULT_NAME = "FabricDesktop_Central"
 CHANGED_SINCE = "The central lakehouse's roles changed since you looked. Check again before confirming."
@@ -181,11 +201,15 @@ class OptimizeMixin:
 
     @staticmethod
     def _optimize_send(shared: Shared, kind: str, payload: dict[str, Any]) -> int:
+        began, start, rows, commits = now(), time.monotonic(), shared.rows_sent, shared.commits
         if kind == ANALYSIS:
             out = shared.record_analysis(payload["run"], payload.get("artifacts") or (),
                                          payload.get("findings") or (), payload.get("recommendations") or ())
-            return int(out["findings"])
-        return shared.record_local_executions(payload.get("rows") or [])
+            sent = int(out["findings"])
+        else:
+            sent = shared.record_local_executions(payload.get("rows") or [])
+        _record_overhead(shared, kind, began, time.monotonic() - start, shared.rows_sent - rows, shared.commits - commits)
+        return sent
 
     def _optimize_flush(self, token: Callable[[], str] | None = None) -> dict[str, Any]:
         """Send what is waiting for the active lakehouse, oldest first. Stops at the first failure

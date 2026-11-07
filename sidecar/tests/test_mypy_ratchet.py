@@ -34,9 +34,20 @@ def test_more_errors_of_a_kind_fail_and_fewer_are_only_reported():
 
 def test_the_baseline_is_a_count_per_file_and_code():
     baseline = mypy_ratchet.load()
-    assert baseline and all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
+    assert all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
     assert all(codes and isinstance(n, int) and n > 0 for codes in baseline.values() for n in codes.values())
     assert not (ROOT / "sidecar" / "mypy-baseline.json").exists()  # replaced by one file per source file
+
+
+def test_with_an_empty_baseline_any_new_error_fails_the_check(tmp_path, monkeypatch, capsys):
+    # Every module is typed now, so the baseline is empty; one new error must still turn CI red.
+    monkeypatch.setattr(mypy_ratchet, "BASELINE", tmp_path)
+    monkeypatch.setattr(mypy_ratchet, "load", lambda folder=tmp_path: {})
+    monkeypatch.setattr(mypy_ratchet, "run_mypy", lambda: "fabric_desktop/cli.py:1: error: Bad  [assignment]\n")
+    assert mypy_ratchet.main([]) == 1
+    assert "fabric_desktop/cli.py: 1 [assignment] errors, 0 before" in capsys.readouterr().out
+    monkeypatch.setattr(mypy_ratchet, "run_mypy", lambda: "Success: no issues found in 1 source file\n")
+    assert mypy_ratchet.main([]) == 0
 
 
 def test_each_source_file_has_its_own_baseline_file(tmp_path):

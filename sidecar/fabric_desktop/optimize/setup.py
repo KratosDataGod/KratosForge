@@ -13,6 +13,7 @@ rights to read role assignments.
 from __future__ import annotations
 
 import time
+from functools import partial
 from typing import Any, Callable
 
 import polars as pl
@@ -144,10 +145,10 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
     for m in family.migrations:
         for name in m.tables:
             full, cols = family.table(name), family.expected(m.version)[family.table(name)]
-            if not retry(lambda full=full, cols=cols: lake.create(full, cols)):
-                retry(lambda full=full, cols=cols: lake.add_columns(full, cols))
+            if not retry(partial(lake.create, full, cols)):
+                retry(partial(lake.add_columns, full, cols))
         for step in m.steps:
-            retry(lambda step=step: step(lake))
+            retry(partial(step, lake))
         if m.version not in done:
             write(lake, installation, "schema_version",
                   [{"record_id": f"v{m.version}", "version": m.version, "description": m.description,

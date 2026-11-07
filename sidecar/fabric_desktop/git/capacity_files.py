@@ -97,7 +97,7 @@ def from_fabric(capacities: list[dict[str, Any]], workspaces: list[dict[str, Any
         cid = _text(w.get("capacityId")).lower()
         if cid:
             on.setdefault(cid, []).append({"id": _text(w.get("id")), "name": _text(w.get("displayName"))})
-    out = []
+    out: list[dict[str, Any]] = []
     for c in capacities:
         cid = _text(c.get("id"))
         if not cid:

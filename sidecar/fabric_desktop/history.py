@@ -62,8 +62,9 @@ def command(ns: dict[str, Any], line: str) -> str:
 
     A range is ``4`` or ``4-6``; ``-l N`` is the last N cells; ``-n`` numbers them and ``-o``
     adds each cell's result. Without a range it's every cell before this one."""
-    inputs: list[str] = ns.get("In") if isinstance(ns.get("In"), list) else [""]
-    outputs: dict[int, Any] = ns.get("Out") if isinstance(ns.get("Out"), dict) else {}
+    got_in, got_out = ns.get("In"), ns.get("Out")
+    inputs: list[str] = got_in if isinstance(got_in, list) else [""]
+    outputs: dict[int, Any] = got_out if isinstance(got_out, dict) else {}
     numbered = output = False
     last: int | None = None
     wanted: list[int] = []

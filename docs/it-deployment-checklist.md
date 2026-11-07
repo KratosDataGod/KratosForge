@@ -17,7 +17,7 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 ## Policy file
 
-- [ ] Push `%ProgramData%\FabricDesktop\policy.json` as SYSTEM, so only administrators can change it ([deploy, step 4](enterprise-install.md#deploy)).
+- [ ] Push `%ProgramData%\FabricDesktop\policy.json` as SYSTEM, so only administrators can change it ([deploy, step 4](enterprise-install.md#deploy)). Save it as UTF-8: settings come only from this file, not from the registry.
 - [ ] Choose its keys ([all keys](azure-setup.md#4-push-settings-to-everyone)). The ones most pilots set:
     - `auto_update` and `channel` pin the update model and the release channel.
     - `allowed_tenants` restricts sign-in to your tenant's ids.
@@ -38,6 +38,7 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 ## Network
 
 - [ ] Allow the hosts the app uses through your proxy or firewall ([network access](enterprise-install.md#network-access)).
+- [ ] If PCs reach the internet only through the proxy Windows is set to, also set `HTTPS_PROXY` as a machine environment variable: the engine's first download uses only that ([proxies and HTTPS inspection](enterprise-install.md#proxies-and-https-inspection)).
 - [ ] If your network inspects HTTPS, make sure your root certificate is in the Windows certificate store, as it is for Edge. The engine trusts that store as well as Python's own list. `REQUESTS_CA_BUNDLE` adds another certificate file ([proxies and HTTPS inspection](enterprise-install.md#proxies-and-https-inspection)).
 
 ## Unattended runs

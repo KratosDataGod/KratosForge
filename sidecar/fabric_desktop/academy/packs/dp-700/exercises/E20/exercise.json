@@ -1,0 +1,136 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "parity": null,
+  "id": "E20",
+  "title": "Notebook orchestration with runMultiple, parameters and exit values",
+  "objectives": [
+    "1.4.3"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Run a parameterized notebook once per region, then a summary notebook after all of them, from one orchestrating notebook, and use the exit values the notebooks return.",
+  "scenario": "Two notebooks already exist: load_region loads one region's orders and exits with how many rows it loaded, and build_summary totals the regions it's given. New regions appear without warning, so the orchestration can't list them by hand. Operations also wants a log of the rows each load reported.",
+  "datasets": [
+    {
+      "name": "bronze.orders",
+      "rows": 5,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "notebooks": [
+    "load_region.py",
+    "build_summary.py"
+  ],
+  "starting_environment": "Delta table bronze.orders, the notebooks load_region and build_summary in notebooks/, and a starter answer.py that loads one region.",
+  "required": [
+    "gold.region_summary has one row per region in bronze.orders, with its order count and total amount.",
+    "ops.load_log has one row per region with rows_loaded, the integer that region's load_region run exited with."
+  ],
+  "expected": {
+    "description": "gold.region_summary: east 3 orders 30.25, west 2 orders 28.25. ops.load_log: east 3, west 2."
+  },
+  "verifies": [
+    "After your notebook runs, gold.region_summary and ops.load_log hold the right rows for every region, on the exercise data and on data with regions you haven't seen, on this PC.",
+    "rows_loaded is an integer, and running your notebook again leaves the same tables."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in Fabric. Here runMultiple runs the notebooks one at a time, in an order that respects their dependencies; in Fabric they run concurrently on one Spark session, up to its concurrency limit.",
+    "Fabric's timeouts, retries and cross-workspace notebook references.",
+    "Running the notebooks from a pipeline's Notebook activity instead."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "gold.region_summary",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "gold.region_summary is right.",
+      "fail": "gold.region_summary isn't right: did every region load before the summary ran?"
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.region_summary",
+      "weight": 2,
+      "required": true,
+      "data": "hidden",
+      "pass": "It also works when the regions change.",
+      "fail": "On other data the summary is wrong: work out the regions from bronze.orders."
+    },
+    {
+      "kind": "result_matches",
+      "table": "ops.load_log",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "ops.load_log has each region's row count.",
+      "fail": "ops.load_log doesn't match: use each load's exit value."
+    },
+    {
+      "kind": "result_matches",
+      "table": "ops.load_log",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "The log is right on other data too.",
+      "fail": "On other data ops.load_log is wrong: log every region that ran."
+    },
+    {
+      "kind": "table_shape",
+      "table": "ops.load_log",
+      "weight": 1,
+      "required": true,
+      "columns": {
+        "region": "VARCHAR",
+        "rows_loaded": "INT"
+      },
+      "unique": [
+        "region"
+      ],
+      "not_null": [
+        "region",
+        "rows_loaded"
+      ],
+      "pass": "ops.load_log has the right columns and types.",
+      "fail": "ops.load_log's columns or types are off: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "gold.region_summary",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it twice leaves the same summary.",
+      "fail": "A second run changed the summary."
+    }
+  ],
+  "hints": [
+    "Get the regions from the data: select the distinct region values from bronze.orders.",
+    "runMultiple takes a DAG: {\"activities\": [...]}. Each activity has a name, a path, args, and optionally dependencies, the names that must finish first.",
+    "The arguments' names must match the variables in the notebook's parameters cell exactly.",
+    "runMultiple returns a result per activity name; its exitVal is always a string."
+  ],
+  "explanation": "notebookutils.notebook.run runs one notebook with arguments and returns the string it passed to notebookutils.notebook.exit. runMultiple runs a DAG of notebooks: independent loads can run together, and an activity with dependencies waits for the ones it names. Arguments replace the values in the notebook's parameters cell, so a misspelled name silently keeps the default. Deriving the regions from the data keeps the orchestration right when a region is added. Exit values are strings, so convert a count before storing it as a number.",
+  "troubleshooting": [
+    "build_summary fails because a silver table doesn't exist: it ran before the loads. Give it dependencies.",
+    "A load wrote silver.orders_all: the argument's name doesn't match the parameter (region).",
+    "rows_loaded is text: convert the exit value with int()."
+  ],
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run"
+  ],
+  "reset": "Reset rebuilds bronze.orders from setup.sql, removes the tables your runs made, and puts the starter back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-06 (notebookutils-notebook-run): run returns the string passed to exit, exit values are always strings, runMultiple takes a DAG with activities (name, path, args, dependencies) and runs notebooks concurrently with dependency relationships.",
+    "Sequential notebook.run calls in the right order also pass; the exercise grades the tables, not the API used."
+  ]
+}

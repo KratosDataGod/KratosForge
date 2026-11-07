@@ -139,7 +139,7 @@ class CommentsMixin:
         time it's needed (``create``; a read doesn't make one, and its id is then "")."""
         auth = getattr(self, "_auth", None)
         name = (auth.signed_in_user() if auth is not None else None) or ""
-        if name:
+        if name and auth is not None:  # a name only comes from a signed-in auth
             oid = auth.signed_in_object_id() if hasattr(auth, "signed_in_object_id") else None
             return {"name": name, "id": f"aad:{oid}" if oid else f"user:{name.lower()}"}
         path = self.root / PC_ID_FILE  # type: ignore[attr-defined]

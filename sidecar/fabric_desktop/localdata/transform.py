@@ -176,12 +176,12 @@ class Transforms:
                     chosen.add(name)
             order = [n for n in order if n in chosen]
         state = self._state()
-        run = {"run_id": uuid.uuid4().hex, "started_at": _now(), "dry_run": dry_run, "params": sorted(params or {}),
+        run: dict[str, Any] = {"run_id": uuid.uuid4().hex, "started_at": _now(), "dry_run": dry_run, "params": sorted(params or {}),
                "status": "ok", "steps": []}
         failed = False
         for name in order:
             step = by_name[name]
-            item = {"name": name, "materialize": step.materialize, "status": "skipped", "rows": None,
+            item: dict[str, Any] = {"name": name, "materialize": step.materialize, "status": "skipped", "rows": None,
                     "seconds": None, "error": ""}
             run["steps"].append(item)
             if failed:

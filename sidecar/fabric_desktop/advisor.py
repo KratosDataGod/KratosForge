@@ -82,8 +82,8 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
     local_unknown = local_ok and not compat["local"]["ok"]
 
     proofs = [p for p in proofs if (p.get("receipt") or {}).get("kind") == "proof"]
-    same = [p for p in proofs if ((p["receipt"].get("notebook") or {}).get("code") or {}).get("revision") == revision]
-    proof = same[0] if same else None
+    matching = [p for p in proofs if ((p["receipt"].get("notebook") or {}).get("code") or {}).get("revision") == revision]
+    proof = matching[0] if matching else None
     next_step = None
     if proof:
         r = proof["receipt"]

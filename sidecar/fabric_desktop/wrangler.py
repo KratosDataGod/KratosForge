@@ -226,8 +226,8 @@ def code_for(df: Any, step: dict[str, Any]) -> tuple[str, list[str]]:
             if not find:
                 raise ValueError("Type the text to find.")
             tail = f".str.replace_all({find!r}, {str(step.get('value') or '')!r}, literal=True)"
-        exprs = ", ".join(f"pl.col({c!r}){tail}" for c in cols)
-        return f"df = df.with_columns({exprs})", cols
+        joined = ", ".join(f"pl.col({c!r}){tail}" for c in cols)
+        return f"df = df.with_columns({joined})", cols
     if op == "split":
         col = _column(df, step)
         if schema[col] != pl.String:
@@ -245,9 +245,9 @@ def code_for(df: Any, step: dict[str, Any]) -> tuple[str, list[str]]:
         clash = [n for n in names if n in df.columns]
         if clash:
             raise ValueError(f"There's already a column {clash[0]!r}.")
-        exprs = ", ".join(f"pl.col({col!r}).str.split({sep!r}).list.get({i}, null_on_oob=True).alias({n!r})"
+        joined = ", ".join(f"pl.col({col!r}).str.split({sep!r}).list.get({i}, null_on_oob=True).alias({n!r})"
                           for i, n in enumerate(names))
-        return f"df = df.with_columns({exprs})", names
+        return f"df = df.with_columns({joined})", names
     # sort
     col = _column(df, step)
     return f"df = df.sort({col!r}, descending={bool(step.get('desc'))!r}, nulls_last=True)", []

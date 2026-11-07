@@ -108,6 +108,19 @@ def test_only_files_inside_the_table_folder_are_flushed(tmp_path):
     assert durable.sync_commits(str(uri), 0, 0)
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes in a folder are POSIX only")
+def test_a_pipe_under_a_data_file_s_name_never_blocks_the_flush(tmp_path):
+    import threading
+    uri = tmp_path / "t"
+    (uri / "_delta_log").mkdir(parents=True)
+    os.mkfifo(uri / "part-0.parquet")
+    (uri / "_delta_log" / f"{0:020d}.json").write_text(json.dumps({"add": {"path": "part-0.parquet"}}))
+    done = threading.Thread(target=durable.sync_commits, args=(str(uri), 0, 0), daemon=True)
+    done.start()
+    done.join(10)
+    assert not done.is_alive()
+
+
 def test_the_flush_costs_a_fraction_of_the_write(tmp_path, monkeypatch):
     """What the flush costs next to the write, on this machine. Written to the CI run's summary (on
     each OS), so the cost on Windows is on record; it fails only if the flush costs more than the

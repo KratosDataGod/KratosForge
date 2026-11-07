@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -25,9 +26,12 @@ def _sync(path: Path, folder: bool = False) -> None:
         return  # NTFS journals folder entries itself, and Windows can't open a folder to flush it
     # FlushFileBuffers (os.fsync on Windows) needs a handle open for writing.
     flags = (os.O_RDONLY if folder or os.name != "nt" else os.O_RDWR) | getattr(os, "O_BINARY", 0)
-    fd = os.open(path, flags)
+    # A pipe or device under a data file's name would block the open, and the table's lock with it.
+    fd = os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
     try:
-        os.fsync(fd)
+        mode = os.fstat(fd).st_mode
+        if stat.S_ISREG(mode) or (folder and stat.S_ISDIR(mode)):
+            os.fsync(fd)
     finally:
         os.close(fd)
 

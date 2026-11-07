@@ -210,6 +210,31 @@ The app reads these from the PC's environment. None is needed for a normal rollo
 
 The [headless agent](agent.md) reads its own: `FABRIC_DESKTOP_HOME`, `FABRIC_DESKTOP_AGENT_CONFIG`, and the variables `agent.toml` names for secrets.
 
+## Application control
+
+This covers AppLocker and App Control for Business (WDAC). It comes from reading the code and hasn't yet been tested on a PC with either enforced, so run it in audit mode on a pilot PC first.
+
+Until releases are code signed, Windows' default rules block the app on a standard user's PC:
+
+| What | Where | AppLocker default rules | App Control default policies |
+| --- | --- | --- | --- |
+| The MSI | Wherever you deploy it from | Blocked (unsigned) | Blocked |
+| `kratosforge.exe`, self-updating | The user's `AppData\Local\Programs` folder | Blocked (not a default path) | Blocked |
+| `kratosforge.exe`, managed | `C:\Program Files\...` | Allowed | Blocked (unsigned) |
+| The engine's `python.exe`, `pythonw.exe` and packages | `%LOCALAPPDATA%\FabricDesktop\engine\<build>` | Blocked | Blocked, except files signed by the Python Software Foundation once you allow that signer |
+| Packages installed into notebook environments | `%LOCALAPPDATA%\FabricDesktop\environments` | Allowed unless DLL rules are on | Blocked if they contain unsigned `.pyd` or `.dll` files |
+| `%%cmd` cells | A script file in `%TEMP%` | Blocked by script rules | Not enforced |
+
+What we suggest until signing lands:
+
+- Use the [managed update model](#pick-an-update-model): copy `kratosforge.exe` to `C:\Program Files\KratosForge\` with `"auto_update": false`. Under App Control, add a hash rule for each build.
+- Allow the engine by hash from a reference PC after the app has installed its engine once, and again for each engine build that changes packages (the release notes say when). Under AppLocker, `Get-AppLockerFileInformation` piped to `New-AppLockerPolicy -RuleType Publisher,Hash` does this. Under App Control, add a signer rule for the Python Software Foundation and `New-CIPolicy -Level FilePublisher -Fallback Hash -UserPEs` on the engine folder. A path rule on the engine folder is simpler but lets the user run anything they put there, because they can write to it.
+- For notebook packages, use `notebook_package_folder` and allow its wheels' files by hash, or turn the features off with `"allow_notebook_packages": false` and `"allow_dbconnect_install": false`.
+- Run shell commands with `%%powershell` or `!command` rather than `%%cmd`; don't allow `%TEMP%`.
+- Under script enforcement PowerShell runs in Constrained Language Mode, so "also run while signed out" on a schedule can't be saved. Ordinary schedules are unaffected.
+
+When something is blocked, the app says so. It names the engine folder when the engine's Python is blocked, names the packages when engine or notebook-environment files are blocked, and suggests `%%powershell` when a `%%cmd` cell is blocked.
+
 ## What the support bundle collects
 
 When your help desk needs logs, ask for a support bundle: **Settings > Help and about > Save support bundle**, or `fabric-desktop support-bundle --out <folder>`. It saves a zip to the PC and never sends it anywhere. This is what it holds, from `sidecar/fabric_desktop/support_bundle.py`:

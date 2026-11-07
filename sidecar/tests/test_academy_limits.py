@@ -68,12 +68,21 @@ on_windows = pytest.mark.skipif(sys.platform != "win32" or not appcontainer.stat
                                 reason="AppContainers are a Windows feature")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_appcontainer(monkeypatch: pytest.MonkeyPatch) -> None:
+    # As test_academy_appcontainer: on (the default, whatever KRATOSFORGE_ACADEMY_APPCONTAINER says),
+    # and an earlier test's setup failure (status() remembers it) doesn't turn it off for these.
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)
+    monkeypatch.setattr(appcontainer, "_why_not", "")
+
+
 def _box_run(tmp_path: Path, code: str, **limits: object) -> dict:
     work = tmp_path / "w"
     work.mkdir()
     (work / "main.py").write_text(code, encoding="utf-8")
     got = sandbox.run(work, "main.py", tmp_path, **limits)  # type: ignore[arg-type]
-    assert got["runs_as"] == appcontainer.RUNS_AS, got   # the limits below were checked in the AppContainer
+    # The limits below were checked in the AppContainer, not in the v1 process it falls back to.
+    assert got["runs_as"] == appcontainer.RUNS_AS, appcontainer.status()
     return got
 
 

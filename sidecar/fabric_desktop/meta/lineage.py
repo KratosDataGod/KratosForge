@@ -100,7 +100,7 @@ def entity_columns(project: Project, name: str) -> dict[str, dict[str, Any]]:
                 rec["note"] = "the expression couldn't be read"
         elif col in lookups:
             lk = lookups[col]
-            dim = project.entities.get(lk.get("dim"))
+            dim = project.entities.get(lk.get("dim") or "")
             rec = {"how": "lookup", "label": "declared",
                    "inputs": ([{"entity": dim.name, "column": dim.surrogate_key}] if dim and dim.surrogate_key else [])
                    + [i for c in (lk.get("on"), lk.get("at")) if c for i in ref(c, col)],

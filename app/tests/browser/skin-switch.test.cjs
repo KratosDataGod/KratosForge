@@ -112,3 +112,18 @@ test("switching back to KratosForge removes the skin's colors and restores the r
   assert.strictEqual(await page().locator(".rail-group-label").count(), 0);  // the KratosForge skin needs no label
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("each skin marks the page with its look, part by part, and KratosForge keeps its own", { skip }, async () => {
+  const look = (skin) => page().evaluate((skin) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    const d = document.body.dataset;
+    return [d.skinFont, d.skinHeader, d.skinRail, d.skinCorners, d.skinTabs, d.skinCells, d.skinButtons, d.skinTiles, d.skinIcons];
+  }, skin);
+  assert.deepStrictEqual(await look("databricks"), ["dm-sans", "light", "inline", "square", "boxed", "flat", "accent", "plain", "bold"]);
+  assert.deepStrictEqual(await look("snowflake"), ["inter", "none", "inline", "round", "pill", "rounded", "accent", "plain", "regular"]);
+  assert.deepStrictEqual(await look("fabric"), ["segoe", "brand", "stacked", "soft", "underline", "card", "accent", "plain", "light"]);
+  // Back to KratosForge, every part is its own again: nothing from the last skin stays.
+  assert.deepStrictEqual(await look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered", "accent", "plain", "regular"]);
+  assert.deepStrictEqual(app.errors, []);
+});

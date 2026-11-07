@@ -28,7 +28,19 @@ function applySkin() {
   for (const [name, value] of Object.entries(tokens)) root.setProperty(name, value);
   skinState.applied = { id: skin?.id || "kratosforge", tokens: Object.keys(tokens) };
   document.body.dataset.skin = skinState.applied.id;
+  // The skin's look (appearance.style), one attribute per part, e.g. data-skin-rail="inline". The engine
+  // checked each value against its fixed choices; styles.css draws them. A part the skin leaves out is
+  // KratosForge's own.
+  const style = skin?.appearance?.style || {};
+  for (const [part, own] of Object.entries(SKIN_STYLE_DEFAULTS)) {
+    document.body.dataset[`skin${part[0].toUpperCase()}${part.slice(1)}`] = style[part] || own;
+  }
 }
+
+// KratosForge's own look, part by part: the first choice of each in the engine's STYLE (test_skins.py
+// keeps the two equal).
+const SKIN_STYLE_DEFAULTS = { font: "segoe-variable", header: "light", rail: "stacked", corners: "soft",
+  tabs: "underline", cells: "bordered", buttons: "accent", tiles: "plain", icons: "regular" };
 
 // The rail's order under the skin: pages it names come first, in its order; the rest keep theirs after.
 function skinRailSort(list) {

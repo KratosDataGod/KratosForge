@@ -248,11 +248,9 @@ function renderExplorer() {
       btn("Add data items", "add", openDataItems, "tool link", { style: "margin-top:12px" }));
     renderTree(tree, lh, insertCell);
   } else {
-    content.append(h("div", { class: "empty" },
-      h("span", { style: "color:var(--accent)" }, icon("lakehouse", 40)),
-      h("span", { class: "title" }, "No data items yet"),
-      h("span", { class: "text" }, "Attach a lakehouse to read its files and write Delta tables back to OneLake."),
-      btn("Add data items", null, openDataItems, "tool primary")));
+    content.append(livingEmpty({ spot: "land", fallbackIcon: "lakehouse", title: "No data items yet",
+      text: "Attach a lakehouse to read its files and write Delta tables back to OneLake.",
+      action: btn("Add data items", null, openDataItems, "tool primary") }));
   }
   return h("aside", { class: "explorer", "aria-label": "Explorer" }, h("div", { class: "explorer-head" }, "Explorer"), tabs, content);
 }

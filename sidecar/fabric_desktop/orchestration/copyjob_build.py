@@ -56,7 +56,8 @@ def check(copy: Any) -> dict[str, Any]:
         raise CopyRequestError("Name at least one table, like dbo.Customer")
     if len(rows) > MAX_TABLES:
         raise CopyRequestError(f"A request copies {MAX_TABLES} tables at most: send the rest as another source")
-    tables, folders = [], {}
+    tables: list[dict[str, Any]] = []
+    folders: dict[str, str] = {}
     for row in rows:
         row = row if isinstance(row, dict) else {"table": row}
         name = str(row.get("table") or "").strip()

@@ -16,6 +16,7 @@ a server that didn't answer in time into one line that says what to do."""
 from __future__ import annotations
 
 import logging
+import socket
 import ssl
 import sys
 
@@ -28,13 +29,19 @@ HINT = ("HTTPS was refused because the server's certificate isn't trusted on thi
 
 
 PROXY_HINT = ("The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy "
-              "Windows is set to, or HTTPS_PROXY when it's set; a proxy that asks for a sign-in of its own "
+              "Windows is set to, or HTTPS_PROXY when it's set; a proxy that asks for a Windows sign-in of its own "
               "(407) isn't supported, so ask IT to allow the Microsoft and GitHub addresses without one.")
 
 TIMEOUT_HINT = ("The server didn't answer in time. If your network uses a proxy, check that it allows this "
                 "address and that the proxy Windows is set to (or HTTPS_PROXY) is right.")
 
+OFFLINE_HINT = ("This PC couldn't reach the server. If it's offline, connect and try again. If your network "
+                "blocks the address, ask IT to allow it (the enterprise install guide lists them under Network access).")
+
 _HTTP = {"requests", "urllib3", "urllib", "http"}  # where an HTTP call's own errors come from
+# urllib3's "couldn't connect" errors. Both subclass ConnectTimeoutError for old callers, though
+# neither is a timeout: a name that didn't resolve, or a connection refused or unreachable.
+_UNREACHABLE = {"NewConnectionError", "NameResolutionError"}
 _TIMEOUTS = {"Timeout", "ConnectTimeout", "ReadTimeout", "ConnectTimeoutError", "ReadTimeoutError", "TimeoutError"}
 
 
@@ -87,12 +94,22 @@ def proxy_refused(exc: BaseException) -> bool:
                for e in _chain(exc))
 
 
+def unreachable(exc: BaseException) -> bool:
+    """Whether ``exc`` is an HTTP call that couldn't connect at all: offline, a name that didn't
+    resolve, or a host that refused or couldn't be routed to (not a timeout, not the proxy)."""
+    chain = _chain(exc)
+    if not any(type(e).__module__.split(".")[0] in _HTTP for e in chain):
+        return False
+    return any(type(e).__name__ in _UNREACHABLE or isinstance(e, (socket.gaierror, ConnectionRefusedError))
+               for e in chain)
+
+
 def timed_out(exc: BaseException) -> bool:
     """Whether ``exc`` is a server or proxy that didn't answer within the call's timeout. A timeout
     with no HTTP library in its chain (a kernel, a lock, a subprocess) is something else."""
     chain = _chain(exc)
     return any(type(e).__module__.split(".")[0] in _HTTP for e in chain) \
-        and any(c.__name__ in _TIMEOUTS for e in chain for c in type(e).__mro__)
+        and any(c.__name__ in _TIMEOUTS for e in chain for c in type(e).__mro__ if type(e).__name__ not in _UNREACHABLE)
 
 
 def explain(exc: BaseException) -> str | None:
@@ -101,6 +118,28 @@ def explain(exc: BaseException) -> str | None:
         return HINT
     if proxy_refused(exc):
         return PROXY_HINT
+    if unreachable(exc):
+        return OFFLINE_HINT
     if timed_out(exc):
         return TIMEOUT_HINT
+    return None
+
+
+# What pip prints when it couldn't reach the package index at all. pip then ends with "No matching
+# distribution found", the same words as for a package that doesn't exist.
+_PIP_UNREACHABLE = ("NameResolutionError", "NewConnectionError", "Failed to establish a new connection",
+                    "ConnectTimeoutError", "Read timed out", "ProxyError", "Could not fetch URL")
+
+
+def pip_unreachable(log: str, fix: str) -> str | None:
+    """One line saying pip couldn't reach the package index, from pip's output, or None. ``fix`` is
+    what IT can do for this install (allow the index, or a folder or index of its own)."""
+    if "CERTIFICATE_VERIFY_FAILED" in log:
+        return ("pip couldn't check the package index's certificate, so it reported the packages as not found. "
+                "If your network inspects HTTPS, ask IT to add its root certificate to Windows.")
+    if "ProxyError" in log or "Tunnel connection failed" in log:
+        return f"The proxy refused pip's connection to the package index, so it reported the packages as not found. {fix}"
+    if any(marker in log for marker in _PIP_UNREACHABLE):
+        return ("pip couldn't reach the package index from this PC (offline, or blocked by your network), so it "
+                f"reported the packages as not found. If the PC is offline, connect and try again. {fix}")
     return None

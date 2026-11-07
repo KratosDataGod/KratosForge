@@ -312,7 +312,8 @@ def test_waiting_messages_keep_their_place_when_their_route_is_gone_or_down(tmp_
     assert [(i["title"], i["attempts"]) for i in outbox.pending()] == [("old team", 1), ("first", 2), ("second", 1)]
 
 
-def test_teams_unreachable_queues_and_the_next_try_sends_them_marked_delayed(tmp_path):
+def test_teams_unreachable_queues_and_the_next_try_sends_them_marked_delayed(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     clock = Clock()
     outbox = Outbox(tmp_path / "alerts.sqlite3", clock)
     posted = []
@@ -779,6 +780,7 @@ def test_an_agents_failed_job_alert_logs_no_webhook_signature(tmp_path, monkeypa
 
 
 def test_a_job_alert_teams_didnt_take_goes_out_later_marked_delayed(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     # QA-021: the "job didn't finish" alert went straight to Teams, once; a network blip lost it.
     posted, up = [], {"ok": False}
 
@@ -797,19 +799,29 @@ def test_a_job_alert_teams_didnt_take_goes_out_later_marked_delayed(tmp_path, mo
     agent.step()  # the next status round sends it
     [(title, lines)] = posted
     assert title == "Delayed: KratosForge agent etl-01: a Prod job didn't finish"
-    assert lines[0].startswith("From ") and lines[1:] == ["Job j1 (schedule)", "boom"]
+    assert lines[0].startswith("From ") and lines[1:] == ["Job j1 (schedule)", "boom",
+                                                          "Fix the cause, then run: fabric-desktop agent requeue j1"]
     assert agent._alert_outbox().pending() == []
     agent.send_waiting_alerts()
     assert len(posted) == 1  # sent once
 
 
+def test_a_job_alert_says_how_to_run_the_job_again(tmp_path, monkeypatch):
+    posted = []
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", lambda url, title, lines: posted.append(lines))
+    agent, _ = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
+    agent._alert(JOB | {"dedupe_key": "pipeline:run-1"}, "boom")
+    assert posted[-1] == ["Job j1 (schedule)", "boom", "Fix the cause, then submit the request again from the pipeline."]
+
+
 def test_waiting_job_alerts_go_before_a_new_one(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     posted, up = [], {"ok": False}
 
     def teams(url, title, lines):
         if not up["ok"]:
             raise ConnectionError("down")
-        posted.append(lines[-1])
+        posted.append(lines[-2])  # the error; the last line is what to do next
     monkeypatch.setattr("fabric_desktop.agent.post_teams", teams)
     agent, _ = _alerting_agent(tmp_path, monkeypatch, "https://x.webhook.office.com/workflows/a/invoke?sig=S")
     agent._alert(JOB, "first")
@@ -829,7 +841,8 @@ def test_a_legacy_connector_webhook_stays_out_of_a_waiting_job_alert(tmp_path, m
         assert secret not in item["error"] and secret not in str(logged)  # the webhook isn't, however it's masked
 
 
-def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_path):
+def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     secret = "Login failed: password=hunter2\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123 " + "x" * 2000
     c = {"change": "opened", "incident": {"kind": "run_failed", "name": "silver.orders", "env": "prod",
                                           "title": "silver.orders failed in Prod\n" + secret, "text": secret, "owner": ""}}

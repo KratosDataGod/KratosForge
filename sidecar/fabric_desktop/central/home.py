@@ -93,12 +93,12 @@ def team(me: str, project: dict[str, Any] | None, products: list[dict[str, Any]]
     by_id = {p["id"]: p for p in products}
     depends = []
     for pid in sorted(linked | followed):
-        p = by_id.get(pid)
-        if not p or (mine_project and p.get("project") == mine_project):
+        dep = by_id.get(pid)
+        if not dep or (mine_project and dep.get("project") == mine_project):
             continue
-        state = (f"Deprecated, stops {p.get('deprecated_on') or 'soon'}" if p.get("status") == "deprecated"
-                 else f"Version {p.get('version') or '1'}")
-        depends.append({"id": pid, "name": p.get("name") or pid, "project": p.get("project"), "state": state,
+        state = (f"Deprecated, stops {dep.get('deprecated_on') or 'soon'}" if dep.get("status") == "deprecated"
+                 else f"Version {dep.get('version') or '1'}")
+        depends.append({"id": pid, "name": dep.get("name") or pid, "project": dep.get("project"), "state": state,
                         "how": "linked" if pid in linked else "following",
                         "incident": hit[pid]["id"] if pid in hit else None})
     waiting = [r for r in requests if r.get("status") == "waiting" and r.get("can_decide")]

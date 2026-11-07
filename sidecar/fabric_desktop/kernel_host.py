@@ -124,7 +124,7 @@ class Host:
                 work_dir=Path(context["work_dir"]),
                 history_file=Path(context["history_file"]) if context.get("history_file") else None,
                 schemas_enabled=lambda: schemas))
-        lh.write_guard = (lambda name, schema, table: self.channel.call("write_guard", name, schema, table)) if guard else None
+        setattr(lh, "write_guard", (lambda name, schema, table: self.channel.call("write_guard", name, schema, table)) if guard else None)  # noqa: B010 - a module hook
         return True
 
     def bind_proof(self, config: dict[str, Any], side: str, root: str) -> bool:

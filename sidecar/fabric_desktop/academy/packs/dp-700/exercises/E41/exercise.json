@@ -1,0 +1,183 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E41",
+  "title": "Design an eventstream: filter, aggregate and route to two destinations",
+  "objectives": [
+    "2.3.2"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Model one eventstream: filter its events, shape them for a Lakehouse table, group them for an Eventhouse table with the right ingestion mode, and hand the partner a derived stream.",
+  "scenario": "Freezer telemetry flows into one eventstream. Today every event, test rigs included, lands raw in the Lakehouse, the Eventhouse gets averages per region, and the partner's custom endpoint hangs off an operator.",
+  "engine_label": "A model of an eventstream's operators and destinations, checked on this PC",
+  "verifies": [
+    "Your filter, field list, grouping, ingestion mode and derived stream meet the four needs, as the eventstream pages on Learn describe operators and destinations, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any event flows: nothing is read, filtered or written.",
+    "Group by's time window settings, which this model leaves out.",
+    "The exact names of conditions and functions in the eventstream editor."
+  ],
+  "expected": {
+    "description": "Filter DeviceType equals freezer from the source; Manage fields after it keeps EventTime, DeviceId, StoreId, TempC and DoorOpen for the Lakehouse; Group by StoreId with Average and Maximum TempC into the Eventhouse with event processing before ingestion; a derived stream from the filter feeds the custom endpoint."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Events that aren't from freezers can still get through.",
+      "pass": "Only freezer events pass the filter.",
+      "rules": [
+        {
+          "path": "operators.freezers_only.input",
+          "equals": "freezer-telemetry"
+        },
+        {
+          "path": "operators.freezers_only.field",
+          "equals": "DeviceType"
+        },
+        {
+          "path": "operators.freezers_only.condition",
+          "equals": "equals",
+          "why": "A Filter keeps the events that match its condition. Keeping what isn't a test rig also keeps every new kind of device."
+        },
+        {
+          "path": "operators.freezers_only.value",
+          "equals": "freezer"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The Lakehouse table doesn't get what it needs.",
+      "pass": "freezer_readings gets filtered freezer readings with five fields.",
+      "rules": [
+        {
+          "path": "operators.reading_fields.input",
+          "equals": "freezers_only",
+          "why": "An operator works on whatever feeds it. Fed from the source, it sees the test rigs too."
+        },
+        {
+          "path": "operators.reading_fields.keep",
+          "count": 5
+        },
+        {
+          "path": "operators.reading_fields.keep",
+          "contains": "EventTime"
+        },
+        {
+          "path": "operators.reading_fields.keep",
+          "contains": "DeviceId"
+        },
+        {
+          "path": "operators.reading_fields.keep",
+          "contains": "StoreId"
+        },
+        {
+          "path": "operators.reading_fields.keep",
+          "contains": "TempC"
+        },
+        {
+          "path": "operators.reading_fields.keep",
+          "contains": "DoorOpen"
+        },
+        {
+          "path": "destinations.lakehouse.input",
+          "equals": "reading_fields",
+          "why": "A Lakehouse destination can follow an operator, so the events are shaped before they land."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The Eventhouse won't get each store's figures.",
+      "pass": "store_temps gets each store's average and highest TempC.",
+      "rules": [
+        {
+          "path": "operators.store_temps.input",
+          "equals": "freezers_only"
+        },
+        {
+          "path": "operators.store_temps.group_by",
+          "count": 1
+        },
+        {
+          "path": "operators.store_temps.group_by",
+          "contains": "StoreId",
+          "why": "Group by makes one result per value of its grouping fields; grouped on Region, every store in a region shares one figure."
+        },
+        {
+          "path": "operators.store_temps.aggregations",
+          "count": 2,
+          "why": "The dashboard needs both figures for each store: the average TempC and the highest."
+        },
+        {
+          "path": "operators.store_temps.aggregations",
+          "count": 1,
+          "where": {
+            "function": "Average",
+            "field": "TempC"
+          }
+        },
+        {
+          "path": "operators.store_temps.aggregations",
+          "count": 1,
+          "where": {
+            "function": "Maximum",
+            "field": "TempC"
+          }
+        },
+        {
+          "path": "destinations.eventhouse.input",
+          "equals": "store_temps"
+        },
+        {
+          "path": "destinations.eventhouse.ingestion_mode",
+          "equals": "Event processing before ingestion",
+          "why": "Direct ingestion lands events without any processing. Use event processing before ingestion when operators such as filters or aggregations come first."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The partner's custom endpoint isn't connected the way it can be.",
+      "pass": "The partner reads a derived stream of freezer events.",
+      "rules": [
+        {
+          "path": "derived_streams.freezer-events.input",
+          "equals": "freezers_only"
+        },
+        {
+          "path": "destinations.partner.input",
+          "equals": "freezer-events",
+          "why": "A custom endpoint can't follow an operator directly: the operator's output becomes a derived stream, and the destination is added to that stream."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which filter still works when a third kind of device joins?",
+    "What feeds each operator? It only sees what comes into it.",
+    "Which Eventhouse ingestion mode allows operators before it?",
+    "Which destinations can't follow an operator directly, and what goes in between?"
+  ],
+  "explanation": "Operators work on whatever feeds them, so the filter goes first and the others take its output. A filter that keeps freezers stays right when new device types arrive; one that drops test rigs doesn't. The Lakehouse and an Eventhouse in event processing before ingestion mode can follow an operator; direct ingestion lands events without processing. A custom endpoint can't follow an operator, so the operator's output becomes a derived stream that the endpoint reads.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/route-events-based-on-content",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/add-manage-eventstream-destinations",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/add-destination-kql-database"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06: route-events-based-on-content (operators Aggregate, Expand, Filter, Group by, Manage fields, Union, Join; Aggregate functions SUM, AVG, MIN, MAX; Group by aggregates within a time window, grouped on one or more columns), process-events-using-event-processor-editor (Lakehouse, Eventhouse with event processing before ingestion, derived stream and Activator can follow an operator; other destinations go through a derived stream), add-destination-kql-database (direct ingestion is without any processing; event processing before ingestion is for filtering or aggregation), add-manage-eventstream-destinations (custom endpoint, Eventhouse, Lakehouse, Spark notebook, derived stream, Activator). Group by's function names here follow the Aggregate operator's list, and its window types aren't modelled: the pages read don't list them."
+  ]
+}

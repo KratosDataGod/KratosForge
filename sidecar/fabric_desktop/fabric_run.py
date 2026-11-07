@@ -273,7 +273,7 @@ def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool, every: bool = Fa
             lines = source.split("\n")
             last = max((n for n, ln in enumerate(lines, 1) if ln.strip()), default=0)
             for m in found:
-                indent = re.match(r"\s*", lines[m.line - 1]).group(0)
+                indent = re.match(r"\s*", lines[m.line - 1]).group(0)  # type: ignore[union-attr]  # \s* always matches
                 query = f"{call}({json.dumps(m.rest.strip())})"
                 # A bare %sql on the cell's last line shows its result, as it does on this PC.
                 lines[m.line - 1] = indent + (f"{m.target} = {query}" if m.target
@@ -888,9 +888,9 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
             elif read and read["fabric"]:
                 line, text = read["fabric"][0]
                 local.append({"cell": n, "text": text, "code": _line(source, line)})
-            elif m := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest, own)), None):
+            elif sql_magic := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest, own)), None):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
-                              "code": _snippet(source.split("\n", m.line - 1)[-1])})
+                              "code": _snippet(source.split("\n", sql_magic.line - 1)[-1])})
             else:
                 for line_magic in magics.find(source):
                     if line_magic.name == "sql" and (refused := _sql_refused(line_magic.rest)):
@@ -1034,6 +1034,7 @@ def _side(reasons: list[dict[str, Any]], unknown: list[dict[str, Any]]) -> dict[
 
 # ---- schedules
 
+MAX_EVERY_MINUTES = 5270400  # Fabric's longest interval between runs (about ten years)
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
@@ -1050,7 +1051,7 @@ def schedule_configuration(kind: str, times: list[str] | None = None, every_minu
         if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
             raise ValueError(f"Times are HH:MM in 24-hour form, like 06:00 (got {t!r})")
     if kind == "cron":
-        if not every_minutes or not 1 <= int(every_minutes) <= 5270400:
+        if not every_minutes or not 1 <= int(every_minutes) <= MAX_EVERY_MINUTES:
             raise ValueError("Pick how many minutes between runs")
         return config | {"type": "Cron", "interval": int(every_minutes)}
     if kind == "daily":

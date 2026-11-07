@@ -33,9 +33,39 @@ def test_more_errors_of_a_kind_fail_and_fewer_are_only_reported():
 
 
 def test_the_baseline_is_a_count_per_file_and_code():
-    baseline = json.loads((ROOT / "sidecar" / "mypy-baseline.json").read_text(encoding="utf-8"))
-    assert baseline and all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
-    assert all(isinstance(n, int) and n > 0 for codes in baseline.values() for n in codes.values())
+    baseline = mypy_ratchet.load()
+    assert all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
+    assert all(codes and isinstance(n, int) and n > 0 for codes in baseline.values() for n in codes.values())
+    assert not (ROOT / "sidecar" / "mypy-baseline.json").exists()  # replaced by one file per source file
+
+
+def test_with_an_empty_baseline_any_new_error_fails_the_check(tmp_path, monkeypatch, capsys):
+    # Every module is typed now, so the baseline is empty; one new error must still turn CI red.
+    monkeypatch.setattr(mypy_ratchet, "BASELINE", tmp_path)
+    monkeypatch.setattr(mypy_ratchet, "load", lambda folder=tmp_path: {})
+    monkeypatch.setattr(mypy_ratchet, "run_mypy", lambda: "fabric_desktop/cli.py:1: error: Bad  [assignment]\n")
+    assert mypy_ratchet.main([]) == 1
+    assert "fabric_desktop/cli.py: 1 [assignment] errors, 0 before" in capsys.readouterr().out
+    monkeypatch.setattr(mypy_ratchet, "run_mypy", lambda: "Success: no issues found in 1 source file\n")
+    assert mypy_ratchet.main([]) == 0
+
+
+def test_each_source_file_has_its_own_baseline_file(tmp_path):
+    counts = {"fabric_desktop/cli.py": {"assignment": 2}, "fabric_desktop/meta/store.py": {"union-attr": 1}}
+    mypy_ratchet.save(counts, tmp_path)
+    assert json.loads((tmp_path / "fabric_desktop" / "meta" / "store.py.json").read_text()) == {"union-attr": 1}
+    assert mypy_ratchet.load(tmp_path) == counts
+    # A module cleared of errors loses its file (and an emptied folder goes too); the others are untouched.
+    mypy_ratchet.save({"fabric_desktop/cli.py": {"assignment": 1}}, tmp_path)
+    assert mypy_ratchet.load(tmp_path) == {"fabric_desktop/cli.py": {"assignment": 1}}
+    assert not (tmp_path / "fabric_desktop" / "meta").exists()
+
+
+def test_a_deleted_baseline_file_means_that_module_must_stay_clean(tmp_path):
+    mypy_ratchet.save({"fabric_desktop/cli.py": {"assignment": 2}, "fabric_desktop/agent.py": {"misc": 1}}, tmp_path)
+    (tmp_path / "fabric_desktop" / "agent.py.json").unlink()
+    worse, _ = mypy_ratchet.compare({"fabric_desktop/agent.py": {"misc": 1}}, mypy_ratchet.load(tmp_path))
+    assert worse == ["fabric_desktop/agent.py: 1 [misc] errors, 0 before"]
 
 
 def test_a_run_that_reports_no_type_errors_but_exits_1_is_not_counted_as_clean():

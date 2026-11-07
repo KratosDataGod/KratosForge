@@ -1,5 +1,7 @@
 // vega-frame.js holds the three libraries' builds as one string, for notebook.js to put inline in a
 // chart's sandboxed output frame: the frame can't load scripts, and the app's own page never runs them.
+// Run `npm ci --ignore-scripts && npm run build` in this folder, so every package comes from
+// package-lock.json at its recorded version and hash.
 const fs = require("fs");
 const path = require("path");
 

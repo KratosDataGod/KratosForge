@@ -85,6 +85,7 @@ nav = [
     { "Risk check before a run" = "finops/risk-check.md" },
     { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
+    { "Optimize security and retention" = "optimize/security.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Semantic model best practices" = "semantic-model-best-practices.md" },
     { "Source control" = "source-control.md" },
@@ -118,6 +119,7 @@ nav = [
   { "Servers" = [
     { "Headless agent" = "agent.md" },
     { "Incidents and your service desk" = "incidents.md" },
+    { "Runbook: agent alerts and incidents" = "agent-runbook.md" },
   ] },
   { "Project" = [
     { "Why KratosForge" = "why-kratosforge.md" },
@@ -207,6 +209,7 @@ nav = [
       { "Remediation backlog" = "audits/REMEDIATION_BACKLOG.md" },
       { "Architecture decisions" = "audits/ARCHITECTURE_DECISIONS.md" },
       { "Redactors" = "audits/REDACTORS.md" },
+      { "Supply chain" = "audits/SUPPLY_CHAIN.md" },
     ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },

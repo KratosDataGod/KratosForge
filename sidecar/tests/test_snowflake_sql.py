@@ -671,3 +671,91 @@ def test_approximate_functions_in_a_window_are_cast_outside_it():
 def test_hll_forms_that_are_not_rewritten_say_so(code):
     (note,) = sf.translate(code).statements[0].notes
     assert note.id == "SFX-014"
+
+
+@pytest.mark.parametrize("name", sorted(sf._TEXT_FEATURES))
+def test_text_search_collation_hash_agg_and_xml_are_refused_by_name(name):
+    code = {"COLLATE": "SELECT a FROM t ORDER BY a COLLATE 'en-ci'", "SEARCH": "SELECT search(a, 'x') FROM t",
+            "SEARCH_IP": "SELECT search_ip(a, '10.0.0.1') FROM t", "XMLGET": "SELECT xmlget(a, 'b') FROM t"}
+    t = sf.translate(code.get(name, f"SELECT {name.lower()}(a) FROM t"))
+    (note,) = t.statements[0].notes
+    assert not t.runnable and note.id == "SFN-017" and note.title.startswith(name)
+
+
+def test_octet_length_of_a_column_is_taken_for_text():
+    assert sf.translate("SELECT octet_length(a) FROM t").duckdb_sql == "SELECT STRLEN(CAST(a AS TEXT)) FROM t"
+
+
+def test_try_decoders_give_null_for_an_odd_number_of_hex_digits_and_bad_utf8():
+    import duckdb
+    t = sf.translate("SELECT try_hex_decode_binary('414'), try_hex_decode_string('FF'), "
+                     "try_base64_decode_string('/w==')")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == (None, None, None)
+
+
+@pytest.mark.parametrize("code", ["SELECT try_base64_decode_binary(a, '$') FROM t",
+                                  "SELECT try_base64_decode_string(a, '$') FROM t"])
+def test_decoders_with_an_alphabet_say_so(code):
+    (note,) = sf.translate(code).statements[0].notes
+    assert note.id == "SFX-015" and "alphabet" in note.title
+
+
+@pytest.mark.parametrize("args", ["5, 10, 0, 5", "5, 3, 3, 2"])
+def test_width_bucket_with_min_not_below_max_stops_instead_of_answering(args):
+    import duckdb
+    t = sf.translate(f"SELECT width_bucket({args})")
+    with pytest.raises(duckdb.Error, match="min_value below max_value"):
+        duckdb.connect().execute(t.duckdb_sql).fetchall()
+
+
+def test_an_object_constant_reads_its_keys_as_text_and_keeps_them_in_order():
+    import duckdb
+    t = sf.translate("SELECT {'b': 2, 'a': 1}::string, a FROM (SELECT 'column a' AS a)")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":1,"b":2}', "column a")
+
+
+def test_nested_object_calls_are_rewritten_inner_first_and_bind_each_argument_once():
+    import duckdb
+    calls = "object_construct('a', 0)"
+    for i in range(1, 16):
+        calls = f"object_insert({calls}, 'k{i}', {i})"
+    t = sf.translate(f"SELECT object_delete({calls}, 'a')::string")
+    assert len(t.duckdb_sql) < 40_000  # each level names its object once
+    want = "{" + ",".join(f'"k{i}":{i}' for i in sorted(range(1, 16), key=str)) + "}"
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == (want,)
+
+
+def test_object_insert_with_an_update_flag_column_errors_only_when_it_is_false():
+    import duckdb
+    t = sf.translate("SELECT object_insert(object_construct('a', 1), 'a', 2, u)::string FROM "
+                     "(SELECT column1 AS u FROM VALUES (TRUE))")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":2}',)
+    t = sf.translate("SELECT object_insert(object_construct('a', 1), 'a', 2, u) FROM (SELECT FALSE AS u)")
+    with pytest.raises(duckdb.Error, match="Duplicate field key a"):
+        duckdb.connect().execute(t.duckdb_sql).fetchall()
+
+
+@pytest.mark.parametrize("code,error", [
+    ("SELECT to_object(parse_json('[1]'))", "TO_OBJECT needs an OBJECT"),
+    ("SELECT arrays_to_object(['a'], [1, 2])", "unequal lengths"),
+    ("SELECT object_agg(k, v) FROM (SELECT column1 AS k, column2 AS v FROM VALUES ('a', 1), ('a', 2))", "unique"),
+])
+def test_object_functions_stop_where_snowflake_does(code, error):
+    import duckdb
+    with pytest.raises(duckdb.Error, match=error):
+        duckdb.connect().execute(sf.translate(code).duckdb_sql).fetchall()
+
+
+@pytest.mark.parametrize("code", ["SELECT object_agg(DISTINCT k, v) FROM t", "SELECT objectagg(k, v) FROM t",
+                                  "SELECT object_pick(o) FROM t", "SELECT arrays_to_object(a) FROM t"])
+def test_object_forms_that_are_not_rewritten_say_so(code):
+    (note,) = sf.translate(code).statements[0].notes
+    assert note.id == "SFX-016"
+
+
+def test_object_pick_with_one_key_column_reads_it_as_a_key():
+    import duckdb
+    t = sf.translate("SELECT object_pick(parse_json('{\"a\": 1, \"b\": 2}'), k)::string, "
+                     "object_pick(parse_json('{\"a\": 1, \"b\": 2}'), parse_json('[\"b\"]'))::string "
+                     "FROM (SELECT 'a' AS k)")
+    assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":1}', '{"b":2}')

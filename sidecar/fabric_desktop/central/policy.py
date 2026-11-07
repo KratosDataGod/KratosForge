@@ -48,6 +48,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import threading
 import uuid
 from typing import Any
 
@@ -221,9 +222,22 @@ def definition_hash(definition: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(definition, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+_event_clock = threading.Lock()
+_last_event_at = [dt.datetime.min.replace(tzinfo=dt.timezone.utc)]
+
+
+def _event_time() -> str:
+    """Now, but always after the last event this process wrote: Windows clocks can tick every ~16 ms,
+    and two events with the same time would list in no fixed order."""
+    with _event_clock:
+        at = max(dt.datetime.now(dt.timezone.utc), _last_event_at[0] + dt.timedelta(microseconds=1))
+        _last_event_at[0] = at
+    return at.isoformat(timespec="microseconds")
+
+
 def _event(db: Db, pid: str, version: Any, action: str, by: str, detail: Any = None) -> None:
     # Microseconds, so events in the same second list in the order they happened.
-    at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+    at = _event_time()
     db.run(f"INSERT INTO {db.t('catalog', 'policy_event')} (id, policy_id, version, action, at, by_user, detail) "
            "VALUES (?, ?, ?, ?, ?, ?, ?)",
            (uuid.uuid4().hex[:16], pid, str(version or ""), action, at, _who(by),
@@ -820,13 +834,17 @@ def resolve(snap: dict[str, Any], chain: list[tuple[str, str]], local: list[dict
         lvl = (a["scope"], a["target"])
         if lvl in levels:
             by_policy.setdefault(a["policy_id"], []).append((levels[lvl], 0 if a["origin"] == "platform" else 1, a))
-    policies, inactive, conflicts = [], [], []
+    policies: list[dict[str, Any]] = []
+    inactive: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
     for pid in sorted(by_policy):
         meta = snap.get("policies", {}).get(pid)
         if meta is None or not meta.get("current_version"):
             inactive.append({"id": pid, "name": pid, "reason": "isn't a published policy in the registry", "steps": []})
             continue
-        version, explicit, params, steps = 0, {}, {}, []
+        version, steps = 0, []
+        explicit: dict[str, Any] = {}
+        params: dict[str, Any] = {}
         locked_by = ""
 
         def definition(n: int) -> dict[str, Any]:

@@ -73,7 +73,7 @@ class LandingCopyMixin:
 
     # ---- carrying it out
 
-    def _lc_where(self, req: dict[str, Any], env: str) -> dict[str, str]:
+    def _lc_where(self, req: dict[str, Any], env: str) -> dict[str, Any]:
         """The workspace and lakehouse the Copy job writes to."""
         central = self._central_landing()  # type: ignore[attr-defined]
         if central:

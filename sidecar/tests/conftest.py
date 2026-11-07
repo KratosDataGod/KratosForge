@@ -86,6 +86,36 @@ def no_lakehouse_left_attached(monkeypatch):
     monkeypatch.setattr(lakehouse, "_attached", None)
 
 
+@pytest.fixture(autouse=True)
+def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_factory):
+    """Windows only. The exercise runtime's grants are persistent ACEs on this machine's Python
+    install, and grant_runtime skips re-granting when the data folder's grants record already
+    lists them. Each test has its own tmp data folder, so without this every box start re-granted
+    about 116 paths with icacls (14.5 s a time on the CI runner, 70% of the Academy files' time).
+    Here each test's data folder starts with this worker's record. Within a worker the first
+    grant is still a real one, and a later one trusts the record only after grant_runtime has
+    checked the interpreter's own ACE (or granted in this process). Paths the record doesn't list
+    yet are granted as before. Tests marked machine_wide_grants (they remove
+    the grants, run on their own, and check a cold grant and its record) keep their own records."""
+    if sys.platform != "win32" or request.node.get_closest_marker("machine_wide_grants"):
+        return
+    import shutil
+
+    from fabric_desktop.academy import appcontainer
+    shared = tmp_path_factory.getbasetemp() / "shared-runtime-grants.json"
+    real = appcontainer.grant_runtime
+
+    def grant_runtime(api, cap_string, lib_roots=None, data_root=None):
+        record = appcontainer._grants_file(data_root) if data_root else None
+        if record is not None and shared.exists() and not record.exists():
+            record.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(shared, record)
+        real(api, cap_string, lib_roots, data_root)
+        if record is not None and record.exists():
+            shutil.copyfile(record, shared)
+    monkeypatch.setattr(appcontainer, "grant_runtime", grant_runtime)
+
+
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.

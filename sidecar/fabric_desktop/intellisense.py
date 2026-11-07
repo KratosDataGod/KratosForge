@@ -186,13 +186,13 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
             warnings.simplefilter("ignore")
             compile(text, "<cell>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT, dont_inherit=True)
     except SyntaxError as err:
-        line = (err.lineno or 1)
+        err_line = (err.lineno or 1)
         col = max((err.offset or 1) - 1, 0)
-        end_line = getattr(err, "end_lineno", None) or line
+        end_line = getattr(err, "end_lineno", None) or err_line
         end_col = max((getattr(err, "end_offset", None) or col + 2) - 1, col + 1)
-        if end_line < line or (end_line == line and end_col <= col):
-            end_line, end_col = line, col + 1
-        return [{"line": line + offset, "col": col, "end_line": end_line + offset, "end_col": end_col,
+        if end_line < err_line or (end_line == err_line and end_col <= col):
+            end_line, end_col = err_line, col + 1
+        return [{"line": err_line + offset, "col": col, "end_line": end_line + offset, "end_col": end_col,
                  "message": _message(err)}]
     return []
 

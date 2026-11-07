@@ -112,7 +112,8 @@ def fabric_rows(schedules: list[dict[str, Any]], env_of: dict[str, str]) -> list
     for s in schedules:
         if not s.get("enabled"):
             continue
-        owner = s.get("owner") if isinstance(s.get("owner"), dict) else {}
+        given = s.get("owner")
+        owner = given if isinstance(given, dict) else {}
         rows.append({"place": {"kind": "fabric_schedule", "name": f"{s.get('workspace_name') or 'Fabric'} · {s.get('name') or 'item'}"},
                      "env": env_of.get(str(s.get("workspace_id"))),
                      "runs_as": {"kind": "schedule_owner" if owner else "unknown",

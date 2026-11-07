@@ -1,0 +1,125 @@
+{
+  "_about": "A cut-down pipeline definition (pipeline-content.json). Keep the activities in this order and change only isSequential, batchCount and dependsOn. A dependsOn entry names an upstream activity and the conditions under which this one runs.",
+  "needs": [
+    "Get tables returns 30 independent tables. The source system allows at most 8 connections at once.",
+    "DimCustomer and DimProduct each need every table loaded, and neither reads the other.",
+    "FactSales reads both dimensions.",
+    "The whole run has to finish in under 45 minutes.",
+    "The summary email goes out only after FactSales succeeds."
+  ],
+  "timings_minutes": {
+    "Copy table (each)": 4,
+    "Build DimCustomer": 10,
+    "Build DimProduct": 10,
+    "Build FactSales": 15,
+    "Email summary": 1
+  },
+  "properties": {
+    "activities": [
+      {
+        "name": "Get tables",
+        "type": "Lookup",
+        "dependsOn": [],
+        "typeProperties": {
+          "source": {
+            "type": "LakehouseTableSource"
+          },
+          "firstRowOnly": false
+        }
+      },
+      {
+        "name": "Load each table",
+        "type": "ForEach",
+        "dependsOn": [
+          {
+            "activity": "Get tables",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "items": {
+            "value": "@activity('Get tables').output.value",
+            "type": "Expression"
+          },
+          "isSequential": false,
+          "activities": [
+            {
+              "name": "Copy table",
+              "type": "Copy",
+              "dependsOn": []
+            }
+          ],
+          "batchCount": 8
+        }
+      },
+      {
+        "name": "Build DimCustomer",
+        "type": "TridentNotebook",
+        "dependsOn": [
+          {
+            "activity": "Load each table",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "notebookId": "build_dimcustomer"
+        }
+      },
+      {
+        "name": "Build DimProduct",
+        "type": "TridentNotebook",
+        "dependsOn": [
+          {
+            "activity": "Build DimCustomer",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "notebookId": "build_dimproduct"
+        }
+      },
+      {
+        "name": "Build FactSales",
+        "type": "TridentNotebook",
+        "dependsOn": [
+          {
+            "activity": "Build DimCustomer",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "Build DimProduct",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "notebookId": "build_factsales"
+        }
+      },
+      {
+        "name": "Email summary",
+        "type": "TridentNotebook",
+        "dependsOn": [
+          {
+            "activity": "Build FactSales",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "notebookId": "email_summary"
+        }
+      }
+    ]
+  }
+}

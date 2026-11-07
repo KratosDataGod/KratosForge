@@ -8,12 +8,14 @@ Every request passes the same checks before anything else: it comes from 127.0.0
 running as the Windows account KratosForge runs as (integrations/peer.py, as the local API checks:
 on a shared PC everyone has 127.0.0.1), its ``Host``
 names this port on a loopback name, it has no browser ``Origin`` (so a web page can't call it,
-and DNS rebinding can't either), and its body is at most 1 MiB of JSON. Asking to pair needs
+and DNS rebinding can't either), and its body is at most 1 MiB of JSON. At most 16
+connections are open at once, and one that sends nothing for 5 seconds is closed. Asking to pair needs
 ``X-KratosForge-Hello`` (only programs that can read this user's data folder have it); everything
 else needs ``Authorization: Bearer <token>`` from a pairing (editor_pairing.py).
 
-    GET    /v1/hello?nonce=         {"proof"}: HMAC-SHA256(hello, nonce), so a window can tell it's
-                                    KratosForge before it sends the hello or a token
+    GET    /v1/hello?nonce=&api=    {"proof", "api"}: HMAC-SHA256(hello, nonce), so a window can tell
+                                    it's KratosForge before it sends the hello or a token, and the
+                                    channel's API version, so either side can say which to update
     POST   /v1/pair                 {"window", "client"}  ->  {"id", "code", "expires_in"}
     GET    /v1/pair/<id>            {"state": waiting | paired | denied | expired, "token" once}
     DELETE /v1/pair                 ends this window's pairing
@@ -45,14 +47,54 @@ from .integrations import peer
 from .redact import secrets as redact_secrets
 
 MAX_BODY_BYTES = 1024 * 1024
+MAX_CONNECTIONS = 16  # open at once; each holds an engine thread until it ends
 MAX_WAIT_SECONDS = 25.0
 PORT_FILE = "editor-port"
+API_VERSION = 1  # the channel's routes and replies; raised when an extension must change to keep working
+OLDEST_CLIENT_API = 1  # an extension that speaks an older API is told to update
 
 
 class Refused(Exception):
     def __init__(self, status: int, code: str, message: str):
         super().__init__(message)
         self.status, self.code, self.message = status, code, message
+
+
+BUSY = (b"HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        b'{"ok": false, "error": {"code": "busy", "message": "Too many connections to the editor channel. Try again."}}')
+
+
+class _Server(ThreadingHTTPServer):
+    """At most MAX_CONNECTIONS connections are served at once; the rest get 503 and are closed
+    on the listening thread, before a thread is started for them."""
+
+    daemon_threads = True
+    request_queue_size = MAX_CONNECTIONS * 2  # a burst waits in the backlog, not in connect retries
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.setblocking(False)
+                request.send(BUSY)
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 class Channel:
@@ -62,7 +104,7 @@ class Channel:
         self.service = service
         self.data_dir = Path(data_dir)
         self.hello = secrets.token_urlsafe(24)
-        self._server: ThreadingHTTPServer | None = None
+        self._server: _Server | None = None
         self._thread: threading.Thread | None = None
 
     @property
@@ -77,8 +119,7 @@ class Channel:
         class Handler(_Handler):
             owner = channel
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        server.daemon_threads = True
+        server = _Server(("127.0.0.1", 0), Handler)
         self._server = server
         self._thread = threading.Thread(target=server.serve_forever, daemon=True, name="editor-channel")
         self._thread.start()
@@ -117,7 +158,12 @@ class Channel:
             nonce = _field(query, "nonce", limit=128)
             if len(nonce) < 16:
                 raise Refused(400, "invalid_input", "nonce should be at least 16 characters.")
-            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest()}
+            client_api = _int(query.get("api"), API_VERSION)
+            if client_api < OLDEST_CLIENT_API:
+                raise Refused(426, "extension_too_old", "This KratosForge extension for VS Code is too old for this "
+                              "KratosForge. Install kratosforge.vsix from KratosForge's latest release.")
+            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest(),
+                    "api": API_VERSION}
         if method == "POST" and path == "/v1/pair":
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):
@@ -180,7 +226,7 @@ class _Handler(BaseHTTPRequestHandler):
     owner: Channel
     server_version = "KratosForge-editor"
     sys_version = ""
-    timeout = 30  # seconds a connection may sit without sending
+    timeout = 5  # seconds a connection may sit without sending (a long poll's wait isn't reading)
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - BaseHTTPRequestHandler's name
         pass  # no request lines on the engine's stderr

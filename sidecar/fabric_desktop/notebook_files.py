@@ -167,7 +167,8 @@ def checked(nb: Any) -> dict[str, Any]:
 
 
 def _language(nb: dict[str, Any]) -> str:
-    meta = nb.get("metadata") if isinstance(nb.get("metadata"), dict) else {}
+    got = nb.get("metadata")
+    meta: dict[str, Any] = got if isinstance(got, dict) else {}
     for key in ("kernel_info", "kernelspec", "language_info"):
         v = meta.get(key)
         if isinstance(v, dict) and isinstance(v.get("name"), str):
@@ -177,7 +178,8 @@ def _language(nb: dict[str, Any]) -> str:
 
 def _fabric_lakehouse(nb: dict[str, Any]) -> dict[str, Any] | None:
     """The default lakehouse Fabric saved in the notebook (metadata.dependencies.lakehouse)."""
-    meta = nb.get("metadata") if isinstance(nb.get("metadata"), dict) else {}
+    got = nb.get("metadata")
+    meta: dict[str, Any] = got if isinstance(got, dict) else {}
     lh = ((meta.get("dependencies") or {}).get("lakehouse") or {}) if isinstance(meta.get("dependencies"), dict) else {}
     if not isinstance(lh, dict) or not lh.get("default_lakehouse") or not lh.get("default_lakehouse_workspace_id"):
         return None

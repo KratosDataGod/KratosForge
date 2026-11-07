@@ -41,7 +41,11 @@ LABELS = {MEASURED: "Measured", ESTIMATED: "Estimated", SCENARIO: "Scenario", UN
 
 # Units, by family. Only units in the same family convert into each other.
 CU_SECONDS, CU_HOURS, PERCENT, CURRENCY, SECONDS = "cu_seconds", "cu_hours", "percent", "currency", "seconds"
-UNITS = {CU_SECONDS: "capacity", CU_HOURS: "capacity", PERCENT: "utilization", CURRENCY: "money", SECONDS: "time"}
+# Things counted (rows, commits, files), for work that isn't capacity, money or time, such as what a
+# sync wrote. The metric says what was counted; a count is a whole number.
+COUNT = "count"
+UNITS = {CU_SECONDS: "capacity", CU_HOURS: "capacity", PERCENT: "utilization", CURRENCY: "money", SECONDS: "time",
+         COUNT: "count"}
 _PER_SECOND = {CU_SECONDS: 1.0, CU_HOURS: 3600.0}
 
 RECONCILIATION = ("not_applicable", "unreconciled", "matched", "unmatched")
@@ -105,6 +109,8 @@ def problems(m: dict[str, Any]) -> list[str]:
         out.append("value can't be negative")
     elif unit == PERCENT and value > 100:
         out.append("a utilization over 100% isn't valid")
+    elif unit == COUNT and value != int(value):
+        out.append("a count is a whole number")
     if unit == CURRENCY and c != UNKNOWN and not m.get("currency"):
         out.append("a money value needs its currency")
     if unit != CURRENCY and m.get("currency"):

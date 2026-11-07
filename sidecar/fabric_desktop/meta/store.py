@@ -12,14 +12,14 @@ import datetime as dt
 import fnmatch
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import polars as pl
 import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from .. import delta_profile
+from .. import delta_profile, durable
 from ..errors import NotSetUp
 from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
@@ -95,7 +95,7 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
         table = DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
-    return pl.from_arrow(table.to_pyarrow_table())
+    return cast(pl.DataFrame, pl.from_arrow(table.to_pyarrow_table()))  # a Table gives a DataFrame
 
 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
@@ -441,7 +441,7 @@ class Store:
             t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
         except TableNotFoundError:
             return None, None
-        return pl.from_arrow(t.to_pyarrow_table()), t.version()
+        return cast(pl.DataFrame, pl.from_arrow(t.to_pyarrow_table())), t.version()
 
     def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
         """The table's schema and the Delta version it was read at, as read_at gives them but without
@@ -517,7 +517,8 @@ class Store:
             if version is not None:
                 raise
             # A new table: created empty only if still absent, then merged into like any other.
-            self.create_if_absent(lakehouse, schema, table, dict(pl.from_arrow(data.schema.empty_table()).schema))
+            empty = cast(pl.DataFrame, pl.from_arrow(data.schema.empty_table()))
+            self.create_if_absent(lakehouse, schema, table, dict(empty.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(current)
@@ -684,7 +685,10 @@ class LocalStore(Store):
         return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, Dtype]) -> bool:
-        return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+        created = local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+        if created:
+            durable.sync_commits(self.uri(lakehouse, schema, table), 0, 0)
+        return created
 
     def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                      version: int | None = None) -> int:
@@ -694,6 +698,12 @@ class LocalStore(Store):
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
 
     removes_unwritten = True
+
+    def _committed(self, uri: str, table: DeltaTable) -> int:
+        """On this PC, each commit is also flushed to disk (durable.py) before the write returns."""
+        version = super()._committed(uri, table)
+        durable.sync_commits(uri, version, version)
+        return version
 
     def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
         root = Path(self.uri(lakehouse, schema, table))

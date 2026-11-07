@@ -12,10 +12,12 @@ Uses only the standard library, because it must work before the sidecar is insta
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -272,8 +274,14 @@ def _blocked_files(probe) -> dict | None:
 CERT_HINT = ("HTTPS was refused because GitHub's certificate isn't trusted on this PC. If your network "
              "inspects HTTPS, ask IT to add its root certificate to Windows.")
 PROXY_HINT = ("The proxy server refused the connection or couldn't be reached. KratosForge uses the proxy "
-              "Windows is set to, or HTTPS_PROXY; a proxy that asks for a sign-in of its own (407) isn't supported.")
+              "Windows is set to, or HTTPS_PROXY; a proxy that asks for a Windows sign-in of its own (407) isn't supported.")
 TIMEOUT_HINT = "GitHub didn't answer in time. If your network uses a proxy, check that it allows github.com."
+OFFLINE_HINT = ("This PC couldn't reach GitHub, where updates come from. If it's offline, connect and try again; "
+                "if your network blocks github.com, ask IT to allow it.")
+
+
+# Network unreachable, host unreachable (POSIX and Windows' WSAENETUNREACH, WSAEHOSTUNREACH).
+_UNREACHABLE = {errno.ENETUNREACH, errno.EHOSTUNREACH, 10051, 10065}
 
 
 def explain(exc: BaseException, detail: str) -> str:
@@ -291,6 +299,10 @@ def explain(exc: BaseException, detail: str) -> str:
         return f"{CERT_HINT} ({detail})"
     if "Tunnel connection failed" in text or "Proxy Authentication Required" in text:
         return f"{PROXY_HINT} ({detail})"
+    # A name that didn't resolve, or a connection refused or unreachable: no timeout involved.
+    if any(isinstance(e, (socket.gaierror, ConnectionRefusedError)) for e in chain) \
+            or any(isinstance(e, OSError) and e.errno in _UNREACHABLE for e in chain):
+        return f"{OFFLINE_HINT} ({detail})"
     if any(isinstance(e, TimeoutError) for e in chain) or "timed out" in text:
         return f"{TIMEOUT_HINT} ({detail})"
     return detail

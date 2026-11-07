@@ -48,6 +48,8 @@ def test_events_are_checked_against_governances_shape():
            ({"to": {"roles": ["admins"]}}, "to.roles"),
            ({"to": {}}, "at least one"),
            ({"open": {"view": "platform", "tab": "health"}}, "open is"),
+           ({"open": {"view": ["platform"], "tab": "requests"}}, "open is"),
+           ({"open": "platform"}, "open is"),
            ({"at": "yesterday"}, "ISO 8601"),
            ({"severity": "critical"}, "severity"),
            ({"title": ""}, "title is required")]
@@ -105,7 +107,8 @@ def test_a_decision_closes_the_wait_and_a_new_wait_makes_the_next_decision_news(
     assert len(posts) == 4
 
 
-def test_unreachable_teams_queues_and_quiet_hours_hold_until_they_end(tmp_path):
+def test_unreachable_teams_queues_and_quiet_hours_hold_until_they_end(tmp_path, monkeypatch):
+    monkeypatch.setattr("fabric_desktop.workloads.notify.BACKOFF_FIRST", 0.0)  # retries here aren't about the rest between tries
     routing, outbox, ledger = setup(tmp_path)
     out = send([event()], routing, outbox, ledger, Posts(fail=[HOOK]), now=NOON)
     assert out["queued"] == 1 and out["events"][0]["result"] == "queued" and "ConnectionError" in out["error"]

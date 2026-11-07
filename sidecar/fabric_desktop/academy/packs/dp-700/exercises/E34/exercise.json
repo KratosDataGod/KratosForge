@@ -1,0 +1,51 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E34",
+  "title": "KQL: summarize, extend and project event data",
+  "objectives": [
+    "2.2.6",
+    "2.3.4"
+  ],
+  "objective_text": "Pick the KQL operator for filtering, adding columns, choosing columns, counting per time bucket and sampling rows, and say why.",
+  "scenario": "Operators are learning KQL to explore sensor events in an eventhouse. Their first queries mix up the operators that filter, reshape and aggregate.",
+  "minutes": 20,
+  "verifies": [
+    "You can pick the right feature, setting or operator for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can do it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 5 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/kusto/query/where-operator",
+    "https://learn.microsoft.com/en-us/kusto/query/extend-operator",
+    "https://learn.microsoft.com/en-us/kusto/query/project-operator",
+    "https://learn.microsoft.com/en-us/kusto/query/summarize-operator",
+    "https://learn.microsoft.com/en-us/kusto/query/bin-function",
+    "https://learn.microsoft.com/en-us/kusto/query/take-operator"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-06."
+  ]
+}

@@ -10,17 +10,35 @@ delta-rs, without V-Order.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
+import stat
+import time
+from pathlib import Path
 from typing import Any, cast
+from urllib.parse import unquote
 
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
+
+from . import durable
 
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
 VERSIONS_BEFORE_VACUUM = 30
 RETENTION_HOURS = 7 * 24 + 1  # Fabric's default retention is 7 days
 LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next checkpoint
+# delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
+# place, so a write stopped part way leaves files under that staging name. One untouched this long
+# belongs to a write that has stopped: a live one finishes a file and publishes it in one go.
+STALE_STAGED_HOURS = 1
+# The names delta-rs (and Spark) give data files. Only files named so are ever counted or removed as
+# leftovers: anything else in a table folder (a note, a CSV someone dropped in, desktop.ini) isn't the
+# table's, whatever the log says.
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+_DATA_FILE = re.compile(rf"part-\d{{5}}-{_UUID}(-c\d{{3}})?(\.[a-z0-9]+)?\.parquet", re.I)
+_STAGED_DATA = re.compile(rf"{_DATA_FILE.pattern}#\d+", re.I)
+_STAGED_LOG = re.compile(r"\d{20}\.(json|checkpoint\.parquet)#\d+")
 
 
 def _when(ms: Any) -> str | None:
@@ -95,12 +113,21 @@ def health(uri: str, options: dict[str, str] | None = None, local: bool = False)
         advice.append("No V-Order since the last write: Direct Lake and the SQL endpoint read V-Ordered files faster")
     if since_vacuum >= VERSIONS_BEFORE_VACUUM:
         advice.append(f"{since_vacuum} versions since the last VACUUM: old files still take up storage")
+    left: list[str] = []
+    if local:
+        left = leftovers(uri, table)
+        if left:
+            days = kept_days(table.metadata().configuration) or RETENTION_HOURS // 24
+            n = len(left)
+            advice.append(f"{n} file{'' if n == 1 else 's'} ({_mb(_size(uri, left))}) left by writes that stopped part way. "
+                          f"Compact removes the unfinished ones, and the rest once they're older than the "
+                          f"{days} days of history the table keeps")
     return {"exists": True, "version": version, "files": files, "bytes": total,
             "avg_file_bytes": total // files if files else 0, "v_ordered": v_ordered,
             "last_optimize": _when(last_optimize.get("timestamp")) if last_optimize else None,
             "last_vacuum": _when(last_vacuum.get("timestamp")) if last_vacuum else None,
             "last_write": _when(last_write.get("timestamp")) if last_write else None,
-            "versions_since_vacuum": since_vacuum, "advice": advice,
+            "versions_since_vacuum": since_vacuum, "leftover_files": len(left), "advice": advice,
             "status": "needs_maintenance" if advice else "healthy"}
 
 
@@ -155,9 +182,111 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None) ->
 
 def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history."""
+    before = DeltaTable(uri).version()
     set_retention(uri, days)
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
     removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)
+    # A data file no commit names (a write stopped before its commit) goes once it's as old as the
+    # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
+    unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
+    staged = _remove(uri, _stale_staged(uri))
+    durable.sync_commits(uri, before + 1, DeltaTable(uri).version())  # the compacted files and their commits
     return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
-            "vacuumed": len(removed)}
+            "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
+
+
+def _is_link(entry: os.DirEntry[str]) -> bool:
+    """A symbolic link, or on Windows any reparse point (a junction, a mount point). An entry gone
+    meanwhile counts as one, so the walk skips it."""
+    try:
+        if entry.is_symlink():
+            return True
+        attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+    except OSError:  # silent-ok: gone meanwhile; skipped like a link
+        return True
+    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def _data_folder_files(uri: str) -> Any:
+    """The plain files of a table folder outside its log, never going into a linked folder or one Delta
+    keeps out of the table (_delta_log, _change_data and any other _ or . folder)."""
+    stack = [uri]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if _is_link(entry):
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if not entry.name.startswith(("_", ".")):
+                        stack.append(entry.path)
+                elif entry.is_file(follow_symlinks=False):
+                    yield entry
+
+
+def _older_than(entry: os.DirEntry[str], hours: float) -> bool:
+    try:
+        return entry.stat(follow_symlinks=False).st_mtime < time.time() - hours * 3600
+    except OSError:  # silent-ok: gone meanwhile
+        return False
+
+
+def _stale_staged(uri: str) -> list[str]:
+    """Files still under delta-rs's staging name, untouched for STALE_STAGED_HOURS, as paths relative to
+    the table folder: data files and log commits a stopped write never put in place."""
+    out = [e.path for e in _data_folder_files(uri)
+           if _STAGED_DATA.fullmatch(e.name) and _older_than(e, STALE_STAGED_HOURS)]
+    log = Path(uri) / "_delta_log"
+    if log.is_dir():
+        with os.scandir(log) as it:
+            out += [e.path for e in it if not _is_link(e) and e.is_file(follow_symlinks=False)
+                    and _STAGED_LOG.fullmatch(e.name) and _older_than(e, STALE_STAGED_HOURS)]
+    return sorted(Path(p).relative_to(uri).as_posix() for p in out)
+
+
+def _unnamed(uri: str, table: DeltaTable, hours: float) -> list[str]:
+    """Data files untouched for ``hours`` that neither the table's current version names nor a commit
+    removed (those are VACUUM's), as paths relative to the table folder."""
+    named = {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
+    named |= {unquote(p) for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+    out = []
+    for e in _data_folder_files(uri):
+        rel = Path(e.path).relative_to(uri).as_posix()
+        if _DATA_FILE.fullmatch(e.name) and rel not in named and _older_than(e, hours):
+            out.append(rel)
+    return sorted(out)
+
+
+def _remove(uri: str, paths: list[str]) -> int:
+    """Delete these files of the table folder. No reader or later write ever opens one: a commit is only
+    read under its own name, and a data file only once a commit names it."""
+    removed = 0
+    for rel in paths:
+        try:
+            (Path(uri) / rel).unlink()
+            removed += 1
+        except FileNotFoundError:  # silent-ok: removed meanwhile
+            continue
+    return removed
+
+
+def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
+    """What writes stopped part way left in a table folder on this PC, as paths relative to it: data
+    files no commit names and stale staged files, all untouched for STALE_STAGED_HOURS so a write
+    still under way isn't counted. Only files named as Delta names them. Nothing is deleted."""
+    table = table or DeltaTable(uri)
+    return sorted(set(_stale_staged(uri)) | set(_unnamed(uri, table, STALE_STAGED_HOURS)))
+
+
+def _size(uri: str, paths: list[str]) -> int:
+    total = 0
+    for rel in paths:
+        try:
+            total += (Path(uri) / rel).stat().st_size
+        except OSError:  # silent-ok: gone meanwhile
+            continue
+    return total
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1024 / 1024:.1f} MB"

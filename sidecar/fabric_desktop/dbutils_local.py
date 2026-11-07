@@ -15,6 +15,7 @@ Databricks notebooks run here unchanged where the same thing exists locally:
 
 from __future__ import annotations
 
+import builtins
 import json
 import re
 import types
@@ -178,15 +179,16 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
     def getBytes(scope: str, key: str) -> bytes:  # noqa: N802
         return get(scope, key).encode("utf-8")
 
-    def list(scope: str) -> list[SecretMetadata]:  # noqa: A001
+    def list(scope: str) -> builtins.list[SecretMetadata]:  # noqa: A001
         url = f"{vault(scope).rstrip('/')}/secrets"
         headers = {"Authorization": f"Bearer {token('keyvault')}"}
-        names: list[SecretMetadata] = []
+        names: builtins.list[SecretMetadata] = []
         params: dict[str, str] | None = {"api-version": "7.4"}
         pages = Pages(f"the secrets in Key Vault {vault(scope)}", start=url)
         while url:
-            resp = send_with_retry(lambda u=url, p=params: http_session.session().get(u, params=p, headers=headers,
-                                                                                      timeout=30), "GET")
+            def page(u: str = url, p: dict[str, str] | None = params) -> Any:
+                return http_session.session().get(u, params=p, headers=headers, timeout=30)
+            resp = send_with_retry(page, "GET")
             if resp.status_code in (401, 403):
                 raise PermissionError(f"Key Vault {vault(scope)} refused to list secrets for your account. "
                                       f"You need the Key Vault Secrets User role on it.")
@@ -200,7 +202,7 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
             url = pages.follow(url) if url else url  # a repeated page or too many stops it, never a short list
         return names
 
-    def listScopes() -> list[SecretScope]:  # noqa: N802
+    def listScopes() -> builtins.list[SecretScope]:  # noqa: N802
         print("Note: on this PC a secret scope is an Azure Key Vault name. Use it as the scope, "
               "for example dbutils.secrets.get(\"my-vault\", \"key\").")
         return []

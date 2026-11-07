@@ -37,7 +37,7 @@ from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
 from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
-from .meta.project import ENVIRONMENTS
+from .meta.project import ENVIRONMENTS, GateError
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
 from .redact import describe, one_line
@@ -123,8 +123,12 @@ class EstateMixin:
 
         An incremental table's watermark moves back to the restored data, so its next run loads
         again what came after. Tables downstream are not changed: rebuild them if they took in
-        the bad load."""
+        the bad load. In Test and Prod the workspace role check of a rollback applies first."""
         project = self._project()  # type: ignore[attr-defined]
+        if env != "dev":
+            errors, _ = self._duties_gate(project, env, env, separation=False)  # type: ignore[attr-defined]
+            if errors:
+                raise GateError("restore", errors)
         e, store, uri = self._entity_uri(project, name, env)
         result = restore_mod.restore(uri, store.options(), int(version),
                                      {"fabric_desktop_restored_to": str(version),
@@ -147,8 +151,8 @@ class EstateMixin:
     def _cost_settings(self) -> dict[str, Any]:
         return costs_mod.settings(self._settings().get("cost"))  # type: ignore[attr-defined]
 
-    def set_cost_settings(self, price_per_cu_hour: float | None = None, currency: str | None = None,
-                          python_cu: float | None = None, spark_cu: float | None = None) -> dict[str, Any]:
+    def set_cost_settings(self, price_per_cu_hour: float | str | None = None, currency: str | None = None,
+                          python_cu: float | str | None = None, spark_cu: float | str | None = None) -> dict[str, Any]:
         cfg = self._cost_settings()
         for key, value in (("price_per_cu_hour", price_per_cu_hour), ("python_cu", python_cu), ("spark_cu", spark_cu)):
             if value not in (None, ""):
@@ -255,7 +259,7 @@ class EstateMixin:
             if cached is not None and not refresh:
                 return dict(cached)
             token = self.auth._token(ONELAKE_SCOPES)  # type: ignore[attr-defined]  # here: MSAL stays on one thread
-            self._all_shortcuts = {"pending": True, "items": {}, "errors": {}}
+            self._all_shortcuts: dict[str, Any] | None = {"pending": True, "items": {}, "errors": {}}
 
         def read(ref: dict[str, str]) -> tuple[str, list[dict[str, Any]] | None, str | None]:
             try:
@@ -603,7 +607,8 @@ class EstateMixin:
         the attached lakehouse's environment; any other library is read (never changed) from the
         attached lakehouse's workspace, with its active value set, as Fabric reads the notebook's."""
         from . import lakehouse
-        ws = lakehouse._attached.workspace_id if lakehouse._attached else None
+        attached = lakehouse._attached
+        ws = attached.workspace_id if attached else None
         if library == varlib_mod.LIBRARY:
             try:
                 project = self._project()  # type: ignore[attr-defined]
@@ -618,7 +623,7 @@ class EstateMixin:
         if found is None:
             raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
         # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
-        return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}
+        return varlib_mod.read(*found) | {FROM_KEY: (attached.workspace_name if attached else None) or ws}
 
 
 

@@ -43,7 +43,9 @@ async function loadXray(box, refresh) {
   else if (xrayPage.watching === box) {
     xrayPage.watching = null;
     if (res.error) forgeEvent("xray.scan.failed", box.querySelector(".reason"));
-    else if (res.result) forgeEvent("xray.scan.finished", box.querySelector(".xray-stats"));
+    // Findings that reached Optimize's shared lakehouse make it Optimize's analysis: the same effect, under its name.
+    else if (res.result) forgeEvent(xrayReachedOptimize(res.result.shared) ? "optimize.analysis.finished" : "xray.scan.finished",
+      box.querySelector(".xray-stats"));
   }
   if (res.running && !res.paused) xrayPage.timer = setTimeout(() => loadXray(box, false), 2000);
 }
@@ -160,6 +162,10 @@ function xrayHow() {
 }
 
 // Where the scan's findings went besides this PC, when it is connected to a central lakehouse.
+function xrayReachedOptimize(shared) {
+  return !!shared && !shared.error && !shared.queued && typeof shared.findings === "number";
+}
+
 function xrayShared(shared) {
   if (!shared) return null;
   if (shared.queued) {

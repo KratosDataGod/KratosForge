@@ -66,6 +66,8 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 - When groups mustn't see each other's diagnostics, give each group its own optimization lakehouse in a workspace only they can reach.
 - Access tokens are never written to the lakehouse.
 
+What each table holds, what in it is identifying, what isn't enforced yet (such as retention) and what hasn't been tried on a live tenant are in [Optimize: security and retention](security.md).
+
 ## How several installations write safely
 
 - **Insert only.** No installation updates or deletes a shared row. A change, such as a recommendation being accepted, is a new row, and the latest row wins.
@@ -93,6 +95,18 @@ Sharing runs normally reads which runs the lakehouse already has. With no networ
 - **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.
 - **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. Optimize shows it as one line under the lakehouse name: everything sent, results waiting on this PC with why, or how many were dropped, with **Details** for the figures. The line only reads; it never sends.
 
+## What syncing costs
+
+Each time Optimize writes results to the central lakehouse, it records what that write took, as three **Measured** rows in `fdopt_measurements`, all with the same `run_id` and with `workload_key` `optimize.sync.analysis` or `optimize.sync.local_executions`:
+
+| Metric | Unit | What it is |
+| --- | --- | --- |
+| `optimize_sync_seconds` | seconds | How long the write took on this PC |
+| `optimize_sync_rows` | count | Rows handed to the lakehouse, including rows it already had (it adds those once) |
+| `optimize_sync_commits` | count | Delta commits made |
+
+The commit that writes these three rows isn't counted in them. Bytes written aren't measured yet. OneLake reads and writes use capacity, but no CU figure is given for them until that use is measured. If these rows can't be written, the results still count as sent.
+
 ## Findings and recommendations
 
 Every installation adds what its analysis finds to the shared lakehouse, and everyone connected sees the combined picture.
@@ -110,9 +124,13 @@ Today the analysis is the [Estate X-ray](../user-guide.md#estate-x-ray-preview):
 Optimize can count the notebook work that ran on a PC instead of in Fabric. Sharing it adds one row per run to `fdopt_local_execution`:
 
 - **Notebook writes to OneLake tables**, from this PC's write history. Each row names the lakehouse (by workspace and item id) and the table, and records when the write finished, how long it took and how many rows it wrote. Runs of a [job file](../notebooks.md#job-files) (`fabric-desktop run job.toml`) are kept in the same history and are shown as **Job run**, named after the job.
-- **Scheduled notebook runs on this PC**, from **Schedules**. Each row names the notebook and records when the run started and ended, how long it took and whether it succeeded. Metadata schedules aren't included.
+- **Scheduled notebook runs on this PC**, from **Schedules**. Each row names the notebook and records when the run started and ended, how long it took and whether it succeeded. Metadata schedules aren't counted here; their runs come from the run log, below.
+- **Metadata runs on this PC**, from the open metadata project's run log in each environment kept on this PC (Dev by default). Each row names the project and table, and records when the run started and ended, how long it took, rows written and whether it succeeded. Runs in Fabric or by an agent are left out, and an environment in Fabric isn't read, so sharing never reads OneLake for them.
+- **Proof runs**, from **Prove**. The PC side of each finished proof, with the CPU time and peak memory Prove measured. A proof doesn't record when its PC side began, so only the proof's end is given.
 
-Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
+CPU time and peak memory are filled in only where they were measured (a proof's run). Everywhere else they're empty, never 0.
+
+Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain, with a `confirm` value for exactly those runs. It writes only with `approve=True` and that `confirm`. If a run finished in between, it asks again rather than share a run nobody was shown. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
 
 ## The tables
 

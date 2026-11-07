@@ -570,9 +570,9 @@ _FOLDER_RIGHTS = (0x40, 0x40000, 0x80000)  # FILE_DELETE_CHILD, WRITE_DAC, WRITE
 def _windows_can_change(path: Path) -> bool:
     import ctypes
     from ctypes import wintypes
-    if ctypes.windll.shell32.IsUserAnAdmin():
+    if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]  # Windows-only
         return False
-    create = ctypes.windll.kernel32.CreateFileW
+    create = ctypes.windll.kernel32.CreateFileW  # type: ignore[attr-defined]  # Windows-only
     create.restype = wintypes.HANDLE
     create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
                        wintypes.DWORD, wintypes.HANDLE)
@@ -583,7 +583,7 @@ def _windows_can_change(path: Path) -> bool:
         handle = create(str(target), access, 0x7, None, 3, 0x02000000, None)  # OPEN_EXISTING, BACKUP_SEMANTICS
         if handle in (None, invalid):
             return False
-        ctypes.windll.kernel32.CloseHandle(handle)
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]  # Windows-only
         return True
     return (any(opens(path, right) for right in _FILE_RIGHTS)
             or any(opens(path.parent, right) for right in _FOLDER_RIGHTS))

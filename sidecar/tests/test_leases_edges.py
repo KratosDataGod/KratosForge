@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import types
 
 import pytest
@@ -71,7 +72,7 @@ class FakeMsvcrt:
 
 def test_on_windows_the_file_lock_waits_for_another_process_then_lets_go(tmp_path, monkeypatch):
     fake = FakeMsvcrt(busy=1)
-    monkeypatch.setitem(__import__("sys").modules, "msvcrt", fake)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
     # only leases sees Windows: os.name itself would turn every Path into a WindowsPath
     monkeypatch.setattr(leases, "os", types.SimpleNamespace(name="nt"))
     with leases._file_lock(tmp_path / "locks" / ".lock"):

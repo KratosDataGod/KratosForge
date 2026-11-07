@@ -288,13 +288,13 @@ def main(argv: list[str] | None = None) -> None:
         _run_notebooks(args)
         return
     service = Service()
-    result = {
+    outcome = {
         "sign-in": lambda: service.sign_in(),
         "preview": lambda: service.preview_job(args.job, limit=10),
         "run": lambda: service.run_job(args.job),
         "history": lambda: service.history(),
     }[args.command]()
-    print(json.dumps(result, indent=2, default=str))
+    print(json.dumps(outcome, indent=2, default=str))
 
 
 def _agent(args: argparse.Namespace) -> int:

@@ -513,7 +513,9 @@ def test_sql_settings_have_defaults_ranges_and_policy(tmp_path, monkeypatch):
 
 # ---- local data projects (KF-DE-027): target="local"
 
-LOCAL_SLOW = "SELECT count(*) FROM range(10000000000) a"
+# Hashes every row, so DuckDB has to do real work for each one: a bare count(*) over range()
+# finished in about 2 s and, on a fast runner, inside the 1 s limits these tests check.
+LOCAL_SLOW = "SELECT sum(hash(a.range)) FROM range(10000000000) a"
 
 
 @pytest.fixture

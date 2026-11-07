@@ -38,7 +38,7 @@ from packaging.utils import (InvalidSdistFilename, InvalidWheelFilename, canonic
                              parse_wheel_filename)
 from packaging.version import Version
 
-from . import jsonfile
+from . import jsonfile, net_trust
 
 INSTALL_SECONDS = 15 * 60
 # Spark itself: notebooks' spark is the engine's local one (spark_local), and these bring a second
@@ -87,6 +87,11 @@ def check_packages(specs: list[str]) -> list[str]:
 
 # What pip says when no source it was given has a package (or a version of it that fits).
 _NOT_FOUND = ("No matching distribution found", "Could not find a version that satisfies")
+# pip's own default is 5 retries of 15 seconds each per address: a PC whose firewall drops PyPI's
+# packets waited minutes before failing. Two still ride out a brief network blip.
+PIP_RETRIES = 2
+PIP_OFFLINE_FIX = ("If your network blocks PyPI, ask IT to allow pypi.org and files.pythonhosted.org, or to "
+                   "set up a package folder (notebook_package_folder in the policy file).")
 
 
 def folder_pins(folder: Path, engine: list[str]) -> list[str]:
@@ -118,7 +123,7 @@ def install_commands(python: str, target: Path, pins: Path, specs: list[str],
     the index with the folder still offered and ``approved`` (folder_pins) as constraints, so a
     package the folder has can only be the folder's version. With no folder, the index alone."""
     base = [python, "-m", "pip", "install", "--target", str(target), "--upgrade", "--no-input",
-            "--disable-pip-version-check", "-c", str(pins)]
+            "--disable-pip-version-check", "--retries", str(PIP_RETRIES), "-c", str(pins)]
     if not folder:
         return [base + specs]
     first = base + ["--no-index", "--find-links", folder, *specs]
@@ -175,7 +180,7 @@ class Environments:
                         "updated": info.get("updated")})
         return out
 
-    def installed(self, name: str) -> list[dict[str, str]]:
+    def installed(self, name: str) -> builtins.list[dict[str, str]]:
         """What is in the environment's folder that the engine doesn't already have."""
         folder = self.site_packages(name)
         if not folder.is_dir():
@@ -334,6 +339,8 @@ class Environments:
         if folder and not pypi and missing:
             log.append("A package isn't in your organization's package folder, and your organization doesn't allow "
                        "installing from PyPI. Ask IT to add it to the folder.")
+        elif pypi and (offline := net_trust.pip_unreachable(log[-1], PIP_OFFLINE_FIX)):
+            log.append(offline)
         job["log"] = "\n".join(log)[-20000:]
         return False
 
@@ -345,7 +352,7 @@ class Environments:
             if re.sub(r"[-_.]+", "-", dist.metadata.get("Name") or "").lower() != wanted:
                 continue
             root = target.resolve()
-            folders = set()
+            folders: set[Path] = set()
             for f in dist.files or []:
                 p = (target / f).resolve()
                 if p.is_relative_to(root) and p.is_file():

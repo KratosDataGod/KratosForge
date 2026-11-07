@@ -3,7 +3,7 @@
   --lx-hero-sky: #01203d;
   --lx-hero-sky-low: #062e57;
   --lx-mask: #000;
-  --lx-hero-art-w: 750px;
+ 
   --lx-hero-text-w: 560px;
   --lx-hero-line: #e6ecf5;
   --lx-hero-title: #ffffff;
@@ -1035,10 +1035,10 @@ body.pop-out .page.monitor { padding: 12px; }
 .home-body.with-aside { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
 .home-hero { position: relative; flex: none; height: 250px; overflow: hidden; background: linear-gradient(180deg, var(--lx-hero-sky) 0%, var(--lx-hero-sky-low) 100%); margin: -28px -32px 0; }
 .page.home.living > .home-hero { max-width: none; }
-/* The whole picture, never cropped or stretched: full height at its own 3:1 ratio, against the right edge, its left edge faded into the matching sky. */
-/* It never sits behind the text column: in a narrower window it shrinks (still whole, still 3:1) rather than slide under the text. */
-.home-hero-img { position: absolute; top: 50%; right: 0; transform: translateY(-50%); width: min(var(--lx-hero-art-w), calc(100% - var(--lx-hero-text-w))); height: auto; aspect-ratio: 2172 / 724;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 12%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 12%); }
+/* The whole picture, never cropped, stretched or shrunk: full hero height at its own 3:1 ratio, against the right edge. */
+/* Its left quarter is empty sky (the cape starts near 27%), faded into the matching navy, so the text column may run over that part only. */
+.home-hero-img { position: absolute; top: 0; right: 0; height: 100%; width: auto; aspect-ratio: 2172 / 724;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); }
 .home-hero-text { position: relative; height: 100%; width: var(--lx-hero-text-w); box-sizing: border-box; padding: 26px 0 0 36px; display: flex; flex-direction: column; gap: 6px; }
 .home-hero-kicker, .home-hero-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; text-transform: uppercase; }
 .home-hero-kicker { font-size: 18px; color: var(--brand-orange); letter-spacing: 1px; }
@@ -1075,8 +1075,11 @@ body.pop-out .page.monitor { padding: 12px; }
 @media (max-width: 1100px) {
   .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
   .home-hero { height: 230px; }
-  .home-hero-title { font-size: 38px; }
 }
+/* Between the wide layout and the 960 px hide, the title steps down so its ink stays on the art's empty sky, left of the cape. */
+@media (max-width: 1250px) { .home-hero-title { font-size: 42px; } }
+@media (max-width: 1180px) { .home-hero-title { font-size: 32px; } }
+@media (max-width: 1040px) { .home-hero-title { font-size: 28px; } .page .home-hero-welcome { font-size: 18px; } }
 @media (max-width: 960px) { .home-hero-img { display: none; } }
 @media (max-width: 720px) {
   .home-hero { height: auto; min-height: 120px; margin: 0; }

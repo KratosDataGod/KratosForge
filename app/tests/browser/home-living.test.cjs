@@ -75,16 +75,22 @@ test("Home shows the hero and the progression panel from profile_get", { skip },
     assert.ok(box.inside, `the picture sits whole inside the hero at ${width}`);
     if (SHOTS && width === 1920) await page().screenshot({ path: path.join(SHOTS, "home-living-1920.png") });
   }
-  // At any width the picture shows, it starts right of the text column, so no text or button sits on the art.
-  for (const width of [1440, 1100, 1000, 850]) {
+  // At any width the picture shows, the text ends before the art's 27% line, where the cape starts: text may sit on the empty sky only.
+  for (const width of [1440, 1330, 1251, 1200, 1181, 1180, 1101, 1100, 1041, 1000, 961, 850]) {
     await page().setViewportSize({ width, height: 940 });
     const clear = await page().evaluate(() => {
       const img = document.querySelector(".home-hero-img");
       if (getComputedStyle(img).display === "none") return { shown: false, ok: true };
-      const textRight = Math.max(...[...document.querySelectorAll(".home-hero-text *")].map((e) => e.getBoundingClientRect().right));
-      return { shown: true, ok: img.getBoundingClientRect().left >= textRight, left: img.getBoundingClientRect().left, textRight };
+      // The ink, not the boxes: block headings and the action row span the whole column.
+      const ink = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().right; };
+      const textRight = Math.max(...[...document.querySelectorAll(".home-hero-kicker, .home-hero-title, .home-hero-welcome")].map(ink),
+        ...[...document.querySelectorAll(".home-hero-actions > *")].map((e) => e.getBoundingClientRect().right));
+      const art = img.getBoundingClientRect();
+      const hero = document.querySelector(".home-hero").getBoundingClientRect();
+      const cape = art.left + 0.27 * art.width;
+      return { shown: true, ok: cape >= textRight && Math.abs(art.height - hero.height) < 1 && Math.abs(art.width / art.height - 2172 / 724) < 0.02, left: cape, textRight };
     });
-    assert.ok(clear.ok, `at ${width} the art starts at ${clear.left}, the text ends at ${clear.textRight}`);
+    assert.ok(clear.ok, `at ${width} the cape starts at ${clear.left}, the text ends at ${clear.textRight}; the art fills the hero height`);
   }
   await page().setViewportSize({ width: 1440, height: 940 });
 });

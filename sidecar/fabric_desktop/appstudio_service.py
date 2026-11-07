@@ -39,6 +39,7 @@ from .appstudio import project, sample, templates
 from .appstudio import publish as publishing
 from .appstudio import providers as prov
 from .appstudio import spec as specs
+from . import known_folders
 
 METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_change", "appstudio_undo",
            "appstudio_redo", "appstudio_history", "appstudio_versions", "appstudio_save_version",
@@ -164,7 +165,7 @@ class AppStudioMixin:
         """The project as a new .zip in Downloads; never replaces a file."""
         folder = self._appstudio_project(project_name)
         data = project.export(folder)
-        out = Path.home() / "Downloads"
+        out = known_folders.downloads()
         out.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(out, folder.name[:-len(project.SUFFIX)] + " (App Studio)", ".zip")
         write_bytes(path, data)  # swapped in over the empty name reserved for it

@@ -30,6 +30,7 @@ from typing import Any
 from . import cleanup, envprofile, jsonfile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
+from . import known_folders
 
 METHODS = {"notebook_validate_check", "notebook_validate_start", "notebook_validate_status",
            "notebook_validate_cancel", "notebook_validate_list", "notebook_validate_save",
@@ -181,7 +182,7 @@ class ValidateMixin:
         if format not in ("markdown", "json"):
             raise ValueError("format is markdown or json")
         text = validate.to_markdown(record) if format == "markdown" else json.dumps(record, indent=1)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         stem = re.sub(r"[^\w.-]+", "-", f"validate-{record['name']}-{record['id'][9:24]}").strip("-")
         ext = "md" if format == "markdown" else "json"

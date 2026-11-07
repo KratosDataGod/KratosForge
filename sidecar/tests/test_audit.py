@@ -33,6 +33,13 @@ class Service:
     def meta_promote(self, env, target, entities=None):
         raise RuntimeError(f"409 conflict, Authorization: Bearer {JWT}")
 
+    def meta_run(self, names=None, env="dev"):  # one table ran, one failed: returned, not raised
+        return [{"entity": "sales", "status": "ok", "message": ""},
+                {"entity": "orders", "status": "failed", "message": f"Bearer {JWT} customers"}]
+
+    def pipeline_run_start(self, text=None):  # refused without raising
+        return {"ok": False, "problems": [{"code": "busy", "message": "4 runs are already going: customers"}]}
+
 
 def call(service, method, **params):
     return server.handle(service, json.dumps({"id": 1, "method": method, "params": params}))
@@ -44,7 +51,9 @@ def test_calls_that_change_or_run_something_are_recorded_with_who_and_outcome(tm
     call(s, "poll_cell", run_id="r1")
     call(s, "sql_start", query="SELECT secret_col FROM customers", lakehouse_ref={"workspace_id": "ws1", "lakehouse_id": "lh1"})
     call(s, "meta_promote", env="test", target="prod", entities=["sales"])
-    rows = s.audit.recent()
+    every = s.audit.recent()
+    assert [r["action"] for r in every if r["outcome"] == "started"] == ["meta_promote"]  # a Prod change: line first
+    rows = [r for r in every if r["outcome"] != "started"]
     assert [r["action"] for r in rows] == ["meta_promote", "sql_start"]  # newest first; reads not recorded
     promote, sql = rows
     assert promote["outcome"] == "error" and JWT not in promote["error"] and "[removed]" in promote["error"]
@@ -127,3 +136,94 @@ def test_every_name_that_carries_code_or_queries_is_left_out():
     params = {"code": "x = 1", "sql": "SELECT 1", "query": "SELECT 2", "statement": "DELETE FROM t", "table": "t"}
     assert audit.target(params) == {"code": "(given)", "sql": "(given)", "query": "(given)",
                                     "statement": "(given)", "table": "t"}
+
+
+def test_a_refusal_or_failure_returned_rather_than_raised_is_recorded_as_an_error(tmp_path):
+    s = Service(tmp_path)
+    call(s, "meta_run", names=["sales", "orders"])
+    call(s, "pipeline_run_start", text="{}")
+    pipeline, run = s.audit.recent()
+    assert (run["outcome"], run["reason"]) == ("error", "partial")
+    assert (pipeline["outcome"], pipeline["reason"]) == ("error", "busy")
+    assert "customers" not in json.dumps([run, pipeline]) and JWT not in json.dumps([run, pipeline])  # never the reply
+    assert "reason" not in AuditLog(tmp_path).record("meta_run", "ok", 1.0)
+
+
+def test_the_outcome_of_what_a_call_returned(tmp_path):
+    rows = lambda *st: [{"entity": f"e{i}", "status": x} for i, x in enumerate(st)]  # noqa: E731
+    cases = [
+        ({"rows": []}, ("ok", "")), (None, ("ok", "")), ([], ("ok", "")), (["a"], ("ok", "")),
+        (rows("ok", "skipped"), ("ok", "")),
+        (rows("ok", "failed"), ("error", "partial")),
+        (rows("failed", "needs_decision"), ("error", "failed")),
+        ({"ok": True}, ("ok", "")),
+        ({"ok": False}, ("error", "refused")),
+        ({"ok": False, "preview": True}, ("error", "preview")),
+        ({"ok": False, "problems": [{"code": "busy"}]}, ("error", "busy")),
+        ({"ok": False, "problems": [{"code": "policy_blocked"}]}, ("error", "policy")),
+        ({"ok": False, "problems": [{"code": "bad_json"}]}, ("error", "invalid")),
+        ({"status": "failed"}, ("error", "failed")),
+        ({"done": ["a"], "failed": [{"id": "b"}]}, ("error", "partial")),
+        ({"done": [], "failed": [{"id": "b"}]}, ("error", "failed")),
+        ({"done": ["a"], "failed": [], "problems": ["a note"]}, ("ok", "")),
+    ]
+    for result, expected in cases:
+        assert audit.outcome(result) == expected, result
+    import pytest
+    with pytest.raises(ValueError):
+        AuditLog(tmp_path).record("x", "error", 0.0, reason="anything the reply said")  # a fixed code, nothing else
+    assert not list(tmp_path.glob("audit-*.jsonl"))
+
+
+class Guarded(Service):
+    def __init__(self, folder):
+        super().__init__(folder)
+        self.ran = []
+
+    def meta_rollback(self, env, version):  # Prod-reaching, takes no confirmation: on the list
+        self.ran.append("meta_rollback")
+        return {"env": env}
+
+    def sql_start(self, query, lakehouse_ref=None, confirm_name=""):  # a typed name: found by its parameter
+        self.ran.append("sql_start")
+        return {"rows": []}
+
+    def save_notebook(self, name):  # an everyday edit
+        self.ran.append("save_notebook")
+        return {"saved": name}
+
+
+def test_a_protected_call_writes_its_line_first_and_doesnt_run_without_it(tmp_path, capsys):
+    s = Guarded(tmp_path)
+    call(s, "meta_rollback", env="prod", version="v1")
+    started, done = s.audit.recent()[::-1]
+    assert (started["action"], started["outcome"]) == ("meta_rollback", "started") and done["outcome"] == "ok"
+    assert started["target"] == {"env": "prod", "version": "v1"} and started["who"] == "ann@contoso.com"
+
+    class Broken:
+        def record(self, *a, **k):
+            raise OSError("disk full")
+    s.audit = Broken()
+    for method, params in (("meta_rollback", {"env": "prod", "version": "v2"}), ("sql_start", {"query": "x", "confirm_name": "Sales"})):
+        reply = call(s, method, **params)
+        assert "audit log couldn't be written, so this didn't run (OSError: disk full)" in reply["error"], method
+    assert s.ran == ["meta_rollback"]  # neither refused call ran
+    assert call(s, "save_notebook", name="n")["result"] == {"saved": "n"}  # everyday edits still run
+    assert call(s, "sql_start", query="SELECT 1")["result"] == {"rows": []}  # an ordinary query: no typed name
+    assert call(s, "sql_start", query="SELECT 1", confirm_name="")["result"] == {"rows": []}  # given empty
+    assert s.ran == ["meta_rollback", "save_notebook", "sql_start", "sql_start"]
+
+
+def test_which_calls_fail_closed():
+    assert audit.FAIL_CLOSED <= server.METHODS
+    for method in audit.FAIL_CLOSED:
+        assert audit.fails_closed(method, {})
+    for method, params in (("sql_start", {"query": "x", "confirm_name": "Sales"}), ("xray_optimize", {"risk_id": "r-1"}),
+                           ("platform_share_keys", {"approve": True}), ("integrations_decide", {"approval_id": "a1"}),
+                           ("databricks_bundle_deploy", {"typed": "prod"}), ("local_drop_delta", {"confirm": True}),
+                           ("set_risk_settings", {"require_acknowledgement": True})):
+        assert audit.fails_closed(method, params), method
+    for method, params in (("sql_start", {"query": "x"}), ("sql_start", {"query": "x", "confirm": False, "confirm_name": ""}),
+                           ("xray_optimize", {"risk_id": ""}), ("save_notebook", {"name": "n"}), ("start_cell", {"code": "x"}),
+                           ("meta_run", {"env": "prod"})):
+        assert not audit.fails_closed(method, params), (method, params)

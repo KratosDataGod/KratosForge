@@ -103,6 +103,11 @@ class FabricPlatform:
         # The functions' parameters are named without underscores (udf.fabric_name); call_once's args
         # go on to the operation as they are.
         params = {udf.fabric_name(k): v for k, v in kwargs.items()}
+        # A dict or list parameter has no default in UDF_Platform (Fabric refuses one), so one left out
+        # is sent empty, which the function takes as not given.
+        for name, empty in udf.left_out_as_empty().get(op, {}).items():
+            if params.get(name) is None:
+                params[name] = type(empty)()
         if op in core.READ_OPERATIONS or op in core.REPEATABLE_OPERATIONS:
             return self._answer(op, self._send(op, params, safe=True))
         if self._once is not False:

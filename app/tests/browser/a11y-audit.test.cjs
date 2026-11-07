@@ -34,6 +34,7 @@ const KNOWN_FOCUS = new Set([]);
 // Checks axe can't decide by itself, judged by a person (#945): "page: rule @ element" patterns and the verdict,
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
+  [/^home: color-contrast @ \.home-hero-(kicker|title|text > p)$/, "Pass: the hero's text sits on its light field (#fdf6ec to #f6e6d2), never on the art, which starts fully transparent where the 40% text column ends: the kicker #8a4a00 is 5.6:1 at worst, the title #0b1420 15.1:1, the line #242424 12.7:1 (axe can't read a gradient)."],
   [/^home: color-contrast @ .*\.chev$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic)."],
   [/^workspaces: color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
@@ -44,7 +45,7 @@ const JUDGED = [
   [/^report-problem: color-contrast @ textarea\[rows="3"\]$/, "Pass: What happened is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1."],
   [/^report-problem: color-contrast @ \.mono$/, "Pass: the diagnostics are #424242 on #fafafa, 9.6:1."],
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
-  [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > u:nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text))$/, "Pass: in both runs the decision pattern's text, links, headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
+  [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > u:nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links, headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
   [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\) > \.learn-more\[href="#"\]$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];

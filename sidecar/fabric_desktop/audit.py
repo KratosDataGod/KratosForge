@@ -6,7 +6,8 @@ a publish, a promote, a write to OneLake, a schedule, a setting) adds one line t
 
 Each line holds:
 
-    at, action, outcome (ok or error), seconds
+    at, action, outcome (ok or error; "started" before a call in FAIL_CLOSED), seconds, and reason (one of REASONS) when a call that
+             returned rather than raised refused or partly failed
     who (the signed-in account), tenant, host, os user, app version, compute ("this PC")
     target   the call's short identifying values: workspace, lakehouse, environment, entity,
              notebook name, ids. Code, SQL, cell text and data are never recorded.
@@ -89,7 +90,7 @@ engine_catalog engine_connections engine_prepare engine_state engine_poll_cell e
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
-pbi_embed_token pbi_embed_content
+pbi_embed_content
 appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview appstudio_connections appstudio_publish_check
 academy_exam_home academy_exam_heartbeat academy_exam_review
 """.split())
@@ -125,6 +126,66 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Calls that must not run without a record: a "started" line is written before them, and they are
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always, and any
+# other call only when it is given a confirmation, an approval, a typed name or a risk-check
+# acknowledgement (a non-empty value), so an ordinary query or edit still runs as before when its
+# line can't be written.
+FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_vacuum", "shortcut_repoint",
+                         "shortcut_repoint_many", "shortcut_undo"})
+_GUARD_PARAMS = ("confirm", "approv", "typed", "risk_id", "acknowledg")
+
+
+def fails_closed(method: str, params: Any) -> bool:
+    """Whether this call of ``method`` with ``params`` runs only once its line is written."""
+    return method in FAIL_CLOSED or (isinstance(params, dict) and any(
+        value not in (None, False, "", 0, [], {}) and any(w in str(key) for w in _GUARD_PARAMS)
+        for key, value in params.items()))
+
+
+NOT_RECORDED = ("The audit log couldn't be written, so this didn't run ({error}). Free some disk space for "
+                "KratosForge's data folder, or close what holds its audit file, then try again.")
+
+
+# Why a call that returned (rather than raised) still counts as an error: one of these fixed codes,
+# never anything taken from the reply's text.
+REASONS = ("refused", "busy", "policy", "preview", "invalid", "partial", "failed")
+_DONE = ("ok", "skipped")
+
+
+def outcome(result: Any) -> tuple[str, str]:
+    """("ok", "") or ("error", reason) for a call's result.
+
+    A call that refuses or partly fails without raising says so in what it returns: ``ok`` False
+    (busy, a policy, only a preview, a definition with problems), a non-empty ``failed`` list, a
+    ``status`` of failed, or run rows (meta runs) where a row didn't end ok or skipped. The app, PC
+    schedules and the agent all use this, so one run reads the same whichever way it started."""
+    if isinstance(result, list):
+        rows = [r for r in result if isinstance(r, dict) and "status" in r and "entity" in r]
+        bad = [r for r in rows if r.get("status") not in _DONE]
+        if bad:
+            return "error", "partial" if len(bad) < len(rows) else "failed"
+        return "ok", ""
+    if not isinstance(result, dict):
+        return "ok", ""
+    if result.get("ok") is False:
+        if result.get("preview"):
+            return "error", "preview"
+        codes = [str(p.get("code") or "") for p in result.get("problems") or [] if isinstance(p, dict)]
+        if "busy" in codes:
+            return "error", "busy"
+        if any("policy" in c or "uncontained" in c or "not_allowed" in c for c in codes):
+            return "error", "policy"
+        return "error", "invalid" if codes else "refused"
+    if result.get("status") == "failed":
+        return "error", "failed"
+    failed = result.get("failed")
+    if isinstance(failed, list) and failed:
+        done = result.get("done")
+        return "error", "partial" if isinstance(done, list) and done else "failed"
+    return "ok", ""
+
+
 class AuditLog:
     def __init__(self, folder: Path, app: str = "desktop"):
         self.folder = Path(folder)
@@ -139,7 +200,8 @@ class AuditLog:
         return audit_chain.files(self.folder)
 
     def record(self, action: str, outcome: str, seconds: float, params: dict[str, Any] | None = None,
-               who: str = "", tenant: str = "", compute: str = "this PC", error: str = "") -> dict[str, Any]:
+               who: str = "", tenant: str = "", compute: str = "this PC", error: str = "",
+               reason: str = "") -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         entry: dict[str, Any] = {
             "schema": SCHEMA, "at": now.isoformat(timespec="milliseconds"), "action": action, "outcome": outcome,
@@ -148,6 +210,10 @@ class AuditLog:
         }
         if error:
             entry["error"] = secrets(error)[:1000]
+        if reason:
+            if reason not in REASONS:
+                raise ValueError(f"reason is one of {', '.join(REASONS)}")
+            entry["reason"] = reason
         audit_chain.append(self.folder, entry)  # under the folder's lock: no other process forks the chain
         return entry
 

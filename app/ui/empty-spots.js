@@ -1,0 +1,65 @@
+// Living Experience empty states (LX-07, Preview): one original spot illustration, one sentence and
+// one primary action for Recent notebooks, Data items and Pipelines. Each spot is a small inline SVG
+// drawn here (under 4 KB, no image files), coloured with currentColor and the accent token, so it
+// follows high contrast. Other skins (Fabric, Databricks, Snowflake) keep the same text and action
+// with their own neutral icon, so a theme is never mixed. Nothing here moves.
+
+const EMPTY_SPOTS = {
+  // A cold forge: the anvil, an unlit hearth and one ember waiting.
+  forge: {
+    alt: "An anvil beside a cold forge with one ember",
+    paths: [
+      ["path", { d: "M18 92 H102", stroke: "currentColor", "stroke-width": "3", "stroke-linecap": "round" }],
+      ["path", { d: "M30 58 H82 L94 64 H76 V72 L86 88 H34 L44 72 V64 H30 Z", fill: "var(--accent)" }],
+      ["path", { d: "M8 92 V50 Q8 40 18 40 H24 V92", fill: "none", stroke: "currentColor", "stroke-width": "3" }],
+      ["path", { d: "M10 84 Q16 76 22 84", fill: "none", stroke: "currentColor", "stroke-width": "2", opacity: ".5" }],
+      ["circle", { cx: "16", cy: "86", r: "3", fill: "var(--brand-orange)" }],
+    ],
+  },
+  // Uncharted land: hills, a far peak and a flag not yet planted.
+  land: {
+    alt: "Uncharted hills with a flag waiting to be planted",
+    paths: [
+      ["path", { d: "M4 92 L36 52 L54 70 L74 38 L116 92 Z", fill: "var(--accent-soft)", stroke: "currentColor", "stroke-width": "2.5", "stroke-linejoin": "round" }],
+      ["path", { d: "M74 38 L81 49 L75 47 L69 55 Z", fill: "currentColor", opacity: ".35" }],
+      ["path", { d: "M26 92 Q50 80 70 92", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-dasharray": "4 4" }],
+      ["path", { d: "M94 92 V62", stroke: "currentColor", "stroke-width": "2.5" }],
+      ["path", { d: "M94 62 L108 67 L94 72 Z", fill: "var(--brand-orange)" }],
+    ],
+  },
+  // Tools laid out: a hammer, tongs and a plan on the bench.
+  tools: {
+    alt: "A hammer, tongs and a plan laid out on a bench",
+    paths: [
+      ["path", { d: "M8 92 H112", stroke: "currentColor", "stroke-width": "3", "stroke-linecap": "round" }],
+      ["rect", { x: "58", y: "44", width: "50", height: "38", rx: "2", fill: "var(--accent-soft)", stroke: "currentColor", "stroke-width": "2" }],
+      ["path", { d: "M64 54 H82 V64 H100 M64 74 H92", fill: "none", stroke: "var(--accent)", "stroke-width": "2.5" }],
+      ["circle", { cx: "100", cy: "64", r: "3", fill: "var(--brand-orange)" }],
+      ["path", { d: "M22 86 L40 46", stroke: "currentColor", "stroke-width": "4", "stroke-linecap": "round" }],
+      ["path", { d: "M30 40 L52 50 L48 58 L26 48 Z", fill: "var(--accent)" }],
+      ["path", { d: "M10 60 L34 84 M16 56 L38 80", stroke: "currentColor", "stroke-width": "2.5", "stroke-linecap": "round" }],
+    ],
+  },
+};
+
+function emptySpotSvg(name) {
+  const spot = EMPTY_SPOTS[name];
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  for (const [k, v] of Object.entries({ class: "empty-spot", viewBox: "0 0 120 100", width: "120", height: "100", role: "img", "aria-label": spot.alt })) svg.setAttribute(k, v);
+  for (const [tag, attrs] of spot.paths) {
+    const el = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    svg.append(el);
+  }
+  return svg;
+}
+
+// The KratosForge skin with Preview on draws the spot; every other case draws the plain empty state
+// with `fallbackIcon`, the same title, sentence and action.
+function livingEmpty({ spot, fallbackIcon, title, text, action }) {
+  const skin = state.settings?.ui_skin?.value || "kratosforge";
+  if (!previewShown() || skin !== "kratosforge" || !EMPTY_SPOTS[spot]) return emptyState({ icon: fallbackIcon, title, text, action });
+  return h("div", { class: "empty living-empty" }, emptySpotSvg(spot),
+    h("span", { class: "title living-empty-title" }, title), h("span", { class: "text" }, text), action);
+}

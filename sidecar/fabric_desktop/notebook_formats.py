@@ -617,7 +617,7 @@ def _dbc_notebook(doc: dict[str, Any], entry: str) -> dict[str, Any] | None:
         return None
     default = _DBC_LANGUAGE.get(str(doc.get("language", "python")).lower())
     ordered = sorted((c for c in commands if isinstance(c, dict) and isinstance(c.get("command"), str)),
-                     key=lambda c: c.get("position") if isinstance(c.get("position"), (int, float)) else 0)
+                     key=lambda c: p if isinstance(p := c.get("position"), (int, float)) else 0)
     cells: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
     for c in ordered:

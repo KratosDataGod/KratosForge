@@ -437,7 +437,8 @@ class PipelineRun:
         adapter = self.registry.get(a.type).adapter
         leaf = mock is not None or not getattr(adapter, "container", False)
         rec["executed_by"] = "mock" if mock is not None else "adapter"
-        policy = a.raw.get("policy") if isinstance(a.raw.get("policy"), dict) else {}
+        got = a.raw.get("policy")
+        policy: dict[str, Any] = got if isinstance(got, dict) else {}
         retries = policy.get("retry", 0) if leaf and isinstance(policy.get("retry"), int) else 0
         interval = policy.get("retryIntervalInSeconds", 30) if isinstance(policy.get("retryIntervalInSeconds"), int) else 30
         # An Execute Pipeline's timeout bounds its child pipeline's run (#1370).

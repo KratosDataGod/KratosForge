@@ -282,7 +282,7 @@ class ProveMixin:
         k = session.kernel if session else None
         if s and isinstance(k, ProcessKernel) and k.alive() and k.pid == s["pid"]:
             return s
-        self._replay_session = None
+        self._replay_session: dict[str, Any] | None = None
         return None
 
     def _replay_guard(self, notebook: str | None) -> None:
@@ -993,7 +993,7 @@ def _verdict(record: dict[str, Any], rows: list[dict[str, Any]], problems: list[
     if not rows:
         return {"verdict": "nothing", "text": "Neither run wrote a table, so only the time is compared.", "problems": []}
     bad = [r for r in rows if r.get("result") != "match"]
-    levels = sorted({r.get("level") for r in rows if r.get("level")})
+    levels = sorted({lv for r in rows if (lv := r.get("level"))})
     level = "fingerprint" if "fingerprint" in levels else "complete"
     n = len(rows)
     if not bad:

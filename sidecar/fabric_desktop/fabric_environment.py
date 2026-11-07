@@ -52,6 +52,7 @@ def read(fabric: Any, workspace_id: str, environment_id: str) -> dict[str, Any]:
         libraries = fabric.environment_libraries(workspace_id, environment_id)
     except Exception as exc:  # noqa: BLE001 - a check before a run reports, never stops the run
         return {"status": "couldnt_read", "reason": _reason(exc)}
+    why: str | None
     try:
         runtime = (fabric.environment_spark_compute(workspace_id, environment_id) or {}).get("runtimeVersion")
     except Exception as exc:  # noqa: BLE001 - the libraries are still worth comparing

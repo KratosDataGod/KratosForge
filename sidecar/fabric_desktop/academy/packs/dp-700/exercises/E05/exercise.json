@@ -1,0 +1,45 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E05",
+  "title": "Data workflow (Apache Airflow job) settings and when to use them",
+  "objectives": [
+    "1.1.4"
+  ],
+  "objective_text": "Decide when an Apache Airflow job fits better than a pipeline, and which of its settings handle versions, packages, idle time and DAG sources.",
+  "scenario": "Two teams want orchestration in the same workspace: one writes Airflow DAGs in Python, the other doesn't write code. Operations wants idle environments to stop using compute.",
+  "minutes": 10,
+  "verifies": [
+    "You can pick the right feature, setting or operator for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can do it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 4 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-06."
+  ]
+}

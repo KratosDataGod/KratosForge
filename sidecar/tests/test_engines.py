@@ -237,7 +237,7 @@ def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialec
 @pytest.mark.parametrize("engine", ["local-duckdb", "local-sqlite"])
 def test_cancel_stops_a_long_statement(engine):
     s = registry.adapter(engine).open_session(SessionConfig("nb"))
-    long = ("SELECT count(*) FROM range(10000000000) a" if engine == "local-duckdb" else
+    long = ("SELECT sum(hash(a.range)) FROM range(10000000000) a" if engine == "local-duckdb" else
             "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c")
     result: list[CellResult] = []
     t = threading.Thread(target=lambda: result.append(s.execute(sql(long))))

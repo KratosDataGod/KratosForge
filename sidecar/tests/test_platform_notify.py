@@ -48,6 +48,8 @@ def test_events_are_checked_against_governances_shape():
            ({"to": {"roles": ["admins"]}}, "to.roles"),
            ({"to": {}}, "at least one"),
            ({"open": {"view": "platform", "tab": "health"}}, "open is"),
+           ({"open": {"view": ["platform"], "tab": "requests"}}, "open is"),
+           ({"open": "platform"}, "open is"),
            ({"at": "yesterday"}, "ISO 8601"),
            ({"severity": "critical"}, "severity"),
            ({"title": ""}, "title is required")]

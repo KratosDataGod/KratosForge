@@ -58,7 +58,7 @@ def _template(sql: str, **args: exp.Expression) -> exp.Expression:
 # element, gives NULL as Databricks documents. DuckDB's list functions stop on a NULL element even in a
 # CASE branch not taken, so they get the vector with NULLs as 0 and the CASE gives the NULL.
 def _clean(value: exp.Expression) -> exp.Expression:
-    return _template("list_transform(_v, __z -> coalesce(__z, 0))", v=exp.cast(value, "DOUBLE[]"))
+    return _template("list_transform(_v, __kf_z -> coalesce(__kf_z, 0))", v=exp.cast(value, "DOUBLE[]"))
 
 
 def _whole(sql: str, *vectors: exp.Expression) -> exp.Expression:
@@ -72,10 +72,10 @@ def _whole(sql: str, *vectors: exp.Expression) -> exp.Expression:
 
 def _norm_sql(degree: float) -> str:
     if degree == 1:
-        return "list_sum(list_transform(_a, __x -> abs(__x)))"
+        return "list_sum(list_transform(_a, __kf_x -> abs(__kf_x)))"
     if degree == 2:
         return "sqrt(list_dot_product(_a, _a))"
-    return "list_max(list_transform(_a, __x -> abs(__x)))"
+    return "list_max(list_transform(_a, __kf_x -> abs(__kf_x)))"
 
 
 def _degree(name: str, args: list[exp.Expression]) -> float:
@@ -86,9 +86,10 @@ def _degree(name: str, args: list[exp.Expression]) -> float:
     while isinstance(value, (exp.Cast, exp.Neg, exp.Paren)):  # -1.0, 2.0f, -float('inf')
         sign, value = (-sign if isinstance(value, exp.Neg) else sign), value.this
     if isinstance(value, exp.Literal):
-        text = value.name.strip().lower()
-        degree = sign * (math.inf if text in ("inf", "infinity", "+inf") else float(text) if not value.is_string
-                         else math.nan)
+        try:  # a string degree is cast to FLOAT, as Databricks casts it ('2.0', 'inf')
+            degree = sign * float(value.name.strip())
+        except ValueError:
+            degree = math.nan
         if degree in (1.0, 2.0, math.inf):
             return degree
         raise ValueError(f"{name}() takes degree 1.0, 2.0 or float('inf'), as in Databricks "
@@ -102,7 +103,8 @@ def _vector_norm(name: str, args: list[exp.Expression]) -> exp.Expression:
     norm = _norm_sql(degree)
     sql = (f"CASE WHEN len(_a) = 0 THEN 0.0 ELSE {norm} END" if name == "vector_norm" else
            f"CASE WHEN len(_a) = 0 THEN CAST([] AS DOUBLE[]) WHEN {norm} = 0 THEN NULL "
-           f"ELSE list_transform(_a, __y -> __y / ({norm})) END")
+           # the lambda's body names the vector, so its argument has a name no table is likely to have
+           f"ELSE list_transform(_a, __kf_y -> __kf_y / ({norm})) END")
     return _whole(sql, args[0])
 
 

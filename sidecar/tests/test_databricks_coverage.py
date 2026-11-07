@@ -162,6 +162,13 @@ def test_databricks_documented_examples_give_its_values(code, want):
     assert _one(code) == [[want]]
 
 
+def test_a_string_degree_is_cast_and_a_column_named_like_a_lambda_argument_is_kept():
+    assert _one("SELECT vector_norm(array(3.0f, 4.0f), '1.0'), vector_norm(array(3.0f, 4.0f), 'inf')") == [
+        ["float:7", "float:4"]]
+    assert _one("SELECT vector_normalize(__y) FROM VALUES (array(3.0f, 4.0f)) AS t(__y)") == [
+        [["float:0.6", "float:0.8"]]]
+
+
 def test_a_vector_that_is_null_or_holds_a_null_gives_null():
     # Databricks documents NULL for both; DuckDB's list functions would stop on the NULL element
     got = _one("SELECT vector_inner_product(e, e), vector_l2_distance(e, e), vector_cosine_similarity(e, e), "

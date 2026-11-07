@@ -1,0 +1,50 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E52",
+  "title": "A notebook runs out of memory: collect() on a large table and a skewed join",
+  "objectives": [
+    "3.2.3",
+    "3.3.5"
+  ],
+  "objective_text": "Read the symptoms of a driver overload and a skewed join, and choose the cause and the fix for each.",
+  "scenario": "A nightly notebook first failed when it pulled a whole table into Python, and after that was patched, its join to customers crawled on one task. The team needs to know what Spark does and what to change.",
+  "minutes": 20,
+  "verifies": [
+    "You can pick the right feature, setting or operator for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can do it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 5 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/azure/databricks/pandas/pyspark-pandas-conversion",
+    "https://learn.microsoft.com/en-us/azure/databricks/optimizations/aqe",
+    "https://learn.microsoft.com/en-us/azure/synapse-analytics/spark/apache-spark-performance",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-monitor-debug"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-07.",
+    "Sources read 2026-11-07: pyspark-pandas-conversion (toPandas collects all records to the driver, use a small subset), Azure Databricks aqe (AQE on by default; splits skewed tasks in sort merge and shuffle hash joins; skewed = more than 5 x median and more than 256MB), Synapse apache-spark-performance (autoBroadcastJoinThreshold or join(broadcast(df2))), Fabric spark-monitor-debug (Spark advisor skew detection). The AQE facts come from Databricks' page and match Apache Spark's own tuning guide; Fabric's runtime may set its own defaults. The notes' line about collect() follows Apache Spark's documentation, which isn't on Learn, so no question rests on it."
+  ]
+}

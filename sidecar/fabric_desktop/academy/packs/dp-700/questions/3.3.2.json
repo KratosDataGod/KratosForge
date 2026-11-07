@@ -60,10 +60,10 @@
         "d"
       ],
       "explanation": "Activities with no dependency between them run in parallel.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/data-factory/concepts-pipelines-activities",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.2-q3",

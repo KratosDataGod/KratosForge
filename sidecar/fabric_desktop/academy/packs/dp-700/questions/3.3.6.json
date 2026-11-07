@@ -27,11 +27,11 @@
       "answer": [
         "c"
       ],
-      "explanation": "Comparing the column itself to a range lets the engine use per-file statistics. Wrapping the column in a function hides its values from that check.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "explanation": "The engine keeps per-file metadata and skips files whose values fall outside the filter's range. A range on OrderDate itself can be checked against that metadata directly. The other options first compute a new value from every row's OrderDate.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.6-q2",

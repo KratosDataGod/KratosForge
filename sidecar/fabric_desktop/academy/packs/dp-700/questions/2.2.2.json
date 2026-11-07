@@ -89,11 +89,11 @@
       "answer": [
         "c"
       ],
-      "explanation": "When data lives in the warehouse and the team works in T-SQL, stored procedures there keep the work in one engine and one language. Warehouse tables are written through T-SQL, not by rewriting their files.",
-      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
-      "version": 1,
+      "explanation": "When data lives in the warehouse and the team works in T-SQL, stored procedures there keep the work in one engine and one language. Moving T-SQL rules into Spark or a dataflow would add a second engine and language for no gain.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-warehousing",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.2-q4",

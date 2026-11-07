@@ -121,10 +121,10 @@
         "c"
       ],
       "explanation": "Caching keeps the computed DataFrame in memory or on disk, so later actions reuse it.",
-      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/synapse-analytics/spark/apache-spark-performance",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

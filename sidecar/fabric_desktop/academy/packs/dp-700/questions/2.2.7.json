@@ -126,10 +126,10 @@
         "a"
       ],
       "explanation": "Denormalized tables repeat values, so they take more space and an attribute change touches every row that repeats it. They need fewer joins, not more.",
-      "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/office/troubleshoot/access/database-normalization-description",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

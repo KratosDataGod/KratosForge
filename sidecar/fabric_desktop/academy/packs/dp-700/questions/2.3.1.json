@@ -158,10 +158,10 @@
         "a"
       ],
       "explanation": "An eventhouse is built for fast queries and time-series analysis on high-volume event data. Large batch transformations and model training in notebooks are Spark's strengths.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

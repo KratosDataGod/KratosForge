@@ -124,10 +124,10 @@
         "c"
       ],
       "explanation": "You start the project from the current schema, change it, build to check it and produce the package, and publish the package to the target.",
-      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

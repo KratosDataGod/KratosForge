@@ -131,10 +131,10 @@
         "b"
       ],
       "explanation": "Without a change column an incremental load can't tell which rows changed, and no watermark ever sees a deleted row. At 50,000 rows a full replace is cheap and always matches the source. Appending every row on each run creates duplicates.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

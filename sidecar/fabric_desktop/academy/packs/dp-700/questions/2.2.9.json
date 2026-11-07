@@ -127,11 +127,11 @@
         "e"
       ],
       "explanation": "A MERGE on the business key and a replace of the batch's own slice both give the same table however often the batch runs. More retries make duplicates more likely, and pushing DISTINCT onto every report leaves the table wrong.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-and-delta-tables",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/delta/merge",
       "case": "larkspur-orders",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

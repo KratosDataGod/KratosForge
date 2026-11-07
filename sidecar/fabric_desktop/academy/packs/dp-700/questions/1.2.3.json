@@ -90,10 +90,10 @@
         "b"
       ],
       "explanation": "Each stage of a deployment pipeline is backed by one workspace, and deploying copies content from one stage's workspace to the next.",
-      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/assign-pipeline",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.2.3-q4",

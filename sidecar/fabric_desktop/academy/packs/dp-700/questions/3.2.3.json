@@ -28,10 +28,10 @@
         "b"
       ],
       "explanation": "An unresolved column error means the plan refers to a column the DataFrame doesn't have at that point. Print the schema before the failing step.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-detail-monitoring",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/error-messages/unresolved-column-error-class",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q2",
@@ -59,10 +59,10 @@
         "b"
       ],
       "explanation": "toPandas and collect pull all the data onto the driver. Keep the work distributed in Spark and only bring small results back.",
-      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pandas/pyspark-pandas-conversion",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q3",

@@ -90,10 +90,10 @@
         "d"
       ],
       "explanation": "Readers sharing a consumer group compete for the same partitions. A dedicated consumer group lets each reader receive every event.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/add-source-azure-event-hubs",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/data-explorer/ingest-data-event-hub-overview",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.5-q4",

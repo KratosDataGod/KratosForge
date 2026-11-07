@@ -1,0 +1,60 @@
+{
+  "_about": "A model of OneLake security on the SalesLH lakehouse. roles maps each role's name to its permission (Read or ReadWrite), its members and the data it covers (folder paths such as Tables/sales or Files/exports). Delete a role by removing its entry.",
+  "lakehouse": {
+    "Tables": {
+      "sales": [
+        "orders",
+        "customers"
+      ],
+      "hr": [
+        "salaries"
+      ]
+    },
+    "Files": {
+      "exports": [
+        "audit",
+        "marketing"
+      ],
+      "raw": []
+    }
+  },
+  "people": {
+    "Analysts": "Workspace Viewers with ReadAll. Read every sales table. Must not see HR data.",
+    "HR": "Read the HR tables only.",
+    "Mia": "Analyst who also handles HR reporting: needs sales and HR tables.",
+    "Auditors": "Partner auditors with ReadAll from a share. Need Files/exports/audit and nothing else.",
+    "Engineers": "Workspace Contributors who load every table."
+  },
+  "roles": {
+    "SalesReaders": {
+      "permission": "Read",
+      "members": [
+        "Analysts",
+        "Mia"
+      ],
+      "data": [
+        "Tables/sales",
+        "Tables/hr"
+      ]
+    },
+    "HRReaders": {
+      "permission": "Read",
+      "members": [
+        "HR",
+        "Mia"
+      ],
+      "data": [
+        "Tables/hr"
+      ]
+    },
+    "AuditReaders": {
+      "permission": "Read",
+      "members": [
+        "Auditors"
+      ],
+      "data": [
+        "Files/exports/audit"
+      ]
+    }
+  }
+}

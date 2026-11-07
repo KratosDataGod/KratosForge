@@ -1,0 +1,145 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "Telemetry from 30,000 vending machines arrives as a stream of events, and support engineers run interactive, fine-grained queries over the last hours. Which store fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A warehouse, loaded each night with COPY INTO from the event files"
+        },
+        {
+          "id": "b",
+          "text": "A SQL database in Fabric, with one row inserted for every event as it arrives"
+        },
+        {
+          "id": "c",
+          "text": "An eventhouse, queried with KQL"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse, read through its SQL analytics endpoint by the support engineers"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The decision guide says: for streaming event data and high-granularity interactive analytics, use an eventhouse. Its primary languages are KQL and T-SQL.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "An order-entry app needs an operational, normalized relational database for many small reads and writes. Which store fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventhouse, with each order sent in as an event"
+        },
+        {
+          "id": "b",
+          "text": "A warehouse, with the app writing through its T-SQL endpoint"
+        },
+        {
+          "id": "c",
+          "text": "A lakehouse, with each order saved as a small Delta file"
+        },
+        {
+          "id": "d",
+          "text": "A SQL database in Fabric"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "For operational, transactional, OLTP workloads or normalized relational databases, the guide says to use SQL database in Fabric.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "The finance team writes T-SQL, builds a star schema, and its loads must update several tables in one transaction. Which store fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventhouse, with each table loaded by its own update policy"
+        },
+        {
+          "id": "b",
+          "text": "A warehouse"
+        },
+        {
+          "id": "c",
+          "text": "A lakehouse, loaded by a T-SQL script run against its SQL analytics endpoint"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse, with a Spark notebook writing each table on its own"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "For T-SQL, the lakehouse or warehouse guide says to use a warehouse. If you need multi-table transactions, use a warehouse: it has full DQL, DML and DDL T-SQL with full transaction support.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-lakehouse-warehouse"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "Data scientists work in PySpark over images, JSON and CSV files, and they train models on them. Which store fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventhouse, with the files sent in as events"
+        },
+        {
+          "id": "b",
+          "text": "A SQL database in Fabric, with each file stored in a varbinary column"
+        },
+        {
+          "id": "c",
+          "text": "A warehouse, with the files loaded into wide varchar columns"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "For big data and machine learning with unstructured, semi-structured or structured data, and for data engineering, the guide says to use a lakehouse. Its primary languages are Spark (Scala, PySpark, Spark SQL, R).",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store"
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "stem": "A team will query a lakehouse through its SQL analytics endpoint. Which two can they do there with T-SQL?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run INSERT, UPDATE and DELETE statements on the Delta tables"
+        },
+        {
+          "id": "b",
+          "text": "Run SELECT queries over the lakehouse's Delta tables"
+        },
+        {
+          "id": "c",
+          "text": "Create SQL views over those tables"
+        },
+        {
+          "id": "d",
+          "text": "Run COPY INTO to load new files into the lakehouse's tables"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "The SQL analytics endpoint is read-only for data: full DQL, no DML, and limited DDL such as SQL views and table-valued functions. Loading with COPY INTO or INSERT needs a warehouse.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-lakehouse-warehouse"
+    }
+  ]
+}

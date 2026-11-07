@@ -1,0 +1,12 @@
+# The engine job builds the engine's own wheel with --no-build-isolation against this, so the
+# build backend is a pinned, hash-checked file rather than whatever PyPI has that minute.
+# sidecar/pyproject.toml's [build-system] must accept this version. Regenerate from the repository root:
+#
+#   echo setuptools==<version> > build/in.txt
+#   uv pip compile build/in.txt --python-platform windows --python-version 3.12 --only-binary :all: \
+#     --no-header --no-annotate --generate-hashes -o .github/requirements/engine-build.txt
+#
+# then put this comment back at the top.
+setuptools==84.2.1 \
+    --hash=sha256:3ff8b3b5492a0aa66960f4419365a86b84e013070d4313e4d4a6894f5d64d6bc \
+    --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2

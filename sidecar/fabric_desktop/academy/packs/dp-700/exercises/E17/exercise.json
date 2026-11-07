@@ -1,0 +1,48 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E17",
+  "title": "Pipeline or notebook: choose the tool for each scenario",
+  "objectives": [
+    "1.4.1",
+    "2.2.2"
+  ],
+  "objective_text": "Choose between a pipeline, a Copy job, a notebook and a Spark job definition for five loading and orchestration scenarios, and say why.",
+  "scenario": "Harbourline's data team has five jobs to build this quarter, from a petabyte migration to a stream that must keep running. Each needs the right tool.",
+  "minutes": 15,
+  "verifies": [
+    "You can pick the right tool or store for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can build it in Fabric: nothing is set up or run here. Doing it on a real item is FABRIC VERIFIED work."
+  ],
+  "expected": {
+    "description": "All 5 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-06."
+  ]
+}

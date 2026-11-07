@@ -41,7 +41,8 @@ generated data and your answer, which is saved as you type and kept after a rest
 - **Check my work** runs the exercise's checks on a fresh copy of its data. A pass is recorded in
   Profile for the exercise's objectives, with how many hints you used.
 - **Hints** go from a nudge to nearly the answer. A challenge passed with more than one hint, or after
-  opening the explanation, doesn't count as independent.
+  opening the explanation, doesn't count as independent. Neither does a quiz passed after changing an answer
+  that was already checked.
 - **…** has **Compare with the expected result** and **Reset the exercise**, which asks first because it
   throws your answer away.
 

@@ -8,7 +8,7 @@ This page lists the automated checks every change passes, what each one enforces
 | --- | --- | --- |
 | `sidecar` | The engine test suite, about 8,700 tests, on the pinned packages. The SQL tests also run at both ends of the sqlglot range, and the engine suite on DuckDB 2.0: on every main push, nightly (`compat-nightly.yml`), and on a pull request that changes package versions or engine code that imports duckdb or sqlglot | Yes |
 | `ui` | `node --test app/tests/ui.test.cjs`, including the raw-HTML-sink check | Yes |
-| `lint` | `ruff check` (rules E9, F) and the mypy ratchet: new type errors fail, against `mypy-baseline.json` | Yes |
+| `lint` | `ruff check` (rules E9, F) and the mypy ratchet: new type errors fail, against `sidecar/mypy-baseline/` (one file per module) | Yes |
 | `ui-browser` | Real UI in headless Chromium, with the engine for SQL and Optimize, plus the axe accessibility audit | Yes |
 | `vscode-extension` | Build and tests of the VS Code extension | Yes |
 | `audit` | `pip-audit` on `constraints.txt` and `cargo audit` on `Cargo.lock`. The CI tools' own advisories are informational only | Yes |

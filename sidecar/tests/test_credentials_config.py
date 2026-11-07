@@ -41,7 +41,8 @@ class ConfidentialApp:
     """msal.ConfidentialClientApplication: records how it was made."""
     made = []
 
-    def __init__(self, client_id, authority=None, client_credential=None):
+    def __init__(self, client_id, authority=None, client_credential=None, timeout=None):
+        assert timeout, "every sign-in call has a timeout"
         ConfidentialApp.made.append({"client_id": client_id, "authority": authority, "credential": client_credential})
 
     def acquire_token_for_client(self, scopes):

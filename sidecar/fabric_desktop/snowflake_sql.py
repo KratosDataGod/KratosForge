@@ -25,7 +25,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
-RULES_VERSION = "2026.11.5"
+RULES_VERSION = "2026.11.6"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -149,6 +149,14 @@ SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
                 "Don't branch on TYPEOF's text for those values in code meant for both; TYPEOF(PARSE_JSON(...)) "
                 "and TYPEOF of a cast are named as in Snowflake.", f"{_DOCS}/functions/typeof")
 
+SFD_APPROX = _n("SFD-010", "Approximate answers use DuckDB's estimators",
+                 "APPROX_COUNT_DISTINCT, HLL and DATASKETCHES_HLL run as DuckDB's approx_count_distinct, and "
+                 "APPROX_PERCENTILE as approx_quantile. Snowflake uses its own estimators, so an estimate can be "
+                 "a little different: APPROX_PERCENTILE(c1, 0.5) over 0 to 10 is 5.5 in Snowflake and 5.0 here, "
+                 "and DATASKETCHES_HLL gives 2.000000005 there where 2.0 is given here. DuckDB's distinct "
+                 "estimate can be off even for a few values: 11 distinct values can count as 12.",
+                 "Use COUNT(DISTINCT ...) or PERCENTILE_CONT where an exact answer matters.",
+                 f"{_DOCS}/functions/approx_percentile")
 SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
                 "Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written "
                 "with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL "
@@ -204,6 +212,15 @@ _ACCOUNT_FUNCTIONS = frozenset({
     "CURRENT_ACCOUNT", "CURRENT_ACCOUNT_NAME", "CURRENT_AVAILABLE_ROLES", "CURRENT_CLIENT", "CURRENT_IP_ADDRESS",
     "CURRENT_ORGANIZATION_NAME", "CURRENT_REGION", "CURRENT_ROLE_TYPE", "CURRENT_SECONDARY_ROLES", "CURRENT_SESSION",
     "CURRENT_STATEMENT", "CURRENT_TRANSACTION", "CURRENT_WAREHOUSE", "LAST_QUERY_ID"})
+
+
+# Functions that build, merge or read a sketch or bitmap state in Snowflake's own format (SFN-016).
+_SKETCH_FUNCTIONS = frozenset({
+    "HLL_ACCUMULATE", "HLL_COMBINE", "HLL_ESTIMATE", "HLL_EXPORT", "HLL_IMPORT", "DATASKETCHES_HLL_ACCUMULATE",
+    "DATASKETCHES_HLL_COMBINE", "DATASKETCHES_HLL_ESTIMATE", "APPROX_TOP_K", "APPROX_TOP_K_ACCUMULATE",
+    "APPROX_TOP_K_COMBINE", "APPROX_TOP_K_ESTIMATE", "APPROX_PERCENTILE_ACCUMULATE", "APPROX_PERCENTILE_COMBINE",
+    "APPROX_PERCENTILE_ESTIMATE", "MINHASH", "MINHASH_COMBINE", "APPROXIMATE_SIMILARITY",
+    "APPROXIMATE_JACCARD_INDEX", "BITMAP_CONSTRUCT_AGG", "BITMAP_COUNT", "BITMAP_OR_AGG"})
 
 
 _VARIANT_TIME_ZONES = frozenset({"IS_TIMESTAMP_LTZ", "IS_TIMESTAMP_TZ", "AS_TIMESTAMP_LTZ", "AS_TIMESTAMP_TZ"})
@@ -269,6 +286,12 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
             return _refuse("SFN-015", f"{_function_name(node)}: VARIANT timestamps with a time zone",
                            "DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell "
                            "TIMESTAMP_LTZ from TIMESTAMP_TZ.", f"{_DOCS}/functions/is")
+        if isinstance(node, exp.Func) and _function_name(node) in _SKETCH_FUNCTIONS:
+            return _refuse("SFN-016", f"{_function_name(node)}: Snowflake sketch and bitmap states",
+                           "It builds, merges or reads a sketch or bitmap in Snowflake's own format, which DuckDB "
+                           "can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE "
+                           "run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) "
+                           "counts.", f"{_DOCS}/functions-aggregation")
         if isinstance(node, exp.Func) and _function_name(node) in _ACCOUNT_FUNCTIONS:
             return _refuse("SFN-014", f"{_function_name(node)}: Snowflake account and session",
                            "It reads the Snowflake account, session or client running the query; this PC has none.",
@@ -510,6 +533,46 @@ def _rewrite_ratio_to_report(statement: exp.Expression) -> None:
 
 
 _EARTH_RADIUS_KM = 6371
+
+
+def _in_window(node: exp.Expression) -> exp.Expression:
+    """The node a cast of aggregate ``node`` wraps: its window when it has one (x(...) OVER (...))."""
+    return node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+
+
+def _rewrite_approximate(statement: exp.Expression) -> None:
+    """SFX-014: HLL is APPROX_COUNT_DISTINCT; DATASKETCHES_HLL is the same estimate as a DOUBLE (its optional
+    max_log_k is a precision setting with no DuckDB equivalent); APPROX_PERCENTILE returns a DOUBLE.
+    DISTINCT inside HLL and DATASKETCHES_HLL has no effect in Snowflake and is dropped. SFD-010 applies."""
+    for hll in list(statement.find_all(exp.Hll)):
+        args = [hll.this, *hll.expressions]
+        args = [a.expressions[0] if isinstance(a, exp.Distinct) and len(a.expressions) == 1 else a for a in args]
+        if len(args) != 1 or isinstance(args[0], exp.Star) or isinstance(args[0], exp.Distinct):
+            raise _Untranslatable(_refuse("SFX-014", "HLL of more than one value", "HLL(*) and HLL(a, b) "
+                                          "aren't rewritten; HLL(x) is.", f"{_DOCS}/functions/hll"))
+        hll.replace(exp.ApproxDistinct(this=args[0].copy()))
+    for node in list(statement.find_all(exp.Anonymous)):
+        if str(node.this).upper() != "DATASKETCHES_HLL":
+            continue
+        args = list(node.expressions)
+        if args and isinstance(args[0], exp.Distinct):  # DISTINCT v, 12 reads as one DISTINCT of two
+            args = [*args[0].expressions, *args[1:]]
+        value = args[0] if args else None
+        if value is None or len(args) > 2:
+            raise _Untranslatable(_refuse("SFX-014", "DATASKETCHES_HLL", "DATASKETCHES_HLL takes a value and "
+                                          "an optional max_log_k.", f"{_DOCS}/functions/datasketches_hll"))
+        target = _in_window(node)
+        estimate = exp.ApproxDistinct(this=value.copy())
+        if target is node:
+            node.replace(exp.Cast(this=estimate, to=exp.DataType.build("DOUBLE")))
+        else:
+            node.replace(estimate)
+            target.replace(exp.Cast(this=target.copy(), to=exp.DataType.build("DOUBLE")))
+    for quantile in list(statement.find_all(exp.ApproxQuantile)):
+        target = _in_window(quantile)
+        if isinstance(target.parent, exp.Cast) and target.parent.to.is_type(exp.DataType.Type.DOUBLE):
+            continue
+        target.replace(exp.Cast(this=target.copy(), to=exp.DataType.build("DOUBLE")))
 
 
 def _rewrite_haversine(statement: exp.Expression) -> None:
@@ -958,6 +1021,9 @@ def _differences(statement: exp.Expression) -> list[Note]:
         notes.append(SFD_DATE)
     if any(not _typeof_known(n) for n in statement.find_all(exp.Typeof)):
         notes.append(SFD_TYPEOF)
+    if any(statement.find_all(exp.ApproxDistinct, exp.Hll, exp.ApproxQuantile)) or any(
+            str(n.this).upper() == "DATASKETCHES_HLL" for n in statement.find_all(exp.Anonymous)):
+        notes.append(SFD_APPROX)
     if any(str(n.this).upper() in _DECIMAL_FAMILY for n in statement.find_all(exp.Anonymous)):
         notes.append(SFD_NUMBER)
     return notes
@@ -1008,6 +1074,10 @@ CATALOG = (
     ("SFX-013", "Rewritten", "[i] on a value read from PARSE_JSON stays 0-based, and [i] with an integer column on "
                 "an ARRAY becomes 1-based, as DuckDB needs. Where the type can't be told from the statement (a "
                 "table's column), [i] is taken for an ARRAY."),
+    ("SFX-014", "Rewritten", "HLL becomes APPROX_COUNT_DISTINCT, DATASKETCHES_HLL the same estimate as a DOUBLE (its "
+                "max_log_k is dropped), and APPROX_PERCENTILE returns a DOUBLE, as in Snowflake. HLL(*) and HLL of "
+                "more than one value aren't rewritten. BITMAP_BUCKET_NUMBER and BITMAP_BIT_POSITION run as "
+                "arithmetic on 32,768-bit buckets."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -1018,6 +1088,7 @@ CATALOG = (
     ("SFD-007", "Runs, with a difference: " + SFD_TYPEOF.title, SFD_TYPEOF.reason),
     ("SFD-008", "Runs, with a difference: " + SFD_NUMBER.title, SFD_NUMBER.reason),
     ("SFD-009", "Runs, with a difference: " + SFD_BRACKET.title, SFD_BRACKET.reason),
+    ("SFD-010", "Runs, with a difference: " + SFD_APPROX.title, SFD_APPROX.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -1040,6 +1111,12 @@ CATALOG = (
                 "CURRENT_SESSION, CURRENT_STATEMENT, CURRENT_TRANSACTION, CURRENT_WAREHOUSE and LAST_QUERY_ID."),
     ("SFN-015", "Runs only in Snowflake", "IS_TIMESTAMP_LTZ, IS_TIMESTAMP_TZ, AS_TIMESTAMP_LTZ and AS_TIMESTAMP_TZ: "
                 "DuckDB keeps one kind of timestamp with a time zone."),
+    ("SFN-016", "Runs only in Snowflake", "Sketch and bitmap states in Snowflake's own format: HLL_ACCUMULATE, "
+                "HLL_COMBINE, HLL_ESTIMATE, HLL_EXPORT, HLL_IMPORT, the DATASKETCHES_HLL_ACCUMULATE, _COMBINE and "
+                "_ESTIMATE functions, APPROX_TOP_K and its _ACCUMULATE, _COMBINE and _ESTIMATE, the "
+                "APPROX_PERCENTILE_ACCUMULATE, _COMBINE and _ESTIMATE functions, MINHASH, MINHASH_COMBINE, "
+                "APPROXIMATE_SIMILARITY, APPROXIMATE_JACCARD_INDEX, BITMAP_CONSTRUCT_AGG, BITMAP_COUNT and "
+                "BITMAP_OR_AGG."),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -1071,6 +1148,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_soundex(tree)
         _rewrite_ratio_to_report(tree)
         _rewrite_haversine(tree)
+        _rewrite_approximate(tree)
         _rewrite_typeof(tree)
         _rewrite_variant_types(tree)
         unknown_brackets = _type_values(tree, written)

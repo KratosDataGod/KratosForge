@@ -698,3 +698,11 @@ def test_try_decoders_give_null_for_an_odd_number_of_hex_digits_and_bad_utf8():
 def test_decoders_with_an_alphabet_say_so(code):
     (note,) = sf.translate(code).statements[0].notes
     assert note.id == "SFX-015" and "alphabet" in note.title
+
+
+@pytest.mark.parametrize("args", ["5, 10, 0, 5", "5, 3, 3, 2"])
+def test_width_bucket_with_min_not_below_max_stops_instead_of_answering(args):
+    import duckdb
+    t = sf.translate(f"SELECT width_bucket({args})")
+    with pytest.raises(duckdb.Error, match="min_value below max_value"):
+        duckdb.connect().execute(t.duckdb_sql).fetchall()

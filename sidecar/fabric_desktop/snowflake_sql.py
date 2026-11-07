@@ -554,7 +554,8 @@ def _soundex_p123_template() -> str:
     from .sql import _ANON_TEMPLATES
     template = _ANON_TEMPLATES["SOUNDEX"]
     old = "kf_v <> '0' AND kf_v <> kf_c[kf_i]"
-    assert old in template
+    if old not in template:  # sql.py's SOUNDEX changed: fail loudly rather than give SOUNDEX's codes
+        raise RuntimeError("SOUNDEX_P123 can't be built from the SOUNDEX template")
     return template.replace(old, "kf_v <> '0' AND (kf_i = 1 OR kf_v <> kf_c[kf_i])")
 
 
@@ -576,7 +577,7 @@ def _rewrite_strings(statement: exp.Expression) -> None:
     is taken for text and a BINARY column stops with DuckDB's error rather than a wrong count).
     MD5_NUMBER_LOWER64 and _UPPER64 read the last and first 16 hex digits of MD5 as an unsigned number.
     WIDTH_BUCKET follows Snowflake's rules: 0 below min, num_buckets + 1 at or above max, NULL when any
-    argument is. TRY_BASE64_DECODE_* and TRY_HEX_DECODE_* give NULL where the text doesn't decode (an
+    argument is; min_value at or above max_value stops with an error rather than give a silent 0. TRY_BASE64_DECODE_* and TRY_HEX_DECODE_* give NULL where the text doesn't decode (an
     odd number of hex digits too). SOUNDEX_P123 keeps the second letter's number. Arguments are worked
     out more than once, which matters only when they aren't deterministic."""
     def sql(node: exp.Expression) -> str:
@@ -598,6 +599,7 @@ def _rewrite_strings(statement: exp.Expression) -> None:
                                           "max_value and num_buckets.", f"{_DOCS}/functions/width_bucket"))
         e, lo, hi, n = (f"({sql(a)})" for a in args if a is not None)
         put(bucket, f"(CASE WHEN {e} IS NULL OR {lo} IS NULL OR {hi} IS NULL OR {n} IS NULL THEN NULL "
+                  f"WHEN {lo} >= {hi} THEN error('WIDTH_BUCKET here needs min_value below max_value') "
                   f"WHEN {e} < {lo} THEN 0 WHEN {e} >= {hi} THEN {n} + 1 "
                   f"ELSE CAST(floor(CAST({e} - {lo} AS DOUBLE) * {n} / CAST({hi} - {lo} AS DOUBLE)) AS BIGINT) + 1 END)")
     decoders = {exp.TryBase64DecodeBinary: "try(from_base64({0}))",
@@ -1161,7 +1163,7 @@ CATALOG = (
     ("SFX-015", "Rewritten", "OCTET_LENGTH counts bytes (a column is taken for text; a BINARY column stops with "
                 "DuckDB's error). MD5_NUMBER_LOWER64 and MD5_NUMBER_UPPER64 read MD5's last and first 64 bits. "
                 "WIDTH_BUCKET gives 0 below min_value, num_buckets + 1 at or above max_value, and NULL when any "
-                "argument is NULL. TRY_BASE64_DECODE_STRING, TRY_BASE64_DECODE_BINARY, TRY_HEX_DECODE_STRING and "
+                "argument is NULL; min_value at or above max_value stops with an error. TRY_BASE64_DECODE_STRING, TRY_BASE64_DECODE_BINARY, TRY_HEX_DECODE_STRING and "
                 "TRY_HEX_DECODE_BINARY give NULL where the text doesn't decode; an alphabet argument isn't "
                 "rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). Arguments are "
                 "worked out more than once, which matters only when they aren't deterministic."),

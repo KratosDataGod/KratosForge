@@ -38,6 +38,10 @@ APPEND_COMMIT_RETRIES = 100
 # How many times an append is sent again after losing the Windows staged-commit race (retrying.staged_commit_race).
 APPEND_RACE_ATTEMPTS = 10
 META_LAKEHOUSE = "LH_Meta"
+# On this PC a meta table (run log, watermarks, ...) is compacted at every this-many-th commit. Each
+# run appends one small file to each, and reading them (the last good run, the watermark) costs a
+# little more per file: without it the 2,000th run of an entity spent over a second reading them.
+META_COMPACT_EVERY = 100
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
 # Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
 # With one central landing workspace (Preview), each source is in a zone, and each zone is its own
@@ -646,7 +650,12 @@ class Store:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         df = pl.DataFrame([{k: r.get(k) for k in schema} | ({"at": r.get("at") or now} if "at" in schema else {})
                            for r in rows], schema=schema)
-        self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
+        version = self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
+        self._tidy_meta(table, version)
+
+    def _tidy_meta(self, table: str, version: int) -> None:
+        """After an append to a meta table: on this PC, compact it now and then (LocalStore). In
+        OneLake Fabric's own table maintenance does that."""
 
     def meta(self, table: str) -> pl.DataFrame:
         df = self.read(META_LAKEHOUSE, "meta", table)
@@ -746,6 +755,22 @@ class LocalStore(Store):
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
 
     removes_unwritten = True
+
+    def _tidy_meta(self, table: str, version: int) -> None:
+        """Compact the meta table at every META_COMPACT_EVERY-th commit, so its file count (and the time
+        each run spends reading it) stays bounded. Exactly one writer makes that commit, so two never
+        compact at once. Compaction only rewrites files into one and keeps every row and every
+        version; VACUUM (Optimize on the Maintain page) is what removes the old files. Never raises:
+        the append stands either way, and the next round tries again."""
+        if version <= 0 or version % META_COMPACT_EVERY:
+            return
+        uri = self.uri(META_LAKEHOUSE, "meta", table)
+        try:
+            dt_ = DeltaTable(uri)
+            dt_.optimize.compact()
+            durable.sync_commits(uri, version + 1, dt_.version())
+        except Exception as exc:  # noqa: BLE001 - only slower reads until the next round
+            _log.warning("Couldn't compact the %s table: %s", table, describe(exc))
 
     def _committed(self, uri: str, table: DeltaTable) -> int:
         """On this PC, each commit is also flushed to disk (durable.py) before the write returns."""

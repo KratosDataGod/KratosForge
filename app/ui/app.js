@@ -1132,7 +1132,8 @@ async function renderMonitor() {
       seg("env", "Environment", [["all", "All"], ...Object.entries(ENV_LABEL)]),
       seg("where", "Where it ran", [["any", "Anywhere"], ["local", "This PC"], ["fabric", "Fabric"]]),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
-        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first")],
+        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
+      forgeViewShown() ? forgeViewToggle() : null],
     op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
       onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
     monitorSlots.views, h("span", { class: "spacer" }), monitorSlots.tools,
@@ -1143,15 +1144,19 @@ async function renderMonitor() {
     : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
+  // The Forge Activity view (forge-activity.js, Preview): today's counts in the header, the band above the table.
+  const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
+  const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
+  const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
   setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
     POP_OUT ? null : h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      h("div", { class: "head-actions" }, popOutHere)),
+      h("div", { class: "head-actions" }, forgeStripSlot, popOutHere)),
     tabs, runsBand ? null : viewRow,
     hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
       : h("section", { class: "card monitor-fabric" }, slot))
       : runsBand ? poppedOutBand("runs", "From KratosForge", "monitor-local")
-        : [note, h("section", { class: "card monitor-local" }, local)]));
+        : [forgeBandSlot, note, h("section", { class: "card monitor-local" }, local)]));
   if (hubShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
   if (hub || runsBand) return;
@@ -1196,7 +1201,7 @@ async function renderMonitor() {
     }, 2500);
   };
   if (fabricPipelines?.pending) waitForScan();
-  const rows = [
+  const all = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
       env: r.env, where: r.compute || "local", ranOn: ranOn(r), seconds: r.seconds, rows: r.rows_written,
@@ -1223,7 +1228,9 @@ async function renderMonitor() {
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
-  ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
+  ];
+  if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);
+  const rows = all.filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
       && (monitorPage.where === "any" || r.where === monitorPage.where)
       && matches(`${r.activity} ${r.kind} ${r.note} ${r.reason}`))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));

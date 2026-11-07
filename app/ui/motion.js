@@ -62,6 +62,9 @@ const FORGE_EVENTS = {
   "sql.succeeded": "spark",
   "sql.failed": "fail",
   "achievement.unlocked": "achieve",
+  // Monitor's Forge view (forge-activity.js): a run it showed finished, once per run.
+  "forge.run.succeeded": "strike",
+  "forge.run.failed": "fail",
   "validate.passed": "cool",
   "validate.failed": "fail",
   "prove.matched": "cool",

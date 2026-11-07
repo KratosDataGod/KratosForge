@@ -1605,6 +1605,11 @@ async function runCells(cells) {
   // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
   const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell", "on this PC") : null;
   track?.set(0, code.length);
+  // Monitor's Forge view (forge-activity.js) reads the same count, and how the run ended. Only a run in
+  // this PC's kernel: a run on another engine isn't shown there as running on this PC.
+  const forgeRun = { done: 0, total: code.length, started: Date.now(), result: null, ended: null };
+  nb.forgeRun = !code.length || nbOnEngine(nb) ? null : forgeRun;
+  const ended = (result, done) => Object.assign(forgeRun, { result, done, ended: Date.now() });
   if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
   nb.runningAll = true;
   try {
@@ -1614,18 +1619,22 @@ async function runCells(cells) {
         track?.stop();
         code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
         setKernel(nb.stopRequested ? "stopped" : "idle", nb);
+        ended(cell.status === "error" ? "failed" : "stopped", i);
         announce(cell.status === "error" ? `Run stopped: cell ${nb.cells.indexOf(cell) + 1} failed` : "Run stopped");
         done(ok ? i + 1 : i);
         return;
       }
       track?.set(i + 1, code.length);
+      forgeRun.done = i + 1;
       setKernel("busy", nb);
     }
+    ended("ok", code.length);
     track?.arrive();
     if (code.length) announce(`Run finished: ${code.length} ${code.length === 1 ? "cell" : "cells"} succeeded`);
     setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   } finally {
     nb.runningAll = false;
+    if (!forgeRun.result) ended("stopped", forgeRun.done);  // an error left the loop
   }
   done(code.length);
 }

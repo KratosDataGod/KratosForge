@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Add more single-row inserts in parallel"
+          "text": "Add more single-row inserts running in parallel across several connections"
         },
         {
           "id": "b",
@@ -17,7 +17,7 @@
         },
         {
           "id": "c",
-          "text": "Wrap each insert in its own transaction"
+          "text": "Wrap each single-row insert in its own explicit BEGIN TRAN and COMMIT"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "The warehouse is built for set-based loads. Singleton inserts create many small files and transactions.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.3-q2",
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "You must rebuild every index nightly"
+          "text": "You must rebuild every clustered and nonclustered index nightly so the optimizer has fresh statistics"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "It needs a Spark job to build them"
+          "text": "It needs a scheduled Spark job to compute statistics from the Delta log before the optimizer can use any of them"
         },
         {
           "id": "d",
-          "text": "Nothing; statistics aren't used"
+          "text": "Nothing; the warehouse's optimizer doesn't use statistics, so plans rely only on table size"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Statistics help the optimizer estimate row counts. The warehouse maintains them automatically, and manual statistics can help specific queries.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/statistics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.3-q3",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Larger types are not allowed"
+          "text": "Larger types such as varchar(8000) are not allowed in a Fabric warehouse"
         },
         {
           "id": "b",
-          "text": "It makes no difference"
+          "text": "It makes no difference, since storage is compressed to the real value length"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "Smaller types turn on V-Order"
+          "text": "Smaller types turn on V-Order for the column, which compresses it better"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Right-sized types reduce what has to be stored, read and held in memory, which speeds up queries.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.3-q4",
@@ -137,15 +137,15 @@
         },
         {
           "id": "b",
-          "text": "A nonzero `result_cache_hit`"
+          "text": "A nonzero `result_cache_hit` on the first run"
         },
         {
           "id": "c",
-          "text": "A zero `row_count`"
+          "text": "A zero `row_count` for the first run"
         },
         {
           "id": "d",
-          "text": "A `status` of Canceled"
+          "text": "A `status` of Canceled on the first run"
         }
       ],
       "answer": [
@@ -153,7 +153,7 @@
       ],
       "explanation": "A nonzero data_scanned_remote_storage_mb means data was read from remote storage, which indicates a cold start. result_cache_hit is about result set caching.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -231,15 +231,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Run UPDATE STATISTICS on the SQL analytics endpoint every hour"
+          "text": "Run UPDATE STATISTICS on the SQL analytics endpoint every hour to fix the plans for all the small files"
         },
         {
           "id": "b",
-          "text": "Disable result set caching on the SQL analytics endpoint"
+          "text": "Disable result set caching on the SQL analytics endpoint so each query reads the newest files"
         },
         {
           "id": "c",
-          "text": "Wait, because automatic data compaction runs on lakehouse tables too"
+          "text": "Wait, because automatic data compaction runs on lakehouse tables too, as it does in the warehouse"
         },
         {
           "id": "d",
@@ -251,7 +251,7 @@
       ],
       "explanation": "Data compaction runs automatically for Fabric Data Warehouse but doesn't apply to the lakehouse; for lakehouse tables you run OPTIMIZE after big changes.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -262,7 +262,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Run `UPDATE STATISTICS` on SaleDate"
+          "text": "Run `UPDATE STATISTICS` on SaleDate so the clustering follows it"
         },
         {
           "id": "b",
@@ -270,11 +270,11 @@
         },
         {
           "id": "c",
-          "text": "Run `ALTER TABLE ... CLUSTER BY (SaleDate)`"
+          "text": "Run `ALTER TABLE ... CLUSTER BY (SaleDate)` on the existing table"
         },
         {
           "id": "d",
-          "text": "Use `SELECT INTO` with a CLUSTER BY clause"
+          "text": "Use `SELECT INTO` a new table with a `CLUSTER BY (SaleDate)` clause"
         }
       ],
       "answer": [
@@ -282,7 +282,7 @@
       ],
       "explanation": "Clustering columns can't be changed after creation; you use CTAS to create a new table with the desired clustering. SELECT INTO with data clustering isn't supported.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -293,11 +293,11 @@
       "options": [
         {
           "id": "a",
-          "text": "An IDENTITY column used as the surrogate key"
+          "text": "An IDENTITY column used as the fact table's surrogate key"
         },
         {
           "id": "b",
-          "text": "A low cardinality column such as a two-value flag"
+          "text": "A low cardinality column such as a two-value IsActive flag"
         },
         {
           "id": "c",
@@ -305,7 +305,7 @@
         },
         {
           "id": "d",
-          "text": "A column used only in equality join conditions"
+          "text": "A column used only in equality join conditions to dimension tables"
         }
       ],
       "answer": [
@@ -313,7 +313,7 @@
       ],
       "explanation": "Mid-to-high cardinality columns that appear often in WHERE predicates give the best file pruning. Low cardinality columns give little pruning, equality joins don't benefit, and IDENTITY columns can't be used.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     }

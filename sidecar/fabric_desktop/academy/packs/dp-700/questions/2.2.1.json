@@ -235,15 +235,15 @@
         },
         {
           "id": "b",
-          "text": "A SQL database in Fabric"
+          "text": "A SQL database item in Fabric"
         },
         {
           "id": "c",
-          "text": "A Fabric Data Warehouse"
+          "text": "A warehouse in Fabric Data Warehouse"
         },
         {
           "id": "d",
-          "text": "A lakehouse"
+          "text": "A lakehouse with schemas enabled"
         }
       ],
       "answer": [
@@ -251,7 +251,7 @@
       ],
       "explanation": "All Fabric data stores are in OneLake in open table format by default except a KQL database in an eventhouse, where OneLake availability is opt-in.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

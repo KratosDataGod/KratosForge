@@ -93,9 +93,15 @@
   --accent-border: #c7d3e8;
   --custom-soft: #efe6fa;
   --surface-warm: #faf9f8;
-  --forge-band: linear-gradient(90deg, #fdf6ec 0%, #fbecd8 38%, #f2d9b8 70%);  /* Monitor's Forge view (forge-activity.js) */
-  --forge-band-edge: #ecd2ad;
-  --forge-ink: #0b1420;
+  --forge-band: linear-gradient(180deg, #000f22 0%, #011c37 35%, #0a2a4b 100%);  /* Monitor's Forge view (forge-activity.js): the banner's own navy */
+  --forge-band-edge: #0a2a4b;
+  --forge-ink: #ffffff;
+  --forge-line: #e6ecf5;
+  --forge-active: #f8991c;
+  --forge-done: #7fd99b;
+  --forge-failed: #ff9e9e;
+  --forge-quiet: #c9d6ea;
+  --forge-link: #ffcf8a;
   --muted-3: #707070;
   --code-ref: #1d4f2f;
   --code-comment: #5f6b5f;
@@ -3244,15 +3250,15 @@ tr.fg-conflict { background: var(--danger-soft); }
 .forge-stat.bad b { color: var(--danger); }
 .forge-strip-slot { margin-left: auto; max-width: 100%; min-width: 0; }
 .forge-toggle { margin-left: 4px; }
-.forge-band { position: relative; flex: none; min-height: 180px; margin-bottom: 12px; border-radius: 10px; overflow: hidden;
-  background: var(--forge-band); border: 1px solid var(--forge-band-edge); color: var(--text); }
-.forge-side { position: relative; width: 55%; min-width: 360px; box-sizing: border-box; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
+.forge-band { position: relative; flex: none; display: grid; grid-template-columns: minmax(360px, 1fr) minmax(0, 750px); align-items: start;
+  margin-bottom: 12px; border-radius: 10px; overflow: hidden; background: var(--forge-band); border: 1px solid var(--forge-band-edge); color: var(--text); }
+.forge-side { position: relative; grid-column: 1; grid-row: 1; min-width: 0; box-sizing: border-box; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
 .forge-title { margin: 0; font: italic 800 26px/1 "Bahnschrift", "Arial Narrow", system-ui, sans-serif; font-stretch: condensed; color: var(--forge-ink); letter-spacing: .01em; }
-.forge-band.active .forge-title span, .forge-band.waiting .forge-title span { color: var(--warn-2); }
-.forge-band.done .forge-title span { color: var(--ok); }
-.forge-band.failed .forge-title span { color: var(--danger); }
-.forge-band.idle .forge-title span { color: var(--muted); }
-.forge-sub { margin: 0; color: var(--text); }
+.forge-band.active .forge-title span, .forge-band.waiting .forge-title span { color: var(--forge-active); }
+.forge-band.done .forge-title span { color: var(--forge-done); }
+.forge-band.failed .forge-title span { color: var(--forge-failed); }
+.forge-band.idle .forge-title span { color: var(--forge-quiet); }
+.forge-sub { margin: 0; color: var(--forge-line); }
 .forge-lanes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .forge-lane { display: grid; grid-template-columns: minmax(120px, 160px) 1fr 72px; align-items: center; gap: 12px; padding: 8px 12px;
   background: var(--surface); border: 1px solid var(--warn-border); border-radius: 8px; }
@@ -3274,18 +3280,17 @@ tr.fg-conflict { background: var(--danger-soft); }
 .forge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand-orange); }
 .forge-wolf { display: none; width: 18px; height: 16px; color: var(--accent); }
 .forge-wolf svg { width: 16px; height: 16px; }
-.forge-more { font-weight: 600; }
-/* The scene, on the right: the anvil with its glow and sparks, the wolf beside it. */
-.forge-scene { position: absolute; top: 0; right: 0; bottom: 0; width: 45%; pointer-events: none; }
-.forge-anvil { position: absolute; left: 50%; top: 50%; margin: -30px 0 0 -36px; color: var(--forge-ink); }
-.forge-anvil svg { display: block; }
-.forge-scene-wolf { position: absolute; left: calc(50% + 56px); top: calc(50% + 2px); color: var(--accent); opacity: .85; }
-.forge-scene-wolf svg { display: block; transform: scaleX(-1); }
-.forge-glow { position: absolute; left: 50%; top: 50%; width: 200px; height: 140px; margin: -70px 0 0 -100px; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(255,190,90,.7), rgba(248,153,28,.3) 45%, rgba(248,153,28,0)); opacity: 0; }
+.page .forge-more { font-weight: 600; color: var(--forge-link); }
+/* The scene, on the right: the whole banner at its 3:1 ratio, never cropped or stretched, its empty left
+   sky faded into the band's navy. The glow, sparks and the strike's anchor sit on the anvil's fire. */
+.forge-scene { position: relative; grid-column: 2; grid-row: 1; align-self: end; width: 100%; aspect-ratio: 2172 / 724; pointer-events: none; }
+.forge-art { display: block; width: 100%; height: auto; aspect-ratio: 2172 / 724;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); }
+.forge-anvil { position: absolute; left: 96.5%; top: 57%; width: 24px; height: 24px; margin: -12px 0 0 -12px; }
+.forge-glow { position: absolute; left: 96.5%; top: 57%; width: 80px; height: 60px; margin: -30px 0 0 -40px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255,190,90,.7), rgba(248,153,28,.3) 45%, rgba(248,153,28,0)); opacity: 0; mix-blend-mode: screen; }
 .forge-band:is(.active, .waiting) .forge-glow { opacity: .6; }
-.forge-band.failed .forge-scene { filter: grayscale(.85) brightness(.8); }
-.forge-sparks i { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; border-radius: 50%; background: var(--fx-ember);
+.forge-sparks i { position: absolute; left: 96.5%; top: 57%; width: 4px; height: 4px; border-radius: 50%; background: var(--fx-ember);
   box-shadow: 0 0 6px 2px rgba(248,153,28,.8); opacity: 0; }
 html[data-motion="on"][data-fx-wolf="on"] .forge-wolf { display: inline-flex; }
 html[data-motion="on"][data-fx-wolf="on"] .forge-wolf svg { animation: forge-run 1s ease-in-out infinite; }
@@ -3299,7 +3304,6 @@ html[data-motion="on"][data-fx-sparks="on"] .forge-band.active .forge-sparks i {
 .forge-sparks i:nth-child(3) { --dx: 60px; --dy: -14px; }
 html[data-motion="on"] .forge-band.active .forge-sparks i:nth-child(2) { animation-delay: .3s; }
 html[data-motion="on"] .forge-band.active .forge-sparks i:nth-child(3) { animation-delay: .6s; }
-html[data-motion="on"] .forge-band.failed .forge-scene { animation: forge-cool 1.2s ease-out both; }
 html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot, .forge-glow, .forge-sparks i) { animation-play-state: paused; }
 @keyframes forge-run { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px) translateY(-1px); } }
 @keyframes forge-sheen { from { background-position: -60px 0; } to { background-position: 260px 0; } }
@@ -3307,12 +3311,11 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
 @keyframes forge-glow { 0%, 100% { opacity: .5; transform: scale(1); } 50% { opacity: .85; transform: scale(1.08); } }
 @keyframes forge-spark { 0% { opacity: 0; transform: translate(0, 0) scale(1); } 10% { opacity: 1; }
   100% { opacity: 0; transform: translate(var(--dx, -46px), var(--dy, -40px)) scale(.3); } }
-@keyframes forge-cool { from { filter: none; } to { filter: grayscale(.85) brightness(.8); } }
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-motion-override]) :is(.forge-wolf svg, .forge-fill, .forge-dot, .forge-glow, .forge-sparks i, .forge-band .forge-scene) { animation: none; transition: none; }
+  html:not([data-motion-override]) :is(.forge-wolf svg, .forge-fill, .forge-dot, .forge-glow, .forge-sparks i) { animation: none; transition: none; }
   html:not([data-motion-override]) .forge-sparks { display: none; }
 }
-@media (max-width: 900px) { .forge-scene { display: none; } .forge-side { width: 100%; min-width: 0; } }
+@media (max-width: 900px) { .forge-band { grid-template-columns: 1fr; } .forge-scene { display: none; } }
 /* Narrow windows: the counts go two by two and a lane stacks its time under its status. */
 @media (max-width: 600px) {
   .forge-stat { flex: 1 1 45%; }
@@ -3320,4 +3323,4 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .forge-lane { grid-template-columns: 1fr; gap: 4px; }
   .forge-time { flex-direction: row; gap: 6px; text-align: left; }
 }
-@media (forced-colors: active) { .forge-band { background: Canvas; border-color: CanvasText; } .forge-glow, .forge-sparks { display: none; } }
+@media (forced-colors: active) { .forge-band { background: Canvas; border-color: CanvasText; } .forge-art, .forge-glow, .forge-sparks { display: none; } }

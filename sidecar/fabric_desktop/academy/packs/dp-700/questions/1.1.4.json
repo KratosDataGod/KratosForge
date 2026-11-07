@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A KQL database for event data"
+          "text": "A KQL database for storing and querying event data from scheduled workflow runs"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "A low-code Power Query editor"
+          "text": "A low-code Power Query editor for building scheduled transformations without writing Python"
         },
         {
           "id": "d",
-          "text": "A deployment pipeline with Airflow branding"
+          "text": "A deployment pipeline with Airflow branding that promotes items between stages"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "An Apache Airflow job hosts Airflow for you, so the team writes DAGs in Python and runs them without managing the Airflow infrastructure.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.4-q2",
@@ -138,15 +138,15 @@
       "options": [
         {
           "id": "a",
-          "text": "It was converted to a custom pool"
+          "text": "It was converted to a custom pool, which stays on until someone pauses it"
         },
         {
           "id": "b",
-          "text": "It was deleted with its DAGs"
+          "text": "It was deleted together with its DAGs, which must be uploaded again"
         },
         {
           "id": "c",
-          "text": "It is still running and billing"
+          "text": "It is still running and billing, since starter pools never shut down on their own"
         },
         {
           "id": "d",
@@ -158,7 +158,7 @@
       ],
       "explanation": "The starter pool shuts down after 20 minutes of inactivity, and resuming takes up to 5 minutes. Custom pools stay on until paused.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -270,7 +270,7 @@
       "options": [
         {
           "id": "a",
-          "text": "No pool, so jobs fail to start"
+          "text": "No pool, so Airflow jobs fail to start until it is turned on"
         },
         {
           "id": "b",
@@ -278,11 +278,11 @@
         },
         {
           "id": "c",
-          "text": "A Spark custom pool"
+          "text": "The workspace's default Spark custom pool for notebooks"
         },
         {
           "id": "d",
-          "text": "The last custom pool someone created"
+          "text": "The last custom pool created by any workspace admin"
         }
       ],
       "answer": [
@@ -290,7 +290,7 @@
       ],
       "explanation": "With item-level compute customization turned off, the starter pool is used for all Airflow environments in the workspace.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

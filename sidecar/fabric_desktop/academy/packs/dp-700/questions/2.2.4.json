@@ -299,15 +299,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Mirroring creates an import-mode semantic model that refreshes every 15 seconds"
+          "text": "Mirroring creates an import-mode semantic model that Power BI refreshes every 15 seconds"
         },
         {
           "id": "b",
-          "text": "Mirroring sends each change to Power BI as a push dataset"
+          "text": "Mirroring sends each replicated change straight to Power BI as rows in a push dataset"
         },
         {
           "id": "c",
-          "text": "Power BI queries the source database directly through the mirrored item"
+          "text": "Power BI queries the operational source database directly in DirectQuery mode through the mirrored item"
         },
         {
           "id": "d",
@@ -319,7 +319,7 @@
       ],
       "explanation": "Mirrored data lands in OneLake in Delta Lake format, so Power BI connects in Direct Lake mode and reads the files directly.",
       "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     }

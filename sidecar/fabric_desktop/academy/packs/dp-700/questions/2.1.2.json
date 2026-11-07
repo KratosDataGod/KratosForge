@@ -13,15 +13,15 @@
         },
         {
           "id": "b",
-          "text": "A surrogate key removes the need to load the fact table"
+          "text": "A surrogate key removes the need to load the fact table, because the dimension then holds every measure as well"
         },
         {
           "id": "c",
-          "text": "Surrogate keys are required before a table can be stored as Delta"
+          "text": "Surrogate keys are required before a table can be stored as Delta, because Delta tables reject natural keys taken from source systems"
         },
         {
           "id": "d",
-          "text": "Surrogate keys make the source system's updates faster"
+          "text": "Surrogate keys make the source system's updates faster, because the source no longer has to maintain its own index"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "A surrogate key is assigned by the warehouse, so it doesn't change when a source system reuses or renumbers keys, keys from two sources can't collide, and a slowly changing dimension can keep several rows for one business key, each with its own surrogate key.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.2-q2",
@@ -44,15 +44,15 @@
         },
         {
           "id": "b",
-          "text": "Delete the customer and their sales, then reload them"
+          "text": "Delete the customer and all of their past sales, then reload them all so that every sales row carries the new city, York"
         },
         {
           "id": "c",
-          "text": "Add a CurrentCity column and keep the old city in the original column"
+          "text": "Add a CurrentCity column for York and keep the previous city, Leeds, in the original City column"
         },
         {
           "id": "d",
-          "text": "Overwrite the city on the existing row"
+          "text": "Overwrite the city on the existing customer row so all of the customer's sales show the latest city"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Keeping history this way is a type 2 slowly changing dimension: the old row keeps the old city and stays linked to past facts, and new facts use the new row's surrogate key. Overwriting (type 1) loses history, and an extra column (type 3) keeps only one previous value.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.2-q3",
@@ -141,15 +141,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Surrogate keys can't be generated again once the table has been truncated"
+          "text": "Surrogate keys can't be generated again once the table has been truncated, so new rows would fail"
         },
         {
           "id": "b",
-          "text": "A full reload always takes longer than an SCD type 1 update of every row"
+          "text": "A full reload always takes longer than an SCD type 1 update of every row in the dimension"
         },
         {
           "id": "c",
-          "text": "TRUNCATE TABLE isn't supported on dimension tables in a Fabric warehouse"
+          "text": "TRUNCATE TABLE isn't supported on dimension tables in a Fabric warehouse, so the load would fail"
         },
         {
           "id": "d",
@@ -161,7 +161,7 @@
       ],
       "explanation": "Truncating and reloading a dimension with generated surrogate keys invalidates the fact data that references them, and SCD type 2 history might not be rebuildable. TRUNCATE is supported (it's recommended for staging tables).",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "By putting both in a ForEach"
+          "text": "By putting both the Copy activity and the cleanup activity in a ForEach"
         },
         {
           "id": "b",
-          "text": "By scheduling the cleanup separately"
+          "text": "By scheduling the cleanup activity separately to run after the Copy"
         },
         {
           "id": "c",
-          "text": "With an Upon success dependency"
+          "text": "With an Upon success dependency from the Copy activity to the cleanup activity"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Activity dependencies can be Upon success, Upon failure, Upon completion or Upon skip. Upon failure runs the next activity only when the previous one fails.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.1-q2",
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Remove the activity"
+          "text": "Remove the activity and copy the data with a notebook"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "Change the destination to CSV"
+          "text": "Change the destination file format to CSV"
         },
         {
           "id": "d",
-          "text": "Increase the capacity SKU"
+          "text": "Increase the capacity SKU so the network is faster"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Activity retries handle transient errors by running the activity again after an interval.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.1-q3",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A larger timeout"
+          "text": "A larger timeout so the copy can convert the values"
         },
         {
           "id": "b",
-          "text": "A different workspace"
+          "text": "A different workspace for the destination"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "Retries"
+          "text": "Retries on the Copy activity with a longer retry interval"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Fault tolerance lets the copy skip rows it can't write and log them for review, instead of failing the whole copy. Retries would fail the same way.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.1-q4",
@@ -140,15 +140,15 @@
         },
         {
           "id": "b",
-          "text": "Replace the Web activity with a Fail activity"
+          "text": "Replace each Web activity with a Fail activity that reports the error"
         },
         {
           "id": "c",
-          "text": "Increase the Web activity's timeout to 12 hours"
+          "text": "Increase the Web activity's timeout to 12 hours so the calls can wait their turn"
         },
         {
           "id": "d",
-          "text": "Move the pipelines to a workspace with V-Order enabled"
+          "text": "Move the pipelines to a workspace with V-Order enabled for its tables"
         }
       ],
       "answer": [
@@ -156,7 +156,7 @@
       ],
       "explanation": "Error 2003 means too many activities run concurrently, often because many pipelines are triggered at once; the fix is to reduce concurrency or distribute trigger times. A longer timeout doesn't reduce throttling.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-troubleshoot-guide",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -167,11 +167,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Change the pipeline to run in Sequential mode"
+          "text": "Change the pipeline's ForEach to run in Sequential mode so that each parameter value is passed on its own"
         },
         {
           "id": "b",
-          "text": "Increase the activity's retry count"
+          "text": "Increase the retry count on the receiving activity so that the oversized payload is resent in smaller pieces on each later retry"
         },
         {
           "id": "c",
@@ -179,7 +179,7 @@
         },
         {
           "id": "d",
-          "text": "Split the pipeline into two workspaces"
+          "text": "Split the pipeline into two workspaces so that each one has its own payload limit"
         }
       ],
       "answer": [
@@ -187,7 +187,7 @@
       ],
       "explanation": "The payload for an activity run, including configurations and data, is limited to 896 KB, so you reduce large parameter values or avoid passing them across activities. Retries and sequential mode don't shrink the payload.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-troubleshoot-guide",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -260,11 +260,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Set the Lookup activity's retry count to 0"
+          "text": "Set the Lookup activity's retry count to 0 so the empty result fails the pipeline"
         },
         {
           "id": "b",
-          "text": "Add a Set variable activity that stores the error text"
+          "text": "Add a Set variable activity that stores the error text and code for the run history"
         },
         {
           "id": "c",
@@ -272,7 +272,7 @@
         },
         {
           "id": "d",
-          "text": "Add a Wait activity after the Lookup activity"
+          "text": "Add a Wait activity after the Lookup activity that times out when the Lookup returns no rows"
         }
       ],
       "answer": [
@@ -280,7 +280,7 @@
       ],
       "explanation": "The Fail activity throws an error with a custom message and code, typically placed in the True branch of an If Condition that evaluates the error condition. Retry settings and variables don't fail the run with a custom code.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/fail-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

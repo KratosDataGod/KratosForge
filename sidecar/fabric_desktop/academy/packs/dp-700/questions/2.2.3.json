@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "The folder and its files are deleted"
+          "text": "The folder and its files are deleted along with it"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "The folder becomes read-only"
+          "text": "The folder becomes read-only for its own lakehouse"
         },
         {
           "id": "d",
-          "text": "The folder is moved into your lakehouse"
+          "text": "The folder is moved into your lakehouse's Files section"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Deleting a shortcut deletes the shortcut object only. The target data is untouched.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.3-q3",

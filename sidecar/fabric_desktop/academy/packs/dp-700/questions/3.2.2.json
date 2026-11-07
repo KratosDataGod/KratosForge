@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The deployment pipeline"
+          "text": "The deployment pipeline's comparison view"
         },
         {
           "id": "b",
-          "text": "The eventstream runtime logs"
+          "text": "The eventstream runtime logs for the workspace"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "The warehouse's query insights"
+          "text": "The warehouse's query insights for the destination"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Refresh history shows each run, and its details show the status and error for each table or activity.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q2",
@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "V-Order is off"
+          "text": "V-Order is turned off on the destination lakehouse, which on-premises gateways require"
         },
         {
           "id": "b",
-          "text": "The workspace has no Git connection"
+          "text": "The workspace has no Git connection, which on-premises connections require"
         },
         {
           "id": "c",
-          "text": "The lakehouse has too many tables"
+          "text": "The lakehouse destination has too many tables for the gateway to handle"
         },
         {
           "id": "d",
@@ -60,9 +60,9 @@
       ],
       "explanation": "On-premises sources are reached through a gateway. If it is offline, or the connection doesn't use it, the refresh can't reach the source.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/how-to-access-on-premises-data",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q3",
@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Refresh the dataflow again without changes"
+          "text": "Refresh the dataflow again without changes, since the type mismatch clears on a second run"
         },
         {
           "id": "b",
@@ -79,7 +79,7 @@
         },
         {
           "id": "c",
-          "text": "Turn on high concurrency"
+          "text": "Turn on high concurrency mode in the workspace's Spark settings so the lakehouse write can convert the types"
         },
         {
           "id": "d",
@@ -91,9 +91,9 @@
       ],
       "explanation": "The dataflow's column types must match the destination's. Change the type step or clean the values so they convert.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The semantic model's labels"
+          "text": "The sensitivity labels on the semantic model that reads it"
         },
         {
           "id": "b",
-          "text": "The capacity SKU"
+          "text": "The capacity SKU and its current utilization in the metrics app"
         },
         {
           "id": "c",
@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "The workspace's domain"
+          "text": "The workspace's domain and its admin settings"
         }
       ],
       "answer": [
@@ -122,9 +122,9 @@
       ],
       "explanation": "Authentication errors usually come from expired or changed credentials on the connection. Update them in the connection settings.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflows-gen2-monitor",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.2-q5",
@@ -164,15 +164,15 @@
       "options": [
         {
           "id": "a",
-          "text": "The column has values that can't be converted to text"
+          "text": "The column has values that can't be converted to text in the changed type step"
         },
         {
           "id": "b",
-          "text": "The gateway can't reach the source"
+          "text": "The on-premises data gateway can't reach the source system to read the renamed column"
         },
         {
           "id": "c",
-          "text": "The lakehouse destination table is locked"
+          "text": "The lakehouse destination table is locked by another write"
         },
         {
           "id": "d",
@@ -184,7 +184,7 @@
       ],
       "explanation": "This step-level error is triggered when a step references a column name that doesn't exist, which is the case after the source rename. It's not a connectivity or conversion error.",
       "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -195,15 +195,15 @@
       "options": [
         {
           "id": "a",
-          "text": "The output destination table has too many columns"
+          "text": "The output destination table has more columns than the source query"
         },
         {
           "id": "b",
-          "text": "A column in the source has mixed data types"
+          "text": "A column in the source file has mixed data types that the query can't convert"
         },
         {
           "id": "c",
-          "text": "The query has too many applied steps"
+          "text": "The query has too many applied steps for the engine to evaluate"
         },
         {
           "id": "d",
@@ -215,7 +215,7 @@
       ],
       "explanation": "DataSource.NotFound commonly occurs when the source is inaccessible to the user, the credentials are wrong, or the source moved. Data types and step counts don't cause it.",
       "source": "https://learn.microsoft.com/en-us/power-query/dealing-with-errors",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -257,11 +257,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The lakehouse's table maintenance dialog"
+          "text": "The lakehouse's table maintenance dialog for the destination table"
         },
         {
           "id": "b",
-          "text": "The Capacity Metrics app's Storage page"
+          "text": "The Capacity Metrics app's Storage page for the workspace"
         },
         {
           "id": "c",
@@ -269,7 +269,7 @@
         },
         {
           "id": "d",
-          "text": "The workspace's Git integration panel"
+          "text": "The workspace's Git integration panel and commit history"
         }
       ],
       "answer": [
@@ -277,7 +277,7 @@
       ],
       "explanation": "Detailed refresh logs record the Mashup engine's operations during a refresh and help find failures and slow operations; you download them from the refresh details page.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-detailed-refresh-logs",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

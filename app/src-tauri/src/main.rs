@@ -2645,6 +2645,7 @@ fn main() {
             if !links_on {
                 deep_link::forget_port(&data_dir());
             } else if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+                deep_link::forget_port(&data_dir()); // an earlier run's port: nothing of this copy's listens there
                 eprintln!("kratosforge:// links from other copies won't arrive: {e}");
             }
             register_link_scheme();

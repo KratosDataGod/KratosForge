@@ -119,3 +119,65 @@ test("Changing page slides the new page in only at Subtle and above, and never o
   assert.strictEqual(await animated(), 0, "a page change animated with motion Off");
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("While you type, celebrations hold off; small effects still play; after a pause they play again", { skip }, async () => {
+  const app = await open();
+  const { page } = app;
+  await page.evaluate(() => {
+    motionLoadWatch?.disconnect();
+    loadTasks = [];
+    dropUntil = 0;
+    applyMotion();
+    const box = document.createElement("textarea");
+    box.id = "deep-work-box";
+    box.setAttribute("aria-label", "Deep work");
+    document.querySelector(".motion-settings").prepend(box);
+  });
+  const box = page.getByRole("textbox", { name: "Deep work" });
+  await box.click();
+  await box.pressSequentially("sel", { delay: 20 });  // fewer than 8 keys, so a 2 s pause ends deep work
+  const anchor = () => document.querySelector(".motion-settings h2");
+  assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), false, "the strike played mid-typing");
+  assert.strictEqual(await page.evaluate(() => motionDiagnostics().skipped.deepwork), 1);
+  assert.strictEqual(await page.evaluate(() => !!forgeEvent("sql.succeeded", document.querySelector(".motion-settings h3"))), true, "a spark is not a celebration");
+  // Nothing about what was typed is kept: only times.
+  assert.ok(await page.evaluate(() => typedAt.every((t) => typeof t === "number")));
+  assert.strictEqual(await box.evaluate((el) => el === document.activeElement), true, "focus moved");
+  await page.waitForTimeout(2200);
+  assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), true, "the strike didn't play after the pause");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("An achievement unlocked while you type is held and revealed once you pause", { skip }, async () => {
+  const app = await open();
+  const { page } = app;
+  await page.evaluate(() => {
+    motionLoadWatch?.disconnect();
+    loadTasks = [];
+    dropUntil = 0;
+    applyMotion();
+    const box = document.createElement("textarea");
+    box.setAttribute("aria-label", "Deep work");
+    document.querySelector(".motion-settings").prepend(box);
+  });
+  const box = page.getByRole("textbox", { name: "Deep work" });
+  await box.click();
+  await box.pressSequentially("sel", { delay: 20 });
+  const played = () => page.evaluate(() => motionDiagnostics().played.achieve || 0);
+  assert.strictEqual(await page.evaluate(() => !!fx(document.querySelector(".motion-settings h2"), "achieve")), false, "the reveal played mid-typing");
+  assert.strictEqual(await played(), 0);
+  await page.waitForTimeout(2800);
+  assert.strictEqual(await played(), 1, "the held reveal didn't play after the pause");
+  assert.strictEqual(await box.evaluate((el) => el === document.activeElement), true, "focus moved");
+  // A held reveal whose message is gone by the pause doesn't play.
+  await box.pressSequentially("se", { delay: 20 });
+  await page.evaluate(() => {
+    const gone = document.createElement("p");
+    document.querySelector(".motion-settings").append(gone);
+    fx(gone, "achieve");
+    gone.remove();
+  });
+  await page.waitForTimeout(2800);
+  assert.strictEqual(await played(), 1, "a reveal played for a message that was gone");
+  assert.deepStrictEqual(app.errors, []);
+});

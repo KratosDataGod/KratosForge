@@ -10,6 +10,7 @@ SQLite only; no tenant calls."""
 
 import datetime as dt
 import json
+import re
 import shutil
 import sqlite3
 
@@ -217,9 +218,14 @@ def _copy(seeded, tmp_path):
 
 
 def _dump(path):
+    """The platform file's contents, less the "refused <op>" rows a refusal adds (and the audit table's
+    id counter they move): those are the one thing a refused change leaves, checked on their own."""
     conn = sqlite3.connect(path)
     try:
-        return list(conn.iterdump())
+        return [line for line in conn.iterdump()
+                if not re.match(r"""INSERT INTO "catalog__audit" VALUES\(\d+,'[^']*','[^']*','refused """, line)
+                and not line.startswith("""INSERT INTO "sqlite_sequence" VALUES('catalog__audit',""")
+                and not line.startswith("""UPDATE "sqlite_sequence" SET seq""")]
     finally:
         conn.close()
 

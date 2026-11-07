@@ -29,7 +29,7 @@ Stable build; `needed` does not exist yet.
 | Asset | Path | Use | Source | Ownership and licence | Variants | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Home hero, Kratos and the wolf at dawn | `docs/design/art/home/home-hero-v1.png` (2172 × 724) | Home hero (Living Experience, Preview): characters on the right, text-safe navy on the left | Chris, 2026-11-07, supplied as approved title artwork | KratosBI | `app/ui/art/experience/home/home-hero.webp` (full size), `home-hero-1086.webp` (half) | approved |
-| Monitor banner, Kratos and the wolf at the forge | `docs/design/art/monitor/monitor-banner-v1.png` (2172 × 724) | Monitor page or Forge Activity view banner, static unless a workload runs | Chris, 2026-11-07, supplied as approved title artwork | KratosBI | WebP derivatives come with the Monitor wiring | approved |
+| Monitor banner, Kratos and the wolf at the forge | `docs/design/art/monitor/monitor-banner-v1.png` (2172 × 724) | Monitor page or Forge Activity view banner, static unless a workload runs | Chris, 2026-11-07, supplied as approved title artwork | KratosBI | `app/ui/art/experience/monitor/monitor-banner.webp` (full size), `monitor-banner-1086.webp` (half) | approved |
 | Wolf portrait, calm | storyboard panels 1 and 4 | Launch, SQL, the calm state | Storyboard crop | KratosBI; crop only, low resolution | needs a full-size original | placeholder |
 | Wolf running in fire | storyboard panels 2 and 9 | Notebook execution, navigation streak | Storyboard crop | as above | needs a full-size original | placeholder |
 | Wolf howling | storyboard panel 7 | Achievements, the Titan | Storyboard crop | as above | needs a full-size original | placeholder |

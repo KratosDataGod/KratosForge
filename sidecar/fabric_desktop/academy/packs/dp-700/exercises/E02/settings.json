@@ -1,0 +1,24 @@
+{
+  "_about": "A model of a Fabric environment. libraries.public lists packages from public sources such as PyPI, libraries.custom lists files you upload, and resources lists small files notebooks read. publish_mode is Quick or Full; published says whether the latest changes are published. workspace_default_environment names the environment the workspace uses by default.",
+  "needs": [
+    "Every notebook in the workspace uses this environment without anyone attaching it.",
+    "Notebooks import great-expectations from PyPI and the team's own package, contoso_rules-1.2.0-py3-none-any.whl.",
+    "Notebooks read a small lookup file, country_codes.csv.",
+    "Production jobs need a stable, reproducible set of libraries."
+  ],
+  "environment": {
+    "name": "SalesEnv",
+    "libraries": {
+      "public": [],
+      "custom": [
+        "country_codes.csv"
+      ]
+    },
+    "resources": [
+      "contoso_rules-1.2.0-py3-none-any.whl"
+    ],
+    "publish_mode": "Quick",
+    "published": false
+  },
+  "workspace_default_environment": null
+}

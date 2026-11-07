@@ -120,6 +120,26 @@ On a network that can't reach GitHub, or to keep 5,000 PCs from each downloading
 
 The app installs only an engine whose `version.json` names the app's own build and whose zip matches the checksum in it and the checksum built into the exe, and it follows redirects only to `https`. **Settings > Help and about** says when the address isn't one it will use, and why. Not yet tried on a real network.
 
+## Keep the engine in a folder only administrators can write (Preview)
+
+AppLocker's default rules and App Control for Business path rules allow programs only in folders standard users can't write. The engine normally lives in the user's own `%LOCALAPPDATA%\FabricDesktop\engine`, so it needs a hash rule for every build. Instead, you can install the engine yourself under `C:\Program Files`:
+
+1. Download `fabric-desktop-engine.zip` and `version.json` from the build's `build-<first 12 characters of its commit>` release, and check the zip as in [Install: Check a download yourself](https://github.com/KratosDataGod/KratosForge/blob/main/docs/install.md#check-a-download-yourself).
+2. From an elevated prompt, unpack the zip into a folder named with the full `commit` from `version.json`. For example, `python.exe` ends up at `C:\Program Files\KratosForge\engine\0123456789abcdef0123456789abcdef01234567\python.exe`. Keep the permissions `C:\Program Files` gives new folders.
+3. In `policy.json`, set `"auto_update": false` and `"engine_folder": "C:\\Program Files\\KratosForge\\engine"`, the folder above the build folders. Push the file as SYSTEM or from an elevated prompt.
+4. For each new exe you roll out, add its build's folder first, then deploy the exe. Remove old build folders once no PC runs their exe.
+
+The app uses the folder only when all of these hold:
+- the policy file passes the same check as for `engine_download_url`;
+- the path is a full local path (no network share);
+- the folder, the build's folder, `python.exe`, `pythonw.exe`, `Lib` and `Lib\site-packages` are owned by SYSTEM, Administrators or TrustedInstaller, and nobody else may create, change or delete anything in them.
+
+Otherwise the engine doesn't start, and the app says why. It never installs or repairs an engine there, and it never falls back to the per-user engine, because that is the one your rules block. **Settings > Help and about** shows a setting it can't use.
+
+The app checks those folders, not every file below them, so leave the permissions the folders pass down unchanged. Notebook-environment packages still install in the user's profile; see `notebook_package_folder`.
+
+This is Preview. It hasn't yet been tried on a PC with AppLocker or App Control for Business enforced.
+
 ## Roll back
 
 There is no one-click rollback yet.

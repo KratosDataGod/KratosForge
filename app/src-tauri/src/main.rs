@@ -14,6 +14,7 @@ use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 mod deep_link;
+mod engine_folder;
 mod engine_patch;
 mod exe_name;
 mod folder_pick;
@@ -407,12 +408,28 @@ fn engine_root() -> PathBuf {
     data_dir().join("engine")
 }
 
+/// IT's engine folder (engine_folder.rs, Preview): None when the policy file doesn't set one,
+/// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
+/// are checked before it is read, as for engine_download_url.
+fn it_engine() -> Option<Result<PathBuf, String>> {
+    let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
+    let trusted = policy_trust::admin_only(&file);
+    let text = std::fs::read_to_string(&file).ok()?;
+    engine_folder::resolve(&text, policy_allows_updates(&text), trusted, BUILD_COMMIT, &policy_trust::admin_only_engine)
+        .transpose()
+}
+
 /// This build's engine, or failing that another build's, which can still run the
 /// startup check that then updates this exe or the engine. A signed build runs only its own
-/// (own_engine_only); a missing one is installed from this build's release.
+/// (own_engine_only); a missing one is installed from this build's release. When IT keeps the
+/// engine in a folder of its own, only that one, and none when it can't be used (install_engine
+/// then says why).
 fn engine_python() -> Option<PathBuf> {
     if !bundled() {
         return None;
+    }
+    if let Some(it) = it_engine() {
+        return it.ok();
     }
     let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
     if exact.exists() {
@@ -1187,6 +1204,17 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(it) = it_engine() {
+        // Never install into IT's folder, and never fall back to the per-user engine their rules block.
+        return Err(match it {
+            Ok(python) => format!(
+                "Your organization manages the engine in {}, so KratosForge doesn't install or repair it. Ask IT to \
+                 copy this build's engine there again.",
+                python.parent().unwrap_or(&python).display()
+            ),
+            Err(why) => why,
+        });
+    }
     let say = |line: &str| {
         let _ = app.emit("component-log", line);
     };

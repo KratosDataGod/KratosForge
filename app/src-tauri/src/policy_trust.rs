@@ -22,13 +22,26 @@ pub fn admin_only(_file: &Path) -> Result<(), String> {
     Err("it is only trusted on Windows".into())
 }
 
+/// For a file or folder of IT's engine (engine_folder.rs): owned by SYSTEM or Administrators, and
+/// nobody else may change it or, for a folder, add, replace or delete anything in it. Stricter than
+/// the policy file's folder, where everyone may create files.
+#[cfg(windows)]
+pub fn admin_only_engine(path: &Path) -> Result<(), String> {
+    win::check(path, win::ENGINE_RIGHTS)
+}
+
+#[cfg(not(windows))]
+pub fn admin_only_engine(_path: &Path) -> Result<(), String> {
+    Err("it is only trusted on Windows".into())
+}
+
 #[cfg(windows)]
 mod win {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
-    use windows::core::PCWSTR;
+    use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
-    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT};
     use windows::Win32::Security::{
         GetAce, IsWellKnownSid, WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
         DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
@@ -47,13 +60,35 @@ mod win {
     /// Rights on the folder that let someone delete or replace a file in it, or the folder.
     /// Creating new files isn't one: %ProgramData% lets everyone do that in folders under it.
     pub const FOLDER_RIGHTS: u32 = FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL;
+    /// Rights on an engine file or folder that let someone change what runs. On a folder,
+    /// FILE_WRITE_DATA is FILE_ADD_FILE and FILE_APPEND_DATA is FILE_ADD_SUBDIRECTORY, so this also
+    /// refuses a folder where others may create files.
+    pub const ENGINE_RIGHTS: u32 = FILE_RIGHTS | FILE_DELETE_CHILD;
     const ACCESS_ALLOWED: u8 = 0;
     const ACCESS_DENIED: u8 = 1;
     const INHERIT_ONLY: u8 = 0x08;
 
+    /// NT SERVICE\TrustedInstaller, which Windows grants full control of %PROGRAMFILES% and the
+    /// folders created in it. Only administrators can control that service, so it counts as one.
+    const TRUSTED_INSTALLER: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+
     fn admin_sid(sid: PSID) -> bool {
         // SAFETY: sid points into a security descriptor that is still allocated.
-        unsafe { IsWellKnownSid(sid, WinLocalSystemSid).as_bool() || IsWellKnownSid(sid, WinBuiltinAdministratorsSid).as_bool() }
+        let well_known =
+            unsafe { IsWellKnownSid(sid, WinLocalSystemSid).as_bool() || IsWellKnownSid(sid, WinBuiltinAdministratorsSid).as_bool() };
+        well_known || sid_text(sid).as_deref() == Some(TRUSTED_INSTALLER)
+    }
+
+    fn sid_text(sid: PSID) -> Option<String> {
+        let mut text = PWSTR::null();
+        // SAFETY: sid is valid (see admin_sid); text is freed with LocalFree as the API requires,
+        // after it is copied.
+        unsafe {
+            ConvertSidToStringSidW(sid, &mut text).ok()?;
+            let copy = text.to_string().ok();
+            let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+            copy
+        }
     }
 
     /// Ok when the path is owned by SYSTEM or Administrators and its DACL grants `rights` to nobody
@@ -127,5 +162,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(trusted.is_err(), "{trusted:?}");
         assert!(admin_only(std::path::Path::new("C:\\no\\such\\folder\\policy.json")).is_err());
+    }
+
+    #[test]
+    fn an_engine_folder_the_user_can_write_is_not_trusted() {
+        let dir = std::env::temp_dir().join(format!("kf-engine-trust-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let trusted = super::admin_only_engine(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(trusted.is_err(), "{trusted:?}");
     }
 }

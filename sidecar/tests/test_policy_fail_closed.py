@@ -314,3 +314,17 @@ def test_a_wrongly_typed_gate_is_off(files, key):
 def test_every_allow_key_fails_closed():
     """A new allow_* switch is a restriction, so it needs a most restrictive value too."""
     assert {k for k in app_settings.DEFAULTS if k.startswith("allow_")} <= set(app_settings.RESTRICTED)
+
+
+def test_engine_folder_is_a_local_path_used_only_for_managed_updates(files):
+    """IT's own engine folder (Preview): the shell reads the key and checks the folder's permissions."""
+    files({"auto_update": False, "engine_folder": "C:\\Program Files\\KratosForge\\engine"})
+    assert app_settings.policy_problems() == []
+    assert "engine_folder" not in app_settings.load()  # the shell applies it, not the engine
+    files({"engine_folder": "C:\\Program Files\\KratosForge\\engine"})
+    assert app_settings.policy_problems() == ['engine_folder is used only with "auto_update": false, so the engine '
+                                              "can't start until that is set"]
+    for bad in ["engine", "\\\\server\\share\\engine", "C:/Program Files/engine", "C:\\Program Files\\..\\Users",
+                "C:engine", "", 7]:
+        files({"auto_update": False, "engine_folder": bad})
+        assert app_settings.policy_problems()[0].startswith("engine_folder: "), bad

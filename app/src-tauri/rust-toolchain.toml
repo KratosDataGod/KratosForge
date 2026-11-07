@@ -1,0 +1,5 @@
+# The Rust release that builds the shell, so a new Rust release changes the exe only through a PR.
+# ci.yml's shell job installs this same version (tests/test_toolchain_pins.py checks they match).
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"

@@ -98,6 +98,13 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "int": ("int('10')", 10),
     "json": ("json('[1, 2, 3]')", [1, 2, 3]),
     "string": ("string(10)", "10"),
+    "base64": ("base64('hello')", "aGVsbG8="),
+    "base64ToString": ("base64ToString('aGVsbG8=')", "hello"),
+    "decodeBase64": ("decodeBase64('aGVsbG8=')", "hello"),
+    "dataUri": ("dataUri('hello')", "data:text/plain;charset=utf-8;base64,aGVsbG8="),
+    "dataUriToString": ("dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')", "hello"),
+    "encodeUriComponent": ("encodeUriComponent('https://contoso.com')", "https%3A%2F%2Fcontoso.com"),
+    "decodeUriComponent": ("decodeUriComponent('http%3A%2F%2Fcontoso.com')", "http://contoso.com"),
     "add": ("add(1, 1.5)", 2.5),
     "div": ("div(11, 5)", 2),
     "max": ("max(1, 2, 3)", 3),
@@ -123,6 +130,10 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
 }
 # Where the reference's printed value is wrong, the value above is the corrected one, and this says why.
 NOTES: dict[str, str] = {
+    "encodeUriComponent": "The reference prints `http%3A%2F%2Fcontoso.com` for `https://contoso.com`, which drops "
+                          "the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.",
+    "decodeUriComponent": "The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an "
+                          "s; unescaping can't, so `http://contoso.com` is the value checked.",
     "ticks": "The reference prints 636567724560000000 for this example. In .NET, "
              "`new DateTime(2018, 3, 15, 13, 27, 36).Ticks` is 636567172560000000 "
              "(621355968000000000 ticks at 1970-01-01, plus 1521120456 seconds), so that is the value checked.",

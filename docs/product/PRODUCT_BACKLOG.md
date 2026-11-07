@@ -71,12 +71,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 1 | 1 | 6 | 5 | 13 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 2 | 5 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 2 | 16 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 3 | 17 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 8 | 2 | 0 | 13 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **7** | **33** | **59** | **22** | **121** |
+| **Total** | **7** | **33** | **59** | **23** | **122** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -1173,6 +1173,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-125](#pb-125) | Learn ranks and profile pictures | P2 | Learning experience (LX) | M | Accepted |
 | [PB-126](#pb-126) | Learn curriculum content batches by path | P2 | Learning experience (LX) | L | Accepted |
 | [PB-128](#pb-128) | KratosForge Academy: certification preparation | P3 | Academy | L | In progress |
+| [PB-134](#pb-134) | Developer classes and mastery | P3 | Developer classes and mastery | L | In progress |
 
 ### PB-034
 
@@ -1426,6 +1427,23 @@ review moves it to Accepted; a merge alone does neither.
     - An exercise is graded on what the learner made, read as untrusted input, in a limited process
     - Practice exams, diagnostics and drills run on one exam engine with original questions
     - Nothing in Academy writes to Fabric or spends capacity
+
+### PB-134
+
+**Developer classes and mastery** · P3 (score 1.1) · L · confidence Medium · In progress
+
+- **Problem:** The profile turns verified evidence into XP, a level, ranks and achievements, but it doesn't say which data engineering skills someone has shown, to what depth, or what to learn next. So it can't back a competency conversation with a manager.
+- **Proposed capability:** Developer classes (for example Lakehouse Warden, an enterprise data engineer) with specializations as talent trees. Each talent has a mastery level from Initiate to Grandmaster, worked out from the evidence the app already verifies. There's an interactive, accessible talent tree in a Profile tab, and a professional competency report. Character level stays separate from mastery, and nothing claims to be a certification.
+- **Current-state evidence:** Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup; First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data; Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)
+- **Inventory features:** [FEAT-DEV-01](FEATURE_INVENTORY.md#feat-dev-01), [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Developer classes and mastery (CM-01..27, Chris's Developer Class and Mastery System brief, 2026-11-07 14:17Z)
+- **Acceptance criteria:**
+    - The class catalog is checked as data: unique ids, prerequisites form a DAG with no cycles or unreachable talents, and every evidence hook points at real Learn, Academy or rule content
+    - Mastery levels come only from verified evidence with versioned rules: time spent, repeats, duplicate or revoked evidence add nothing, and Grandmaster needs reviewer verification
+    - The talent tree is generated from the catalog, shows locked, available, in progress and mastered, and works by keyboard and screen reader
+    - Every class screen and report says that levels aren't professional certifications
+    - Everything works locally; sharing or sync is opt-in
 
 ## Enterprise Administration and FinOps
 

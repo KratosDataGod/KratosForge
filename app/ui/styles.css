@@ -1103,6 +1103,11 @@ body.pop-out .page.monitor { padding: 12px; }
 @media (max-width: 1100px) { .page.living-head h1.home-hero-title { font-size: 48px; } .page.living-head h1.home-hero-title.long { font-size: 36px; } }
 @media (max-width: 1040px) { .page.living-head h1.home-hero-title.long { font-size: 30px; } }
 @media (max-width: 960px) { .home-hero-img { display: none; } }
+/* Without its art, a page's header band is only as tall as its title and buttons: no empty navy block. */
+@media (max-width: 960px) {
+  .page.living-head > .home-hero { height: auto; min-height: 0; }
+  .page.living-head .home-hero-text { height: auto; padding-bottom: 24px; }
+}
 @media (max-width: 720px) {
   .home-hero { height: auto; min-height: 120px; margin: 0; }
   .home-hero-img { display: none; }

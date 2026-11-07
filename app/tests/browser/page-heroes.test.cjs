@@ -54,6 +54,7 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
     await page().locator(hero).waitFor();
     assert.ok(await page().locator(`${hero} h1`).getByText(p.title).isVisible());
     assert.strictEqual(await page().locator("#view h1").count(), 1);
+    assert.strictEqual(await page().locator(`${hero} .home-hero-kicker`).count(), 0, "no KratosForge kicker on a page's header");
     for (const name of p.actions || []) {
       assert.ok(await page().locator(`${hero} .home-hero-actions`).getByRole("button", { name }).isVisible(), name);
     }
@@ -74,7 +75,7 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
         const band = document.querySelector(s).getBoundingClientRect();
         if (getComputedStyle(img).display === "none") return { shown: false };
         const ink = (e) => { const g = document.createRange(); g.selectNodeContents(e); return g.getBoundingClientRect().right; };
-        const textRight = Math.max(...[...document.querySelectorAll(`${s} .home-hero-kicker, ${s} .home-hero-title`)].map(ink),
+        const textRight = Math.max(...[...document.querySelectorAll(`${s} .home-hero-title`)].map(ink),
           ...[...document.querySelectorAll(`${s} .home-hero-actions button, ${s} .home-hero-actions a`)].map((e) => e.getBoundingClientRect().right));
         const a = img.getBoundingClientRect();
         return { shown: true, ratio: a.width / a.height, fills: Math.abs(a.height - band.height) < 1,
@@ -86,6 +87,14 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
         assert.ok(r.sky >= r.textRight, `${p.title} at ${width}: the sky ends at ${r.sky}, the text at ${r.textRight}`);
       } else {
         assert.ok(width <= 960, `${p.title}: the picture shows at ${width}`);
+        // Without the art the band holds its title and buttons, no empty navy block below them.
+        const gap = await page().evaluate((s) => {
+          const band = document.querySelector(s).getBoundingClientRect();
+          const text = document.querySelector(`${s} .home-hero-text`);
+          const last = [...text.children].filter((c) => c.getBoundingClientRect().height > 0).pop().getBoundingClientRect();
+          return band.bottom - last.bottom;
+        }, hero);
+        assert.ok(gap <= 32, `${p.title} at ${width}: ${gap}px of empty band under the title and buttons`);
       }
       if (SHOTS) await page().screenshot({ path: path.join(SHOTS, `${art.id}-${width}.png`) });
     }

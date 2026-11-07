@@ -67,7 +67,7 @@ function lxHero({ name, label, kicker = "KratosForge", title, heading, line, act
   return h("section", { class: `home-hero ${name}-hero`, "aria-label": label },
     lxHeroArt(art),
     h("div", { class: "home-hero-text" },
-      h("span", { class: "home-hero-kicker" }, kicker),
+      kicker ? h("span", { class: "home-hero-kicker" }, kicker) : null,
       title ? h("span", { class: "home-hero-title" }, title) : null,
       heading,
       line ? h("p", { class: "home-hero-line" }, line) : null,
@@ -89,7 +89,8 @@ function pageHero(name, title, { actions = [], tag = null } = {}) {
   if (!homeLivingOn()) return null;
   // A long name (Source control) steps down a size, so it ends on the sky like the short ones.
   const cls = title.trim().length > 10 ? "home-hero-title long" : "home-hero-title";
-  return lxHero({ name, label: title.trim(), heading: h("h1", { class: cls }, title, tag), actions });
+  // No KratosForge kicker: the page's own name is the whole title (UX, #2246).
+  return lxHero({ name, label: title.trim(), kicker: null, heading: h("h1", { class: cls }, title, tag), actions });
 }
 
 // The side column: the identity card, Your journey, Latest achievement and Forge stats, all from

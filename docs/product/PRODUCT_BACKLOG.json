@@ -6814,7 +6814,8 @@
       "problem": "Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.",
       "capability": "A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.",
       "evidence": [
-        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb"
+        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb",
+        "Implementation review docs/product/reviews/PB-130-promises.md recommends Accept with documented limitations: the screens are Preview and untested on a tenant, Status is only as current as the team's own incident check, and the change window advises without blocking. 408 engine tests and 18 browser tests pass on main at 56e3826b"
       ],
       "features": [
         "FEAT-MESH-04",
@@ -6842,7 +6843,7 @@
       "owner": "Data mesh",
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [],
       "prs": [
         1737,

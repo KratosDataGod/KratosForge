@@ -870,9 +870,10 @@ async function renderHome() {
     meshMapCard(),
     envSection,
     xray);
-  const panel = living && hero ? homeProgressPanel() : null;
-  const page = h("div", { class: `page home${hero ? " living" : ""}` }, hero,
-    panel ? h("div", { class: "home-body with-aside" }, main, panel.el) : main);
+  // Without the hero, Home is the same flat page it always was.
+  const panel = hero ? homeProgressPanel() : null;
+  if (!hero) main.className = "page home";
+  const page = hero ? h("div", { class: "page home living" }, hero, h("div", { class: "home-body with-aside" }, main, panel.el)) : main;
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
   const onHome = () => state.view === "home" && homeCache.page === page;

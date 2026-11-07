@@ -119,3 +119,31 @@ test("Changing page slides the new page in only at Subtle and above, and never o
   assert.strictEqual(await animated(), 0, "a page change animated with motion Off");
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("While you type, celebrations hold off; small effects still play; after a pause they play again", { skip }, async () => {
+  const app = await open();
+  const { page } = app;
+  await page.evaluate(() => {
+    motionLoadWatch?.disconnect();
+    loadTasks = [];
+    dropUntil = 0;
+    applyMotion();
+    const box = document.createElement("textarea");
+    box.id = "deep-work-box";
+    box.setAttribute("aria-label", "Deep work");
+    document.querySelector(".motion-settings").prepend(box);
+  });
+  const box = page.getByRole("textbox", { name: "Deep work" });
+  await box.click();
+  await box.pressSequentially("sel", { delay: 20 });  // fewer than 8 keys, so a 2 s pause ends deep work
+  const anchor = () => document.querySelector(".motion-settings h2");
+  assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), false, "the strike played mid-typing");
+  assert.strictEqual(await page.evaluate(() => motionDiagnostics().skipped.deepwork), 1);
+  assert.strictEqual(await page.evaluate(() => !!forgeEvent("sql.succeeded", document.querySelector(".motion-settings h3"))), true, "a spark is not a celebration");
+  // Nothing about what was typed is kept: only times.
+  assert.ok(await page.evaluate(() => typedAt.every((t) => typeof t === "number")));
+  assert.strictEqual(await box.evaluate((el) => el === document.activeElement), true, "focus moved");
+  await page.waitForTimeout(2200);
+  assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), true, "the strike didn't play after the pause");
+  assert.deepStrictEqual(app.errors, []);
+});

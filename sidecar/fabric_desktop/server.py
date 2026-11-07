@@ -460,7 +460,7 @@ def main() -> None:
     rpc_out = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", newline="\n")
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
-    sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
+    sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
     _refresh_integration_launcher()
     from . import notebook

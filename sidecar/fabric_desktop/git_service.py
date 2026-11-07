@@ -362,7 +362,7 @@ class GitMixin:
         out = {**p, "commit": st["commit"], "catalog_env": cat_env, "labels": platform_files.LABELS}
         if p["stops"] or confirm != p["plan_id"]:
             return out | {"needs_confirm": not p["stops"], "done": []}
-        done = []
+        done: list[dict[str, Any]] = []
         for step in p["steps"]:
             client = clients[step["env"] or cat_env]
             try:

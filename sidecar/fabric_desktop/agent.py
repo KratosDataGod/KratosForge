@@ -570,20 +570,46 @@ class Agent:
 
     def _notify(self, title: str, lines: list[str], **about: Any) -> None:
         """Post one message to the default route (alerts.teams_webhook_env). One Teams or the flow
-        didn't take waits in job_alerts.sqlite3 and goes with the next try. ``about``: log fields."""
+        didn't take waits in job_alerts.sqlite3 and goes with the next try; while the route rests
+        after failures (notify.py), it waits there without a request. ``about``: log fields."""
         url = self.config.teams_webhook
         if not self._can_send(DEFAULT_ROUTE, url):
             return
         self.send_waiting_alerts()  # older alerts first
         with self._alert_lock:
+            # No outbox file yet means nothing ever failed here: no need to make one to find out.
+            box = (self._alert_outbox() if self._alert_box is not None or (self.config.home / "job_alerts.sqlite3").exists()
+                   else None)
+            resting = box.resting({DEFAULT_ROUTE: url}) if box else {}
+            if box and resting:
+                box.add(title, lines, resting[DEFAULT_ROUTE])
+                self.log.info("alert waits: Teams failed recently, so it goes with the next try", extra=fields(**about))
+                return
             try:
                 self._post(url, title, lines)
+                if box:
+                    box.route_ok(DEFAULT_ROUTE)
                 return
             except Exception as exc:  # kept, and sent with the next try
                 problem = _without_webhook(failure(exc), url)
                 self._alert_outbox().add(title, lines, problem)
+                self._alert_outbox().route_failed(DEFAULT_ROUTE, url, problem)
         self.log.warning("couldn't post the alert to Teams; it goes with the next try",
                          extra=fields(**about, error=problem))
+
+    def messages_waiting(self) -> int | None:
+        """Teams or flow messages waiting in this agent's outboxes (for the status record); None
+        when one can't be read. Outboxes that were never made hold none and aren't made here."""
+        try:
+            total = 0
+            for name in ("alerts.sqlite3", "job_alerts.sqlite3", shortcut_watch.LEDGER):
+                path = self.config.home / name
+                if path.exists():
+                    total += Outbox(path, clock=self.clock).count()
+            return total
+        except Exception as exc:  # noqa: BLE001 - a count that can't be read never stops the status record
+            self.log.warning("couldn't count the waiting messages", extra=fields(error=describe(exc)))
+            return None
 
     def _count_dropped(self, result: dict[str, Any], outbox: str) -> None:
         """Log and count messages an outbox dropped unsent after three days (the status record shows the count)."""

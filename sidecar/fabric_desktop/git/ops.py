@@ -199,6 +199,9 @@ class Operations:
             return
         with self._lock:
             self._procs[op_id] = proc
+            cancel_now = bool(self._ops.get(op_id, {}).get("cancel_requested"))
+        if cancel_now:  # Cancel was pressed before git started: it had no process to stop then
+            _kill(proc)
         timer = threading.Timer(cli.NETWORK_TIMEOUT, lambda: _kill(proc))
         timer.daemon = True
         timer.start()

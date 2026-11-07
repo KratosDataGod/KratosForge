@@ -3140,6 +3140,7 @@ tr.fg-conflict { background: var(--danger-soft); }
 .forge-stat b { font-size: 18px; line-height: 1.2; }
 .forge-stat.ok b { color: var(--ok); }
 .forge-stat.bad b { color: var(--danger); }
+.forge-strip-slot { margin-left: auto; }
 .forge-toggle { margin-left: 4px; }
 .forge-band { position: relative; flex: none; min-height: 180px; margin-bottom: 12px; border-radius: 10px; overflow: hidden;
   background: var(--forge-band); border: 1px solid var(--forge-band-edge); color: var(--text); }

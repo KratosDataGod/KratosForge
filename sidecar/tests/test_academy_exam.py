@@ -345,7 +345,8 @@ def test_a_finished_exam_is_never_scored_again(bank):
     # The bank changes later: a key is edited and a question is retired.
     changed = copy.deepcopy(bank)
     first, second = s["items"][0]["q"], s["items"][1]["q"]
-    changed["questions"][first] = {**changed["questions"][first], "answer": ["zz"], "version": 2}
+    changed["questions"][first] = {**changed["questions"][first], "answer": ["zz"],
+                                  "version": changed["questions"][first]["version"] + 1}
     del changed["questions"][second]
     with pytest.raises(exam.ExamError, match="finished"):
         exam.finish(s, changed, now=at(7))

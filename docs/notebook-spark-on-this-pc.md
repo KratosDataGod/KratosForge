@@ -24,7 +24,8 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 refuses a row with a null there, as Spark does (also inside structs, and for array elements or map values a `StructType` declares
 non-nullable, with PySpark's
 `[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
-table's catalog. `df.schema` shows every field as nullable on this PC.
+table's catalog. `df.schema` shows every field as nullable on this PC. A `NaN` in the data stays `NaN`, as in Spark (inside an array or struct it
+becomes NULL with the DuckDB this app ships), and `F.isnan` of a NULL is false.
 
 `sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
 other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened.
@@ -54,6 +55,14 @@ is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL,
 `months_between`, `substring` or `slice` without an alias gets a short name close to Spark's, such as
 `add_months(d, 1)`; Spark's names differ for literals (it drops their quotes) and add defaults such as
 `months_between`'s `roundOff`.
+
+These `F` functions work as in Spark, with Spark's names, types and NULLs: `bool_and`, `every`, `bool_or`, `some`,
+`count_if`, `bit_and`, `bit_or` and `bit_xor`; `log` (one argument is the natural logarithm), `ln`, `log2`, `log10`
+and `log1p`, NULL at or below zero where DuckDB's would stop the cell; `pow` and `power` (a double), `factorial`
+(NULL below 0 or above 20) and `bin`; `locate`, `substring_index`, `translate`, `char_length` and
+`character_length`; and `split` with a `limit` (at most that many parts, the last holding the rest).
+`rand(seed)` and `randn(seed)` give the same numbers each run for a seed, also in `filter`, but not the
+numbers Spark gives, which depend on how Spark splits the data. `format_string` and `conv` aren't there yet.
 
 ### DataFrame: 81 of 102
 

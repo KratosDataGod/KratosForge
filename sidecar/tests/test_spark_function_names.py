@@ -145,6 +145,28 @@ CASES = [
     ('F.right(n, F.lit(2))', False, 'right(name, 2)'),
     ('F.startswith(n, F.lit("A"))', False, 'startswith(name, A)'),
     ('F.contains(n, F.lit("l"))', False, 'contains(name, l)'),
+    # functions this PC added later, from the same capture
+    ('F.bool_and(a > 1)', True, 'bool_and((age > 1))'),
+    ('F.every(a > 1)', True, 'every((age > 1))'),
+    ('F.bool_or(a > 1)', True, 'bool_or((age > 1))'),
+    ('F.some(a > 1)', True, 'some((age > 1))'),
+    ('F.count_if(a > 1)', True, 'count_if((age > 1))'),
+    ('F.bit_and(a)', True, 'bit_and(age)'),
+    ('F.bit_or(a)', True, 'bit_or(age)'),
+    ('F.bit_xor(a)', True, 'bit_xor(age)'),
+    ('F.split("d", "-", 2)', False, 'split(d, -, 2)'),
+    ('F.log(a)', False, 'ln(age)'),
+    ('F.log(2.0, a)', False, 'LOG(2.0, age)'),
+    ('F.log10(a)', False, 'LOG10(age)'),
+    ('F.pow(a, 2)', False, 'POWER(age, 2)'),
+    ('F.power(a, 2)', False, 'POWER(age, 2)'),
+    ('F.locate("l", n)', False, 'locate(l, name, 1)'),
+    ('F.substring_index(n, "l", 1)', False, 'substring_index(name, l, 1)'),
+    ('F.translate(n, "A", "a")', False, 'translate(name, A, a)'),
+    ('F.rand(1)', False, 'rand(1)'),
+    ('F.bin(a)', False, 'bin(age)'),
+    ('F.factorial(a)', False, 'factorial(age)'),
+    ('F.char_length(n)', False, 'char_length(name)'),
 ]
 
 

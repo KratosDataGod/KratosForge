@@ -1,5 +1,5 @@
 // KF-MO-008 Achievement Reveal (docs/forge-animations.md): when Profile awards an achievement, its
-// message gets the reveal, only with Achievement celebrations on (off by default), once per award,
+// message gets the reveal, only with Achievement celebrations on (the default), once per award,
 // never again for the same award, even after a restart. Settings come from the real engine.
 const { test, after } = require("node:test");
 const assert = require("node:assert");
@@ -46,20 +46,37 @@ const toastSays = (page, text) => page.waitForFunction((t) => {
 
 after(async () => { for (const app of apps) await app.close(); });
 
-test("By default an award shows its message and plays no reveal", { skip }, async () => {
+test("By default an award shows its message and plays the reveal", { skip }, async () => {
   const app = await open();
   const { page } = app;
-  assert.strictEqual(await page.evaluate(() => state.settings.motion_achievements.value), false, "celebrations are on by default");
-  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.fxAchievements), "off");
+  assert.deepStrictEqual(await page.evaluate(() => state.settings.motion_achievements), { value: true, source: "default" }, "celebrations are off by default");
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.fxAchievements), "on");
+  await page.evaluate((a) => profileEarned([a]), FIRST);
+  await toastSays(page, "Achievement earned: First Flame (+50 XP)");
+  await page.waitForFunction(() => window.__fx.length > 0);
+  assert.deepStrictEqual(await page.evaluate(() => window.__fx), ["fx fx-achieve @toast"]);
+  // Settings offers the switch, on, now that Profile can award something.
+  await page.evaluate(() => go("settings"));
+  const sw = page.getByRole("checkbox", { name: "Achievement celebrations" });
+  await sw.waitFor();
+  assert.strictEqual(await sw.isChecked(), true);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("Turned off, an award shows its message, plays no reveal, and the choice is kept", { skip }, async () => {
+  const app = await open();
+  const { page } = app;
+  await page.evaluate(() => go("settings"));
+  await page.getByRole("checkbox", { name: "Achievement celebrations" }).uncheck();
+  await page.waitForFunction(() => document.documentElement.dataset.fxAchievements === "off");
   await page.evaluate((a) => profileEarned([a]), FIRST);
   await toastSays(page, "Achievement earned: First Flame (+50 XP)");
   assert.deepStrictEqual(await page.evaluate(() => window.__fx), []);
   assert.strictEqual(await page.evaluate(() => motionDiagnostics().skipped.family), 1);
-  // Settings offers the switch, off, now that Profile can award something.
-  await page.evaluate(() => go("settings"));
-  const sw = page.getByRole("checkbox", { name: "Achievement celebrations" });
-  await sw.waitFor();
-  assert.strictEqual(await sw.isChecked(), false);
+  await page.reload();
+  await page.waitForFunction(() => typeof profileEarned === "function");
+  await watch(page);
+  assert.deepStrictEqual(await page.evaluate(() => state.settings.motion_achievements), { value: false, source: "user" }, "the saved Off wasn't kept");
   assert.deepStrictEqual(app.errors, []);
 });
 

@@ -1,0 +1,143 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E60",
+  "title": "Optimize a pipeline: parallel ForEach, fewer sequential steps",
+  "objectives": [
+    "3.3.2"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Make a slow pipeline faster without breaking it: run the ForEach in parallel within the source's limit, and drop the dependencies that make independent steps wait.",
+  "scenario": "A nightly pipeline loads 30 tables one at a time, then builds two dimensions one after the other, then the fact table. It takes over two and a half hours, and it has to finish in under 45 minutes.",
+  "engine_label": "A model of a pipeline's definition, checked on this PC",
+  "verifies": [
+    "Your ForEach settings and dependencies run the loads 8 at a time, build both dimensions side by side, and keep FactSales and the email behind what they need, as the ForEach and activity dependency pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the pipeline runs or gets faster: nothing runs here.",
+    "That the source system really allows 8 connections, or how many iterations Fabric runs at once.",
+    "The rest of a real pipeline-content.json, which this cut-down model leaves out."
+  ],
+  "expected": {
+    "description": "Load each table: isSequential false, batchCount 8. Both dimensions depend only on Load each table. FactSales depends on both dimensions with Succeeded. Email summary depends on FactSales with Succeeded."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The tables still don't load the way the source allows.",
+      "pass": "The tables load in parallel, at most 8 at a time.",
+      "rules": [
+        {
+          "path": "properties.activities.1.typeProperties.isSequential",
+          "equals": false,
+          "why": "The tables are independent, so the loop's iterations can run in parallel instead of one by one."
+        },
+        {
+          "path": "properties.activities.1.typeProperties.batchCount",
+          "equals": 8,
+          "why": "Batch count is the upper limit on parallel iterations; without it the default is 20, more than the source's 8 connections."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The dimensions still wait for each other.",
+      "pass": "Both dimensions start as soon as the load finishes.",
+      "rules": [
+        {
+          "path": "properties.activities.2.dependsOn",
+          "count": 1
+        },
+        {
+          "path": "properties.activities.2.dependsOn.0.activity",
+          "equals": "Load each table"
+        },
+        {
+          "path": "properties.activities.3.dependsOn",
+          "count": 1
+        },
+        {
+          "path": "properties.activities.3.dependsOn.0.activity",
+          "equals": "Load each table",
+          "why": "Activities that don't depend on each other can run in parallel; a dependency that isn't needed only makes one wait for the other."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "FactSales can start before both dimensions are built.",
+      "pass": "FactSales waits for both dimensions to succeed.",
+      "rules": [
+        {
+          "path": "properties.activities.4.dependsOn",
+          "count": 2,
+          "why": "An activity with several Succeeded dependencies runs only when all of them succeed."
+        },
+        {
+          "path": "properties.activities.4.dependsOn",
+          "count": 1,
+          "where": {
+            "activity": "Build DimCustomer"
+          }
+        },
+        {
+          "path": "properties.activities.4.dependsOn",
+          "count": 1,
+          "where": {
+            "activity": "Build DimProduct"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The email doesn't wait for FactSales to succeed.",
+      "pass": "The email follows a successful FactSales.",
+      "rules": [
+        {
+          "path": "properties.activities.5.dependsOn",
+          "count": 1
+        },
+        {
+          "path": "properties.activities.5.dependsOn.0.activity",
+          "equals": "Build FactSales"
+        },
+        {
+          "path": "properties.activities.5.dependsOn.0.dependencyConditions",
+          "count": 1
+        },
+        {
+          "path": "properties.activities.5.dependsOn.0.dependencyConditions",
+          "contains": "Succeeded",
+          "why": "Completed runs after success or failure; the summary should only go out after success."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Do the tables depend on each other? What does Sequential do then?",
+    "What's the default batch count, and what does the source allow?",
+    "Does DimProduct read DimCustomer?",
+    "How many dependencies does FactSales need, and with which condition?"
+  ],
+  "explanation": "With 30 independent tables at 4 minutes each, a sequential ForEach takes two hours; in parallel, with batchCount capping it at the source's 8 connections, four rounds take 16 minutes. With both dimensions side by side (10), FactSales (15) and the email (1), the run takes about 42 minutes. The batch count is an upper limit, with a default of 20. Two dimensions that don't read each other can start together after the load, and FactSales waits for both: an activity with several Succeeded dependencies runs only when all of them succeed. Completed would also run after a failure, so the email stays on Succeeded.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
+    "https://learn.microsoft.com/en-us/azure/data-factory/control-flow-for-each-activity",
+    "https://learn.microsoft.com/en-us/azure/data-factory/concepts-pipelines-activities",
+    "https://learn.microsoft.com/en-us/azure/data-factory/tutorial-pipeline-failure-error-handling"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-07: foreach-activity (Fabric: Settings tab, Sequential or in parallel, Batch count as the maximum at once), control-flow-for-each-activity (isSequential default false; batchCount default 20, maximum 50, an upper concurrency limit, only when isSequential is false), concepts-pipelines-activities (dependsOn with Succeeded, Failed, Skipped, Completed; activities that aren't dependent might run in parallel), tutorial-pipeline-failure-error-handling (several dependencies: the next step runs only when both succeeded). The JSON names come from the Data Factory pages; the Fabric ForEach page doesn't show JSON. The starter sets isSequential true on purpose."
+  ]
+}

@@ -1,9 +1,9 @@
 name: Academy Windows profile (temporary)
 
-# Temporary measurement for the CI runner-minutes work; this pull request is closed, never merged.
+# Temporary measurement for the CI runner-minutes work, on this branch only; never merged.
 on:
-  pull_request:
-    paths: [.github/workflows/academy-diag.yml, .github/diag/**]
+  push:
+    branches: [claude/enterprise-hardening-audit-rqehcx-acdiag]
 
 permissions:
   contents: read
@@ -14,9 +14,6 @@ jobs:
     defaults:
       run:
         working-directory: sidecar
-    env:
-      TMP: ${{ runner.temp }}
-      TEMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -29,7 +26,7 @@ jobs:
       - run: python -m pip install -e ".[dev]" -c constraints.txt
       - name: The three slow Academy files, as CI runs them
         shell: bash
-        run: PYTHONPATH="$PWD/../.github/diag" python -m pytest -q -n auto --dist loadfile --durations=15 -p academy_profile -m "not machine_wide_grants" tests/test_academy_pylab.py tests/test_academy_appcontainer.py tests/test_academy_databricks_content.py
+        run: TMP="$RUNNER_TEMP" TEMP="$RUNNER_TEMP" PYTHONPATH="$PWD/../.github/diag" python -m pytest -q -n auto --dist loadfile --durations=15 -p academy_profile -m "not machine_wide_grants" tests/test_academy_pylab.py tests/test_academy_appcontainer.py tests/test_academy_databricks_content.py
       - name: Totals across workers
         shell: bash
         run: python ../.github/diag/academy_summary.py

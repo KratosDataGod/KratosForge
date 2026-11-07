@@ -183,7 +183,7 @@ def _minus(right: Any, left: Any) -> Any:
 def _diff(left: Any, right: Any) -> Any:
     """How a total moved; 0 for two float sums equal within FLOAT_TOLERANCE."""
     d = _minus(right, left)
-    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(left or 0), abs(right or 0)), FLOAT_FLOOR):
+    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(float(left or 0)), abs(float(right or 0))), FLOAT_FLOOR):
         return 0.0
     return d
 

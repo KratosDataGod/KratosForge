@@ -28,3 +28,9 @@ def test_totals_of_the_same_type_subtract_as_before() -> None:
     assert compare._minus(5, None) == 5
     assert compare._minus(None, 2.5) == -2.5
     assert compare._diff(Decimal("1.5"), 2.0) == 0.5
+
+
+def test_the_large_table_diff_takes_a_decimal_and_a_float_either_way_round() -> None:
+    assert compare._diff(Decimal("3"), 2.0) == -1.0
+    assert compare._diff(2.0, Decimal("3")) == 1.0
+    assert compare._diff(Decimal("2.5"), 2.5) == 0.0  # equal totals are within the tolerance

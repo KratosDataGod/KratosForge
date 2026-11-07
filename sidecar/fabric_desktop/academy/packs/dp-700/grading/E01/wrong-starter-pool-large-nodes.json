@@ -1,0 +1,28 @@
+{
+  "_about": "A model of a workspace's Spark settings. default_pool is \"Starter pool\" or a custom pool's name. Custom pools have node_size (Small, Medium, Large, X-Large, XX-Large), autoscale, min_nodes, max_nodes and dynamic_executor_allocation. team_pools says which pool each team's work runs on.",
+  "needs": {
+    "Analysts": "Interactive notebooks over small data all day. Sessions should start in seconds.",
+    "ETL": "One nightly job with big joins. Each node needs 16 vCores. It needs 2 nodes on quiet nights and up to 12 on month-end, and should give nodes back afterwards.",
+    "DataScience": "Several notebooks open at once by the same people; they want them to share one Spark session."
+  },
+  "workspace": {
+    "default_pool": "Starter pool",
+    "starter_pool_node_size": "Large",
+    "high_concurrency_for_notebooks": true
+  },
+  "custom_pools": {
+    "NightlyETL": {
+      "node_size": "Large",
+      "autoscale": true,
+      "min_nodes": 2,
+      "max_nodes": 12,
+      "dynamic_executor_allocation": true
+    }
+  },
+  "team_pools": {
+    "Analysts": "Starter pool",
+    "ETL": "NightlyETL",
+    "DataScience": "Starter pool"
+  },
+  "who_can_create_custom_pools": "Workspace Admin"
+}

@@ -1,0 +1,31 @@
+{
+  "_about": "A model of the shortcuts in the SalesLH lakehouse. Each entry has name, location (Tables, or a folder under Files), target_type (OneLake or ADLS Gen2), target_path and auth (\"caller identity\" or \"connection\").",
+  "needs": {
+    "customers": "Read CRM_LH's Delta table customers as a table in SalesLH, without copying it. Staging_LH already has a shortcut to it, Tables/customers_link.",
+    "partner_exports": "Browse the CSV files in the partner's ADLS Gen2 container partner, folder exports.",
+    "orders_2025": "Read Archive_LH's Delta table orders_2025 as a table in SalesLH."
+  },
+  "shortcuts": {
+    "customers": {
+      "name": "customers",
+      "location": "Tables",
+      "target_type": "OneLake",
+      "target_path": "CRM_LH/Tables/customers",
+      "auth": "caller identity"
+    },
+    "partner_exports": {
+      "name": "partner",
+      "location": "Tables",
+      "target_type": "ADLS Gen2",
+      "target_path": "partner/exports",
+      "auth": "connection"
+    },
+    "orders_2025": {
+      "name": "orders_2025",
+      "location": "Tables",
+      "target_type": "OneLake",
+      "target_path": "Archive_LH/Tables/orders_2025",
+      "auth": "caller identity"
+    }
+  }
+}

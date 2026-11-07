@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -217,9 +218,10 @@ def _int(value: Any, default: int) -> int:
 
 def _float(value: Any, default: float) -> float:
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return default
+    return number if math.isfinite(number) else default  # "nan" and "inf" are floats too
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -289,6 +291,8 @@ class _Handler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             raise Refused(400, "invalid_input", "The body isn't JSON.") from None
+        except RecursionError:
+            raise Refused(400, "invalid_input", "The body's JSON is nested too deeply.") from None
 
     def _reply(self, status: int, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, default=str).encode("utf-8")

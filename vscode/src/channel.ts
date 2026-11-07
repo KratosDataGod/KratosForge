@@ -46,6 +46,11 @@ export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on
 /** The editor channel API this extension speaks (editor_channel.API_VERSION). An app that reports a
  * newer one has changed its routes, so this window stops before it misreads a reply. */
 export const API_VERSION = 1;
+export const CONNECTION_LOST = "KratosForge closed the connection, so it may have restarted or stopped. Run the cell again.";
+export const RESTARTED = "The notebook's session in KratosForge ended while this cell ran (KratosForge may have restarted). Run the cell again.";
+export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
+const BUSY_RETRIES = 3;
+
 export const APP_TOO_NEW = "This KratosForge is newer than this extension. Install kratosforge.vsix from "
   + "KratosForge's latest release, then reload this window.";
 export const EXTENSION_TOO_OLD = "This extension is too old for this KratosForge. Install kratosforge.vsix from "
@@ -68,8 +73,11 @@ function send(port: number, method: string, url: string, headers: Record<string,
       });
     });
     req.on("timeout", () => req.destroy(new Error("KratosForge didn't answer in time.")));
-    req.on("error", (err: NodeJS.ErrnoException) =>
-      reject(err.code === "ECONNREFUSED" ? new ChannelError(0, "not_listening", NOT_LISTENING) : err));
+    req.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNREFUSED") reject(new ChannelError(0, "not_listening", NOT_LISTENING));
+      else if (err.code === "ECONNRESET" || err.code === "EPIPE") reject(new ChannelError(0, "connection_lost", CONNECTION_LOST));
+      else reject(err);
+    });
     if (data) req.write(data);
     req.end();
   });
@@ -92,6 +100,7 @@ export class Channel {
     const got = Buffer.from(proof, "hex");
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
       if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
+      if (reply.payload?.error?.code === "busy" && reply.status === 503) throw new ChannelError(503, "busy", BUSY);
       if (reply.payload?.error?.code === "extension_too_old") throw new ChannelError(reply.status, "extension_too_old", EXTENSION_TOO_OLD);
       throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
     }
@@ -101,7 +110,20 @@ export class Channel {
     if (api > API_VERSION) throw new ChannelError(0, "app_too_new", APP_TOO_NEW);
   }
 
+  /** A call, tried again a few times if the app turned it away only because it had too many
+   * connections open: that refusal comes before the app reads the request, so nothing ran. */
   private async request(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.once(method, url, body, hello);
+      } catch (err) {
+        if (!(err instanceof ChannelError) || err.code !== "busy" || attempt >= BUSY_RETRIES) throw err;
+        await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
+      }
+    }
+  }
+
+  private async once(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
     const where = readPortFile(this.dir);
     if (!where) throw new ChannelError(0, "not_listening", NOT_LISTENING);
     await this.prove(where);
@@ -116,6 +138,7 @@ export class Channel {
     const { status, payload } = await send(where.port, method, url, headers, data);
     if (!payload) throw new ChannelError(status, "bad_reply", "KratosForge sent a reply this extension can't read.");
     if (payload.ok) return payload.result;
+    if (status === 503 && payload.error?.code === "busy") throw new ChannelError(503, "busy", BUSY);
     throw new ChannelError(status, payload.error?.code || "failed", payload.error?.message || "KratosForge refused it.");
   }
 
@@ -178,6 +201,9 @@ export class Channel {
     let version = snap.version ?? -1;
     while (snap.status === "running" || snap.status === "paused") {
       const next = await this.poll(file, version);
+      // The session this cell ran in is gone (no session, or a new one counting from the start):
+      // the app restarted. Its last output isn't the cell's result, so say so rather than end "ok".
+      if (next.status === "idle" || (next.version ?? version) < version) throw new ChannelError(0, "restarted", RESTARTED);
       if ((next.version ?? -1) !== version || next.status !== snap.status) progress(next);
       version = next.version ?? version;
       snap = next;

@@ -288,13 +288,24 @@ def test_foreach_iterations_parallel_sequential_and_results():
     text = pipeline(act("Loop", "ForEach", items="@pipeline().parameters.xs", batchCount=3, activities=inner),
                     parameters={"xs": {"type": "array", "defaultValue": ["a", "b", "c"]}},
                     variables={"seen": {"type": "Array", "defaultValue": []}})
+    # Parallel or not is read from when each iteration ran, not from the run's total time, which a busy
+    # CI runner stretches: in parallel every iteration starts before any ends; in sequence each starts
+    # after the one before it ends.
+    def spans(r):
+        each = sorted((a for a in r.to_json()["activities"] if a["name"] == "Each"), key=lambda a: a["started"])
+        return [(a["started"], a["ended"]) for a in each]
+
     r = run(text, mocks={"Each": {"output": {"n": 1}, "seconds": 0.2}}, wait_scale=1)
     assert sorted(r.variables["seen"]) == ["a:1", "b:1", "c:1"]
-    assert r.seconds < 0.5 and next(a for a in r.to_json()["activities"] if a["name"] == "Loop")["iterations"] == 3
+    assert next(a for a in r.to_json()["activities"] if a["name"] == "Loop")["iterations"] == 3
+    runs = spans(r)
+    assert len(runs) == 3 and max(s for s, _ in runs) < min(e for _, e in runs), runs
     seq = json.loads(text)
     seq["properties"]["activities"][0]["typeProperties"]["isSequential"] = True
     r = run(json.dumps(seq), mocks={"Each": {"output": {"n": 1}, "seconds": 0.2}}, wait_scale=1)
-    assert r.variables["seen"] == ["a:1", "b:1", "c:1"] and r.seconds >= 0.55
+    assert r.variables["seen"] == ["a:1", "b:1", "c:1"]
+    runs = spans(r)
+    assert len(runs) == 3 and all(runs[i][1] <= runs[i + 1][0] for i in range(2)), runs
 
 
 def test_foreach_fails_when_an_iteration_fails_but_runs_them_all():

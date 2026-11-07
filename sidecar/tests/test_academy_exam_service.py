@@ -45,6 +45,16 @@ def test_practice_start_is_timed_running_and_never_shows_answers(svc):
     assert len(svc.academy_exam_home("dp-700")["unfinished"]) == 2
 
 
+def test_a_retake_draws_questions_the_learner_has_not_seen(svc):
+    first = svc.academy_exam_start("dp-700", "practice", timed=False)
+    for it in first["items"]:
+        svc.academy_exam_answer(first["id"], it["q"], _first_answer(it))
+    svc.academy_exam_finish(first["id"])
+    again = svc.academy_exam_start("dp-700", "practice", timed=False)
+    overlap = {it["q"] for it in first["items"]} & {it["q"] for it in again["items"]}
+    assert not overlap
+
+
 def test_diagnostic_takes_two_per_objective_in_one_domain(svc):
     v = svc.academy_exam_start("dp-700", "diagnostic", domain="2")
     assert {it["objective"].split(".")[0] for it in v["items"]} == {"2"}

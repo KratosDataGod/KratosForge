@@ -10,16 +10,17 @@ wait for or change it, and none of them calls Fabric.
 
 ## Choose how much moves
 
-**Settings > Appearance > Motion & effects**. Changes apply at once, even during a run, and are kept.
+**Settings > Appearance > Living Experience**. Changes apply at once, even during a run, and are kept.
+The modes were called Off, Minimal, Refined and Expressive before; a saved choice keeps its mode.
 
-| Level | What you see |
+| Mode | What you see |
 | --- | --- |
-| **0 Off** | No animation at all |
-| **1 Minimal** | Quick page and panel transitions only (a page slides 6 px in the direction you moved on the rail, 0.16 s) |
-| **2 Refined** (default) | Subtle sparks, embers and the wolf on real progress |
-| **3 Expressive** | The same moments with more character: a halftone ring and an offset outline on the anvil strike, a touch of depth on page changes |
+| **Professional** | No decorative animation at all |
+| **Subtle** | Quick page and panel transitions only (a page slides 6 px in the direction you moved on the rail, 0.16 s) |
+| **Heroic** (default) | Sparks, embers, the forge strike and the wolf on real progress |
+| **Legendary** | The same moments with more character: a halftone ring and an offset outline on the anvil strike, a touch of depth on page changes |
 
-At Refined and Expressive, a switch for each family turns it off:
+At Heroic and Legendary, a switch for each family turns it off:
 
 | Switch | Effects |
 | --- | --- |
@@ -112,7 +113,7 @@ compositor draws them without layout. The engine keeps them cheap:
 Measured with `app/tests/browser/motion-benchmark.cjs` (headless Chromium 141, Linux build machine,
 2026-10-20; compare against your own runs rather than reading these as a promise for a given PC):
 
-| Measure | Off (0) | Expressive (3) |
+| Measure | Professional (0) | Legendary (3) |
 | --- | --- | --- |
 | Run all, 20 cells, real engine (three runs) | 380, 344, 291 ms | 365, 324, 307 ms |
 | Frame time during 200 events in 10 s: median / 95th / worst | 16.7 / 16.7 / 16.8 ms | 16.7 / 16.8 / 33.3 ms |
@@ -121,7 +122,7 @@ Measured with `app/tests/browser/motion-benchmark.cjs` (headless Chromium 141, L
 | Main-thread time per `forgeEvent()` call | 0.10 ms | 0.23 ms |
 
 Run all times overlap between levels (the spread is the engine, not the effects). One frame in the
-Expressive burst took two vsyncs; no long task was recorded.
+Legendary burst took two vsyncs; no long task was recorded.
 
 ## For developers
 

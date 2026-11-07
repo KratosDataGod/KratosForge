@@ -168,6 +168,29 @@ def test_questions_spread_evenly_over_the_objectives(bank):
     assert len(s["items"]) == len([q for q in bank["questions"].values() if q["objective"] in ("2.2.9", "3.3.1")])
 
 
+def test_retakes_draw_unseen_then_missed_questions_first(bank):
+    first = exam.build(bank, cert_version="v", count=49, seed=3, now=T0)
+    asked = {it["q"] for it in first["items"]}
+    history = {q: "right" for q in asked}
+    second = exam.build(bank, cert_version="v", count=49, seed=3, now=T0, history=history)
+    assert not asked & {it["q"] for it in second["items"]}      # every objective has an unseen question left
+    one = sorted(q for q in bank["questions"] if bank["questions"][q]["objective"] == "1.1.1")
+    missed = one[0]
+    history = {q: "right" for q in one} | {missed: "wrong"}
+    s = exam.build(bank, cert_version="v", objectives=["1.1.1"], count=1, seed=9, now=T0, history=history)
+    assert [it["q"] for it in s["items"]] == [missed]
+    again = exam.build(bank, cert_version="v", count=49, seed=3, now=T0, history=history)
+    assert again["items"] == exam.build(bank, cert_version="v", count=49, seed=3, now=T0, history=history)["items"]
+
+
+def test_history_keeps_each_questions_latest_finished_outcome():
+    def done(at, rows, status="finished"):
+        return {"status": status, "finished_at": at, "result": {"items": [{"q": q, "correct": c} for q, c in rows]}}
+    sessions = [done("2026-11-02", [("a", True), ("b", True)]), done("2026-11-01", [("a", False), ("c", False)]),
+                done(None, [("d", False)], status="in_progress"), {"status": "finished", "result": None}]
+    assert exam.history(sessions) == {"a": "right", "b": "right", "c": "wrong"}
+
+
 def test_case_study_questions_sit_together(bank):
     s = exam.build(bank, cert_version="v", seed=3, now=T0)
     for case in bank["cases"]:

@@ -649,7 +649,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
-| **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
+| **Usage data** (Preview) | Hidden for now: usage data is off and this build sends nothing. It shows only while usage data is on, such as when your organization's policy turns it on, with **See what's sent**. When the policy sets it, only your organization can turn it off. See [Usage data](telemetry.md). |
 | **Notifications** | **Incident alerts**: send new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, a Power Automate flow (`flow:https://...`) or email (`mailto:a@x;b@y`, through the company mail server), unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels, Power Automate flows or email for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, **Save support bundle** (a zip with the engine's log and where each setting comes from, with the same details taken out, saved to a folder you choose and never sent from the app), the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 | **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
@@ -699,9 +699,9 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 
 ### Motion and effects
 
-**Settings > Appearance > Motion & effects** sets how much the app moves. **Visual intensity** is
-**0 Off** (nothing moves), **1 Minimal** (quick page and panel transitions only), **2 Refined**
-(the default: small sparks, embers and the wolf on real progress) or **3 Expressive** (the same
+**Settings > Appearance > Living Experience** sets how much the app moves. The **Experience mode** is
+**Professional** (no decorative motion), **Subtle** (quick page and panel transitions only), **Heroic**
+(the default: sparks, embers, the forge strike and the wolf on real progress) or **Legendary** (the same
 moments with more character). Switches turn off one family of effects at a time: wolf
 animations, forge sparks and running indicators. Changes apply
 at once and are kept. **Preview effects** plays each effect on a sample, and runs a three-step sample
@@ -737,7 +737,7 @@ Code a tool runs gets a process of its own that's ended afterwards. It can read 
 
 ## Updates
 
-KratosForge checks for an update each time it starts and installs it before opening. The first start on the new build shows the forge splash, the same animation that announced the KratosForge name, with what's new since the build you ran before (up to five changes). **Enter the forge**, Enter or Escape closes it, and **See everything new** opens What's new. It follows **Motion & effects**: with motion set to Off or Minimal, or reduced motion turned on in Windows, it shows still, and with **Forge sparks** off the emblem still strikes but no sparks fly and no embers rise. To get a small What's new window instead, clear **Show this after every update** on the splash or turn off **Show the forge after an update** in **Settings > Updates**; the command palette's **Show the update splash** shows it again.
+KratosForge checks for an update each time it starts and installs it before opening. The first start on the new build shows the forge splash, the same animation that announced the KratosForge name, with what's new since the build you ran before (up to five changes). **Enter the forge**, Enter or Escape closes it, and **See everything new** opens What's new. It follows **Living Experience**: in Professional or Subtle mode, or reduced motion turned on in Windows, it shows still, and with **Forge sparks** off the emblem still strikes but no sparks fly and no embers rise. To get a small What's new window instead, clear **Show this after every update** on the splash or turn off **Show the forge after an update** in **Settings > Updates**; the command palette's **Show the update splash** shows it again.
 
 **What's new** lists what changed: the build's own notes, then everything that reached the app in the 30 days before that build, newest first. The 10 newest show; **Show more** lists the rest, each with a link to its pull request. A link at the bottom opens KratosForge on GitHub. You can open What's new again from the account menu.
 
@@ -790,6 +790,8 @@ Each line says:
 | --- | --- |
 | `at`, `seconds` | When it started (UTC) and how long it took |
 | `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
+| `started` lines | Actions given a confirmation, an approval, a typed name or a risk-check acknowledgement, and Prod changes such as promote, rollback, restore and vacuum, get a line with `outcome` `started` before they run, then their usual line after. If that first line can't be written (a full disk, a locked file), the action doesn't run and says why. Everything else still runs when its line can't be written |
+| `reason` | Only when an action ended without an error message but didn't do what was asked: `refused`, `busy`, `policy`, `preview`, `invalid`, `partial` (some of it failed) or `failed`. A metadata run that fails gets an `error` outcome whether the app, a schedule on this PC or the agent started it (the reason can differ: a schedule records `failed`) |
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |

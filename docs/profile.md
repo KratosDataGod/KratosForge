@@ -65,7 +65,7 @@ problems.
 
 When Validate, Prove or a Learn check earns you an achievement, a short message names it (turn that off with **Settings >
 Achievement notifications**). Each achievement is announced once, even if you open the same result
-again. With **Settings > Appearance > Motion & effects > Achievement celebrations** on (the
+again. With **Settings > Appearance > Living Experience > Achievement celebrations** on (the
 default), the message also gets a brief reveal; see [Forge animations](forge-animations.md).
 
 After the first, each **different** notebook that passes Validate for the first time earns 10 XP,

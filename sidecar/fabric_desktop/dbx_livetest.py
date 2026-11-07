@@ -98,7 +98,7 @@ def pc_checks(connection: dict[str, Any], *, environ: Any = None, cfg_path: Path
 def _cli_version(cli: str, run: Callable[..., Any]) -> tuple[bool, str]:
     need = ".".join(map(str, MIN_CLI))
     try:
-        done = run([cli, "--version"], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+        done = run([cli, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"The Databricks CLI at {cli} didn't answer --version ({type(exc).__name__})."
     match = _CLI_VERSION.search(f"{done.stdout or ''} {done.stderr or ''}")

@@ -1,4 +1,25 @@
 :root {
+  /* Living Experience on Home (home-hero.js): the hero field, the navy identity card, the warm achievement card */
+  --lx-1: #fdf6ec;
+  --lx-2: #fbefe0;
+  --lx-3: #f6e6d2;
+  --lx-4: #f3dca5;
+  --lx-5: #000;
+  --lx-6: rgba(11, 20, 32, .35);
+  --lx-7: #8a4a00;
+  --lx-8: #0b1420;
+  --lx-9: #242424;
+  --lx-10: #1b3664;
+  --lx-11: #122a4f;
+  --lx-12: #ffffff;
+  --lx-13: #2c4c7c;
+  --lx-14: rgba(11, 20, 32, .28);
+  --lx-15: #c9d6ea;
+  --lx-16: #e6ecf5;
+  --lx-17: #ffcf8a;
+  --lx-18: #616161;
+  --lx-19: #14532d;
+  --lx-20: #fde3bf;
   /* KratosBI brand: navy #1b3664 and orange #f8991c */
   --accent: #1b3664;
   --accent-dark: #12264a;
@@ -231,6 +252,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; text-align: center; }
 .empty .title { font-size: 14px; font-weight: 600; }
 .empty .text { font-size: 13px; color: var(--muted); }
+.living-empty .empty-spot { color: var(--text-2); }
+.living-empty .living-empty-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; font-size: 20px; text-transform: uppercase; }
+@media (forced-colors: active) {
+  .empty-spot [fill]:not([fill="none"]) { fill: CanvasText; }
+  .empty-spot [fill="var(--accent-soft)"]:not([fill="none"]) { fill: Canvas; }
+  .empty-spot [stroke] { stroke: CanvasText; }
+}
 /* Shared loading placeholder (UX-020): loading() in app.js. */
 .loading { display: flex; align-items: center; gap: 8px; }
 .loading > .spinner { width: 12px; height: 12px; flex: none; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
@@ -990,6 +1018,65 @@ body.pop-out .page.monitor { padding: 12px; }
 .env-tile:hover { border-color: var(--accent); }
 .home-start { align-items: center; gap: 8px; }
 .home-start h2 { margin: 0 8px 0 0; }
+
+/* ---------- home-hero.js: Living Experience on Home (LX-06, Preview) ---------- */
+.page.home.living > .home-hero, .page.home.living > .home-body { max-width: 1460px; }
+.home-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.home-main > * { max-width: 1136px; }
+.home-body.with-aside { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.home-hero { position: relative; flex: none; height: 200px; overflow: hidden; border-radius: 10px;
+  background: linear-gradient(90deg, var(--lx-1) 0%, var(--lx-2) 30%, var(--lx-3) 46%); border: 1px solid var(--lx-4); }
+.home-hero-art { position: absolute; top: 0; right: 0; bottom: 0; width: 60%;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-5) 22%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-5) 22%); }
+.home-hero-scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+.home-hero-emblem { position: absolute; right: 13%; bottom: 44px; width: 112px; height: 112px; filter: drop-shadow(0 6px 14px var(--lx-6)); }
+.home-hero-text { position: relative; height: 100%; width: 40%; box-sizing: border-box; padding: 26px 0 0 28px; display: flex; flex-direction: column; gap: 6px; }
+.home-hero-kicker, .home-hero-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; text-transform: uppercase; }
+.home-hero-kicker { font-size: 16px; color: var(--lx-7); letter-spacing: 1px; }
+.home-hero-title { font-size: 46px; line-height: .95; color: var(--lx-8); }
+.home-hero-text p { margin: 6px 0 0; font-size: 14px; color: var(--lx-9); max-width: 380px; }
+.home-aside { display: flex; flex-direction: column; gap: 12px; }
+.home-aside h2 { margin: 0 0 6px; font-size: 15px; }
+.home-id { border-radius: 10px; padding: 14px; background: linear-gradient(160deg, var(--lx-10) 0%, var(--lx-11) 100%); color: var(--lx-12);
+  display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--lx-13); box-shadow: 0 6px 20px var(--lx-14); }
+.home-id-head { display: flex; gap: 12px; align-items: center; }
+.home-id-portrait { width: 60px; height: 60px; flex: none; border-radius: 50%; overflow: hidden; border: 3px solid var(--brand-orange); background: var(--lx-8); }
+.home-id-img { width: 100%; height: 100%; object-fit: cover; }
+.home-id-names { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.home-id-rank { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; font-size: 22px; line-height: 1.05; }
+.home-id-role { font-size: 12px; color: var(--lx-15); }
+.home-id .home-id-hide { align-self: flex-start; color: var(--lx-15); padding: 2px; }
+.home-id-level { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--lx-16); }
+.home-id-pill { padding: 1px 8px; border-radius: 10px; background: var(--brand-orange); color: var(--lx-8); font-weight: 700; }
+.home-id-bar { height: 9px; border-radius: 5px; background: var(--lx-8); overflow: hidden; border: 1px solid var(--lx-13); }
+.home-id-bar > span { display: block; height: 100%; background: var(--brand-orange); }
+.home-id-foot { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid var(--lx-13); font-size: 12px; color: var(--lx-16); }
+.home-id-foot a { color: var(--lx-17); font-weight: 600; white-space: nowrap; }
+.home-journey ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.home-journey li { display: flex; gap: 8px; align-items: baseline; color: var(--muted, var(--lx-18)); }
+.home-journey li.met { color: inherit; }
+.home-journey-mark { width: 14px; flex: none; color: var(--lx-19); font-weight: 700; }
+.card.home-latest { display: flex; flex-direction: row; gap: 12px; align-items: center; background: linear-gradient(110deg, var(--lx-12) 45%, var(--lx-20) 100%); border-color: var(--lx-4); }
+.home-latest-text { display: flex; flex-direction: column; gap: 2px; }
+.home-latest-xp { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; font-size: 18px; color: var(--lx-7); }
+.home-stat { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+@media (max-width: 1100px) {
+  .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
+  .home-hero { height: auto; min-height: 170px; }
+  .home-hero-text { width: 40%; padding-bottom: 18px; }
+  .home-hero-title { font-size: 34px; }
+}
+@media (max-width: 720px) {
+  .home-hero { height: auto; min-height: 120px; }
+  .home-hero-art { display: none; }
+  .home-hero-text { width: auto; padding: 18px 20px; }
+  .home-hero-title { font-size: 28px; }
+}
+@media (forced-colors: active) {
+  .home-hero, .home-id, .home-latest { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  .home-hero-art { display: none; }
+  .home-id-bar > span, .home-id-pill { background: Highlight; color: HighlightText; }
+}
 
 /* ---------- dataops.js: compare, quarantine, freshness ---------- */
 .dataops h3 { margin: 12px 0 4px; font-size: 14px; }

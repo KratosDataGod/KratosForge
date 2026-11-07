@@ -248,11 +248,9 @@ function renderExplorer() {
       btn("Add data items", "add", openDataItems, "tool link", { style: "margin-top:12px" }));
     renderTree(tree, lh, insertCell);
   } else {
-    content.append(h("div", { class: "empty" },
-      h("span", { style: "color:var(--accent)" }, icon("lakehouse", 40)),
-      h("span", { class: "title" }, "No data items yet"),
-      h("span", { class: "text" }, "Attach a lakehouse to read its files and write Delta tables back to OneLake."),
-      btn("Add data items", null, openDataItems, "tool primary")));
+    content.append(livingEmpty({ spot: "land", fallbackIcon: "lakehouse", title: "No data items yet",
+      text: "Attach a lakehouse to read its files and write Delta tables back to OneLake.",
+      action: btn("Add data items", null, openDataItems, "tool primary") }));
   }
   return h("aside", { class: "explorer", "aria-label": "Explorer" }, h("div", { class: "explorer-head" }, "Explorer"), tabs, content);
 }
@@ -344,7 +342,13 @@ function renderCell(cell) {
       else if (multiSelected()) clearSelection();
       if (!e.target.closest(".cm-editor, input, select, textarea, button")) {
         setMode("command");
-        setTimeout(() => { if (!document.activeElement?.closest?.(".cm-editor, input, select")) node.focus({ preventScroll: true }); });
+        // The cell as drawn now: selecting it can redraw the notebook (the Edit tab follows the cell),
+        // which replaces this node, and focusing a node that's gone leaves focus on the view, where the
+        // command-mode keys don't reach the cell.
+        setTimeout(() => {
+          if (document.activeElement?.closest?.(".cm-editor, input, select")) return;
+          document.querySelector(`[data-cell="${cell.id}"]`)?.focus({ preventScroll: true });
+        });
       }
     },
   });
@@ -955,7 +959,9 @@ document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
   if (t.closest?.(".cm-editor") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
-  if (!t.closest?.(".cells") && t !== document.body) return;
+  // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
+  // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
+  if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
   const cell = selectedCell();
   const key = e.key;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;

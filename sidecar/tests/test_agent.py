@@ -690,7 +690,7 @@ def test_a_busy_table_is_retried_for_just_the_tables_that_did_not_run(setup, mon
     agent.step()
     finish(agent)
     again = agent.queue.get(job["id"])
-    assert again["state"] == "queued" and "LeaseBusy" in again["error"] and "someone-else" in again["error"]
+    assert again["state"] == "queued" and "is being written by someone-else" in again["error"]
     assert again["payload"]["entities"] == ["gold.fact_sales"]
 
 

@@ -34,7 +34,7 @@ const KNOWN_FOCUS = new Set([]);
 // Checks axe can't decide by itself, judged by a person (#945): "page: rule @ element" patterns and the verdict,
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
-  [/^home: color-contrast @ \.home-hero-(kicker|title|text > p)$/, "Pass: the hero's text sits on its light field (#fdf6ec to #f6e6d2), never on the art, which starts fully transparent where the 40% text column ends: the kicker #8a4a00 is 5.6:1 at worst, the title #0b1420 15.1:1, the line #242424 12.7:1 (axe can't read a gradient)."],
+  [/^home: color-contrast @ .*\.home-hero-(kicker|title|welcome|text > p|actions\b.*)$/, "Pass: the hero's text and buttons sit in the art's navy sky (#10223f to #1b3664 behind the 44% text column; the characters start right of it): measured on the art behind each line at 1440 px: the title #ffffff 13.4:1 at worst, the welcome #e6ecf5 12.5:1, the kicker #f8991c 7.2:1, the outline button's label 14.5:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
   [/^home: color-contrast @ .*\.chev$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic)."],
   [/^workspaces: color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],

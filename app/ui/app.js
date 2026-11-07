@@ -835,8 +835,11 @@ async function renderHome() {
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   // Continue opens the notebook changed last; it appears once the list is read and there is one.
   const resume = h("span", { class: "home-continue" });
-  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume,
-    btn("New notebook", "notebook", newNotebook, "tool outline"),
+  // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
+  // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
+  const living = typeof homeHero === "function" && homeLivingOn();
+  const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
     btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
     btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
@@ -844,12 +847,12 @@ async function renderHome() {
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
   const started = gettingStarted();
-  // Living Experience (home-hero.js, Preview): the hero band and the progression panel beside the page.
-  const living = typeof homeHero === "function";
-  const hero = living ? homeHero() : null;
+  // The hero band and the progression panel beside the page.
+  const welcome = name ? `Welcome back, ${name}` : "Welcome to KratosForge";
+  const hero = living ? homeHero({ welcome, actions: [resume, newNb] }) : null;
   const main = h("div", { class: "home-main" },
     h("div", { class: "row home-head" },
-      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      hero ? h("span", { class: "grow" }) : h("h1", { class: "grow" }, welcome),
       living ? homeShowPanelLink() : null,
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
@@ -904,8 +907,9 @@ async function renderHome() {
         : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
     return recentList?.done;
   });
-  // The progression panel reads Profile once the notebooks are in, so Home's own lists come first.
-  if (panel) notebooksDone.then(panel.load, panel.load);
+  // The progression panel asks for Profile (local and quick) right after the notebooks, ahead of the
+  // Fabric calls below: the engine answers one call at a time, so behind them it would sit empty.
+  if (panel) panel.load();
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);

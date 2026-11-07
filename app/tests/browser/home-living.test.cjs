@@ -53,8 +53,12 @@ test("Home shows the hero and the progression panel from profile_get", { skip },
   assert.ok(await page().locator(".home-id-rank").getByText(p.title, { exact: true }).isVisible());
   assert.ok(await page().getByText("First Flame", { exact: true }).isVisible());
   assert.ok(await page().getByText("Not measured").isVisible());
-  // The hero holds no control.
-  assert.strictEqual(await page().locator(".home-hero button, .home-hero a, .home-hero input").count(), 0);
+  // The welcome and the primary actions are real UI in the hero's text side; none sits on the art.
+  assert.ok(await page().locator(".home-hero h1").getByText("Welcome to KratosForge").isVisible());
+  assert.ok(await page().locator(".home-hero-actions").getByRole("button", { name: "New notebook" }).isVisible());
+  assert.strictEqual(await page().locator(".home-hero button, .home-hero a, .home-hero input").count(),
+    await page().locator(".home-hero-text button, .home-hero-text a, .home-hero-text input").count());
+  assert.strictEqual(await page().locator(".home-hero-img").getAttribute("alt"), "");
   // Never a god name, never a capacity figure.
   assert.ok(!(await page().locator(".home-aside").innerText()).includes("Data God"));
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "home-living.png") });

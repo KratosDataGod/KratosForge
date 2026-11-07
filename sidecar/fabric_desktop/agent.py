@@ -32,6 +32,7 @@ from typing import Any, Callable
 from . import agent_status, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
+from .audit import outcome as audit_outcome
 from .dataops_service import post_teams
 from .fabric_api import FabricClient
 from .jobqueue import JobQueue
@@ -508,6 +509,7 @@ class Agent:
         seconds = round(time.monotonic() - t0, 1)
         summary = self._summary(results)
         failed = [r for r in results if r["status"] not in ("ok", "skipped")]
+        result, reason = audit_outcome(results)  # the same reading the app and PC schedules give a run
         retry = [r["entity"] for r in failed if r.get("retryable")]
         if not failed:
             if self._settle(job, self.queue.succeed, job["id"], owner, summary, claim=claim):
@@ -518,7 +520,8 @@ class Agent:
                 self._audit(job, "lease_lost", seconds, error=why, **summary)
                 self.log.warning("job finished, but its lease ran out", extra=fields(**ctx, seconds=seconds, **summary))
             return
-        self._audit(job, "error", seconds, error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
+        self._audit(job, result, seconds, error="; ".join(f"{r['entity']}: {r['message']}" for r in failed),
+                    reason=reason, **summary)
         if len(retry) == len(failed):
             # Only busy tables or network trouble: try again, for just those and what they block.
             skipped = [r["entity"] for r in results if r["status"] == "skipped"]
@@ -541,14 +544,15 @@ class Agent:
         if other:
             raise Abandoned(f"agent {other} took this request over")
 
-    def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", **summary: Any) -> None:
+    def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", reason: str = "",
+               **summary: Any) -> None:
         """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
         p = job["payload"]
         params = {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
                   "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
                   "attempt": job["attempts"], "agent": self.config.name, **summary}
         try:
-            self.audit.record("agent_job", outcome, seconds, params, error=error)
+            self.audit.record("agent_job", outcome, seconds, params, error=error, reason=reason)
         except Exception as exc:  # a full disk mustn't stop the job; the log has it
             self.log.warning("couldn't write the audit line", extra=fields(job_id=job["id"], error=str(exc)))
 

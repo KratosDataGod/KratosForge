@@ -130,9 +130,11 @@ def test_the_token_reply_says_when_it_expires():
     assert powerbi_embed.token_reply("not-a-jwt")["expires_at"] is None
 
 
-def test_the_calls_are_read_only_and_never_offered_to_external_tools():
+def test_the_token_is_audited_the_content_read_isnt_and_neither_is_offered_to_external_tools():
     assert {"pbi_embed_token", "pbi_embed_content"} <= server.METHODS
-    assert not audit.audited("pbi_embed_token") and not audit.audited("pbi_embed_content")
+    # Handing out a token that can write is recorded (who, when, outcome); the token itself never is,
+    # since a line keeps only the call's parameters and pbi_embed_token takes none.
+    assert audit.audited("pbi_embed_token") and not audit.audited("pbi_embed_content")
     from fabric_desktop.integrations import capabilities
     source = Path(capabilities.__file__).read_text(encoding="utf-8")
     assert "pbi_embed" not in source and "powerbi_embed" not in source

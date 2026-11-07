@@ -382,7 +382,7 @@ def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression
     """FLATTEN's rows as a subquery over json_each, with Snowflake's columns (KEY, PATH, INDEX, VALUE, THIS):
     KEY is NULL for an array element and INDEX for an object field, and PATH is written as Snowflake
     writes it. Only these columns come out, so json_each's own (id, type, parent...) can't clash with the
-    person's. With OUTER, a value with nothing to flatten gives one row: NULL KEY, INDEX and VALUE, and the
+    person's. A scalar has nothing to flatten. With OUTER, a value with nothing to flatten gives one row: NULL KEY, INDEX and VALUE, and the
     value as THIS."""
     from .sql import _with_args
     this = source.copy()
@@ -390,13 +390,16 @@ def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression
         this = _with_args(f"json_extract(CAST(fj_arg0 AS JSON), '{'$' if path.startswith('[') else '$.'}{path}')",
                           [this])
     array = "json_type(CAST(fj_arg0 AS JSON)) = 'ARRAY'"
+    # only an array or an object has entries: a scalar, JSON null or a missing PATH gives no rows (json_each
+    # would give a scalar one row), and one row of NULLs with OUTER
+    compound = "coalesce(json_type(CAST(fj_arg0 AS JSON)) IN ('ARRAY', 'OBJECT'), FALSE)"
     field = "__sf_e.key" if not path else f"'{path}.' || __sf_e.key"
     return _with_args(f"(SELECT CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS key, "
                       f"CASE WHEN {array} THEN '{path}[' || __sf_e.key || ']' ELSE {field} END AS path, "
                       f"CASE WHEN {array} THEN CAST(__sf_e.key AS INT) END AS index, __sf_e.value AS value, "
-                      "CAST(fj_arg0 AS JSON) AS this FROM json_each(fj_arg0) AS __sf_e"
-                      + (f" UNION ALL SELECT NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) WHERE NOT EXISTS "
-                         "(SELECT 1 FROM json_each(fj_arg0))" if outer else "") + ")", [this])
+                      f"CAST(fj_arg0 AS JSON) AS this FROM json_each(fj_arg0) AS __sf_e WHERE {compound}"
+                      + (f" UNION ALL SELECT NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) WHERE NOT {compound} "
+                         "OR NOT EXISTS (SELECT 1 FROM json_each(fj_arg0))" if outer else "") + ")", [this])
 
 
 def _rewrite_flatten(statement: exp.Expression) -> None:
@@ -1459,7 +1462,7 @@ CATALOG = (
                 "columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as "
                 "Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value "
                 "with nothing to flatten, and PATH => "
-                "takes plain names and [n]. A key that isn't a plain name is written in PATH as it is, since "
+                "takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since "
                 "Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; "
                 "SFD-005 is retired."),
     ("SFX-002", "Rewritten", "TO_VARCHAR and TO_CHAR with a date or time format written in the query become "

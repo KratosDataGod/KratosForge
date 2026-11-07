@@ -155,6 +155,25 @@ def test_sfx001_flatten_outer_gives_one_row_for_an_empty_value_wherever_it_is():
     assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'))) f") == []
 
 
+@pytest.mark.parametrize("value", ["'5'", "'null'", "'\"hi\"'"])
+def test_sfx001_flatten_of_a_scalar_gives_no_rows_and_one_with_outer(value):
+    assert _flat(f"SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON({value})))") == []
+    rows = _flat(f"SELECT key, path, index, value FROM TABLE(FLATTEN(INPUT => PARSE_JSON({value}), OUTER => TRUE))")
+    assert rows == [(None, "", None, None)]
+
+
+def test_sfx001_flatten_of_a_scalar_at_a_path_gives_no_rows_and_one_with_outer():
+    assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1}'), PATH => 'a'))") == []
+    assert _flat("SELECT key, path, index, value FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1}'), PATH => 'a', "
+                 "OUTER => TRUE))") == [(None, "a", None, None)]
+
+
+def test_sfx001_flatten_over_mixed_rows_counts_only_arrays_and_objects():
+    rows = _flat("SELECT p.id, f.index FROM (SELECT column1 AS id, PARSE_JSON(column2) AS v FROM VALUES (1, '[7, 8]'), "
+                 "(2, '3'), (3, '{\"k\": 1}')) p, LATERAL FLATTEN(INPUT => p.v) f ORDER BY p.id, f.index")
+    assert rows == [(1, 0), (1, 1), (3, None)]
+
+
 def test_sfx001_flatten_columns_of_json_each_dont_clash_with_the_tables():
     rows = _flat("SELECT id, type, f.value::int FROM (SELECT 1 AS id, 'x' AS type, PARSE_JSON('[5]') AS c) p, "
                  "LATERAL FLATTEN(INPUT => p.c) f")

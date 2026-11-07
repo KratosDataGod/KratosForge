@@ -113,7 +113,7 @@ Rules 2026.11.11.
 
 | Id | What | Applies to |
 | --- | --- | --- |
-| SFX-001 | Rewritten | LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value with nothing to flatten, and PATH => takes plain names and [n]. A key that isn't a plain name is written in PATH as it is, since Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; SFD-005 is retired. |
+| SFX-001 | Rewritten | LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value with nothing to flatten, and PATH => takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; SFD-005 is retired. |
 | SFX-002 | Rewritten | TO_VARCHAR and TO_CHAR with a date or time format written in the query become strftime. Elements with no equivalent (quarter, week) aren't rewritten. |
 | SFX-003 | Runs only in Snowflake | TO_VARCHAR and TO_CHAR with a number format. |
 | SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |

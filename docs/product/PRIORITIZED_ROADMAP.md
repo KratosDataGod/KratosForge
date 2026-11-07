@@ -191,7 +191,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (60 items)
+### P2 (59 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -254,9 +254,8 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-112](PRODUCT_BACKLOG.md#pb-112) | Semantic model best-practice checks in governance policies | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-108 | Best Practice Analyzer |
 | [PB-115](PRODUCT_BACKLOG.md#pb-115) | Run the Fabric Best Practice Analyzer live | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-112 | Best Practice Analyzer |
 | [PB-116](PRODUCT_BACKLOG.md#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | 4 | 1 | 3 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | none | Fabric and Databricks unified development |
-| [PB-130](PRODUCT_BACKLOG.md#pb-130) | Data product promises, status and change windows | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-002 | Data mesh |
 
-### P3 (21 items)
+### P3 (23 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -271,6 +270,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
 | [PB-117](PRODUCT_BACKLOG.md#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | 2 | 1 | 2 | 2 | 3 | 2 | 2 | 1.95 | 2.0 | 1.56 | none | M | Medium | none | Fabric and Databricks unified development |
 | [PB-121](PRODUCT_BACKLOG.md#pb-121) | Power BI embedding (Embed Studio) | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | L | Medium | none | Power BI embedding (PBE) |
+| [PB-130](PRODUCT_BACKLOG.md#pb-130) | Data product promises, status and change windows | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | M | Medium | PB-002 | Data mesh |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
 | [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: certification preparation | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
@@ -279,6 +279,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
 | [PB-097](PRODUCT_BACKLOG.md#pb-097) | Extensions | 3 | 1 | 4 | 4 | 3 | 4 | 4 | 3.0 | 4.0 | 1.2 | none | XL | Low | none | Git-native development |
 | [PB-093](PRODUCT_BACKLOG.md#pb-093) | Telemetry decision | 1 | 1 | 3 | 1 | 2 | 2 | 3 | 1.65 | 2.5 | 1.15 | none | M | Low | none | Enterprise readiness |
+| [PB-134](PRODUCT_BACKLOG.md#pb-134) | Developer classes and mastery | 3 | 1 | 3 | 4 | 3 | 5 | 3 | 2.75 | 4.0 | 1.1 | none | L | Medium | none | Developer classes and mastery |
 | [PB-127](PRODUCT_BACKLOG.md#pb-127) | Fabric App Studio | 3 | 2 | 3 | 5 | 4 | 5 | 4 | 3.25 | 4.5 | 0.97 | none | L | Medium | none | Fabric App Studio (AS) |
 | [PB-045](PRODUCT_BACKLOG.md#pb-045) | Shared queue for several workers | 2 | 3 | 4 | 3 | 3 | 5 | 4 | 3.0 | 4.5 | 0.9 | none | L | Low | PB-003 | Workload management |
 <!-- END GENERATED: ranking -->

@@ -30,6 +30,7 @@ from typing import Any
 from . import cleanup, envprofile, jsonfile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
+from . import known_folders
 
 METHODS = {"notebook_validate_check", "notebook_validate_start", "notebook_validate_status",
            "notebook_validate_cancel", "notebook_validate_list", "notebook_validate_save",
@@ -181,7 +182,7 @@ class ValidateMixin:
         if format not in ("markdown", "json"):
             raise ValueError("format is markdown or json")
         text = validate.to_markdown(record) if format == "markdown" else json.dumps(record, indent=1)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         stem = re.sub(r"[^\w.-]+", "-", f"validate-{record['name']}-{record['id'][9:24]}").strip("-")
         ext = "md" if format == "markdown" else "json"
@@ -199,7 +200,7 @@ class ValidateMixin:
 
     def _validate_kernel(self, lakehouse_ref: dict[str, str] | None) -> ProcessKernel:
         from .service import _apply_limits
-        schemas = bool(lakehouse_ref) and self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
+        schemas = bool(lakehouse_ref) and self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined, index]  # not indexed when None
         kernel = _CleanKernel(lakehouse_ref, schemas, Path(self.root),  # type: ignore[attr-defined]
                               token=self._token_for,  # type: ignore[attr-defined]
                               load_notebook=lambda nb: self.notebooks.load(nb)["cells"],  # type: ignore[attr-defined]

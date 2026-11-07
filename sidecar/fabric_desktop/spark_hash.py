@@ -35,7 +35,7 @@ def _name() -> str:
     return f"kf_h{next(_names)}"
 
 
-def _let(value: str, body) -> str:  # type: ignore[no-untyped-def]
+def _let(value: str, body) -> str:
     """``body(name)`` with ``value`` bound to a lambda variable, so it is written (and run) once."""
     name = _name()
     return f"(LIST_TRANSFORM([{value}], {name} -> {body(name)}))[1]"
@@ -66,10 +66,10 @@ def _constants(steps: list[str]) -> str:
             f"r := []::HUGEINT[]))")
 
 
-def _ops(*steps: tuple) -> str:  # type: ignore[type-arg]
+def _ops(*steps: tuple) -> str:
     """A SQL list of steps, each (o, d, s, c) with s and c 0 when left out."""
     parts: list[str] = []
-    run: list[tuple] = []  # type: ignore[type-arg]
+    run: list[tuple] = []
 
     def flush() -> None:
         if len(run) >= 3:
@@ -115,7 +115,7 @@ def _word(b: str, start: str, size: int) -> str:
     return " | ".join(f"({b}[{start} + {j + 1}]::HUGEINT << {8 * j})" for j in range(size))
 
 
-def _each(values: str, block) -> str:  # type: ignore[no-untyped-def]
+def _each(values: str, block) -> str:
     """``block(v)``'s steps for each value in the SQL list ``values``, in order."""
     return f"FLATTEN(LIST_TRANSFORM({values}, kf_v -> {block('kf_v')}))"
 
@@ -156,7 +156,7 @@ _P1, _P2, _P3, _P4, _P5 = (0x9E3779B185EBCA87, 0xC2B2AE3D27D4EB4F, 0x165667B19E3
                            0x85EBCA77C2B2AE63, 0x27D4EB2F165667C5)
 
 
-def _xx_round(lane: int) -> tuple:  # type: ignore[type-arg]
+def _xx_round(lane: int) -> tuple:
     """lane = rotl(lane + T * P2, 31) * P1"""
     return (("mul", _T, 0, _P2), ("addr", lane, _T), ("rotl", lane, 31), ("mul", lane, 0, _P1))
 

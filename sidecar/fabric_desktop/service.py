@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import logging
 import os
 import math
@@ -99,6 +100,7 @@ from .debugger import check_breakpoints
 from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_notebook_name, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 MAX_ITEM_PINS = 50  # items pinned to Home
@@ -186,11 +188,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def support_bundle_preview(self) -> dict[str, Any]:
         from . import support_bundle
         shown = support_bundle.preview(self.root, self._bundle_agent_home())
-        return shown | {"folder": str(Path.home() / "Downloads")}
+        return shown | {"folder": str(known_folders.downloads())}
 
     def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
         from . import support_bundle
-        target = Path(folder) if folder else Path.home() / "Downloads"
+        target = Path(folder) if folder else known_folders.downloads()
         if not target.is_absolute():
             raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
         try:
@@ -285,7 +287,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def _checks(self, name: str | None) -> dict[str, Any]:
         """What compute_check (and Prove's and Validate's checks) need to follow the code that
         notebook ``name`` runs: the other notebooks by name, and its resources folder for %run -b."""
-        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}  # type: ignore[attr-defined]
+        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}
 
     def _notebook_of(self, name: str) -> dict[str, Any]:
         """Another notebook by name, for compute_check: its cells and its own lakehouse."""
@@ -424,7 +426,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             user = self.auth.signed_in_user()
         except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
             user = None
-        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
+        fabric = self._quiet_fabric() if user else None
         if user and fabric is None:
             user = None  # the saved sign-in has expired: the row offers Sign in
 
@@ -835,7 +837,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
@@ -926,7 +928,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -955,11 +957,21 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 resolve_warehouse=lambda ref: warehouse.resolve(self.fabric, ref))
         return self._sql_runs
 
-    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
+    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any],
+                       reason: str = "") -> None:
         auth = getattr(self, "_auth", None)  # only an account already signed in; never sign in here
         who = (auth.signed_in_user() or "") if auth is not None else ""
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
-        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
+        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant, reason=reason)
+
+    def _audit_finished(self, action: str, reason: str, seconds: float, params: dict[str, Any]) -> None:
+        """The line for work that ended after the call that started it had returned (a pipeline run on
+        this PC, a job in Fabric): ``ok`` when ``reason`` is "", else ``error`` with that reason
+        ("failed", "cancelled", "refused"). Never fails the work."""
+        try:
+            self._audit_sql_run(action, "error" if reason else "ok", seconds, params, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - the run has ended either way; stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
@@ -1034,7 +1046,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.

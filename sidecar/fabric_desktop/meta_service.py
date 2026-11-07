@@ -30,6 +30,7 @@ from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
 from .jsonfile import read_json, write_json, write_text
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 _seal_failed: list[bool] = []  # the warning that settings.json couldn't be sealed was logged
@@ -174,7 +175,7 @@ class MetaMixin:
         try:
             project = self._project()
         except LookupError:
-            return {"path": None, "default_path": str(Path.home() / "Documents" / "FabricDesktop" / "metadata"),
+            return {"path": None, "default_path": str(known_folders.documents() / "FabricDesktop" / "metadata"),
                     **describe()}
         return project.summary() | describe()
 
@@ -249,7 +250,7 @@ class MetaMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
         if self._keys_in_platform(project, env):
-            return self._platform_keys(env)  # type: ignore[attr-defined,return-value]
+            return self._platform_keys(env)  # type: ignore[attr-defined]
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
             return LocalStore(project.local_data / f"keys-{env}", env)
         ws = cfg.get("keys_workspace_id")

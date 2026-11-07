@@ -74,9 +74,21 @@ class NotebookRunner(Protocol):
         ended and before the run reports its final state; calling it again does nothing."""
         ...
 
+    def lakehouses(self, activities: list[Activity]) -> Any:
+        """The lakehouses these activities' notebooks use; empty (falsy) when they use none."""
+        ...
+
+    def stop(self) -> None:
+        """Stop the notebook that is running, when the run is cancelled."""
+        ...
+
 
 class DataReader(Protocol):
     """Runs a pipeline's Lookup and Get Metadata activities on this PC (the engine's pipeline_data.py)."""
+
+    def lakehouses(self, activities: list[Activity]) -> Any:
+        """Whether these activities read a lakehouse (truthy when they do)."""
+        ...
 
     def check(self, activity: Activity) -> list[dict[str, Any]]:
         """Why this activity can't read its dataset here; empty when it can. Reads nothing."""

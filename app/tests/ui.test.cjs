@@ -1553,6 +1553,19 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
+// X-ray's Vacuum and Vacuum all run the same risk check as Optimize, and send the id of the assessment seen.
+test("Estate X-ray's Vacuum and Vacuum all run the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function vacuumDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /rpc\("xray_vacuum_preview"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id: risk\?\.id/);
+  assert.match(dialog, /result === "blocked"/);
+  const all = /async function vacuumAll\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(all, /rpc\("xray_vacuum_preview"[\s\S]*rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id \}\)/);
+  assert.match(all, /result === "blocked" \|\| result === "warning"/, "tables with warnings or a block don't start from Vacuum all");
+  assert.ok(!/rpc\("xray_vacuum", vacuumArgs\(f\)\)/.test(xray), "every Vacuum call carries the risk id");
+});
+
 test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -2494,11 +2507,11 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
@@ -5630,7 +5643,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5642,7 +5655,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Forge Activity view"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",

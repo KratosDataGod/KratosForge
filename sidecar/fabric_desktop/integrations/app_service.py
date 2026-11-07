@@ -58,6 +58,7 @@ def _last_line(log: Any) -> str:
 
 
 class IntegrationsMixin:
+    _http_proc: subprocess.Popen[bytes] | None  # the local HTTP listener, once started
     root: Any  # from Service
 
     @property
@@ -94,7 +95,7 @@ class IntegrationsMixin:
                 "log": str(self.root / "integrations" / "http.log")}
 
     def _http_start(self) -> None:
-        if getattr(self, "_http_proc", None) is not None and self._http_proc.poll() is None:
+        if (proc := getattr(self, "_http_proc", None)) is not None and proc.poll() is None:
             return
         folder = self.root / "integrations"
         folder.mkdir(parents=True, exist_ok=True)

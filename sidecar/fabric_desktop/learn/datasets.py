@@ -86,7 +86,7 @@ def generate(con: duckdb.DuckDBPyConnection, name: str = "shop", size: str = "S"
     if defects:
         found = _add_defects(con, seed, n_orders, n_customers)
     return {"dataset": name, "size": size, "seed": seed,
-            "tables": {t: one_row(con.execute(f"SELECT count(*) FROM {t}"))[0] for t in TABLES},  # type: ignore[index]
+            "tables": {t: one_row(con.execute(f"SELECT count(*) FROM {t}"))[0] for t in TABLES},
             "defects": found}
 
 

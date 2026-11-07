@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Write the date to a text file and have the notebook search for it"
+          "text": "Write the date to a text file in the lakehouse and have the notebook search the whole Files folder for it on each run"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "Use a deployment rule"
+          "text": "Use a deployment rule on the notebook that sets the date variable in each stage"
         },
         {
           "id": "d",
-          "text": "Hard-code the date in the notebook before each run"
+          "text": "Hard-code the date in the notebook's first cell and edit it in the notebook before each pipeline run"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Values set as base parameters in the Notebook activity override the variables in the notebook's parameters cell when it runs.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/notebook-activity",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q2",
@@ -44,7 +44,7 @@
         },
         {
           "id": "b",
-          "text": "GETDATE('yyyy/MM/dd')"
+          "text": "FORMAT(GETDATE(), 'yyyy/MM/dd', 'en-US')"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "${date:yyyy/MM/dd}"
+          "text": "${formatDate(currentDate(), 'yyyy/MM/dd')}"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Pipeline expressions start with @ and use functions such as utcNow() and formatDateTime().",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/expression-language",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q3",
@@ -75,15 +75,15 @@
         },
         {
           "id": "b",
-          "text": "A deployment pipeline"
+          "text": "A deployment pipeline with one stage per notebook"
         },
         {
           "id": "c",
-          "text": "A loop of %run magic commands in five threads"
+          "text": "A loop of %run magic commands started in five Python threads"
         },
         {
           "id": "d",
-          "text": "Five separate pipelines"
+          "text": "Five separate pipelines, each with a Notebook activity"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "runMultiple runs several notebooks in parallel or in a declared order within the same session.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.3-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Write the value to the notebook's markdown"
+          "text": "Write the value into a markdown cell of the notebook, which the pipeline reads from the activity output"
         },
         {
           "id": "b",
-          "text": "Print the value and parse the logs"
+          "text": "Print the value with print() and have the pipeline parse it from the Spark driver logs afterwards"
         },
         {
           "id": "c",
@@ -122,9 +122,200 @@
       ],
       "explanation": "notebook.exit ends the notebook with a value that the pipeline reads from the Notebook activity's output with an expression.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q5",
+      "type": "single",
+      "stem": "A parent notebook calls notebookutils.notebook.run(\"LoadSales\") and the child, which runs for about 10 minutes, keeps failing on a timeout. What should you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Move the child notebook to another workspace with a larger pool"
+        },
+        {
+          "id": "b",
+          "text": "Call notebookutils.notebook.exit in the parent before the run() call starts"
+        },
+        {
+          "id": "c",
+          "text": "Turn on high concurrency mode so the child gets its own session"
+        },
+        {
+          "id": "d",
+          "text": "Pass a larger timeout_seconds value, since the default is 90 seconds"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "run() takes a timeout_seconds argument that defaults to 90 seconds, so a long child needs a larger value.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q6",
+      "type": "single",
+      "stem": "A child notebook calls notebookutils.notebook.exit(row_count) inside a try-except block, but the pipeline never receives the value. What is the fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Convert the value to an integer with int() before calling exit()"
+        },
+        {
+          "id": "b",
+          "text": "Call exit() at the top level of the code, outside the try-except block"
+        },
+        {
+          "id": "c",
+          "text": "Wrap exit() in a second, nested try-except block to catch and rethrow its error"
+        },
+        {
+          "id": "d",
+          "text": "Print the value before exit()"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "exit() doesn't take effect inside exception handling and must be called at the top level, ideally in its own cell.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q7",
+      "type": "multiple",
+      "stem": "Before calling runMultiple, you call notebookutils.notebook.validateDAG on the DAG. Which two problems can it catch? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Too little capacity to run the notebooks"
+        },
+        {
+          "id": "b",
+          "text": "Two activities with the same name"
+        },
+        {
+          "id": "c",
+          "text": "Circular references between activities"
+        },
+        {
+          "id": "d",
+          "text": "A cell in a child notebook with a syntax error"
+        },
+        {
+          "id": "e",
+          "text": "A child notebook that writes to the wrong table"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "validateDAG checks the DAG's structure: duplicate names, missing dependencies and circular references. It doesn't run or inspect the notebooks' code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q8",
+      "type": "single",
+      "stem": "A pipeline parameter myNumber is 42. A Set variable activity needs the string Answer is: 42. Which expression produces it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "@concat('Answer is: ', pipeline().parameters.myNumber"
+        },
+        {
+          "id": "b",
+          "text": "Answer is: @{pipeline().parameters.myNumber}"
+        },
+        {
+          "id": "c",
+          "text": "Answer is: @pipeline().parameters.myNumber"
+        },
+        {
+          "id": "d",
+          "text": "Answer is: @@{pipeline().parameters.myNumber}"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "String interpolation wraps an expression in @{ } inside a string and returns a string. @@ escapes the @ so the expression isn't evaluated.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/expression-language",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q9",
+      "type": "single",
+      "stem": "A pipeline runs several Notebook activities, and each waits for its own Spark session. You set the same session tag on each activity, but they still don't share a session. What else is required?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn on high concurrency mode for pipelines running multiple notebooks in the workspace settings"
+        },
+        {
+          "id": "b",
+          "text": "Give every Notebook activity identical base parameters so their Spark sessions can be matched by name"
+        },
+        {
+          "id": "c",
+          "text": "Put all the Notebook activities inside one ForEach activity with Sequential checked"
+        },
+        {
+          "id": "d",
+          "text": "Give each notebook a parameters cell that declares the session tag as a variable"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Session tags reuse an existing Spark session only when high concurrency mode for pipelines running multiple notebooks is turned on in the workspace's Spark settings.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/notebook-activity",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q10",
+      "type": "single",
+      "stem": "A Copy activity's file name must be the literal text @export.csv, starting with the @ sign. How do you write it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "@{export.csv}"
+        },
+        {
+          "id": "b",
+          "text": "'@'export.csv"
+        },
+        {
+          "id": "c",
+          "text": "@@export.csv"
+        },
+        {
+          "id": "d",
+          "text": "@export.csv"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A value that starts with @ is treated as an expression. To get a literal string that starts with @, escape it as @@.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/expression-language",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

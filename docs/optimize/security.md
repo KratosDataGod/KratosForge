@@ -32,7 +32,8 @@ Every row also carries its provenance: `record_id`, `installation_id` (a random 
 | `audit` | Yes | Setup and role changes, and recommendation state changes: what, on what, the outcome | The targets named |
 | `config` | Yes | Settings shared by everyone on the lakehouse, such as `store_sql_text` = `never` and `retention_days` | No |
 | `schema_version` | Yes | Which upgrades have run | No |
-| `actions`, `measurements`, `cu_usage`, `savings`, `dependencies`, `rules` | Not yet | Created empty, for later work in the [plan](plan.md) | — |
+| `measurements` | Yes, on each sync | What each write to the lakehouse took on a PC: seconds, rows and commits, as Measured figures ([What syncing costs](README.md#what-syncing-costs)) | No |
+| `actions`, `cu_usage`, `savings`, `dependencies`, `rules` | Not yet | Created empty, for later work in the [plan](plan.md) | — |
 
 These are never written: SQL text or code (only fingerprints of them), table contents, access tokens, email addresses, and X-ray's access findings, which name people. X-ray's cost findings aren't written either, because they are estimates for one PC.
 

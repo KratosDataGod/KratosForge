@@ -991,7 +991,7 @@ class PlatformMixin:
         elif view == "oncall":
             landing = read("Landing zone", lambda: self.platform_landing("prod"))
             shortcuts = read("Shortcuts", lambda: catalog.call("list_seen_shortcuts"))
-            coverage = (read("Owners", self.platform_owner_coverage)  # type: ignore[attr-defined]
+            coverage = (read("Owners", self.platform_owner_coverage)
                         if "owner_coverage" in core.OPERATIONS else None)
             out["oncall"] = home.oncall(reach, landing, shortcuts, coverage)
         else:
@@ -1275,7 +1275,7 @@ class PlatformMixin:
         # deprecation notice just named don't hear about the deprecation twice; other followers do.
         changes = (out.get("changes") or []) if isinstance(out, dict) else []
         if env == "prod" and changes:
-            me = (self._user() or "").lower()  # type: ignore[attr-defined]
+            me = (self._user() or "").lower()
             followers = [f for f in out.get("followers") or [] if isinstance(f, str) and f.lower() != me]  # the promoter knows
             rest = [c for c in changes if not str(c).startswith("Deprecated")]
             for people, said, suffix in (([f for f in followers if f.lower() not in told], changes, ""),

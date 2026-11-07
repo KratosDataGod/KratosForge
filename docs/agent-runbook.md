@@ -117,6 +117,17 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Recover.** Restore access or the network. The next beat writes the record, and the offline incident recovers.
 
+### The machine slept or its clock changed
+
+- **Message** (`agent.py`, log): `the clock moved more than a status beat since the last pass (sleep, or a clock change); publishing the status first`
+- **Message** (`agent.py`, log): `schedule's next run was further off than it can be; the clock went back, so it is worked out again`
+
+**Means.** The first message means the time between two passes was longer than a status beat, or the clock went back: the machine slept or hibernated, or the clock was changed (NTP, a time-zone change, or by hand). The agent renews the leases of the jobs still running on it, so they aren't started a second time, and writes its status record before anything slower. Peers may already have taken over its pipeline requests while it slept. If so, it stops its copy before the next table. The second message means a schedule's next run was further off than its interval allows, because the clock went back. The agent works it out again from now. Nothing runs twice for one due time.
+
+**Check first.** Does the machine sleep? A server running the agent shouldn't. Check its power plan, and whether its clock syncs with NTP.
+
+**Recover.** Nothing for a single message. If the first one is frequent, turn off sleep on the machine.
+
 ### A shared schedule's request wasn't written
 
 - **Message** (`agent.py`, log): `couldn't write the shared schedule's request`
@@ -147,6 +158,8 @@ Each agent sends this message once for a due time. If several agents sharing the
 
 **Means.** Teams or the flow didn't accept a message, because of the network, an outage, or a webhook that was removed. The message waits in the agent's home: `job_alerts.sqlite3` for job alerts, `alerts.sqlite3` for incidents. It is sent with the next try, marked **Delayed**. After three days it is dropped; see [A message was dropped](#a-message-was-dropped). The webhook address is never written to the log.
 
+A route that keeps failing rests between tries, so an outage doesn't cost a request, or a stalled loop, every pass. The first rest is a minute, and each failure after that doubles it, up to 30 minutes. While a route rests, its new messages go straight to the outbox, logged at info level (`alert waits: Teams failed recently, so it goes with the next try`). The warnings above appear only when a request was sent and failed. A throttled post (429) is retried at most twice, each wait capped at 10 seconds. A webhook that doesn't answer gives up after 5 seconds to connect or 15 to read. A route rests until its next try even after the webhook is fixed, unless its address changed: a new address is tried at once. When it recovers, it sends up to 25 waiting messages each pass, oldest first. The status record's `messages_waiting` shows how many are waiting.
+
 **Check first.** Can the machine reach the webhook's host? Does the Teams channel still have its workflow or connector?
 
 **Recover.** If the webhook was replaced, set the new address in the environment variable that `alerts.teams_webhook_env` (or the route's `webhook_env`) names. Then restart the agent, since it reads its environment at start. Waiting messages go with the next try.
@@ -155,7 +168,7 @@ Each agent sends this message once for a due time. If several agents sharing the
 
 - **Message** (`agent.py`, log): `Teams or flow messages waited three days without being sent and were dropped`
 
-**Means.** A job alert, incident message or shortcut break waited three days and Teams or the flow never took it, so the agent removed it unsent. The `outbox` field names where it waited (`job_alerts.sqlite3`, `alerts.sqlite3` or `shortcut_alerts.sqlite3`), and `dropped` says how many. The agent's [status record](agent.md#status-records) counts them in `messages_dropped` since its start.
+**Means.** A job alert, incident message or shortcut break was removed unsent. Either it waited three days and Teams or the flow never took it, or its outbox already held 500 messages and it was among the oldest. The `outbox` field names where it waited (`job_alerts.sqlite3`, `alerts.sqlite3` or `shortcut_alerts.sqlite3`), and `dropped` says how many. The agent's [status record](agent.md#status-records) counts them in `messages_dropped` since its start.
 
 **Check first.** The [message to Teams didn't go](#a-message-to-teams-didnt-go) warnings before it, which give the error. Then open Monitor and the incident list to see what the dropped messages would have said.
 

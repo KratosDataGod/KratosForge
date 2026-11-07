@@ -62,7 +62,7 @@ class ProofSpark:
                                "pins only the attached lakehouse's tables.")
         return (parts[0], parts[1]) if len(parts) == 2 else ("dbo", parts[0])
 
-    def split(self, name):
+    def split(self, name) -> tuple[str, str]:
         return self.parts([p.strip("`") for p in re.findall(r"`(?:[^`]|``)+`|[^.]+", str(name))])
 
     def local(self, name):

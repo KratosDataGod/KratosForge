@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # ready_for_review: a draft runs without its Windows engine tests and engine build (see the
+    # changes job), so marking it ready runs everything on the same head.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # Read-only unless a job asks for more; only the release job writes.
 permissions:
@@ -32,6 +35,7 @@ jobs:
       windows: ${{ steps.paths.outputs.windows }}
       ubuntu: ${{ steps.paths.outputs.ubuntu }}
       compat: ${{ steps.paths.outputs.compat }}
+      draft: ${{ steps.paths.outputs.draft }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: github.event_name == 'pull_request'
@@ -39,11 +43,19 @@ jobs:
           fetch-depth: 2
       - id: paths
         shell: bash
+        env:
+          DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\n' >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\ndraft=false\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A draft pull request skips the slowest Windows work (its Windows engine tests, the engine
+          # build and the shell build after it) to keep Windows runners free for pull requests that are
+          # ready; its sidecar (windows-latest) check fails on purpose instead. Marking it ready for
+          # review runs everything (the ready_for_review trigger above).
+          if [ "$DRAFT" = true ]; then draft=true; else draft=false; fi
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
           # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
           # it changes against the base it will merge into. -z lists every path as itself: without it, git
           # quotes and escapes a path with non-ASCII letters, a quote or a tab, and the patterns below
@@ -58,7 +70,8 @@ jobs:
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
           # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
-          if [ "$docs_only" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
+          # A draft skips them until it is marked ready.
+          if [ "$docs_only" = true ] || [ "$draft" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
           # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
           # host list, links), so a docs change runs them here too.
           if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then echo "ubuntu=true"; else echo "ubuntu=false"; fi >> "$GITHUB_OUTPUT"
@@ -100,6 +113,15 @@ jobs:
       - if: env.RUN_TESTS != 'true'
         working-directory: .
         run: echo "This pull request changes nothing these tests cover on ${{ matrix.os }}; skipped."
+      # A skipped check reports success, so a draft's Windows check fails on purpose: just after "Ready
+      # for review", before the new run reports, branch protection would otherwise see a green check on
+      # a head whose Windows tests never ran. Drafts can't merge, so the red check costs nothing.
+      - if: matrix.os == 'windows-latest' && needs.changes.outputs.draft == 'true'
+        working-directory: .
+        shell: bash
+        run: |
+          echo "::error::Draft: Windows engine tests not run; mark ready for review"
+          exit 1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: env.RUN_TESTS == 'true'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -311,8 +333,10 @@ jobs:
           exit $status
 
   sbom-app:
-    # The shell's software bill of materials (every Rust crate in Cargo.lock), attached to releases
-    # next to the engine's (built in the engine job from the engine itself).
+    # The shell's software bill of materials (every Rust crate in Cargo.lock), and the UI's (the npm
+    # packages bundled into app/ui/vendor, from their package-lock.json files, by
+    # .github/scripts/sbom_npm.py), attached to releases next to the engine's (built in the engine
+    # job from the engine itself).
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -329,10 +353,13 @@ jobs:
           cargo cyclonedx --version 2>/dev/null | grep -qwF 0.5.9 || cargo install --locked cargo-cyclonedx --version 0.5.9
           cd app/src-tauri && rustup toolchain install && cargo cyclonedx --format json --override-filename sbom-app
           mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
+      - run: python3 .github/scripts/sbom_npm.py ui sbom-ui.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-app
-          path: sbom-app.cdx.json
+          path: |
+            sbom-app.cdx.json
+            sbom-ui.cdx.json
           if-no-files-found: error
 
   agent-image:
@@ -351,7 +378,7 @@ jobs:
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
     needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: windows-latest
     # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
     outputs:
@@ -476,6 +503,9 @@ jobs:
           if ($LASTEXITCODE) { throw "The SBOM tool did not match its pinned hashes" }
           & "$env:RUNNER_TEMP\sbom\Scripts\cyclonedx-py.exe" environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
           if ($LASTEXITCODE) { exit 1 }
+          # cyclonedx-py lists the packages, not the interpreter: add the embeddable Python with its pinned hash.
+          python .github\scripts\sbom_npm.py add-python sbom-engine.cdx.json $env:PYTHON_VERSION $env:PYTHON_EMBED_SHA256 "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip"
+          if ($LASTEXITCODE) { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-engine
@@ -551,12 +581,27 @@ jobs:
       # docs/enterprise-install.md). Built after signing, so the MSI carries the signed exe.
       - name: Build the MSI
         shell: pwsh
+        env:
+          WIX_VERSION: "5.0.2"
+          # SHA-512 of wix.5.0.2.nupkg, the same as NuGet's catalog packageHash for that version.
+          # Bumping WIX_VERSION means updating this too.
+          WIX_NUPKG_SHA512: "cfe7eed5d79371a57e4d10a8e3ee87ac9e3c49d9e3fb27908e3312b53237196ecdc4510f6a49d809dc6b7f4a84be0757ae361d8cb9e464a0ac352a934cea3638"
         run: |
-          dotnet tool install --global wix --version 5.0.2
+          $ErrorActionPreference = "Stop"
+          # The MSI's build tool must be exactly the pinned package: installed into its own folder, and
+          # its .nupkg checked before wix runs. A package that isn't the pinned file stops the build.
+          $tools = "$env:RUNNER_TEMP\wix"
+          dotnet tool install wix --version $env:WIX_VERSION --tool-path $tools
+          if ($LASTEXITCODE -ne 0) { throw "Could not install WiX $env:WIX_VERSION" }
+          $nupkg = @(Get-ChildItem -Path "$tools\.store" -Recurse -File -Filter "wix.$env:WIX_VERSION.nupkg")
+          if ($nupkg.Count -ne 1) { throw "Found $($nupkg.Count) copies of wix.$env:WIX_VERSION.nupkg, not one, so its hash can't be checked" }
+          $sha = (Get-FileHash $nupkg[0].FullName -Algorithm SHA512).Hash.ToLower()
+          "WiX package sha512 $sha"
+          if ($sha -ne $env:WIX_NUPKG_SHA512) { throw "wix.$env:WIX_VERSION.nupkg is not the pinned file (sha512 $sha)" }
           # An MSI version's third field stops at 65535, so the run number carries into the second.
           $run = ${{ github.run_number }}
           $version = "0.$([math]::Floor($run / 65536) + 1).$($run % 65536)"
-          wix build ..\installer\kratosforge.wxs -arch x64 `
+          & "$tools\wix.exe" build ..\installer\kratosforge.wxs -arch x64 `
             -d Version=$version `
             -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico `
             -o target\release\kratosforge.msi
@@ -678,17 +723,21 @@ jobs:
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg source "$(sha256sum sidecar-source.zip | cut -d' ' -f1)" \
+            --arg sbom_engine "$(sha256sum sbom-engine.cdx.json | cut -d' ' -f1)" \
+            --arg sbom_app "$(sha256sum sbom-app.cdx.json | cut -d' ' -f1)" \
+            --arg sbom_ui "$(sha256sum sbom-ui.cdx.json | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, msi_sha256: $msi, vsix_sha256: $vsix, engine_sha256: $engine,
               engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
+              sbom_engine_sha256: $sbom_engine, sbom_app_sha256: $sbom_app, sbom_ui_sha256: $sbom_ui,
               published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix)
+          BUILD_FILES=(kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json kratosforge.vsix)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -716,12 +765,12 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix --clobber
+            gh release upload latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json kratosforge.vsix --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix version.json \
+            gh release create latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json kratosforge.vsix version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

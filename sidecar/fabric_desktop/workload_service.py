@@ -168,7 +168,7 @@ class WorkloadMixin:
             return [], None
         source = "Pipelines on this PC"
         try:
-            listed = self.pipeline_list()  # type: ignore[attr-defined]
+            listed = self.pipeline_list()
             runs = self.pipeline_runs(limit=PIPELINE_LIST_LIMIT)["runs"]  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - one source that can't be read hides nothing else
             return [], model.observation(source, "error", None, detail=describe(exc)[:300])

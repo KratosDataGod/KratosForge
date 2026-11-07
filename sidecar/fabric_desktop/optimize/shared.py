@@ -17,12 +17,15 @@ commit race. Nothing here updates or deletes a row.
 - **Workspaces.** Reads take the workspaces the person can open and leave out everything about
   items elsewhere. This keeps the app from showing what the person couldn't see in Fabric; it is
   not a security boundary, because anyone who can read the lakehouse can read every row.
+- **Overhead.** ``rows_sent`` and ``commits`` count what this object wrote, so a sync can record
+  its own cost (``record_measurements``) as Measured figures for this PC.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 from typing import Any, Iterable
 
 import polars as pl
@@ -112,6 +115,8 @@ class Shared:
         self.installation = installation
         self.access = access
         self.batch = max(1, int(batch))
+        self.rows_sent = 0  # rows handed to an insert, including ones already there
+        self.commits = 0
 
     # Writing
 
@@ -131,6 +136,8 @@ class Shared:
         rows = list({r["record_id"]: r for r in reversed(rows)}.values())[::-1]
         for i in range(0, len(rows), self.batch):
             setup.write(self.lake, self.installation, name, rows[i:i + self.batch])
+            self.commits += 1
+            self.rows_sent += len(rows[i:i + self.batch])
         return len(rows)
 
     def record_analysis(self, run: dict[str, Any], artifacts: Iterable[dict[str, Any]] = (),
@@ -205,6 +212,19 @@ class Shared:
         self._check_writable()
         rows = [r | {"record_id": r["execution_id"]} for r in rows]
         return self._write("local_execution", rows) if rows else 0
+
+    def record_measurements(self, measurements: Iterable[dict[str, Any]]) -> int:
+        """Add measurements (measurement.py's shape, already validated); each id is added once."""
+        self._check_writable()
+        rows = [{"record_id": m["id"], "measurement_id": m["id"], "classification": m["classification"],
+                 "metric": m["metric"], "unit": m["unit"], "value": m["value"], "currency": m.get("currency"),
+                 "workload_key": m.get("workload_id"), "run_id": m.get("run_id"), "workspace_id": m.get("workspace_id"),
+                 "capacity_id": m.get("capacity_id"), "source": m.get("source"), "method": m.get("method") or None,
+                 "collected_at": m.get("collected_at"), "period_start": (m.get("period") or {}).get("start"),
+                 "period_end": (m.get("period") or {}).get("end"),
+                 "assumptions": json.dumps(m["assumptions"]) if m.get("assumptions") else None,
+                 "uncertainty": m.get("uncertainty"), "reason": m.get("reason") or None} for m in measurements]
+        return self._write("measurements", rows) if rows else 0
 
     def local_execution_ids(self) -> set[str]:
         """This installation's runs already in the lakehouse."""

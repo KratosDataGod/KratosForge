@@ -284,6 +284,10 @@ class PipelineRunMixin:
                     run.notebooks.finish()  # already done unless the run raised; then it cleans up here
                 store.save(run.to_json())
                 store.trim()
+                finished = getattr(self, "_audit_finished", None)  # Service's; a bare mixin (tests) has none
+                if finished is not None:  # the start has its line already; this is how the run ended
+                    finished("pipeline_run_finished", {"succeeded": "", "cancelled": "cancelled"}.get(run.state, "failed"), getattr(run, "seconds", None) or 0.0,
+                             {"run_id": run.id, "pipeline": run.pipeline.name, "state": run.state})
                 for rid in [k for k, r in live.items() if r.state not in ("pending", "running")][:-MAX_RUNS]:
                     live.pop(rid, None)
 
@@ -319,7 +323,7 @@ class PipelineRunMixin:
     def pipeline_list(self) -> dict[str, Any]:
         """The pipelines in the repositories this PC opened (Fabric Git ``<name>.DataPipeline``
         folders), with their activity count and the state of their last run here. Reads only."""
-        repos = self.git_repos()["repos"] if hasattr(self, "git_repos") else []  # type: ignore[attr-defined]
+        repos = self.git_repos()["repos"] if hasattr(self, "git_repos") else []
         last: dict[str, dict[str, Any]] = {}
         for r in self.pipeline_runs(limit=200)["runs"]:   # newest first
             last.setdefault(r.get("pipeline") or "", r)

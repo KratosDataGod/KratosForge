@@ -2,8 +2,9 @@
 // for how to run it). Sign out asks first, Cancel sends nothing, and confirming sends sign_out once.
 // Delete left-overs (Advanced > OneLake writes > Files on this PC) shows what local_writes found, asks
 // in a danger confirm that names the size and what it deletes, Cancel sends nothing, and confirming
-// sends local_writes_clear once. New install ID sends telemetry_new_install_id, says so and shows the
-// new ID, and usage data stays off as it is by default. Changing a setting sends exactly that change
+// sends local_writes_clear once. Usage data is off by default and its card is hidden (USAGE_DATA_SHOWN);
+// once usage data is on the card shows, New install ID sends telemetry_new_install_id, says so and shows
+// the new ID, and the switch turns it off again. Changing a setting sends exactly that change
 // to save_app_settings. A refusal from the engine shows a plain message, never the raw Python text or
 // [object Object]. Opening Settings sends no write, axe finds nothing serious on the page or the
 // confirm, and the page throws no error.
@@ -77,14 +78,17 @@ const writes = (from) => app.calls.slice(from).filter((c) => WRITES.includes(c.m
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const account = () => page().locator(".page.settings section", { has: page().locator("h2", { hasText: "Account" }) });
 
-// Settings, drawn in full: the account, the usage data and what the local write folders hold.
-async function openSettings() {
+// Settings, drawn in full: the account and what the local write folders hold, and the usage data when
+// it's on (on: true).
+async function openSettings({ on = false } = {}) {
   await page().evaluate(() => go("settings"));
-  await page().waitForFunction(() => {
+  await page().waitForFunction((on) => {
     const p = document.querySelector(".page.settings");
-    return p && /Install ID/.test(p.textContent) && /Files on this PC/.test(p.textContent) && !/Looking\.\.\./.test(p.textContent);
-  });
+    return p && (!on || /Install ID/.test(p.textContent)) && /Files on this PC/.test(p.textContent) && !/Looking\.\.\./.test(p.textContent);
+  }, on);
 }
+
+const usage = () => page().locator(".page.settings section", { has: page().locator("h2", { hasText: "Usage data" }) });
 
 async function toastText() {
   const handle = await page().waitForFunction(() => { const t = document.getElementById("toast"); return !t.hidden && t.textContent; });
@@ -96,17 +100,15 @@ function assertPlain(text) {
   assert.doesNotMatch(text, /\[object Object\]|\b[A-Z][A-Za-z]*Error:|Exception|Traceback|undefined/, text);
 }
 
-test("opening Settings sends no write, and usage data is off by default", { skip }, async () => {
+test("opening Settings sends no write, and usage data is off by default with its card hidden", { skip }, async () => {
   const from = app.calls.length;
   await openSettings();
   await pause(500);
   assert.deepStrictEqual(writes(from), []);
   const made = [...new Set(app.calls.slice(from).map((c) => c.method))];
   assert.deepStrictEqual(made.filter((m) => !READS.includes(m) && !baseline.has(m)), [], made.join(", "));
-  const usage = page().locator(".page.settings section", { has: page().locator("h2", { hasText: "Usage data" }) });
-  assert.ok(!(await usage.getByRole("checkbox").isChecked()), "usage data is off");
-  assert.match(await usage.innerText(), /Nothing \(off\)/);
-  assert.match(await usage.innerText(), new RegExp(OLD_ID));
+  assert.strictEqual(await usage().count(), 0, "the Usage data card is hidden");
+  assert.strictEqual(await page().getByRole("button", { name: "See what's sent" }).count(), 0);
   const saved = await page().evaluate(() => rpc("app_settings"));
   assert.strictEqual(saved.telemetry.value, false);
   assert.strictEqual(saved.telemetry.source, "default");
@@ -210,24 +212,39 @@ test("a refused Delete left-overs says why plainly", { skip }, async () => {
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("New install ID sends telemetry_new_install_id, says so and shows the new ID; usage data stays off", { skip }, async () => {
-  await openSettings();
-  const from = app.calls.length;
-  const usage = () => page().locator(".page.settings section", { has: page().locator("h2", { hasText: "Usage data" }) });
-  const before = (await usage().locator("dd.mono").innerText()).split(" ")[0];
-  await usage().getByRole("button", { name: "New install ID" }).click();
-  assert.strictEqual(await toastText(), "New install ID");
-  const after = await page().waitForFunction((old) => {
-    const dd = [...document.querySelectorAll(".page.settings dd.mono")].find((d) => /random, not tied to you/.test(d.textContent));
-    const id = dd?.textContent.split(" ")[0];
-    return id && id !== old && id;
-  }, before);
-  assert.match(await after.jsonValue(), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-  assert.deepStrictEqual(writes(from), [{ method: "telemetry_new_install_id", params: {} }]);
-  assert.ok(!(await usage().getByRole("checkbox").isChecked()), "usage data is still off");
-  const status = await page().evaluate(() => rpc("telemetry_status"));
-  assert.strictEqual(status.on, false);
-  assert.strictEqual(status.install_id, await after.jsonValue());
+test("once usage data is on its card shows; New install ID sends telemetry_new_install_id and shows the new ID; the switch turns it off", { skip }, async () => {
+  // On as a policy file or a saved setting can make it; this build has nowhere to send it.
+  await page().evaluate(() => rpc("save_app_settings", { changes: { telemetry: true } }));
+  try {
+    await openSettings({ on: true });
+    assert.ok(await usage().getByRole("checkbox").isChecked(), "usage data is on");
+    assert.match(await usage().innerText(), /nowhere to send usage data/);
+    assert.match(await usage().innerText(), new RegExp(OLD_ID));
+    const from = app.calls.length;
+    const before = (await usage().locator("dd.mono").innerText()).split(" ")[0];
+    await usage().getByRole("button", { name: "New install ID" }).click();
+    // The toast, waited for by its text: Home's own reads can toast while Settings opens.
+    await page().waitForFunction(() => { const t = document.getElementById("toast"); return !t.hidden && t.textContent === "New install ID"; });
+    const after = await page().waitForFunction((old) => {
+      const dd = [...document.querySelectorAll(".page.settings dd.mono")].find((d) => /random, not tied to you/.test(d.textContent));
+      const id = dd?.textContent.split(" ")[0];
+      return id && id !== old && id;
+    }, before);
+    assert.match(await after.jsonValue(), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.deepStrictEqual(writes(from), [{ method: "telemetry_new_install_id", params: {} }]);
+    const status = await page().evaluate(() => rpc("telemetry_status"));
+    assert.strictEqual(status.install_id, await after.jsonValue());
+
+    // Off from the card, though this build can't send: the card goes with it.
+    const off = app.calls.length;
+    await usage().getByRole("checkbox").uncheck();
+    await page().waitForFunction(() => state.settings.telemetry.value === false
+      && ![...document.querySelectorAll(".page.settings h2")].some((h) => /Usage data/.test(h.textContent)));
+    assert.deepStrictEqual(writes(off), [{ method: "save_app_settings", params: { changes: { telemetry: false } } }]);
+  } finally {
+    await page().evaluate(() => rpc("save_app_settings", { changes: { telemetry: false } }));
+  }
+  assert.strictEqual((await page().evaluate(() => rpc("telemetry_status"))).on, false);
   assert.deepStrictEqual(app.errors, []);
 });
 

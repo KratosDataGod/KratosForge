@@ -288,13 +288,13 @@ def main(argv: list[str] | None = None) -> None:
         _run_notebooks(args)
         return
     service = Service()
-    result = {
+    outcome = {
         "sign-in": lambda: service.sign_in(),
         "preview": lambda: service.preview_job(args.job, limit=10),
         "run": lambda: service.run_job(args.job),
         "history": lambda: service.history(),
     }[args.command]()
-    print(json.dumps(result, indent=2, default=str))
+    print(json.dumps(outcome, indent=2, default=str))
 
 
 def _agent(args: argparse.Namespace) -> int:
@@ -883,6 +883,7 @@ def _audit(args: argparse.Namespace) -> int:
 def _run_schedule(schedule_id: str, trigger: str) -> None:
     """No console and no one watching: log to a file, never open a sign-in window."""
 
+    from .audit import outcome as audit_outcome
     from .server import _log_file
     if sys.stdout is None or sys.stderr is None or sys.executable.lower().endswith("pythonw.exe"):
         sys.stdout = sys.stderr = _log_file()
@@ -891,10 +892,12 @@ def _run_schedule(schedule_id: str, trigger: str) -> None:
     started = time.monotonic()
     result = service.run_schedule(schedule_id, trigger)
     try:
-        service.audit.record("run_schedule", "error" if result.get("status") == "failed" else "ok",
+        outcome, reason = audit_outcome(result)
+        service.audit.record("run_schedule", outcome,
                              time.monotonic() - started, {"schedule_id": schedule_id, "trigger": trigger},
                              who=(service._auth.signed_in_user() or "") if service._auth else "",
-                             error=str(result.get("error") or result.get("message") or "") if result.get("status") == "failed" else "")
+                             error=str(result.get("error") or result.get("message") or "") if result.get("status") == "failed" else "",
+                             reason=reason)
     except Exception as exc:  # noqa: BLE001 - the run's own result matters more than its audit line
         print(f"audit: {type(exc).__name__}: {exc}")
     print(json.dumps(result, default=str))

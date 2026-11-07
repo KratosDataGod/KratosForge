@@ -3,10 +3,21 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-06 23:42 UTC, main c750da45.** Covers the PRs merged from #135 to #2058.
+**Product check of 2026-11-07 11:42 UTC, main 56e3826b.** Covers the PRs merged from #135 to #2171.
 
 ## Summary
 
+- New item, 2026-11-07: PB-134 Developer classes and mastery (In progress), from the product owner's brief of 14:17 UTC.
+  Classes and talent trees build on the profile's verified evidence, and mastery levels never come from time spent.
+  The first PR is engine-only (#2206, draft). Screens wait for the owner's reaction to the mockup.
+- Acceptance, 2026-11-07: the product owner accepted PB-130 (data product promises, status and change windows) with
+  documented limitations. All three screens are Preview and untested on a Fabric tenant, Status is only as current as
+  the team's own incident check, and the change window warns but never blocks a promote.
+- Morning check, 2026-11-07: 83 PRs merged after c750da45. 2 were product data and docs audit PRs; the other 81 were
+  linked, 54 of them type checks, tests and hardening (PB-101). The engine's type-check baseline is now empty, so every
+  module type-checks. A stopped local Delta write cleans up after itself, and each commit is flushed to disk before the
+  write returns (PB-067). Academy gained 20 more DP-700 exercises (PB-128), and credentials stay out of the engine log
+  and backups. No item changed state.
 - Evening check, 2026-11-06: 97 PRs merged after de881016. 3 were product data PRs; the other 94 were linked, 52 of
   them type checks, tests and hardening (PB-101). Screen readers now hear dialog descriptions, command bar results and
   page changes (PB-063; the Windows Narrator pass is still to come). Every outbound call works behind a corporate

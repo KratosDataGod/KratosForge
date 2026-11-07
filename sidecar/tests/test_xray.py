@@ -373,3 +373,41 @@ def test_optimize_checks_the_risk_again_and_records_going_ahead_past_warnings(va
     with pytest.raises(PermissionError, match="can't be started"):
         svc.xray_optimize(*args, risk_id=blocked["id"])
     assert len(jobs) == 2 and len(svc.risk_acknowledgements()) == 1
+
+
+def test_vacuum_checks_the_risk_like_optimize(vacuum_svc, monkeypatch):
+    """Vacuum runs the same risk check as Optimize: blocked starts no job, going ahead past warnings
+    needs the id of the assessment seen (none, or a stale one, is refused) and is recorded first."""
+    from fabric_desktop import app_settings
+    svc, uri, jobs = vacuum_svc
+    args = ("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev")
+    preview = ("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev")
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: _optimize_capacity("running"), raising=False)
+    passed = svc.xray_vacuum_preview(*preview)["risk"]
+    assert passed["result"] == "pass" and passed["workload_id"] == "xray-vacuum:ws-dev/lh-silver/dbo.orders"
+    optimize_passed = svc.xray_optimize_check(*args)["risk"]
+    assert optimize_passed["id"] != passed["id"]  # an Optimize assessment can't stand in for Vacuum
+
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: _optimize_capacity("not_running", cached=True), raising=False)
+    warned = svc.xray_vacuum_preview(*preview)["risk"]
+    assert warned["result"] == "warning"
+    with pytest.raises(ValueError, match="Check the risks first"):
+        svc.xray_vacuum(*args)  # no risk id
+    with pytest.raises(ValueError, match="findings changed"):
+        svc.xray_vacuum(*args, risk_id=passed["id"])  # a stale id
+    with pytest.raises(ValueError, match="findings changed"):
+        svc.xray_vacuum(*args, risk_id=svc.xray_optimize_check(*args)["risk"]["id"])  # Optimize's id
+    assert jobs == [] and svc.risk_acknowledgements() == []
+    out = svc.xray_vacuum(*args, risk_id=warned["id"])
+    assert out["job_id"] == "job-1" and len(jobs) == 1
+    (rec,) = svc.risk_acknowledgements()
+    assert rec["risk_id"] == warned["id"] and rec["workload_id"] == "xray-vacuum:ws-dev/lh-silver/dbo.orders"
+    assert rec["result"] == "warning"
+
+    monkeypatch.setattr(app_settings, "value", lambda k: False if k == "allow_fabric_runs" else None)
+    blocked = svc.xray_vacuum_preview(*preview)["risk"]
+    assert blocked["result"] == "blocked"
+    with pytest.raises(PermissionError, match="can't be started"):
+        svc.xray_vacuum(*args, risk_id=blocked["id"])
+    assert len(jobs) == 1 and len(svc.risk_acknowledgements()) == 1  # blocked: no job started, nothing recorded

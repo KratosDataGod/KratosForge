@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-06",
+  "updated": "2026-11-07",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -1717,7 +1717,8 @@
         1761,
         1762,
         1763,
-        1766
+        1766,
+        2149
       ]
     },
     {
@@ -2933,7 +2934,8 @@
         "meta_preflight has no caller in app/ui",
         "meta/batches.py",
         "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open",
-        "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui"
+        "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui",
+        "A stopped local Delta write's leftover files are reported and removed (#2063); each local Delta commit is flushed to disk before the write returns (#2145); the next run records a run that stopped after its commit (#2144) on main at 56e3826b"
       ],
       "features": [
         "FEAT-META-06"
@@ -2972,7 +2974,10 @@
       "prs": [
         687,
         706,
-        950
+        950,
+        2063,
+        2144,
+        2145
       ],
       "issues": [
         915
@@ -4542,7 +4547,8 @@
       "evidence": [
         "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
         "Backlog not yet pushed (push freeze)",
-        "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f"
+        "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f",
+        "The mypy baseline is empty: every engine module type-checks (#2069 to #2171); credentials kept out of the engine log and backups (#2161); restore checks the same roles as rollback (#2053) on main at 56e3826b"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -4817,8 +4823,62 @@
         2032,
         2033,
         2035,
+        2036,
+        2046,
+        2048,
         2049,
-        2051
+        2051,
+        2052,
+        2053,
+        2057,
+        2060,
+        2062,
+        2064,
+        2065,
+        2066,
+        2067,
+        2068,
+        2069,
+        2070,
+        2073,
+        2079,
+        2080,
+        2081,
+        2082,
+        2083,
+        2084,
+        2085,
+        2086,
+        2087,
+        2088,
+        2089,
+        2090,
+        2091,
+        2092,
+        2093,
+        2094,
+        2095,
+        2096,
+        2097,
+        2135,
+        2136,
+        2137,
+        2138,
+        2139,
+        2140,
+        2141,
+        2142,
+        2146,
+        2151,
+        2155,
+        2157,
+        2158,
+        2160,
+        2162,
+        2164,
+        2166,
+        2168,
+        2171
       ],
       "issues": [
         910,
@@ -5087,7 +5147,8 @@
         1928,
         1941,
         1971,
-        2008
+        2008,
+        2154
       ]
     },
     {
@@ -5147,7 +5208,9 @@
         1733,
         1833,
         1834,
-        2040
+        2040,
+        2147,
+        2163
       ]
     },
     {
@@ -5390,7 +5453,9 @@
         1798,
         1936,
         1965,
-        2041
+        2041,
+        2042,
+        2043
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5613,7 +5678,10 @@
         754,
         795,
         1707,
-        1832
+        1832,
+        2074,
+        2077,
+        2156
       ],
       "mandatory": "none",
       "computed": {
@@ -6129,7 +6197,8 @@
         1933,
         1934,
         1938,
-        2011
+        2011,
+        2150
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6440,7 +6509,12 @@
         2021,
         2050,
         2055,
-        2058
+        2058,
+        2072,
+        2078,
+        2143,
+        2148,
+        2161
       ],
       "issues": [],
       "computed": {
@@ -6678,9 +6752,18 @@
         1957,
         1968,
         1973,
+        1981,
+        1984,
+        1985,
+        1988,
         1989,
         2010,
-        2039
+        2039,
+        2047,
+        2059,
+        2152,
+        2153,
+        2159
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6695,7 +6778,8 @@
         "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2",
         "Exercise scripts run in the AppContainer by default on Windows (#1827); DP-700 exercises on DuckDB, pipelines, Delta and broken environments (#1840, #1844, #1848, #1850, #1877) and checks that nothing else changed (#1843) on main at a7631920",
         "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016",
-        "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45"
+        "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45",
+        "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6814,7 +6898,10 @@
       "problem": "Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.",
       "capability": "A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.",
       "evidence": [
-        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb"
+        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb",
+        "Owner scores (Data mesh, 2026-11-07, from the code on main and the Wave 2 reviews; they replace values copied from PB-052): developer value 2, product teams set a promise in the product dialog and readers open a Status view, not daily work for most developers; CU reduction 1, no Fabric compute moves, and status reports add a UDF_Platform call only when a status changes (incident_service._report_product_status); enterprise value 4, promises, Red/Amber/Green status and a change window are governance signals buyers ask for, but all are Preview, warn only and not a rollout condition; differentiation 3, UNVERIFIED, COMPETITIVE_CAPABILITY_MATRIX.md has no row for data product promises or status; strategic alignment 3, data mesh governance supports deploying to Fabric but isn't the local develop-and-run core; complexity 3, five PRs adding catalog.product.promise and catalog.product_status, a promise incident kind, platform operations and screens on three pages; risk 3, writes are limited to new catalog rows behind require_member and changes only warn, but the new UDF_Platform operations haven't run on a tenant and core.py needs Finish or repair",
+        "Implementation review docs/product/reviews/PB-130-promises.md recommends Accept with documented limitations: the screens are Preview and untested on a tenant, Status is only as current as the team's own incident check, and the change window advises without blocking. 408 engine tests and 18 browser tests pass on main at 56e3826b",
+        "Implementation review docs/product/reviews/PB-130-promises.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst); limitations: all three screens are Preview and untested on a Fabric tenant; Status is only as current as the team's own incident check; the change window warns and never blocks a promote"
       ],
       "features": [
         "FEAT-MESH-04",
@@ -6832,9 +6919,9 @@
       "scores": {
         "developer_value": 2,
         "cu_reduction": 1,
-        "enterprise_value": 5,
+        "enterprise_value": 4,
         "differentiation": 3,
-        "strategic_alignment": 4,
+        "strategic_alignment": 3,
         "complexity": 3,
         "risk": 3
       },
@@ -6842,7 +6929,7 @@
       "owner": "Data mesh",
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "Accepted",
       "external_dependencies": [],
       "prs": [
         1737,
@@ -6855,10 +6942,10 @@
         "Data mesh Wave 2"
       ],
       "computed": {
-        "benefit": 3.0,
+        "benefit": 2.6,
         "cost": 3.0,
-        "score": 1.8,
-        "priority": "P2"
+        "score": 1.56,
+        "priority": "P3"
       }
     },
     {
@@ -6999,6 +7086,55 @@
         "benefit": 2.5,
         "cost": 2.5,
         "score": 1.75,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-134",
+      "title": "Developer classes and mastery",
+      "state": "In progress",
+      "owner": "Developer classes and mastery",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [],
+      "problem": "The profile turns verified evidence into XP, a level, ranks and achievements, but it doesn't say which data engineering skills someone has shown, to what depth, or what to learn next. So it can't back a competency conversation with a manager.",
+      "capability": "Developer classes (for example Lakehouse Warden, an enterprise data engineer) with specializations as talent trees. Each talent has a mastery level from Initiate to Grandmaster, worked out from the evidence the app already verifies. There's an interactive, accessible talent tree in a Profile tab, and a professional competency report. Character level stays separate from mastery, and nothing claims to be a certification.",
+      "evidence": [
+        "Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup",
+        "First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data",
+        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)"
+      ],
+      "features": [
+        "FEAT-DEV-01",
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "CM-01..27",
+        "Chris's Developer Class and Mastery System brief, 2026-11-07 14:17Z"
+      ],
+      "acceptance": [
+        "The class catalog is checked as data: unique ids, prerequisites form a DAG with no cycles or unreachable talents, and every evidence hook points at real Learn, Academy or rule content",
+        "Mastery levels come only from verified evidence with versioned rules: time spent, repeats, duplicate or revoked evidence add nothing, and Grandmaster needs reviewer verification",
+        "The talent tree is generated from the catalog, shows locked, available, in progress and mastered, and works by keyboard and screen reader",
+        "Every class screen and report says that levels aren't professional certifications",
+        "Everything works locally; sharing or sync is opt-in"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 3,
+        "complexity": 5,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.75,
+        "cost": 4.0,
+        "score": 1.1,
         "priority": "P3"
       }
     }

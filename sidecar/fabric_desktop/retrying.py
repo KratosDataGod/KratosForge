@@ -74,12 +74,13 @@ def should_retry(method: str, status: int, safe: bool | None = None) -> bool:
 
 
 def send_with_retry(send: Callable[[], Any], method: str, sleep: Callable[[float], None] = time.sleep,
-                    attempts: int = 5, default_wait: float = 2.0, safe: bool | None = None) -> Any:
+                    attempts: int = 5, default_wait: float = 2.0, safe: bool | None = None,
+                    wait_cap: float = RETRY_AFTER_CAP) -> Any:
     """Call ``send`` (one HTTP request) until it gets a response not worth repeating, at most
     ``attempts`` times, waiting as the server's ``Retry-After`` says (capped). A read is also repeated
     after a dropped connection or timeout; a write never is, since it may have reached the server.
     The last response is returned whatever its status; the caller decides what an error means.
-    ``safe`` is as for should_retry."""
+    ``safe`` is as for should_retry. ``wait_cap`` caps each wait, for a caller that mustn't stall long."""
     import requests
 
     if safe is None:
@@ -92,11 +93,11 @@ def send_with_retry(send: Callable[[], Any], method: str, sleep: Callable[[float
         except (requests.ConnectionError, requests.Timeout):
             if last or not safe:
                 raise
-            sleep(min(default_wait * (2 ** attempt), RETRY_AFTER_CAP))
+            sleep(min(default_wait * (2 ** attempt), wait_cap))
             continue
         if last or not should_retry(method, resp.status_code, safe):
             return resp
-        sleep(retry_after(getattr(resp, "headers", None), default_wait))
+        sleep(retry_after(getattr(resp, "headers", None), default_wait, cap=wait_cap))
         close = getattr(resp, "close", None)
         if callable(close):
             close()  # a streamed response holds its connection until closed
@@ -167,6 +168,18 @@ def windows_log_race(exc: BaseException) -> bool:
     complete a moment later, so the call is safe to repeat."""
     text = str(exc)
     return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
+
+
+_STAGED_COMMIT = re.compile(r"\d{20}\.json#\d+")
+
+
+def staged_commit_race(exc: BaseException) -> bool:
+    """Windows: two writers committing the same next version both stage it under one temporary name,
+    ``_delta_log/NNN.json#1``, and the one that loses can't open it (os error 5). Elsewhere that
+    loser is told the version exists and delta-rs makes its commit on the next one. Nothing was
+    committed, so an append is safe to send again."""
+    text = str(exc)
+    return windows_log_race(exc) and "Unable to open file" in text and bool(_STAGED_COMMIT.search(text))
 
 
 _DROPPED = ("error sending request", "timed out", "connection reset", "connection closed", "broken pipe",

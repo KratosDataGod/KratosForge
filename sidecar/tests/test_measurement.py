@@ -86,6 +86,23 @@ def test_cu_seconds_and_cu_hours_convert_and_nothing_else_does():
     assert m["value"] == 0.5 and m["unit"] == ms.CU_HOURS
 
 
+def test_counts_are_whole_numbers_that_convert_to_nothing_else():
+    rows = ms.make(ms.MEASURED, "optimize_sync_rows", ms.COUNT, 120, source="optimize sync on this PC", collected_at=NOW)
+    assert rows["unit"] == "count" and rows["value"] == 120
+    assert ms.make(ms.MEASURED, "commits", ms.COUNT, 3.0, source="s", collected_at=NOW)["value"] == 3
+    with pytest.raises(ValueError, match="whole number"):
+        ms.make(ms.MEASURED, "x", ms.COUNT, 1.5, source="s", collected_at=NOW)
+    with pytest.raises(ValueError, match="can't be negative"):
+        ms.make(ms.MEASURED, "x", ms.COUNT, -1, source="s", collected_at=NOW)
+    for a, b in [(ms.COUNT, ms.SECONDS), (ms.COUNT, ms.CU_SECONDS), (ms.COUNT, ms.PERCENT)]:
+        with pytest.raises(ValueError, match="measure different things"):
+            ms.convert(1, a, b)
+    assert ms.total([rows, rows], "optimize_sync_rows", ms.COUNT)["value"] == 240
+    # The units that were there before keep their families, so stored measurements read as before.
+    assert {u: ms.UNITS[u] for u in (ms.CU_SECONDS, ms.CU_HOURS, ms.PERCENT, ms.CURRENCY, ms.SECONDS)} == {
+        "cu_seconds": "capacity", "cu_hours": "capacity", "percent": "utilization", "currency": "money", "seconds": "time"}
+
+
 # ---- freshness
 
 def test_old_observations_are_stale():

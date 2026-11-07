@@ -100,20 +100,25 @@ function renderNotebook() {
   const toggleBtn = (label, iconName, on, onClick, attrs = {}) =>
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
+  // A skin that places the notebook's commands (skins.js, actions.js skinCommandGroup) gets its group
+  // where Run all, Save and Publish are; everything else on the Home ribbon stays as it is. Publish's
+  // workspace choice goes with Publish, on the bar or under More.
+  const skinGroup = skinCommandGroup({ view: "notebook", nb, busy });
   const toolbars = {
-    home: [runAllBtn, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
+    home: [skinGroup || runAllBtn, skinGroup ? h("div", { class: "sep" }) : null, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
         "Side by side, Validate and Prove (also on the Run tab)"),
       h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
-      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
+      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb),
+      skinGroup ? null : btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
       ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
         "Save a copy, Versions and Export"),
       vscodeButton(nb),
       ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
         "Schedule this notebook and see its recent runs (also on the Run tab)"),
-      h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
-        { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
-      h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
-        onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))],
+      skinGroup ? null : h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool outline",
+          { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
+        h("button", { class: "tool outline split-more", "aria-label": "Publish options", title: "Publish options",
+          onclick: (e) => showMenu(e.currentTarget, publishMenu(nb)) }, icon("chevronDown", 14)))].filter(Boolean),
     edit: [btn("Code", "add", () => addCell("code")), btn("Markdown", "add", () => addCell("markdown")),
       h("div", { class: "sep" }), btn("Move up", "up", () => moveCell(-1)), btn("Move down", "down", () => moveCell(1)),
       btn("Split cell", "code", () => splitCell(sel)), btn("Merge with below", "down", () => mergeBelow(sel)),
@@ -243,11 +248,9 @@ function renderExplorer() {
       btn("Add data items", "add", openDataItems, "tool link", { style: "margin-top:12px" }));
     renderTree(tree, lh, insertCell);
   } else {
-    content.append(h("div", { class: "empty" },
-      h("span", { style: "color:var(--accent)" }, icon("lakehouse", 40)),
-      h("span", { class: "title" }, "No data items yet"),
-      h("span", { class: "text" }, "Attach a lakehouse to read its files and write Delta tables back to OneLake."),
-      btn("Add data items", null, openDataItems, "tool primary")));
+    content.append(livingEmpty({ spot: "land", fallbackIcon: "lakehouse", title: "No data items yet",
+      text: "Attach a lakehouse to read its files and write Delta tables back to OneLake.",
+      action: btn("Add data items", null, openDataItems, "tool primary") }));
   }
   return h("aside", { class: "explorer", "aria-label": "Explorer" }, h("div", { class: "explorer-head" }, "Explorer"), tabs, content);
 }
@@ -339,7 +342,13 @@ function renderCell(cell) {
       else if (multiSelected()) clearSelection();
       if (!e.target.closest(".cm-editor, input, select, textarea, button")) {
         setMode("command");
-        setTimeout(() => { if (!document.activeElement?.closest?.(".cm-editor, input, select")) node.focus({ preventScroll: true }); });
+        // The cell as drawn now: selecting it can redraw the notebook (the Edit tab follows the cell),
+        // which replaces this node, and focusing a node that's gone leaves focus on the view, where the
+        // command-mode keys don't reach the cell.
+        setTimeout(() => {
+          if (document.activeElement?.closest?.(".cm-editor, input, select")) return;
+          document.querySelector(`[data-cell="${cell.id}"]`)?.focus({ preventScroll: true });
+        });
       }
     },
   });
@@ -950,7 +959,9 @@ document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
   if (t.closest?.(".cm-editor") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
-  if (!t.closest?.(".cells") && t !== document.body) return;
+  // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
+  // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
+  if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
   const cell = selectedCell();
   const key = e.key;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -1600,6 +1611,11 @@ async function runCells(cells) {
   // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
   const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell", "on this PC") : null;
   track?.set(0, code.length);
+  // Monitor's Forge view (forge-activity.js) reads the same count, and how the run ended. Only a run in
+  // this PC's kernel: a run on another engine isn't shown there as running on this PC.
+  const forgeRun = { done: 0, total: code.length, started: Date.now(), result: null, ended: null };
+  nb.forgeRun = !code.length || nbOnEngine(nb) ? null : forgeRun;
+  const ended = (result, done) => Object.assign(forgeRun, { result, done, ended: Date.now() });
   if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
   nb.runningAll = true;
   try {
@@ -1609,18 +1625,22 @@ async function runCells(cells) {
         track?.stop();
         code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
         setKernel(nb.stopRequested ? "stopped" : "idle", nb);
+        ended(cell.status === "error" ? "failed" : "stopped", i);
         announce(cell.status === "error" ? `Run stopped: cell ${nb.cells.indexOf(cell) + 1} failed` : "Run stopped");
         done(ok ? i + 1 : i);
         return;
       }
       track?.set(i + 1, code.length);
+      forgeRun.done = i + 1;
       setKernel("busy", nb);
     }
+    ended("ok", code.length);
     track?.arrive();
     if (code.length) announce(`Run finished: ${code.length} ${code.length === 1 ? "cell" : "cells"} succeeded`);
     setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   } finally {
     nb.runningAll = false;
+    if (!forgeRun.result) ended("stopped", forgeRun.done);  // an error left the loop
   }
   done(code.length);
 }
@@ -1659,6 +1679,7 @@ function setKernel(status, nb = state.notebook) {
   if (bar) bar.replaceChildren(h("span", { class: `dot ${status}` }), kernelLabel());
   document.querySelectorAll("[data-run]").forEach((b) => { b.disabled = status === "busy" || b.hasAttribute("data-local-only"); });
   document.querySelectorAll("[data-stop]").forEach((b) => { b.disabled = status !== "busy"; });
+  refreshSkinCommandGroup();  // a skin's run buttons say "A run is already going." while busy
 }
 
 // Cancel stops the running cell and keeps variables. Code stuck inside a native library can't be

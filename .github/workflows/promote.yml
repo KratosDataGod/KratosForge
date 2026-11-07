@@ -138,7 +138,7 @@ jobs:
           # The build's software bills of materials, so Stable carries the list of what it ships.
           # A build from before SBOMs were published goes without them.
           SBOMS=()
-          for sbom in sbom-app.cdx.json sbom-engine.cdx.json; do
+          for sbom in sbom-app.cdx.json sbom-engine.cdx.json sbom-ui.cdx.json; do
             if grep -qx "$sbom" <<< "$ASSETS"; then
               gh release download "$SOURCE" --pattern "$sbom"
               SBOMS+=("$sbom")
@@ -179,6 +179,12 @@ jobs:
           [ ${#UPDATE_ZIP[@]} -eq 0 ] || PAIRS+=("fabric-desktop-engine-update.zip engine_update_sha256")
           [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.msi "* ]] || PAIRS+=("kratosforge.msi msi_sha256")
           [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.vsix "* ]] || PAIRS+=("kratosforge.vsix vsix_sha256")
+          # Each SBOM whose build's version.json gives its SHA-256 (sbom_engine_sha256 and so on);
+          # builds from before that carry their SBOMs unchecked.
+          for sbom in "${SBOMS[@]}"; do
+            key="${sbom%.cdx.json}"; key="${key//-/_}_sha256"
+            if jq -e --arg k "$key" '.[$k] // empty' version.json > /dev/null; then PAIRS+=("$sbom $key"); fi
+          done
           for pair in "${PAIRS[@]}"; do
             read -r file key <<< "$pair"
             expected=$(jq -r --arg k "$key" '.[$k] // ""' version.json)
@@ -207,7 +213,7 @@ jobs:
             # Nor may an earlier build's SBOM stay beside this build's files.
             STABLE_ASSETS=$(gh release view stable --json assets --jq '.assets[].name') \
               || { echo "::warning::Couldn't list stable's files; check by hand that no earlier SBOM is left."; STABLE_ASSETS=""; }
-            for sbom in sbom-app.cdx.json sbom-engine.cdx.json; do
+            for sbom in sbom-app.cdx.json sbom-engine.cdx.json sbom-ui.cdx.json; do
               [[ " ${SBOMS[*]} " == *" $sbom "* ]] && continue
               if grep -qx "$sbom" <<< "$STABLE_ASSETS"; then
                 gh release delete-asset stable "$sbom" --yes \

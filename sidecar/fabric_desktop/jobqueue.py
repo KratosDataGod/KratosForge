@@ -26,6 +26,9 @@ from typing import Any, Callable, Iterator
 STATES = ("queued", "running", "succeeded", "failed", "dead", "cancelled")
 ACTIVE = ("queued", "running")
 PRUNABLE = ("succeeded", "failed", "cancelled")  # dead jobs stay until a person requeues them
+# How far past its own longest wait a lease or retry may end before it counts as set before the
+# clock went back. Small steps (an NTP correction of seconds) never count; only real jumps do.
+CLOCK_MARGIN = 300.0
 
 _SCHEMA = """
 create table if not exists jobs (
@@ -159,8 +162,10 @@ class JobQueue:
             # The time is read once this claim holds the write lock: read before, a job another
             # thread or process added while this one waited would look not yet due.
             now = self.clock()
-            row = db.execute("select id from jobs where state = 'queued' and next_at <= ? order by next_at, created_at limit 1",
-                             (now,)).fetchone()
+            # A retry further off than the longest backoff was scheduled before the clock went back: it is due.
+            row = db.execute("select id from jobs where state = 'queued'"
+                             " and (next_at <= ? or (attempts > 0 and next_at > ?)) order by next_at, created_at limit 1",
+                             (now, now + self.max_backoff_seconds + CLOCK_MARGIN)).fetchone()
             if row is None:
                 return None
             db.execute("update jobs set state = 'running', owner = ?, lease_until = ?, attempts = attempts + 1,"
@@ -214,12 +219,17 @@ class JobQueue:
         db.execute("update jobs set state = 'queued', owner = null, lease_until = null, next_at = ?, error = ? where id = ?",
                    (now + wait, error, job["id"]))
 
-    def recover(self) -> list[str]:
+    def recover(self, max_lease: float | None = None) -> list[str]:
         """Running jobs whose worker stopped renewing (it crashed or was killed) go back in the queue,
-        counting the lost run as an attempt. Returns their ids."""
+        counting the lost run as an attempt. Returns their ids. With ``max_lease`` (the longest lease
+        any worker takes), a lease ending further off than that was renewed before the clock went
+        back (by more than CLOCK_MARGIN), so it counts as run out too: a dead worker's job isn't stuck
+        for as long as the jump, and a live one isn't taken back for a small correction."""
         now = self.clock()
+        far = now + max_lease + CLOCK_MARGIN if max_lease is not None else float("inf")
         with self._tx() as db:
-            stale = db.execute("select * from jobs where state = 'running' and lease_until < ?", (now,)).fetchall()
+            stale = db.execute("select * from jobs where state = 'running' and (lease_until < ? or lease_until > ?)",
+                               (now, far)).fetchall()
             for job in stale:
                 self._requeue(db, job, f"{job['owner']} stopped while running it", now)
             return [j["id"] for j in stale]

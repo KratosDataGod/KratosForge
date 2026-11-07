@@ -102,7 +102,7 @@
       "options": [
         {
           "id": "a",
-          "text": "RUNNING_SUM(Amount, CustomerID)"
+          "text": "RUNNING_SUM(Amount) OVER (PARTITION BY CustomerID ORDER BY OrderDate ASC)"
         },
         {
           "id": "b",
@@ -110,7 +110,7 @@
         },
         {
           "id": "c",
-          "text": "SUM(Amount) OVER (ORDER BY CustomerID)"
+          "text": "SUM(Amount) OVER (ORDER BY CustomerID, OrderDate ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
         },
         {
           "id": "d",
@@ -122,9 +122,200 @@
       ],
       "explanation": "A window aggregate partitioned by customer and ordered by date, with a frame from the first row to the current row, gives a running total per customer.",
       "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-over-clause-transact-sql",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q5",
+      "type": "single",
+      "stem": "An alert must fire whenever a topic has at least three events in any 10-second period, and output should appear only when the window's content changes. Which window should the query use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`TumblingWindow(second, 10)` with `HAVING COUNT(*) >= 3`"
+        },
+        {
+          "id": "b",
+          "text": "`SlidingWindow(second, 10)` with `HAVING COUNT(*) >= 3`"
+        },
+        {
+          "id": "c",
+          "text": "`HoppingWindow(second, 10, 5)` with `HAVING COUNT(*) >= 3`"
+        },
+        {
+          "id": "d",
+          "text": "`SessionWindow(second, 5, 10)` with `HAVING COUNT(*) >= 3`"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Sliding windows output only when an event enters or leaves the window, so any 10-second period is checked. Tumbling and hopping windows are fixed, and session windows group bursts of activity.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q6",
+      "type": "single",
+      "stem": "You need to count events per topic for events that share exactly the same timestamp. How do you apply a snapshot window?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use `SnapshotWindow(second, 0)` in the GROUP BY clause"
+        },
+        {
+          "id": "b",
+          "text": "Use `SessionWindow(second, 0, 0)` in the GROUP BY clause"
+        },
+        {
+          "id": "c",
+          "text": "Add `System.Timestamp()` to the GROUP BY clause"
+        },
+        {
+          "id": "d",
+          "text": "Use `TumblingWindow(millisecond, 1)` in the GROUP BY clause"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A snapshot window has no window function; you apply it by grouping on System.Timestamp().",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q7",
+      "type": "single",
+      "stem": "What does `GROUP BY userId, HoppingWindow(minute, 5, 1)` with `HAVING COUNT(*) > 10` return in an eventstream SQL operator?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Users with more than 10 orders in a 1-minute window, evaluated every 5 minutes"
+        },
+        {
+          "id": "b",
+          "text": "Users with more than 10 orders in separate, non-overlapping 5-minute periods"
+        },
+        {
+          "id": "c",
+          "text": "Users with more than 10 orders in a 5-minute window, evaluated every minute"
+        },
+        {
+          "id": "d",
+          "text": "Users with more than 10 orders in sessions with a 1-minute timeout"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "HoppingWindow(minute, 5, 1) is a 5-minute window that hops every minute, so windows overlap. Non-overlapping periods would be a tumbling window.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-sql-code-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q8",
+      "type": "single",
+      "stem": "In a KQL table sorted by ID and Timestamp, you need each record's session start, where a session ends after a 5-minute gap, lasts at most 1 hour, and restarts when the ID changes. Which expression fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`row_window_session(Timestamp, 1h, 5m)`"
+        },
+        {
+          "id": "b",
+          "text": "`row_window_session(Timestamp, 5m, 1h, ID != prev(ID))`"
+        },
+        {
+          "id": "c",
+          "text": "`bin(Timestamp, 5m)`"
+        },
+        {
+          "id": "d",
+          "text": "`row_window_session(Timestamp, 1h, 5m, ID != prev(ID))`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The parameters are max distance from the session's first value (1h), then max distance between neighbors (5m), then the restart condition. Swapping them changes the meaning, bin makes fixed buckets, and leaving out the restart lets sessions cross IDs.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/row-window-session-function",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q9",
+      "type": "single",
+      "stem": "An eventstream SQL operator groups events into 1-minute tumbling windows, but the windows should use the eventTime field in each event, not the time the event arrived. What should you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`ORDER BY eventTime` after the GROUP BY clause"
+        },
+        {
+          "id": "b",
+          "text": "`TIMESTAMP BY eventTime` in the FROM clause"
+        },
+        {
+          "id": "c",
+          "text": "`System.Timestamp() AS eventTime` in the SELECT list"
+        },
+        {
+          "id": "d",
+          "text": "`HAVING eventTime IS NOT NULL`"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Eventstream uses arrival time by default; to process by event time, set it explicitly with TIMESTAMP BY. System.Timestamp() only reads the timestamp being used.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-sql-code-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q10",
+      "type": "multiple",
+      "stem": "Which two statements about stream windowing functions are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A sliding window produces output on a fixed schedule even when no event enters or leaves it"
+        },
+        {
+          "id": "b",
+          "text": "Windowing operations output their results at the end of the window"
+        },
+        {
+          "id": "c",
+          "text": "A hopping window whose hop size equals its window size behaves like a tumbling window"
+        },
+        {
+          "id": "d",
+          "text": "A session window keeps extending without limit as long as events keep arriving"
+        },
+        {
+          "id": "e",
+          "text": "An event can belong to more than one tumbling window"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Windows emit at their end, and a hopping window with hop equal to size is tumbling. Tumbling windows don't overlap, sliding windows emit only on change, and session windows stop at their maximum duration.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

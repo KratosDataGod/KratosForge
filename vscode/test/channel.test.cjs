@@ -173,3 +173,44 @@ test("a proof isn't remembered: a program that takes the port later gets no toke
   server.close();
   assert.deepStrictEqual(tokens, []);
 });
+
+test("an app that speaks a newer channel API gets no token, and the window says which to update", async () => {
+  const fake = fs.mkdtempSync(path.join(os.tmpdir(), "kf-api-"));
+  const crypto = require("node:crypto");
+  const http = require("node:http");
+  const { API_VERSION } = require("../out/channel.js");
+  const hello = "the-real-hello";
+  let answer = "newer";
+  const asked = [], tokens = [];
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    if (url.pathname !== "/v1/hello") {
+      tokens.push(req.headers.authorization);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ ok: true, result: {} }));
+    }
+    asked.push(url.searchParams.get("api"));
+    if (answer === "too_old") {
+      res.writeHead(426, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ ok: false, error: { code: "extension_too_old", message: "update" } }));
+    }
+    const proof = crypto.createHmac("sha256", hello).update(url.searchParams.get("nonce")).digest("hex");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, result: { proof, api: answer === "newer" ? API_VERSION + 1 : "1" } }));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} ${hello}`);
+  const ch = new Channel(fake);
+  ch.token = "kfp_secret";
+  try {
+    await assert.rejects(ch.status(), (err) => err.code === "app_too_new" && /extension/.test(err.message));
+    answer = "too_old";
+    await assert.rejects(ch.status(), (err) => err.code === "extension_too_old" && /kratosforge\.vsix/.test(err.message));
+    answer = "garbled";
+    await assert.rejects(ch.status(), (err) => err.code === "bad_reply");
+  } finally {
+    server.close();
+  }
+  assert.deepStrictEqual(tokens, []);
+  assert.deepStrictEqual(asked, [String(API_VERSION), String(API_VERSION), String(API_VERSION)]);
+});

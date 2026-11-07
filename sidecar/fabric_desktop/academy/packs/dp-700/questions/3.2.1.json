@@ -124,10 +124,10 @@
         "b"
       ],
       "explanation": "You find the run, then the failed activity, then its error message, and only then fix the cause and run the pipeline again.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitor-pipeline-runs",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitoring-hub-pipeline-runs",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

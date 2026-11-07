@@ -231,10 +231,10 @@
         "b"
       ],
       "explanation": "A deduplicating materialized view is computed once and kept current, so every query can read it. Repeating distinct in each query repeats the work, and purge is a costly removal meant for compliance.",
-      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-use-cases",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.4-q8",

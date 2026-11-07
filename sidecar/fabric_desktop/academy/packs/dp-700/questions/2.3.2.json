@@ -28,10 +28,10 @@
         "d"
       ],
       "explanation": "The eventstream editor has no-code operations such as Filter between the source and destinations.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.2-q2",
@@ -96,10 +96,10 @@
         "b"
       ],
       "explanation": "The event processor offers operations such as Filter, Manage fields, Aggregate, Group by, Union, Expand and Join. Scripts and stored procedures aren't eventstream operations.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.2-q4",
@@ -134,11 +134,20 @@
         "b",
         "c"
       ],
-      "explanation": "You create the eventstream, connect a source, add processing, connect destinations, and publish so the changes take effect and the eventstream returns to Live view.",
+      "explanation": "You create the eventstream, connect a source, then connect destinations and add processing operations (an operator can also be inserted on the line between a source and a destination you already added), and publish so the changes take effect and the eventstream returns to Live view.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07",
+      "also_accept": [
+        [
+          "d",
+          "a",
+          "b",
+          "e",
+          "c"
+        ]
+      ]
     }
   ]
 }

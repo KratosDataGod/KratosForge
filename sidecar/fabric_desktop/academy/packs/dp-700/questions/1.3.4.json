@@ -73,7 +73,7 @@
     {
       "id": "1.3.4-q3",
       "type": "single",
-      "stem": "At Harbor Health, one compliance officer among the analysts must see real email addresses. What do you do?",
+      "stem": "At Harbor Health, one compliance officer among the analysts must see real email addresses. What do you do, with the least privilege?",
       "options": [
         {
           "id": "a",
@@ -95,12 +95,12 @@
       "answer": [
         "c"
       ],
-      "explanation": "UNMASK lets a user see the real values while the mask stays in place for everyone else.",
+      "explanation": "UNMASK lets a user see the real values while the mask stays in place for everyone else. Making the officer a workspace Admin would also unmask the data, but it gives far more access than needed.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
       "case": "harbor-analytics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.4-q4",

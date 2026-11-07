@@ -49,7 +49,7 @@
         },
         {
           "id": "c",
-          "text": "A write-time optimization of Parquet files that makes reads faster for Fabric engines such as Power BI, SQL and Spark"
+          "text": "A write-time optimization of Parquet files that makes reads faster across Fabric engines"
         },
         {
           "id": "d",
@@ -59,11 +59,11 @@
       "answer": [
         "c"
       ],
-      "explanation": "V-Order applies sorting, row group distribution and compression when Parquet files are written, so Fabric engines read them faster. The files stay standard Parquet.",
+      "explanation": "V-Order reorganizes the Parquet layout when files are written (row-group distribution, encoding and compression), so Fabric engines read them faster. The files stay standard Parquet.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.1-q3",
@@ -90,11 +90,11 @@
       "answer": [
         "a"
       ],
-      "explanation": "VACUUM frees storage by removing old, unreferenced files. Time travel to versions that needed those files stops working.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
-      "version": 1,
+      "explanation": "VACUUM frees storage by removing old, unreferenced files. Time travel to versions that needed those files stops working. The default retention is seven days.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-lake-vacuum",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.1-q4",

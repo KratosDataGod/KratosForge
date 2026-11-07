@@ -59,10 +59,10 @@
         "d"
       ],
       "explanation": "The checkpoint records which source data the query has processed and what it has committed. After a restart the query reads it and carries on from that point, which is what gives exactly-once writes to a Delta sink.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.3-q3",
@@ -90,10 +90,10 @@
         "c"
       ],
       "explanation": "Frequent small appends create many small files. OPTIMIZE rewrites them into fewer, larger files, and a longer trigger interval writes fewer files to begin with. Deleting the log destroys the table, CSV loses Delta's features, and dropping the checkpoint breaks recovery.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.3-q4",

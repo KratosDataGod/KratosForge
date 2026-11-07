@@ -88,10 +88,10 @@
         "a"
       ],
       "explanation": "The Lookup returns the list, the ForEach loops over it, and the Copy inside the loop uses @item() to parameterize the source and destination for each table.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/foreach-activity",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/lookup-activity",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.5-q4",

@@ -121,11 +121,11 @@
       "answer": [
         "c"
       ],
-      "explanation": "Eventhouses organize data by ingestion time, and early time filters let the engine skip data outside the range.",
+      "explanation": "Kusto indexes datetime columns efficiently. A time filter applied right after the table reference lets it skip whole data shards. Don't convert the timestamp or use contains on it.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

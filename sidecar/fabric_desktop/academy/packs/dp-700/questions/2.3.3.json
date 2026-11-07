@@ -90,10 +90,10 @@
         "c"
       ],
       "explanation": "The checkpoint records progress, so a restart picks up from the last committed point.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.3-q4",

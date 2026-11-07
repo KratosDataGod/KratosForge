@@ -59,10 +59,10 @@
         "d"
       ],
       "explanation": "An environment holds libraries and Spark settings, and choosing it as the workspace default in the workspace's Spark settings applies it to notebooks and Spark job definitions that don't pick another.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/create-and-use-environment",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.1-q3",

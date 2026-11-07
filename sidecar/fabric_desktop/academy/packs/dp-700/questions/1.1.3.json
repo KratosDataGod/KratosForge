@@ -120,11 +120,11 @@
       "answer": [
         "b"
       ],
-      "explanation": "OneLake keeps deleted files for a retention period under soft delete, and they can be restored with the storage APIs or tools such as Azure Storage Explorer.",
-      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-disaster-recovery",
-      "version": 1,
+      "explanation": "OneLake soft delete keeps deleted files for seven days. You can restore them with Azure Storage Explorer, Azure PowerShell or the Azure Storage REST APIs if you have write access to the files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/soft-delete",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

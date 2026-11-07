@@ -27,11 +27,11 @@
       "answer": [
         "b"
       ],
-      "explanation": "withColumn returns a new DataFrame with the column added. The other options aren't valid PySpark for adding a column; the last one is a comparison, not an assignment.",
+      "explanation": "withColumn returns a new DataFrame with the column added. DataFrames have no addColumn method, df[\"total\"] == ... is a comparison rather than an assignment, and select(\"total\" = ...) isn't valid Python.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.6-q2",

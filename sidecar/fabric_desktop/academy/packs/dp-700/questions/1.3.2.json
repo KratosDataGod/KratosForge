@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "Item permissions let you give someone less than any workspace role would"
+          "text": "Item permissions can give someone less than any workspace role, such as only connecting to a shared warehouse"
         },
         {
           "id": "e",
@@ -125,11 +125,11 @@
         "b",
         "d"
       ],
-      "explanation": "Item permissions are narrower than workspace roles: they apply to one item and can be limited to, for example, SQL access.",
-      "source": "https://learn.microsoft.com/en-us/fabric/security/permission-model",
-      "version": 1,
+      "explanation": "Item permissions apply to one item only. A plain share of a warehouse gives Read, which only lets the user connect, which is less than the Viewer role gives.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     }
   ]
 }

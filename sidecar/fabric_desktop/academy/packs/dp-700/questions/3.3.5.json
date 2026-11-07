@@ -75,7 +75,7 @@
         },
         {
           "id": "b",
-          "text": "Partition the table by date, or Z-order on EventDate, so filters skip files"
+          "text": "Z-order the table on EventDate with OPTIMIZE ZORDER BY, so filters skip files"
         },
         {
           "id": "c",
@@ -89,11 +89,11 @@
       "answer": [
         "b"
       ],
-      "explanation": "Partitioning and Z-ordering group rows by the filtered column, so Spark skips files outside the filter.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
-      "version": 1,
+      "explanation": "Z-ordering colocates rows with similar EventDate values, which tightens each file's min/max statistics so Spark skips files outside the filter.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-lake-z-order",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.5-q4",

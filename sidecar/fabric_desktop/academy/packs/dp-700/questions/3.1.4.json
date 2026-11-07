@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Add an Office 365 Outlook or Teams activity on the failure path of the last activities"
+          "text": "Add an Office 365 Outlook or Teams activity connected Upon failure to each activity that can fail"
         },
         {
           "id": "b",
@@ -58,12 +58,12 @@
       "answer": [
         "a"
       ],
-      "explanation": "A notification activity connected with an Upon failure dependency runs only when that activity fails and sends the message.",
+      "explanation": "A notification activity connected Upon failure runs when that activity fails. Use one per monitored activity, because an activity wired to several only fires when all of them fail.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/outlook-activity",
       "case": "fernway-telemetry",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.4-q3",

@@ -149,6 +149,25 @@ def test_a_job_queued_in_the_future_by_delay_isnt_started_early(tmp_path):
     assert queue.claim("etl-01", 300) is None
 
 
+def test_a_small_step_back_doesnt_take_a_live_job_back(tmp_path):
+    # A heartbeat sets lease_until = now + lease; an NTP correction of a second used to make that
+    # look "set before the clock went back", so a job still running was put back and run twice.
+    clock = Clock()
+    queue = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=60, max_backoff_seconds=1800)
+    job = queue.enqueue("meta", {})
+    claimed = queue.claim("etl-01", 300)
+    queue.heartbeat(job["id"], "etl-01", 300, claim=claimed["claim_id"])
+    clock.t -= 0.5
+    assert queue.recover(max_lease=300) == []
+    clock.t -= 120
+    assert queue.recover(max_lease=300) == []
+    other = queue.enqueue("meta", {}, source="b")
+    second = queue.claim("etl-01", 300)
+    queue.retry_later(other["id"], "etl-01", "network", claim=second["claim_id"])
+    clock.t -= 120
+    assert queue.claim("etl-01", 300) is None  # its backoff stands
+
+
 def test_a_lease_renewed_before_the_clock_went_back_runs_out_when_the_worker_is_gone(tmp_path):
     clock = Clock()
     queue = JobQueue(tmp_path / "q.sqlite3", clock=clock)
@@ -164,6 +183,8 @@ def test_a_failing_route_doesnt_rest_for_as_long_as_the_clock_went_back(tmp_path
     outbox = Outbox(tmp_path / "o.sqlite3", clock)
     hook = "https://contoso.webhook.office.com/hook"
     outbox.route_failed("default", hook, "down")
+    assert outbox.resting({"default": hook})
+    clock.t -= 120  # a small correction: it still rests
     assert outbox.resting({"default": hook})
     clock.t -= 5 * HOUR
     assert outbox.resting({"default": hook}) == {}

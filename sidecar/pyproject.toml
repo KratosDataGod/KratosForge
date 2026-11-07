@@ -73,6 +73,8 @@ include = ["fabric_desktop*"]
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
 # Academy certification packs (academy/registry.py), one folder per certification.
 "fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
+# Developer classes and talent trees (mastery/catalog.py).
+"fabric_desktop.mastery" = ["catalog/*.json", "catalog/classes/*.json"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it

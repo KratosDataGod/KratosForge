@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "lakehouse-warden",
+ "version": 1,
+ "title": "Lakehouse Warden",
+ "professional": "Enterprise Data Engineer",
+ "fantasy": "Keeper of the lake and its three layers. The Warden turns raw spill into trusted gold and keeps every table safe to load again tomorrow.",
+ "competency": "Designs and builds medallion lakehouses on Delta Lake: reliable Bronze, Silver and Gold loads, sound keys and history, file layout that performs, and loads that are safe to re-run.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake"],
+ "technologies": ["Delta Lake", "Spark", "SQL", "Python", "OneLake"],
+ "emblem": "A wolf's head inside a three-tier stepped shield (bronze, silver, gold bands), water lines beneath.",
+ "specializations": [
+  {"id": "medallion", "title": "Medallion Keeper", "professional": "Medallion architecture and lakehouse design", "competency": "lakehouse-design",
+   "nodes": [
+    {"id": "medallion.01", "skill": "lakehouses-and-the-medallion-layers", "tier": 1, "requires": []},
+    {"id": "medallion.02", "skill": "delta-tables-and-the-transaction-log", "tier": 2, "requires": ["medallion.01"]},
+    {"id": "medallion.03", "skill": "data-types-that-keep-money-exact", "tier": 2, "requires": ["medallion.01"]},
+    {"id": "medallion.04", "skill": "raw-landing-and-bronze-tables", "tier": 3, "requires": ["medallion.02"]},
+    {"id": "medallion.05", "skill": "business-and-surrogate-keys", "tier": 3, "requires": ["medallion.03"]},
+    {"id": "medallion.06", "skill": "bronze-to-silver-that-survives-a-rerun", "tier": 4, "requires": ["medallion.04"]},
+    {"id": "medallion.07", "skill": "type-2-slowly-changing-dimensions", "tier": 4, "requires": ["medallion.04", "medallion.05"]},
+    {"id": "medallion.08", "skill": "schema-drift-handling", "tier": 5, "requires": ["medallion.06"]},
+    {"id": "medallion.09", "skill": "gold-star-schema-for-reporting", "tier": 5, "requires": ["medallion.07"]},
+    {"id": "medallion.10", "skill": "capstone-raw-data-to-a-trusted-answer", "tier": 6, "requires": ["medallion.08", "medallion.09"], "capstone": true}
+   ]},
+  {"id": "delta", "title": "Delta Smith", "professional": "Delta Lake storage and performance", "competency": "delta-storage",
+   "nodes": [
+    {"id": "delta.01", "skill": "files-parquet-and-the-delta-log", "tier": 1, "requires": []},
+    {"id": "delta.02", "skill": "merge-upserts", "tier": 2, "requires": ["delta.01"]},
+    {"id": "delta.03", "skill": "time-travel-and-restore", "tier": 2, "requires": ["delta.01"]},
+    {"id": "delta.04", "skill": "incremental-loads-with-a-watermark", "tier": 3, "requires": ["delta.02"]},
+    {"id": "delta.05", "skill": "small-files-and-compaction", "tier": 3, "requires": ["delta.03"]},
+    {"id": "delta.06", "skill": "partitioning-and-file-pruning", "tier": 4, "requires": ["delta.04"]},
+    {"id": "delta.07", "skill": "optimize-and-vacuum-done-safely", "tier": 4, "requires": ["delta.04", "delta.05"]},
+    {"id": "delta.08", "skill": "reading-a-query-plan", "tier": 5, "requires": ["delta.06"]},
+    {"id": "delta.09", "skill": "data-skipping-that-works", "tier": 5, "requires": ["delta.07"]},
+    {"id": "delta.10", "skill": "measured-optimization", "tier": 6, "requires": ["delta.08", "delta.09"], "capstone": true}
+   ]},
+  {"id": "reliability", "title": "Steadfast Loader", "professional": "Reliable loads and data operations", "competency": "data-loading",
+   "nodes": [
+    {"id": "reliability.01", "skill": "data-quality-checks-in-code", "tier": 1, "requires": []},
+    {"id": "reliability.02", "skill": "deduplicating-retried-loads", "tier": 2, "requires": ["reliability.01"]},
+    {"id": "reliability.03", "skill": "missing-data-and-the-unknown-member", "tier": 2, "requires": ["reliability.01"]},
+    {"id": "reliability.04", "skill": "idempotent-loads", "tier": 3, "requires": ["reliability.02"]},
+    {"id": "reliability.05", "skill": "late-arriving-data", "tier": 3, "requires": ["reliability.03"]},
+    {"id": "reliability.06", "skill": "notebooks-that-pass-validate", "tier": 4, "requires": ["reliability.04"]},
+    {"id": "reliability.07", "skill": "fixing-broken-loads", "tier": 4, "requires": ["reliability.04", "reliability.05"]},
+    {"id": "reliability.08", "skill": "best-practice-fixes-checked-with-compare", "tier": 5, "requires": ["reliability.06"]},
+    {"id": "reliability.09", "skill": "incident-response-for-late-and-broken-data", "tier": 5, "requires": ["reliability.07"]},
+    {"id": "reliability.10", "skill": "production-ready-notebook-portfolio", "tier": 6, "requires": ["reliability.08", "reliability.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "three-tiers-raised", "name": "Three Tiers Raised", "criteria": "Reach Journeyman in Lakehouses and the medallion layers, Raw landing and Bronze tables and Gold star schema for reporting."},
+  {"id": "the-tide-holds", "name": "The Tide Holds", "criteria": "Reach Adept in Idempotent loads and Incremental loads with a watermark."},
+  {"id": "clean-ledger", "name": "Clean Ledger", "criteria": "Reach Journeyman in every Steadfast Loader talent up to tier 3."},
+  {"id": "lean-lake", "name": "Lean Lake", "criteria": "Reach Adept in Small files and compaction and Partitioning and file pruning, with a measured speed-up."},
+  {"id": "warden-of-the-lake", "name": "Warden of the Lake", "criteria": "Reach Adept in all ten talents of one Lakehouse Warden specialization."}
+ ]
+}

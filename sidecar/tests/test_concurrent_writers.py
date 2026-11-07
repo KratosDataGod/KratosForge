@@ -113,7 +113,8 @@ def test_an_append_may_move_past_many_other_commits(tmp_path, monkeypatch):
 def test_only_files_delta_doesnt_name_are_taken_for_set_aside_commits(tmp_path):
     v = "00000000000000000005"
     delta = [f"{v}.json", f"{v}.crc", f"{v}.checkpoint.parquet", f"{v}.checkpoint.0000000001.0000000002.parquet",
-             f"{v}.checkpoint.80a083e8-7026-4e79-81be-64bd76c43a11.parquet", f"{v}.00000000000000000009.compacted.json",
+             f"{v}.checkpoint.80a083e8-7026-4e79-81be-64bd76c43a11.parquet",
+             f"{v}.checkpoint.80a083e8-7026-4e79-81be-64bd76c43a11.json", f"{v}.00000000000000000009.compacted.json",
              f"{v}.json#1", "_last_checkpoint", "_commit_1f2e.json.tmp"]
     synced = [f"{v}-PC2.json", f"{v} (Ann's conflicted copy 2026-11-07).json", f"{v}(1).json"]
     for name in delta + synced:

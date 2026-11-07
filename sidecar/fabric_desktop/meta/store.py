@@ -657,7 +657,7 @@ class Store:
 
 # The names Delta gives files in _delta_log that start with a version: a commit, a checksum, a
 # checkpoint (classic, multi-part or v2), a compacted log, each perhaps staged as <name>#<n>.
-_DELTA_LOG_NAME = re.compile(r"\d{20}(\.json|\.crc|\.checkpoint(\.[0-9A-Za-z-]+)*\.parquet|\.\d{20}\.compacted\.json)(#\d+)?")
+_DELTA_LOG_NAME = re.compile(r"\d{20}(\.json|\.crc|\.checkpoint(\.[0-9A-Za-z-]+)*\.(parquet|json)|\.\d{20}\.compacted\.json)(#\d+)?")
 _VERSIONED = re.compile(r"(\d{20})")
 
 

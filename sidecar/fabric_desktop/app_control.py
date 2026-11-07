@@ -7,6 +7,7 @@ loaded, so a package can install cleanly and still fail at ``import``.
 """
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -43,21 +44,25 @@ def blocked_packages(folder: Path, probe: Callable[[str], bool] | None = None) -
         return {}
     probe = probe or _load_blocked
     found: dict[str, list[str]] = {}
+    seen = 0
     try:
-        seen = 0
-        for file in sorted(folder.rglob("*")):
-            if file.suffix.lower() not in (".pyd", ".dll") or not file.is_file():
-                continue
-            seen += 1
-            if seen > MAX_FILES:
-                break
-            if probe(str(file)):
-                rel = file.relative_to(folder)
-                found.setdefault(rel.parts[0] if len(rel.parts) > 1 else rel.stem.split(".")[0], []).append(str(rel))
+        # os.walk without following links, so a junction loop can't hold the install, and the cap
+        # applies while walking rather than after listing the whole tree.
+        for root, dirs, files in os.walk(folder, followlinks=False):
+            dirs.sort()
+            for name in sorted(files):
+                if Path(name).suffix.lower() not in (".pyd", ".dll"):
+                    continue
+                seen += 1
+                if seen > MAX_FILES:
+                    return found
+                file = Path(root) / name
+                if probe(str(file)):
+                    rel = file.relative_to(folder)
+                    found.setdefault(rel.parts[0] if len(rel.parts) > 1 else name.split(".")[0], []).append(str(rel))
     except OSError:  # silent-ok: a diagnosis only, never a reason to fail the install
         return found
     return found
-
 
 def blocked_line(blocked: dict[str, list[str]]) -> str | None:
     """One line for an install log that names the blocked packages and what to do."""

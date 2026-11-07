@@ -29,6 +29,22 @@ def test_blocked_packages_names_each_package_with_a_refused_binary(tmp_path, mon
     assert app_control.blocked_line({}) is None
 
 
+def test_the_walk_stops_at_the_cap_and_never_follows_a_folder_link(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_control.sys, "platform", "win32")
+    site = _env_folder(tmp_path)
+    try:
+        (site / "pyarrow" / "loop").symlink_to(site, target_is_directory=True)  # a link back up the tree
+    except OSError:  # silent-ok: Windows without the symlink right; the cap is still checked below
+        pass
+    seen: list[str] = []
+    app_control.blocked_packages(site, probe=lambda p: seen.append(p) or False)
+    assert len(seen) == 4 and not any("loop" in p for p in seen)
+    monkeypatch.setattr(app_control, "MAX_FILES", 2)
+    seen.clear()
+    assert app_control.blocked_packages(site, probe=lambda p: seen.append(p) or True)
+    assert len(seen) == 2
+
+
 def test_blocked_packages_checks_nothing_off_windows(tmp_path, monkeypatch):
     monkeypatch.setattr(app_control.sys, "platform", "linux")
     seen = []

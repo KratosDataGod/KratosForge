@@ -145,6 +145,7 @@ def coverage() -> list[dict[str, Any]]:
                     "example": function.get("example") or "", "status": status, "note": note})
     for function in load():
         status, note = check(function, con) if "value" in function else probe(function, con)
+        note = note or function.get("note", "")  # a known difference the value check doesn't show
         out.append({"name": function["name"], "group": function["group"], "example": function.get("example", ""),
                     "status": status, "note": note})
     return out

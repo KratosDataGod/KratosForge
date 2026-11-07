@@ -96,6 +96,8 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
+    notes = {r["name"]: r["note"] for r in rows}
+    assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
     assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
     assert status["from_xml"] == "fails"  # DuckDB has none and nothing writes it
 
@@ -169,6 +171,8 @@ def test_a_vector_that_is_null_or_holds_a_null_gives_null():
 
 @pytest.mark.parametrize(("code", "match"), [
     ("SELECT vector_norm(array(3.0f), 3.0)", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_norm(array(3.0f), -1.0)", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_normalize(array(3.0f), -float('inf'))", "INVALID_VECTOR_NORM_DEGREE"),
     ("SELECT vector_norm(array(3.0f), d) FROM VALUES (2.0) AS t(d)", "isn't a constant"),
     ("SELECT vector_sum(e) FROM VALUES (array(1.0f)) AS t(e)", "element by element"),
     ("SELECT zeroifnull(1, 2)", "takes 1 argument"),

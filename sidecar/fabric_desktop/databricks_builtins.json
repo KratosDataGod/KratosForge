@@ -600,7 +600,8 @@
    [
     "float:0.974631846197"
    ]
-  ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_inner_product",
@@ -610,7 +611,8 @@
    [
     "float:32"
    ]
-  ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_l2_distance",
@@ -620,7 +622,8 @@
    [
     "float:5.19615242271"
    ]
-  ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_norm",
@@ -630,7 +633,8 @@
    [
     "float:5"
    ]
-  ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_normalize",
@@ -643,7 +647,8 @@
      "float:0.8"
     ]
    ]
-  ]
+  ],
+  "note": "ARRAY<DOUBLE> here, ARRAY<FLOAT> in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_sum",

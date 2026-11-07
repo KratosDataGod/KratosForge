@@ -82,10 +82,13 @@ def _degree(name: str, args: list[exp.Expression]) -> float:
     """vector_norm's or vector_normalize's degree: 2 when left out, else a constant 1, 2 or infinity."""
     if len(args) < 2:
         return 2.0
-    value = args[1].this if isinstance(args[1], exp.Cast) else args[1]
+    value, sign = args[1], 1.0
+    while isinstance(value, (exp.Cast, exp.Neg, exp.Paren)):  # -1.0, 2.0f, -float('inf')
+        sign, value = (-sign if isinstance(value, exp.Neg) else sign), value.this
     if isinstance(value, exp.Literal):
         text = value.name.strip().lower()
-        degree = math.inf if text in ("inf", "infinity", "+inf") else float(text) if not value.is_string else math.nan
+        degree = sign * (math.inf if text in ("inf", "infinity", "+inf") else float(text) if not value.is_string
+                         else math.nan)
         if degree in (1.0, 2.0, math.inf):
             return degree
         raise ValueError(f"{name}() takes degree 1.0, 2.0 or float('inf'), as in Databricks "

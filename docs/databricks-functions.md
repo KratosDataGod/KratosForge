@@ -763,11 +763,11 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `vector_avg` | Refused |  | vector_avg() can't run on this PC the way it runs in Databricks, so nothing ran: DuckDB has no aggregate that adds vectors element by element. Run the cell on a |
-| `vector_cosine_similarity` | Runs | `SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` |  |
-| `vector_inner_product` | Runs | `SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` |  |
-| `vector_l2_distance` | Runs | `SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` |  |
-| `vector_norm` | Runs | `SELECT vector_norm(array(3.0f, 4.0f), 2.0f)` |  |
-| `vector_normalize` | Runs | `SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)` |  |
+| `vector_cosine_similarity` | Runs | `SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_inner_product` | Runs | `SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_l2_distance` | Runs | `SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_norm` | Runs | `SELECT vector_norm(array(3.0f, 4.0f), 2.0f)` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_normalize` | Runs | `SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)` | ARRAY<DOUBLE> here, ARRAY<FLOAT> in Databricks (the documented digits are DOUBLE's) |
 | `vector_sum` | Refused |  | vector_sum() can't run on this PC the way it runs in Databricks, so nothing ran: DuckDB has no aggregate that adds vectors element by element. Run the cell on a |
 
 ## Databricks only: XML

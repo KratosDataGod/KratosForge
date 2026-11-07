@@ -1,6 +1,6 @@
 """Databricks SQL's own built-in functions (not in Spark 3.5) on this PC.
 
-sql.spark_fixes calls ``rewrite`` for a Databricks SQL cell, after the Spark rewrites. Each function
+engines.local_sql calls ``rewrite`` for a Databricks SQL cell, after sql.spark_fixes. Each function
 Databricks has that this PC can't answer the same way stops the cell by name, with what to do instead,
 so nothing runs with another answer; databricks_coverage lists each one's status.
 """

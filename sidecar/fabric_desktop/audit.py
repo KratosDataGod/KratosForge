@@ -38,7 +38,9 @@ SCHEMA = "audit@1"
 GENESIS = audit_chain.GENESIS
 
 # Calls that only read or watch. Everything else is recorded, so a new call is audited unless it
-# is added here on purpose.
+# is added here on purpose. academy_run and learn_lab_run run a learner's code, but in a sandbox
+# whose writes are rolled back, so they change nothing a person would audit; pbi_embed_token is
+# left off because it issues a credential.
 READ_ONLY = frozenset("""
 skins_list access_cache access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules cached_schemas app_settings
 editor_pending editor_status telemetry_status support_bundle_preview benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs

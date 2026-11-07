@@ -1,0 +1,165 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E07",
+  "version": 1,
+  "status": "draft",
+  "title": "Feature workspaces: branch out, sync, and update from Git",
+  "objectives": [
+    "1.2.1"
+  ],
+  "objective_text": "Work the way branched workspaces do in Git: a feature branch from main's latest commit, a commit on it, an update from main after another PR lands, and your PR completed into main.",
+  "scenario": "The Ingest workspace is connected to main. Ana and Ben each branched out to a workspace of their own. Ana's dedupe change is approved; Ben (you) still has to make the copy retry 3 times. A hotfix landed on main this morning, and the team's branch policy only completes a PR whose branch has main's latest commit.",
+  "prerequisites": [
+    "E06"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "git_lab",
+  "engine_label": "Git on this PC, in a repository made for this exercise",
+  "lesson": "lesson.md",
+  "starter": "session.git",
+  "files": [
+    "notebook-dedupe.py",
+    "notebook-v1.py",
+    "pipeline-hotfix.json",
+    "pipeline-v1.json"
+  ],
+  "repo": {
+    "commits": [
+      {
+        "branch": "main",
+        "message": "Add the Ingest pipeline and the Orders notebook",
+        "files": {
+          "Ingest.DataPipeline/pipeline-content.json": "pipeline-v1.json",
+          "Orders.Notebook/notebook-content.py": "notebook-v1.py"
+        }
+      },
+      {
+        "branch": "feature/ana-dedupe",
+        "from": "main",
+        "message": "Drop duplicate orders in the notebook",
+        "files": {
+          "Orders.Notebook/notebook-content.py": "notebook-dedupe.py"
+        }
+      },
+      {
+        "branch": "main",
+        "message": "Hotfix: give the copy two hours",
+        "files": {
+          "Ingest.DataPipeline/pipeline-content.json": "pipeline-hotfix.json"
+        }
+      }
+    ],
+    "head": "main"
+  },
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your Git session, run with Git on this PC, leaves your change on feature/ben-retry, that branch updated with main after Ana's PR, and main holding both features and the hotfix, with no merge left unfinished."
+  ],
+  "does_not_verify": [
+    "Fabric's Branches tab: Branch out to another workspace, the workspace it creates, or which items it copies.",
+    "Fabric's Update all, the Changes and Updates counts, or that commits are disabled while updates are waiting.",
+    "Pull requests and branch policies in Azure DevOps or GitHub: here you complete them as merges yourself."
+  ],
+  "expected": {
+    "description": "feature/ben-retry: your retry commit and a merge of main after Ana's PR; main: both PRs merged, retry 3 and timeout 0.02:00:00, the notebook dropping duplicate orders."
+  },
+  "validation": [
+    {
+      "kind": "repo_matches",
+      "fail": "Your work isn't on a feature branch of its own.",
+      "pass": "feature/ben-retry holds your commit.",
+      "rules": [
+        {
+          "clean": true,
+          "why": "A merge isn't done until its result is committed."
+        },
+        {
+          "branch": "feature/ben-retry",
+          "exists": true,
+          "why": "Branch out gives each developer a branch (and workspace) of their own; main changes only through PRs."
+        },
+        {
+          "file": "Ingest.DataPipeline/pipeline-content.json",
+          "ref": "feature/ben-retry",
+          "json": [
+            {
+              "path": "properties.activities.0.policy.retry",
+              "equals": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "repo_matches",
+      "fail": "Your branch wasn't updated from main before its PR completed.",
+      "pass": "feature/ben-retry has main's latest commits, Ana's included.",
+      "rules": [
+        {
+          "ancestor": "feature/ana-dedupe",
+          "of": "feature/ben-retry",
+          "why": "The branch policy needs main's latest commit in your branch, and main has Ana's PR in it by then."
+        }
+      ]
+    },
+    {
+      "kind": "repo_matches",
+      "fail": "main doesn't have both features and the hotfix.",
+      "pass": "main has Ana's dedupe, your retries and the two-hour timeout.",
+      "rules": [
+        {
+          "ancestor": "feature/ana-dedupe",
+          "of": "main"
+        },
+        {
+          "ancestor": "feature/ben-retry",
+          "of": "main",
+          "why": "Your PR completes into main."
+        },
+        {
+          "file": "Orders.Notebook/notebook-content.py",
+          "ref": "main",
+          "contains": "dropDuplicates([\"order_id\"])"
+        },
+        {
+          "file": "Ingest.DataPipeline/pipeline-content.json",
+          "ref": "main",
+          "json": [
+            {
+              "path": "properties.activities.0.policy.retry",
+              "equals": 3
+            },
+            {
+              "path": "properties.activities.0.policy.timeout",
+              "equals": "0.02:00:00",
+              "why": "Write your change on top of the file as main has it; an old copy undoes the hotfix."
+            }
+          ]
+        },
+        {
+          "conflict_markers": false
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "git switch -c feature/ben-retry main starts your branch from main as it is now.",
+    "Write the pipeline file as main has it, with only retry changed.",
+    "Complete Ana's PR first: switch to main and merge feature/ana-dedupe.",
+    "Then switch back to your branch and merge main into it before you merge it into main."
+  ],
+  "explanation": "Branch out to another workspace creates a new Git branch from the last commit of the source workspace's branch and connects a workspace to it, so each developer works apart from main. You commit there, and a pull request takes the work back to main. When other work reaches main first, your branch is behind: updating it from main brings that work in, so your PR is tested and completed against what main really has. In Fabric, a workspace whose branch has new commits shows them under Updates, and commits are disabled until you update.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/cicd/git-integration/manage-branches",
+    "https://learn.microsoft.com/fabric/cicd/git-integration/branched-workspace",
+    "https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process"
+  ],
+  "reset": "Reset rebuilds the repository from the exercise's history and puts the starter session back.",
+  "review_notes": [
+    "The pipeline and notebook files are cut down to the fields the exercise uses.",
+    "Checked on Microsoft Learn 2026-11-07: Branch out creates a new branched workspace (or switches an existing one) to a new Git branch made from the last commit of the source workspace (git-integration-process, branched-workspace); the feature workflow is commit to the feature branch, then a PR to main (branched-workspace); each workspace connects to one branch (manage-branches); \"If there were updates made to the Git branch, commits are disabled until you update your workspace\", and Update always updates the whole branch to its latest commit (git-integration-process). The branch policy is the team's own, set in the Git provider."
+  ]
+}

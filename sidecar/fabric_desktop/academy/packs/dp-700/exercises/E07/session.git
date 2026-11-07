@@ -1,0 +1,11 @@
+# E07: you're Ben. Your feature is "retry the copy 3 times", in Ingest.DataPipeline/pipeline-content.json.
+# A line starting with git runs that Git command. To change a file, write its whole new content
+# between "write <path>" and "end". Run shows what each line did.
+#
+# 1. Branch out: start feature/ben-retry from main as it is now (it has today's hotfix).
+# 2. Set retry to 3 and commit on your branch. Keep everything else in the file as main has it.
+# 3. You're today's reviewer too. Ana's PR (feature/ana-dedupe) is approved: complete it into main.
+# 4. Branch policy: a PR completes only when its branch has main's latest commit. Update your branch from main.
+# 5. Complete your PR into main.
+git status
+git log --oneline --all

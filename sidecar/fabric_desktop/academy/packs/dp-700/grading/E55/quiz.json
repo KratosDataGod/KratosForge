@@ -1,0 +1,144 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A load runs SELECT CAST(qty AS int) FROM staging.orders and stops with \"Conversion failed when converting the varchar value 'n/a' to data type int.\" The team wants the load to finish, with qty NULL wherever the text isn't a number. What do you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use CAST(qty AS bigint), since the wider type also accepts text such as 'n/a'"
+        },
+        {
+          "id": "b",
+          "text": "Use CONVERT(int, qty), which skips the rows it can't convert instead of stopping"
+        },
+        {
+          "id": "c",
+          "text": "Use TRY_CAST(qty AS int), which returns NULL for a value it can't convert"
+        },
+        {
+          "id": "d",
+          "text": "Use ISNULL(CAST(qty AS int), 0), which catches the error and puts 0 in its place"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "TRY_CAST returns the value cast to the data type if the cast succeeds, and NULL otherwise. CAST and CONVERT raise the error, and ISNULL only sees a value after the cast has already failed.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/try-cast-transact-sql"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "Someone wraps an int in TRY_CAST(order_id AS xml) to be safe. What happens when it runs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It returns each order_id as an xml text node, because any value can become xml"
+        },
+        {
+          "id": "b",
+          "text": "It returns NULL for every row, because TRY_CAST never raises an error"
+        },
+        {
+          "id": "c",
+          "text": "It returns 0 for every row, because TRY_CAST falls back to the type's default"
+        },
+        {
+          "id": "d",
+          "text": "It fails with an error, because converting int to xml isn't permitted at all"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "TRY_CAST returns NULL when a permitted conversion fails, but a conversion that's explicitly not permitted, such as int to xml, still fails with an error.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/try-cast-transact-sql"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "A view computes revenue / units for each product and fails with \"Divide by zero error encountered.\" Products with no units sold should show no price. Which expression does that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "revenue / NULLIF(units, 0), so a zero becomes NULL and the price is NULL"
+        },
+        {
+          "id": "b",
+          "text": "revenue / ABS(units), so a zero count is treated the same as a positive one"
+        },
+        {
+          "id": "c",
+          "text": "revenue / COALESCE(units, 0), so a missing count becomes 0 before dividing"
+        },
+        {
+          "id": "d",
+          "text": "CAST(revenue AS float) / units, so floating point returns infinity instead of failing"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "NULLIF returns NULL when its two expressions are equal, so NULLIF(units, 0) turns 0 into NULL, and dividing by NULL gives NULL instead of the divide-by-zero error.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/language-elements/nullif-transact-sql"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "A MERGE from staging into dbo.orders fails. Staging holds two rows for order 1042, both matching the same target row, and the MERGE updates on WHEN MATCHED. What's the fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Change WHEN MATCHED to WHEN NOT MATCHED, so matching rows are inserted instead"
+        },
+        {
+          "id": "b",
+          "text": "Reduce staging to one row per order_id, such as the latest, before the MERGE"
+        },
+        {
+          "id": "c",
+          "text": "Run the MERGE twice, so each of the two staging rows is applied in its own pass"
+        },
+        {
+          "id": "d",
+          "text": "Add WHEN NOT MATCHED BY SOURCE THEN DELETE, so the duplicate row is removed"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "MERGE can't update the same target row more than once: when more than one source row matches a target row, it returns an error. Make the source unique on the join key first.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/statements/merge-transact-sql"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "In a Fabric warehouse, a MERGE copied from an old script fails before it runs anything. The statement has no terminating semicolon. What's true?",
+      "options": [
+        {
+          "id": "a",
+          "text": "MERGE is supported only in a lakehouse's SQL analytics endpoint; run it there instead"
+        },
+        {
+          "id": "b",
+          "text": "MERGE needs a TOP clause in a Fabric warehouse; add TOP (100) PERCENT to it"
+        },
+        {
+          "id": "c",
+          "text": "MERGE is supported in a Fabric warehouse and must end with a semicolon; add it"
+        },
+        {
+          "id": "d",
+          "text": "MERGE isn't supported in a Fabric warehouse; rewrite it as an UPDATE and an INSERT"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "MERGE is generally available in Fabric Data Warehouse. The statement must be terminated by a semicolon; without one, it raises error 10713. The analytics endpoint is read-only, and Fabric's MERGE syntax has no TOP.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/statements/merge-transact-sql"
+    }
+  ]
+}

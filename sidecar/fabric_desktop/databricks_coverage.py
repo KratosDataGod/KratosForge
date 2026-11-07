@@ -16,7 +16,8 @@ Databricks SQL's built-ins are Spark's with Databricks' own added. ``databricks_
 Databricks' own (from its alphabetical list of built-in functions, sql-ref-functions-builtin-alpha),
 leaving out those that need a Databricks service: AI, geospatial (h3_, st_), files, streams, secrets,
 Unity Catalog and account functions. They have no value checks yet, so each is tried with NULL
-arguments (0 to 4 of them): "not checked" means only that DuckDB accepts it. For the shared ones, the
+arguments (0 to 4 of them), or with a listed probe when it has its own syntax: "not checked" means only
+that DuckDB accepts it. For the shared ones, the
 values are Spark 3.5's with ANSI mode off. Databricks SQL warehouses run with ANSI mode on, which
 changes overflow and bad-input cases rather than these examples, but that isn't checked here.
 ``docs/databricks-functions.md`` is ``markdown()``'s output, and tests/test_databricks_coverage.py
@@ -106,14 +107,18 @@ def load() -> list[dict[str, Any]]:
     return list(json.loads(DATA.read_text(encoding="utf-8")))
 
 
-def probe(name: str, con: Any) -> tuple[str, str]:
-    """The status of a function with no value check: tried with 0 to 4 NULL arguments as a Databricks SQL
-    cell, it is "not checked" when DuckDB accepts one of them, refused when this PC refuses it by name,
-    and fails otherwise."""
+def probe(function: dict[str, Any], con: Any) -> tuple[str, str]:
+    """The status of a function with no value check, run as a Databricks SQL cell: its listed ``probe``
+    when it has its own syntax (try_cast(x AS t), CUBE, WITHIN GROUP, a unit keyword), otherwise its name
+    with 0 to 4 NULL arguments. "not checked" when DuckDB accepts one, refused when this PC refuses it by
+    name, and fails otherwise."""
+    name = function["name"]
+    tries = [function["probe"]] if function.get("probe") else [
+        f"SELECT {name}({', '.join(['NULL'] * n)})" for n in range(_ARITIES)]
     errors: list[BaseException] = []
-    for n in range(_ARITIES):
+    for code in tries:
         try:
-            run(f"SELECT {name}({', '.join(['NULL'] * n)})", con)
+            run(code, con)
         except Exception as exc:  # noqa: BLE001  # silent-ok: every error is a status for the coverage list
             errors.append(exc)
             continue
@@ -124,7 +129,7 @@ def probe(name: str, con: Any) -> tuple[str, str]:
     # sqlglot names one of several missing arguments, not always the same one, so it isn't named here
     notes = [re.sub(r"Required keyword: '\w+' missing", "an argument is missing",
                     (str(e).strip().splitlines() or [type(e).__name__])[0]) for e in errors]
-    other = [n for n in notes if "does not exist" not in n]
+    other = [n for n in notes if function.get("probe") or "does not exist" not in n]
     return "fails", (other[0][:160] if other else f"DuckDB has no {name}, and the translation doesn't write it")
 
 
@@ -137,7 +142,7 @@ def coverage() -> list[dict[str, Any]]:
         out.append({"name": function["name"], "group": function.get("group") or "other",
                     "example": function.get("example") or "", "status": status, "note": note})
     for function in load():
-        status, note = probe(function["name"], con)
+        status, note = probe(function, con)
         out.append({"name": function["name"], "group": function["group"], "example": "", "status": status,
                     "note": note})
     return out
@@ -165,8 +170,9 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "one's first example from Spark's documentation goes through the same translation as a cell and",
         "is compared with the value Databricks gives (Spark 3.5's, or Databricks' own where its reference",
         "shows another). Databricks' own functions, in the groups headed \"Databricks only\", have no value",
-        "checks yet: each is tried with NULL arguments. No Databricks workspace was used. CI runs every",
-        "check again, so this page changes when a function is fixed or breaks.",
+        "checks yet: each is tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN",
+        "GROUP, a unit keyword). No Databricks workspace was used. CI runs every check again, so this page",
+        "changes when a function is fixed or breaks.",
         "",
         "- **Runs**: gives Databricks' value for its example.",
         "- **Differs**: runs, but gives another value. Check results that use it on the warehouse.",

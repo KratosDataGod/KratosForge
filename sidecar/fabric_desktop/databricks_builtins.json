@@ -1,7 +1,8 @@
 [
  {
   "name": "approx_top_k",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "probe": "SELECT approx_top_k(a) FROM VALUES (1) AS t(a)"
  },
  {
   "name": "approx_top_k_accumulate",
@@ -29,11 +30,13 @@
  },
  {
   "name": "collate",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "probe": "SELECT 'a' COLLATE UTF8_LCASE"
  },
  {
   "name": "collation",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "probe": "SELECT collation('a')"
  },
  {
   "name": "counter_diff",
@@ -41,7 +44,8 @@
  },
  {
   "name": "cube",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "probe": "SELECT a, count(*) FROM VALUES (1), (2) AS t(a) GROUP BY CUBE(a)"
  },
  {
   "name": "current_time",
@@ -205,7 +209,8 @@
  },
  {
   "name": "listagg",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "probe": "SELECT listagg(a, ',') WITHIN GROUP (ORDER BY a) FROM VALUES ('x'), ('y') AS t(a)"
  },
  {
   "name": "localtime",
@@ -237,11 +242,13 @@
  },
  {
   "name": "percentile_cont",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "probe": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY a) FROM VALUES (1), (2), (3) AS t(a)"
  },
  {
   "name": "percentile_disc",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "probe": "SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY a) FROM VALUES (1), (2), (3) AS t(a)"
  },
  {
   "name": "randstr",
@@ -269,7 +276,8 @@
  },
  {
   "name": "string_agg",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "probe": "SELECT string_agg(a, ',') WITHIN GROUP (ORDER BY a) FROM VALUES ('x'), ('y') AS t(a)"
  },
  {
   "name": "theta_difference",
@@ -309,7 +317,8 @@
  },
  {
   "name": "time_diff",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "probe": "SELECT time_diff(HOUR, TIME'10:00:00', TIME'12:00:00')"
  },
  {
   "name": "time_from_micros",
@@ -337,7 +346,8 @@
  },
  {
   "name": "time_trunc",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "probe": "SELECT time_trunc(HOUR, TIME'12:34:56')"
  },
  {
   "name": "timediff",
@@ -349,11 +359,13 @@
  },
  {
   "name": "timestampadd",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "probe": "SELECT timestampadd(HOUR, 1, TIMESTAMP'2024-01-01')"
  },
  {
   "name": "timestampdiff",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "probe": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-01', TIMESTAMP'2024-01-03')"
  },
  {
   "name": "to_time",
@@ -369,7 +381,8 @@
  },
  {
   "name": "try_cast",
-  "group": "databricks:conditional"
+  "group": "databricks:conditional",
+  "probe": "SELECT try_cast('5' AS INT)"
  },
  {
   "name": "try_ip_as_binary",

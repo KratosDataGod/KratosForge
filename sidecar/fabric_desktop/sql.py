@@ -136,10 +136,15 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
     the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift.
     ``databricks``: schema_of_json writes every field name in backticks, as Databricks documents it;
-    Apache Spark 3.5 (Fabric) quotes only names that need it."""
+    Apache Spark 3.5 (Fabric) quotes only names that need it; and Databricks' own functions are
+    written for DuckDB or refused by name (databricks_builtins_sql)."""
     statement = spark_builtins_sql.mark(statement)
-    return spark_builtins_sql.rewrite(
+    fixed = spark_builtins_sql.rewrite(
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement)))))))
+    if databricks:
+        from . import databricks_builtins_sql
+        fixed = databricks_builtins_sql.rewrite(fixed)
+    return fixed
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that

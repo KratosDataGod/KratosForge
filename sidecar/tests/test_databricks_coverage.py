@@ -97,3 +97,27 @@ def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
     assert status["vector_norm"] == "fails"  # DuckDB has none and nothing writes it
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT kll_sketch_agg_bigint(x) FROM VALUES (1), (2) AS t(x)",
+    "SELECT theta_sketch_estimate(theta_sketch_agg(x)) FROM VALUES (1) AS t(x)",
+    "SELECT tuple_sketch_agg_double(k, v) FROM VALUES (1, 2.0) AS t(k, v)",
+    "SELECT approx_top_k_estimate(approx_top_k_accumulate(x, 5), 3) FROM VALUES ('a') AS t(x)",
+])
+def test_databricks_sketches_are_refused_by_name(code):
+    from fabric_desktop.engines.local_sql import _databricks
+    with pytest.raises(ValueError, match=r"can't run on this PC the way it runs in Databricks.*DataSketches"):
+        _databricks(code)
+
+
+def test_a_sketch_name_in_spark_sql_is_left_alone():
+    from fabric_desktop import sql
+    assert sql.parse("SELECT kll_sketch_agg_bigint(x) FROM t", "spark")  # Spark 3.5 has none: DuckDB says so
+
+
+def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
+    status = {r["name"]: r["status"] for r in rows}
+    for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
+        assert status[name] == "not checked", name  # runs here; no value check yet
+    assert status["collate"] == "fails"  # no UTF8_LCASE collation here

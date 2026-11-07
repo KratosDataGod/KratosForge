@@ -8,8 +8,9 @@ where the DuckDB engine runs it. For the functions Databricks SQL shares with Sp
 one's first example from Spark's documentation goes through the same translation as a cell and
 is compared with the value Databricks gives (Spark 3.5's, or Databricks' own where its reference
 shows another). Databricks' own functions, in the groups headed "Databricks only", have no value
-checks yet: each is tried with NULL arguments. No Databricks workspace was used. CI runs every
-check again, so this page changes when a function is fixed or breaks.
+checks yet: each is tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN
+GROUP, a unit keyword). No Databricks workspace was used. CI runs every check again, so this page
+changes when a function is fixed or breaks.
 
 - **Runs**: gives Databricks' value for its example.
 - **Differs**: runs, but gives another value. Check results that use it on the warehouse.
@@ -27,9 +28,9 @@ lists more checks and the differences known in more detail.
 | --- | ---: |
 | Runs | 367 |
 | Differs | 0 |
-| Refused | 23 |
-| Fails | 130 |
-| Not checked | 69 |
+| Refused | 78 |
+| Fails | 71 |
+| Not checked | 73 |
 | **All** | **589** |
 
 ## Aggregate
@@ -585,70 +586,70 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `approx_top_k` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: APPROX_TOP_K cannot be transpiled to DuckDB due to incompatible return types. |
-| `approx_top_k_accumulate` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.aggregate.ApproxTopKAccumulate'>. Line 1, Col: 32. |
-| `approx_top_k_combine` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.aggregate.ApproxTopKCombine'>. Line 1, Col: 29. |
-| `approx_top_k_estimate` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.aggregate.ApproxTopKEstimate'>. Line 1, Col: 30. |
+| `approx_top_k_accumulate` | Refused |  | approx_top_k_accumulate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `approx_top_k_combine` | Refused |  | approx_top_k_combine() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
+| `approx_top_k_estimate` | Refused |  | approx_top_k_estimate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
 | `bitmap_and_agg` | Fails |  | DuckDB has no bitmap_and_agg, and the translation doesn't write it |
 | `counter_diff` | Fails |  | DuckDB has no counter_diff, and the translation doesn't write it |
-| `cube` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.core.Aliases'>. Line 1, Col: 13. |
-| `kll_merge_agg_bigint` | Fails |  | DuckDB has no kll_merge_agg_bigint, and the translation doesn't write it |
-| `kll_merge_agg_double` | Fails |  | DuckDB has no kll_merge_agg_double, and the translation doesn't write it |
-| `kll_merge_agg_float` | Fails |  | DuckDB has no kll_merge_agg_float, and the translation doesn't write it |
-| `kll_sketch_agg_bigint` | Fails |  | DuckDB has no kll_sketch_agg_bigint, and the translation doesn't write it |
-| `kll_sketch_agg_double` | Fails |  | DuckDB has no kll_sketch_agg_double, and the translation doesn't write it |
-| `kll_sketch_agg_float` | Fails |  | DuckDB has no kll_sketch_agg_float, and the translation doesn't write it |
-| `kll_sketch_get_n_bigint` | Fails |  | DuckDB has no kll_sketch_get_n_bigint, and the translation doesn't write it |
-| `kll_sketch_get_n_double` | Fails |  | DuckDB has no kll_sketch_get_n_double, and the translation doesn't write it |
-| `kll_sketch_get_n_float` | Fails |  | DuckDB has no kll_sketch_get_n_float, and the translation doesn't write it |
-| `kll_sketch_get_quantile_bigint` | Fails |  | DuckDB has no kll_sketch_get_quantile_bigint, and the translation doesn't write it |
-| `kll_sketch_get_quantile_double` | Fails |  | DuckDB has no kll_sketch_get_quantile_double, and the translation doesn't write it |
-| `kll_sketch_get_quantile_float` | Fails |  | DuckDB has no kll_sketch_get_quantile_float, and the translation doesn't write it |
-| `kll_sketch_get_rank_bigint` | Fails |  | DuckDB has no kll_sketch_get_rank_bigint, and the translation doesn't write it |
-| `kll_sketch_get_rank_double` | Fails |  | DuckDB has no kll_sketch_get_rank_double, and the translation doesn't write it |
-| `kll_sketch_get_rank_float` | Fails |  | DuckDB has no kll_sketch_get_rank_float, and the translation doesn't write it |
-| `kll_sketch_merge_bigint` | Fails |  | DuckDB has no kll_sketch_merge_bigint, and the translation doesn't write it |
-| `kll_sketch_merge_double` | Fails |  | DuckDB has no kll_sketch_merge_double, and the translation doesn't write it |
-| `kll_sketch_merge_float` | Fails |  | DuckDB has no kll_sketch_merge_float, and the translation doesn't write it |
-| `kll_sketch_to_string_bigint` | Fails |  | DuckDB has no kll_sketch_to_string_bigint, and the translation doesn't write it |
-| `kll_sketch_to_string_double` | Fails |  | DuckDB has no kll_sketch_to_string_double, and the translation doesn't write it |
-| `kll_sketch_to_string_float` | Fails |  | DuckDB has no kll_sketch_to_string_float, and the translation doesn't write it |
+| `cube` | Not checked |  |  |
+| `kll_merge_agg_bigint` | Refused |  | kll_merge_agg_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
+| `kll_merge_agg_double` | Refused |  | kll_merge_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
+| `kll_merge_agg_float` | Refused |  | kll_merge_agg_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't ma |
+| `kll_sketch_agg_bigint` | Refused |  | kll_sketch_agg_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
+| `kll_sketch_agg_double` | Refused |  | kll_sketch_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
+| `kll_sketch_agg_float` | Refused |  | kll_sketch_agg_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
+| `kll_sketch_get_n_bigint` | Refused |  | kll_sketch_get_n_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `kll_sketch_get_n_double` | Refused |  | kll_sketch_get_n_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `kll_sketch_get_n_float` | Refused |  | kll_sketch_get_n_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't |
+| `kll_sketch_get_quantile_bigint` | Refused |  | kll_sketch_get_quantile_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this  |
+| `kll_sketch_get_quantile_double` | Refused |  | kll_sketch_get_quantile_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this  |
+| `kll_sketch_get_quantile_float` | Refused |  | kll_sketch_get_quantile_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this P |
+| `kll_sketch_get_rank_bigint` | Refused |  | kll_sketch_get_rank_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
+| `kll_sketch_get_rank_double` | Refused |  | kll_sketch_get_rank_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
+| `kll_sketch_get_rank_float` | Refused |  | kll_sketch_get_rank_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC ca |
+| `kll_sketch_merge_bigint` | Refused |  | kll_sketch_merge_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `kll_sketch_merge_double` | Refused |  | kll_sketch_merge_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `kll_sketch_merge_float` | Refused |  | kll_sketch_merge_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't |
+| `kll_sketch_to_string_bigint` | Refused |  | kll_sketch_to_string_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
+| `kll_sketch_to_string_double` | Refused |  | kll_sketch_to_string_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
+| `kll_sketch_to_string_float` | Refused |  | kll_sketch_to_string_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
 | `listagg` | Not checked |  |  |
-| `percentile_cont` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.aggregate.PercentileCont'>. Line 1, Col: 24. |
-| `percentile_disc` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.aggregate.PercentileDisc'>. Line 1, Col: 24. |
+| `percentile_cont` | Not checked |  |  |
+| `percentile_disc` | Not checked |  |  |
 | `schema_of_json_agg` | Fails |  | DuckDB has no schema_of_json_agg, and the translation doesn't write it |
 | `schema_of_variant_agg` | Fails |  | DuckDB has no schema_of_variant_agg, and the translation doesn't write it |
 | `string_agg` | Not checked |  |  |
-| `theta_difference` | Fails |  | DuckDB has no theta_difference, and the translation doesn't write it |
-| `theta_intersection` | Fails |  | DuckDB has no theta_intersection, and the translation doesn't write it |
-| `theta_intersection_agg` | Fails |  | DuckDB has no theta_intersection_agg, and the translation doesn't write it |
-| `theta_sketch_agg` | Fails |  | DuckDB has no theta_sketch_agg, and the translation doesn't write it |
-| `theta_sketch_estimate` | Fails |  | DuckDB has no theta_sketch_estimate, and the translation doesn't write it |
-| `theta_union` | Fails |  | DuckDB has no theta_union, and the translation doesn't write it |
-| `theta_union_agg` | Fails |  | DuckDB has no theta_union_agg, and the translation doesn't write it |
-| `tuple_difference_double` | Fails |  | DuckDB has no tuple_difference_double, and the translation doesn't write it |
-| `tuple_difference_integer` | Fails |  | DuckDB has no tuple_difference_integer, and the translation doesn't write it |
-| `tuple_difference_theta_double` | Fails |  | DuckDB has no tuple_difference_theta_double, and the translation doesn't write it |
-| `tuple_difference_theta_integer` | Fails |  | DuckDB has no tuple_difference_theta_integer, and the translation doesn't write it |
-| `tuple_intersection_agg_double` | Fails |  | DuckDB has no tuple_intersection_agg_double, and the translation doesn't write it |
-| `tuple_intersection_agg_integer` | Fails |  | DuckDB has no tuple_intersection_agg_integer, and the translation doesn't write it |
-| `tuple_intersection_double` | Fails |  | DuckDB has no tuple_intersection_double, and the translation doesn't write it |
-| `tuple_intersection_integer` | Fails |  | DuckDB has no tuple_intersection_integer, and the translation doesn't write it |
-| `tuple_intersection_theta_double` | Fails |  | DuckDB has no tuple_intersection_theta_double, and the translation doesn't write it |
-| `tuple_intersection_theta_integer` | Fails |  | DuckDB has no tuple_intersection_theta_integer, and the translation doesn't write it |
-| `tuple_sketch_agg_double` | Fails |  | DuckDB has no tuple_sketch_agg_double, and the translation doesn't write it |
-| `tuple_sketch_agg_integer` | Fails |  | DuckDB has no tuple_sketch_agg_integer, and the translation doesn't write it |
-| `tuple_sketch_estimate_double` | Fails |  | DuckDB has no tuple_sketch_estimate_double, and the translation doesn't write it |
-| `tuple_sketch_estimate_integer` | Fails |  | DuckDB has no tuple_sketch_estimate_integer, and the translation doesn't write it |
-| `tuple_sketch_summary_double` | Fails |  | DuckDB has no tuple_sketch_summary_double, and the translation doesn't write it |
-| `tuple_sketch_summary_integer` | Fails |  | DuckDB has no tuple_sketch_summary_integer, and the translation doesn't write it |
-| `tuple_sketch_theta_double` | Fails |  | DuckDB has no tuple_sketch_theta_double, and the translation doesn't write it |
-| `tuple_sketch_theta_integer` | Fails |  | DuckDB has no tuple_sketch_theta_integer, and the translation doesn't write it |
-| `tuple_union_agg_double` | Fails |  | DuckDB has no tuple_union_agg_double, and the translation doesn't write it |
-| `tuple_union_agg_integer` | Fails |  | DuckDB has no tuple_union_agg_integer, and the translation doesn't write it |
-| `tuple_union_double` | Fails |  | DuckDB has no tuple_union_double, and the translation doesn't write it |
-| `tuple_union_integer` | Fails |  | DuckDB has no tuple_union_integer, and the translation doesn't write it |
-| `tuple_union_theta_double` | Fails |  | DuckDB has no tuple_union_theta_double, and the translation doesn't write it |
-| `tuple_union_theta_integer` | Fails |  | DuckDB has no tuple_union_theta_integer, and the translation doesn't write it |
+| `theta_difference` | Refused |  | theta_difference() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make  |
+| `theta_intersection` | Refused |  | theta_intersection() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't mak |
+| `theta_intersection_agg` | Refused |  | theta_intersection_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't |
+| `theta_sketch_agg` | Refused |  | theta_sketch_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make  |
+| `theta_sketch_estimate` | Refused |  | theta_sketch_estimate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
+| `theta_union` | Refused |  | theta_union() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make the s |
+| `theta_union_agg` | Refused |  | theta_union_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make t |
+| `tuple_difference_double` | Refused |  | tuple_difference_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `tuple_difference_integer` | Refused |  | tuple_difference_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can |
+| `tuple_difference_theta_double` | Refused |  | tuple_difference_theta_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this P |
+| `tuple_difference_theta_integer` | Refused |  | tuple_difference_theta_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this  |
+| `tuple_intersection_agg_double` | Refused |  | tuple_intersection_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this P |
+| `tuple_intersection_agg_integer` | Refused |  | tuple_intersection_agg_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this  |
+| `tuple_intersection_double` | Refused |  | tuple_intersection_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC ca |
+| `tuple_intersection_integer` | Refused |  | tuple_intersection_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
+| `tuple_intersection_theta_double` | Refused |  | tuple_intersection_theta_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this |
+| `tuple_intersection_theta_integer` | Refused |  | tuple_intersection_theta_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes thi |
+| `tuple_sketch_agg_double` | Refused |  | tuple_sketch_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `tuple_sketch_agg_integer` | Refused |  | tuple_sketch_agg_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can |
+| `tuple_sketch_estimate_double` | Refused |  | tuple_sketch_estimate_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC |
+| `tuple_sketch_estimate_integer` | Refused |  | tuple_sketch_estimate_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this P |
+| `tuple_sketch_summary_double` | Refused |  | tuple_sketch_summary_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
+| `tuple_sketch_summary_integer` | Refused |  | tuple_sketch_summary_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC |
+| `tuple_sketch_theta_double` | Refused |  | tuple_sketch_theta_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC ca |
+| `tuple_sketch_theta_integer` | Refused |  | tuple_sketch_theta_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
+| `tuple_union_agg_double` | Refused |  | tuple_union_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't |
+| `tuple_union_agg_integer` | Refused |  | tuple_union_agg_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
+| `tuple_union_double` | Refused |  | tuple_union_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't mak |
+| `tuple_union_integer` | Refused |  | tuple_union_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't ma |
+| `tuple_union_theta_double` | Refused |  | tuple_union_theta_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can |
+| `tuple_union_theta_integer` | Refused |  | tuple_union_theta_integer() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC ca |
 
 ## Databricks only: conditional and math
 
@@ -656,7 +657,7 @@ lists more checks and the differences known in more detail.
 | --- | --- | --- | --- |
 | `iff` | Not checked |  |  |
 | `nullifzero` | Fails |  | DuckDB has no nullifzero, and the translation doesn't write it |
-| `try_cast` | Fails |  | Could not read the query: Expected AS after CAST. Line 1, Col: 17. |
+| `try_cast` | Not checked |  |  |
 | `try_mod` | Fails |  | DuckDB has no try_mod, and the translation doesn't write it |
 | `try_reflect` | Fails |  | DuckDB has no try_reflect, and the translation doesn't write it |
 | `zeroifnull` | Fails |  | DuckDB has no zeroifnull, and the translation doesn't write it |
@@ -674,18 +675,18 @@ lists more checks and the differences known in more detail.
 | `parse_timestamp` | Fails |  | DuckDB has no parse_timestamp, and the translation doesn't write it |
 | `time` | Not checked |  |  |
 | `time_bucket` | Not checked |  |  |
-| `time_diff` | Not checked |  |  |
+| `time_diff` | Fails |  | Binder Error: Referenced column "HOUR" was not found because the FROM clause is missing |
 | `time_from_micros` | Fails |  | DuckDB has no time_from_micros, and the translation doesn't write it |
 | `time_from_millis` | Fails |  | DuckDB has no time_from_millis, and the translation doesn't write it |
 | `time_from_seconds` | Fails |  | DuckDB has no time_from_seconds, and the translation doesn't write it |
 | `time_to_micros` | Fails |  | DuckDB has no time_to_micros, and the translation doesn't write it |
 | `time_to_millis` | Fails |  | DuckDB has no time_to_millis, and the translation doesn't write it |
 | `time_to_seconds` | Fails |  | DuckDB has no time_to_seconds, and the translation doesn't write it |
-| `time_trunc` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.temporal.TimeTrunc'>. Line 1, Col: 19. |
+| `time_trunc` | Fails |  | Catalog Error: Scalar Function with name time_trunc does not exist! |
 | `timediff` | Fails |  | DuckDB has no timediff, and the translation doesn't write it |
 | `timestamp_nanos` | Fails |  | DuckDB has no timestamp_nanos, and the translation doesn't write it |
 | `timestampadd` | Not checked |  |  |
-| `timestampdiff` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.temporal.TimestampDiff'>. Line 1, Col: 22. |
+| `timestampdiff` | Not checked |  |  |
 | `to_time` | Fails |  | DuckDB has no to_time, and the translation doesn't write it |
 | `try_make_interval` | Fails |  | DuckDB has no try_make_interval, and the translation doesn't write it |
 | `try_make_timestamp` | Fails |  | DuckDB has no try_make_timestamp, and the translation doesn't write it |
@@ -729,7 +730,7 @@ lists more checks and the differences known in more detail.
 | --- | --- | --- | --- |
 | `bit_reverse` | Fails |  | DuckDB has no bit_reverse, and the translation doesn't write it |
 | `charindex` | Not checked |  |  |
-| `collate` | Fails |  | Could not read the query: an argument is missing for <class 'sqlglot.expressions.functions.Collate'>. Line 1, Col: 16. |
+| `collate` | Fails |  | Catalog Error: Collation with name utf8_lcase does not exist! |
 | `collation` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: COLLATION function is not supported by DuckDB Run it in Fabric, or rewrite th |
 | `hmac` | Fails |  | DuckDB has no hmac, and the translation doesn't write it |
 | `is_valid_utf8` | Fails |  | DuckDB has no is_valid_utf8, and the translation doesn't write it |

@@ -50,6 +50,10 @@ const FORGE_EVENTS = {
   "promote.failed": "fail",
   "xray.scan.finished": "arrive",
   "xray.scan.failed": "fail",
+  // Optimize (OPT-012): a scan whose findings reached the shared lakehouse, and a recommendation
+  // marked applied once the lakehouse has it. Savings get an effect only once a Measured one exists.
+  "optimize.analysis.finished": "arrive",
+  "optimize.recommendation.applied": "settle",
   "model.built": "spark",
   "model.build.failed": "fail",
   "git.op.succeeded": "spark",

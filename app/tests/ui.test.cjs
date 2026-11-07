@@ -5328,6 +5328,23 @@ test("Forge events: every event in the registry is fired by the app, and the Pre
   assert.match(fs.readFileSync(path.join(ui, "settings.js"), "utf8"), /row\("Navy wolf", [^\n]*\n\s+remoteHost, \(\) => \{ if \(!remoteHost\.childElementCount\) \{ remoteHost\.append\(remoteProgress\(/);
 });
 
+test("Optimize Forge events (OPT-012): analysis that reached the lakehouse arrives, an applied recommendation settles", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["optimize.analysis.finished"], "arrive");
+  assert.strictEqual(events["optimize.recommendation.applied"], "settle");
+  assert.ok(!Object.keys(events).some((k) => k.startsWith("optimize.savings")), "no savings effect until a Measured saving exists");
+  const x = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  assert.match(x, /forgeEvent\(xrayReachedOptimize\(res\.result\.shared\) \? "optimize\.analysis\.finished" : "xray\.scan\.finished"/);
+  const reached = vm.runInContext(`(${/function xrayReachedOptimize[\s\S]*?\n}/.exec(x)[0]})`, vm.createContext({}));
+  assert.strictEqual(reached({ lakehouse: "C", findings: 3 }), true);
+  assert.strictEqual(reached({ lakehouse: "C", findings: 0 }), true);
+  for (const s of [null, { error: "403" }, { queued: 2, error: "down" }, { lakehouse: "C" }]) assert.strictEqual(reached(s), false, JSON.stringify(s));
+  const o = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(o, /if \(done\) \{\n    toast\([^\n]*\n    if \(to === "applied"\) forgeEvent\("optimize\.recommendation\.applied"/,
+    "the effect plays only after the lakehouse took the change, and only for Applied");
+});
+
 test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   const events = vm.runInContext("FORGE_EVENTS", ctx);

@@ -256,7 +256,11 @@ async function optimizeMove(rec, to) {
   }
   const done = await attempt(() => rpc("optimize_set_recommendation", { recommendation_id: rec.recommendation_id, state: to, reason }),
     "Could not update the recommendation");
-  if (done) { toast(`Marked ${(REC_STATE[to] || to).toLowerCase()}`); render(); }
+  if (done) {
+    toast(`Marked ${(REC_STATE[to] || to).toLowerCase()}`);
+    if (to === "applied") forgeEvent("optimize.recommendation.applied", document.getElementById("toast"));  // motion.js
+    render();
+  }
 }
 
 // ---------- create, connect and manage lakehouses ----------

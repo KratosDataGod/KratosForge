@@ -66,6 +66,8 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 - When groups mustn't see each other's diagnostics, give each group its own optimization lakehouse in a workspace only they can reach.
 - Access tokens are never written to the lakehouse.
 
+What each table holds, what in it is identifying, what isn't enforced yet (such as retention) and what hasn't been tried on a live tenant are in [Optimize: security and retention](security.md).
+
 ## How several installations write safely
 
 - **Insert only.** No installation updates or deletes a shared row. A change, such as a recommendation being accepted, is a new row, and the latest row wins.

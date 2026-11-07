@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "c750da45a4eae0b9d5bd1bc45f4c9e38c70ba7d7",
-    "date": "2026-11-06",
+    "commit": "56e3826bcb5ff380d68b06f1f51144fa81ffb281",
+    "date": "2026-11-07",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -44,7 +44,8 @@
       "Product check 2026-11-05 23:42 at a7631920de1b2b3e3666d5144e649152ac0680c1: 78 PRs merged after 7c7ed9e2; 1 was a product data PR and the other 77 were linked by title; other rows were not re-read.",
       "Product check 2026-11-06 11:42 at de881016b9d097538645ee3b7e4c66f5d8dee369: 46 PRs merged after a7631920; 2 were product data and docs audit PRs and the other 44 were linked by title; other rows were not re-read.",
       "Acceptance of PB-129 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv).",
-      "Product check 2026-11-06 23:42 at c750da45a4eae0b9d5bd1bc45f4c9e38c70ba7d7: 97 PRs merged after de881016; 3 were product data PRs and the other 94 were linked by title; other rows were not re-read."
+      "Product check 2026-11-06 23:42 at c750da45a4eae0b9d5bd1bc45f4c9e38c70ba7d7: 97 PRs merged after de881016; 3 were product data PRs and the other 94 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-07 11:42 at 56e3826bcb5ff380d68b06f1f51144fa81ffb281: 83 PRs merged after c750da45; 2 were product data and docs audit PRs and the other 81 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -132,7 +133,12 @@
         2021,
         2050,
         2055,
-        2058
+        2058,
+        2072,
+        2078,
+        2143,
+        2148,
+        2161
       ]
     },
     {
@@ -1806,7 +1812,8 @@
         1761,
         1762,
         1763,
-        1766
+        1766,
+        2149
       ]
     },
     {
@@ -2440,7 +2447,8 @@
         1928,
         1941,
         1971,
-        2008
+        2008,
+        2154
       ]
     },
     {
@@ -3634,7 +3642,10 @@
         87,
         950,
         980,
-        1006
+        1006,
+        2063,
+        2144,
+        2145
       ],
       "workstream": "Staged roadmap (FD-114)",
       "next_action": "Build the run dialog (mockup first) and vacuum orphan files after a stopped batch (FD-114).",
@@ -5674,7 +5685,9 @@
       ],
       "prs": [
         117,
-        1742
+        1742,
+        2147,
+        2163
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
       "next_action": "Calibrate against the Capacity Metrics app and label every number (PB-050)",
@@ -6201,7 +6214,12 @@
         "surface": "Terminal",
         "preview": false
       },
-      "next_action": "Add backup/restore (PR #91) and an mcp command (PR-AI-002)."
+      "next_action": "Add backup/restore (PR #91) and an mcp command (PR-AI-002).",
+      "prs": [
+        2074,
+        2077,
+        2156
+      ]
     },
     {
       "id": "FEAT-EXT-02",
@@ -7503,7 +7521,9 @@
         1451,
         1936,
         1965,
-        2041
+        2041,
+        2042,
+        2043
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go.",
@@ -8065,7 +8085,8 @@
         1933,
         1934,
         1938,
-        2011
+        2011,
+        2150
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8551,9 +8572,18 @@
         1957,
         1968,
         1973,
+        1981,
+        1984,
+        1985,
+        1988,
         1989,
         2010,
-        2039
+        2039,
+        2047,
+        2059,
+        2152,
+        2153,
+        2159
       ],
       "backlog": [
         "PB-119",

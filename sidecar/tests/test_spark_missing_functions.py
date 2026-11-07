@@ -205,3 +205,9 @@ print(r.where(F.monotonically_increasing_id() < 5).count(), r.filter(r.id < 3).c
 
 def test_a_seeded_rand_gives_the_same_numbers_each_run_and_filters(kernel):
     assert _printed(kernel, SEEDED_CELL).splitlines() == ["True True 1000 True", "True", "5 ['id']"]
+
+
+def test_a_column_name_with_braces_works_in_log(kernel):
+    text = _printed(kernel, "q = spark.createDataFrame([(8.0, 2.0)], ['{x}', 'b{0}'])\n"
+                            "print(q.select(F.log(F.col('b{0}'), F.col('{x}')), F.log2('{x}')).first())")
+    assert text.strip() == "Row(LOG(b{0}, {x})=3.0, LOG2({x})=3.0)"

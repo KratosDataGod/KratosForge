@@ -462,7 +462,7 @@ def bit_xor(col: Any) -> Column:
 def _positive_log(col: Any, sql: str, above: str = "0") -> Column:
     """A logarithm, NULL where Spark's is (at or below ``above``); DuckDB's stops the query there."""
     x = f"CAST({_arg(col)} AS DOUBLE)"
-    return _sql(f"(CASE WHEN {x} > {above} THEN {sql.format(x=x)} END)")
+    return _sql(f"(CASE WHEN {x} > {above} THEN {sql.replace('{x}', x)} END)")
 
 
 def ln(col: Any) -> Column:

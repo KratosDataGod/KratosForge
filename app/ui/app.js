@@ -895,11 +895,13 @@ async function renderHome() {
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
     const recentList = shown.length ? homeRecentList(shown) : null;
-    list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query
-      ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold",
+    // With Preview off, Home keeps its one plain line (Start something already has New notebook).
+    list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query && previewShown()
+      ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet",
         text: "Create your first notebook and run it on this PC. Nothing goes to Fabric until you publish.",
         action: btn("New notebook", "notebook", newNotebook, "tool primary") })
-      : h("p", { class: "muted-text" }, notebooks === null ? "Couldn't list notebooks." : "No notebooks match your search."));
+      : h("p", { class: "muted-text" }, notebooks === null ? "Couldn't list notebooks."
+        : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
     return recentList?.done;
   });
   // The progression panel reads Profile once the notebooks are in, so Home's own lists come first.

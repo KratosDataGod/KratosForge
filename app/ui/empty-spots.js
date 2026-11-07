@@ -56,10 +56,11 @@ function emptySpotSvg(name) {
 }
 
 // The KratosForge skin with Preview on draws the spot; every other case draws the plain empty state
-// with `fallbackIcon`, the same title, sentence and action.
-function livingEmpty({ spot, fallbackIcon, title, text, action }) {
+// with `fallbackIcon`, the same sentence and action.
+// `plainTitle` is the fallback's own title, when the spot's title only makes sense beside its drawing.
+function livingEmpty({ spot, fallbackIcon, title, plainTitle, text, action }) {
   const skin = state.settings?.ui_skin?.value || "kratosforge";
-  if (!previewShown() || skin !== "kratosforge" || !EMPTY_SPOTS[spot]) return emptyState({ icon: fallbackIcon, title, text, action });
+  if (!previewShown() || skin !== "kratosforge" || !EMPTY_SPOTS[spot]) return emptyState({ icon: fallbackIcon, title: plainTitle || title, text, action });
   return h("div", { class: "empty living-empty" }, emptySpotSvg(spot),
     h("span", { class: "title living-empty-title" }, title), h("span", { class: "text" }, text), action);
 }

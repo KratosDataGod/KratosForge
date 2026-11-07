@@ -46,8 +46,46 @@ test("another skin or Preview off keeps the plain empty state with the same word
   }
 });
 
+test("Home's plain fallback says No notebooks yet, not the spot's title", { skip }, async () => {
+  const titles = await page().evaluate(() => {
+    const out = [];
+    for (const [preview, skin] of [[false, "kratosforge"], [true, "fabric"]]) {
+      state.settings.show_preview.value = preview;
+      state.settings.ui_skin = { ...(state.settings.ui_skin || { source: "user" }), value: skin };
+      out.push(livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet", text: "x" }).querySelector(".title").textContent);
+    }
+    return out;
+  });
+  assert.deepStrictEqual(titles, ["No notebooks yet", "No notebooks yet"]);
+});
+
+test("in high contrast the drawings use system colours", { skip }, async () => {
+  await page().emulateMedia({ forcedColors: "active" });
+  const fills = await page().evaluate(() => {
+    const host = document.createElement("div");
+    host.className = "living-empty";
+    host.append(emptySpotSvg("land"));
+    document.body.append(host);
+    const probe = (c) => { const p = document.createElement("span"); p.style.color = c; host.append(p); const v = getComputedStyle(p).color; p.remove(); return v; };
+    const system = new Set([probe("CanvasText"), probe("Canvas")]);
+    const out = [...host.querySelectorAll("[fill]:not([fill='none'])")].map((el) => [getComputedStyle(el).fill, system.has(getComputedStyle(el).fill)]);
+    host.remove();
+    return out;
+  });
+  await page().emulateMedia({ forcedColors: "none" });
+  assert.ok(fills.length && fills.every(([, ok]) => ok), JSON.stringify(fills));
+});
+
 test("Home with no notebooks shows the cold forge and New notebook", { skip }, async () => {
   await page().evaluate(() => { state.settings.show_preview.value = true; state.settings.ui_skin = { ...(state.settings.ui_skin || { source: "user" }), value: "kratosforge" }; document.getElementById("spot-host")?.remove(); homeCache.done = false; go("home"); });
   await page().getByText("The forge is cold").waitFor();
   assert.ok(await page().getByRole("img", { name: "An anvil beside a cold forge with one ember" }).isVisible());
+  if (SHOTS) { const card = page().locator("#view .living-empty").locator("xpath=ancestor::section[1]"); await card.scrollIntoViewIfNeeded(); await card.screenshot({ path: path.join(SHOTS, "home-empty.png") }); }
+});
+
+test("with Preview off, Home keeps its one plain line and no extra button", { skip }, async () => {
+  await page().evaluate(() => { state.settings.show_preview.value = false; homeCache.done = false; go("home"); });
+  await page().getByText("No notebooks yet. Create one to get started.").waitFor();
+  assert.strictEqual(await page().locator("#view .empty").count(), 0);
+  await page().evaluate(() => { state.settings.show_preview.value = true; });
 });

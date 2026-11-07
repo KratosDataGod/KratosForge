@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -1397,7 +1398,7 @@ class PlatformMixin:
         (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
-    def _link_table(self, project: Any, env: str):
+    def _link_table(self, project: Any, env: str) -> Callable[[str], str]:
         """For the engine: a link's alias to the OneLake address it reads in ``env``."""
         def resolve(alias: str) -> str:
             link = project.links.get(alias)

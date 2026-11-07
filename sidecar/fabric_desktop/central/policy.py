@@ -820,13 +820,17 @@ def resolve(snap: dict[str, Any], chain: list[tuple[str, str]], local: list[dict
         lvl = (a["scope"], a["target"])
         if lvl in levels:
             by_policy.setdefault(a["policy_id"], []).append((levels[lvl], 0 if a["origin"] == "platform" else 1, a))
-    policies, inactive, conflicts = [], [], []
+    policies: list[dict[str, Any]] = []
+    inactive: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
     for pid in sorted(by_policy):
         meta = snap.get("policies", {}).get(pid)
         if meta is None or not meta.get("current_version"):
             inactive.append({"id": pid, "name": pid, "reason": "isn't a published policy in the registry", "steps": []})
             continue
-        version, explicit, params, steps = 0, {}, {}, []
+        version, steps = 0, []
+        explicit: dict[str, Any] = {}
+        params: dict[str, Any] = {}
         locked_by = ""
 
         def definition(n: int) -> dict[str, Any]:

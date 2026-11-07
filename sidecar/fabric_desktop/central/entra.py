@@ -21,7 +21,7 @@ import csv
 import io
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from . import core
 
@@ -328,4 +328,4 @@ def roles(rows: list[dict[str, Any]], workspaces: dict[str, list[dict[str, str]]
     return "\n".join(lines) + "\n"
 
 
-KINDS = {"powershell": ("ps1", powershell), "az": ("sh", az), "csv": ("csv", table), "roles": ("ps1", roles)}
+KINDS: dict[str, tuple[str, Callable[..., str]]] = {"powershell": ("ps1", powershell), "az": ("sh", az), "csv": ("csv", table), "roles": ("ps1", roles)}

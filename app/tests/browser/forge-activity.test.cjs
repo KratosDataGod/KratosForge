@@ -123,6 +123,7 @@ test("a failure cools the forge without a made-up bar, never replays on opening,
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "failed");
   assert.match(await page().locator(".forge-band").innerText(), /THE FORGE COOLED[\s\S]*Failed: table not found/);
   assert.strictEqual(await page().locator(".forge-band .forge-bar").count(), 0, "a failed run with no count drew a bar");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "forge-activity-failed.png") });
   // Both ended before this session saw them running: opening Monitor plays nothing.
   await page().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const after = await page().evaluate(() => ({ ...motionDiagnostics().events }));

@@ -12,7 +12,7 @@ import datetime as dt
 import fnmatch
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import polars as pl
 import pyarrow as pa
@@ -95,7 +95,7 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
         table = DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
-    return pl.from_arrow(table.to_pyarrow_table())
+    return cast(pl.DataFrame, pl.from_arrow(table.to_pyarrow_table()))  # a Table gives a DataFrame
 
 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
@@ -441,7 +441,7 @@ class Store:
             t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
         except TableNotFoundError:
             return None, None
-        return pl.from_arrow(t.to_pyarrow_table()), t.version()
+        return cast(pl.DataFrame, pl.from_arrow(t.to_pyarrow_table())), t.version()
 
     def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
         """The table's schema and the Delta version it was read at, as read_at gives them but without
@@ -517,7 +517,8 @@ class Store:
             if version is not None:
                 raise
             # A new table: created empty only if still absent, then merged into like any other.
-            self.create_if_absent(lakehouse, schema, table, dict(pl.from_arrow(data.schema.empty_table()).schema))
+            empty = cast(pl.DataFrame, pl.from_arrow(data.schema.empty_table()))
+            self.create_if_absent(lakehouse, schema, table, dict(empty.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(current)

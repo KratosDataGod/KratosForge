@@ -24,6 +24,9 @@ from typing import Any, Iterator
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+# A number written without its leading zero (.3, -.5), as the reference's sub(10.3, .3) does. Only where a
+# value starts (first, or after "(", "[" or ","), so a.b and x()[0].y stay member reads.
+_LEADING_DOT = re.compile(r"-?\.\d+")
 
 
 @dataclass
@@ -157,6 +160,9 @@ def tokens(text: str) -> tuple[list[tuple[str, str]], str]:
             i = m.end()
         elif m := _NUMBER.match(text, i):
             out.append(("number", m.group()))
+            i = m.end()
+        elif (m := _LEADING_DOT.match(text, i)) and (not out or out[-1][0] in ("(", "[", ",")):
+            out.append(("number", m.group().replace(".", "0.", 1)))
             i = m.end()
         elif ch in "([":
             depth += 1

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import pyarrow as pa
 import sqlglot
@@ -93,7 +93,7 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
         tree = sqlglot.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
-    return parse_tree(tree)
+    return parse_tree(cast(exp.Expression, tree))  # sqlglot types parse_one as its Expr base
 
 
 def parse_tree(tree: exp.Expression) -> Change | None:
@@ -190,7 +190,7 @@ def equi_keys(change: Change) -> list[tuple[str, str]] | None:
     """(table column, source column) pairs when ON is only ``t.a = s.b AND ...``; None otherwise."""
     pairs: list[tuple[str, str]] = []
     parts: list[exp.Expression] = []
-    stack = [change.on]
+    stack = [cast(exp.Expression, change.on)]  # a MERGE always has ON (parse refuses one without)
     while stack:
         node = stack.pop()
         if isinstance(node, exp.And):
@@ -270,7 +270,7 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
                                commit_properties=commit_properties)
         return _result(metrics, updated="num_updated_rows")
     source = _keeping_values(change, source, names, pa.schema(table.schema().to_arrow()))
-    merger = table.merge(source, names.render(change.on), source_alias=change.source_alias,
+    merger = table.merge(source, names.render(cast(exp.Expression, change.on)), source_alias=change.source_alias,
                          target_alias=change.alias, commit_properties=commit_properties)
     for when in change.whens:
         condition = names.render(when.condition) if when.condition is not None else None

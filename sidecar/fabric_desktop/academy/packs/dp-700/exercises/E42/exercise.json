@@ -1,0 +1,128 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "parity": null,
+  "id": "E42",
+  "title": "Structured streaming with foreachBatch and MERGE",
+  "objectives": [
+    "2.3.3"
+  ],
+  "mode": "challenge",
+  "minutes": 30,
+  "prerequisites": [
+    "E26"
+  ],
+  "objective_text": "Stream order events into a current-state table with foreachBatch: keep each order's newest event per batch, and MERGE it so new orders are added, newer events update, and late events never overwrite newer state.",
+  "scenario": "bronze.order_events receives every change to every order. silver.orders should hold one row per order with its latest status, and today's stream appends each event as a new row instead. Some events also arrive late, after a newer one was already loaded.",
+  "datasets": [
+    {
+      "name": "bronze.order_events",
+      "rows": 7,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "silver.orders",
+      "rows": 2,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "Delta tables bronze.order_events and silver.orders, and an appending stream as answer.py.",
+  "required": [
+    "silver.orders has one row per order_id.",
+    "Each order's row is its newest event, whether it came from today's events or was already in silver.orders.",
+    "Orders that had no events today stay as they were."
+  ],
+  "expected": {
+    "description": "silver.orders: 1 shipped, 2 placed, 3 delivered (the late placed event is ignored), 4 refunded, 9 delivered."
+  },
+  "verifies": [
+    "After your stream runs, silver.orders holds each order's newest state once, on the exercise data and on data you haven't seen, and a second run leaves it the same, on this PC."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in Fabric: the stream runs as availableNow and the MERGE runs on delta-rs. Spark refuses a MERGE where several source rows match one target row; delta-rs doesn't, so here that mistake shows up as duplicate rows instead of an error.",
+    "Ties: two events for one order at the same time. The data has none.",
+    "Deletes, and watermarks for late data in stateful streaming aggregations."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "silver.orders holds each order's newest state.",
+      "fail": "silver.orders doesn't match: check new orders, updated orders and the late event."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "weight": 2,
+      "required": true,
+      "data": "hidden",
+      "pass": "It also works on data you haven't seen.",
+      "fail": "On other data silver.orders is wrong: don't rely on these exact orders."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "columns": {
+        "order_id": "INT",
+        "status": "VARCHAR",
+        "amount": "DECIMAL",
+        "event_time": "TIMESTAMP"
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id",
+        "status",
+        "event_time"
+      ],
+      "pass": "One row per order, with the right types.",
+      "fail": "silver.orders has a repeated order_id or a wrong type: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "pass": "A second run leaves silver.orders the same.",
+      "fail": "A second run changed silver.orders."
+    }
+  ],
+  "hints": [
+    "foreachBatch(fn) calls fn(batch_df, batch_id) for each micro-batch, where you can run any batch code, such as a MERGE.",
+    "A batch can hold several events for one order. Keep only the newest one with row_number over a window partitioned by order_id, newest first.",
+    "whenMatchedUpdateAll takes a condition: update only when the event is newer than the row.",
+    "Don't forget orders that aren't in silver.orders yet."
+  ],
+  "explanation": "A streaming sink can only append, so to keep current state you hand each micro-batch to foreachBatch and MERGE it into the Delta table. Two details make it correct. The batch must hold one row per key, or the MERGE has several source rows for one target row. And the update needs a condition on event_time, so an event that arrives late can't replace a newer state. With both, rerunning the same events changes nothing.",
+  "troubleshooting": [
+    "Repeated order_ids: the batch wasn't reduced to one row per order before the MERGE, or the stream appends.",
+    "Order 3 is placed instead of delivered: the update has no event_time condition.",
+    "Order 9 disappeared: the batch overwrites the table instead of merging into it.",
+    "New orders are missing: add whenNotMatchedInsertAll."
+  ],
+  "remediation": [
+    "https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html",
+    "https://docs.delta.io/latest/delta-update.html",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+  ],
+  "reset": "Reset rebuilds both tables from setup.sql, removes the checkpoint, and puts the starter back.",
+  "review_notes": [
+    "foreachBatch and Delta MERGE are documented by Apache Spark and Delta Lake; Fabric's lakehouse streaming page doesn't cover them.",
+    "delta-rs accepts a MERGE with several source rows per target row (Spark raises an error); the no-dedup wrong answer fails on the unique key instead, and does_not_verify says so."
+  ]
+}

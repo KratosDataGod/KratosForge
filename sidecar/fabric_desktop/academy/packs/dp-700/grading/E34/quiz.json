@@ -1,0 +1,144 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "In a KQL query over a table of sensor events, which operator keeps only the rows where Temperature > 80?",
+      "options": [
+        {
+          "id": "a",
+          "text": "project"
+        },
+        {
+          "id": "b",
+          "text": "summarize"
+        },
+        {
+          "id": "c",
+          "text": "where"
+        },
+        {
+          "id": "d",
+          "text": "extend"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "where filters a table to the subset of rows that satisfy a predicate.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/where-operator"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "You want every column of Events plus a new column TempF computed from TempC. Which operator?",
+      "options": [
+        {
+          "id": "a",
+          "text": "summarize TempF = TempC * 9 / 5 + 32"
+        },
+        {
+          "id": "b",
+          "text": "project TempF = TempC * 9 / 5 + 32"
+        },
+        {
+          "id": "c",
+          "text": "extend TempF = TempC * 9 / 5 + 32"
+        },
+        {
+          "id": "d",
+          "text": "where TempF = TempC * 9 / 5 + 32"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "extend creates calculated columns and appends them, keeping the input's columns. project with only TempF would drop every other column.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/extend-operator"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "Which query counts events per hour?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Events | summarize count() by Timestamp"
+        },
+        {
+          "id": "b",
+          "text": "Events | summarize count() by bin(Timestamp, 1h)"
+        },
+        {
+          "id": "c",
+          "text": "Events | project count() by bin(Timestamp, 1h)"
+        },
+        {
+          "id": "d",
+          "text": "Events | extend count() by bin(Timestamp, 1h)"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "summarize aggregates the input table, and bin rounds values down to a multiple of the bin size, so each hour becomes one group. Grouping by Timestamp alone makes a group per distinct time.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/summarize-operator"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "What does project DeviceId, Temperature do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Keeps only DeviceId and Temperature, dropping every other column"
+        },
+        {
+          "id": "b",
+          "text": "Adds DeviceId and Temperature as new columns next to all the others"
+        },
+        {
+          "id": "c",
+          "text": "Sorts the rows by DeviceId and then by Temperature"
+        },
+        {
+          "id": "d",
+          "text": "Groups the rows by DeviceId and averages Temperature"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Only the columns named in project's arguments are included in the result; any other columns are dropped.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/project-operator"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "Someone uses Events | take 10 to see 'the latest ten events'. What's wrong?",
+      "options": [
+        {
+          "id": "a",
+          "text": "take returns up to ten rows with no guarantee which ones, unless the data is sorted"
+        },
+        {
+          "id": "b",
+          "text": "take returns the ten oldest rows, because it reads the table in ingestion order"
+        },
+        {
+          "id": "c",
+          "text": "take needs a by clause naming the column to pick the ten rows by"
+        },
+        {
+          "id": "d",
+          "text": "Nothing: take always returns the ten rows with the latest timestamp"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "take returns up to the specified number of rows, and there's no guarantee which records are returned unless the source data is sorted.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/take-operator"
+    }
+  ]
+}

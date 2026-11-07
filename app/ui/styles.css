@@ -65,6 +65,14 @@
   --surface-warm: #faf9f8;
   --muted-3: #707070;
   --code-ref: #1d4f2f;
+  --code-comment: #5f6b5f;
+  --code-number: #0b7a3e;
+  --code-keyword: #0f4fa8;
+  --code-string: #a3420f;
+  --code-function: #6b3fa0;
+  --code-builtin: #0e6f8a;
+  --text-disabled: #a19f9d;
+  --bar-neutral: #9e9e9e;
 }
 
 * { box-sizing: border-box; }
@@ -172,7 +180,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 13px; cursor: pointer; white-space: nowrap;
 }
 .tool:hover:not(:disabled) { background: var(--hover); }
-.tool:disabled { color: #a19f9d; cursor: default; }
+.tool:disabled { color: var(--text-disabled); cursor: default; }
 .tool.outline { border-color: var(--border-input); }
 .tool.primary { background: var(--accent); color: var(--on-accent); }
 .tool.primary:hover:not(:disabled) { background: var(--accent-dark); }
@@ -284,7 +292,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-edit { background: var(--surface); }
 .cm-tooltip-autocomplete .cm-completionIcon { width: 1em; }
 .cm-panels { font-size: 12px; }
-.kw { color: #0f4fa8; } .str { color: #a3420f; } .fn { color: #6b3fa0; } .cm { color: #5f6b5f; } .num { color: #0b7a3e; } .bi { color: #0e6f8a; }
+.kw { color: var(--code-keyword); } .str { color: var(--code-string); } .fn { color: var(--code-function); } .cm { color: var(--code-comment); } .num { color: var(--code-number); } .bi { color: var(--code-builtin); }
 .md-h { color: var(--accent-dark); font-weight: 600; }
 
 .md-view { padding: 8px 16px; color: var(--text-2); line-height: 1.5; }
@@ -1587,6 +1595,7 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .search:focus-within, .palette-input:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .view:focus { outline: none; }
+#view h1[tabindex="-1"]:focus { outline: none; }  /* focus moved here on a page change for screen readers; not a control */
 .skip-link { position: absolute; left: 8px; top: -48px; z-index: 50; padding: 8px 12px; border-radius: 4px; background: var(--accent); color: var(--on-accent); }
 .skip-link:focus { top: 8px; }
 @media (prefers-reduced-motion: reduce) {  /* unless the person chose motion anyway (motion.js applyMotion) */
@@ -2440,7 +2449,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .pl-row .n { text-align: right; font-variant-numeric: tabular-nums; }
 .pl-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-track { position: relative; height: 12px; background: var(--hover); border-radius: 3px; }
-.pl-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; background: #9e9e9e; }
+.pl-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; background: var(--bar-neutral); }
 .pl-bar.ok { background: #2e7d4f; } .pl-bar.bad { background: var(--danger); } .pl-bar.run { background: var(--accent); }
 
 /* Panel and dialog transitions (motion.js motionPanes, motionLeave): Minimal and above, transform and

@@ -271,11 +271,12 @@ def _databricks(code: str) -> list[Any]:
     Spark's column names), so a query answers here as it does on the warehouse. ValueError when
     it can't be read."""
     import sqlglot
+    from sqlglot import exp
     from sqlglot.errors import ParseError
 
     from .. import sql, sql_dialects
-    try:
-        statements = [s for s in sqlglot.parse(code, read="databricks") if s is not None]
+    try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
+        statements = [s for s in sqlglot.parse(code, read="databricks") if isinstance(s, exp.Expression)]
     except ParseError as exc:
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
@@ -426,7 +427,7 @@ def _statements(code: str) -> list[str]:
 
 
 def _sqlite_table(names: list[str], rows: list[Any]) -> pa.Table:
-    columns = list(zip(*rows, strict=True)) if rows else [[] for _ in names]
+    columns: list[tuple[Any, ...]] = list(zip(*rows, strict=True)) if rows else [() for _ in names]
     return pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
                                   for v in col]) for n, col in zip(names, columns, strict=True)}) if names else pa.table({})
 

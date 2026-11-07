@@ -442,7 +442,7 @@ class DatabricksSqlSession:
             if whole:
                 rows = self._all_rows(reply, request.result_rows)
         except ResultTooLarge as exc:
-            out = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
+            out: dict[str, Any] = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
             if on_output:
                 on_output(out)
             return CellResult("error", [out], time.perf_counter() - started, None, self.engine)

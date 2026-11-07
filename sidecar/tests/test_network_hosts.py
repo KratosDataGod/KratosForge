@@ -41,6 +41,7 @@ NOT_CALLED: dict[str, str] = {
     "www.apache.org": _LINK,  # licence text in vendored code
     "evil.example": _EXAMPLE,  # a docstring on how a lookalike host is refused
     "files.contoso.com": _EXAMPLE,  # engine_download_url
+    "contoso.com": _EXAMPLE,  # orchestration/coverage.py: the reference's encodeUriComponent examples
 }
 
 

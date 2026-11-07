@@ -39,8 +39,8 @@ def test_names_and_formats():
                        " F.col('s').cast('date'))\n"
                        "print(out.columns, [tuple(r) for r in out.collect()])")
     assert status == "ok", text
-    # The cast keeps DuckDB's own name for it (CAST(s AS DATE); DuckDB 2.0 quotes the s).
-    assert "['to_timestamp(s, dd/MM/yyyy HH:mm)', 'to_date(s, dd/MM/yyyy HH:mm)', 'CAST(" in text
+    # A cast of a plain column keeps the column's name, as in Spark.
+    assert "['to_timestamp(s, dd/MM/yyyy HH:mm)', 'to_date(s, dd/MM/yyyy HH:mm)', 's']" in text
     assert "datetime.datetime(2024, 3, 5, 14, 7), datetime.date(2024, 3, 5), None" in text
 
 

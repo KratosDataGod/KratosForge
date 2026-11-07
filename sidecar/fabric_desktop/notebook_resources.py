@@ -122,7 +122,7 @@ class Resources:
             return [e for e in it if e.is_file()]
 
     def list(self) -> dict[str, Any]:
-        rows = []
+        rows: list[dict[str, Any]] = []
         for e in self._entries():
             st = e.stat()
             rows.append({"name": e.name, "size": st.st_size, "modified": st.st_mtime, "path": f"{BUILTIN}/{e.name}"})

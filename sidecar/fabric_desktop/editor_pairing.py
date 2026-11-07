@@ -15,6 +15,7 @@ program can't pile requests up. Settings > Integrations lists the paired windows
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import secrets
 import threading
@@ -105,10 +106,11 @@ class Pairings:
                 return {"paired": False}
             token = TOKEN_PREFIX + secrets.token_urlsafe(32)
             now = self.clock()
+            ttl = KEEP[keep]
             record = {"id": "pw_" + secrets.token_hex(8), "hash": _hash(token), "window": req["window"],
                       "client": req["client"], "created": now, "keep": keep,
-                      "expires": None if KEEP[keep] is None else now + KEEP[keep]}
-            if KEEP[keep] is None:
+                      "expires": None if ttl is None else now + ttl}
+            if ttl is None:
                 self._session[record["hash"]] = record
             else:
                 saved = [r for r in self._saved() if not self._expired(r)]
@@ -161,7 +163,7 @@ class Pairings:
 
     # ----
 
-    def _saved(self) -> list[dict[str, Any]]:
+    def _saved(self) -> builtins.list[dict[str, Any]]:
         rows = read_json(self.path, [])
         return [r for r in rows if isinstance(r, dict) and isinstance(r.get("hash"), str)] if isinstance(rows, list) else []
 

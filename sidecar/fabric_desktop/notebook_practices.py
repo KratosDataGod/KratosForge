@@ -103,7 +103,7 @@ def check(sources: list[str], scheduled: bool = False,
     if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
         raise ValueError("sources must be a list of cell sources")
     settings = settings or {}
-    found: list[dict[str, Any]] = []
+    found: list[dict[str, Any] | None] = []  # _finding gives None for a rule that's turned off
     counts: dict[str, list[tuple[int, int]]] = {}
     for n, source in enumerate(sources, 1):
         for rule_id, line in _cell(source, scheduled, counts, n):

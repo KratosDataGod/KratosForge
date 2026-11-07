@@ -8,8 +8,8 @@ the app generates on this PC, so the same seed always gives the same data and th
 starter, an independently runnable reference solution, validation rules, and a CI test that runs
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
 content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
-solution and planted wrong answers: E06, E08, E12, E19, E21, E22, E23, E24, E25, E32, E33, E35, E36, E37, E38,
-E39, E43, E44, E48, E49, E50, E51, E53, E56, E57, E58, E59, E61, E62, E63, E64.
+solution and planted wrong answers: one file per built exercise in `sidecar/tests/academy_pins/dp-700`, which a
+test keeps equal to the pack.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).
@@ -32,7 +32,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | Id | Exercise | Objectives | Mode | Class | Engine | Minutes | Reuse |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | E01 | Right-size Spark for three teams: starter pool, custom pool, autoscale and high concurrency | 1.1.1 | G | SIM +FV | config | 20 | |
-| E02 | An environment for a notebook: libraries, Spark properties and the default environment | 1.1.1 | C | SIM +FV | config | 20 | |
+| E02 | An environment for a notebook: libraries, resources and the default environment | 1.1.1 | C | SIM +FV | config | 20 | |
 | E03 | Domains for a data mesh: assign workspaces, delegate settings | 1.1.2 | G | SIM | config | 15 | Data mesh docs |
 | E04 | OneLake settings: external app access, file explorer, shortcut cache | 1.1.3 | G | SIM +FV | config | 15 | LM-07 |
 | E05 | Data workflow (Apache Airflow job) settings and when to use them | 1.1.4 | G | KO | quiz | 10 | |
@@ -43,8 +43,8 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E10 | Least privilege workspace roles for six people | 1.3.1 | G | SIM +FV | config | 15 | |
 | E11 | Share a lakehouse: Read, ReadData, ReadAll and the SQL endpoint | 1.3.2 | C | SIM +FV | config | 15 | LM-24 |
 | E12 | Row-level security: a predicate that shows each region its rows | 1.3.3 | G | LV +FV | duckdb | 25 | |
-| E13 | Column- and object-level security: GRANT and DENY that hide salary | 1.3.3 | C | SIM +FV | config | 20 | |
-| E14 | OneLake data access roles for folders and tables | 1.3.3 | C | SIM +FV | config | 20 | LM-24 |
+| E13 | Column- and object-level security: GRANTs that keep salary out of reach | 1.3.3 | C | SIM +FV | config | 20 | |
+| E14 | OneLake security roles for folders and tables | 1.3.3 | C | SIM +FV | config | 20 | LM-24 |
 | E15 | Dynamic data masking: pick the mask for each column, who sees what | 1.3.4 | G | SIM +FV | config | 15 | |
 | E16 | Sensitivity labels and endorsement: promote, certify, label inheritance | 1.3.5, 1.3.6 | G | KO +FV | quiz | 15 | Governance |
 | E17 | Pipeline or notebook: eight scenarios, choose and justify | 1.4.1, 2.2.2 | G | KO | quiz | 15 | LM-08 |
@@ -66,7 +66,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E28 | Dataflow Gen2, notebook or T-SQL: choose the transformation tool | 2.2.2 | G | KO | quiz | 15 | |
 | E29 | Shortcuts: a table shortcut, a folder shortcut, and a chain to avoid | 2.2.3 | C | SIM +FV | config | 20 | LM-24 |
 | E30 | Mirroring: what replicates, how fast, and how to query it | 2.2.4 | G | KO +FV | quiz | 15 | |
-| E31 | Copy activity design: staging, schema mapping and fault tolerance | 2.2.5 | C | SIM +FV | pipeline | 25 | Copy jobs |
+| E31 | Copy activity design: staging, schema mapping and fault tolerance | 2.2.5 | C | SIM +FV | config | 25 | Copy jobs |
 | E32 | PySpark: clean, cast and join raw orders | 2.2.6 | G | LV +FV | pyspark | 25 | LM-08 |
 | E33 | Spark SQL: the same transformation in SQL | 2.2.6 | C | LV +FV | duckdb | 20 | |
 | E34 | KQL: summarize, extend and project event data | 2.2.6, 2.3.4 | G | KO +FV | quiz | 20 | |
@@ -86,7 +86,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | E44 | Monitoring hub: find the failed ingestion and the run that got slower | 3.1.1, 3.1.2 | G | SIM +FV | duckdb (`runs`) | 20 | |
 | E45 | Semantic model refresh: read the history, spot a Direct Lake fallback | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
-| E46 | Alerts: an Activator rule and a pipeline failure alert | 3.1.4 | C | SIM +FV | config | 20 | |
+| E46 | Alerts: Activator rules for warm and silent freezers | 3.1.4 | C | SIM +FV | config | 20 | |
 | E47 | Capacity Metrics: find the throttled hour and what caused it | 3.1.2 | C | SIM | duckdb (`runs`) | 20 | FinOps |
 | E60 | Optimize a pipeline: parallel ForEach, fewer sequential steps | 3.3.2 | C | SIM +FV | pipeline | 25 | |
 | E61 | Optimize a warehouse: loads, data types, statistics and result set caching | 3.3.3 | G | KO +FV | quiz | 15 | |

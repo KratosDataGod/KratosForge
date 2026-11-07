@@ -23,6 +23,8 @@ from typing import Any
 import sqlglot
 from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import ParseError, SqlglotError
+from sqlglot.generators.tsql import TSQLGenerator
+from sqlglot.parsers.tsql import TSQLParser
 from sqlglot.tokens import Token, TokenType
 
 from . import sql_dialects
@@ -41,14 +43,14 @@ _ROW_LIMITS = (TokenType.LIMIT, TokenType.TOP, TokenType.FETCH)
 class _TSQLLayout(TSQL):
     """T-SQL for formatting: DATENAME stays DATENAME (sqlglot reads it as FORMAT(..., 'MMMM'))."""
 
-    class Parser(TSQL.Parser):
-        FUNCTIONS = {k: v for k, v in TSQL.Parser.FUNCTIONS.items() if k != "DATENAME"}
+    class Parser(TSQLParser):  # the class TSQL.Parser names, imported so type checkers see a class
+        FUNCTIONS = {k: v for k, v in TSQLParser.FUNCTIONS.items() if k != "DATENAME"}
 
 
 class _TSQLLayoutLimit(_TSQLLayout):
     """For SQL that says LIMIT and never TOP: print LIMIT back rather than TOP."""
 
-    class Generator(_TSQLLayout.Generator):
+    class Generator(TSQLGenerator):  # _TSQLLayout keeps T-SQL's generator
         LIMIT_IS_TOP = False
         LIMIT_FETCH = "LIMIT"
 
@@ -125,7 +127,7 @@ def _difference(before: str, after: str, dialect: Any) -> str:
 def _parts(query: str, dialect: Any) -> dict[str, Counter]:
     """The identifiers, literals, function names, comments and row-limit keywords of ``query``, as multisets."""
     tokens: list[Token] = sqlglot.Dialect.get_or_raise(dialect).tokenize(query)
-    parts = {k: Counter() for k in ("identifier", "literal", "function", "comment", "row limit")}
+    parts: dict[str, Counter] = {k: Counter() for k in ("identifier", "literal", "function", "comment", "row limit")}
     for i, tok in enumerate(tokens):
         parts["comment"].update(c.strip() for c in tok.comments)
         if tok.token_type in _ROW_LIMITS:

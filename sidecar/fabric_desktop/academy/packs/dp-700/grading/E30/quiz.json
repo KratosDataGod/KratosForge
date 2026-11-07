@@ -1,0 +1,117 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "An Azure SQL Database must be available in Fabric for analytics with low latency, without building a pipeline. What does mirroring do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Continuously replicates the data into OneLake as Delta tables, and creates a SQL analytics endpoint to query them"
+        },
+        {
+          "id": "b",
+          "text": "Sends every change to an eventstream, which you then route into an eventhouse table"
+        },
+        {
+          "id": "c",
+          "text": "Creates a shortcut that reads the Azure SQL Database live on every query, so nothing lands in OneLake"
+        },
+        {
+          "id": "d",
+          "text": "Copies the database once into a warehouse, and leaves later changes to a scheduled pipeline"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Mirroring continuously replicates data into OneLake, converting it to Delta, and creates a SQL analytics endpoint for the mirrored data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "How fast can mirroring publish changes from the source?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Once a day, when the capacity's nightly maintenance window runs"
+        },
+        {
+          "id": "b",
+          "text": "As fast as every 15 seconds"
+        },
+        {
+          "id": "c",
+          "text": "Only when someone selects Refresh on the mirrored database"
+        },
+        {
+          "id": "d",
+          "text": "Once an hour, on the mirrored database's refresh schedule"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Changes can be published as fast as every 15 seconds.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview"
+    },
+    {
+      "id": "q3",
+      "type": "multiple",
+      "stem": "Which two statements about mirroring costs are true?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Replication runs as a Spark job that consumes the capacity's CUs"
+        },
+        {
+          "id": "b",
+          "text": "Mirroring storage is always billed as OneLake storage from the first gigabyte"
+        },
+        {
+          "id": "c",
+          "text": "Each capacity unit you buy comes with a free terabyte of mirroring storage"
+        },
+        {
+          "id": "d",
+          "text": "The background compute that replicates data into OneLake is free and doesn't use capacity"
+        }
+      ],
+      "answer": [
+        "c",
+        "d"
+      ],
+      "explanation": "Background Fabric compute used to replicate data is free and doesn't consume capacity, and an F64, for example, gets 64 TB of mirroring storage free.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "An in-house application wants to write its own change data straight into a mirrored database in Fabric. What's that called?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Database mirroring from Azure SQL Database"
+        },
+        {
+          "id": "b",
+          "text": "Open mirroring"
+        },
+        {
+          "id": "c",
+          "text": "Metadata mirroring"
+        },
+        {
+          "id": "d",
+          "text": "A OneLake shortcut to the application's database"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Open mirroring lets any developer write their application's change data directly into a mirrored database item, based on the open Delta Lake format and public APIs. Metadata mirroring syncs catalog metadata only.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview"
+    }
+  ]
+}

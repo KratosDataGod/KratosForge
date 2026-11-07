@@ -247,7 +247,8 @@ def _parse(text: str, what: str, duplicates: list[str]) -> Any:
 
 
 def _parts(wrapper: dict[str, Any]) -> list[Any]:
-    definition = wrapper.get("definition") if isinstance(wrapper.get("definition"), dict) else wrapper
+    got = wrapper.get("definition")
+    definition: dict[str, Any] = got if isinstance(got, dict) else wrapper
     parts = definition.get("parts")
     return parts if isinstance(parts, list) else []
 
@@ -382,8 +383,9 @@ def _activities(items: list[Any], path: str, container: str | None, branch: str 
         if not isinstance(raw, dict):
             problems.append(DefinitionError("An activity must be a JSON object.", "invalid_activity", apath))
             continue
-        name = raw.get("name") if isinstance(raw.get("name"), str) else ""
-        typ = raw.get("type") if isinstance(raw.get("type"), str) else ""
+        got_name, got_type = raw.get("name"), raw.get("type")
+        name = got_name if isinstance(got_name, str) else ""
+        typ = got_type if isinstance(got_type, str) else ""
         act = Activity(name, typ, apath, raw, container, branch)
         deps = raw.get("dependsOn", [])
         if isinstance(deps, list):

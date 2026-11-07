@@ -171,7 +171,7 @@ def test_a_vector_that_is_null_or_holds_a_null_gives_null():
 
 @pytest.mark.parametrize(("code", "match"), [
     ("SELECT vector_norm(array(3.0f), 3.0)", "INVALID_VECTOR_NORM_DEGREE"),
-    ("SELECT vector_norm(array(3.0f), -1.0)", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_norm(array(3.0f), -1.0)", r"INVALID_VECTOR_NORM_DEGREE\), not -1.0\."),
     ("SELECT vector_normalize(array(3.0f), -float('inf'))", "INVALID_VECTOR_NORM_DEGREE"),
     ("SELECT vector_norm(array(3.0f), d) FROM VALUES (2.0) AS t(d)", "isn't a constant"),
     ("SELECT vector_sum(e) FROM VALUES (array(1.0f)) AS t(e)", "element by element"),

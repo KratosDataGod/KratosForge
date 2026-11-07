@@ -92,7 +92,7 @@ def _degree(name: str, args: list[exp.Expression]) -> float:
         if degree in (1.0, 2.0, math.inf):
             return degree
         raise ValueError(f"{name}() takes degree 1.0, 2.0 or float('inf'), as in Databricks "
-                         f"(INVALID_VECTOR_NORM_DEGREE), not {value.sql()}.")
+                         f"(INVALID_VECTOR_NORM_DEGREE), not {args[1].sql(dialect='databricks')}.")
     raise _refusal(name, "its degree isn't a constant here, and this PC works out the norm from it.",
                    "write the degree as 1.0, 2.0 or float('inf')")
 

@@ -146,7 +146,7 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
             # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
             extra = {"predicate": "true"} if mode == "overwrite" and table is not None else {}
             check_held()  # the lease is still ours, with time to commit (HD-016)
-            write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
+            write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,  # type: ignore[call-overload]  # mode/how are checked strs, not Literals
                             writer_properties=writer_properties(), commit_properties=meta, **extra)
             committed = table if table is not None else DeltaTable(ref.uri, storage_options=opts)
             table = committed

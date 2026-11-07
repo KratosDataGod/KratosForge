@@ -573,12 +573,27 @@ jobs:
       # docs/enterprise-install.md). Built after signing, so the MSI carries the signed exe.
       - name: Build the MSI
         shell: pwsh
+        env:
+          WIX_VERSION: "5.0.2"
+          # SHA-512 of wix.5.0.2.nupkg, the same as NuGet's catalog packageHash for that version.
+          # Bumping WIX_VERSION means updating this too.
+          WIX_NUPKG_SHA512: "cfe7eed5d79371a57e4d10a8e3ee87ac9e3c49d9e3fb27908e3312b53237196ecdc4510f6a49d809dc6b7f4a84be0757ae361d8cb9e464a0ac352a934cea3638"
         run: |
-          dotnet tool install --global wix --version 5.0.2
+          $ErrorActionPreference = "Stop"
+          # The MSI's build tool must be exactly the pinned package: installed into its own folder, and
+          # its .nupkg checked before wix runs. A package that isn't the pinned file stops the build.
+          $tools = "$env:RUNNER_TEMP\wix"
+          dotnet tool install wix --version $env:WIX_VERSION --tool-path $tools
+          if ($LASTEXITCODE -ne 0) { throw "Could not install WiX $env:WIX_VERSION" }
+          $nupkg = @(Get-ChildItem -Path "$tools\.store" -Recurse -File -Filter "wix.$env:WIX_VERSION.nupkg")
+          if ($nupkg.Count -ne 1) { throw "Found $($nupkg.Count) copies of wix.$env:WIX_VERSION.nupkg, not one, so its hash can't be checked" }
+          $sha = (Get-FileHash $nupkg[0].FullName -Algorithm SHA512).Hash.ToLower()
+          "WiX package sha512 $sha"
+          if ($sha -ne $env:WIX_NUPKG_SHA512) { throw "wix.$env:WIX_VERSION.nupkg is not the pinned file (sha512 $sha)" }
           # An MSI version's third field stops at 65535, so the run number carries into the second.
           $run = ${{ github.run_number }}
           $version = "0.$([math]::Floor($run / 65536) + 1).$($run % 65536)"
-          wix build ..\installer\kratosforge.wxs -arch x64 `
+          & "$tools\wix.exe" build ..\installer\kratosforge.wxs -arch x64 `
             -d Version=$version `
             -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico `
             -o target\release\kratosforge.msi

@@ -2433,6 +2433,11 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .rk-shield-label { position: absolute; left: 24%; right: 24%; top: 62%; display: flex; flex-direction: column; align-items: center; text-align: center;
   color: var(--rk-shield-ink); text-shadow: 0 1px 3px var(--lx-hero-shadow); }
 .rk-shield-label .rk-shield-name { font-size: 12px; line-height: 1.1; }
+.rk-shield.has-art.label-below { display: flex; flex-direction: column; align-items: center; height: auto; margin: -10px -14px; }
+.rk-shield.has-art.label-below img { width: auto; height: 150px; }
+.rk-shield.label-below .rk-shield-label { position: static; color: var(--text); text-shadow: none; }
+.rk-shield.label-below .rk-shield-sub { color: var(--muted); opacity: 1; }
+.rk-shield.has-art.label-below .rk-shield-name { color: var(--text); }
 .rk-shield-label .rk-shield-sub { font-size: 10px; }
 .rk-link { flex: 1 1 24px; min-width: 18px; height: 4px; border-radius: 2px; background: var(--border-soft); position: relative; }
 .rk-link.held { background: var(--rk-gold-edge); }

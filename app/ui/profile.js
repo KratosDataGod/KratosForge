@@ -314,7 +314,11 @@ const RANK_ART = {
     : h("img", { src: "art/ranks/steel-forger-inactive.webp", alt: "" })),
   "master-forger": (on) => (on ? h("img", { src: "art/ranks/master-forger-active.webp", alt: "" })
     : h("img", { src: "art/ranks/master-forger-inactive.webp", alt: "" })),
+  "legend-of-the-forge": (on) => (on ? h("img", { src: "art/ranks/legend-of-the-forge-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/legend-of-the-forge-inactive.webp", alt: "" })),
 };
+// Art whose emblem fills the shield: the name goes under the shield instead of over it.
+const RANK_LABEL_BELOW = new Set(["legend-of-the-forge"]);
 
 function rankGlyph(id, size = 34) {
   const d = RANK_GLYPHS[RANK_GLYPH[id]] || BADGE_GLYPHS[RANK_GLYPH[id]] || BADGE_GLYPHS.spark;
@@ -346,7 +350,7 @@ function rankShield(r, i) {
   const attrs = { "aria-current": here ? "step" : null, "aria-label": `${x.name}, rank ${i + 1} of ${r.of}, ${state}` };
   // Chris's approved shield art where it exists: the glowing one marks your rank, the plain one every other.
   if (RANK_ART[x.id]) {
-    return h("li", { class: `${cls} has-art`, ...attrs },
+    return h("li", { class: `${cls} has-art${RANK_LABEL_BELOW.has(x.id) ? " label-below" : ""}`, ...attrs },
       RANK_ART[x.id](here),
       h("div", { class: "rk-shield-label" }, ...label));
   }

@@ -120,7 +120,7 @@ test("Ranks shows your rank, the Forge progression, the next rank's requirements
   await page.getByRole("button", { name: "Hide full rank path" }).click();
   // Chris's approved art: plain while a rank is ahead, glowing once it is yours. Labels stay real text.
   assert.deepStrictEqual(await page.locator(".rk-shield.has-art img").evaluateAll((l) => l.map((i) => i.getAttribute("src"))),
-    ["forge-initiate", "iron-forger", "steel-forger", "master-forger"].map((id) => `art/ranks/${id}-inactive.webp`));
+    ["forge-initiate", "iron-forger", "steel-forger", "master-forger", "legend-of-the-forge"].map((id) => `art/ranks/${id}-inactive.webp`));
   const art = page.locator(".rk-shield.has-art").filter({ hasText: "Forge Initiate" });
   assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-inactive.webp");
   assert.match(await art.innerText(), /Forge Initiate\s+Rank 2/);
@@ -132,6 +132,13 @@ test("Ranks shows your rank, the Forge progression, the next rank's requirements
   assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-active.webp");
   assert.strictEqual(await art.locator("img").evaluate((i) => i.naturalWidth > 0), true);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-forge-initiate.png"), fullPage: true });
+  // Every rank held: the Myth tier shows, the top rank glows, and nothing is left to earn.
+  Object.assign(r, { number: r.of, rank: r.ladder[r.of - 1].name, next: null });
+  for (const x of r.ladder) x.held = true;
+  await page.evaluate(() => render());
+  await page.getByText("You hold every rank there is.").waitFor();
+  assert.strictEqual(await page.locator('.rk-shield[aria-current="step"] img').getAttribute("src"), "art/ranks/legend-of-the-forge-active.webp");
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-top.png"), fullPage: true });
   data.profile.ranks = saved;
 });
 

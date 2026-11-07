@@ -9,7 +9,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
@@ -93,7 +93,7 @@ def split(query: str, target: str) -> tuple[list[Stmt], str]:
             statements.append([])
         else:
             statements[-1].append(t)
-    out = []
+    out: list[Stmt] = []
     for group in statements:
         if not group:
             continue
@@ -149,7 +149,7 @@ def parse(stmt: Stmt, dialect: str) -> None:
     _log.setLevel(logging.ERROR)  # sqlglot's warnings quote the SQL, which can hold secrets; keep it out of logs
     try:
         trees = [t for t in sqlglot.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
-        stmt.ast = trees[0] if trees else None
+        stmt.ast = cast(exp.Expression, trees[0]) if trees else None  # sqlglot types parse as its Expr base
     except (ParseError, TokenError, SqlglotError, RecursionError, ValueError) as exc:
         if stmt.toks and stmt.toks[0].kw in COMMANDS.get(dialect, ()):
             return

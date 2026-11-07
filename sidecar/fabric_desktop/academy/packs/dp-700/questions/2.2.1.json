@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.1-q5",
+      "type": "single",
+      "stem": "An application team needs an operational store with high concurrency, full ACID transactions, enforced foreign keys and automatic performance tuning. Which Fabric item fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Eventhouse"
+        },
+        {
+          "id": "b",
+          "text": "SQL database in Fabric"
+        },
+        {
+          "id": "c",
+          "text": "Fabric Data Warehouse"
+        },
+        {
+          "id": "d",
+          "text": "Lakehouse"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "SQL database in Fabric is the choice for operational, transactional (OLTP) and normalized relational workloads. A warehouse is for analytics and BI, a lakehouse for big data and data engineering, and an eventhouse for streaming events.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.1-q6",
+      "type": "single",
+      "stem": "A web app stores user profiles as JSON documents and needs a NoSQL database inside Fabric that developers reach through REST APIs from JavaScript and Python. Which item fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SQL database in Fabric"
+        },
+        {
+          "id": "b",
+          "text": "Lakehouse"
+        },
+        {
+          "id": "c",
+          "text": "Cosmos DB in Fabric"
+        },
+        {
+          "id": "d",
+          "text": "Eventhouse"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The decision guide maps NoSQL databases to Cosmos DB in Fabric, whose developers integrate through REST APIs. The other items are relational, event-analytics or Spark-based stores.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.1-q7",
+      "type": "single",
+      "stem": "A team must store and model several terabytes of data. The data engineers work in notebooks, and the T-SQL users only query the data and never write INSERT, UPDATE or DELETE statements. Which item fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SQL database in Fabric"
+        },
+        {
+          "id": "b",
+          "text": "Eventhouse"
+        },
+        {
+          "id": "c",
+          "text": "Fabric Data Warehouse"
+        },
+        {
+          "id": "d",
+          "text": "Lakehouse"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A lakehouse lets the engineers use Spark while T-SQL users consume the data through the SQL analytics endpoint. A warehouse suits a team that writes T-SQL and needs multi-table transactions, and the other two serve OLTP and streaming workloads.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.1-q8",
+      "type": "single",
+      "stem": "Which Fabric data store doesn't make its data available in OneLake in open table format by default, so that you must opt in?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL database in an eventhouse"
+        },
+        {
+          "id": "b",
+          "text": "A SQL database in Fabric"
+        },
+        {
+          "id": "c",
+          "text": "A Fabric Data Warehouse"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "All Fabric data stores are in OneLake in open table format by default except a KQL database in an eventhouse, where OneLake availability is opt-in.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.1-q9",
+      "type": "single",
+      "stem": "Report authors want to query a KQL database in an eventhouse through a SQL analytics endpoint, but the Analyze data with > SQL analytics endpoint option doesn't appear. What must be enabled on the database?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A materialized view for each table"
+        },
+        {
+          "id": "b",
+          "text": "A database shortcut to a lakehouse"
+        },
+        {
+          "id": "c",
+          "text": "Always-on and a minimum capacity schedule"
+        },
+        {
+          "id": "d",
+          "text": "OneLake availability and schema synchronization"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The SQL analytics endpoint option appears only when OneLake availability and schema synchronization are enabled. Always-on and minimum capacity affect performance, not SQL access.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.1-q10",
+      "type": "multiple",
+      "stem": "A team wants to build an AI application that uses vector data types. Which two Fabric data stores does the decision guide recommend? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Lakehouse"
+        },
+        {
+          "id": "b",
+          "text": "SQL database in Fabric"
+        },
+        {
+          "id": "c",
+          "text": "Eventhouse"
+        },
+        {
+          "id": "d",
+          "text": "Cosmos DB in Fabric"
+        },
+        {
+          "id": "e",
+          "text": "Fabric Data Warehouse"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "For AI development with vector data types, the guide names SQL database in Fabric or Cosmos DB in Fabric. Eventhouse, lakehouse and warehouse are recommended for other workloads.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

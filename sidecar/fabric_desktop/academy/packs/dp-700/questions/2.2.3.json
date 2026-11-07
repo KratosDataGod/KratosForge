@@ -131,6 +131,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.3-q5",
+      "type": "single",
+      "stem": "In a lakehouse, you try to create a shortcut to an external Delta table inside a subfolder of the Tables folder, and it isn't allowed. Where can you create it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only in a subfolder of the Tables folder named after the schema"
+        },
+        {
+          "id": "b",
+          "text": "Only in the Files folder, at the top level"
+        },
+        {
+          "id": "c",
+          "text": "Only in a KQL database Shortcuts folder"
+        },
+        {
+          "id": "d",
+          "text": "At the top level of the Tables folder"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Shortcuts in the Tables folder can be created only at the top level. In the Files folder, they can be created at any level.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.3-q6",
+      "type": "single",
+      "stem": "A user who has delete permission in the target location deletes a file inside a lakehouse shortcut folder. What happens?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The whole shortcut is deleted, but the target is unchanged"
+        },
+        {
+          "id": "b",
+          "text": "Only the shortcut's view of the file is removed; the target file stays"
+        },
+        {
+          "id": "c",
+          "text": "The file is also deleted from the shortcut target"
+        },
+        {
+          "id": "d",
+          "text": "The delete fails because shortcuts are read-only"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Deleting the shortcut itself doesn't touch the target, but deleting a file or folder inside a shortcut deletes it in the target when the user has permission there.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.3-q7",
+      "type": "single",
+      "stem": "A user reads data in Lakehouse A through a shortcut that points to Lakehouse B in another workspace, using Spark. Whose permissions does OneLake check on Lakehouse B?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The permissions of the user who created the shortcut"
+        },
+        {
+          "id": "b",
+          "text": "No permissions, because the shortcut grants access by itself"
+        },
+        {
+          "id": "c",
+          "text": "The workspace identity of the workspace that holds Lakehouse A"
+        },
+        {
+          "id": "d",
+          "text": "The calling user's permissions in Lakehouse B"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "For OneLake shortcuts, OneLake uses the calling user's identity, and that user needs read permission in the target. The shortcut doesn't grant access on its own.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.3-q8",
+      "type": "single",
+      "stem": "Notebooks in Fabric read the same files from an Amazon S3 shortcut many times a week, and the company wants to cut cross-cloud egress costs. Which statement about shortcut caching is true?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cached files are kept for a fixed 90 days whatever their access"
+        },
+        {
+          "id": "b",
+          "text": "Individual files larger than 1 GB aren't cached"
+        },
+        {
+          "id": "c",
+          "text": "Caching is available only for ADLS Gen2 shortcuts"
+        },
+        {
+          "id": "d",
+          "text": "Caching is turned on per shortcut from the lakehouse explorer"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Caching supports S3, S3 compatible, GCS and gateway shortcuts, is enabled in Workspace settings on the OneLake tab, and keeps files 1-28 days, resetting on each access. Files over 1 GB aren't cached.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.3-q9",
+      "type": "single",
+      "stem": "You create a shortcut named SalesShortcut in a KQL database. Which query reads its first 100 rows?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`SalesShortcut | take 100`"
+        },
+        {
+          "id": "b",
+          "text": "`materialized_view('SalesShortcut') | take 100`"
+        },
+        {
+          "id": "c",
+          "text": "`table('SalesShortcut') | take 100`"
+        },
+        {
+          "id": "d",
+          "text": "`external_table('SalesShortcut') | take 100`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A KQL database treats shortcuts like external tables, so you query them with the external_table function.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.3-q10",
+      "type": "multiple",
+      "stem": "Which two statements about OneLake shortcuts are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Internal shortcuts count toward the limit of 100 data source connections per item"
+        },
+        {
+          "id": "b",
+          "text": "Renaming the target folder updates every shortcut that points to it"
+        },
+        {
+          "id": "c",
+          "text": "A shortcut in the Tables folder whose name contains a space isn't recognized as a Delta table"
+        },
+        {
+          "id": "d",
+          "text": "Each Fabric item supports up to 100 shortcuts"
+        },
+        {
+          "id": "e",
+          "text": "Only users with permission on a cloud connection can create shortcuts that use that connection"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "Binding a connection to a shortcut needs permission on the connection, and Delta doesn't support spaces in table names. Renaming a target can break a shortcut, the limit is 100,000 shortcuts per item, and internal shortcuts don't count toward the connection limit.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

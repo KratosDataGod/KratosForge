@@ -90,10 +90,10 @@
         "d"
       ],
       "explanation": "Readers sharing a consumer group compete for the same partitions. A dedicated consumer group lets each reader receive every event.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/add-source-azure-event-hubs",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/data-explorer/ingest-data-event-hub-overview",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.5-q4",
@@ -125,6 +125,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.5-q5",
+      "type": "single",
+      "stem": "An eventstream reads from an Azure Event Hubs source that has only two partitions. You set the event throughput level to High, but events still back up. What limits the throughput?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The eventstream retention, because it's one day by default"
+        },
+        {
+          "id": "b",
+          "text": "The consumer group name, because it must match the eventstream name"
+        },
+        {
+          "id": "c",
+          "text": "The partition count, because with fewer than four partitions throughput is limited regardless of the throughput level"
+        },
+        {
+          "id": "d",
+          "text": "The destination type, because eventhouse destinations are limited to 1 MB/s"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "When the Event Hubs partition count is below four, throughput is limited by the partition count whatever level you choose. Retention doesn't limit throughput.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/configure-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.5-q6",
+      "type": "single",
+      "stem": "An eventstream's eventhouse destination receives fewer events than expected. Which data insights metric counts output events that can't be converted to the expected output schema?",
+      "options": [
+        {
+          "id": "a",
+          "text": "OutgoingBytes"
+        },
+        {
+          "id": "b",
+          "text": "Data conversion errors"
+        },
+        {
+          "id": "c",
+          "text": "Watermark delay"
+        },
+        {
+          "id": "d",
+          "text": "Backlogged input events"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Data conversion errors counts output events that can't be converted to the expected schema. Backlogged input events counts waiting events, and watermark delay measures lag.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.5-q7",
+      "type": "single",
+      "stem": "Events reach an eventstream on time but arrive late in the destination. Which data insights metric is computed as the wall clock time minus the largest watermark?",
+      "options": [
+        {
+          "id": "a",
+          "text": "IncomingMessages"
+        },
+        {
+          "id": "b",
+          "text": "Runtime errors"
+        },
+        {
+          "id": "c",
+          "text": "Input event bytes"
+        },
+        {
+          "id": "d",
+          "text": "Watermark delay"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Watermark delay is the maximum watermark delay across partitions, computed as wall clock time minus the largest watermark, so it shows lag. The other metrics count errors or volume.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.5-q8",
+      "type": "single",
+      "stem": "You open an eventstream node's Runtime logs to investigate a destination problem and want to see only the error entries. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Filter the runtime logs by severity"
+        },
+        {
+          "id": "b",
+          "text": "Export the eventstream definition to Git"
+        },
+        {
+          "id": "c",
+          "text": "Open the eventstream's Endorsement tab"
+        },
+        {
+          "id": "d",
+          "text": "Change the event throughput level to Low"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Runtime logs have warning, error and information severity levels, and you can filter them by keyword, severity or type. The other actions don't filter logs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.5-q9",
+      "type": "single",
+      "stem": "After you raised an eventstream's event throughput level, an application that sends events to its custom endpoint starts having problems. What does the documentation say you might need to do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Switch the destination from an eventhouse to a lakehouse"
+        },
+        {
+          "id": "b",
+          "text": "Lower the retention period to one day"
+        },
+        {
+          "id": "c",
+          "text": "Recreate the eventstream in a new workspace"
+        },
+        {
+          "id": "d",
+          "text": "Update the data client, because the partition count increases"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "When you change the throughput setting, you might need to update the data client of custom endpoints because the partition count increases.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/configure-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.5-q10",
+      "type": "multiple",
+      "stem": "An eventstream destination node seems to drop events. Which two data insights metrics count errors in event processing? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Data conversion errors"
+        },
+        {
+          "id": "b",
+          "text": "Input events"
+        },
+        {
+          "id": "c",
+          "text": "Output events"
+        },
+        {
+          "id": "d",
+          "text": "Input event bytes"
+        },
+        {
+          "id": "e",
+          "text": "Runtime errors"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "Runtime errors counts errors related to event processing and Data conversion errors counts events that can't match the output schema. The others count volume, not errors.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

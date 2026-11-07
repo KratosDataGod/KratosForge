@@ -124,10 +124,201 @@
         "b"
       ],
       "explanation": "You find the run, then the failed activity, then its error message, and only then fix the cause and run the pipeline again.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitor-pipeline-runs",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitoring-hub-pipeline-runs",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q5",
+      "type": "single",
+      "stem": "Many pipelines are triggered at the same minute, and their Web activities fail with error code 2003 about substantial concurrent external activity executions. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reduce pipeline concurrency, for example by spreading out the trigger times"
+        },
+        {
+          "id": "b",
+          "text": "Replace the Web activity with a Fail activity"
+        },
+        {
+          "id": "c",
+          "text": "Increase the Web activity's timeout to 12 hours"
+        },
+        {
+          "id": "d",
+          "text": "Move the pipelines to a workspace with V-Order enabled"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Error 2003 means too many activities run concurrently, often because many pipelines are triggered at once; the fix is to reduce concurrency or distribute trigger times. A longer timeout doesn't reduce throttling.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-troubleshoot-guide",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q6",
+      "type": "single",
+      "stem": "A pipeline passes a very large JSON array as a parameter from one activity to the next. It fails with error code 2002, payload is too large. What is the recommended fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Change the pipeline to run in Sequential mode"
+        },
+        {
+          "id": "b",
+          "text": "Increase the activity's retry count"
+        },
+        {
+          "id": "c",
+          "text": "Reduce the size of large parameter values, or handle the data inside the activity instead of passing it between activities"
+        },
+        {
+          "id": "d",
+          "text": "Split the pipeline into two workspaces"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The payload for an activity run, including configurations and data, is limited to 896 KB, so you reduce large parameter values or avoid passing them across activities. Retries and sequential mode don't shrink the payload.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-troubleshoot-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q7",
+      "type": "single",
+      "stem": "A parent pipeline calls a child pipeline with an array parameter. The child's ForEach fails: `the result of the evaluation of 'foreach' expression '@pipeline().parameters.regions' is of type 'String'. The result must be a valid array.` What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Wrap the value with the create array function so that the child receives an array"
+        },
+        {
+          "id": "b",
+          "text": "Change the parameter type in the child pipeline from array to string"
+        },
+        {
+          "id": "c",
+          "text": "Set the ForEach Batch count to 1"
+        },
+        {
+          "id": "d",
+          "text": "Change the ForEach to Sequential mode"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Even when the parameter is defined as an array, the payload passes from parent to child as a string, so you wrap the value with the create array function. Sequential mode and batch count don't change the type.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-troubleshoot-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q8",
+      "type": "single",
+      "stem": "After the pipeline owner reset their password, several pipelines fail with LSROBOTokenFailure: the provided grant has expired. What is the recommended fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Update and save each affected pipeline to refresh its auth context"
+        },
+        {
+          "id": "b",
+          "text": "Run the pipelines from the Monitor hub instead of the schedule"
+        },
+        {
+          "id": "c",
+          "text": "Delete and recreate the workspace"
+        },
+        {
+          "id": "d",
+          "text": "Turn on retries on every activity"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Pipelines use a stored refresh token; after a password change it can't get new access tokens, so you update and save each affected pipeline (for example, change the description). Retries reuse the same invalid token.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-troubleshoot-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q9",
+      "type": "single",
+      "stem": "A Lookup activity sometimes returns no rows. In that case the pipeline must stop with a custom error message and error code that appear in the run history. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set the Lookup activity's retry count to 0"
+        },
+        {
+          "id": "b",
+          "text": "Add a Set variable activity that stores the error text"
+        },
+        {
+          "id": "c",
+          "text": "Add an If Condition that checks the Lookup output, with a Fail activity in its True branch"
+        },
+        {
+          "id": "d",
+          "text": "Add a Wait activity after the Lookup activity"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The Fail activity throws an error with a custom message and code, typically placed in the True branch of an If Condition that evaluates the error condition. Retry settings and variables don't fail the run with a custom code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/fail-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q10",
+      "type": "multiple",
+      "stem": "Which two values can you set on the Settings tab of a pipeline's Fail activity? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A degree of copy parallelism"
+        },
+        {
+          "id": "b",
+          "text": "A custom error code"
+        },
+        {
+          "id": "c",
+          "text": "A batch count"
+        },
+        {
+          "id": "d",
+          "text": "A custom error message"
+        },
+        {
+          "id": "e",
+          "text": "A retry count"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "The Fail activity's Settings tab takes a custom error message and error code, which show in the run history and logs. Retry, batch count and parallelism belong to other activities.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/fail-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

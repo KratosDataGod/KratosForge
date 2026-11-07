@@ -13,7 +13,7 @@ Preview.
 
 | Certification | Questions | Each question is based on |
 | --- | --- | --- |
-| DP-700 (Microsoft Fabric) | 204, at least 4 for each of the 49 objectives | A Microsoft Learn page |
+| DP-700 (Microsoft Fabric) | 498, at least 10 for each of the 49 objectives | A Microsoft Learn page |
 | Databricks Certified Data Engineer Associate (draft pack) | 165, 5 for each of the 33 objectives | A Databricks documentation page |
 
 ## Three ways to start

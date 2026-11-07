@@ -131,6 +131,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.4-q5",
+      "type": "single",
+      "stem": "Your organization has an F64 capacity and plans to mirror several operational databases. How much OneLake storage for the mirrored replicas is free?",
+      "options": [
+        {
+          "id": "a",
+          "text": "1 TB per mirrored database, whatever the capacity size"
+        },
+        {
+          "id": "b",
+          "text": "None; mirrored storage is billed at regular OneLake rates"
+        },
+        {
+          "id": "c",
+          "text": "64 TB, one free terabyte per capacity unit, used only for mirroring"
+        },
+        {
+          "id": "d",
+          "text": "64 GB, one free gigabyte per capacity unit, shared with all items"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Mirroring gives one free terabyte of mirroring storage per capacity unit, so F64 gets 64 TB that's only for mirroring.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.4-q6",
+      "type": "multiple",
+      "stem": "A finance team asks how mirroring an Azure SQL database affects their Fabric capacity. Which two statements are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The background compute that replicates data into OneLake is free and doesn't consume capacity"
+        },
+        {
+          "id": "b",
+          "text": "Replication compute is charged per changed row against the capacity"
+        },
+        {
+          "id": "c",
+          "text": "Mirroring needs a dedicated capacity separate from other workloads"
+        },
+        {
+          "id": "d",
+          "text": "Queries on mirrored data are free because the replica is read-only"
+        },
+        {
+          "id": "e",
+          "text": "Queries on the mirrored data from SQL, Power BI or Spark are charged at regular rates"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "Replication compute is free, but querying the data with SQL, Power BI or Spark uses capacity at regular rates.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.4-q7",
+      "type": "single",
+      "stem": "You set up mirroring for an Azure Databricks catalog in Fabric. How does the data become available?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Fabric imports the tables into a semantic model on a refresh schedule"
+        },
+        {
+          "id": "b",
+          "text": "Fabric syncs catalog metadata and uses OneLake shortcuts, so the data stays in its source"
+        },
+        {
+          "id": "c",
+          "text": "Fabric creates a pipeline that copies changed files every 15 minutes"
+        },
+        {
+          "id": "d",
+          "text": "Fabric copies every table into OneLake as Delta and keeps it in sync with CDC"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Azure Databricks uses metadata mirroring, which syncs catalog names, schemas and tables and references the data through shortcuts instead of copying it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.4-q8",
+      "type": "single",
+      "stem": "An in-house application stores data in a database that Fabric mirroring doesn't support natively. The team wants to push the application's change data into a mirrored database item. What should they use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Copy job that writes into the mirrored database's tables"
+        },
+        {
+          "id": "b",
+          "text": "Database mirroring by choosing the closest supported source type"
+        },
+        {
+          "id": "c",
+          "text": "Open mirroring, writing change data through its public APIs"
+        },
+        {
+          "id": "d",
+          "text": "Metadata mirroring with a shortcut to the database files"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Open mirroring lets any developer write an application's change data directly into a mirrored database item through public APIs, based on the Delta Lake format.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.4-q9",
+      "type": "single",
+      "stem": "A mirrored database named CrmMirror contains the table dbo.Accounts. From a warehouse in the same workspace, which query joins it with dbo.Sales?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`SELECT * FROM dbo.Sales s JOIN CrmMirror.dbo.Accounts a ON s.AccountId = a.AccountId`"
+        },
+        {
+          "id": "b",
+          "text": "`SELECT * FROM dbo.Sales s JOIN external_table('CrmMirror.Accounts') a ON s.AccountId = a.AccountId`"
+        },
+        {
+          "id": "c",
+          "text": "`SELECT * FROM dbo.Sales s JOIN OPENROWSET('CrmMirror', 'dbo.Accounts') a ON s.AccountId = a.AccountId`"
+        },
+        {
+          "id": "d",
+          "text": "`SELECT * FROM dbo.Sales s JOIN [CrmMirror].[Accounts] a ON s.AccountId = a.AccountId`"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Cross-database queries use three-part names whose first part is the mirrored database name. The other forms aren't T-SQL cross-database syntax in Fabric.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.4-q10",
+      "type": "single",
+      "stem": "Report authors want near real-time Power BI reports on a mirrored database without scheduling imports. Why can they do this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Mirroring creates an import-mode semantic model that refreshes every 15 seconds"
+        },
+        {
+          "id": "b",
+          "text": "Mirroring sends each change to Power BI as a push dataset"
+        },
+        {
+          "id": "c",
+          "text": "Power BI queries the source database directly through the mirrored item"
+        },
+        {
+          "id": "d",
+          "text": "Mirrored data is stored in Delta Lake format in OneLake, which Power BI can read in Direct Lake mode"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Mirrored data lands in OneLake in Delta Lake format, so Power BI connects in Direct Lake mode and reads the files directly.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

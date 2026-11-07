@@ -82,8 +82,9 @@ def _edit(packs: Path, objective: str, change) -> None:
     (lambda d: d["questions"][0].update(case="nowhere"), "unknown case study"),
     (lambda d: d["questions"][0].update(explanation=""), "explanation is empty"),
     (lambda d: d.update(objective="2.2.8"), "objective doesn't match"),
-    (lambda d: d["questions"].pop(), "has 3 live questions; needs 4"),
-    (lambda d: d["questions"][1].update(status="draft"), "has 3 live questions; needs 4"),
+    (lambda d: d.update(questions=d["questions"][:3]), "has 3 live questions; needs 4"),
+    (lambda d: (d.update(questions=d["questions"][:4]), d["questions"][1].update(status="draft")),
+     "has 3 live questions; needs 4"),
 ])
 def test_problems_catch_each_kind_of_broken_question(tmp_path, change, expect):
     packs = _pack_copy(tmp_path)
@@ -345,7 +346,8 @@ def test_a_finished_exam_is_never_scored_again(bank):
     # The bank changes later: a key is edited and a question is retired.
     changed = copy.deepcopy(bank)
     first, second = s["items"][0]["q"], s["items"][1]["q"]
-    changed["questions"][first] = {**changed["questions"][first], "answer": ["zz"], "version": 2}
+    changed["questions"][first] = {**changed["questions"][first], "answer": ["zz"],
+                                  "version": changed["questions"][first]["version"] + 1}
     del changed["questions"][second]
     with pytest.raises(exam.ExamError, match="finished"):
         exam.finish(s, changed, now=at(7))

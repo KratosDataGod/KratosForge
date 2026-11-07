@@ -28,10 +28,10 @@
         "d"
       ],
       "explanation": "The eventstream editor has no-code operations such as Filter between the source and destinations.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.2-q2",
@@ -96,10 +96,10 @@
         "b"
       ],
       "explanation": "The event processor offers operations such as Filter, Manage fields, Aggregate, Group by, Union, Expand and Join. Scripts and stored procedures aren't eventstream operations.",
-      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.2-q4",
@@ -134,11 +134,224 @@
         "b",
         "c"
       ],
-      "explanation": "You create the eventstream, connect a source, add processing, connect destinations, and publish so the changes take effect and the eventstream returns to Live view.",
+      "explanation": "You create the eventstream, connect a source, then connect destinations and add processing operations (an operator can also be inserted on the line between a source and a destination you already added), and publish so the changes take effect and the eventstream returns to Live view.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07",
+      "also_accept": [
+        [
+          "d",
+          "a",
+          "b",
+          "e",
+          "c"
+        ]
+      ]
+    },
+    {
+      "id": "2.3.2-q5",
+      "type": "single",
+      "stem": "An eventstream uses a Union operator to combine a stream that has DeviceId, Temp and Site with a stream that has DeviceId, Temp and Region. Which fields reach the output?",
+      "options": [
+        {
+          "id": "a",
+          "text": "All fields from the first input only"
+        },
+        {
+          "id": "b",
+          "text": "No fields, because Union requires identical schemas"
+        },
+        {
+          "id": "c",
+          "text": "DeviceId and Temp only"
+        },
+        {
+          "id": "d",
+          "text": "DeviceId, Temp, Site and Region, with nulls where a field is missing"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Union keeps fields with the same name and data type; fields that don't match are dropped.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.2-q6",
+      "type": "single",
+      "stem": "Each event in an eventstream has an array of readings, and the destination table needs one row per reading. Which operator should you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Group by"
+        },
+        {
+          "id": "b",
+          "text": "Union"
+        },
+        {
+          "id": "c",
+          "text": "Manage fields"
+        },
+        {
+          "id": "d",
+          "text": "Expand"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Expand creates a new row for each value in an array. Manage fields changes columns, Group by aggregates, and Union combines streams.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.2-q7",
+      "type": "single",
+      "stem": "You add a Filter operator in an eventstream and want to send its output to a destination that doesn't support adding operators before ingestion. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Connect the destination directly to the default stream"
+        },
+        {
+          "id": "b",
+          "text": "Replace the Filter operator with a SQL operator on the destination"
+        },
+        {
+          "id": "c",
+          "text": "Add a derived stream as the operator's output and attach the destination to it"
+        },
+        {
+          "id": "d",
+          "text": "Move the Filter operator after the destination node"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "For destinations without pre-ingestion operators, output the operator to a derived stream and append the destination to it.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.2-q8",
+      "type": "order",
+      "stem": "You add a Manage fields operator between a stream and a lakehouse destination in an existing eventstream. Put the steps in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Select Publish to return to Live view"
+        },
+        {
+          "id": "b",
+          "text": "Select Refresh to validate the test result"
+        },
+        {
+          "id": "c",
+          "text": "Connect the stream to the operator and the operator to the destination"
+        },
+        {
+          "id": "d",
+          "text": "Select Edit on the ribbon to enter Edit mode"
+        },
+        {
+          "id": "e",
+          "text": "Hover over the connection line, select +, and choose Manage fields"
+        },
+        {
+          "id": "f",
+          "text": "Select the output fields in the Manage fields pane"
+        }
+      ],
+      "answer": [
+        "d",
+        "e",
+        "c",
+        "f",
+        "b",
+        "a"
+      ],
+      "explanation": "You edit, insert the operator, reconnect the nodes, configure it, check the test result, and then publish.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.2-q9",
+      "type": "multiple",
+      "stem": "You plan to use a SQL operator in an eventstream. Which two statements are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "You can chain several SQL operators in one path to split complex logic"
+        },
+        {
+          "id": "b",
+          "text": "It supports only lakehouse destinations"
+        },
+        {
+          "id": "c",
+          "text": "It works with any eventstream name, including names with dots"
+        },
+        {
+          "id": "d",
+          "text": "You can't combine it with other built-in operators in the same processing path"
+        },
+        {
+          "id": "e",
+          "text": "You must create new destination nodes for it instead of reusing existing ones"
+        }
+      ],
+      "answer": [
+        "d",
+        "e"
+      ],
+      "explanation": "The SQL operator can't be mixed with other operators or chained in one path, and it needs new destination nodes. It supports all Real-Time Intelligence destinations, and names with an underscore or dot aren't compatible.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-sql-code-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.2-q10",
+      "type": "single",
+      "stem": "An eventstream must calculate the average and maximum temperature per device over each 5-minute period, with options for different time windows. Which no-code operator fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Aggregate"
+        },
+        {
+          "id": "b",
+          "text": "Group by"
+        },
+        {
+          "id": "c",
+          "text": "Manage fields"
+        },
+        {
+          "id": "d",
+          "text": "Expand"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Group by calculates aggregations across all events in a time window and has more window options. Aggregate updates a running aggregation every time a new event occurs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

@@ -131,10 +131,201 @@
         "b"
       ],
       "explanation": "Without a change column an incremental load can't tell which rows changed, and no watermark ever sees a deleted row. At 50,000 rows a full replace is cheap and always matches the source. Appending every row on each run creates duplicates.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q5",
+      "type": "single",
+      "stem": "A pipeline copies changed rows by using two Lookup activities: one returns the saved watermark (OldWM) and one returns MAX(LastModifytime) from the source (NewWM). Which WHERE clause should the copy source query use so that no row is missed or copied twice across runs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`WHERE LastModifytime >= OldWM AND LastModifytime < NewWM`"
+        },
+        {
+          "id": "b",
+          "text": "`WHERE LastModifytime > NewWM`"
+        },
+        {
+          "id": "c",
+          "text": "`WHERE LastModifytime >= OldWM`"
+        },
+        {
+          "id": "d",
+          "text": "`WHERE LastModifytime > OldWM AND LastModifytime <= NewWM`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The old watermark was already loaded, so it is excluded with >, and the new watermark is included with <= because it is the value saved for the next run. The >= / < version reloads rows equal to OldWM and leaves rows at NewWM for later, and a query with no upper bound can pick up rows that change during the copy and then reload them.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q6",
+      "type": "single",
+      "stem": "A Copy job copies a SQL table into a lakehouse incrementally every hour. Last night one run failed partway through. What happens on the next run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It skips the rows from the failed run and continues from the current time"
+        },
+        {
+          "id": "b",
+          "text": "It stops until someone resets the saved watermark by hand"
+        },
+        {
+          "id": "c",
+          "text": "It resumes from the end of the last successful run, so no data is lost"
+        },
+        {
+          "id": "d",
+          "text": "It starts again with a full copy of the whole table to rebuild the destination"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Copy job tracks the state of the last successful run and resumes from there. It doesn't fall back to a full copy, skip data, or need a manual reset.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q7",
+      "type": "single",
+      "stem": "You set up a Copy job from a SQL table that doesn't have CDC enabled but has a reliable ROWVERSION column. You only need inserts and updates. Which incremental method fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Incremental copy based on the last modified time of the source files"
+        },
+        {
+          "id": "b",
+          "text": "CDC-based incremental copy, after the job turns on CDC automatically"
+        },
+        {
+          "id": "c",
+          "text": "Full copy on every run with the overwrite update method"
+        },
+        {
+          "id": "d",
+          "text": "Watermark-based incremental copy on the ROWVERSION column"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Watermark-based incremental copy is the choice when CDC isn't available but a reliable incremental column such as ROWVERSION exists and only inserts and updates matter. CDC must already be enabled on the source, and a full copy rereads everything.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q8",
+      "type": "single",
+      "stem": "A Copy job must keep a lakehouse table in sync with a source database where rows are inserted, updated and deleted. CDC is enabled on the source. Which incremental method should you choose?",
+      "options": [
+        {
+          "id": "a",
+          "text": "CDC-based incremental copy, merging into the destination"
+        },
+        {
+          "id": "b",
+          "text": "Full copy with the append update method"
+        },
+        {
+          "id": "c",
+          "text": "Watermark-based incremental copy on an integer key column"
+        },
+        {
+          "id": "d",
+          "text": "Watermark-based incremental copy on a datetime column"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Only CDC-based incremental copy replicates deletes; when merged into the destination, rows are inserted, updated or deleted. A watermark column can't show that a row was removed, and full copy with append duplicates rows.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q9",
+      "type": "single",
+      "stem": "A notebook reloads one month of sales into a Delta table. If the job is rerun, it must replace only that month's rows, with no duplicates and no change to other months. Which write fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`df.write.mode(\"append\").option(\"mergeSchema\", \"true\").saveAsTable(\"sales\")`"
+        },
+        {
+          "id": "b",
+          "text": "`df.write.mode(\"overwrite\").saveAsTable(\"sales\")`"
+        },
+        {
+          "id": "c",
+          "text": "`df.write.mode(\"overwrite\").option(\"replaceWhere\", \"sale_date >= '2026-10-01' AND sale_date < '2026-11-01'\").saveAsTable(\"sales\")`"
+        },
+        {
+          "id": "d",
+          "text": "`df.write.mode(\"ignore\").saveAsTable(\"sales\")`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "replaceWhere atomically overwrites only the rows that match the predicate, so a rerun replaces the month instead of adding it again. Append duplicates the month on a rerun, a plain overwrite replaces the whole table, and ignore writes nothing if the table exists.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/delta/selective-overwrite",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q10",
+      "type": "multiple",
+      "stem": "Which two statements describe the default behavior of a Copy job? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Copy job doesn't delete any data in the destination"
+        },
+        {
+          "id": "b",
+          "text": "Destination tables are overwritten on every run unless you choose merge"
+        },
+        {
+          "id": "c",
+          "text": "Existing rows are merged on a key column unless you choose append"
+        },
+        {
+          "id": "d",
+          "text": "New data is appended to the destination, which keeps a full history"
+        },
+        {
+          "id": "e",
+          "text": "The first run of an incremental copy moves only rows changed since the job was created"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "By default a Copy job appends and doesn't delete destination data; merge, overwrite and SCD type 2 are options you choose. The first incremental run copies everything, and later runs copy only changes.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/what-is-copy-job",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

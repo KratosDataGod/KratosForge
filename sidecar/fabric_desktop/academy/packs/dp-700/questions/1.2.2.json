@@ -124,10 +124,201 @@
         "c"
       ],
       "explanation": "You start the project from the current schema, change it, build to check it and produce the package, and publish the package to the target.",
-      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q5",
+      "type": "single",
+      "stem": "You create a SQL database project for a Fabric warehouse in Visual Studio Code. Which target platform do you choose?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Azure Synapse Analytics dedicated SQL pool"
+        },
+        {
+          "id": "b",
+          "text": "SQL Server 2022"
+        },
+        {
+          "id": "c",
+          "text": "Synapse Data Warehouse in Microsoft Fabric"
+        },
+        {
+          "id": "d",
+          "text": "Azure SQL Database"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Warehouse projects use the Synapse Data Warehouse in Microsoft Fabric target platform, so the build validates against what a Fabric warehouse supports.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q6",
+      "type": "single",
+      "stem": "A developer removed a column from a table definition in the warehouse project. Deployment to production must stop if the change would drop a column that holds data. Which publish option do you set?",
+      "options": [
+        {
+          "id": "a",
+          "text": "BlockOnPossibleDataLoss to False"
+        },
+        {
+          "id": "b",
+          "text": "Include permissions in project to Yes"
+        },
+        {
+          "id": "c",
+          "text": "DropObjectsNotInSource to True"
+        },
+        {
+          "id": "d",
+          "text": "BlockOnPossibleDataLoss to True"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "BlockOnPossibleDataLoss prevents a deployment that risks losing data, such as dropping a column that contains data. DropObjectsNotInSource would do the opposite and remove objects.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q7",
+      "type": "single",
+      "stem": "Someone turned on DropObjectsNotInSource in the production publish profile. What is the risk?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Objects in the target warehouse that aren't in the project are dropped, with their data"
+        },
+        {
+          "id": "b",
+          "text": "Objects in the project that aren't in the target are skipped"
+        },
+        {
+          "id": "c",
+          "text": "The warehouse's permissions are copied into the project"
+        },
+        {
+          "id": "d",
+          "text": "The build no longer produces a .dacpac"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "DropObjectsNotInSource removes target objects that the project doesn't define, which can delete important tables and data in production.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q8",
+      "type": "single",
+      "stem": "You are deploying a warehouse project to a target for the first time and want to see exactly what T-SQL would run before anything changes. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Select Generate Script and review it"
+        },
+        {
+          "id": "b",
+          "text": "Commit the project to Git"
+        },
+        {
+          "id": "c",
+          "text": "Select Publish and roll back if needed"
+        },
+        {
+          "id": "d",
+          "text": "Run the project build twice"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Generate Script produces the T-SQL that would bring the target in line with the project without changing the target. Publish writes the changes.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q9",
+      "type": "single",
+      "stem": "Your team publishes the same warehouse project to dev, test and production with different options for each. How do you avoid re-entering the options every time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Edit the .dacpac file before each deployment"
+        },
+        {
+          "id": "b",
+          "text": "Create a separate project for each environment"
+        },
+        {
+          "id": "c",
+          "text": "Store the options as deployment rules"
+        },
+        {
+          "id": "d",
+          "text": "Save a publish profile (.publish.xml) for each environment and reuse it"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Publish options can be saved to a publish profile and reused, with different profiles for different environments.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q10",
+      "type": "multiple",
+      "stem": "Which two prerequisites does a developer need to build and publish a warehouse database project from Visual Studio Code? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Contributor or higher permissions on the workspace that holds the warehouse"
+        },
+        {
+          "id": "b",
+          "text": "A deployment pipeline with three stages"
+        },
+        {
+          "id": "c",
+          "text": "A custom Spark pool in the workspace"
+        },
+        {
+          "id": "d",
+          "text": "The workspace connected to GitHub"
+        },
+        {
+          "id": "e",
+          "text": "The .NET SDK installed"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "The .NET SDK builds and publishes the project, and the developer needs Contributor or higher access to the warehouse. Spark pools, deployment pipelines and Git aren't required.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

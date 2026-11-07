@@ -133,6 +133,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.2-q5",
+      "type": "single",
+      "stem": "A Product dimension gets its surrogate keys from an automatically generated column. A developer suggests truncating and fully reloading the dimension every night to keep the code simple. Why is this a bad idea?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Surrogate keys can't be generated again once the table has been truncated"
+        },
+        {
+          "id": "b",
+          "text": "A full reload always takes longer than an SCD type 1 update of every row"
+        },
+        {
+          "id": "c",
+          "text": "TRUNCATE TABLE isn't supported on dimension tables in a Fabric warehouse"
+        },
+        {
+          "id": "d",
+          "text": "The reload would give members new keys and invalidate the keys already stored in fact tables"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Truncating and reloading a dimension with generated surrogate keys invalidates the fact data that references them, and SCD type 2 history might not be rebuildable. TRUNCATE is supported (it's recommended for staging tables).",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.2-q6",
+      "type": "single",
+      "stem": "A Customer dimension keeps SCD type 2 history. When the fact load looks up the customer's surrogate key for a new sale, which row should it use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The current version of the customer"
+        },
+        {
+          "id": "b",
+          "text": "The version with the highest surrogate key whatever its current flag"
+        },
+        {
+          "id": "c",
+          "text": "Any version, because all versions share the same surrogate key"
+        },
+        {
+          "id": "d",
+          "text": "The first version ever inserted for the customer"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "For an SCD type 2 dimension, the fact load retrieves the surrogate key of the current version. Versions have different surrogate keys, because the natural key repeats across versions.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.2-q7",
+      "type": "single",
+      "stem": "You're building a Date dimension. How should its surrogate key be stored?",
+      "options": [
+        {
+          "id": "a",
+          "text": "As an IDENTITY integer that starts at 1 for the earliest date"
+        },
+        {
+          "id": "b",
+          "text": "As a date value equal to the natural key"
+        },
+        {
+          "id": "c",
+          "text": "As an int in YYYYMMDD format, for example 20250406"
+        },
+        {
+          "id": "d",
+          "text": "As a string in DD/MM/YYYY format"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The guidance is a YYYYMMDD int surrogate key: compact, sorted numerically and ISO 8601 conformant. The date data type is for the natural key, and an IDENTITY key would give the key no meaning, which date keys are the exception to.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.2-q8",
+      "type": "single",
+      "stem": "A product was discontinued and removed from the source system, but past sales still reference it. What should the dimension load do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete the product row and its fact rows together"
+        },
+        {
+          "id": "b",
+          "text": "Insert a new SCD type 2 version with blank attributes"
+        },
+        {
+          "id": "c",
+          "text": "Mark the product as a soft delete so that it's no longer active"
+        },
+        {
+          "id": "d",
+          "text": "Delete the product row so that the dimension matches the source"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Source deletions shouldn't be synchronized to the dimension; record them as soft deletes and filter them out in reports. Hard deletes break facts that reference the member, and an SCD version with blank attributes isn't a deletion.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.2-q9",
+      "type": "single",
+      "stem": "Sales facts carry several small, low-cardinality attributes: IsGift, OrderStatus and PaymentType. You want them out of the fact table without creating three tiny dimensions. What should you create?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A junk dimension that stores the combinations of these values with a surrogate key"
+        },
+        {
+          "id": "b",
+          "text": "A degenerate dimension for each attribute inside the fact table"
+        },
+        {
+          "id": "c",
+          "text": "A role-playing dimension that the fact table references three times"
+        },
+        {
+          "id": "d",
+          "text": "A snowflake dimension with one normalized table per attribute"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A junk dimension consolidates many small, low-cardinality dimensions such as flags and status values into one table. A degenerate dimension is something like an order number at fact grain, and role-playing reuses one dimension in several roles.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.2-q10",
+      "type": "multiple",
+      "stem": "A customer's tracked attribute changes in a dimension that applies SCD type 2. Which two actions should the dimension load take? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Insert a new row whose start date equals that end date and whose current flag is TRUE"
+        },
+        {
+          "id": "b",
+          "text": "Update the changed attribute on the current row and keep its current flag TRUE"
+        },
+        {
+          "id": "c",
+          "text": "Delete the current row and insert the new values under the same surrogate key"
+        },
+        {
+          "id": "d",
+          "text": "Set the new row's end date to the ETL processing date and its current flag to FALSE"
+        },
+        {
+          "id": "e",
+          "text": "Set the current row's end date to the ETL processing date and its current flag to FALSE"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "SCD type 2 expires the existing version and inserts a new current version. Updating in place is SCD type 1, and reusing the surrogate key or expiring the new row breaks the history.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

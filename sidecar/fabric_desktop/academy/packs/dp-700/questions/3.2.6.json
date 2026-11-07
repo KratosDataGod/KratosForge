@@ -125,6 +125,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.6-q5",
+      "type": "single",
+      "stem": "Connections to a Fabric warehouse that worked yesterday now fail, with no change to permissions, firewall or network. The error looks transient. What is the recommended first approach?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Retry the command in a tight loop immediately"
+        },
+        {
+          "id": "b",
+          "text": "Wait 5 to 10 minutes, open a new connection, then retry the command"
+        },
+        {
+          "id": "c",
+          "text": "Recreate the warehouse from a backup"
+        },
+        {
+          "id": "d",
+          "text": "Disable V-Order on the warehouse"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "For transient errors, the guidance is not to retry immediately but to wait 5 to 10 minutes, establish a new connection and retry; most reconfiguration events finish in under 60 seconds.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.6-q6",
+      "type": "single",
+      "stem": "A large warehouse query fails because tempdb runs out of space. Which change to the query is recommended?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reduce the number of GROUP BY and ORDER BY columns if possible"
+        },
+        {
+          "id": "b",
+          "text": "Turn off result set caching"
+        },
+        {
+          "id": "c",
+          "text": "Wrap the query in an explicit transaction"
+        },
+        {
+          "id": "d",
+          "text": "Add more columns to the SELECT list"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Queries can fail when tempdb runs out of space; the steps include updating statistics, reducing GROUP BY and ORDER BY columns, and rerunning when nothing else runs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.6-q7",
+      "type": "single",
+      "stem": "A SELECT in a warehouse runs for a long time and then fails with no data returned to the client. You want to find out whether the backend query or the client side is the problem. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run UPDATE STATISTICS on every table"
+        },
+        {
+          "id": "b",
+          "text": "Run the same SELECT as a CTAS into another table in the same warehouse"
+        },
+        {
+          "id": "c",
+          "text": "Add OPTION (MAXDOP 1) to the query"
+        },
+        {
+          "id": "d",
+          "text": "Rerun the query with SET NOCOUNT ON"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A CTAS sends the result to a table instead of the client. If it succeeds and fills the table, the original failure is likely caused by the front end or the client.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.6-q8",
+      "type": "single",
+      "stem": "Before you open a support ticket for a failed warehouse query, which identifiers should you provide that are returned as messages when the query completes or fails?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Statement ID and the Distributed request ID"
+        },
+        {
+          "id": "b",
+          "text": "The Request ID and the Session ID of the last dataflow refresh"
+        },
+        {
+          "id": "c",
+          "text": "The OperationId from .show ingestion failures"
+        },
+        {
+          "id": "d",
+          "text": "The Spark application ID and the Livy session ID"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The guidance asks for the warehouse's workspace ID, the Statement ID and Distributed request ID, the exact error text and the time. The other IDs belong to Spark, dataflows and KQL.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.6-q9",
+      "type": "multiple",
+      "stem": "Which two situations can cause a write-write (update) conflict in a Fabric warehouse? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A session reads a view while another session creates statistics"
+        },
+        {
+          "id": "b",
+          "text": "One transaction DELETEs from a table while another UPDATEs the same table"
+        },
+        {
+          "id": "c",
+          "text": "Two transactions INSERT into two different tables"
+        },
+        {
+          "id": "d",
+          "text": "Two sessions run SELECT queries on the same table at the same time"
+        },
+        {
+          "id": "e",
+          "text": "Two transactions MERGE into the same table at the same time"
+        }
+      ],
+      "answer": [
+        "b",
+        "e"
+      ],
+      "explanation": "Conflicts can happen when two transactions try to UPDATE, DELETE, MERGE or TRUNCATE the same table. Concurrent reads and writes to different tables don't cause them.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/troubleshoot-fabric-data-warehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.6-q10",
+      "type": "single",
+      "stem": "This statement fails in a Fabric warehouse: `CREATE TABLE dbo.Orders (OrderId bigint IDENTITY, OrderDate date) WITH (CLUSTER BY (OrderId));` Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "CLUSTER BY only works with SELECT INTO"
+        },
+        {
+          "id": "b",
+          "text": "date columns aren't allowed in a table that uses data clustering"
+        },
+        {
+          "id": "c",
+          "text": "IDENTITY columns can't be used with CLUSTER BY"
+        },
+        {
+          "id": "d",
+          "text": "CLUSTER BY needs at least two columns"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "An IDENTITY column can't be a clustering column, although the table can still be clustered on other columns. CLUSTER BY needs one to four columns, and SELECT INTO with clustering isn't supported.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

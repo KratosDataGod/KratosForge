@@ -120,11 +120,202 @@
       "answer": [
         "b"
       ],
-      "explanation": "OneLake keeps deleted files for a retention period under soft delete, and they can be restored with the storage APIs or tools such as Azure Storage Explorer.",
-      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-disaster-recovery",
+      "explanation": "OneLake soft delete keeps deleted files for seven days. You can restore them with Azure Storage Explorer, Azure PowerShell or the Azure Storage REST APIs if you have write access to the files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/soft-delete",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q5",
+      "type": "single",
+      "stem": "Shortcut caching is on for a workspace with S3 shortcuts. Repeat reads of one 3 GB Parquet file still go out to S3. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Caching only applies after the workspace is assigned to a domain"
+        },
+        {
+          "id": "b",
+          "text": "The retention period is shorter than one day"
+        },
+        {
+          "id": "c",
+          "text": "Caching only works for files in the Tables folder"
+        },
+        {
+          "id": "d",
+          "text": "Individual files greater than 1 GB aren't cached"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Shortcut caching skips individual files larger than 1 GB, so they're always read from the source.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q6",
+      "type": "single",
+      "stem": "After a source system reloaded its files in Google Cloud Storage, you want every cached copy in the workspace thrown away at once. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete and recreate each shortcut"
+        },
+        {
+          "id": "b",
+          "text": "Lower the retention period to one day and wait"
+        },
+        {
+          "id": "c",
+          "text": "Select Reset cache in the OneLake tab of the workspace settings"
+        },
+        {
+          "id": "d",
+          "text": "Turn on soft delete for the lakehouse"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Reset cache removes all files from the workspace's shortcut cache immediately. Lowering the retention period only purges files over time.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q7",
+      "type": "multiple",
+      "stem": "A workspace turns on shortcut caching. Which two shortcut sources can have their files cached? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dataverse"
+        },
+        {
+          "id": "b",
+          "text": "Azure Data Lake Storage Gen2"
+        },
+        {
+          "id": "c",
+          "text": "Google Cloud Storage"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse in another Fabric workspace"
+        },
+        {
+          "id": "e",
+          "text": "Amazon S3"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "Shortcut caching supports Google Cloud Storage, S3, S3 compatible and on-premises data gateway shortcuts. ADLS Gen2, internal OneLake and Dataverse shortcuts aren't in the list.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q8",
+      "type": "single",
+      "stem": "No one in your organization can start the OneLake file explorer app. Which setting is most likely turned off?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Users can sync data in OneLake with the OneLake File Explorer app tenant setting"
+        },
+        {
+          "id": "b",
+          "text": "The workspace's shortcut caching setting"
+        },
+        {
+          "id": "c",
+          "text": "The workspace's default domain"
+        },
+        {
+          "id": "d",
+          "text": "High concurrency mode in the workspace's Spark settings"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "When that tenant setting is off, the app can't start for anyone in the organization. The other settings don't control the app.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-file-explorer",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q9",
+      "type": "single",
+      "stem": "A pipeline wrote new files to a lakehouse folder. A user who browses the folder in OneLake file explorer doesn't see them. What should the user do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Right-click the folder and select OneLake > Sync from OneLake"
+        },
+        {
+          "id": "b",
+          "text": "Ask a workspace admin to reset the shortcut cache"
+        },
+        {
+          "id": "c",
+          "text": "Wait for the nightly full download"
+        },
+        {
+          "id": "d",
+          "text": "Reinstall OneLake file explorer"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Changes made outside File Explorer aren't synced automatically. Sync from OneLake pulls the latest files and folders.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-file-explorer",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q10",
+      "type": "single",
+      "stem": "A lakehouse has a shortcut to a folder in another lakehouse. An engineer deletes the shortcut itself. What happens to the data in the target folder?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It is moved to the lakehouse's recycle bin"
+        },
+        {
+          "id": "b",
+          "text": "It is deleted too"
+        },
+        {
+          "id": "c",
+          "text": "It stays unchanged; only the shortcut object is deleted"
+        },
+        {
+          "id": "d",
+          "text": "It becomes read-only"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Shortcuts don't cascade deletes. Deleting the shortcut removes only the shortcut, though deleting a file inside a shortcut does delete it in the target if you have permission there.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

@@ -1,5 +1,6 @@
 """GOV-001: the governance policy registry on the platform (central/policy.py), on the SQLite platform."""
 
+import datetime as dt
 import json
 import random
 import sqlite3
@@ -479,3 +480,21 @@ def test_policy_changes_are_audited_and_reads_are_not():
     for method in ("governance_overview", "governance_policy", "governance_applicability",
                    "governance_resolve"):
         assert not audit.audited(method)
+
+
+def test_policy_history_keeps_order_when_the_clock_does_not_move(platform, monkeypatch):
+    # Windows clocks can return the same time for events written back to back.
+    frozen = dt.datetime(2026, 11, 7, 4, 0, tzinfo=dt.timezone.utc)
+
+    class Frozen(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    published(platform, NAMING)
+    monkeypatch.setattr(policy.dt, "datetime", Frozen)
+    platform.call("save_assignment", policy="table-names", scope="enterprise")
+    platform.call("set_policy_status", id="table-names", status="deprecated", note="replaced by naming v2")
+    platform.call("set_policy_status", id="table-names", status="retired", note="no longer needed")
+    history = platform.call("get_policy", id="table-names")["history"]
+    assert [e["action"] for e in history][:3] == ["retired", "deprecated", "assigned"]

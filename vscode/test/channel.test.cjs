@@ -173,3 +173,124 @@ test("a proof isn't remembered: a program that takes the port later gets no toke
   server.close();
   assert.deepStrictEqual(tokens, []);
 });
+
+test("an app that speaks a newer channel API gets no token, and the window says which to update", async () => {
+  const fake = fs.mkdtempSync(path.join(os.tmpdir(), "kf-api-"));
+  const crypto = require("node:crypto");
+  const http = require("node:http");
+  const { API_VERSION } = require("../out/channel.js");
+  const hello = "the-real-hello";
+  let answer = "newer";
+  const asked = [], tokens = [];
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    if (url.pathname !== "/v1/hello") {
+      tokens.push(req.headers.authorization);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ ok: true, result: {} }));
+    }
+    asked.push(url.searchParams.get("api"));
+    if (answer === "too_old") {
+      res.writeHead(426, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ ok: false, error: { code: "extension_too_old", message: "update" } }));
+    }
+    const proof = crypto.createHmac("sha256", hello).update(url.searchParams.get("nonce")).digest("hex");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, result: { proof, api: answer === "newer" ? API_VERSION + 1 : "1" } }));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} ${hello}`);
+  const ch = new Channel(fake);
+  ch.token = "kfp_secret";
+  try {
+    await assert.rejects(ch.status(), (err) => err.code === "app_too_new" && /extension/.test(err.message));
+    answer = "too_old";
+    await assert.rejects(ch.status(), (err) => err.code === "extension_too_old" && /kratosforge\.vsix/.test(err.message));
+    answer = "garbled";
+    await assert.rejects(ch.status(), (err) => err.code === "bad_reply");
+  } finally {
+    server.close();
+  }
+  assert.deepStrictEqual(tokens, []);
+  assert.deepStrictEqual(asked, [String(API_VERSION), String(API_VERSION), String(API_VERSION)]);
+});
+
+// A fake app that proves itself like the real one, for what the real engine can't be made to do on cue.
+async function fakeApp(handle) {
+  const crypto = require("node:crypto");
+  const http = require("node:http");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kf-fake-"));
+  const hello = "the-real-hello";
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    const reply = (status, payload) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(payload));
+    };
+    if (handle(url, req, res, reply)) return;
+    if (url.pathname === "/v1/hello") {
+      return reply(200, { ok: true, result: { proof: crypto.createHmac("sha256", hello).update(url.searchParams.get("nonce")).digest("hex"), api: 1 } });
+    }
+    reply(200, { ok: true, result: { app: "KratosForge" } });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  fs.writeFileSync(path.join(dir, "editor-port"), `${server.address().port} ${hello}`);
+  const ch = new Channel(dir);
+  ch.token = "kfp_t";
+  return { ch, close: () => new Promise((r) => server.close(r)) };
+}
+
+test("a busy app is asked again a few times, then the window says it's busy", async () => {
+  let busy = 3;
+  const seen = [];
+  const busyReply = (reply) => reply(503, { ok: false, error: { code: "busy", message: "x" } });
+  const app = await fakeApp((url, req, res, reply) => {
+    seen.push(url.pathname);
+    if (busy > 0) { busy--; busyReply(reply); return true; }
+    return false;
+  });
+  try {
+    assert.strictEqual((await app.ch.status()).app, "KratosForge"); // 3 turned away, the 4th served
+    assert.ok(seen.filter((p) => p === "/v1/hello").length >= 4);
+    busy = 100;
+    await assert.rejects(app.ch.status(), (err) => err.code === "busy" && /too many/.test(err.message));
+  } finally {
+    await app.close();
+  }
+});
+
+test("a cell whose session ends mid-run says so instead of ending ok", async () => {
+  let polls = 0;
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      reply(200, { ok: true, result: { status: "running", version: 3, outputs: [{ type: "stream", text: "half" }] } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") {
+      polls++;
+      reply(200, { ok: true, result: polls === 1 ? { status: "running", version: 4, outputs: [] }
+        : { status: "idle", version: 0, outputs: [] } });
+      return true;
+    }
+    return false;
+  });
+  try {
+    const seen = [];
+    await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", "x = 1", (s) => seen.push(s.status)), (err) => err.code === "restarted");
+    assert.deepStrictEqual(seen, ["running", "running"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a connection the app drops mid-call is reported as lost, not as a raw socket error", async () => {
+  const app = await fakeApp((url, req) => {
+    if (url.pathname === "/v1/status") { req.socket.destroy(); return true; }
+    return false;
+  });
+  try {
+    await assert.rejects(app.ch.status(), (err) => err.code === "connection_lost" && /Run the cell again/.test(err.message));
+  } finally {
+    await app.close();
+  }
+});

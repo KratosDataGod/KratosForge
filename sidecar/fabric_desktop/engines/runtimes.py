@@ -102,7 +102,7 @@ class LockedRuntimes:
 
     def install_command(self, line: str, index_url: str = "") -> list[str]:
         cmd = [self.python, "-I", "-m", "pip", "install", "--isolated", "--require-hashes", "--only-binary=:all:",
-               "--no-deps", "--upgrade", "--no-input", "--disable-pip-version-check",
+               "--no-deps", "--upgrade", "--no-input", "--disable-pip-version-check", "--retries", "2",
                "--target", str(self.folder(line)), "-r", str(self.lock(line))]
         if index_url:
             if not re.fullmatch(r"https://[^\s@]+", index_url):
@@ -112,7 +112,7 @@ class LockedRuntimes:
 
     def install(self, line: str, base: Mapping[str, str] | None = None) -> dict[str, Any]:
         """Download the packages for ``line``, hash-checked. Takes minutes."""
-        from .. import app_settings, redact
+        from .. import app_settings, net_trust, redact
         if app_settings.value(self.allow_key) is False:
             raise PermissionError(f"Your organization doesn't allow installing {self.label} from KratosForge.")
         command = self.install_command(line, str(app_settings.value(self.index_key) or ""))
@@ -124,8 +124,12 @@ class LockedRuntimes:
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
         except subprocess.TimeoutExpired:
             return {"ok": False, "log": f"pip didn't finish within {INSTALL_SECONDS // 60} minutes, so it was stopped."}
-        return {"ok": done.returncode == 0, "version": self.installed(line),
-                "log": redact.secrets(((done.stdout or "") + (done.stderr or ""))[-20000:])}
+        log = (done.stdout or "") + (done.stderr or "")
+        if done.returncode != 0 and (offline := net_trust.pip_unreachable(
+                log, f"If your network blocks PyPI, ask IT to allow it or to name a package index of its own "
+                     f"({self.index_key} in the policy file).")):
+            log += "\n" + offline
+        return {"ok": done.returncode == 0, "version": self.installed(line), "log": redact.secrets(log[-20000:])}
 
 
 def scrub_env(base: Mapping[str, str] | None, prefixes: tuple[str, ...]) -> dict[str, str]:

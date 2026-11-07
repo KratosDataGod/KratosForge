@@ -24,7 +24,7 @@ from typing import Any, Callable, ContextManager
 
 from .. import redact, sqlitefile
 from . import deliver
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
+from .notify import DEFAULT_ROUTE, Outbox, Quiet, failure, flush
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
          "product.deprecated", "incident.impact", "product.changed", "exception.ending")
@@ -249,28 +249,14 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
     """Post what these (validated) events need, after anything still waiting. Never raises.
 
     Returns counts plus one result per event: ``sent``, ``queued`` (Teams unreachable, retried
-    on the next call), ``held`` (quiet hours), or ``skipped`` with the reason."""
+    on the next call), ``held`` (quiet hours), or ``skipped`` with the reason. ``dropped``,
+    ``waiting``, ``error`` and a failing route's rest between tries are as for notify.send."""
     now = now or dt.datetime.fromtimestamp(outbox.clock()).astimezone()
-    t = outbox.clock()
     sent = queued = held = 0
-    down: dict[str, str] = {}
-    for item in outbox.pending():
-        if t - item["created"] > KEEP_TRYING:
-            outbox.done(item["id"])
-            continue
-        route = routing.by_name(item["route"]) or routing.by_name(DEFAULT_ROUTE)
-        if item["not_before"] > t or route is None or not route.url or route.name in down:
-            continue
-        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(item["created"]))
-        first = f"From {when}; it couldn't be sent then." if item["attempts"] else f"Held during quiet hours since {when}."
-        try:
-            post(route.url, f"Delayed: {item['title']}" if item["attempts"] else item["title"], [first] + item["lines"])
-        except Exception as exc:  # noqa: BLE001 - still unreachable: keep it
-            down[route.name] = failure(exc)
-            outbox.failed(item["id"], down[route.name])
-            continue
-        outbox.done(item["id"])
-        sent += 1
+    dropped = outbox.trim()  # never sent: the caller logs and counts them
+    down = outbox.resting({r.name: r.url for r in routing.routes})
+    failed: dict[str, str] = {}
+    sent += flush(outbox, routing.by_name, post, down, failed, "From {when}; it couldn't be sent then.")
     results: list[dict[str, Any]] = []
     for event in events:
         why = decide(event, ledger)
@@ -293,9 +279,11 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                 try:
                     post(r.url, title, lines)
                     sent += 1
+                    outbox.route_ok(r.name)
                     continue
                 except Exception as exc:  # noqa: BLE001
-                    down[r.name] = failure(exc)
+                    down[r.name] = failed[r.name] = failure(exc)
+                    outbox.route_failed(r.name, r.url, down[r.name])
             outbox.add(title, lines, down[r.name], route=r.name)
             queued += 1
             outcome = "queued" if outcome == "sent" else outcome
@@ -313,5 +301,5 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                 ledger.forget(event["dedupe"])  # the next fix of the next break is news again
                 ledger.forget(opened)
         results.append({"dedupe": event["dedupe"], "result": outcome, "routes": [r.name for r in routes]})
-    return {"sent": sent, "queued": queued, "held": held, "events": results,
-            "error": next(iter(down.values()), None)}
+    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "waiting": outbox.count(),
+            "events": results, "error": next(iter(failed.values()), None)}

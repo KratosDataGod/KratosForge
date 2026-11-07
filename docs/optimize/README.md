@@ -66,6 +66,8 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 - When groups mustn't see each other's diagnostics, give each group its own optimization lakehouse in a workspace only they can reach.
 - Access tokens are never written to the lakehouse.
 
+What each table holds, what in it is identifying, what isn't enforced yet (such as retention) and what hasn't been tried on a live tenant are in [Optimize: security and retention](security.md).
+
 ## How several installations write safely
 
 - **Insert only.** No installation updates or deletes a shared row. A change, such as a recommendation being accepted, is a new row, and the latest row wins.
@@ -92,6 +94,18 @@ Sharing runs normally reads which runs the lakehouse already has. With no networ
 - **Bounded.** At most 200 items per lakehouse, none older than 30 days. Past either, the oldest go. Every dropped item is counted.
 - **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.
 - **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. Optimize shows it as one line under the lakehouse name: everything sent, results waiting on this PC with why, or how many were dropped, with **Details** for the figures. The line only reads; it never sends.
+
+## What syncing costs
+
+Each time Optimize writes results to the central lakehouse, it records what that write took, as three **Measured** rows in `fdopt_measurements`, all with the same `run_id` and with `workload_key` `optimize.sync.analysis` or `optimize.sync.local_executions`:
+
+| Metric | Unit | What it is |
+| --- | --- | --- |
+| `optimize_sync_seconds` | seconds | How long the write took on this PC |
+| `optimize_sync_rows` | count | Rows handed to the lakehouse, including rows it already had (it adds those once) |
+| `optimize_sync_commits` | count | Delta commits made |
+
+The commit that writes these three rows isn't counted in them. Bytes written aren't measured yet. OneLake reads and writes use capacity, but no CU figure is given for them until that use is measured. If these rows can't be written, the results still count as sent.
 
 ## Findings and recommendations
 

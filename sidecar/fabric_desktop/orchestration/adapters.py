@@ -76,7 +76,7 @@ class LocalAdapter(StaticAdapter):
     can_execute = True
     container = False   # containers don't take one of the run's parallel slots
 
-    def execute(self, activity: Activity, ctx: ActivityContext) -> Any:  # type: ignore[override]
+    def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
         raise NotImplementedError
 
 

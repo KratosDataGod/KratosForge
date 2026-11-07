@@ -85,6 +85,7 @@ nav = [
     { "Risk check before a run" = "finops/risk-check.md" },
     { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
+    { "Optimize security and retention" = "optimize/security.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Semantic model best practices" = "semantic-model-best-practices.md" },
     { "Source control" = "source-control.md" },

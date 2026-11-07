@@ -63,7 +63,7 @@ Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `fi
 
 ## 4. PR sequence and status
 
-Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
+Status checked against `main` on 2026-11-07. Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
 
 | PR | Content | Status |
 | --- | --- | --- |
@@ -78,13 +78,13 @@ Status checked against `main` at 7f8badf (2026-11-06). Merged PRs are listed so 
 | OPT-010 | Opportunities: Effort column and Dismiss for this PC's findings (approved action-first mockup) | Merged (#1834, #1876) |
 | OPT-011 | Estate X-ray: an action for every finding, and empty, DataflowsStaging and FUAM lakehouses handled | Planned, mockup first (new guides on the page) |
 | OPT-007 | Multiple lakehouses: the rest | Planned |
-| OPT-003 (part 2) | Local execution: metadata runs and measured proof runs (engine) | In review; the Share button waits for a mockup |
+| OPT-003 (part 2) | Local execution: metadata runs and measured proof runs (engine) | Merged (#2040); the Share button waits for a mockup |
 | OPT-004 | Measurements and savings rows | Planned |
-| OPT-012 | Optimize motion events | Planned, with OPT-004 |
+| OPT-012 | Optimize motion events | Merged (#2147); the savings effect waits for Measured savings |
 | OPT-013 | Local vs Fabric advisor screen (FinOps advisor) | Planned, mockup first |
 | OPT-005 | Dashboard and reports | Planned, mockup first |
-| OPT-008 | Security and retention | Planned |
-| OPT-009 | Optimize's own overhead | Planned |
+| OPT-008 | Security and retention | Part 1 merged (#2147); the retention action needs a mockup first |
+| OPT-009 | Optimize's own overhead | In review (seconds, rows and commits; bytes not yet) |
 
 OPT-010 to 013 were found missing in the closed-thread audit of 2026-11-03: Chris asked for them (unit testing items 9 and 10 on 2026-10-18, the action-first go on 2026-10-26, the FinOps brief's FINOPS-005 screen, the motion brief's Optimization experience) and the threads that held them closed without building them.
 
@@ -110,7 +110,7 @@ Chris's unit testing (2026-10-18, items 9 and 10): every finding gets an in-app 
 - Every finding kind (small files, not changing, needs vacuum, empty, unidentified folders, access, cost, adopt) has an action or a "How to fix this" guide; a test fails if a kind has neither.
 
 ### OPT-012: Optimize motion events
-Optimize has no events in the motion system (`FORGE_EVENTS` in `app/ui/motion.js`). Add `optimize.analysis.finished`, `optimize.recommendation.applied` and `optimize.savings.verified`, on finished state changes only, using the existing effects and settings. Per the motion brief, savings figures are never animated in a way that makes them look bigger, and only a Measured result gets the verified effect.
+Built in part: `optimize.analysis.finished` and `optimize.recommendation.applied`; `optimize.savings.verified` waits for Measured savings rows (OPT-004) and the screen that shows them. Optimize had no events in the motion system (`FORGE_EVENTS` in `app/ui/motion.js`). Add `optimize.analysis.finished`, `optimize.recommendation.applied` and `optimize.savings.verified`, on finished state changes only, using the existing effects and settings. Per the motion brief, savings figures are never animated in a way that makes them look bigger, and only a Measured result gets the verified effect.
 
 ### OPT-013: Local vs Fabric advisor screen
 FINOPS-005's placement advice (RECOMMEND LOCAL, RECOMMEND FABRIC, EITHER, INSUFFICIENT INFORMATION) exists only for AI tools (`fabric_desktop_placement_advice`); PB-017 was accepted with "has no screen" as its limitation. Show it next to the notebook's Runs on control, with its evidence one click away, never switching the choice for the person. Mockup first.
@@ -132,10 +132,12 @@ Register, switch and disconnect are in (#186). Left: an explicit **Upgrade** for
 Overview totals read from the shared tables, grouped by classification, with each figure's evidence one click away. An optional Power BI model over the `fdopt_` tables is a separate decision for Chris. Mockup first.
 
 ### OPT-008: Security and retention
+- Built: `docs/optimize/security.md`, and a recommendation's reason is shared with secrets removed.
 - `docs/optimize/security.md`: who can read what, what each table holds, what counts as identifying (table and workspace names), the read-only reporting role (ReadAll), and what's verified on a tenant versus not.
 - Retention: `retention_days` exists as a setting but nothing enforces it. Deleting shared rows is destructive, so retention will be an administrator action with a dry run that lists what would go, never automatic, and recorded in `fdopt_audit`.
 
 ### OPT-009: Optimize's own overhead
+Built, except bytes: seconds, rows and commits per sync, using `measurement.py`'s new `count` unit. Bytes written aren't measured yet.
 Each sync records what it cost on the PC and in OneLake: rows, commits, bytes written and seconds taken, as Measured local figures in `fdopt_measurements`. OneLake reads and writes use capacity, so the docs say that, but no CU figure is given for them until it's measured.
 
 ### Savings claims

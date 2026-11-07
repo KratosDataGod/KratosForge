@@ -56,7 +56,8 @@ def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     assert status["/"] == "runs"  # it stops on a zero divisor, as in Snowflake (SFX-010)
     assert status["TYPEOF"] == "differs" and status["LATERAL FLATTEN"] == "differs"  # SFD-007, SFD-005
     assert status["CREATE STREAM"] == "refused" and status["PARSE_URL"] == "refused"
-    assert status["SOUNDEX_P123"] == "fails"  # DuckDB has no SOUNDEX_P123 and nothing rewrites it
+    assert status["TO_DECFLOAT"] == "fails"  # DuckDB has no TO_DECFLOAT and nothing rewrites it
+    assert status["SOUNDEX_P123"] == "runs" and status["PARSE_XML"] == "refused"  # SFX-015, SFN-017
     assert status["HLL"] == "runs" and status["HLL_ACCUMULATE"] == "refused"  # SFX-014, SFN-016
     assert status["MONTH"] == "not checked"  # runs, but no check compares its value yet
 

@@ -21,79 +21,79 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 136 |
+| Runs | 157 |
 | Differs | 21 |
-| Refused | 69 |
-| Fails | 41 |
-| Not checked | 228 |
+| Refused | 77 |
+| Fails | 13 |
+| Not checked | 227 |
 | **All** | **495** |
 
 ## String and binary
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `ASCII` | Runs |  | 1 value check |
-| `BIT_LENGTH` | Not checked |  |  |
-| `CHR` | Runs |  | 1 value check |
-| `CHAR` | Not checked |  |  |
-| `CONCAT` | Runs |  | 1 value check |
-| `CONCAT_WS` | Runs |  | 1 value check |
-| `INSERT` | Runs |  | 1 value check |
-| `LENGTH` | Runs |  | 1 value check |
-| `LEN` | Runs |  | 1 value check |
-| `LPAD` | Runs |  | 1 value check |
-| `LTRIM` | Runs |  | 1 value check |
-| `OCTET_LENGTH` | Fails | `SELECT OCTET_LENGTH('abc')` | Binder Error: Could not choose a best candidate function for the function call "octet_length(STRING_LITERAL)". In order to select one, please add explicit type  |
-| `PARSE_IP` | Refused |  | Not rewritten for DuckDB. PARSE_IP is not supported in DuckDB. |
-| `PARSE_URL` | Refused |  | Not rewritten for DuckDB. PARSE_URL is not supported in DuckDB. |
-| `REPEAT` | Runs |  | 1 value check |
-| `REVERSE` | Runs |  | 1 value check |
-| `RPAD` | Not checked |  |  |
-| `RTRIM` | Not checked |  |  |
-| `RTRIMMED_LENGTH` | Not checked |  |  |
-| `SOUNDEX` | Runs |  | 6 value checks |
-| `SOUNDEX_P123` | Fails |  | DuckDB has no SOUNDEX_P123, and the rules don't rewrite it |
-| `SPACE` | Runs |  | 1 value check |
-| `SPLIT` | Runs |  | 1 value check |
-| `SPLIT_PART` | Runs |  | 3 value checks |
-| `STRTOK` | Runs |  | 1 value check |
-| `STRTOK_TO_ARRAY` | Not checked |  |  |
-| `TRANSLATE` | Runs |  | 1 value check |
-| `TRIM` | Runs |  | 1 value check |
-| `UNICODE` | Not checked |  |  |
-| `UUID_STRING` | Not checked |  |  |
-| `SEARCH` | Fails |  | DuckDB has no SEARCH, and the rules don't rewrite it |
-| `SEARCH_IP` | Fails |  | DuckDB has no SEARCH_IP, and the rules don't rewrite it |
-| `INITCAP` | Runs |  | 1 value check |
-| `LOWER` | Not checked |  |  |
-| `UPPER` | Runs |  | 1 value check |
-| `CHARINDEX` | Runs |  | 1 value check |
-| `CONTAINS` | Runs |  | 1 value check |
-| `EDITDISTANCE` | Runs |  | 1 value check |
-| `ENDSWITH` | Runs |  | 1 value check |
-| `JAROWINKLER_SIMILARITY` | Not checked |  |  |
-| `LEFT` | Runs |  | 1 value check |
-| `POSITION` | Runs |  | 1 value check |
-| `REPLACE` | Runs |  | 1 value check |
-| `RIGHT` | Runs |  | 1 value check |
-| `STARTSWITH` | Runs |  | 1 value check |
-| `SUBSTR` | Runs |  | 1 value check |
-| `SUBSTRING` | Not checked |  |  |
-| `COMPRESS` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the COMPRESS() function. |
-| `DECOMPRESS_BINARY` | Refused |  | Not rewritten for DuckDB. DECOMPRESS_BINARY is not supported in DuckDB. |
-| `DECOMPRESS_STRING` | Refused |  | Not rewritten for DuckDB. DECOMPRESS_STRING is not supported in DuckDB. |
-| `BASE64_DECODE_BINARY` | Not checked |  |  |
-| `BASE64_DECODE_STRING` | Not checked |  |  |
-| `BASE64_ENCODE` | Not checked |  |  |
-| `HEX_DECODE_BINARY` | Not checked |  |  |
-| `HEX_DECODE_STRING` | Not checked |  |  |
-| `HEX_ENCODE` | Not checked |  |  |
-| `TRY_BASE64_DECODE_BINARY` | Fails |  | DuckDB has no TRY_BASE64_DECODE_BINARY, and the rules don't rewrite it |
-| `TRY_BASE64_DECODE_STRING` | Fails |  | DuckDB has no TRY_BASE64_DECODE_STRING, and the rules don't rewrite it |
-| `TRY_HEX_DECODE_BINARY` | Fails |  | DuckDB has no TRY_HEX_DECODE_BINARY, and the rules don't rewrite it |
-| `TRY_HEX_DECODE_STRING` | Fails |  | DuckDB has no TRY_HEX_DECODE_STRING, and the rules don't rewrite it |
-| `COLLATE` | Fails |  | Parser Error: syntax error at or near "NULL" |
-| `COLLATION` | Refused |  | Not rewritten for DuckDB. COLLATION function is not supported by DuckDB. |
+| Function | Status | Note |
+| --- | --- | --- |
+| `ASCII` | Runs | 1 value check |
+| `BIT_LENGTH` | Not checked |  |
+| `CHR` | Runs | 1 value check |
+| `CHAR` | Not checked |  |
+| `CONCAT` | Runs | 1 value check |
+| `CONCAT_WS` | Runs | 1 value check |
+| `INSERT` | Runs | 1 value check |
+| `LENGTH` | Runs | 1 value check |
+| `LEN` | Runs | 1 value check |
+| `LPAD` | Runs | 1 value check |
+| `LTRIM` | Runs | 1 value check |
+| `OCTET_LENGTH` | Runs | 3 value checks |
+| `PARSE_IP` | Refused | Not rewritten for DuckDB. PARSE_IP is not supported in DuckDB. |
+| `PARSE_URL` | Refused | Not rewritten for DuckDB. PARSE_URL is not supported in DuckDB. |
+| `REPEAT` | Runs | 1 value check |
+| `REVERSE` | Runs | 1 value check |
+| `RPAD` | Not checked |  |
+| `RTRIM` | Not checked |  |
+| `RTRIMMED_LENGTH` | Not checked |  |
+| `SOUNDEX` | Runs | 6 value checks |
+| `SOUNDEX_P123` | Runs | 2 value checks |
+| `SPACE` | Runs | 1 value check |
+| `SPLIT` | Runs | 1 value check |
+| `SPLIT_PART` | Runs | 3 value checks |
+| `STRTOK` | Runs | 1 value check |
+| `STRTOK_TO_ARRAY` | Not checked |  |
+| `TRANSLATE` | Runs | 1 value check |
+| `TRIM` | Runs | 1 value check |
+| `UNICODE` | Not checked |  |
+| `UUID_STRING` | Not checked |  |
+| `SEARCH` | Refused | SEARCH: a Snowflake feature DuckDB lacks. SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have. |
+| `SEARCH_IP` | Refused | SEARCH_IP: a Snowflake feature DuckDB lacks. SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have. |
+| `INITCAP` | Runs | 1 value check |
+| `LOWER` | Not checked |  |
+| `UPPER` | Runs | 1 value check |
+| `CHARINDEX` | Runs | 1 value check |
+| `CONTAINS` | Runs | 1 value check |
+| `EDITDISTANCE` | Runs | 1 value check |
+| `ENDSWITH` | Runs | 1 value check |
+| `JAROWINKLER_SIMILARITY` | Not checked |  |
+| `LEFT` | Runs | 1 value check |
+| `POSITION` | Runs | 1 value check |
+| `REPLACE` | Runs | 1 value check |
+| `RIGHT` | Runs | 1 value check |
+| `STARTSWITH` | Runs | 1 value check |
+| `SUBSTR` | Runs | 1 value check |
+| `SUBSTRING` | Not checked |  |
+| `COMPRESS` | Refused | Not rewritten for DuckDB. DuckDB does not support the COMPRESS() function. |
+| `DECOMPRESS_BINARY` | Refused | Not rewritten for DuckDB. DECOMPRESS_BINARY is not supported in DuckDB. |
+| `DECOMPRESS_STRING` | Refused | Not rewritten for DuckDB. DECOMPRESS_STRING is not supported in DuckDB. |
+| `BASE64_DECODE_BINARY` | Not checked |  |
+| `BASE64_DECODE_STRING` | Not checked |  |
+| `BASE64_ENCODE` | Not checked |  |
+| `HEX_DECODE_BINARY` | Not checked |  |
+| `HEX_DECODE_STRING` | Not checked |  |
+| `HEX_ENCODE` | Not checked |  |
+| `TRY_BASE64_DECODE_BINARY` | Runs | 1 value check |
+| `TRY_BASE64_DECODE_STRING` | Runs | 2 value checks |
+| `TRY_HEX_DECODE_BINARY` | Runs | 1 value check |
+| `TRY_HEX_DECODE_STRING` | Runs | 2 value checks |
+| `COLLATE` | Refused | COLLATE: a Snowflake feature DuckDB lacks. Snowflake's collation specifications ('en-ci', for example) have no DuckDB equivalent. |
+| `COLLATION` | Refused | Not rewritten for DuckDB. COLLATION function is not supported by DuckDB. |
 
 ## Regular expressions
 
@@ -115,8 +115,8 @@ the known differences in more detail.
 | `MD5` | Runs | 1 value check |
 | `MD5_HEX` | Not checked |  |
 | `MD5_BINARY` | Not checked |  |
-| `MD5_NUMBER_LOWER64` | Fails | DuckDB has no MD5_NUMBER_LOWER64, and the rules don't rewrite it |
-| `MD5_NUMBER_UPPER64` | Fails | DuckDB has no MD5_NUMBER_UPPER64, and the rules don't rewrite it |
+| `MD5_NUMBER_LOWER64` | Runs | 1 value check |
+| `MD5_NUMBER_UPPER64` | Runs | 1 value check |
 | `SHA1` | Not checked |  |
 | `SHA1_HEX` | Not checked |  |
 | `SHA1_BINARY` | Not checked |  |
@@ -124,7 +124,7 @@ the known differences in more detail.
 | `SHA2_HEX` | Not checked |  |
 | `SHA2_BINARY` | Not checked |  |
 | `HASH` | Not checked |  |
-| `HASH_AGG` | Fails | DuckDB has no HASH_AGG, and the rules don't rewrite it |
+| `HASH_AGG` | Refused | HASH_AGG: a Snowflake feature DuckDB lacks. HASH_AGG uses Snowflake's own hash, which DuckDB's hash doesn't reproduce. |
 
 ## Numeric
 
@@ -166,7 +166,7 @@ the known differences in more detail.
 | `SINH` | Not checked |  |
 | `TAN` | Not checked |  |
 | `TANH` | Not checked |  |
-| `WIDTH_BUCKET` | Fails | DuckDB has no WIDTH_BUCKET, and the rules don't rewrite it |
+| `WIDTH_BUCKET` | Runs | 4 value checks |
 | `HAVERSINE` | Runs | 2 value checks |
 
 ## Date and time
@@ -251,7 +251,7 @@ the known differences in more detail.
 | `TRY_TO_TIMESTAMP_NTZ` | Not checked |  |  |
 | `TRY_TO_TIMESTAMP_TZ` | Differs |  | SFD-002 TIMESTAMP_TZ loses its offset |
 | `TO_ARRAY` | Not checked |  |  |
-| `TO_OBJECT` | Fails |  | DuckDB has no TO_OBJECT, and the rules don't rewrite it |
+| `TO_OBJECT` | Runs |  | 2 value checks |
 | `TO_VARIANT` | Not checked |  |  |
 
 ## Semi-structured
@@ -259,11 +259,11 @@ the known differences in more detail.
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `CHECK_JSON` | Not checked |  |  |
-| `CHECK_XML` | Fails |  | DuckDB has no CHECK_XML, and the rules don't rewrite it |
+| `CHECK_XML` | Refused |  | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `JSON_EXTRACT_PATH_TEXT` | Not checked |  |  |
 | `PARSE_JSON` | Not checked |  |  |
 | `TRY_PARSE_JSON` | Not checked |  |  |
-| `PARSE_XML` | Fails |  | DuckDB has no PARSE_XML, and the rules don't rewrite it |
+| `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `STRIP_NULL_VALUE` | Not checked |  |  |
 | `ARRAY_AGG` | Runs |  | 1 value check |
 | `ARRAY_APPEND` | Not checked |  |  |
@@ -273,11 +273,11 @@ the known differences in more detail.
 | `ARRAY_CONSTRUCT_COMPACT` | Not checked |  |  |
 | `ARRAY_CONTAINS` | Runs |  | 1 value check |
 | `ARRAY_DISTINCT` | Not checked |  |  |
-| `ARRAY_EXCEPT` | Fails |  | Parser Error: syntax error at or near "[" |
+| `ARRAY_EXCEPT` | Runs |  | 4 value checks |
 | `ARRAY_FLATTEN` | Not checked |  |  |
 | `ARRAY_GENERATE_RANGE` | Not checked |  |  |
 | `ARRAY_INSERT` | Not checked | `SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)` |  |
-| `ARRAY_INTERSECTION` | Fails |  | Binder Error: No function matches the given name and argument types 'array_intersect("NULL")'. You might need to add explicit type casts. |
+| `ARRAY_INTERSECTION` | Runs |  | 3 value checks |
 | `ARRAY_MAX` | Not checked |  |  |
 | `ARRAY_MIN` | Not checked |  |  |
 | `ARRAY_POSITION` | Not checked |  |  |
@@ -292,19 +292,19 @@ the known differences in more detail.
 | `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
 | `ARRAY_UNIQUE_AGG` | Not checked |  |  |
 | `ARRAYS_OVERLAP` | Not checked |  |  |
-| `ARRAYS_TO_OBJECT` | Fails |  | DuckDB has no ARRAYS_TO_OBJECT, and the rules don't rewrite it |
+| `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
 | `ARRAYS_ZIP` | Not checked |  |  |
-| `OBJECT_AGG` | Fails |  | DuckDB has no OBJECT_AGG, and the rules don't rewrite it |
-| `OBJECT_CONSTRUCT` | Not checked |  |  |
+| `OBJECT_AGG` | Runs |  | 1 value check |
+| `OBJECT_CONSTRUCT` | Runs |  | 1 value check |
 | `OBJECT_CONSTRUCT_KEEP_NULL` | Not checked |  |  |
-| `OBJECT_DELETE` | Fails |  | DuckDB has no OBJECT_DELETE, and the rules don't rewrite it |
-| `OBJECT_INSERT` | Fails |  | Parser Error: syntax error at or near ":=" |
-| `OBJECT_PICK` | Fails |  | DuckDB has no OBJECT_PICK, and the rules don't rewrite it |
+| `OBJECT_DELETE` | Runs |  | 2 value checks |
+| `OBJECT_INSERT` | Runs |  | 3 value checks |
+| `OBJECT_PICK` | Runs |  | 2 value checks |
 | `OBJECT_KEYS` | Runs |  | 1 value check |
-| `FILTER` | Fails |  | Binder Error: Invalid lambda expression! |
+| `FILTER` | Runs |  | 2 value checks |
 | `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
-| `TRANSFORM` | Fails |  | Binder Error: Invalid lambda expression! |
-| `MAP_CAT` | Fails |  | Parser Error: syntax error at or near "[" |
+| `TRANSFORM` | Runs |  | 2 value checks |
+| `MAP_CAT` | Runs |  | 2 value checks |
 | `MAP_CONTAINS_KEY` | Not checked |  |  |
 | `MAP_DELETE` | Not checked |  |  |
 | `MAP_ENTRIES` | Not checked |  |  |
@@ -315,7 +315,7 @@ the known differences in more detail.
 | `GET` | Not checked |  |  |
 | `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
 | `GET_PATH` | Not checked |  |  |
-| `XMLGET` | Fails |  | DuckDB has no XMLGET, and the rules don't rewrite it |
+| `XMLGET` | Refused |  | XMLGET: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `AS_ARRAY` | Runs |  | 1 value check |
 | `AS_BOOLEAN` | Runs |  | 1 value check |
 | `AS_BINARY` | Runs |  | 1 value check |
@@ -333,7 +333,7 @@ the known differences in more detail.
 | `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
 | `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `TO_JSON` | Not checked |  |  |
-| `TO_XML` | Fails |  | DuckDB has no TO_XML, and the rules don't rewrite it |
+| `TO_XML` | Refused |  | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `IS_ARRAY` | Runs |  | 1 value check |
 | `IS_BOOLEAN` | Runs |  | 1 value check |
 | `IS_BINARY` | Runs |  | 1 value check |

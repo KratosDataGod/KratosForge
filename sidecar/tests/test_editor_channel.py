@@ -12,6 +12,7 @@ import pytest
 from test_kernel_sessions import out, svc  # noqa: F401
 from test_prove import call
 
+from fabric_desktop.editor_channel import MAX_BODY_BYTES as MAX_BODY
 from fabric_desktop.editor_pairing import MAX_WAITING, REQUEST_SECONDS, Pairings
 
 
@@ -409,3 +410,120 @@ def test_a_connection_that_sends_nothing_is_closed_and_frees_its_slot(tmp_path, 
         assert channel._server._slots._value == MAX_CONNECTIONS
     finally:
         channel.stop()
+
+
+def test_the_hello_names_the_channel_api_and_refuses_an_extension_too_old_for_it(paired, monkeypatch):
+    from fabric_desktop import editor_channel
+    svc, window, _ = paired
+    nonce = "n" * 32
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
+    assert status == 200 and res["result"]["api"] == editor_channel.API_VERSION
+    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say is taken as current
+    monkeypatch.setattr(editor_channel, "OLDEST_CLIENT_API", editor_channel.API_VERSION + 1)
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
+    assert status == 426 and res["error"]["code"] == "extension_too_old" and "proof" not in json.dumps(res)
+
+
+def _raw(port, data, read_timeout=15, half_close=False):
+    """Sends ``data`` as is and returns what comes back before the engine closes the connection.
+    ``half_close`` ends the sending side, for data that isn't a whole request (on Windows the caller
+    check may then no longer find the connection and refuse it 403, which is a clean answer too)."""
+    import socket
+    s = socket.create_connection(("127.0.0.1", port), timeout=read_timeout)
+    try:
+        s.sendall(data)
+        if half_close:
+            s.shutdown(socket.SHUT_WR)
+        chunks = []
+        while True:
+            try:
+                got = s.recv(65536)
+            except ConnectionResetError:  # closed with bytes it didn't read: what it answered is above
+                got = b""
+            if not got:
+                return b"".join(chunks)
+            chunks.append(got)
+    finally:
+        s.close()
+
+
+def _status(reply):
+    line = reply.split(b"\r\n", 1)[0].split()
+    if len(line) > 1 and line[1].isdigit():
+        return int(line[1])
+    # Some Python releases take a malformed request line as HTTP/0.9 and send only the error page.
+    if reply.startswith(b"<!DOCTYPE HTML") and b"Error code: 400" in reply:
+        return 400
+    return None
+
+
+def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(paired):
+    import random
+    svc, window, path = paired
+    window.pair(svc)
+    port, host = window.port, f"127.0.0.1:{window.port}".encode()
+    auth = f"Authorization: Bearer {window.token}\r\n".encode()
+
+    def post(body, extra=b"", length=None):
+        n = len(body) if length is None else length
+        return (b"POST /v1/run HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + extra
+                + b"Content-Type: application/json\r\nContent-Length: " + str(n).encode() + b"\r\n\r\n" + body)
+
+    cases = {
+        "garbage request line": (b"\x00\xff\xfe nonsense HTTP/1.1\r\n\r\n", {501}),
+        "unknown method": (b"PUT /v1/run HTTP/1.1\r\nHost: " + host + b"\r\n\r\n", {501}),
+        "header line too long": (b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\nX: " + b"a" * 70000 + b"\r\n\r\n", {431, 400}),
+        "too many headers": (b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n"
+                             + b"".join(b"X-%d: y\r\n" % i for i in range(150)) + b"\r\n", {431}),
+        "request line too long": (b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\n\r\n", {414}),
+        "body over the limit": (post(b"{}", length=MAX_BODY + 1), {413}),
+        "body not json": (post(b"{not json"), {400}),
+        "body not utf-8": (post(b'{"path": "\xff\xfe"}'), {400}),
+        "body deeply nested": (post(b"[" * 200_000 + b"]" * 200_000), {400}),
+        "body a list": (post(b"[1, 2]"), {400}),
+        "body a number": (post(b"7"), {400}),
+        "path not text": (post(json.dumps({"path": 7, "code": "x"}).encode()), {400}),
+        "code too long": (post(json.dumps({"path": path, "code": None}).encode()), {400}),
+        "negative length": (post(b"{}", length=-5), {400}),
+        "length not a number": (post(b"{}", extra=b"", length="ten"), {400}),
+        "chunked body": (post(b"{}", extra=b"Transfer-Encoding: chunked\r\n"), {411}),
+        "poll wait not a number": (b"GET /v1/run?path=" + _q(path).encode() + b"&wait=nan&version=1e999 HTTP/1.1\r\nHost: "
+                                   + host + b"\r\n" + auth + b"\r\n", {200}),
+        "query with control characters": (b"GET /v1/variables?path=%00%0d%0a HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + b"\r\n", {400, 403, 404}),
+    }
+    # Two words is an HTTP/0.9 request to http.server: refused 400, though some Python releases answer
+    # it as HTTP/0.9 does, with the error page and no status line.
+    reply = _raw(port, b"\x00\xff\xfe nonsense\r\n\r\n")
+    assert _status(reply) == 400, reply[:200]
+    for name, (data, want) in cases.items():
+        started = time.monotonic()
+        reply = _raw(port, data)
+        assert _status(reply) in want, (name, reply[:200])
+        assert time.monotonic() - started < 10, name
+        if b"application/json" in reply:
+            json.loads(reply.split(b"\r\n\r\n", 1)[1])  # a refusal the extension can read
+    # Truncated: a body shorter than its Content-Length is closed after the idle timeout, not held.
+    started = time.monotonic()
+    reply = _raw(port, post(b'{"path": "x"', length=500), half_close=True)
+    assert time.monotonic() - started < 10 and (reply == b"" or _status(reply) in {400, 403, 408, 500}), reply[:200]
+    # Random bytes after a valid start: never a crash, always an answer or a close.
+    rng = random.Random(7)
+    for _ in range(40):
+        junk = bytes(rng.randrange(256) for _ in range(rng.randrange(1, 400)))
+        reply = _raw(port, rng.choice([b"", b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n", post(b"")]) + junk,
+                     half_close=True)
+        assert reply == b"" or _status(reply) is not None, reply[:200]
+    # Two requests in one connection: the second is never run, because each connection serves one.
+    first = b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + b"\r\n"
+    reply = _raw(port, first + post(json.dumps({"path": path, "code": "pipelined = 1"}).encode()))
+    assert reply.count(b"HTTP/1.") == 1 and _status(reply) == 200
+    # And it still serves a well-formed window.
+    assert window.call("GET", "/v1/status")[0] == 200
+
+
+def test_numbers_in_a_query_that_arent_finite_fall_back_to_the_default():
+    from fabric_desktop.editor_channel import _float, _int
+    for text in ("nan", "inf", "-inf", "1e999", "x", None):
+        assert _float(text, 0.5) == 0.5, text
+    assert _float("2.5", 0) == 2.5
+    assert _int("9" * 5000, -1) == -1 and _int("4", -1) == 4

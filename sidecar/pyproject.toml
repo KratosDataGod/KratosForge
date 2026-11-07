@@ -101,6 +101,10 @@ files = ["fabric_desktop"]
 exclude = ["^fabric_desktop/academy/packs/"]  # exercise answers run with the exercise's spark (pyspark_lab)
 python_version = "3.12"  # CI's; the counts depend on it
 ignore_missing_imports = true  # several of the engine's packages ship no type information
+check_untyped_defs = true  # bodies of functions without annotations are checked too
+strict_equality = true  # ==, is and in between types that can never match
+warn_redundant_casts = true
+warn_unused_ignores = true  # a stale ignore would hide the next real error on its line
 
 [[tool.mypy.overrides]]
 module = ["fabric_desktop._vendor.*"]  # vendored code stays as its authors wrote it

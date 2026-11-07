@@ -1553,6 +1553,19 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
+// X-ray's Vacuum and Vacuum all run the same risk check as Optimize, and send the id of the assessment seen.
+test("Estate X-ray's Vacuum and Vacuum all run the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function vacuumDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /rpc\("xray_vacuum_preview"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id: risk\?\.id/);
+  assert.match(dialog, /result === "blocked"/);
+  const all = /async function vacuumAll\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(all, /rpc\("xray_vacuum_preview"[\s\S]*rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id \}\)/);
+  assert.match(all, /result === "blocked" \|\| result === "warning"/, "tables with warnings or a block don't start from Vacuum all");
+  assert.ok(!/rpc\("xray_vacuum", vacuumArgs\(f\)\)/.test(xray), "every Vacuum call carries the risk id");
+});
+
 test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -5328,6 +5341,23 @@ test("Forge events: every event in the registry is fired by the app, and the Pre
   assert.match(fs.readFileSync(path.join(ui, "settings.js"), "utf8"), /row\("Navy wolf", [^\n]*\n\s+remoteHost, \(\) => \{ if \(!remoteHost\.childElementCount\) \{ remoteHost\.append\(remoteProgress\(/);
 });
 
+test("Optimize Forge events (OPT-012): analysis that reached the lakehouse arrives, an applied recommendation settles", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  assert.strictEqual(events["optimize.analysis.finished"], "arrive");
+  assert.strictEqual(events["optimize.recommendation.applied"], "settle");
+  assert.ok(!Object.keys(events).some((k) => k.startsWith("optimize.savings")), "no savings effect until a Measured saving exists");
+  const x = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  assert.match(x, /forgeEvent\(xrayReachedOptimize\(res\.result\.shared\) \? "optimize\.analysis\.finished" : "xray\.scan\.finished"/);
+  const reached = vm.runInContext(`(${/function xrayReachedOptimize[\s\S]*?\n}/.exec(x)[0]})`, vm.createContext({}));
+  assert.strictEqual(reached({ lakehouse: "C", findings: 3 }), true);
+  assert.strictEqual(reached({ lakehouse: "C", findings: 0 }), true);
+  for (const s of [null, { error: "403" }, { queued: 2, error: "down" }, { lakehouse: "C" }]) assert.strictEqual(reached(s), false, JSON.stringify(s));
+  const o = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(o, /if \(done\) \{\n    toast\([^\n]*\n    if \(to === "applied"\) forgeEvent\("optimize\.recommendation\.applied"/,
+    "the effect plays only after the lakehouse took the change, and only for Applied");
+});
+
 test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the ember, after the redraw", () => {
   const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
   const events = vm.runInContext("FORGE_EVENTS", ctx);
@@ -5613,7 +5643,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],

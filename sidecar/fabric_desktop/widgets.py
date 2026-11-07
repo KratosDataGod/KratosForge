@@ -1047,7 +1047,7 @@ def build() -> types.ModuleType:
     mod.__version__ = __version__  # type: ignore[attr-defined]
     mod.version_info = (8, 1, 5)  # type: ignore[attr-defined]
     mod.widgets = mod  # type: ignore[attr-defined]  # from ipywidgets import widgets
-    mod.__path__ = []  # type: ignore[attr-defined]
+    mod.__path__ = []
     mod.__kratosforge__ = True  # type: ignore[attr-defined]
     return mod
 

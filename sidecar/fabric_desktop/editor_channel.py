@@ -13,8 +13,9 @@ connections are open at once, and one that sends nothing for 5 seconds is closed
 ``X-KratosForge-Hello`` (only programs that can read this user's data folder have it); everything
 else needs ``Authorization: Bearer <token>`` from a pairing (editor_pairing.py).
 
-    GET    /v1/hello?nonce=         {"proof"}: HMAC-SHA256(hello, nonce), so a window can tell it's
-                                    KratosForge before it sends the hello or a token
+    GET    /v1/hello?nonce=&api=    {"proof", "api"}: HMAC-SHA256(hello, nonce), so a window can tell
+                                    it's KratosForge before it sends the hello or a token, and the
+                                    channel's API version, so either side can say which to update
     POST   /v1/pair                 {"window", "client"}  ->  {"id", "code", "expires_in"}
     GET    /v1/pair/<id>            {"state": waiting | paired | denied | expired, "token" once}
     DELETE /v1/pair                 ends this window's pairing
@@ -34,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,6 +51,8 @@ MAX_BODY_BYTES = 1024 * 1024
 MAX_CONNECTIONS = 16  # open at once; each holds an engine thread until it ends
 MAX_WAIT_SECONDS = 25.0
 PORT_FILE = "editor-port"
+API_VERSION = 1  # the channel's routes and replies; raised when an extension must change to keep working
+OLDEST_CLIENT_API = 1  # an extension that speaks an older API is told to update
 
 
 class Refused(Exception):
@@ -57,6 +61,9 @@ class Refused(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+# "busy" means only this: refused when the connection was accepted, before its request was read.
+# The extension retries a call refused as busy (vscode/src/channel.ts), which is safe only because
+# nothing ran. Don't use the code for any other refusal.
 BUSY = (b"HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
         b'{"ok": false, "error": {"code": "busy", "message": "Too many connections to the editor channel. Try again."}}')
 
@@ -155,7 +162,12 @@ class Channel:
             nonce = _field(query, "nonce", limit=128)
             if len(nonce) < 16:
                 raise Refused(400, "invalid_input", "nonce should be at least 16 characters.")
-            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest()}
+            client_api = _int(query.get("api"), API_VERSION)
+            if client_api < OLDEST_CLIENT_API:
+                raise Refused(426, "extension_too_old", "This KratosForge extension for VS Code is too old for this "
+                              "KratosForge. Install kratosforge.vsix from KratosForge's latest release.")
+            return {"proof": hmac.new(self.hello.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest(),
+                    "api": API_VERSION}
         if method == "POST" and path == "/v1/pair":
             return svc.editor_channel_pair(_field(body, "window", required=False), _field(body, "client", required=False))
         if method == "GET" and path.startswith("/v1/pair/"):
@@ -209,9 +221,10 @@ def _int(value: Any, default: int) -> int:
 
 def _float(value: Any, default: float) -> float:
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return default
+    return number if math.isfinite(number) else default  # "nan" and "inf" are floats too
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -281,6 +294,8 @@ class _Handler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             raise Refused(400, "invalid_input", "The body isn't JSON.") from None
+        except RecursionError:
+            raise Refused(400, "invalid_input", "The body's JSON is nested too deeply.") from None
 
     def _reply(self, status: int, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, default=str).encode("utf-8")

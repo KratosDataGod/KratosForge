@@ -362,12 +362,12 @@ def _parent_alive(pid: int) -> bool:
         return True
     if os.name == "nt":
         import ctypes
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # type: ignore[attr-defined]  # Windows-only; PROCESS_QUERY_LIMITED_INFORMATION
         if not handle:
             return False
         code = ctypes.c_ulong()
-        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-        ctypes.windll.kernel32.CloseHandle(handle)
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))  # type: ignore[attr-defined]  # Windows-only
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]  # Windows-only
         return code.value == 259  # STILL_ACTIVE
     try:
         os.kill(pid, 0)

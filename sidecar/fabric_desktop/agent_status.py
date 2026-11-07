@@ -76,6 +76,10 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
         "incidents": incidents_summary(cfg.incidents),
         "shortcut_health": shortcut_health_summary(cfg, env),
         "counts": queue.counts(env),
+        # Teams or flow messages dropped unsent after three days, since this start (the log says which outbox)
+        "messages_dropped": int(getattr(agent, "messages_dropped", 0)),
+        # Messages waiting in its outboxes for Teams or a flow to take them (null when they can't be read)
+        "messages_waiting": agent.messages_waiting() if hasattr(agent, "messages_waiting") else None,
         "running": [{"job_id": j["id"], "source": j["source"], "attempts": j["attempts"],
                      "entities": j["payload"].get("entities") or [], "started_at": _iso(j["started_at"])}
                     for j in running],

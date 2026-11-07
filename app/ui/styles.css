@@ -1,6 +1,10 @@
 :root {
   /* Living Experience on Home (home-hero.js): the hero sky behind the art, the navy identity card, the warm achievement card */
-  --lx-hero-sky: #10223f;
+  --lx-hero-sky: #01203d;
+  --lx-hero-sky-low: #062e57;
+  --lx-mask: #000;
+  --lx-hero-art-w: 750px;
+  --lx-hero-text-w: 560px;
   --lx-hero-line: #e6ecf5;
   --lx-hero-title: #ffffff;
   --lx-hero-ink: #0b1420;
@@ -1029,10 +1033,13 @@ body.pop-out .page.monitor { padding: 12px; }
 .home-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .home-main > * { max-width: 1136px; }
 .home-body.with-aside { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
-.home-hero { position: relative; flex: none; height: 250px; overflow: hidden; background: var(--lx-hero-sky); margin: -28px -32px 0; }
+.home-hero { position: relative; flex: none; height: 250px; overflow: hidden; background: linear-gradient(180deg, var(--lx-hero-sky) 0%, var(--lx-hero-sky-low) 100%); margin: -28px -32px 0; }
 .page.home.living > .home-hero { max-width: none; }
-.home-hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 100% 0%; }
-.home-hero-text { position: relative; height: 100%; width: 44%; box-sizing: border-box; padding: 26px 0 0 36px; display: flex; flex-direction: column; gap: 6px; }
+/* The whole picture, never cropped or stretched: full height at its own 3:1 ratio, against the right edge, its left edge faded into the matching sky. */
+/* It never sits behind the text column: in a narrower window it shrinks (still whole, still 3:1) rather than slide under the text. */
+.home-hero-img { position: absolute; top: 50%; right: 0; transform: translateY(-50%); width: min(var(--lx-hero-art-w), calc(100% - var(--lx-hero-text-w))); height: auto; aspect-ratio: 2172 / 724;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 12%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 12%); }
+.home-hero-text { position: relative; height: 100%; width: var(--lx-hero-text-w); box-sizing: border-box; padding: 26px 0 0 36px; display: flex; flex-direction: column; gap: 6px; }
 .home-hero-kicker, .home-hero-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; text-transform: uppercase; }
 .home-hero-kicker { font-size: 18px; color: var(--brand-orange); letter-spacing: 1px; }
 .home-hero-title { font-size: 46px; white-space: nowrap; line-height: .95; color: var(--lx-hero-title); text-shadow: 0 2px 10px var(--lx-hero-shadow); }
@@ -1068,9 +1075,9 @@ body.pop-out .page.monitor { padding: 12px; }
 @media (max-width: 1100px) {
   .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
   .home-hero { height: 230px; }
-  .home-hero-text { width: 50%; padding-bottom: 18px; }
-  .home-hero-title { font-size: 34px; white-space: normal; }
+  .home-hero-title { font-size: 38px; }
 }
+@media (max-width: 960px) { .home-hero-img { display: none; } }
 @media (max-width: 720px) {
   .home-hero { height: auto; min-height: 120px; margin: 0; }
   .home-hero-img { display: none; }

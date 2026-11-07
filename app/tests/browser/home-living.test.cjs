@@ -62,6 +62,31 @@ test("Home shows the hero and the progression panel from profile_get", { skip },
   // Never a god name, never a capacity figure.
   assert.ok(!(await page().locator(".home-aside").innerText()).includes("Data God"));
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "home-living.png") });
+  // Chris's art is never cropped or stretched: the drawn picture keeps 3:1 and sits whole inside the hero.
+  for (const width of [1440, 1920]) {
+    await page().setViewportSize({ width, height: 940 });
+    await page().waitForFunction(() => document.querySelector(".home-hero-img")?.complete);
+    const box = await page().evaluate(() => {
+      const img = document.querySelector(".home-hero-img").getBoundingClientRect();
+      const hero = document.querySelector(".home-hero").getBoundingClientRect();
+      return { ratio: img.width / img.height, inside: img.left >= hero.left - 0.5 && img.right <= hero.right + 0.5 && img.top >= hero.top - 0.5 && img.bottom <= hero.bottom + 0.5 };
+    });
+    assert.ok(Math.abs(box.ratio - 2172 / 724) < 0.02, `ratio at ${width}: ${box.ratio}`);
+    assert.ok(box.inside, `the picture sits whole inside the hero at ${width}`);
+    if (SHOTS && width === 1920) await page().screenshot({ path: path.join(SHOTS, "home-living-1920.png") });
+  }
+  // At any width the picture shows, it starts right of the text column, so no text or button sits on the art.
+  for (const width of [1440, 1100, 1000, 850]) {
+    await page().setViewportSize({ width, height: 940 });
+    const clear = await page().evaluate(() => {
+      const img = document.querySelector(".home-hero-img");
+      if (getComputedStyle(img).display === "none") return { shown: false, ok: true };
+      const textRight = Math.max(...[...document.querySelectorAll(".home-hero-text *")].map((e) => e.getBoundingClientRect().right));
+      return { shown: true, ok: img.getBoundingClientRect().left >= textRight, left: img.getBoundingClientRect().left, textRight };
+    });
+    assert.ok(clear.ok, `at ${width} the art starts at ${clear.left}, the text ends at ${clear.textRight}`);
+  }
+  await page().setViewportSize({ width: 1440, height: 940 });
 });
 
 test("hiding the panel closes the gap, and the link brings it back", { skip }, async () => {

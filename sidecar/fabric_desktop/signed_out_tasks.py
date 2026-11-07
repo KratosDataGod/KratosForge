@@ -105,7 +105,7 @@ def _powershell(script: str, folder: str, env: dict[str, str], prompt: bool = Fa
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     args = [exe, "-NoProfile", *([] if prompt else ["-NonInteractive"]), "-ExecutionPolicy", "Bypass",
             "-Command", script.replace("{folder}", folder)]
-    return subprocess.run(args, capture_output=True, text=True, creationflags=flags, env={**os.environ, **env},
+    return subprocess.run(args, capture_output=True, text=True, errors="replace", creationflags=flags, env={**os.environ, **env},
                           check=False, timeout=PROMPT_SECONDS if prompt else 120)
 
 

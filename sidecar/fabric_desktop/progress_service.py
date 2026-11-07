@@ -21,6 +21,7 @@ from typing import Any
 from . import app_settings, jsonfile, pdfreport, progress, ranks, roadmap
 from .learn import content as learn_content
 from .redact import describe
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ def _avatar_ok(data: bytes) -> bool:
 
 def _save_new(stem: str, ext: str, text: str | bytes) -> Path:
     """A new file in Downloads; one already there (even one made a moment ago) is never replaced."""
-    folder = Path.home() / "Downloads"
+    folder = known_folders.downloads()
     folder.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^\w.-]+", "-", stem)
     path, n = folder / f"{stem}.{ext}", 2

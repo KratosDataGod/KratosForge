@@ -346,8 +346,9 @@ def _audit(service: Service, method: str, params: dict, reply: dict, seconds: fl
         who = tenant = ""
         if auth is not None:
             who, tenant = auth.signed_in_user() or "", auth.signed_in_tenant() or ""
-        log.record(method, "error" if "error" in reply else "ok", seconds, params if isinstance(params, dict) else {},
-                   who=who, tenant=tenant, error=str(reply.get("error") or ""))
+        result, reason = ("error", "") if "error" in reply else audit.outcome(reply.get("result"))
+        log.record(method, result, seconds, params if isinstance(params, dict) else {},
+                   who=who, tenant=tenant, error=str(reply.get("error") or ""), reason=reason)
     except Exception as exc:  # noqa: BLE001 - an audit problem is logged, the user's call goes on
         print(f"audit: could not record {method}: {type(exc).__name__}: {exc}", file=sys.stderr)
 

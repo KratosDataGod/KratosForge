@@ -7,14 +7,15 @@
 // gets a bar and "cell N of M"; a run in Fabric gets a still ring and "Waiting on Fabric"; a run whose
 // total isn't known gets elapsed time only. Nothing moves on a timer except the elapsed clock.
 // The motion comes from motion.js: the scene's loops follow the ambient and wolf family switches and
-// html[data-motion], and a run that finishes plays one effect through forgeEvent(). Below Refined
+// html[data-motion], and a run seen running that then finishes plays one effect through forgeEvent(). Below Heroic
 // (Professional, or Windows' reduced motion) the text and the bars stay and everything else is still.
 const FORGE_LANES = 3;
 // A run that finished this recently is shown as the scene's outcome when nothing else is running.
 const FORGE_RECENT_MS = 10 * 60 * 1000;
-// on: the person's choice this session (null: on at Refined and Expressive, off below).
-// rows: the runs Runs read last. struck: outcomes already played, so each plays once.
-const forgeActivity = { on: null, rows: [], struck: new Set(), timer: 0 };
+// on: the person's choice this session (null: on at Heroic and Legendary, motion_level 2 and 3, off below).
+// rows: the runs Runs read last. seen: runs shown running this session; only those play an outcome, so
+// opening Monitor or restarting the app never replays one. struck: outcomes already played, once each.
+const forgeActivity = { on: null, rows: [], seen: new Set(), struck: new Set(), timer: 0 };
 
 function forgeViewShown() {
   return !!PREVIEW_FEATURES.forgeActivity && previewShown();
@@ -68,7 +69,7 @@ function forgeModel(rows, now = Date.now()) {
   const ended = [];
   for (const { nb, run } of forgeNotebooks()) {
     if (run.result) ended.push({ key: `nb|${nb.name}|${run.started}`, name: nb.name, kind: "Notebook", where: "This PC", ok: run.result === "ok",
-      at: run.ended, text: run.result === "ok" ? `Succeeded, ${run.total} ${run.total === 1 ? "cell" : "cells"}`
+      at: run.ended, pct: run.result === "ok" ? 100 : run.total ? Math.round((run.done / run.total) * 100) : null, text: run.result === "ok" ? `Succeeded, ${run.total} ${run.total === 1 ? "cell" : "cells"}`
         : run.result === "failed" ? `Failed at cell ${run.done + 1} of ${run.total}` : `Stopped after ${run.done} of ${run.total} cells`,
       seconds: (run.ended - run.started) / 1000, stopped: run.result === "stopped" });
   }
@@ -78,7 +79,7 @@ function forgeModel(rows, now = Date.now()) {
     if (start === null) continue;
     const end = start + (Number(r.seconds) || 0) * 1000;
     ended.push({ key: forgeKey(r), name: r.activity, kind: r.kind, where: r.where === "fabric" ? "Fabric" : r.ranOn || "This PC",
-      ok: r.status === "ok", at: end, seconds: r.seconds,
+      ok: r.status === "ok", at: end, seconds: r.seconds, pct: r.status === "ok" ? 100 : null,
       text: r.status === "ok" ? `Succeeded${r.rows !== "" && r.rows !== undefined && r.rows !== "—" ? `, ${Number(r.rows).toLocaleString()} rows written` : ""}`
         : `Failed${r.reason ? `: ${r.reason}` : ""}` });
   }
@@ -110,7 +111,9 @@ function forgeLane(l, state) {
   let bar = null;
   if (state === "done" || state === "failed") {
     status.append(l.text);
-    bar = h("span", { class: "forge-bar" }, h("span", { class: "forge-fill", style: `width: ${l.ok ? 100 : 50}%` }));
+    // A bar only for what is known: a success is whole, a failed Run all stopped at its cell; a failed run
+    // from the run log has no count, so no bar.
+    bar = l.pct === null ? null : h("span", { class: "forge-bar" }, h("span", { class: "forge-fill", style: `width: ${l.pct}%` }));
   } else if (l.mode === "steps") {
     status.append(h("span", { class: "forge-wolf", "aria-hidden": "true" }, wolfIcon()), h("span", { class: "forge-text" }));
     bar = h("span", { class: "forge-bar", role: "progressbar", "aria-label": `${l.name} cells done`, "aria-valuemin": "0" },
@@ -162,11 +165,18 @@ function forgeSection(m) {
         e.preventDefault();
         document.querySelector(".page.monitor .monitor-scroll")?.scrollIntoView({ block: "start" });
       } }, `${m.more} more running, see the table below`) : null));
-  // An outcome plays once: the anvil strikes for a success, an ember goes out for a failure.
+  // An outcome plays once, and only for a run seen running this session: the anvil strikes for a
+  // success, an ember goes out for a failure. The anvil is looked up when the frame comes, so a redraw
+  // in between doesn't lose it.
+  for (const l of m.state === "active" || m.state === "waiting" ? m.lanes : []) forgeActivity.seen.add(l.key);
   const key = (m.state === "done" || m.state === "failed") && m.lanes[0].key;
-  if (key && !forgeActivity.struck.has(key)) {
-    forgeActivity.struck.add(key);
-    requestAnimationFrame(() => forgeEvent(m.state === "done" ? "forge.run.succeeded" : "forge.run.failed", scene.querySelector(".forge-anvil")));
+  if (key && forgeActivity.seen.has(key) && !forgeActivity.struck.has(key)) {
+    requestAnimationFrame(() => {
+      const anvil = document.querySelector(".forge-band .forge-anvil");
+      if (!anvil || forgeActivity.struck.has(key)) return;
+      forgeActivity.struck.add(key);
+      forgeEvent(m.state === "done" ? "forge.run.succeeded" : "forge.run.failed", anvil);
+    });
   }
   return el;
 }
@@ -176,12 +186,14 @@ function forgeCounts(rows, now = new Date()) {
   const today = now.toDateString();
   const day = now.getTime() - 86400000;
   const on = (r, fn) => { const d = readDate(r.at); return d && fn(d); };
+  // Succeeded and Failed today count by when the run ended, so one that ran past midnight counts today.
+  const endedToday = (r) => on(r, (d) => new Date(d.getTime() + (Number(r.seconds) || 0) * 1000).toDateString() === today);
   const notebooks = forgeNotebooks().filter(({ run }) => !run.result).length;
   const recent = rows.filter((r) => on(r, (d) => d.getTime() >= day));
   return {
     running: rows.filter((r) => r.status === "running").length + notebooks,
-    ok: rows.filter((r) => r.status === "ok" && on(r, (d) => d.toDateString() === today)).length,
-    failed: rows.filter((r) => r.status === "failed" && on(r, (d) => d.toDateString() === today)).length,
+    ok: rows.filter((r) => r.status === "ok" && endedToday(r)).length,
+    failed: rows.filter((r) => r.status === "failed" && endedToday(r)).length,
     local: recent.filter((r) => r.where !== "fabric").length, of: recent.length,
   };
 }
@@ -195,7 +207,8 @@ function forgeStrip(rows) {
 }
 
 // Draws the strip and the band into their slots on Runs, and keeps the clock and the notebook lanes
-// current while they're on screen. rows: every row Runs read, before its filters.
+// current while something runs and they're on screen; nothing ticks while the forge is at rest.
+// rows: every row Runs read, before its filters.
 function forgeActivityFill(stripSlot, bandSlot, rows) {
   forgeActivity.rows = rows;
   stripSlot?.replaceChildren(forgeStrip(rows));
@@ -203,15 +216,17 @@ function forgeActivityFill(stripSlot, bandSlot, rows) {
   let model = forgeModel(rows);
   let sig = forgeSignature(model);
   bandSlot.replaceChildren(forgeSection(model));
-  clearInterval(forgeActivity.timer);
+  forgeStopTick();
+  if (!forgeLive(model)) return;
   forgeActivity.timer = setInterval(() => {
-    if (!bandSlot.isConnected) { clearInterval(forgeActivity.timer); return; }
+    if (!bandSlot.isConnected) { forgeStopTick(); return; }
     model = forgeModel(forgeActivity.rows);
     const next = forgeSignature(model);
     if (next !== sig) {  // a run started or finished here: draw the band and the counts again
       sig = next;
       bandSlot.replaceChildren(forgeSection(model));
       stripSlot?.replaceChildren(forgeStrip(forgeActivity.rows));
+      if (!forgeLive(model)) forgeStopTick();
       return;
     }
     for (const l of model.lanes) {
@@ -222,6 +237,13 @@ function forgeActivityFill(stripSlot, bandSlot, rows) {
       if (clock && l.started && !["done", "failed"].includes(model.state)) clock.textContent = forgeElapsed(Date.now() - l.started);
     }
   }, 1000);
+}
+
+const forgeLive = (m) => m.state === "active" || m.state === "waiting";
+
+function forgeStopTick() {
+  clearInterval(forgeActivity.timer);
+  forgeActivity.timer = 0;
 }
 
 function forgeSignature(m) {

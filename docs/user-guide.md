@@ -493,7 +493,7 @@ Click a pipeline run to see its activities underneath: each one's status, its ty
 
 ### Forge Activity view (Preview)
 
-**Runs** shows today's counts in the page header: **Running now**, **Succeeded today**, **Failed today**, and **Ran on this PC (24 h)**, how many of the runs in the last day ran here rather than in Fabric. They are counted from the runs the page read, whatever the filters, so they cover the same runs as the table.
+**Runs** shows today's counts in the page header: **Running now**, **Succeeded today**, **Failed today**, and **Ran on this PC (24 h)**, how many of the runs in the last day ran here rather than in Fabric. Succeeded and failed count by when a run ended, so one that ran past midnight counts today. They are counted from the runs the page read, whatever the filters, so they cover the same runs as the table.
 
 Tick **Forge view** on the view row for a band above the table with a lane for each of the three most recent running runs, beside a small forge. It is on by default when **Motion & effects** is Refined or Expressive, and off below that; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
 

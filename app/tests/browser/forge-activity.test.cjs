@@ -103,15 +103,32 @@ test("Run all on this PC shows cell N of M with a bar that follows the cells, an
   await open();  // drawn again: it doesn't strike twice
   assert.strictEqual(await page().evaluate(() => motionDiagnostics().events["forge.run.succeeded"]), 1);
   await page().evaluate(() => openNotebooks.delete("TPC-H data"));
+  // A Run all seen running that fails at cell 3 of 4: its bar stops where it did, and the ember plays once.
+  await page().evaluate(() => openNotebooks.set("Gold", { name: "Gold", cells: [], forgeRun: { done: 1, total: 4, started: Date.now() - 5000, result: null, ended: null } }));
+  await open();
+  await page().evaluate(() => Object.assign(openNotebooks.get("Gold").forgeRun, { done: 2, result: "failed", ended: Date.now() }));
+  await page().waitForFunction(() => document.querySelector(".forge-band")?.dataset.state === "failed");
+  assert.match(await page().locator(".forge-band").innerText(), /Failed at cell 3 of 4/);
+  assert.strictEqual(await page().locator(".forge-band .forge-fill").getAttribute("style"), "width: 50%;");
+  await page().waitForFunction(() => (motionDiagnostics().events["forge.run.failed"] || 0) === 1);
+  await page().evaluate(() => openNotebooks.delete("Gold"));
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("a failure cools the forge; with nothing recent it is quiet", { skip }, async () => {
-  meta = [{ ...DONE_META[1], started_at: ago(2) }];
+test("a failure cools the forge without a made-up bar, never replays on opening, and is quiet with nothing recent", { skip }, async () => {
+  meta = [{ ...DONE_META[1], started_at: ago(2) }, { ...DONE_META[0], run_id: "d0", started_at: ago(6), seconds: 30 }];
   cloud = [];
+  const before = await page().evaluate(() => ({ ...motionDiagnostics().events }));
   await open();
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "failed");
   assert.match(await page().locator(".forge-band").innerText(), /THE FORGE COOLED[\s\S]*Failed: table not found/);
+  assert.strictEqual(await page().locator(".forge-band .forge-bar").count(), 0, "a failed run with no count drew a bar");
+  // Both ended before this session saw them running: opening Monitor plays nothing.
+  await page().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const after = await page().evaluate(() => ({ ...motionDiagnostics().events }));
+  for (const name of ["forge.run.failed", "forge.run.succeeded"]) assert.strictEqual(after[name] || 0, before[name] || 0, `${name} replayed`);
+  // The forge is at rest: nothing ticks.
+  assert.strictEqual(await page().evaluate(() => forgeActivity.timer), 0, "the band ticks at rest");
   meta = [DONE_META[0]];  // finished half an hour ago
   await open();
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "idle");

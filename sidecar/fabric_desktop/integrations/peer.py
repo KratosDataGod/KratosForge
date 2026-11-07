@@ -55,7 +55,7 @@ def _rows(table_class: int) -> list[tuple[int, int, int, int, int]]:
         _fields_ = [("state", wintypes.DWORD), ("local_addr", wintypes.DWORD), ("local_port", wintypes.DWORD),
                     ("remote_addr", wintypes.DWORD), ("remote_port", wintypes.DWORD), ("pid", wintypes.DWORD)]
 
-    iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)
+    iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
     get = iphlpapi.GetExtendedTcpTable
     get.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), wintypes.BOOL, wintypes.ULONG,
                     ctypes.c_int, wintypes.ULONG]
@@ -81,8 +81,8 @@ def _user_sid(pid: int | None = None) -> bytes:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
@@ -100,19 +100,19 @@ def _user_sid(pid: int | None = None) -> bytes:
     own = pid is None
     process = kernel32.GetCurrentProcess() if own else kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not process:
-        raise OSError(ctypes.get_last_error(), f"OpenProcess({pid}) failed")
+        raise OSError(ctypes.get_last_error(), f"OpenProcess({pid}) failed")  # type: ignore[attr-defined]  # Windows-only
     token = wintypes.HANDLE()
     try:
         if not advapi32.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(token)):
-            raise OSError(ctypes.get_last_error(), "OpenProcessToken failed")
+            raise OSError(ctypes.get_last_error(), "OpenProcessToken failed")  # type: ignore[attr-defined]  # Windows-only
         try:
             size = wintypes.DWORD(0)
             advapi32.GetTokenInformation(token, TOKEN_USER_CLASS, None, 0, ctypes.byref(size))
             if not size.value:
-                raise OSError(ctypes.get_last_error(), "GetTokenInformation gave no size")
+                raise OSError(ctypes.get_last_error(), "GetTokenInformation gave no size")  # type: ignore[attr-defined]  # Windows-only
             buf = ctypes.create_string_buffer(size.value)
             if not advapi32.GetTokenInformation(token, TOKEN_USER_CLASS, buf, size, ctypes.byref(size)):
-                raise OSError(ctypes.get_last_error(), "GetTokenInformation failed")
+                raise OSError(ctypes.get_last_error(), "GetTokenInformation failed")  # type: ignore[attr-defined]  # Windows-only
             sid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]  # TOKEN_USER.User.Sid
             if not sid or not advapi32.IsValidSid(sid):
                 raise OSError(0, "The token has no valid user SID")
@@ -166,7 +166,7 @@ def _rows6(table_class: int) -> list[tuple[int, bytes, int, int, int]]:
                     ("remote_addr", ctypes.c_ubyte * 16), ("remote_scope", wintypes.DWORD), ("remote_port", wintypes.DWORD),
                     ("state", wintypes.DWORD), ("pid", wintypes.DWORD)]
 
-    iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)
+    iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
     get = iphlpapi.GetExtendedTcpTable
     get.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), wintypes.BOOL, wintypes.ULONG,
                     ctypes.c_int, wintypes.ULONG]

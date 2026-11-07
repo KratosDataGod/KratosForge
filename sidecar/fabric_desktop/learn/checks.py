@@ -115,12 +115,12 @@ def table_shape(con: duckdb.DuckDBPyConnection, table: str, columns: dict[str, s
             return _no(kind, f"{table}.{name} is {have[name.lower()]}; it should be {typ.upper()}.")
     ident = ".".join('"' + part.replace('"', '""') + '"' for part in ([schema] if schema else []) + [bare])
     for col in not_null or []:
-        n = one_row(con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL'))[0]  # type: ignore[index]
+        n = one_row(con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL'))[0]
         if n:
             return _no(kind, f"{table}.{col} has {n:,} empty (NULL) values.")
     if unique:
         key = ", ".join(f'"{c}"' for c in unique)
-        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {key} FROM {ident} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {key} FROM {ident} GROUP BY ALL HAVING count(*) > 1)"))[0]
         if n:
             return _no(kind, f"{n:,} values of {', '.join(unique)} appear more than once in {table}.")
     return _ok(kind, f"{table} has the columns, types and keys it needs.")
@@ -131,7 +131,7 @@ def integrity(con: duckdb.DuckDBPyConnection, child: str, column: str, parent: s
     kind = "integrity"
     pc = parent_column or column
     n = one_row(con.execute(f'SELECT count(*) FROM "{child}" c WHERE c."{column}" IS NOT NULL AND NOT EXISTS '
-                    f'(SELECT 1 FROM "{parent}" p WHERE p."{pc}" = c."{column}")'))[0]  # type: ignore[index]
+                    f'(SELECT 1 FROM "{parent}" p WHERE p."{pc}" = c."{column}")'))[0]
     if n:
         return _no(kind, f"{n:,} rows of {child} have a {column} that {parent} doesn't have.")
     return _ok(kind, f"Every {child} row finds its {parent}.")

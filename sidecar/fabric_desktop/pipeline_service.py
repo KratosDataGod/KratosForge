@@ -319,7 +319,7 @@ class PipelineRunMixin:
     def pipeline_list(self) -> dict[str, Any]:
         """The pipelines in the repositories this PC opened (Fabric Git ``<name>.DataPipeline``
         folders), with their activity count and the state of their last run here. Reads only."""
-        repos = self.git_repos()["repos"] if hasattr(self, "git_repos") else []  # type: ignore[attr-defined]
+        repos = self.git_repos()["repos"] if hasattr(self, "git_repos") else []
         last: dict[str, dict[str, Any]] = {}
         for r in self.pipeline_runs(limit=200)["runs"]:   # newest first
             last.setdefault(r.get("pipeline") or "", r)

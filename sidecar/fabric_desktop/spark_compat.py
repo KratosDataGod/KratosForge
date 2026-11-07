@@ -1878,8 +1878,8 @@ def install() -> None:
     Column.astype = lambda self, dataType: self.cast(dataType)  # type: ignore[attr-defined]
     Column.getField = _get_field  # type: ignore[attr-defined]
     Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
-    Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
-    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
+    Column.__truediv__ = Column.__div__ = _spark_divide(False)
+    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)
     # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.
     Column.cast = _time_cast(Column.cast)  # type: ignore[method-assign]
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]

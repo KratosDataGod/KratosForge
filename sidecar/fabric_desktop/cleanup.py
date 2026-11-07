@@ -90,7 +90,7 @@ def _alone(stmt: ast.stmt, body: list[ast.stmt], lines: list[str]) -> bool:
     for other in body:
         if other is not stmt and other.lineno <= stmt.end_lineno and other.end_lineno >= stmt.lineno:  # type: ignore[operator]
             return False
-    first, last = stmt.lineno - 1, stmt.end_lineno  # type: ignore[operator]
+    first, last = stmt.lineno - 1, stmt.end_lineno
     text = "\n".join(lines[first:last])
     return "#" not in text and lines[first][:stmt.col_offset].strip() == ""
 
@@ -218,7 +218,7 @@ def _drop_imports(source: str, drops: dict[ast.stmt, set[str]]) -> str:
     # From the bottom, so earlier line numbers stay right.
     for stmt, names in sorted(drops.items(), key=lambda kv: -kv[0].lineno):
         keep = [a for a in stmt.names if _bound(a, stmt) not in names]  # type: ignore[arg-type, attr-defined]  # an Import or ImportFrom
-        first, last = stmt.lineno - 1, stmt.end_lineno  # type: ignore[operator]
+        first, last = stmt.lineno - 1, stmt.end_lineno
         if keep:
             new = (ast.Import(names=keep) if isinstance(stmt, ast.Import)
                    else ast.ImportFrom(module=stmt.module, names=keep, level=stmt.level))  # type: ignore[attr-defined]

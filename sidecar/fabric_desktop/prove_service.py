@@ -247,7 +247,7 @@ class ProveMixin:
         if len(data) > self.MAX_BUNDLE_BYTES:
             raise ValueError("That file is too large for a replay bundle.")
         bundle_id = hashlib.sha256(data).hexdigest()[:16]
-        stored = self.root / "replays" / f"{bundle_id}.zip"  # type: ignore[attr-defined]
+        stored = self.root / "replays" / f"{bundle_id}.zip"
         stored.parent.mkdir(parents=True, exist_ok=True)
         stored.write_bytes(data)
         try:
@@ -273,7 +273,7 @@ class ProveMixin:
         info = self.notebooks.extra(name, "replay")  # type: ignore[attr-defined]
         if not info:
             raise LookupError(f"{name} isn't a replay notebook.")
-        return info, replay.read(self.root / "replays" / f"{info['bundle']}.zip")  # type: ignore[attr-defined]
+        return info, replay.read(self.root / "replays" / f"{info['bundle']}.zip")
 
     def _replay_live(self) -> dict[str, Any] | None:
         """The replay holding the kernel, while its process (with the runtime bound) still runs."""
@@ -440,7 +440,7 @@ class ProveMixin:
 
         import pyarrow.parquet as pq
         from deltalake import write_deltalake
-        path = self.root / "replays" / f"{info['bundle']}.zip"  # type: ignore[attr-defined]
+        path = self.root / "replays" / f"{info['bundle']}.zip"
         bundle = replay.read(path)
         with zipfile.ZipFile(path) as z:
             for s in bundle.get("samples") or []:

@@ -1,15 +1,21 @@
 """Databricks SQL's own built-in functions (not in Spark 3.5) on this PC.
 
 engines.local_sql calls ``rewrite`` for a Databricks SQL cell, after sql.spark_fixes. Each function
-Databricks has that this PC can't answer the same way stops the cell by name, with what to do instead,
-so nothing runs with another answer; databricks_coverage lists each one's status.
+Databricks has that DuckDB names or answers differently is written as DuckDB SQL that gives Databricks'
+documented value, and each one this PC can't answer the same way stops the cell by name, with what to do
+instead, so nothing runs with another answer. databricks_coverage lists each one's status, with a value
+check from Databricks' reference where the function has one.
 """
 
 from __future__ import annotations
 
+import functools
+import json
+import math
 import re
+from pathlib import Path
 
-from sqlglot import exp
+from sqlglot import exp, parse_one
 
 _WAREHOUSE = "Run the cell on a Databricks SQL warehouse"
 
@@ -17,6 +23,14 @@ _WAREHOUSE = "Run the cell on a Databricks SQL warehouse"
 # in Databricks' own format, which this PC can't build or read the same way.
 _SKETCHES = re.compile(r"^(kll_sketch_|kll_merge_agg_|theta_|tuple_|approx_top_k_(accumulate|combine|estimate)$)",
                        re.IGNORECASE)
+
+
+@functools.cache
+def _sketch_names() -> frozenset[str]:
+    """The sketch functions databricks_builtins.json lists, so a function of a person's own that only
+    starts the same way (tuple_merge) isn't refused."""
+    listed = json.loads(Path(__file__).with_name("databricks_builtins.json").read_text(encoding="utf-8"))
+    return frozenset(f["name"] for f in listed if _SKETCHES.match(f["name"]))
 
 
 # sqlglot reads these by name into their own nodes
@@ -30,13 +44,127 @@ def _refusal(name: str, why: str, instead: str = "") -> ValueError:
                       f"{_WAREHOUSE}{', or ' + instead if instead else ''}.")
 
 
+def _template(sql: str, **args: exp.Expression) -> exp.Expression:
+    """DuckDB SQL with each ``_name`` column replaced by that argument, in brackets."""
+    def put(node: exp.Expression) -> exp.Expression:
+        if isinstance(node, exp.Column) and not node.table and node.name.startswith("_") and node.name[1:] in args:
+            return exp.paren(args[node.name[1:]].copy(), copy=False)
+        return node
+    return parse_one(sql, read="duckdb").transform(put)
+
+
+# A vector is ARRAY<FLOAT> in Databricks; it is worked out here in DOUBLE, which gives the values its
+# reference shows (vector_cosine_similarity's 0.9746318461970762). A NULL vector, or one with a NULL
+# element, gives NULL as Databricks documents. DuckDB's list functions stop on a NULL element even in a
+# CASE branch not taken, so they get the vector with NULLs as 0 and the CASE gives the NULL.
+def _clean(value: exp.Expression) -> exp.Expression:
+    return _template("list_transform(_v, __z -> coalesce(__z, 0))", v=exp.cast(value, "DOUBLE[]"))
+
+
+def _whole(sql: str, *vectors: exp.Expression) -> exp.Expression:
+    """``sql`` over the cleaned vectors ``_a`` (and ``_b``), NULL when any vector is NULL or has a NULL."""
+    names = "ab"[:len(vectors)]
+    whole = " AND ".join(f"list_count(_{n}_) = len(_{n}_)" for n in names)
+    args = {n: _clean(v) for n, v in zip(names, vectors, strict=True)}
+    args |= {f"{n}_": exp.cast(v, "DOUBLE[]") for n, v in zip(names, vectors, strict=True)}
+    return _template(f"CASE WHEN {whole} THEN {sql} END", **args)
+
+
+def _norm_sql(degree: float) -> str:
+    if degree == 1:
+        return "list_sum(list_transform(_a, __x -> abs(__x)))"
+    if degree == 2:
+        return "sqrt(list_dot_product(_a, _a))"
+    return "list_max(list_transform(_a, __x -> abs(__x)))"
+
+
+def _degree(name: str, args: list[exp.Expression]) -> float:
+    """vector_norm's or vector_normalize's degree: 2 when left out, else a constant 1, 2 or infinity."""
+    if len(args) < 2:
+        return 2.0
+    value, sign = args[1], 1.0
+    while isinstance(value, (exp.Cast, exp.Neg, exp.Paren)):  # -1.0, 2.0f, -float('inf')
+        sign, value = (-sign if isinstance(value, exp.Neg) else sign), value.this
+    if isinstance(value, exp.Literal):
+        text = value.name.strip().lower()
+        degree = sign * (math.inf if text in ("inf", "infinity", "+inf") else float(text) if not value.is_string
+                         else math.nan)
+        if degree in (1.0, 2.0, math.inf):
+            return degree
+        raise ValueError(f"{name}() takes degree 1.0, 2.0 or float('inf'), as in Databricks "
+                         f"(INVALID_VECTOR_NORM_DEGREE), not {args[1].sql(dialect='databricks')}.")
+    raise _refusal(name, "its degree isn't a constant here, and this PC works out the norm from it.",
+                   "write the degree as 1.0, 2.0 or float('inf')")
+
+
+def _vector_norm(name: str, args: list[exp.Expression]) -> exp.Expression:
+    degree = _degree(name, args)
+    norm = _norm_sql(degree)
+    sql = (f"CASE WHEN len(_a) = 0 THEN 0.0 ELSE {norm} END" if name == "vector_norm" else
+           f"CASE WHEN len(_a) = 0 THEN CAST([] AS DOUBLE[]) WHEN {norm} = 0 THEN NULL "
+           f"ELSE list_transform(_a, __y -> __y / ({norm})) END")
+    return _whole(sql, args[0])
+
+
+_PAIRS = {
+    "vector_inner_product": "list_dot_product(_a, _b)",
+    "vector_l2_distance": "list_distance(_a, _b)",
+    "vector_cosine_similarity": "CASE WHEN list_dot_product(_a, _a) = 0 OR list_dot_product(_b, _b) = 0 THEN NULL "
+                                "ELSE list_cosine_similarity(_a, _b) END",
+}
+
+# Databricks' own scalar functions that are DuckDB SQL here, each as Databricks documents it:
+# zeroifnull is coalesce(expr, 0), nullifzero is if(expr = 0, null, expr), and try_mod is mod with
+# NULL for a zero divisor (DuckDB's % keeps the dividend's sign and a DECIMAL type, as Databricks does).
+_SCALARS = {
+    "zeroifnull": ("COALESCE(_a, 0)", 1),
+    "nullifzero": ("NULLIF(_a, 0)", 1),
+    "try_mod": ("_a % NULLIF(_b, 0)", 2),
+}
+
+# Element-wise aggregates over vectors: DuckDB has no aggregate that sums lists element by element.
+_VECTOR_AGGREGATES = {"vector_sum", "vector_avg"}
+
+
+def _arity(name: str, args: list[exp.Expression], low: int, high: int) -> None:
+    if not low <= len(args) <= high:
+        want = str(low) if low == high else f"{low} or {high}"
+        raise ValueError(f"{name}() takes {want} argument{'s' if high > 1 else ''} in Databricks, not {len(args)}.")
+
+
+def _function(node: exp.Anonymous) -> exp.Expression:
+    name, args = node.name.lower(), list(node.expressions)
+    if name in _SCALARS:
+        sql, count = _SCALARS[name]
+        _arity(name, args, count, count)
+        return exp.paren(_template(sql, **dict(zip("ab", args, strict=False))))
+    if name in _PAIRS:
+        _arity(name, args, 2, 2)
+        return _whole(_PAIRS[name], args[0], args[1])
+    if name in ("vector_norm", "vector_normalize"):
+        _arity(name, args, 1, 2)
+        return _vector_norm(name, args)
+    if name in _VECTOR_AGGREGATES:
+        raise _refusal(name, "DuckDB has no aggregate that adds vectors element by element.",
+                       "posexplode the vectors and GROUP BY the position")
+    return node
+
+
 def rewrite(statement: exp.Expression) -> exp.Expression:
     """``statement`` with Databricks' own functions written for DuckDB, or ValueError for one this PC refuses."""
     for node in statement.find_all(exp.Anonymous, *_TYPED_SKETCHES):
         name = node.name.lower() if isinstance(node, exp.Anonymous) else _TYPED_SKETCHES[type(node)]
-        if _SKETCHES.match(name):
+        if name in _sketch_names():
             instead = ("use approx_count_distinct" if name.startswith(("theta_", "tuple_"))
                        else "use percentile_approx" if name.startswith("kll_") else "")
             raise _refusal(name, "it builds or reads a DataSketches sketch, whose bytes this PC can't make the "
                                  "same way.", instead)
+
+    # innermost first, so a call inside another's arguments is written before the outer one copies them
+    for node in reversed(list(statement.find_all(exp.Anonymous, bfs=False))):
+        new = _function(node)
+        if new is not node:
+            if node is statement:
+                return new
+            node.replace(new)
     return statement

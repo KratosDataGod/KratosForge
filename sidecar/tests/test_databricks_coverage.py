@@ -27,7 +27,7 @@ def test_every_function_has_one_status(rows):
 
 
 def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
-    data = {f["name"]: f for f in spark_coverage.load()}
+    data = {f["name"]: f for f in [*spark_coverage.load(), *databricks_coverage.load()]}
     con = databricks_coverage.connect()
     for r in (r for r in rows if r["status"] == "runs"):
         f = data[r["name"]]
@@ -96,7 +96,10 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
-    assert status["vector_norm"] == "fails"  # DuckDB has none and nothing writes it
+    notes = {r["name"]: r["note"] for r in rows}
+    assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
+    assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
+    assert status["from_xml"] == "fails"  # DuckDB has none and nothing writes it
 
 
 @pytest.mark.parametrize("code", [
@@ -121,3 +124,60 @@ def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
         assert status[name] == "not checked", name  # runs here; no value check yet
     assert status["collate"] == "fails"  # no UTF8_LCASE collation here
+
+
+def test_a_function_of_ones_own_named_like_a_sketch_is_left_alone():
+    from fabric_desktop.engines.local_sql import _databricks
+    assert _databricks("SELECT tuple_merge(a) FROM t")  # not a Databricks sketch: DuckDB says whether it exists
+
+
+def _one(code):
+    con = databricks_coverage.connect()
+    return databricks_coverage.run(code, con)
+
+
+# Every example in Databricks' reference for each function written for DuckDB, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT zeroifnull(0)", 0), ("SELECT zeroifnull(NULL)", 0), ("SELECT zeroifnull(5)", 5),
+    ("SELECT nullifzero(0)", None), ("SELECT nullifzero(NULL)", None), ("SELECT nullifzero(5)", 5),
+    ("SELECT try_mod(2, 1.8)", "decimal:0.2"), ("SELECT try_mod(2, 0)", None),
+    ("SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))", "float:0.974631846197"),
+    ("SELECT vector_cosine_similarity(array(1.0f, 0.0f, 0.0f), array(1.0f, 0.0f, 0.0f))", "float:1"),
+    ("SELECT vector_cosine_similarity(array(1.0f, 0.0f), array(0.0f, 1.0f))", "float:0"),
+    ("SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))", "float:32"),
+    ("SELECT vector_inner_product(array(1.0f, 0.0f), array(0.0f, 1.0f))", "float:0"),
+    ("SELECT vector_inner_product(array(3.0f, 4.0f), array(3.0f, 4.0f))", "float:25"),
+    ("SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))", "float:5.19615242271"),
+    ("SELECT vector_l2_distance(array(1.0f, 2.0f), array(1.0f, 2.0f))", "float:0"),
+    ("SELECT vector_l2_distance(array(0.0f, 0.0f), array(3.0f, 4.0f))", "float:5"),
+    ("SELECT vector_norm(array(3.0f, 4.0f), 2.0f)", "float:5"),
+    ("SELECT vector_norm(array(3.0f, 4.0f), 1.0f)", "float:7"),
+    ("SELECT vector_norm(array(3.0f, 4.0f), float('inf'))", "float:4"),
+    ("SELECT vector_norm(array(), 2.0)", "float:0"),
+    ("SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)", ["float:0.6", "float:0.8"]),
+    ("SELECT vector_norm(vector_normalize(array(1.0f, 2.0f, 3.0f), 2.0f), 2.0f)", "float:1"),
+    ("SELECT vector_normalize(array(0.0f, 0.0f, 0.0f), 2.0f)", None),
+])
+def test_databricks_documented_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+def test_a_vector_that_is_null_or_holds_a_null_gives_null():
+    # Databricks documents NULL for both; DuckDB's list functions would stop on the NULL element
+    got = _one("SELECT vector_inner_product(e, e), vector_l2_distance(e, e), vector_cosine_similarity(e, e), "
+               "vector_norm(e), vector_normalize(e) FROM VALUES (array(1.0f, NULL)), (NULL) AS t(e)")
+    assert got == [[None] * 5, [None] * 5]
+
+
+@pytest.mark.parametrize(("code", "match"), [
+    ("SELECT vector_norm(array(3.0f), 3.0)", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_norm(array(3.0f), -1.0)", r"INVALID_VECTOR_NORM_DEGREE\), not -1.0\."),
+    ("SELECT vector_normalize(array(3.0f), -float('inf'))", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_norm(array(3.0f), d) FROM VALUES (2.0) AS t(d)", "isn't a constant"),
+    ("SELECT vector_sum(e) FROM VALUES (array(1.0f)) AS t(e)", "element by element"),
+    ("SELECT zeroifnull(1, 2)", "takes 1 argument"),
+])
+def test_what_databricks_would_stop_on_or_this_pc_cant_match_stops_by_name(code, match):
+    from fabric_desktop.engines.local_sql import _databricks
+    with pytest.raises(ValueError, match=match):
+        _databricks(code)

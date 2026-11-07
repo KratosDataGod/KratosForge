@@ -83,9 +83,10 @@ def ensure_key_table(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCont
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def issue_keys(sqlDB: fn.FabricSqlConnection, name: str, businessKeys: list) -> dict:
-    return _run(sqlDB, "issue_keys", name=name, business_keys=businessKeys)
+def issue_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str, businessKeys: list) -> dict:
+    return _run(sqlDB, "issue_keys", ctx, name=name, business_keys=businessKeys)
 
 
 @udf.connection(argName="sqlDB", alias="platform")

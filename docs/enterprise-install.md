@@ -58,6 +58,8 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 
 Close the app first, and check the folder on a pilot PC.
 
+The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
+
 ## Deploy
 
 1. Download `kratosforge.exe` from the release you want: [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) unless your pilot group follows Preview.
@@ -125,6 +127,7 @@ The app installs only an engine whose `version.json` names the app's own build a
 There is no one-click rollback yet.
 
 - **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer promotes the earlier build to Stable again, and PCs move to it at their next start.
+- **Data:** a rolled-back build opens what the newer one saved, unless the newer one raised the data format mark, in which case it refuses to start and says so ([Going back to an older build](install.md#going-back-to-an-older-build)). No build has raised it yet, and builds from before the mark (including the current Stable build and its rollback target) don't read it.
 - **Managed:** deploy the older exe. A PC that has to download the engine gets that build's engine from its `build-*` release while the release is kept (see above). Keep a copy of each exe and its engine files; with [your own engine folder](#host-the-engine-yourself) a rolled-back exe gets its engine from there.
 
 ## If an update fails

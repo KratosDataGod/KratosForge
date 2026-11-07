@@ -3207,17 +3207,23 @@ body[data-skin-cells="rounded"] .cell.selected .cell-box { border-color: var(--a
 body[data-skin-cells="card"] .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange), 0 0 0 1px var(--accent); }
 body[data-skin-cells="flat"] .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange), 0 0 0 3px var(--accent-soft); }
-/* Rail tone: light is the rail on --surface. Brand is a navy rail (--accent to --accent-dark) with light
-   labels, an orange active item, and a mountain line at its foot, below the last item (beside the work,
-   never under it). The
-   KratosForge wordmark above it sits on the same navy. */
-body[data-skin-rail-tone="brand"] .rail { padding-bottom: 112px; border-right-color: var(--accent-dark);
-  background: url("rail-mountains.svg") bottom / 100% 104px no-repeat, linear-gradient(180deg, var(--accent), var(--accent-dark)); }
-body[data-skin-rail-tone="brand"] .rail-item { color: var(--on-accent); }
-body[data-skin-rail-tone="brand"] .rail-item:hover { background: var(--accent-dark); }
-body[data-skin-rail-tone="brand"] .rail-item.active { background: linear-gradient(90deg, var(--brand-orange), var(--brand-orange-soft)); color: var(--warn-ink); box-shadow: none; }
-body[data-skin-rail-tone="brand"] :is(.rail-divider, .rail-group-label) { background: var(--accent-soft); opacity: .35; }
-body[data-skin-rail-tone="brand"] .rail-group-label { background: none; border-top-color: var(--accent-soft); color: var(--on-accent); opacity: .8; }
+/* Rail tone: light is the rail on --surface. Brand is a navy rail (--accent to --accent-dark) with white
+   labels and icons, a navy active item with a glowing orange outline, and the bottom group straight after
+   the divider. Mountain art fills the rail's foot below the last item (beside the work, never under it).
+   The art is a placeholder until the final painting lands; it's a background, so it stays still. */
+body[data-skin-rail-tone="brand"] .rail { --rail-art: clamp(120px, 34vh, 300px); padding-bottom: calc(var(--rail-art) + 8px);
+  border-right-color: var(--accent-dark);
+  background: url("rail-mountains.svg") bottom / 100% var(--rail-art) no-repeat, linear-gradient(180deg, var(--accent), var(--accent-dark)); }
+body[data-skin-rail-tone="brand"] .rail-spacer { flex: 0; }
+body[data-skin-rail-tone="brand"] #rail-open:not(:empty) ~ #rail-bottom { margin-top: 6px; padding-top: 8px; border-top: 1px solid rgb(255 255 255 / .35); }
+body[data-skin-rail-tone="brand"] .rail-item { color: var(--on-accent); font-weight: 500; border: 1px solid transparent; }
+body[data-skin-rail-tone="brand"] .rail-item svg { width: 20px; height: 20px; }
+body[data-skin-rail-tone="brand"] .rail-item:hover { background: rgb(255 255 255 / .08); }
+body[data-skin-rail-tone="brand"] .rail-item.active { color: var(--on-accent); font-weight: 600; border-color: var(--brand-orange-soft);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent), var(--on-accent) 15%), var(--accent) 70%, color-mix(in srgb, var(--accent), var(--brand-orange) 20%));
+  box-shadow: 0 0 10px rgb(248 153 28 / .55), inset 0 0 6px rgb(255 179 71 / .25); }
+body[data-skin-rail-tone="brand"] .rail-divider { background: rgb(255 255 255 / .45); }
+body[data-skin-rail-tone="brand"] .rail-group-label { background: none; border-top-color: rgb(255 255 255 / .35); color: var(--on-accent); opacity: .8; }
 body[data-skin-rail-tone="brand"] .rail-close { color: var(--on-accent); }
 body[data-skin-rail-tone="brand"] .topbar .brand { align-self: stretch; margin-left: -16px; padding: 0 12px 0 16px; width: 208px; flex: none; box-sizing: border-box; overflow: hidden;
   background: var(--accent); }

@@ -23,7 +23,7 @@ import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import polars as pl
 import pyarrow as pa
@@ -370,14 +370,14 @@ def table_exists(table: str) -> bool:
 
 def read_table(table: str, version: int | None = None, timestamp: Any = None) -> pl.DataFrame:
     """The table as a data frame; ``version`` or ``timestamp`` read it as it was then."""
-    return pl.from_arrow(open_table(table, version, timestamp).to_pyarrow_table())
+    return cast(pl.DataFrame, pl.from_arrow(open_table(table, version, timestamp).to_pyarrow_table()))  # a Table gives a DataFrame
 
 
 def sql(query: str) -> pl.DataFrame:
     """Run Spark SQL over the attached lakehouse's tables on this PC, e.g. ``sql("SELECT * FROM sales")``."""
     from . import sql as engine
     _see_own_writes()
-    return pl.from_arrow(engine.run(query))
+    return cast(pl.DataFrame, pl.from_arrow(engine.run(query)))  # a Table gives a DataFrame
 
 
 def files(directory: str = "Files") -> list[str]:
@@ -532,7 +532,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     else:
         spill = write_queue.Spill(lh.work_dir / "staging" / "_writes", schema)
         try:
-            for part in streamed[1]:
+            for part in cast(tuple[Any, Iterator[Any]], streamed)[1]:  # streamed when arrow is None
                 if part.schema != schema:
                     part = part.cast(schema)
                 if mode == "overwrite":
@@ -554,7 +554,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         try:
             for attempt in range(UPLOAD_ATTEMPTS):
                 try:
-                    delta = publish(arrow if arrow is not None else spill.reader(), ref, mode, lh.storage_token(),
+                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token(),
                                     schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
                     break
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
@@ -692,7 +692,7 @@ def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_m
         target = delta_profile.open_target(uri, proof.options())
         if target is not None and resolve_schema_mode(how, schema) != "overwrite":
             refuse_conversions(data.schema, target, f"{ref.schema}.{ref.table}")
-        write_deltalake(uri, data, mode=how, storage_options=proof.options(),
+        write_deltalake(uri, data, mode=how, storage_options=proof.options(),  # type: ignore[call-overload]  # how is a checked str
                         schema_mode=resolve_schema_mode(how, schema))
         table = DeltaTable(uri, storage_options=proof.options())
         delta_profile.note_after_write(table)

@@ -231,8 +231,10 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
 
 The DuckDB engine's own translation (sqlglot, then DuckDB) runs each check against the value
 Databricks gives: its documented example, or one worked by hand where the reference gives none. A
-test runs them again, so the table changes when an upgrade fixes or breaks one. A function not listed
-here or below hasn't been checked.
+test runs them again, so the table changes when an upgrade fixes or breaks one.
+[Databricks SQL functions on this PC](databricks-functions.md) lists every built-in Databricks SQL
+shares with Spark 3.5 the same way, each run through a Databricks SQL cell's translation and kept
+current by CI.
 
 Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
 

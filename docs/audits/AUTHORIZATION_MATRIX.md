@@ -52,22 +52,22 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 | `adopt_sources` | `sidecar/fabric_desktop/central/core.py:1755` | is_admin, require_admin |
 | `call_once` | `sidecar/fabric_desktop/central/core.py:3279` | none: runs another change once; that change makes its own check |
 | `claim_admin` | `sidecar/fabric_desktop/central/core.py:1556` | is_admin |
-| `claim_exception_warning` | `sidecar/fabric_desktop/central/policy.py:558` | none: records that a notice went, on the exception's own row |
+| `claim_exception_warning` | `sidecar/fabric_desktop/central/policy.py:572` | none: records that a notice went, on the exception's own row |
 | `clear_keys` | `sidecar/fabric_desktop/central/core.py:424` | is_admin, require_admin |
 | `close_keys` | `sidecar/fabric_desktop/central/core.py:393` | is_admin, require_admin |
 | `confirm_access` | `sidecar/fabric_desktop/central/core.py:2674` | _product_owners, is_admin |
-| `create_policy` | `sidecar/fabric_desktop/central/policy.py:270` | require_admin |
+| `create_policy` | `sidecar/fabric_desktop/central/policy.py:284` | require_admin |
 | `decide_request` | `sidecar/fabric_desktop/central/core.py:2421` | _product_owners, is_admin |
 | `delete_domain` | `sidecar/fabric_desktop/central/core.py:715` | is_admin, require_admin |
 | `delete_landing_zone` | `sidecar/fabric_desktop/central/core.py:1953` | is_admin, require_admin |
-| `delete_policy_template` | `sidecar/fabric_desktop/central/policy.py:1087` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
+| `delete_policy_template` | `sidecar/fabric_desktop/central/policy.py:1101` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
 | `delete_source` | `sidecar/fabric_desktop/central/core.py:1791` | is_admin, require_admin |
-| `discard_policy_draft` | `sidecar/fabric_desktop/central/policy.py:330` | require_admin |
-| `end_policy_exception` | `sidecar/fabric_desktop/central/policy.py:525` | require_admin |
+| `discard_policy_draft` | `sidecar/fabric_desktop/central/policy.py:344` | require_admin |
+| `end_policy_exception` | `sidecar/fabric_desktop/central/policy.py:539` | require_admin |
 | `ensure_key_table` | `sidecar/fabric_desktop/central/core.py:329` | is_admin, require_admin |
-| `ensure_policy_schema` | `sidecar/fabric_desktop/central/policy.py:96` | none: adds missing tables and columns; changes no row |
+| `ensure_policy_schema` | `sidecar/fabric_desktop/central/policy.py:97` | none: adds missing tables and columns; changes no row |
 | `ensure_schema` | `sidecar/fabric_desktop/central/core.py:251` | none: adds missing tables and columns; changes no row |
-| `ensure_template_schema` | `sidecar/fabric_desktop/central/policy.py:995` | none: adds missing tables and columns; changes no row |
+| `ensure_template_schema` | `sidecar/fabric_desktop/central/policy.py:1009` | none: adds missing tables and columns; changes no row |
 | `follow_product` | `sidecar/fabric_desktop/central/core.py:914` | none: the caller's own follow |
 | `import_fabric_domains` | `sidecar/fabric_desktop/central/core.py:630` | is_admin, require_admin |
 | `import_keys` | `sidecar/fabric_desktop/central/core.py:492` | _require_open, is_admin, require_admin |
@@ -76,7 +76,7 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 | `log_shortcut_change` | `sidecar/fabric_desktop/central/core.py:2861` | _shortcut_changer, is_admin |
 | `log_workload_action` | `sidecar/fabric_desktop/central/core.py:1497` | none: appends to the caller's own action log |
 | `note_seen` | `sidecar/fabric_desktop/central/core.py:2557` | none: the caller's own last-seen date |
-| `publish_policy` | `sidecar/fabric_desktop/central/policy.py:352` | _require_open, require_admin |
+| `publish_policy` | `sidecar/fabric_desktop/central/policy.py:366` | _require_open, require_admin |
 | `record_endorsements` | `sidecar/fabric_desktop/central/core.py:3133` | is_admin, require_admin |
 | `record_request_progress` | `sidecar/fabric_desktop/central/core.py:2371` | _product_owners, is_admin |
 | `record_shortcut_health` | `sidecar/fabric_desktop/central/core.py:2904` | _shortcut_changer, is_admin |
@@ -85,31 +85,31 @@ Checked inside the platform (central/core.py, central/policy.py), for every call
 | `register_product` | `sidecar/fabric_desktop/central/core.py:767` | _may_publish, _product_owners, is_admin, require_member |
 | `register_project` | `sidecar/fabric_desktop/central/core.py:728` | _product_owners, is_admin, require_member |
 | `remove_admin` | `sidecar/fabric_desktop/central/core.py:1583` | is_admin, require_admin |
-| `remove_assignment` | `sidecar/fabric_desktop/central/policy.py:703` | _may_assign, is_admin, require_admin |
+| `remove_assignment` | `sidecar/fabric_desktop/central/policy.py:717` | _may_assign, is_admin, require_admin |
 | `remove_product_item` | `sidecar/fabric_desktop/central/core.py:3238` | _can_edit_product, _product_owners, is_admin |
 | `report_product_status` | `sidecar/fabric_desktop/central/core.py:973` | _product_owners, is_admin, require_member |
 | `request` | `sidecar/fabric_desktop/central/core.py:2292` | none: anyone may ask; deciding is checked (decide_request) |
 | `revoke_grant` | `sidecar/fabric_desktop/central/core.py:2520` | _product_owners, is_admin |
-| `save_assignment` | `sidecar/fabric_desktop/central/policy.py:666` | _may_assign, _require_open, is_admin, require_admin |
+| `save_assignment` | `sidecar/fabric_desktop/central/policy.py:680` | _may_assign, _require_open, is_admin, require_admin |
 | `save_change_window` | `sidecar/fabric_desktop/central/core.py:1163` | is_admin, require_admin |
 | `save_domain` | `sidecar/fabric_desktop/central/core.py:575` | is_admin, require_admin |
 | `save_enrichment` | `sidecar/fabric_desktop/central/core.py:1400` | _product_owners, _require_certifier, is_admin, require_member |
 | `save_entra_group_naming` | `sidecar/fabric_desktop/central/core.py:1103` | is_admin, require_admin |
 | `save_landing_zone` | `sidecar/fabric_desktop/central/core.py:1882` | is_admin, require_admin |
-| `save_policy_as_template` | `sidecar/fabric_desktop/central/policy.py:1115` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
-| `save_policy_draft` | `sidecar/fabric_desktop/central/policy.py:292` | _require_open, require_admin |
-| `save_policy_template` | `sidecar/fabric_desktop/central/policy.py:1064` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
+| `save_policy_as_template` | `sidecar/fabric_desktop/central/policy.py:1129` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
+| `save_policy_draft` | `sidecar/fabric_desktop/central/policy.py:306` | _require_open, require_admin |
+| `save_policy_template` | `sidecar/fabric_desktop/central/policy.py:1078` | _may_add_templates, _require_template_author, _template_authors, is_admin, require_admin |
 | `save_shortcut_rules` | `sidecar/fabric_desktop/central/core.py:2979` | is_admin, require_admin |
 | `save_source` | `sidecar/fabric_desktop/central/core.py:1743` | is_admin, require_admin |
 | `save_term` | `sidecar/fabric_desktop/central/core.py:1468` | is_admin |
-| `set_policy_status` | `sidecar/fabric_desktop/central/policy.py:378` | _require_open, require_admin |
+| `set_policy_status` | `sidecar/fabric_desktop/central/policy.py:392` | _require_open, require_admin |
 | `set_project_member` | `sidecar/fabric_desktop/central/core.py:2084` | _product_owners, is_admin, require_member |
-| `set_template_authors` | `sidecar/fabric_desktop/central/policy.py:1129` | _may_add_templates, _template_authors, is_admin, require_admin |
+| `set_template_authors` | `sidecar/fabric_desktop/central/policy.py:1143` | _may_add_templates, _template_authors, is_admin, require_admin |
 | `stage_keys` | `sidecar/fabric_desktop/central/core.py:408` | is_admin, require_admin |
 | `switch_landing_reads` | `sidecar/fabric_desktop/central/core.py:1923` | is_admin, require_admin |
 | `unfollow_product` | `sidecar/fabric_desktop/central/core.py:928` | none: the caller's own follow |
 | `unlink_entra_group` | `sidecar/fabric_desktop/central/core.py:1240` | _require_domain_owner, is_admin |
-| `use_policy_template` | `sidecar/fabric_desktop/central/policy.py:1105` | require_admin |
+| `use_policy_template` | `sidecar/fabric_desktop/central/policy.py:1119` | require_admin |
 | `withdraw_request` | `sidecar/fabric_desktop/central/core.py:2497` | is_admin |
 | `withdraw_shortcut_risk` | `sidecar/fabric_desktop/central/core.py:3040` | is_admin, require_admin |
 
@@ -256,19 +256,19 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `incidents_evaluate` | `sidecar/fabric_desktop/incident_service.py:175` | platform: report_product_status; Fabric or OneLake | platform's check per operation; Fabric's own rights |
 | `incidents_history_sync` | `sidecar/fabric_desktop/incident_desk.py:180` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `incidents_watch` | `sidecar/fabric_desktop/incident_service.py:271` | platform: report_product_status; Fabric or OneLake | platform's check per operation; Fabric's own rights |
-| `integrations_activity` | `sidecar/fabric_desktop/integrations/app_service.py:240` | this PC | the signed-in Windows user's own files |
-| `integrations_add_client` | `sidecar/fabric_desktop/integrations/app_service.py:189` | this PC | the signed-in Windows user's own files |
-| `integrations_audit_check` | `sidecar/fabric_desktop/integrations/app_service.py:275` | this PC | the signed-in Windows user's own files |
-| `integrations_decide` | `sidecar/fabric_desktop/integrations/app_service.py:229` | this PC | confirm or approve argument |
-| `integrations_new_token` | `sidecar/fabric_desktop/integrations/app_service.py:155` | this PC | the signed-in Windows user's own files |
-| `integrations_pending` | `sidecar/fabric_desktop/integrations/app_service.py:234` | this PC | the signed-in Windows user's own files |
-| `integrations_revoke_client` | `sidecar/fabric_desktop/integrations/app_service.py:223` | this PC | the signed-in Windows user's own files |
-| `integrations_set_enabled` | `sidecar/fabric_desktop/integrations/app_service.py:182` | runs code or a pipeline on this PC | what the code reaches is checked where it lands; PermissionError |
-| `integrations_set_extension` | `sidecar/fabric_desktop/integrations/app_service.py:176` | this PC | the signed-in Windows user's own files |
-| `integrations_set_http` | `sidecar/fabric_desktop/integrations/app_service.py:141` | runs code or a pipeline on this PC | what the code reaches is checked where it lands; PermissionError |
-| `integrations_status` | `sidecar/fabric_desktop/integrations/app_service.py:160` | this PC | the signed-in Windows user's own files |
-| `integrations_test` | `sidecar/fabric_desktop/integrations/app_service.py:281` | this PC | the signed-in Windows user's own files |
-| `integrations_update_client` | `sidecar/fabric_desktop/integrations/app_service.py:208` | this PC | the signed-in Windows user's own files |
+| `integrations_activity` | `sidecar/fabric_desktop/integrations/app_service.py:241` | this PC | the signed-in Windows user's own files |
+| `integrations_add_client` | `sidecar/fabric_desktop/integrations/app_service.py:190` | this PC | the signed-in Windows user's own files |
+| `integrations_audit_check` | `sidecar/fabric_desktop/integrations/app_service.py:276` | this PC | the signed-in Windows user's own files |
+| `integrations_decide` | `sidecar/fabric_desktop/integrations/app_service.py:230` | this PC | confirm or approve argument |
+| `integrations_new_token` | `sidecar/fabric_desktop/integrations/app_service.py:156` | this PC | the signed-in Windows user's own files |
+| `integrations_pending` | `sidecar/fabric_desktop/integrations/app_service.py:235` | this PC | the signed-in Windows user's own files |
+| `integrations_revoke_client` | `sidecar/fabric_desktop/integrations/app_service.py:224` | this PC | the signed-in Windows user's own files |
+| `integrations_set_enabled` | `sidecar/fabric_desktop/integrations/app_service.py:183` | runs code or a pipeline on this PC | what the code reaches is checked where it lands; PermissionError |
+| `integrations_set_extension` | `sidecar/fabric_desktop/integrations/app_service.py:177` | this PC | the signed-in Windows user's own files |
+| `integrations_set_http` | `sidecar/fabric_desktop/integrations/app_service.py:142` | runs code or a pipeline on this PC | what the code reaches is checked where it lands; PermissionError |
+| `integrations_status` | `sidecar/fabric_desktop/integrations/app_service.py:161` | this PC | the signed-in Windows user's own files |
+| `integrations_test` | `sidecar/fabric_desktop/integrations/app_service.py:282` | this PC | the signed-in Windows user's own files |
+| `integrations_update_client` | `sidecar/fabric_desktop/integrations/app_service.py:209` | this PC | the signed-in Windows user's own files |
 | `interrupt_cell` | `sidecar/fabric_desktop/service.py:714` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `kernel_session_leave` | `sidecar/fabric_desktop/service.py:368` | this PC | the signed-in Windows user's own files |
 | `kernel_session_share` | `sidecar/fabric_desktop/service.py:344` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
@@ -323,8 +323,8 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_delete_key_table` | `sidecar/fabric_desktop/meta_service.py:968` | Fabric or OneLake | Fabric's own rights |
 | `meta_delete_schedule` | `sidecar/fabric_desktop/cloud_service.py:726` | Fabric or OneLake | Fabric's own rights |
 | `meta_delete_source_system` | `sidecar/fabric_desktop/meta_service.py:1014` | Fabric or OneLake | Fabric's own rights |
-| `meta_discard_quarantine` | `sidecar/fabric_desktop/dataops_service.py:291` | Fabric or OneLake | Fabric's own rights |
-| `meta_drift_apply` | `sidecar/fabric_desktop/dataops_service.py:200` | Fabric or OneLake | Fabric's own rights |
+| `meta_discard_quarantine` | `sidecar/fabric_desktop/dataops_service.py:292` | Fabric or OneLake | Fabric's own rights |
+| `meta_drift_apply` | `sidecar/fabric_desktop/dataops_service.py:201` | Fabric or OneLake | Fabric's own rights |
 | `meta_init` | `sidecar/fabric_desktop/meta_service.py:181` | this PC | the signed-in Windows user's own files |
 | `meta_keys_sync` | `sidecar/fabric_desktop/meta_service.py:1019` | Fabric or OneLake | Fabric's own rights |
 | `meta_keys_to_lakehouse` | `sidecar/fabric_desktop/central/service.py:1507` | Fabric or OneLake | Fabric's own rights |
@@ -343,17 +343,17 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_profile` | `sidecar/fabric_desktop/cloud_service.py:882` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_promote` | `sidecar/fabric_desktop/meta_service.py:598` | platform: register_product; Fabric or OneLake | platform's check per operation; Fabric's own rights; promote gates |
 | `meta_publish_varlib` | `sidecar/fabric_desktop/estate_service.py:599` | Fabric or OneLake | Fabric's own rights |
-| `meta_replay` | `sidecar/fabric_desktop/dataops_service.py:264` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
+| `meta_replay` | `sidecar/fabric_desktop/dataops_service.py:265` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_restore` | `sidecar/fabric_desktop/estate_service.py:121` | Fabric or OneLake | Fabric's own rights; promote gates |
 | `meta_rollback` | `sidecar/fabric_desktop/meta_service.py:695` | Fabric or OneLake | Fabric's own rights; promote gates |
 | `meta_run` | `sidecar/fabric_desktop/meta_service.py:462` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_save_entity` | `sidecar/fabric_desktop/meta_service.py:380` | Fabric or OneLake | Fabric's own rights |
 | `meta_save_source_system` | `sidecar/fabric_desktop/meta_service.py:980` | Fabric or OneLake | Fabric's own rights |
-| `meta_set_alerts` | `sidecar/fabric_desktop/dataops_service.py:337` | this PC | the signed-in Windows user's own files |
+| `meta_set_alerts` | `sidecar/fabric_desktop/dataops_service.py:338` | this PC | the signed-in Windows user's own files |
 | `meta_set_compute` | `sidecar/fabric_desktop/cloud_service.py:589` | this PC | the signed-in Windows user's own files |
 | `meta_set_designation` | `sidecar/fabric_desktop/central/service.py:1455` | this PC | the signed-in Windows user's own files |
 | `meta_set_environment` | `sidecar/fabric_desktop/meta_service.py:306` | this PC | the signed-in Windows user's own files |
-| `meta_set_freshness` | `sidecar/fabric_desktop/dataops_service.py:299` | Fabric or OneLake | Fabric's own rights |
+| `meta_set_freshness` | `sidecar/fabric_desktop/dataops_service.py:300` | Fabric or OneLake | Fabric's own rights |
 | `meta_set_keys_workspace` | `sidecar/fabric_desktop/meta_service.py:346` | Fabric or OneLake | Fabric's own rights |
 | `meta_set_layers` | `sidecar/fabric_desktop/meta_service.py:449` | this PC | the signed-in Windows user's own files |
 | `meta_set_maintenance` | `sidecar/fabric_desktop/cloud_service.py:563` | Fabric or OneLake | Fabric's own rights |
@@ -398,14 +398,14 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `notebook_validate_start` | `sidecar/fabric_desktop/validate_service.py:112` | Fabric or OneLake | Fabric's own rights; PermissionError |
 | `notebook_version_delete` | `sidecar/fabric_desktop/notebook_versions_service.py:107` | this PC | the signed-in Windows user's own files |
 | `notebook_version_restore` | `sidecar/fabric_desktop/notebook_versions_service.py:95` | this PC | the signed-in Windows user's own files |
-| `optimize_connect` | `sidecar/fabric_desktop/optimize_service.py:117` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `optimize_create` | `sidecar/fabric_desktop/optimize_service.py:101` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `optimize_disconnect` | `sidecar/fabric_desktop/optimize_service.py:148` | this PC | the signed-in Windows user's own files |
-| `optimize_new_installation_id` | `sidecar/fabric_desktop/optimize_service.py:154` | this PC | the signed-in Windows user's own files |
-| `optimize_set_label` | `sidecar/fabric_desktop/optimize_service.py:157` | this PC | the signed-in Windows user's own files |
-| `optimize_set_recommendation` | `sidecar/fabric_desktop/optimize_service.py:444` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
-| `optimize_share_local_runs` | `sidecar/fabric_desktop/optimize_service.py:353` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `optimize_switch` | `sidecar/fabric_desktop/optimize_service.py:144` | this PC | the signed-in Windows user's own files |
+| `optimize_connect` | `sidecar/fabric_desktop/optimize_service.py:137` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `optimize_create` | `sidecar/fabric_desktop/optimize_service.py:121` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `optimize_disconnect` | `sidecar/fabric_desktop/optimize_service.py:168` | this PC | the signed-in Windows user's own files |
+| `optimize_new_installation_id` | `sidecar/fabric_desktop/optimize_service.py:174` | this PC | the signed-in Windows user's own files |
+| `optimize_set_label` | `sidecar/fabric_desktop/optimize_service.py:177` | this PC | the signed-in Windows user's own files |
+| `optimize_set_recommendation` | `sidecar/fabric_desktop/optimize_service.py:469` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
+| `optimize_share_local_runs` | `sidecar/fabric_desktop/optimize_service.py:378` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `optimize_switch` | `sidecar/fabric_desktop/optimize_service.py:164` | this PC | the signed-in Windows user's own files |
 | `pipeline_run_cancel` | `sidecar/fabric_desktop/pipeline_service.py:308` | this PC | the signed-in Windows user's own files |
 | `pipeline_run_start` | `sidecar/fabric_desktop/pipeline_service.py:225` | Fabric or OneLake | Fabric's own rights |
 | `platform_add_admin` | `sidecar/fabric_desktop/central/service.py:583` | this PC | the signed-in Windows user's own files |
@@ -492,14 +492,14 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `set_pc_schedule_signed_out` | `sidecar/fabric_desktop/schedule_service.py:192` | this PC | the signed-in Windows user's own files |
 | `set_risk_settings` | `sidecar/fabric_desktop/risk_service.py:42` | this PC | the signed-in Windows user's own files |
 | `set_workspace_mark` | `sidecar/fabric_desktop/service.py:561` | this PC | the signed-in Windows user's own files |
-| `shortcut_accept_risk` | `sidecar/fabric_desktop/shortcut_service.py:380` | platform: accept_shortcut_risk | platform's check per operation |
-| `shortcut_export` | `sidecar/fabric_desktop/shortcut_service.py:152` | Fabric or OneLake | Fabric's own rights; platform admin (in app) |
-| `shortcut_repoint` | `sidecar/fabric_desktop/shortcut_service.py:450` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
-| `shortcut_repoint_many` | `sidecar/fabric_desktop/shortcut_service.py:239` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
-| `shortcut_request` | `sidecar/fabric_desktop/shortcut_service.py:572` | this PC | the signed-in Windows user's own files |
-| `shortcut_save_rules` | `sidecar/fabric_desktop/shortcut_service.py:349` | platform: save_shortcut_rules | platform's check per operation; platform admin (in app) |
-| `shortcut_undo` | `sidecar/fabric_desktop/shortcut_service.py:484` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
-| `shortcut_withdraw_risk` | `sidecar/fabric_desktop/shortcut_service.py:384` | platform: withdraw_shortcut_risk | platform's check per operation |
+| `shortcut_accept_risk` | `sidecar/fabric_desktop/shortcut_service.py:381` | platform: accept_shortcut_risk | platform's check per operation |
+| `shortcut_export` | `sidecar/fabric_desktop/shortcut_service.py:153` | Fabric or OneLake | Fabric's own rights; platform admin (in app) |
+| `shortcut_repoint` | `sidecar/fabric_desktop/shortcut_service.py:451` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
+| `shortcut_repoint_many` | `sidecar/fabric_desktop/shortcut_service.py:240` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
+| `shortcut_request` | `sidecar/fabric_desktop/shortcut_service.py:573` | this PC | the signed-in Windows user's own files |
+| `shortcut_save_rules` | `sidecar/fabric_desktop/shortcut_service.py:350` | platform: save_shortcut_rules | platform's check per operation; platform admin (in app) |
+| `shortcut_undo` | `sidecar/fabric_desktop/shortcut_service.py:485` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
+| `shortcut_withdraw_risk` | `sidecar/fabric_desktop/shortcut_service.py:385` | platform: withdraw_shortcut_risk | platform's check per operation |
 | `side_by_side_cancel` | `sidecar/fabric_desktop/side_by_side_service.py:260` | Fabric or OneLake | Fabric's own rights |
 | `side_by_side_cores_set` | `sidecar/fabric_desktop/side_by_side_service.py:170` | this PC | the signed-in Windows user's own files |
 | `side_by_side_start` | `sidecar/fabric_desktop/side_by_side_service.py:178` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights; PermissionError |
@@ -536,9 +536,9 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `workload_assign` | `sidecar/fabric_desktop/workload_service.py:442` | Fabric or OneLake | Fabric's own rights |
 | `workload_link` | `sidecar/fabric_desktop/workload_service.py:470` | Fabric or OneLake | Fabric's own rights |
 | `workload_unlink` | `sidecar/fabric_desktop/workload_service.py:482` | this PC | the signed-in Windows user's own files |
-| `xray_adopt` | `sidecar/fabric_desktop/xray_service.py:577` | Fabric or OneLake | Fabric's own rights |
+| `xray_adopt` | `sidecar/fabric_desktop/xray_service.py:594` | Fabric or OneLake | Fabric's own rights |
 | `xray_dismiss` | `sidecar/fabric_desktop/xray_service.py:224` | this PC | the signed-in Windows user's own files |
 | `xray_optimize` | `sidecar/fabric_desktop/xray_service.py:305` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
 | `xray_pause` | `sidecar/fabric_desktop/xray_service.py:133` | Fabric or OneLake | Fabric's own rights |
-| `xray_remove_staging` | `sidecar/fabric_desktop/xray_service.py:524` | Fabric or OneLake | Fabric's own rights; organization policy |
-| `xray_vacuum` | `sidecar/fabric_desktop/xray_service.py:381` | Fabric or OneLake | Fabric's own rights |
+| `xray_remove_staging` | `sidecar/fabric_desktop/xray_service.py:541` | Fabric or OneLake | Fabric's own rights; organization policy |
+| `xray_vacuum` | `sidecar/fabric_desktop/xray_service.py:392` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |

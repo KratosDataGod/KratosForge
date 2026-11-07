@@ -7,7 +7,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop.meta import Engine, Project
-from fabric_desktop.meta.preflight import Estimate, available_memory, estimate, too_big
+from fabric_desktop.meta.preflight import STRING_BYTES, Estimate, _width, available_memory, estimate, mb, too_big
 from test_large_tables import DAY1, DAY2, Setup, entity, rows
 
 
@@ -94,3 +94,24 @@ def test_turning_the_guard_off_is_not_a_logic_change(tmp_path):
     entity(s.root, "bronze.events", text.replace('watermark = "modified"', 'watermark = "modified"\nmemory_guard = false'))
     p = Project(s.root)
     assert p.fingerprint(p.entities["bronze.events"]) == before
+
+
+def test_a_batch_of_the_read_takes_its_share_of_the_bytes():
+    e = Estimate(files=2, files_total=4, rows=1000, bytes_on_disk=10_000, memory_bytes=40_000)
+    half = e.part(500)
+    assert (half.rows, half.bytes_on_disk, half.memory_bytes, half.files) == (500, 5_000, 20_000, 2)
+    empty = Estimate(files=0, files_total=1, rows=0, bytes_on_disk=100, memory_bytes=200).part(0)
+    assert (empty.bytes_on_disk, empty.memory_bytes) == (100, 200)  # no rows to share by: the whole read
+
+
+@pytest.mark.parametrize("dtype, width", [(pl.Boolean, 1), (pl.UInt8, 1), (pl.Int16, 2), (pl.Date, 4),
+                                          (pl.Decimal(10, 2), 16), (pl.Int128, 16), (pl.Datetime, 8),
+                                          (pl.String, STRING_BYTES), (pl.List(pl.Int64), STRING_BYTES)])
+def test_memory_width_of_each_column_type(dtype, width):
+    assert _width(dtype) == width
+
+
+def test_sizes_are_shown_in_mb_or_gb():
+    assert mb(10) == "0.1 MB"  # never shown as nothing
+    assert mb(5 * 1024 ** 2) == "5.0 MB"
+    assert mb(3 * 1024 ** 3) == "3.0 GB"

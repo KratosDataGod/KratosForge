@@ -264,15 +264,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Reports can't have item permissions removed"
+          "text": "Reports can't have item permissions removed after they've been granted"
         },
         {
           "id": "b",
-          "text": "Item permissions take up to a week to expire"
+          "text": "Removed item permissions take up to a week to stop applying"
         },
         {
           "id": "c",
-          "text": "She has a cached copy of the report"
+          "text": "She is still using a cached copy of the report in her browser"
         },
         {
           "id": "d",
@@ -284,7 +284,7 @@
       ],
       "explanation": "Workspace roles apply to every item in the workspace. To stop her viewing the report, you also have to remove her Viewer role.",
       "source": "https://learn.microsoft.com/en-us/fabric/security/permission-model",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

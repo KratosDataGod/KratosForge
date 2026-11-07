@@ -44,15 +44,15 @@
         },
         {
           "id": "b",
-          "text": "Open each lakehouse's table properties"
+          "text": "Open each lakehouse's table properties for load errors"
         },
         {
           "id": "c",
-          "text": "Read the Git history"
+          "text": "Read the Git history of each workspace"
         },
         {
           "id": "d",
-          "text": "Run a deployment pipeline"
+          "text": "Run a deployment pipeline to compare the stages"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "The job runs list filters by time range, item type, status and workspace, and supports keyword search.",
       "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.1-q3",
@@ -138,11 +138,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Export the pipeline's JSON definition and search the file for the run ID"
+          "text": "Export the pipeline's JSON definition from the workspace and search the file for the missing run ID"
         },
         {
           "id": "b",
-          "text": "Clear the browser cache so that the search box indexes every run"
+          "text": "Clear the browser cache so that the search box indexes every run in the workspace"
         },
         {
           "id": "c",
@@ -150,7 +150,7 @@
         },
         {
           "id": "d",
-          "text": "Turn on workspace monitoring, which makes keyword search cover older pages"
+          "text": "Turn on workspace monitoring, which makes keyword search cover the older pages of runs"
         }
       ],
       "answer": [
@@ -158,7 +158,7 @@
       ],
       "explanation": "Keyword search only checks items loaded on the current page, while the filter drop-downs don't have this limitation. Workspace monitoring and the browser cache don't change how the search box works.",
       "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -169,11 +169,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The run is waiting in a queue that the Job runs page never displays"
+          "text": "The run is still waiting in a capacity queue, which the Job runs page never displays until the run starts"
         },
         {
           "id": "b",
-          "text": "Runs appear only after they finish, so in-progress runs are hidden"
+          "text": "Runs appear only after they finish, so in-progress runs are hidden from the Job runs page"
         },
         {
           "id": "c",
@@ -181,7 +181,7 @@
         },
         {
           "id": "d",
-          "text": "Copy jobs appear only in the capacity metrics app, not in the Job runs page"
+          "text": "Copy jobs appear only in the capacity metrics app, not in the Monitor hub's Job runs page"
         }
       ],
       "answer": [
@@ -189,7 +189,7 @@
       ],
       "explanation": "The Job runs page retrieves data when it loads and doesn't refresh on its own; the Reload icon shows new and active runs. Copy jobs are a supported item type, and in-progress runs are shown with an In progress status.",
       "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -262,15 +262,15 @@
       "options": [
         {
           "id": "a",
-          "text": "No logs at all until the monitoring database is refreshed manually each day"
+          "text": "No logs at all until someone refreshes the monitoring database manually at the end of each day"
         },
         {
           "id": "b",
-          "text": "Last week's logs, because collection backfills the previous 30 days"
+          "text": "Last week's logs, because turning on collection backfills the activity of the previous 30 days by default"
         },
         {
           "id": "c",
-          "text": "Last week's logs, but only for items that failed"
+          "text": "Last week's logs, but only for the Copy job runs that failed during that week"
         },
         {
           "id": "d",
@@ -282,7 +282,7 @@
       ],
       "explanation": "Workspace monitoring starts collecting only after you turn it on and doesn't backfill earlier activity. The 30 days is the default retention of collected data, not a backfill window.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/workspace-monitoring-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

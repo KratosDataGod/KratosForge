@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "df.groupBy(\"amount\").sum(\"region\")"
+          "text": "df.groupBy(\"amount\").agg(F.sum(\"region\").alias(\"total\"))"
         },
         {
           "id": "b",
@@ -48,7 +48,7 @@
         },
         {
           "id": "c",
-          "text": "df.select(F.sum(\"region\")).alias(\"total\")"
+          "text": "df.select(\"region\", F.sum(\"amount\")).alias(\"total\")"
         },
         {
           "id": "d",
@@ -60,9 +60,9 @@
       ],
       "explanation": "groupBy sets the grouping column and agg applies the aggregate; alias names the result column.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.8-q3",

@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "V-Order is turned off"
+          "text": "V-Order is turned off on the source table, so Spark can't read that column's metadata from the Parquet footer"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "The Spark pool is too small"
+          "text": "The Spark pool is too small, so the column was dropped when the executors ran out of memory during the read"
         },
         {
           "id": "d",
-          "text": "The lakehouse is in a different domain"
+          "text": "The lakehouse belongs to a different domain from the notebook's workspace, so its columns aren't visible to the notebook's Spark session"
         }
       ],
       "answer": [
@@ -29,7 +29,7 @@
       ],
       "explanation": "An unresolved column error means the plan refers to a column the DataFrame doesn't have at that point. Print the schema before the failing step.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/error-messages/unresolved-column-error-class",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Turn off autoscale"
+          "text": "Turn off autoscale so the pool keeps a fixed number of executors for the conversion"
         },
         {
           "id": "b",
@@ -48,11 +48,11 @@
         },
         {
           "id": "c",
-          "text": "Use collect() instead"
+          "text": "Use collect() instead, since it streams rows to the driver a partition at a time"
         },
         {
           "id": "d",
-          "text": "Call toPandas() twice"
+          "text": "Call toPandas() twice so the second call reads from the cached first result"
         }
       ],
       "answer": [
@@ -60,7 +60,7 @@
       ],
       "explanation": "toPandas and collect pull all the data onto the driver. Keep the work distributed in Spark and only bring small results back.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/pandas/pyspark-pandas-conversion",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Rename the import"
+          "text": "Rename the import to the package's module alias so Python finds it in the runtime"
         },
         {
           "id": "b",
-          "text": "Install it on your PC"
+          "text": "Install the package on your PC so it's uploaded with the notebook when it runs"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "Run the notebook again"
+          "text": "Run the notebook again, since the runtime installs missing packages on the second attempt"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "An environment's libraries are installed in every session that uses it, including scheduled runs. An in-session install lasts only for that session.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/environment-manage-library",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "`https://<workspace>.blob.core.windows.net/orders.csv`"
+          "text": "`https://<workspace>.blob.core.windows.net/<lakehouse>.Lakehouse/Files/raw/orders.csv`"
         },
         {
           "id": "b",
-          "text": "`C:/Files/raw/orders.csv`"
+          "text": "`file:///C:/Users/<user>/OneLake - Microsoft/<workspace>/<lakehouse>.Lakehouse/Files/raw/orders.csv`"
         },
         {
           "id": "c",
@@ -122,9 +122,9 @@
       ],
       "explanation": "A relative Files/ path depends on the lakehouse attached to the notebook. A full OneLake address names the workspace and item, so it resolves the same way from any notebook with access to the data.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q5",
@@ -133,15 +133,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Turn on V-Order for the session"
+          "text": "Turn on V-Order for the session so packages install in order"
         },
         {
           "id": "b",
-          "text": "Run the notebook in high concurrency mode"
+          "text": "Run the notebook in high concurrency mode to reuse a session"
         },
         {
           "id": "c",
-          "text": "Increase spark.sql.shuffle.partitions"
+          "text": "Increase spark.sql.shuffle.partitions for the pip install step"
         },
         {
           "id": "d",
@@ -153,7 +153,7 @@
       ],
       "explanation": "PipFailed can come from a version conflict with pre-installed packages; removing the pin lets pip resolve a compatible version. Session mode, V-Order and shuffle partitions don't affect library installation.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -164,15 +164,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Restart the session with a smaller node size"
+          "text": "Restart the session with a smaller node size so the class reloads"
         },
         {
           "id": "b",
-          "text": "Run OPTIMIZE on the source table"
+          "text": "Run OPTIMIZE on the source table so its classes are rebuilt"
         },
         {
           "id": "c",
-          "text": "Convert the notebook cell to Spark SQL"
+          "text": "Convert the cell to PySpark so the class is loaded from Python instead"
         },
         {
           "id": "d",
@@ -184,7 +184,7 @@
       ],
       "explanation": "ClassNotFound means a class isn't on the classpath, typically a missing library; you add the JAR to the environment or attach it with %%configure. The other options don't add the class.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -195,11 +195,11 @@
       "options": [
         {
           "id": "a",
-          "text": "In the Capacity Metrics app's Storage page"
+          "text": "In the Capacity Metrics app's Storage page, under the failed operation for that notebook's run"
         },
         {
           "id": "b",
-          "text": "In the workspace's sensitivity label settings"
+          "text": "In the workspace's sensitivity label settings, which record why labeled jobs are aborted"
         },
         {
           "id": "c",
@@ -207,7 +207,7 @@
         },
         {
           "id": "d",
-          "text": "In the lakehouse's table properties"
+          "text": "In the lakehouse's table properties pane, which shows the last error raised by any failed write to the table"
         }
       ],
       "answer": [
@@ -215,7 +215,7 @@
       ],
       "explanation": "JobAborted wraps the real error; you review the failed stage's task failure reason in the Spark UI Stages tab. The other places don't show task failures.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -230,15 +230,15 @@
         },
         {
           "id": "b",
-          "text": "Replace notebookutils.fs.ls with df.toPandas()"
+          "text": "Replace notebookutils.fs.ls with df.toPandas() to list the folder contents"
         },
         {
           "id": "c",
-          "text": "Run the notebook in a different workspace"
+          "text": "Run the notebook in a different workspace where the folder parameter already exists"
         },
         {
           "id": "d",
-          "text": "Increase the driver memory"
+          "text": "Increase the driver memory so that the empty string can be resolved"
         }
       ],
       "answer": [
@@ -246,7 +246,7 @@
       ],
       "explanation": "The error means a notebookutils function got an empty string; you make sure parameters are non-empty and provide default values. Memory or workspace changes don't fix an empty argument.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

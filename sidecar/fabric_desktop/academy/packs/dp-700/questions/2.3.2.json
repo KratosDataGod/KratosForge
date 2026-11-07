@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "A new workspace"
+          "text": "A new workspace for the below-zero events"
         },
         {
           "id": "b",
-          "text": "A KQL update policy"
+          "text": "A KQL update policy on the source"
         },
         {
           "id": "c",
-          "text": "A notebook activity"
+          "text": "A Notebook activity in a pipeline"
         },
         {
           "id": "d",
@@ -29,7 +29,7 @@
       ],
       "explanation": "The eventstream editor has no-code operations such as Filter between the source and destinations.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },

@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Put the libraries in a lakehouse Files folder"
+          "text": "Upload the wheel files to the default lakehouse's Files folder, which Spark loads at session start"
         },
         {
           "id": "b",
-          "text": "Paste the same %pip install cell at the top of every notebook"
+          "text": "Paste the same %pip install and %%configure cells at the top of every notebook in the workspace"
         },
         {
           "id": "c",
@@ -60,7 +60,7 @@
       ],
       "explanation": "An environment holds libraries and Spark settings, and choosing it as the workspace default in the workspace's Spark settings applies it to notebooks and Spark job definitions that don't pick another.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/create-and-use-environment",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -170,7 +170,7 @@
       "options": [
         {
           "id": "a",
-          "text": "The workspace admin publishes a default environment for the workspace"
+          "text": "The workspace admin publishes a default environment that includes the custom pool definition"
         },
         {
           "id": "b",
@@ -178,11 +178,11 @@
         },
         {
           "id": "c",
-          "text": "A Fabric admin assigns the workspace to a domain that allows custom pools"
+          "text": "A Fabric admin assigns the workspace to a domain whose settings allow its workspaces to create custom Spark pools"
         },
         {
           "id": "d",
-          "text": "The workspace admin turns on high concurrency mode for notebooks"
+          "text": "The workspace admin turns on high concurrency mode for notebooks in the workspace's Spark settings"
         }
       ],
       "answer": [
@@ -190,7 +190,7 @@
       ],
       "explanation": "Custom pools depend on the capacity-level Customized workspace pools control. Domains, environments and high concurrency don't unlock custom pools.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

@@ -9,11 +9,11 @@
       "options": [
         {
           "id": "a",
-          "text": "An update policy"
+          "text": "An update policy that copies 30 days to a hot table"
         },
         {
           "id": "b",
-          "text": "A retention policy of 30 days"
+          "text": "A retention policy of 30 days on the table"
         },
         {
           "id": "c",
@@ -21,7 +21,7 @@
         },
         {
           "id": "d",
-          "text": "A row-level security policy"
+          "text": "A row-level security policy on older rows"
         }
       ],
       "answer": [
@@ -30,9 +30,9 @@
       "explanation": "The caching policy decides how much recent data is kept in hot cache for fast queries. Retention decides how long data is kept at all.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/cache-policy",
       "case": "fernway-telemetry",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.4-q2",
@@ -41,7 +41,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A caching policy"
+          "text": "A caching policy with a two-year hot cache period on the table"
         },
         {
           "id": "b",
@@ -49,11 +49,11 @@
         },
         {
           "id": "c",
-          "text": "An ingestion mapping"
+          "text": "An ingestion mapping that skips readings older than two years"
         },
         {
           "id": "d",
-          "text": "A materialized view"
+          "text": "A materialized view over the last two years"
         }
       ],
       "answer": [
@@ -61,9 +61,9 @@
       ],
       "explanation": "A retention policy removes data older than its period.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/retention-policy",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.4-q3",
@@ -72,11 +72,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A larger hot cache only"
+          "text": "A larger hot cache only, with no change to the queries"
         },
         {
           "id": "b",
-          "text": "Exporting to CSV"
+          "text": "Exporting the table to CSV files for the dashboards"
         },
         {
           "id": "c",
@@ -84,7 +84,7 @@
         },
         {
           "id": "d",
-          "text": "Running the query more often"
+          "text": "Running the same query more often so its results stay cached"
         }
       ],
       "answer": [
@@ -92,9 +92,9 @@
       ],
       "explanation": "Materialized views precompute aggregations as data arrives, so queries read a small result.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.4-q4",
@@ -103,11 +103,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Convert timestamps to strings first"
+          "text": "Convert the timestamps to strings first so the filter can use the string index"
         },
         {
           "id": "b",
-          "text": "Use contains on the timestamp"
+          "text": "Use contains on the timestamp column so Kusto matches the date text quickly"
         },
         {
           "id": "c",
@@ -115,7 +115,7 @@
         },
         {
           "id": "d",
-          "text": "Filter last, after joins"
+          "text": "Filter on the time range last, after the joins, so that fewer rows reach the filter step"
         }
       ],
       "answer": [
@@ -123,7 +123,7 @@
       ],
       "explanation": "Kusto indexes datetime columns efficiently. A time filter applied right after the table reference lets it skip whole data shards. Don't convert the timestamp or use contains on it.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -134,11 +134,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Increase the table's caching policy"
+          "text": "Increase the table's caching policy so queued data is ingested sooner"
         },
         {
           "id": "b",
-          "text": "Increase MaximumRawDataSizeMB to 4096"
+          "text": "Increase MaximumRawDataSizeMB in the batching policy to 4096 so batches seal sooner"
         },
         {
           "id": "c",
@@ -146,7 +146,7 @@
         },
         {
           "id": "d",
-          "text": "Add a materialized view on the table"
+          "text": "Add a materialized view on the table so new rows appear sooner"
         }
       ],
       "answer": [
@@ -154,7 +154,7 @@
       ],
       "explanation": "With low data volume, batches seal on the time limit (default 5 minutes), so lowering the time limit reduces latency. Increasing size limits would make batches wait longer.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/batching-policy?view=microsoft-fabric",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -227,11 +227,11 @@
       "options": [
         {
           "id": "a",
-          "text": "OneLake availability on every table"
+          "text": "OneLake availability turned on for every table in the eventhouse"
         },
         {
           "id": "b",
-          "text": "A shorter retention policy on every database"
+          "text": "A shorter retention policy on every database so that the eventhouse reactivates faster"
         },
         {
           "id": "c",
@@ -239,7 +239,7 @@
         },
         {
           "id": "d",
-          "text": "The eventstream retention to 90 days"
+          "text": "The eventstream retention set to 90 days so events wait in the stream"
         }
       ],
       "answer": [
@@ -247,7 +247,7 @@
       ],
       "explanation": "Eventhouses suspend when not in use to save cost; for time-sensitive systems you configure Capacity Planner so the eventhouse stays active. Retention and OneLake availability don't prevent suspension.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

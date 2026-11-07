@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Delete the event hub"
+          "text": "Delete and recreate the event hub with a new name and partitions"
         },
         {
           "id": "b",
-          "text": "Turn off the eventstream's destinations"
+          "text": "Turn off the eventstream's destinations, then turn them on again"
         },
         {
           "id": "c",
@@ -91,7 +91,7 @@
       ],
       "explanation": "Readers sharing a consumer group compete for the same partitions. A dedicated consumer group lets each reader receive every event.",
       "source": "https://learn.microsoft.com/en-us/azure/data-explorer/ingest-data-event-hub-overview",
-      "version": 2,
+      "version": 3,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -102,7 +102,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Filters only work on weekends"
+          "text": "Filters only take effect on events that arrive after midnight UTC"
         },
         {
           "id": "b",
@@ -110,11 +110,11 @@
         },
         {
           "id": "c",
-          "text": "The destination ignores filters"
+          "text": "The destination ignores filters added after it was created"
         },
         {
           "id": "d",
-          "text": "The lakehouse needs V-Order"
+          "text": "The lakehouse needs V-Order before filters are applied"
         }
       ],
       "answer": [
@@ -122,9 +122,9 @@
       ],
       "explanation": "Changes made in the eventstream's edit mode take effect when you select Publish, which returns it to Live view.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.5-q5",
@@ -133,11 +133,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The eventstream retention, because it's one day by default"
+          "text": "The eventstream retention, because events are kept for only one day by default and the backlog expires"
         },
         {
           "id": "b",
-          "text": "The consumer group name, because it must match the eventstream name"
+          "text": "The consumer group name, because it must match the eventstream name for the High level to take effect"
         },
         {
           "id": "c",
@@ -145,7 +145,7 @@
         },
         {
           "id": "d",
-          "text": "The destination type, because eventhouse destinations are limited to 1 MB/s"
+          "text": "The destination type, because eventhouse destinations are limited to 1 MB/s of ingestion, whatever throughput level you choose"
         }
       ],
       "answer": [
@@ -153,7 +153,7 @@
       ],
       "explanation": "When the Event Hubs partition count is below four, throughput is limited by the partition count whatever level you choose. Retention doesn't limit throughput.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/configure-settings",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },

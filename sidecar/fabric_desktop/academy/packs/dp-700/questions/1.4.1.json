@@ -71,15 +71,15 @@
       "options": [
         {
           "id": "a",
-          "text": "A Dataflow Gen2 per table, run by hand"
+          "text": "A Dataflow Gen2 per table, each one refreshed by hand"
         },
         {
           "id": "b",
-          "text": "A KQL update policy"
+          "text": "A KQL update policy on each source table"
         },
         {
           "id": "c",
-          "text": "200 notebooks"
+          "text": "200 notebooks, one per table, each scheduled separately each night"
         },
         {
           "id": "d",
@@ -91,9 +91,9 @@
       ],
       "explanation": "Copying data unchanged at scale is what the pipeline Copy activity is for; a ForEach over a table list avoids building 200 of anything.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.4.1-q4",
@@ -200,7 +200,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A KQL update policy"
+          "text": "A KQL update policy that reshapes the files as they land in the lakehouse"
         },
         {
           "id": "b",
@@ -208,7 +208,7 @@
         },
         {
           "id": "c",
-          "text": "A notebook, because any transformation needs Spark"
+          "text": "A notebook, because any type conversion or flattening needs Spark code"
         },
         {
           "id": "d",
@@ -220,7 +220,7 @@
       ],
       "explanation": "Type conversion, column mapping, merge or split files and flattening hierarchies are the lightweight transformations the Copy activity supports without code.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -267,7 +267,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A Dataflow Gen2"
+          "text": "A Dataflow Gen2 with a scheduled refresh every minute"
         },
         {
           "id": "b",
@@ -275,11 +275,11 @@
         },
         {
           "id": "c",
-          "text": "A deployment pipeline"
+          "text": "A deployment pipeline with one stage for each step"
         },
         {
           "id": "d",
-          "text": "A notebook that calls time.sleep in a loop"
+          "text": "A notebook that calls time.sleep in a loop, then posts to Teams"
         }
       ],
       "answer": [
@@ -287,7 +287,7 @@
       ],
       "explanation": "Pipelines provide control flow activities such as Until for do-until loops, Web for REST calls and Teams for messages, and they can run notebooks as steps.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     },
@@ -298,7 +298,7 @@
       "options": [
         {
           "id": "a",
-          "text": "A second schedule on the pipeline"
+          "text": "A second schedule on the pipeline that starts it again five minutes later"
         },
         {
           "id": "b",
@@ -310,7 +310,7 @@
         },
         {
           "id": "d",
-          "text": "The Spark session timeout in workspace settings"
+          "text": "The Spark session timeout setting in the workspace's Spark settings"
         }
       ],
       "answer": [
@@ -318,7 +318,7 @@
       ],
       "explanation": "Every pipeline activity has Retry and Retry interval settings, so the pipeline handles transient failures without extra code.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
     }

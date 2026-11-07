@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Use SELECT * twice"
+          "text": "Use SELECT * with a TOP clause"
         },
         {
           "id": "b",
-          "text": "Add ORDER BY"
+          "text": "Add ORDER BY on the six columns"
         },
         {
           "id": "c",
-          "text": "Add DISTINCT"
+          "text": "Add DISTINCT to the SELECT *"
         },
         {
           "id": "d",
@@ -60,9 +60,9 @@
       ],
       "explanation": "Columnar storage reads only the columns a query names, so listing six columns reads far less data.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.6-q3",

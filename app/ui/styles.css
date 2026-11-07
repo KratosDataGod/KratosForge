@@ -256,7 +256,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .living-empty .living-empty-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; font-size: 20px; text-transform: uppercase; }
 @media (forced-colors: active) {
   .empty-spot [fill]:not([fill="none"]) { fill: CanvasText; }
-  .empty-spot [fill="var(--accent-soft)"] { fill: Canvas; }
+  .empty-spot [fill="var(--accent-soft)"]:not([fill="none"]) { fill: Canvas; }
   .empty-spot [stroke] { stroke: CanvasText; }
 }
 /* Shared loading placeholder (UX-020): loading() in app.js. */

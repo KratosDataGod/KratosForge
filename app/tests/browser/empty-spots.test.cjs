@@ -64,11 +64,13 @@ test("in high contrast the drawings use system colours", { skip }, async () => {
   const fills = await page().evaluate(() => {
     const host = document.createElement("div");
     host.className = "living-empty";
-    host.append(emptySpotSvg("land"));
+    host.append(emptySpotSvg("land"), emptySpotSvg("tools"), emptySpotSvg("forge"));
     document.body.append(host);
     const probe = (c) => { const p = document.createElement("span"); p.style.color = c; host.append(p); const v = getComputedStyle(p).color; p.remove(); return v; };
-    const system = new Set([probe("CanvasText"), probe("Canvas")]);
-    const out = [...host.querySelectorAll("[fill]:not([fill='none'])")].map((el) => [getComputedStyle(el).fill, system.has(getComputedStyle(el).fill)]);
+    const text = probe("CanvasText"), canvas = probe("Canvas");
+    // Soft fills (the hills, the plan) become Canvas so the lines drawn over them stay visible; the rest CanvasText.
+    const out = [...host.querySelectorAll("[fill]:not([fill='none'])")].map((el) => [getComputedStyle(el).fill,
+      getComputedStyle(el).fill === (el.getAttribute("fill") === "var(--accent-soft)" ? canvas : text)]);
     host.remove();
     return out;
   });

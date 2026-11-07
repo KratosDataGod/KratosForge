@@ -114,12 +114,28 @@ def diff_spellings(query: str, databricks: bool = False) -> str:
     except TokenError:
         return query
     edits = [(name.start, name.end + 1)
-             for name, paren, unit, comma in zip(tokens, tokens[1:], tokens[2:], tokens[3:], strict=False)
+             for i, (name, paren, unit, comma) in enumerate(zip(tokens, tokens[1:], tokens[2:], tokens[3:], strict=False))
              if name.token_type == TokenType.VAR and name.text.lower() in names and paren.token_type == TokenType.L_PAREN
-             and unit.text.upper() in _DIFF_UNITS and comma.token_type == TokenType.COMMA]
+             and unit.text.upper() in _DIFF_UNITS and comma.token_type == TokenType.COMMA
+             and _arguments(tokens, i + 1) == 3]
     for start, end in reversed(edits):
         query = query[:start] + "timestampdiff" + query[end:]
     return query
+
+
+def _arguments(tokens: list[Any], paren: int) -> int:
+    """How many arguments the call whose opening bracket is ``tokens[paren]`` has (commas at its own depth)."""
+    depth, count = 0, 1
+    for token in tokens[paren:]:
+        if token.token_type in (TokenType.L_PAREN, TokenType.L_BRACKET, TokenType.L_BRACE):
+            depth += 1
+        elif token.token_type in (TokenType.R_PAREN, TokenType.R_BRACKET, TokenType.R_BRACE):
+            depth -= 1
+            if depth == 0:
+                return count
+        elif token.token_type == TokenType.COMMA and depth == 1:
+            count += 1
+    return count
 
 
 _EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."

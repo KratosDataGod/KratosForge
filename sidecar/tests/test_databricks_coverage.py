@@ -219,6 +219,13 @@ def test_a_diff_spelling_inside_a_string_is_left_alone():
         "SELECT 'datediff(DAY, a, b)', timestampdiff(DAY, a, b)")
 
 
+def test_only_a_three_argument_diff_is_timestampdiff():
+    from fabric_desktop import sql
+    # two arguments are datediff(end, start), whatever the first column is called
+    assert sql.diff_spellings("SELECT datediff(day, d), datediff(DAY, f(a, b), g(c))") == (
+        "SELECT datediff(day, d), timestampdiff(DAY, f(a, b), g(c))")
+
+
 _T = "timestamp:2014-12-28T06:30:45.887000"
 
 

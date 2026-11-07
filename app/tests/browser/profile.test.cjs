@@ -120,7 +120,7 @@ test("Ranks shows your rank, the Forge progression, the next rank's requirements
   await page.getByRole("button", { name: "Hide full rank path" }).click();
   // Chris's approved art: plain while a rank is ahead, glowing once it is yours. Labels stay real text.
   assert.deepStrictEqual(await page.locator(".rk-shield.has-art img").evaluateAll((l) => l.map((i) => i.getAttribute("src"))),
-    ["forge-initiate", "iron-forger", "steel-forger"].map((id) => `art/ranks/${id}-inactive.webp`));
+    ["forge-initiate", "iron-forger", "steel-forger", "master-forger"].map((id) => `art/ranks/${id}-inactive.webp`));
   const art = page.locator(".rk-shield.has-art").filter({ hasText: "Forge Initiate" });
   assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-inactive.webp");
   assert.match(await art.innerText(), /Forge Initiate\s+Rank 2/);

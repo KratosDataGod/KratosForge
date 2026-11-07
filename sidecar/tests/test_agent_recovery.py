@@ -47,6 +47,7 @@ def test_a_job_whose_worker_stops_on_every_attempt_gives_up_and_says_so(setup, m
     [(title, lines)] = sent
     assert title == "KratosForge agent etl-01: a Dev job didn't finish"
     assert lines[0].startswith(f"Job {job['id']}") and "stopped while running it" in lines[1]
+    assert "out-of-memory kill or a crash" in lines[2] and lines[3] == f"Fix the cause, then run: fabric-desktop agent requeue {job['id']}"
 
 
 def test_a_shared_schedule_whose_mailbox_cant_be_written_is_logged_and_the_rest_run(setup, monkeypatch, caplog):  # noqa: F811

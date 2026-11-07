@@ -1,0 +1,178 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E09",
+  "title": "Deployment pipeline: stages, deployment rules, and what doesn't deploy",
+  "objectives": [
+    "1.2.3"
+  ],
+  "mode": "guided",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Set up a three-stage deployment pipeline with the deployment rules that point a notebook and a semantic model at each stage's own data, and say what a deploy doesn't copy.",
+  "scenario": "The sales team builds in a Development workspace and wants Test and Production behind it. The first draft of the pipeline has two stages, a rule where rules can't go, and a guess at how to repoint the lakehouse. The team also expects the deploy to bring the data with it.",
+  "engine_label": "A model of a deployment pipeline's settings, checked on this PC",
+  "verifies": [
+    "Your stages, deployment rules and answers about what a deploy copies match how deployment pipelines work, as the deployment pipeline pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That a pipeline is created or deploys anything: nothing runs here.",
+    "Autobinding, deploying backwards, and deploying only some items.",
+    "Rules for item types other than notebooks and semantic models."
+  ],
+  "expected": {
+    "description": "Stages Development, Test, Production. Four rules: default lakehouse and parameter for Test and Production. Only notebook code is copied."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The stages aren't the three the team needs.",
+      "pass": "Development, Test and Production, in that order.",
+      "rules": [
+        {
+          "path": "stages",
+          "count": 3,
+          "why": "A pipeline's stages are set when it's created and can't be changed later."
+        },
+        {
+          "path": "stages.0",
+          "equals": "Development"
+        },
+        {
+          "path": "stages.1",
+          "equals": "Test"
+        },
+        {
+          "path": "stages.2",
+          "equals": "Production"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A deployment rule is missing, or one can't exist.",
+      "pass": "Each later stage points the notebook and the model at its own environment.",
+      "rules": [
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Test",
+            "item": "Load sales",
+            "rule": "default lakehouse",
+            "value": "SalesLH_Test"
+          },
+          "why": "Default lakehouse rules apply only to notebooks."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Test",
+            "item": "Sales model",
+            "rule": "parameter",
+            "value": {
+              "Environment": "Test"
+            }
+          },
+          "why": "A parameter rule sets a semantic model parameter's value in that stage."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Production",
+            "item": "Load sales",
+            "rule": "default lakehouse",
+            "value": "SalesLH_Prod"
+          },
+          "why": "Default lakehouse rules apply only to notebooks."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Production",
+            "item": "Sales model",
+            "rule": "parameter",
+            "value": {
+              "Environment": "Production"
+            }
+          },
+          "why": "A parameter rule sets a semantic model parameter's value in that stage."
+        },
+        {
+          "path": "rules",
+          "count": 0,
+          "where": {
+            "stage": "Development"
+          },
+          "why": "Deployment rules can't be created in the development stage."
+        },
+        {
+          "path": "rules",
+          "count": 0,
+          "where": {
+            "item": "SalesLH_Dev"
+          },
+          "why": "Lakehouses take no deployment rules: each stage has its own lakehouse, and the notebook's rule points at it."
+        },
+        {
+          "path": "rules",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Something you expect deploying to copy isn't copied, or the other way round.",
+      "pass": "You know what a deploy copies and what each stage keeps for itself.",
+      "rules": [
+        {
+          "path": "copied_by_deploy.notebook code",
+          "equals": true,
+          "why": "A deploy copies the items' metadata and definitions."
+        },
+        {
+          "path": "copied_by_deploy.lakehouse table data",
+          "equals": false,
+          "why": "Data isn't copied. Only metadata is copied."
+        },
+        {
+          "path": "copied_by_deploy.workspace permissions",
+          "equals": false,
+          "why": "Permissions, for a workspace or an item, aren't copied: each stage has its own workspace."
+        },
+        {
+          "path": "copied_by_deploy.semantic model refresh schedule",
+          "equals": false
+        },
+        {
+          "path": "copied_by_deploy.semantic model data source credentials",
+          "equals": false
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which item types take a default lakehouse rule? Which take a parameter rule?",
+    "Can a rule be created in the first stage?",
+    "A deploy copies items' definitions. Does it copy the rows in a lakehouse table?"
+  ],
+  "explanation": "A deployment pipeline copies items' definitions and metadata from one stage's workspace to the next. Deployment rules change what differs per stage: a default lakehouse rule (notebooks only) sets the notebook's lakehouse in the target stage, and a parameter rule sets a semantic model's parameter. Rules live on the target stages, never Development. Data, permissions, refresh schedules and data source credentials aren't copied, so each stage's lakehouse is loaded and secured on its own.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
+    "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06: create-rules (rule types per item: notebook default lakehouse only, semantic model data source and parameter; no rules in the development stage) and understand-the-deployment-process (data, permissions and workspace settings aren't copied; semantic model refresh schedule and data source credentials aren't copied; stages are permanent once created)."
+  ]
+}

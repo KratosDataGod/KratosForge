@@ -2706,7 +2706,8 @@
         "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7",
         "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7",
         "Axe cases for the dialogs people open most and a guard that fails when a new dialog has none (#1673, #1854, #1855, #1856, #1858, #1876); every rail page reflows at 320 px and stays whole at 200% (#1681) on main at a7631920",
-        "Axe runs on every dialog and the baseline is empty (#1878, #1884, #1886, #1888, #1890); a 20-minute Narrator checklist for the Windows pass (EA-030, #1930) on main at de881016"
+        "Axe runs on every dialog and the baseline is empty (#1878, #1884, #1886, #1888, #1890); a 20-minute Narrator checklist for the Windows pass (EA-030, #1930) on main at de881016",
+        "Screen readers: dialogs read their lead sentence, the command bar announces the chosen result, OneLake has a level 1 heading, and a page change moves focus to its heading (#1931, #1932, #1935, #1937); Narrator check on Windows still pending on main at c750da45"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2766,7 +2767,11 @@
         1886,
         1888,
         1890,
-        1930
+        1930,
+        1931,
+        1932,
+        1935,
+        1937
       ],
       "issues": [
         880,
@@ -4756,12 +4761,64 @@
         1911,
         1914,
         1940,
+        1942,
         1944,
         1945,
         1946,
+        1947,
         1948,
         1949,
-        1953
+        1950,
+        1952,
+        1953,
+        1959,
+        1960,
+        1961,
+        1969,
+        1972,
+        1974,
+        1975,
+        1976,
+        1977,
+        1978,
+        1979,
+        1980,
+        1982,
+        1983,
+        1987,
+        1991,
+        1995,
+        1997,
+        1998,
+        1999,
+        2000,
+        2001,
+        2002,
+        2009,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026,
+        2027,
+        2028,
+        2029,
+        2030,
+        2031,
+        2032,
+        2033,
+        2035,
+        2049,
+        2051
       ],
       "issues": [
         910,
@@ -5028,7 +5085,9 @@
         1919,
         1927,
         1928,
-        1941
+        1941,
+        1971,
+        2008
       ]
     },
     {
@@ -5087,7 +5146,8 @@
         1726,
         1733,
         1833,
-        1834
+        1834,
+        2040
       ]
     },
     {
@@ -5136,7 +5196,17 @@
         1799,
         1800,
         1802,
-        1867
+        1867,
+        1954,
+        1970,
+        1986,
+        1990,
+        1992,
+        1994,
+        1996,
+        2006,
+        2007,
+        2044
       ]
     },
     {
@@ -5318,7 +5388,9 @@
         1256,
         1333,
         1798,
-        1936
+        1936,
+        1965,
+        2041
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6054,7 +6126,10 @@
         1863,
         1864,
         1929,
-        1933
+        1933,
+        1934,
+        1938,
+        2011
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6261,7 +6336,8 @@
         "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb",
         "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a",
         "Audit re-scored to 64 after the P1 data-integrity fixes (#1846); one transaction helper for the workloads file, outbox, ledger and local platform file (EA-028, #1839, #1872); pages get only the Tauri permissions they use and commands answer only the app's own page (#1768, #1769); the previous build is kept until the new engine answers (#1596); updates remove partial downloads (#1836); redaction covers more key shapes and the five redactors are characterized (#1887, #1892) on main at a7631920",
-        "Enterprise install: MSI silent install, uninstall and detection, and what the support bundle collects (#1908) on main at de881016"
+        "Enterprise install: MSI silent install, uninstall and detection, and what the support bundle collects (#1908) on main at de881016",
+        "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6357,7 +6433,14 @@
         1872,
         1887,
         1892,
-        1908
+        1908,
+        1956,
+        1958,
+        1993,
+        2021,
+        2050,
+        2055,
+        2058
       ],
       "issues": [],
       "computed": {
@@ -6490,7 +6573,8 @@
         1842,
         1868,
         1871,
-        1897
+        1897,
+        2037
       ],
       "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
       "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
@@ -6588,7 +6672,15 @@
         1916,
         1917,
         1918,
-        1926
+        1926,
+        1951,
+        1955,
+        1957,
+        1968,
+        1973,
+        1989,
+        2010,
+        2039
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6602,7 +6694,8 @@
         "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a",
         "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2",
         "Exercise scripts run in the AppContainer by default on Windows (#1827); DP-700 exercises on DuckDB, pipelines, Delta and broken environments (#1840, #1844, #1848, #1850, #1877) and checks that nothing else changed (#1843) on main at a7631920",
-        "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016"
+        "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016",
+        "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6656,11 +6749,15 @@
         1891,
         1896,
         1904,
+        1920,
         1921,
         1922,
         1923,
         1924,
-        1925
+        1925,
+        1963,
+        1966,
+        1967
       ],
       "problem": "Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.",
       "capability": "One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.",
@@ -6673,7 +6770,8 @@
         "Databricks-familiar and Snowflake-familiar skins (#1879, Preview), a KratosForge label over the app's own pages and an engine chip saying 'This PC · no Fabric job' (#1847), capabilities by engine generated into docs/capabilities.md (#1837), tokens for shared shades and the rail stripe (#1891, #1896) on main at a7631920",
         "End-to-end demonstration with mocked cloud parts (#1904); keyboard, axe and reduced-motion checks in every built-in skin (#1922); parity levels updated for the Fabric, Databricks and Snowflake looks (#1921, #1923); warning and ok shades on tokens (#1924, #1925) on main at de881016",
         "Implementation review docs/product/reviews/PB-129-skins.md recommends Accept with documented limitations: appearance and workflow come in one skin, no Import skin screen yet, and the demonstration mocks the cloud parts",
-        "Implementation review docs/product/reviews/PB-129-skins.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv); limitations: appearance and workflow come in one skin; no Import skin screen yet; the demonstration mocks the cloud parts. Mix and match and the Import skin screen follow as their own items"
+        "Implementation review docs/product/reviews/PB-129-skins.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv); limitations: appearance and workflow come in one skin; no Import skin screen yet; the demonstration mocks the cloud parts. Mix and match and the Import skin screen follow as their own items",
+        "Color token batches 3 to 5 done (#1963, #1966, #1967); Databricks- and Snowflake-familiar mark the active page in their own blue (#1920) on main at c750da45"
       ],
       "features": [
         "FEAT-SHL-04",

@@ -27,6 +27,7 @@ from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
 from . import spark_builtins_sql
 from . import sql as spark_sql
+from .duckdb_rows import one_row
 
 _ids = itertools.count()
 
@@ -1363,7 +1364,7 @@ def _describe(self: DataFrame, *cols: str) -> DataFrame:
 
 
 _SUMMARY = ("count", "mean", "stddev", "min", "25%", "50%", "75%", "max")
-_PERCENT = re.compile(r"^(\d+(?:\.\d+)?)%$")
+_PERCENT = re.compile(r"(\d+(?:\.\d+)?)%")  # used with fullmatch, so "25%\n" is refused as in Spark
 
 
 def _summary(self: DataFrame, *statistics: str) -> DataFrame:
@@ -1371,7 +1372,7 @@ def _summary(self: DataFrame, *statistics: str) -> DataFrame:
     number and string column. It takes statistics, not columns; select the columns first."""
     stats = tuple(_flat(statistics)) or _SUMMARY
     for stat in stats:
-        pct = _PERCENT.match(str(stat))
+        pct = _PERCENT.fullmatch(str(stat))
         if not (stat in ("count", "mean", "stddev", "min", "max", "count_distinct", "approx_count_distinct")
                 or (pct and float(pct.group(1)) <= 100)):
             raise ValueError(f"{stat} is not a recognised statistic. Use count, mean, stddev, min, max, "
@@ -1381,7 +1382,11 @@ def _summary(self: DataFrame, *statistics: str) -> DataFrame:
 
 
 # Spark's stddev: the running (Welford) update its aggregate makes row by row, which can differ from DuckDB's
-# stddev_samp in the last digits
+# stddev_samp in the last digits. It folds a list of the column's values, so it is used only up to this many
+# rows: fewer than one DuckDB row group (122,880), which one thread reads in order, so the order is the
+# rows' own; above it, stddev_samp answers as fast as before (Spark's own last digit then depends on its
+# partitions anyway).
+_WELFORD_ROWS = 100_000
 _WELFORD = ("lambda kf_m, kf_v: {'n': kf_m.n + 1, 'avg': kf_m.avg + (kf_v.avg - kf_m.avg) / (kf_m.n + 1), "
             "'m2': kf_m.m2 + (kf_v.avg - kf_m.avg) * ((kf_v.avg - kf_m.avg) - (kf_v.avg - kf_m.avg) / (kf_m.n + 1))}")
 
@@ -1396,6 +1401,7 @@ def _list_stddev(values: str) -> str:
 
 def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
     types_ = dict(_types(self))
+    welford = "stddev" in stats and int(one_row(self.relation.aggregate("count(*)"))[0]) <= _WELFORD_ROWS
     rows = []
     for stat in stats:
         parts = []
@@ -1404,16 +1410,16 @@ def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
             numeric = bool(_NUMERIC.match(types_[c]))
             # Spark takes the mean and stddev of text as numbers (NULL where it isn't one)
             x = f"CAST({q} AS DOUBLE)" if numeric else f"TRY_CAST({q} AS DOUBLE)"
-            if pct := _PERCENT.match(stat):  # Spark's approximate percentile is an actual value, as quantile_disc
+            if pct := _PERCENT.fullmatch(stat):  # Spark's approximate percentile is an actual value, as quantile_disc
                 sql = f"quantile_disc({q}, {float(pct.group(1)) / 100})" if numeric else "max(NULL)"
             else:
-                sql = {"count": f"count({q})", "mean": f"avg({x})", "stddev": f"list({x})",
+                sql = {"count": f"count({q})", "mean": f"avg({x})", "stddev": f"list({x})" if welford else f"stddev_samp({x})",
                        "min": f"min({q})", "max": f"max({q})", "count_distinct": f"count(DISTINCT {q})",
                        "approx_count_distinct": f"approx_count_distinct({q})"}[stat]
             parts.append(f"{sql} AS {q}")
         row = self.relation.aggregate(f"'{stat}' AS summary, {', '.join(parts)}")
         quoted = [_col_sql(c) for c in names]
-        if stat == "stddev":
+        if stat == "stddev" and welford:
             row = row.project(", ".join(["summary", *(f"{_list_stddev(q)} AS {q}" for q in quoted)]))
         # each value as Spark writes it as text (a double as Java writes it)
         rows.append(row.project(", ".join(

@@ -387,3 +387,19 @@ def test_random_split_keeps_spark_rules(kernel):
 
 def test_print_schema_escapes_names_and_takes_spark_levels(kernel):
     assert _printed(kernel, LEVELS_CELL).splitlines() == LEVELS_SPARK.splitlines()
+
+
+def test_describe_stays_fast_on_many_rows(kernel):
+    # Spark's row-by-row stddev folds a list, so it is kept to small frames; a big one uses DuckDB's own
+    text = _printed(kernel, "import time\nd = spark.range(1000000).selectExpr('id', 'id * 2 AS b', 'id % 7 AS c')\n"
+                            "t = time.monotonic(); r = d.describe().collect(); s = d.summary('stddev').collect()\n"
+                            "print(time.monotonic() - t < 10, r[2][0], r[2][1], s[0][3])")
+    took, label, stddev, small = text.split()
+    assert (took, label) == ("True", "stddev")
+    assert abs(float(stddev) - 288675.27893234405) < 1e-6 and abs(float(small) - 2.0000022499987344) < 1e-9
+
+
+def test_summary_refuses_a_percentile_with_anything_after_it(kernel):
+    text = _printed(kernel, "d = spark.range(3)\ntry:\n    d.summary('25%\\n')\nexcept ValueError as e:\n    print('refused')\n"
+                            "print(d.summary('25%').collect()[0][1])")
+    assert text.splitlines() == ["refused", "0"]

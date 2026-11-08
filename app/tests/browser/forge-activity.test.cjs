@@ -133,7 +133,7 @@ test("a failure cools the forge without a made-up bar, never replays on opening,
   for (const name of ["forge.run.failed", "forge.run.succeeded"]) assert.strictEqual(after[name] || 0, before[name] || 0, `${name} replayed`);
   // The forge is at rest: nothing ticks.
   assert.strictEqual(await page().evaluate(() => forgeActivity.timer), 0, "the band ticks at rest");
-  meta = [DONE_META[0]];  // finished half an hour ago
+  meta = [{ ...DONE_META[0], started_at: ago(30) }];  // finished half an hour ago, whatever the hour
   await open();
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "idle");
   assert.match(await page().locator(".forge-band").innerText(), /THE FORGE IS QUIET[\s\S]*Nothing is running/);

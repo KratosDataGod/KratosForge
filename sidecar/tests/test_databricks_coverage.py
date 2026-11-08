@@ -27,7 +27,7 @@ def test_every_function_has_one_status(rows):
 
 
 def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
-    data = {f["name"]: f for f in spark_coverage.load()}
+    data = {f["name"]: f for f in [*spark_coverage.load(), *databricks_coverage.load()]}
     con = databricks_coverage.connect()
     for r in (r for r in rows if r["status"] == "runs"):
         f = data[r["name"]]
@@ -96,7 +96,10 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
-    assert status["vector_norm"] == "fails"  # DuckDB has none and nothing writes it
+    notes = {r["name"]: r["note"] for r in rows}
+    assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
+    assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
+    assert status["from_xml"] == "fails"  # DuckDB has none and nothing writes it
 
 
 @pytest.mark.parametrize("code", [
@@ -121,3 +124,162 @@ def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
         assert status[name] == "not checked", name  # runs here; no value check yet
     assert status["collate"] == "fails"  # no UTF8_LCASE collation here
+
+
+def test_a_function_of_ones_own_named_like_a_sketch_is_left_alone():
+    from fabric_desktop.engines.local_sql import _databricks
+    assert _databricks("SELECT tuple_merge(a) FROM t")  # not a Databricks sketch: DuckDB says whether it exists
+
+
+def _one(code):
+    con = databricks_coverage.connect()
+    return databricks_coverage.run(code, con)
+
+
+# Every example in Databricks' reference for each function written for DuckDB, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT zeroifnull(0)", 0), ("SELECT zeroifnull(NULL)", 0), ("SELECT zeroifnull(5)", 5),
+    ("SELECT nullifzero(0)", None), ("SELECT nullifzero(NULL)", None), ("SELECT nullifzero(5)", 5),
+    ("SELECT try_mod(2, 1.8)", "decimal:0.2"), ("SELECT try_mod(2, 0)", None),
+    ("SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))", "float:0.974631846197"),
+    ("SELECT vector_cosine_similarity(array(1.0f, 0.0f, 0.0f), array(1.0f, 0.0f, 0.0f))", "float:1"),
+    ("SELECT vector_cosine_similarity(array(1.0f, 0.0f), array(0.0f, 1.0f))", "float:0"),
+    ("SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))", "float:32"),
+    ("SELECT vector_inner_product(array(1.0f, 0.0f), array(0.0f, 1.0f))", "float:0"),
+    ("SELECT vector_inner_product(array(3.0f, 4.0f), array(3.0f, 4.0f))", "float:25"),
+    ("SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))", "float:5.19615242271"),
+    ("SELECT vector_l2_distance(array(1.0f, 2.0f), array(1.0f, 2.0f))", "float:0"),
+    ("SELECT vector_l2_distance(array(0.0f, 0.0f), array(3.0f, 4.0f))", "float:5"),
+    ("SELECT vector_norm(array(3.0f, 4.0f), 2.0f)", "float:5"),
+    ("SELECT vector_norm(array(3.0f, 4.0f), 1.0f)", "float:7"),
+    ("SELECT vector_norm(array(3.0f, 4.0f), float('inf'))", "float:4"),
+    ("SELECT vector_norm(array(), 2.0)", "float:0"),
+    ("SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)", ["float:0.6", "float:0.8"]),
+    ("SELECT vector_norm(vector_normalize(array(1.0f, 2.0f, 3.0f), 2.0f), 2.0f)", "float:1"),
+    ("SELECT vector_normalize(array(0.0f, 0.0f, 0.0f), 2.0f)", None),
+])
+def test_databricks_documented_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+def test_a_string_degree_is_cast_and_a_column_named_like_a_lambda_argument_is_kept():
+    assert _one("SELECT vector_norm(array(3.0f, 4.0f), '1.0'), vector_norm(array(3.0f, 4.0f), 'inf')") == [
+        ["float:7", "float:4"]]
+    assert _one("SELECT vector_normalize(__y) FROM VALUES (array(3.0f, 4.0f)) AS t(__y)") == [
+        [["float:0.6", "float:0.8"]]]
+
+
+def test_a_vector_that_is_null_or_holds_a_null_gives_null():
+    # Databricks documents NULL for both; DuckDB's list functions would stop on the NULL element
+    got = _one("SELECT vector_inner_product(e, e), vector_l2_distance(e, e), vector_cosine_similarity(e, e), "
+               "vector_norm(e), vector_normalize(e) FROM VALUES (array(1.0f, NULL)), (NULL) AS t(e)")
+    assert got == [[None] * 5, [None] * 5]
+
+
+@pytest.mark.parametrize(("code", "match"), [
+    ("SELECT vector_norm(array(3.0f), 3.0)", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_norm(array(3.0f), -1.0)", r"INVALID_VECTOR_NORM_DEGREE\), not -1.0\."),
+    ("SELECT vector_normalize(array(3.0f), -float('inf'))", "INVALID_VECTOR_NORM_DEGREE"),
+    ("SELECT vector_norm(array(3.0f), d) FROM VALUES (2.0) AS t(d)", "isn't a constant"),
+    ("SELECT vector_sum(e) FROM VALUES (array(1.0f)) AS t(e)", "element by element"),
+    ("SELECT zeroifnull(1, 2)", "takes 1 argument"),
+])
+def test_what_databricks_would_stop_on_or_this_pc_cant_match_stops_by_name(code, match):
+    from fabric_desktop.engines.local_sql import _databricks
+    with pytest.raises(ValueError, match=match):
+        _databricks(code)
+
+
+# timestampdiff counts whole units elapsed, in Spark SQL and Databricks SQL; DuckDB's date_diff counts the
+# boundaries crossed. The first three are Databricks' timediff examples (a synonym of timestampdiff).
+@pytest.mark.parametrize(("code", "want"), [
+    ("timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')", 0),
+    ("timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 12:00:00')", 1),
+    ("timediff(YEAR, DATE'2021-01-01', DATE'1900-03-28')", -120),
+    ("timestampdiff(HOUR, TIMESTAMP'2021-01-01 10:59:00', TIMESTAMP'2021-01-01 11:00:00')", 0),
+    ("datediff(DAY, TIMESTAMP'2021-01-01 23:00:00', TIMESTAMP'2021-01-02 01:00:00')", 0),
+    ("date_diff(WEEK, DATE'2021-01-01', DATE'2021-01-14')", 1),
+    ("timestampdiff(MONTH, DATE'2021-01-31', DATE'2021-02-28')", 0),  # Java's ChronoUnit: day 28 < 31
+    ("timestampdiff(MONTH, DATE'2021-03-31', DATE'2021-02-28')", -1),
+    ("timestampdiff(QUARTER, DATE'2021-01-01', DATE'2021-12-31')", 3),
+    ("timestampdiff(SECOND, TIMESTAMP'2021-01-01 00:00:01.5', TIMESTAMP'2021-01-01 00:00:00')", -1),
+    ("datediff(TIMESTAMP'2021-01-02 01:00:00', TIMESTAMP'2021-01-01 23:00:00')", 1),  # two arguments: days
+])
+def test_timestampdiff_counts_whole_units_as_spark_does(code, want):
+    from fabric_desktop import sql
+    assert _one(f"SELECT {code}") == [[want]]
+    if not code.startswith("timediff"):  # Spark SQL reads the other spellings the same way
+        con = databricks_coverage.connect()
+        assert con.sql(sql.duckdb_sql(sql.parse(f"SELECT {code}", "spark")[0])).fetchall() == [(want,)]
+
+
+def test_a_timestampdiff_inside_another_counts_whole_units_too():
+    from fabric_desktop import sql
+    code = ("SELECT timestampdiff(DAY, DATE'2021-01-01', date_add(DATE'2021-01-01', "
+            "timestampdiff(HOUR, TIMESTAMP'2021-01-01 10:59:00', TIMESTAMP'2021-01-01 11:00:00')))")
+    assert _one(code) == [[0]]
+    con = databricks_coverage.connect()
+    assert con.sql(sql.duckdb_sql(sql.parse(code, "spark")[0])).fetchall() == [(0,)]
+
+
+def test_a_diff_spelling_inside_a_string_is_left_alone():
+    from fabric_desktop import sql
+    assert sql.diff_spellings("SELECT 'datediff(DAY, a, b)', datediff(DAY, a, b)") == (
+        "SELECT 'datediff(DAY, a, b)', timestampdiff(DAY, a, b)")
+
+
+def test_only_a_three_argument_diff_is_timestampdiff():
+    from fabric_desktop import sql
+    # two arguments are datediff(end, start), whatever the first column is called
+    assert sql.diff_spellings("SELECT datediff(day, d), datediff(DAY, f(a, b), g(c))") == (
+        "SELECT datediff(day, d), timestampdiff(DAY, f(a, b), g(c))")
+
+
+_T = "timestamp:2014-12-28T06:30:45.887000"
+
+
+# Every example in Databricks' reference for its TIME and try_ date functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT time_from_seconds(52200.5)", "time:14:30:00.500000"), ("SELECT time_from_seconds(0)", "time:00:00:00"),
+    ("SELECT time_from_millis(52200500)", "time:14:30:00.500000"), ("SELECT time_from_millis(0)", "time:00:00:00"),
+    ("SELECT time_from_micros(52200500000)", "time:14:30:00.500000"), ("SELECT time_from_micros(0)", "time:00:00:00"),
+    ("SELECT time_to_seconds(TIME'14:30:00.5')", "decimal:52200.500000"),
+    ("SELECT time_to_seconds(TIME'00:00:00')", "decimal:0.000000"),
+    ("SELECT time_to_millis(TIME'14:30:00.5')", 52200500), ("SELECT time_to_millis(TIME'00:00:00')", 0),
+    ("SELECT time_to_micros(TIME'14:30:00.5')", 52200500000), ("SELECT time_to_micros(TIME'00:00:00')", 0),
+    ("SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')", 13),
+    ("SELECT time_diff(MINUTE, TIME'08:00:00', TIME'08:45:30')", 45),
+    ("SELECT time_diff(SECOND, TIME'10:00:00', TIME'10:00:30')", 30),
+    ("SELECT time_diff(HOUR, TIME'21:00:00', TIME'08:00:00')", -13),
+    ("SELECT time_trunc('HOUR', TIME'13:08:15.123')", "time:13:00:00"),
+    ("SELECT time_trunc('MINUTE', TIME'13:08:15.123')", "time:13:08:00"),
+    ("SELECT time_trunc('SECOND', TIME'13:08:15.123456')", "time:13:08:15"),
+    ("SELECT time_trunc('MILLISECOND', TIME'13:08:15.123456')", "time:13:08:15.123000"),
+    ("SELECT to_time('10:30:00')", "time:10:30:00"), ("SELECT to_time('10:30:00', 'HH:mm:ss')", "time:10:30:00"),
+    ("SELECT to_time('10.30.00', 'HH.mm.ss')", "time:10:30:00"),
+    ("SELECT try_to_time('10:30:00')", "time:10:30:00"), ("SELECT try_to_time('10:30:00', 'HH:mm:ss')", "time:10:30:00"),
+    ("SELECT try_to_time('not-a-time')", None), ("SELECT try_to_time('10:30:00', 'HH:mm:ss') IS NOT NULL", True),
+    ("SELECT try_to_date('2016-12-31')", "date:2016-12-31"),
+    ("SELECT try_to_date('31/12/2016', 'dd/MM/yyyy')", "date:2016-12-31"),
+    ("SELECT try_to_date('2016-12-32', 'yyyy-MM-dd')", None),
+    ("SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)", _T),
+    ("SELECT try_make_timestamp_ntz(2014, 13, 28, 6, 30, 45.887)", None),
+    ("SELECT try_make_timestamp_ntz(DATE'2014-12-28', TIME'06:30:45.887')", _T),
+    ("SELECT try_make_timestamp_ltz(2014, 13, 28, 6, 30, 45.887)", None),
+    ("SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')", _T),
+    # Databricks shows 2014-12-27 21:30:45.887 in a Los Angeles session: 05:30:45.887 UTC, the session here
+    ("SELECT try_make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887, 'CET')", "timestamp:2014-12-28T05:30:45.887000"),
+])
+def test_databricks_time_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize(("code", "match"), [
+    ("SELECT to_time('not-a-time')", "not-a-time"),  # Databricks: CAST_INVALID_INPUT
+    ("SELECT time_from_seconds(86400)", "0 to under 86400"),
+    ("SELECT time_trunc('DAY', TIME'13:08:15')", "HOUR, MINUTE, SECOND"),
+    ("SELECT parse_timestamp('2024-12-09T19:30:01')", "can't run on this PC.*#extended"),
+])
+def test_a_time_databricks_stops_on_or_this_pc_cant_read_stops(code, match):
+    with pytest.raises(Exception, match=match):
+        _one(code)

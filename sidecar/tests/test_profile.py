@@ -156,6 +156,39 @@ def test_proof_forged_is_awarded_once_and_more_proofs_earn_capped_xp():
 
 
 
+def side_by_side(name="Orders", revision="p1", same=True, state="done", results=("match",), local="ok", fabric="ok",
+                 at="2026-10-20T12:00:00+00:00", rid="20261020-114000-abc123"):
+    return {"id": rid, "name": name, "state": state, "finished_at": at, "code_revision": revision,
+            "local": {"status": local, "seconds": 40.5}, "fabric": {"status": fabric, "total_seconds": 120.0},
+            "tables": [{"table": f"dbo.t{i}", "result": r} for i, r in enumerate(results)],
+            "verdict": {"same": same, "text": "Same results in both places."}}
+
+
+def test_only_a_finished_side_by_side_run_whose_tables_all_matched_is_evidence():
+    row = progress.from_side_by_side(side_by_side())
+    assert row["type"] == "prove.match" and row["verdict"] == "same"
+    assert row["ref"] == {"source": "side_by_side", "id": "20261020-114000-abc123", "revision": "p1"}
+    assert row["measurement"]["pc_seconds"] == 40.5 and row["measurement"]["fabric_seconds"] == 120.0
+    assert "dbo.t0" not in json.dumps(row) and row["detail"]["tables"] == 1  # a count, never a table name
+    # the same code proven by Prove and side by side is one row: the id doesn't depend on how
+    assert row["id"] == progress.from_proof(proof(), "a" * 64)["id"]
+    for bad in (side_by_side(same=False), side_by_side(same=None, results=()), side_by_side(state="failed"),
+                side_by_side(results=("match", "differs")), side_by_side(local="failed"), side_by_side(fabric="failed"),
+                side_by_side(revision=""), side_by_side(name="")):
+        assert progress.from_side_by_side(bad) is None
+
+
+def test_a_matching_side_by_side_run_earns_proof_forged_and_shows_in_the_report():
+    p = progress.empty()
+    progress.add(p, progress.from_side_by_side(side_by_side()))
+    got = progress.progression(p)
+    assert [a["id"] for a in got["achievements"]] == ["proof-forged"] and got["xp"] == 150
+    assert not progress.add(p, progress.from_proof(proof(), "a" * 64))  # proving the same code again adds nothing
+    out = progress.report(p, 90, now=dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc))["markdown"]
+    assert "Proved notebook Orders gives the same results on a workstation and in Microsoft Fabric" in out
+    assert "Side by side run 20261020-114000-abc123" in out and "Run receipt" not in out
+
+
 def test_the_journey_lists_achievements_and_levels_newest_first():
     p = profile_with(validation())
     progress.add(p, progress.from_proof(proof(), "a" * 64))
@@ -251,15 +284,19 @@ def test_settings_and_identity_are_checked(plain):
     assert who["display_name"] == "Chris" and who["role"] == "Data engineer"
 
 
-def test_backfill_adds_past_validations_once(plain):
+def test_backfill_adds_past_validations_and_side_by_side_matches_once(plain):
     (plain.root).mkdir(parents=True, exist_ok=True)
     (plain.root / "validations.json").write_text(json.dumps([validation(), validation(name="Other", verdict="not_ready")]))
     call(plain, "profile_save", settings={"record": False})
     with pytest.raises(AssertionError, match="Turn on Record"):
         call(plain, "profile_backfill")
     call(plain, "profile_save", settings={"record": True})
+    (plain.root / "side_by_side.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in (side_by_side(), side_by_side(name="Other", same=False, results=("differs",)))))
     out = call(plain, "profile_backfill")
-    assert out["added"] == 1 and out["evidence"][0]["origin"] == "backfill"
+    assert out["added"] == 2 and {r["origin"] for r in out["evidence"]} == {"backfill"}
+    assert {r["type"] for r in out["evidence"]} == {"validate.pass", "prove.match"}
+    assert [a["id"] for a in out["progression"]["achievements"]] == ["first-flame", "proof-forged"]
     assert call(plain, "profile_backfill")["added"] == 0
 
 

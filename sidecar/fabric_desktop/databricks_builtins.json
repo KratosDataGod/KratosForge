@@ -230,7 +230,13 @@
  },
  {
   "name": "nullifzero",
-  "group": "databricks:conditional"
+  "group": "databricks:conditional",
+  "example": "SELECT nullifzero(0)",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "parse_json",
@@ -318,40 +324,92 @@
  {
   "name": "time_diff",
   "group": "databricks:datetime",
-  "probe": "SELECT time_diff(HOUR, TIME'10:00:00', TIME'12:00:00')"
+  "example": "SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')",
+  "value": [
+   [
+    13
+   ]
+  ]
  },
  {
   "name": "time_from_micros",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_micros(52200500000)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
  },
  {
   "name": "time_from_millis",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_millis(52200500)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
  },
  {
   "name": "time_from_seconds",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_seconds(52200.5)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
  },
  {
   "name": "time_to_micros",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_micros(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500000
+   ]
+  ]
  },
  {
   "name": "time_to_millis",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_millis(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500
+   ]
+  ]
  },
  {
   "name": "time_to_seconds",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_seconds(TIME'14:30:00.5')",
+  "value": [
+   [
+    "decimal:52200.500000"
+   ]
+  ]
  },
  {
   "name": "time_trunc",
   "group": "databricks:datetime",
-  "probe": "SELECT time_trunc(HOUR, TIME'12:34:56')"
+  "example": "SELECT time_trunc('HOUR', TIME'13:08:15.123')",
+  "value": [
+   [
+    "time:13:00:00"
+   ]
+  ]
  },
  {
   "name": "timediff",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')",
+  "value": [
+   [
+    0
+   ]
+  ]
  },
  {
   "name": "timestamp_nanos",
@@ -369,7 +427,13 @@
  },
  {
   "name": "to_time",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
  },
  {
   "name": "to_variant_object",
@@ -410,15 +474,33 @@
  },
  {
   "name": "try_make_timestamp_ltz",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
  },
  {
   "name": "try_make_timestamp_ntz",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
  },
  {
   "name": "try_mod",
-  "group": "databricks:conditional"
+  "group": "databricks:conditional",
+  "example": "SELECT try_mod(2, 1.8)",
+  "value": [
+   [
+    "decimal:0.2"
+   ]
+  ]
  },
  {
   "name": "try_parse_json",
@@ -434,11 +516,23 @@
  },
  {
   "name": "try_to_date",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_date('2016-12-31')",
+  "value": [
+   [
+    "date:2016-12-31"
+   ]
+  ]
  },
  {
   "name": "try_to_time",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
  },
  {
   "name": "try_url_decode",
@@ -582,23 +676,61 @@
  },
  {
   "name": "vector_cosine_similarity",
-  "group": "databricks:vector"
+  "group": "databricks:vector",
+  "example": "SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:0.974631846197"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_inner_product",
-  "group": "databricks:vector"
+  "group": "databricks:vector",
+  "example": "SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:32"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_l2_distance",
-  "group": "databricks:vector"
+  "group": "databricks:vector",
+  "example": "SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:5.19615242271"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_norm",
-  "group": "databricks:vector"
+  "group": "databricks:vector",
+  "example": "SELECT vector_norm(array(3.0f, 4.0f), 2.0f)",
+  "value": [
+   [
+    "float:5"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_normalize",
-  "group": "databricks:vector"
+  "group": "databricks:vector",
+  "example": "SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)",
+  "value": [
+   [
+    [
+     "float:0.6",
+     "float:0.8"
+    ]
+   ]
+  ],
+  "note": "ARRAY<DOUBLE> here, ARRAY<FLOAT> in Databricks (the documented digits are DOUBLE's)"
  },
  {
   "name": "vector_sum",
@@ -606,7 +738,13 @@
  },
  {
   "name": "zeroifnull",
-  "group": "databricks:conditional"
+  "group": "databricks:conditional",
+  "example": "SELECT zeroifnull(NULL)",
+  "value": [
+   [
+    0
+   ]
+  ]
  },
  {
   "name": "zstd_compress",

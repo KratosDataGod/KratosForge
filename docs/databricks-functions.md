@@ -7,10 +7,11 @@ Databricks SQL's built-in functions, with what a Databricks SQL cell does with e
 where the DuckDB engine runs it. For the functions Databricks SQL shares with Spark 3.5, each
 one's first example from Spark's documentation goes through the same translation as a cell and
 is compared with the value Databricks gives (Spark 3.5's, or Databricks' own where its reference
-shows another). Databricks' own functions, in the groups headed "Databricks only", have no value
-checks yet: each is tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN
-GROUP, a unit keyword). No Databricks workspace was used. CI runs every check again, so this page
-changes when a function is fixed or breaks.
+shows another). Databricks' own functions are in the groups headed "Databricks only": one with
+an example is compared with the value Databricks' reference documents for it, and any other is
+tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN GROUP, a unit keyword).
+No Databricks workspace was used. CI runs every check again, so this page changes when a
+function is fixed or breaks.
 
 - **Runs**: gives Databricks' value for its example.
 - **Differs**: runs, but gives another value. Check results that use it on the warehouse.
@@ -26,10 +27,10 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 367 |
+| Runs | 389 |
 | Differs | 0 |
-| Refused | 78 |
-| Fails | 71 |
+| Refused | 82 |
+| Fails | 45 |
 | Not checked | 73 |
 | **All** | **589** |
 
@@ -656,11 +657,11 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `iff` | Not checked |  |  |
-| `nullifzero` | Fails |  | DuckDB has no nullifzero, and the translation doesn't write it |
+| `nullifzero` | Runs | `SELECT nullifzero(0)` |  |
 | `try_cast` | Not checked |  |  |
-| `try_mod` | Fails |  | DuckDB has no try_mod, and the translation doesn't write it |
+| `try_mod` | Runs | `SELECT try_mod(2, 1.8)` |  |
 | `try_reflect` | Fails |  | DuckDB has no try_reflect, and the translation doesn't write it |
-| `zeroifnull` | Fails |  | DuckDB has no zeroifnull, and the translation doesn't write it |
+| `zeroifnull` | Runs | `SELECT zeroifnull(NULL)` |  |
 
 ## Databricks only: date and time
 
@@ -672,29 +673,29 @@ lists more checks and the differences known in more detail.
 | `localtime` | Not checked |  |  |
 | `make_time` | Not checked |  |  |
 | `monthname` | Not checked |  |  |
-| `parse_timestamp` | Fails |  | DuckDB has no parse_timestamp, and the translation doesn't write it |
+| `parse_timestamp` | Refused |  | parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8601, |
 | `time` | Not checked |  |  |
 | `time_bucket` | Not checked |  |  |
-| `time_diff` | Fails |  | Binder Error: Referenced column "HOUR" was not found because the FROM clause is missing |
-| `time_from_micros` | Fails |  | DuckDB has no time_from_micros, and the translation doesn't write it |
-| `time_from_millis` | Fails |  | DuckDB has no time_from_millis, and the translation doesn't write it |
-| `time_from_seconds` | Fails |  | DuckDB has no time_from_seconds, and the translation doesn't write it |
-| `time_to_micros` | Fails |  | DuckDB has no time_to_micros, and the translation doesn't write it |
-| `time_to_millis` | Fails |  | DuckDB has no time_to_millis, and the translation doesn't write it |
-| `time_to_seconds` | Fails |  | DuckDB has no time_to_seconds, and the translation doesn't write it |
-| `time_trunc` | Fails |  | Catalog Error: Scalar Function with name time_trunc does not exist! |
-| `timediff` | Fails |  | DuckDB has no timediff, and the translation doesn't write it |
+| `time_diff` | Runs | `SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')` |  |
+| `time_from_micros` | Runs | `SELECT time_from_micros(52200500000)` |  |
+| `time_from_millis` | Runs | `SELECT time_from_millis(52200500)` |  |
+| `time_from_seconds` | Runs | `SELECT time_from_seconds(52200.5)` |  |
+| `time_to_micros` | Runs | `SELECT time_to_micros(TIME'14:30:00.5')` |  |
+| `time_to_millis` | Runs | `SELECT time_to_millis(TIME'14:30:00.5')` |  |
+| `time_to_seconds` | Runs | `SELECT time_to_seconds(TIME'14:30:00.5')` |  |
+| `time_trunc` | Runs | `SELECT time_trunc('HOUR', TIME'13:08:15.123')` |  |
+| `timediff` | Runs | `SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')` |  |
 | `timestamp_nanos` | Fails |  | DuckDB has no timestamp_nanos, and the translation doesn't write it |
 | `timestampadd` | Not checked |  |  |
 | `timestampdiff` | Not checked |  |  |
-| `to_time` | Fails |  | DuckDB has no to_time, and the translation doesn't write it |
+| `to_time` | Runs | `SELECT to_time('10:30:00')` |  |
 | `try_make_interval` | Fails |  | DuckDB has no try_make_interval, and the translation doesn't write it |
 | `try_make_timestamp` | Fails |  | DuckDB has no try_make_timestamp, and the translation doesn't write it |
-| `try_make_timestamp_ltz` | Fails |  | DuckDB has no try_make_timestamp_ltz, and the translation doesn't write it |
-| `try_make_timestamp_ntz` | Fails |  | DuckDB has no try_make_timestamp_ntz, and the translation doesn't write it |
-| `try_parse_timestamp` | Fails |  | DuckDB has no try_parse_timestamp, and the translation doesn't write it |
-| `try_to_date` | Fails |  | DuckDB has no try_to_date, and the translation doesn't write it |
-| `try_to_time` | Fails |  | DuckDB has no try_to_time, and the translation doesn't write it |
+| `try_make_timestamp_ltz` | Runs | `SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')` |  |
+| `try_make_timestamp_ntz` | Runs | `SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
+| `try_parse_timestamp` | Refused |  | try_parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8 |
+| `try_to_date` | Runs | `SELECT try_to_date('2016-12-31')` |  |
+| `try_to_time` | Runs | `SELECT try_to_time('10:30:00')` |  |
 | `unix_nanos` | Fails |  | DuckDB has no unix_nanos, and the translation doesn't write it |
 
 ## Databricks only: IP addresses
@@ -761,13 +762,13 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `vector_avg` | Fails |  | DuckDB has no vector_avg, and the translation doesn't write it |
-| `vector_cosine_similarity` | Fails |  | DuckDB has no vector_cosine_similarity, and the translation doesn't write it |
-| `vector_inner_product` | Fails |  | DuckDB has no vector_inner_product, and the translation doesn't write it |
-| `vector_l2_distance` | Fails |  | DuckDB has no vector_l2_distance, and the translation doesn't write it |
-| `vector_norm` | Fails |  | DuckDB has no vector_norm, and the translation doesn't write it |
-| `vector_normalize` | Fails |  | DuckDB has no vector_normalize, and the translation doesn't write it |
-| `vector_sum` | Fails |  | DuckDB has no vector_sum, and the translation doesn't write it |
+| `vector_avg` | Refused |  | vector_avg() can't run on this PC the way it runs in Databricks, so nothing ran: DuckDB has no aggregate that adds vectors element by element. Run the cell on a |
+| `vector_cosine_similarity` | Runs | `SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_inner_product` | Runs | `SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_l2_distance` | Runs | `SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_norm` | Runs | `SELECT vector_norm(array(3.0f, 4.0f), 2.0f)` | DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's) |
+| `vector_normalize` | Runs | `SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)` | ARRAY<DOUBLE> here, ARRAY<FLOAT> in Databricks (the documented digits are DOUBLE's) |
+| `vector_sum` | Refused |  | vector_sum() can't run on this PC the way it runs in Databricks, so nothing ran: DuckDB has no aggregate that adds vectors element by element. Run the cell on a |
 
 ## Databricks only: XML
 

@@ -532,6 +532,15 @@ def main() -> None:
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
+    from . import data_format
+    from .service import data_dir
+    try:
+        data_format.check(data_dir())
+    except data_format.NewerData as exc:
+        # Every call gets the reason, so the app says it, and nothing opens a store.
+        print(f"engine: {exc}", file=sys.stderr)
+        serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
     _refresh_integration_launcher()
     from . import notebook
     notebook.sweep_spills()  # output files a closed notebook session left behind
@@ -547,6 +556,19 @@ def main() -> None:
         engines = getattr(service, "_engines", None)
         if engines is not None:
             engines.close_all()  # end engine sessions (and remote sessions in Fabric) with the app
+
+
+class _Refused:
+    """The engine's stand-in when the data folder is a newer build's: every method raises why."""
+
+    audit = None  # nothing is recorded: no call runs
+    telemetry = None
+
+    def __init__(self, reason: Exception):
+        self._reason = reason
+
+    def __getattr__(self, name: str) -> object:
+        raise self._reason
 
 
 def _start_integration_http(service: Service) -> None:

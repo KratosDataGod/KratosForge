@@ -46,9 +46,9 @@ So a revoke's `detail.request` leads back to the request that gave the access.
 | `action` | `target` |
 | --- | --- |
 | `claim admin` (the first admin of an empty platform), `add admin`, `remove admin` | the person |
-| `delete domain`, `delete source`, `delete landing zone` | what was deleted. Each is refused while something still uses it, and the refusal writes no row |
+| `delete domain`, `delete source`, `delete landing zone` | what was deleted. Each is refused while something still uses it; the refusal writes only a `refused <operation>` row ([Refused changes](#refused-changes)) |
 
-Every other change writes a row too, each with its own `action`: `save domain`, `save source`, `save landing zone`, `save term`, `save shortcut rules`, `save Entra group naming`, `link Entra group` and `unlink Entra group`, `publish product`, `add product item` and `remove product item`, `add product term` and `remove product term`, `change project` and `project member`. Keys, shortcuts and the landing zone write theirs as well (for example `stage keys`, `keys live`, `shortcut scan`, `switch landing reads`), and so do actions taken from a workload page (`workload <action> <status>`). Filter on the exact names, not on a prefix. Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
+Every other change writes a row too, each with its own `action`: `save domain`, `save source`, `save landing zone`, `save term`, `save shortcut rules`, `save Entra group naming`, `link Entra group` and `unlink Entra group`, `publish product`, `add product item` and `remove product item`, `add product term` and `remove product term`, `change project` and `project member`. Keys, shortcuts and the landing zone write theirs as well (for example `issue keys`, one row per call that issued new keys, with the key table as `target` and how many in `detail.count`, never the business keys; `stage keys`, `keys live`, `shortcut scan`, `switch landing reads`), and so do actions taken from a workload page (`workload <action> <status>`). Filter on the exact names, not on a prefix. Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
 
 ## Refused changes
 

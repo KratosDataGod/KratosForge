@@ -325,7 +325,7 @@ def test_drift_check_catches_a_drifted_real_operation():
     """The real tree: give one operation a new parameter and the real check reports it."""
     ops = copy.copy(core.OPERATIONS)
     ns: dict = {}
-    exec("def issue_keys(db, name, business_keys, env='dev'): pass", ns)  # noqa: S102
+    exec("def issue_keys(db, name, business_keys, by='', env='dev'): pass", ns)  # noqa: S102
     ops["issue_keys"] = ns["issue_keys"]
     problems = parity_problems(udf.function_app(), ops)
     assert problems.get("issue_keys") == ["missing parameter env"]

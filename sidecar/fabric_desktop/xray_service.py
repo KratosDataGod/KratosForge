@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import threading
+from pathlib import Path
 from typing import Any, Callable
 
 import polars as pl
@@ -93,7 +94,7 @@ class XRayMixin:
     _xray_lock = threading.Lock()
 
     @property
-    def _xray_file(self):
+    def _xray_file(self) -> Path:
         return self.root / "xray.json"  # type: ignore[attr-defined]
 
     def _xray_saved(self) -> dict[str, Any] | None:

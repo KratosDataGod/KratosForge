@@ -4494,7 +4494,9 @@
         1686,
         1711,
         1712,
-        1755
+        1755,
+        2194,
+        2212
       ]
     },
     {
@@ -4878,7 +4880,27 @@
         2164,
         2166,
         2168,
-        2171
+        2169,
+        2171,
+        2172,
+        2175,
+        2176,
+        2177,
+        2179,
+        2180,
+        2186,
+        2187,
+        2190,
+        2192,
+        2195,
+        2197,
+        2204,
+        2210,
+        2235,
+        2237,
+        2239,
+        2241,
+        2242
       ],
       "issues": [
         910,
@@ -4901,7 +4923,8 @@
       "problem": "Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.",
       "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.",
       "evidence": [
-        "UX audit by the oversight thread, 2026-10-18 (PR #166)"
+        "UX audit by the oversight thread, 2026-10-18 (PR #166)",
+        "Living Experience, all Preview: the Home hero and progression panel (#2213, #2222), the Forge Activity view on Runs (#2215, #2226), spot illustrations for empty states (#2216), motion modes Professional to Legendary (#2211), and celebrations that are on by default and hold off while you type (#2201, #2225) on main at e5e6bec4"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -4974,7 +4997,17 @@
         991,
         998,
         1088,
-        1131
+        1131,
+        2056,
+        2201,
+        2211,
+        2213,
+        2215,
+        2216,
+        2218,
+        2222,
+        2225,
+        2226
       ],
       "issues": [
         928,
@@ -5148,7 +5181,9 @@
         1941,
         1971,
         2008,
-        2154
+        2154,
+        2178,
+        2240
       ]
     },
     {
@@ -5209,8 +5244,10 @@
         1833,
         1834,
         2040,
+        2061,
         2147,
-        2163
+        2163,
+        2165
       ]
     },
     {
@@ -5455,7 +5492,9 @@
         1965,
         2041,
         2042,
-        2043
+        2043,
+        2183,
+        2214
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5681,7 +5720,9 @@
         1832,
         2074,
         2077,
-        2156
+        2156,
+        2167,
+        2199
       ],
       "mandatory": "none",
       "computed": {
@@ -6198,7 +6239,15 @@
         1934,
         1938,
         2011,
-        2150
+        2150,
+        2174,
+        2189,
+        2193,
+        2221,
+        2224,
+        2227,
+        2232,
+        2234
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6351,7 +6400,8 @@
       "category": "Developer Experience and Productivity",
       "effort": "L",
       "prs": [
-        1722
+        1722,
+        2247
       ],
       "problem": "Learn v1 covers the first rule catalog and paths only.",
       "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",
@@ -6406,7 +6456,8 @@
         "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a",
         "Audit re-scored to 64 after the P1 data-integrity fixes (#1846); one transaction helper for the workloads file, outbox, ledger and local platform file (EA-028, #1839, #1872); pages get only the Tauri permissions they use and commands answer only the app's own page (#1768, #1769); the previous build is kept until the new engine answers (#1596); updates remove partial downloads (#1836); redaction covers more key shapes and the five redactors are characterized (#1887, #1892) on main at a7631920",
         "Enterprise install: MSI silent install, uninstall and detection, and what the support bundle collects (#1908) on main at de881016",
-        "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45"
+        "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45",
+        "Prod and confirmed actions write their audit line first and don't run without it (#2205); an authorization matrix lists every state-changing call and its check (#2045); refused changes and returned failures leave audit rows (#2196, #2231); SBOMs cover npm and Python with checksums (#2191) on main at e5e6bec4"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6507,6 +6558,7 @@
         1958,
         1993,
         2021,
+        2045,
         2050,
         2055,
         2058,
@@ -6514,7 +6566,20 @@
         2078,
         2143,
         2148,
-        2161
+        2161,
+        2185,
+        2188,
+        2191,
+        2196,
+        2205,
+        2207,
+        2220,
+        2223,
+        2228,
+        2230,
+        2231,
+        2233,
+        2236
       ],
       "issues": [],
       "computed": {
@@ -6763,7 +6828,14 @@
         2059,
         2152,
         2153,
-        2159
+        2159,
+        2170,
+        2173,
+        2200,
+        2219,
+        2229,
+        2238,
+        2244
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6779,7 +6851,8 @@
         "Exercise scripts run in the AppContainer by default on Windows (#1827); DP-700 exercises on DuckDB, pipelines, Delta and broken environments (#1840, #1844, #1848, #1850, #1877) and checks that nothing else changed (#1843) on main at a7631920",
         "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016",
         "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45",
-        "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b"
+        "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b",
+        "Question bank re-checked against Learn and grown to 498 (#2219); retakes draw unseen questions first (#2200); distractors as specific as the answer (#2229); exercises E45, E47, E52 and E60 (#2173, #2238) on main at e5e6bec4"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -7093,7 +7166,7 @@
       "id": "PB-134",
       "title": "Developer classes and mastery",
       "state": "In progress",
-      "owner": "Developer classes and mastery",
+      "owner": "Build developer class and mastery system",
       "category": "Developer Experience and Productivity",
       "effort": "L",
       "prs": [],
@@ -7102,7 +7175,8 @@
       "evidence": [
         "Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup",
         "First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data",
-        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)"
+        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)",
+        "Owner's notes (2026-11-07): Phase 1 is S to M and engine-only. The main risks are the art source (decision pending with the product owner) and reviewer verification for Grandmaster (an architecture call later). It depends on progress.py, ranks.py, Academy and Learn content and the effects API. The owner asked for P2. Priority follows the seven scores, which stay provisional until the owner sends its own"
       ],
       "features": [
         "FEAT-DEV-01",

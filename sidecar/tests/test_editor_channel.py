@@ -418,10 +418,16 @@ def test_the_hello_names_the_channel_api_and_refuses_an_extension_too_old_for_it
     nonce = "n" * 32
     status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
     assert status == 200 and res["result"]["api"] == editor_channel.API_VERSION
-    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say is taken as current
+    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say speaks API 1
+    for garbled in ("abc", "1.5", "-1", "0x1", "%C2%B2", "1" * 7):
+        status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={garbled}")
+        assert status == 400 and res["error"]["code"] == "invalid_input" and "proof" not in json.dumps(res), garbled
     monkeypatch.setattr(editor_channel, "OLDEST_CLIENT_API", editor_channel.API_VERSION + 1)
     status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
     assert status == 426 and res["error"]["code"] == "extension_too_old" and "proof" not in json.dumps(res)
+    # An extension from before the version was sent speaks API 1, so it's told to update too, not let through.
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}")
+    assert status == 426 and res["error"]["code"] == "extension_too_old"
 
 
 def _raw(port, data, read_timeout=15, half_close=False):

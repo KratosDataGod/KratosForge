@@ -161,8 +161,10 @@ AREAS: tuple[Area, ...] = (
        cloud_api=Cell("built", ("test_dbconnect.py", "test_databricks_workspace_sync.py", "test_databricks_sync_service.py"),
                       note="Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced "
                            "with a workspace folder (Preview); against fakes, no live run yet."),
-       local=Cell("partial", ("test_dbutils.py", "test_dbutils_parity.py", "test_spark_api.py", "test_spark_api_parity.py"),
-                  note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.")),
+       local=Cell("partial", ("test_dbutils.py", "test_dbutils_parity.py", "test_spark_api.py", "test_spark_api_parity.py",
+                              "test_databricks_notebook_helpers.py"),
+                  note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed. "
+                       "Each dbutils call and % magic: docs/databricks-notebook-helpers.md.")),
     _skinned("databricks", "unity", "Unity Catalog"),
     _skinned("databricks", "jobs", "Jobs and Lakeflow pipelines",
        workflow=Cell("partial", ("test_skins.py", "test_databricks_runs_service.py"),

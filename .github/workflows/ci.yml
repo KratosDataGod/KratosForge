@@ -248,10 +248,10 @@ jobs:
       # The installable extension (.vsix), attached to each Preview release, built reproducibly:
       # - The version and the files' time come from the commit (0.2.<commit time, UTC>, newer than
       #   every 0.1.<run number> before it), so VS Code takes a newer file as an update.
-      # - vsce stores SOURCE_DATE_EPOCH as each file's time and sorts the files; scripts/modes.cjs gives
-      #   every file the same mode.
-      # - Built a second time from a fresh copy (another folder, another umask, its own npm ci), it must
-      #   come out byte for byte the same, or the job fails.
+      # - vsce stores SOURCE_DATE_EPOCH as each file's time and sorts the files; scripts/package.cjs gives
+      #   every file the same mode and runs vsce in UTC (zip times are local times).
+      # - Built a second time from a fresh copy (another folder, umask and time zone, its own npm ci), it
+      #   must come out byte for byte the same, or the job fails.
       - name: Package the extension (reproducible)
         run: |
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
@@ -260,7 +260,7 @@ jobs:
           AGAIN="$RUNNER_TEMP/vsix-again"
           mkdir -p "$AGAIN"
           git ls-files --cached --others --exclude-standard . | tar -cf - -T - | tar -xf - -C "$AGAIN"
-          (cd "$AGAIN" && umask 002 && npm ci --ignore-scripts --no-audit --no-fund && npm run package)
+          (cd "$AGAIN" && umask 002 && export TZ=America/Chicago && npm ci --ignore-scripts --no-audit --no-fund && npm run package)
           FIRST=$(sha256sum kratosforge.vsix | cut -d' ' -f1)
           SECOND=$(sha256sum "$AGAIN/kratosforge.vsix" | cut -d' ' -f1)
           echo "kratosforge.vsix $FIRST; built again: $SECOND"

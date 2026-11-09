@@ -21,19 +21,19 @@ function is fixed or breaks.
 
 AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions
 aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,
-`make_valid_utf8`, `hmac` and `bit_reverse` run in Python, one row at a time, so a query that calls
-them on millions of rows takes seconds longer here.
+`make_valid_utf8`, `hmac`, `bit_reverse` and the VARIANT ones (`parse_json`, `variant_get`, ...) run in
+Python, one row at a time, so a query that calls them on millions of rows takes seconds longer here.
 
 One example per function is a first check, not proof: [Engines](engines.md#databricks-sql-functions-on-this-pc)
 lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 411 |
+| Runs | 419 |
 | Differs | 0 |
-| Refused | 85 |
-| Fails | 20 |
-| Not checked | 73 |
+| Refused | 87 |
+| Fails | 11 |
+| Not checked | 72 |
 | **All** | **589** |
 
 ## Aggregate
@@ -620,7 +620,7 @@ lists more checks and the differences known in more detail.
 | `percentile_cont` | Not checked |  |  |
 | `percentile_disc` | Not checked |  |  |
 | `schema_of_json_agg` | Fails |  | DuckDB has no schema_of_json_agg, and the translation doesn't write it |
-| `schema_of_variant_agg` | Fails |  | DuckDB has no schema_of_variant_agg, and the translation doesn't write it |
+| `schema_of_variant_agg` | Refused |  | schema_of_variant_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC keeps a VARIANT as JSON text, which doesn't keep every type  |
 | `string_agg` | Not checked |  |  |
 | `theta_difference` | Refused |  | theta_difference() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make  |
 | `theta_intersection` | Refused |  | theta_intersection() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't mak |
@@ -750,15 +750,15 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `is_variant_null` | Fails |  | DuckDB has no is_variant_null, and the translation doesn't write it |
-| `parse_json` | Not checked |  |  |
-| `schema_of_variant` | Fails |  | DuckDB has no schema_of_variant, and the translation doesn't write it |
-| `to_variant_object` | Fails |  | DuckDB has no to_variant_object, and the translation doesn't write it |
-| `try_parse_json` | Fails |  | DuckDB has no try_parse_json, and the translation doesn't write it |
-| `try_variant_get` | Fails |  | DuckDB has no try_variant_get, and the translation doesn't write it |
-| `variant_explode` | Fails |  | DuckDB has no variant_explode, and the translation doesn't write it |
-| `variant_explode_outer` | Fails |  | DuckDB has no variant_explode_outer, and the translation doesn't write it |
-| `variant_get` | Fails |  | DuckDB has no variant_get, and the translation doesn't write it |
+| `is_variant_null` | Runs | `SELECT is_variant_null(v:key) FROM VALUES(parse_json('{"key": null, "a": 1}')) AS T(v)` |  |
+| `parse_json` | Runs | `SELECT parse_json('{"key": 123, "data": [4, 5, "str"]}')` | A VARIANT is JSON text here, written as Databricks prints it; v:key reads it with DuckDB's JSON functions, which keep a number to DOUBLE's 17 digits |
+| `schema_of_variant` | Refused |  | schema_of_variant() can't run on this PC the way it runs in Databricks, so nothing ran: this PC keeps a VARIANT as JSON text, which doesn't keep every type Data |
+| `to_variant_object` | Runs | `SELECT to_variant_object(named_struct('a', 1, 'b', 2))` | A STRUCT, MAP or ARRAY of integers, strings and booleans; a DOUBLE, DECIMAL, date or timestamp inside stops by name |
+| `try_parse_json` | Runs | `SELECT try_parse_json('{ bad }')` |  |
+| `try_variant_get` | Runs | `SELECT try_variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.key', 'boolean')` |  |
+| `variant_explode` | Runs | `SELECT * FROM variant_explode(parse_json('{"foo":1,"bar":"hello"}'))` |  |
+| `variant_explode_outer` | Runs | `SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)` |  |
+| `variant_get` | Runs | `SELECT variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.data[1].a', 'string')` | A cast that turns on a number's exact VARIANT type (a STRING or DECIMAL to an integer, a date, a STRUCT) stops by name |
 
 ## Databricks only: vectors
 

@@ -290,6 +290,49 @@ def _collate(node: exp.Collate) -> exp.Expression:
                               "UTF8_LCASE only.", "use UTF8_LCASE, or lower() on both sides")
 
 
+# VARIANT: databricks_variant's functions keep it as DuckDB JSON text in the form Databricks prints it
+_EXPLODE = ("variant_explode", "variant_explode_outer")
+_ROWS = "unnest(__kf_variant_items(_v, typeof(_v)))"
+_ROW = ("struct_extract(__kf_r, 'pos') AS pos, struct_extract(__kf_r, 'key') AS key, "
+        "CAST(struct_extract(__kf_r, 'value') AS JSON) AS value")
+_VARIANT_SCHEMAS = ("schema_of_variant", "schema_of_variant_agg")
+
+
+def _parse_json(value: exp.Expression, safe: bool) -> exp.Expression:
+    return _template(f"CAST(__kf_parse_json(_a, {'true' if safe else 'false'}) AS JSON)", a=value)
+
+
+def _literal(name: str, value: exp.Expression, what: str) -> str:
+    if not (isinstance(value, exp.Literal) and value.is_string):
+        raise ValueError(f"{name}() takes its {what} as a string literal in Databricks.")
+    return str(value.this)
+
+
+def _variant_get(name: str, args: list[exp.Expression]) -> exp.Expression:
+    from . import databricks_variant
+    _arity(name, args, 3, 3)
+    steps = json.dumps(databricks_variant.path(_literal(name, args[1], "path")))
+    kind = exp.DataType.build(_literal(name, args[2], "type"), dialect="databricks")
+    if kind.this == exp.DataType.Type.DECIMAL and not kind.expressions:
+        kind = exp.DataType.build("DECIMAL(10,0)")  # Databricks' DECIMAL
+    target = "variant" if kind.this == exp.DataType.Type.VARIANT else kind.sql(dialect="databricks").lower()
+    safe = "true" if name.startswith("try_") else "false"
+    call = f"__kf_variant_get(_v, typeof(_v), {exp.Literal.string(steps).sql()}, " \
+           f"{exp.Literal.string(target).sql()}, {safe})"
+    return exp.cast(_template(call, v=args[0]), exp.DataType.build("JSON") if target == "variant" else kind)
+
+
+def _explode(node: exp.Anonymous) -> exp.Expression:
+    """variant_explode(_outer) in FROM or LATERAL, as a subquery of pos, key and value rows."""
+    name, args = node.name.lower(), list(node.expressions)
+    _arity(name, args, 1, 1)
+    if name == "variant_explode":
+        sql = f"SELECT {_ROW} FROM (SELECT {_ROWS} AS __kf_r)"
+    else:  # one row of NULLs for NULL, a scalar, or an empty array or object
+        sql = f"SELECT {_ROW} FROM (SELECT 1) AS __kf_one LEFT JOIN LATERAL (SELECT {_ROWS} AS __kf_r) ON TRUE"
+    return _template(sql, v=args[0])
+
+
 # Element-wise aggregates over vectors: DuckDB has no aggregate that sums lists element by element.
 _VECTOR_AGGREGATES = {"vector_sum", "vector_avg"}
 
@@ -340,6 +383,25 @@ def _function(node: exp.Anonymous) -> exp.Expression:
     if name in _ZSTD:
         raise _refusal(name, "this PC has no Zstandard codec.", "use base64 or hex for text that has to "
                                                                 "travel as bytes")
+    if name == "try_parse_json":
+        _arity(name, args, 1, 1)
+        return _parse_json(args[0], safe=True)
+    if name == "is_variant_null":
+        _arity(name, args, 1, 1)
+        return exp.paren(_template(
+            "CASE WHEN typeof(_a) NOT IN ('JSON', '\"NULL\"') THEN error('[DATATYPE_MISMATCH] is_variant_null() "
+            "takes a VARIANT; write parse_json(...).') ELSE coalesce(json_type(_a) = 'NULL', false) END", a=args[0]))
+    if name in ("variant_get", "try_variant_get"):
+        return _variant_get(name, args)
+    if name == "to_variant_object":
+        _arity(name, args, 1, 1)
+        return _template("CAST(__kf_to_variant(CAST(to_json(_a) AS VARCHAR), typeof(_a)) AS JSON)", a=args[0])
+    if name in _VARIANT_SCHEMAS:
+        raise _refusal(name, "this PC keeps a VARIANT as JSON text, which doesn't keep every type Databricks "
+                             "reports (a DECIMAL's scale, or a DOUBLE that prints like a DECIMAL).",
+                       "use typeof on variant_get's values")
+    if name in _EXPLODE:
+        raise ValueError(f"{name}() is a table function in Databricks: write it in FROM or after LATERAL.")
     if name in _VECTOR_AGGREGATES:
         raise _refusal(name, "DuckDB has no aggregate that adds vectors element by element.",
                        "posexplode the vectors and GROUP BY the position")
@@ -356,8 +418,17 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
             raise _refusal(name, "it builds or reads a DataSketches sketch, whose bytes this PC can't make the "
                                  "same way.", instead)
 
+    for node in list(statement.find_all(exp.Anonymous)):  # table functions first: they replace their parent
+        if node.name.lower() in _EXPLODE and isinstance(node.parent, (exp.Table, exp.Lateral)):
+            rows = exp.Subquery(this=_explode(node))
+            if isinstance(node.parent, exp.Table):
+                rows.set("alias", node.parent.args.get("alias"))
+                node.parent.replace(rows)
+            else:
+                node.replace(rows)
+
     # innermost first, so a call inside another's arguments is written before the outer one copies them
-    for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate,
+    for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate, exp.ParseJSON,
                                                    bfs=False))):
         written = _written(call)
         if written is not None:
@@ -375,6 +446,8 @@ def _written(call: exp.Expr) -> exp.Expression | None:
         return _time_trunc(call)
     if isinstance(call, exp.Collate):
         return _collate(call)
+    if isinstance(call, exp.ParseJSON):
+        return _parse_json(call.this, safe=bool(call.args.get("safe")))
     if isinstance(call, exp.Anonymous):
         written = _function(call)
         return None if written is call else written

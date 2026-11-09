@@ -517,3 +517,130 @@ def test_the_engine_session_has_the_byte_functions():
         assert session._con.sql("SELECT __kf_bit_reverse('TINYINT', 64)").fetchall() == [(2,)]
     finally:
         session.close()
+
+
+_STORE = "parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}')"
+
+
+# Every example in Databricks' reference for its VARIANT functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT is_variant_null(v:key), is_variant_null(v:a) FROM VALUES(parse_json('{\"key\": null, \"a\": 1}')) AS T(v)",
+     [[True, False]]),
+    ("SELECT is_variant_null(v:key), v:key IS NULL FROM VALUES(parse_json('{\"key\": null}')) AS T(v)", [[True, False]]),
+    ("SELECT parse_json('{\"key\": 123, \"data\": [4, 5, \"str\"]}')", [['{"data":[4,5,"str"],"key":123}']]),
+    ("SELECT parse_json('123')", [["123"]]),
+    ("SELECT parse_json(NULL)", [[None]]),
+    ("SELECT try_parse_json('{\"key\": 123, \"data\": [4, 5, \"str\"]}')", [['{"data":[4,5,"str"],"key":123}']]),
+    ("SELECT try_parse_json('123')", [["123"]]),
+    ("SELECT try_parse_json('{ bad }')", [[None]]),
+    (f"SELECT variant_get({_STORE}, '$.data[1].a', 'string')", [["hello"]]),
+    (f"SELECT variant_get({_STORE}, '$.missing', 'int')", [[None]]),
+    (f"SELECT try_variant_get({_STORE}, '$.data[1].a', 'string')", [["hello"]]),
+    (f"SELECT try_variant_get({_STORE}, '$.missing', 'int')", [[None]]),
+    (f"SELECT try_variant_get({_STORE}, '$.key', 'boolean')", [[None]]),
+    ("SELECT to_variant_object(named_struct('a', 1, 'b', 2))", [['{"a":1,"b":2}']]),
+    ("SELECT to_variant_object(array(1, 2, 3))", [["[1,2,3]"]]),
+    ("SELECT to_variant_object(array(named_struct('a', 1)))", [['[{"a":1}]']]),
+    ("SELECT to_variant_object(array(map('a', 2)))", [['[{"a":2}]']]),
+    ("SELECT * FROM variant_explode(parse_json('[1, \"a\", {\"b\": \"hello\"}]'))",
+     [[0, None, "1"], [1, None, '"a"'], [2, None, '{"b":"hello"}']]),
+    ("SELECT * FROM variant_explode(parse_json('{\"foo\":1,\"bar\":\"hello\"}'))", [[0, "bar", '"hello"'], [1, "foo", "1"]]),
+    ("SELECT t.value AS outer, u.value AS inner FROM variant_explode(parse_json('[[1, 2], [3, 4]]')) AS t, "
+     "LATERAL variant_explode(t.value) AS u", [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
+    ("SELECT s.id, e.pos, e.key, e.value FROM VALUES (1, parse_json('[{\"a\":1},{\"b\":2}]')), (2, parse_json('[]')), "
+     "(3, parse_json('{\"x\":10,\"y\":20}')) AS s(id, v), LATERAL variant_explode(s.v) AS e",
+     [[1, 0, None, '{"a":1}'], [1, 1, None, '{"b":2}'], [3, 0, "x", "10"], [3, 1, "y", "20"]]),
+    ("SELECT * FROM variant_explode_outer(parse_json('[1, \"a\", {\"b\": \"hello\"}]'))",
+     [[0, None, "1"], [1, None, '"a"'], [2, None, '{"b":"hello"}']]),
+    ("SELECT value FROM variant_explode_outer(null) AS t(pos, key, value)", [[None]]),
+    ("SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)", [[None]]),
+    ("SELECT t.value AS outer, u.value AS inner FROM variant_explode_outer(parse_json('[[1, 2], [3, 4]]')) AS t, "
+     "LATERAL variant_explode(t.value) AS u", [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
+    ("SELECT PARSE_JSON('{ \"price\": 5 }'):price, PARSE_JSON('{ \"price\": 5 }'):price::decimal(5,2)",
+     [["5", "decimal:5.00"]]),
+    ("SELECT parse_json(NULL) IS NULL, parse_json('null') IS NULL, parse_json('{ \"field_a\": null }'):field_a IS NULL, "
+     "parse_json('{ \"field_a\": null }'):missing IS NULL", [[True, False, False, True]]),
+])
+def test_databricks_variant_examples_give_its_values(code, want):
+    assert _one(code) == want
+
+
+@pytest.mark.parametrize(("text", "printed"), [
+    ('{"a" : 0.01000}', '{"a":0.01}'),  # Databricks drops a decimal's trailing zeros
+    ("1.0", "1"),
+    ("-0.0", "0"),
+    ("1e2", "100.0"),  # an exponent makes a DOUBLE, printed as Java prints one
+    ("1E7", "1.0E7"),
+    ("1.5e-5", "1.5E-5"),
+    ("12345678901234567890", "12345678901234567890"),  # past BIGINT: a DECIMAL
+    ("0.10000000000000000001", "0.10000000000000000001"),  # a DECIMAL keeps all 38 digits
+    ('"tab\\there\\u0001"', '"tab\\there\\u0001"'),
+    ('{"b": 1, "a": {"d": [true, null], "c": "x"}}', '{"a":{"c":"x","d":[true,null]},"b":1}'),
+])
+def test_parse_json_prints_as_databricks_keeps_a_variant(text, printed):
+    from fabric_desktop import databricks_variant
+    assert databricks_variant.parse_json(text, False) == printed
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT parse_json('{ bad }')", "[MALFORMED_RECORD_IN_PARSING]"),
+    ("SELECT parse_json('NaN')", "[MALFORMED_RECORD_IN_PARSING]"),
+    ("SELECT parse_json('{\"a\": 1, \"a\": 2}')", "[VARIANT_DUPLICATE_KEY]"),
+    (f"SELECT variant_get({_STORE}, '$.key', 'array<int>')", "[INVALID_VARIANT_CAST]"),
+    (f"SELECT variant_get({_STORE}, '$.key', 'tinyint')", None),
+    (f"SELECT variant_get({_STORE}, '$.data', 'int')", "[INVALID_VARIANT_CAST]"),
+    ("SELECT variant_get(parse_json('300'), '$', 'tinyint')", "[INVALID_VARIANT_CAST]"),
+    ("SELECT variant_get(parse_json('1234.5'), '$', 'decimal(4,1)')", "[INVALID_VARIANT_CAST]"),
+    ("SELECT variant_get('{\"a\": 1}', '$.a', 'int')", "[DATATYPE_MISMATCH]"),
+    ("SELECT to_variant_object(1)", "[DATATYPE_MISMATCH]"),
+])
+def test_bad_variant_input_stops_with_databricks_error_class(code, error):
+    if error is None:  # 123 fits a TINYINT
+        assert _one(code) == [[123]]
+        return
+    with pytest.raises(duckdb.Error, match=re.escape(error)):
+        _one(code)
+
+
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT variant_get(parse_json('{\"a\": {\"b c\": [1, 2.50]}}'), '$.a[\"b c\"][1]', 'decimal(5,2)')", "decimal:2.50"),
+    ("SELECT variant_get(parse_json('{\"a\": 1}'), '$', 'string')", '{"a":1}'),
+    ("SELECT variant_get(parse_json('{\"a\": 1}'), '$.a', 'variant')", "1"),
+    ("SELECT variant_get(parse_json('0.10000000000000000001'), '$', 'string')", "0.10000000000000000001"),
+    ("SELECT try_variant_get(parse_json('300'), '$', 'tinyint')", None),
+    ("SELECT variant_get(parse_json('{\"a\": null}'), '$.a', 'int')", None),
+])
+def test_variant_get_walks_the_path_itself(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT variant_get(parse_json('\"5\"'), '$', 'int')",  # a STRING to a number
+    "SELECT variant_get(parse_json('1.5'), '$', 'int')",  # a DECIMAL to an integer
+    "SELECT variant_get(parse_json('[1]'), '$', 'array<int>')",
+    "SELECT variant_get(parse_json('\"2024-01-01\"'), '$', 'date')",
+    "SELECT to_variant_object(named_struct('a', 1.5D))",
+    "SELECT schema_of_variant(parse_json('1'))",
+    "SELECT schema_of_variant_agg(v) FROM VALUES (parse_json('1')) AS t(v)",
+])
+def test_a_variant_cast_this_pc_cannot_tell_is_refused_by_name(code):
+    with pytest.raises((ValueError, duckdb.Error), match="can't run on this PC the way it runs in Databricks"):
+        _one(code)
+
+
+def test_a_variant_path_must_be_a_path():
+    with pytest.raises(ValueError, match=re.escape("[INVALID_VARIANT_GET_PATH]")):
+        _one("SELECT variant_get(parse_json('[1]'), '$[*]', 'int')")
+    with pytest.raises(ValueError, match="is a table function"):
+        _one("SELECT variant_explode(parse_json('[1]'))")
+
+
+def test_the_engine_session_has_the_variant_functions():
+    from fabric_desktop.engines.contract import SessionConfig
+    from fabric_desktop.engines.local_sql import DuckDBSession
+    session = DuckDBSession(SessionConfig(notebook="variant"))
+    try:
+        assert session._con.sql("SELECT __kf_parse_json('{\"b\": 1, \"a\": 2}', false)").fetchall() == [
+            ('{"a":2,"b":1}',)]
+    finally:
+        session.close()

@@ -35,8 +35,8 @@ receipt or Learn lesson.
   revision. Passing the same Learn exercise again adds nothing; after the lesson is updated, it
   records the new content version but earns nothing more.
 - KratosForge can't tell who wrote a notebook, so it records what was validated, not who authored it.
-- **Settings > Include past validations** adds notebooks that passed Validate or Prove before
-  recording was on (once), dated when they ran.
+- **Settings > Include past validations** adds notebooks that passed Validate, Prove or Side by
+  side before recording was on (once), dated when they ran.
 
 The file is `%LOCALAPPDATA%\FabricDesktop\profile\<id>\profile.json`, where `<id>` is a hash of
 your sign-in name. Backups include it; support bundles don't. If the file is ever damaged, it is set
@@ -52,7 +52,7 @@ report stay.
 |---|---|---:|
 | First Flame | Your first notebook passes Validate with a clean run | 50 |
 | Steady Hand | Five different notebooks have each passed Validate with a clean run | 100 |
-| Proof Forged | A proof finds every table the same on this PC and in Fabric | 150 |
+| Proof Forged | A Prove or Side by side run finds every table the same on this PC and in Fabric | 150 |
 | The First Spark | Your first Learn exercise passes every check on this PC | 50 |
 | The Data Smith | Five different Learn exercises have each passed every check | 100 |
 | The Query Forger | A Learn exercise with a speed check passes: the same answer, measurably faster on this PC | 100 |
@@ -63,7 +63,7 @@ Each Learn achievement needs a published lesson or lab with that kind of check. 
 speed check, LM-02 and LM-05 have table shape and integrity checks, and LAB-01 plants data quality
 problems.
 
-When Validate, Prove or a Learn check earns you an achievement, a short message names it (turn that off with **Settings >
+When Validate, Prove, Side by side or a Learn check earns you an achievement, a short message names it (turn that off with **Settings >
 Achievement notifications**). Each achievement is announced once, even if you open the same result
 again. With **Settings > Appearance > Living Experience > Achievement celebrations** on (the
 default), the message also gets a brief reveal; see [Forge animations](forge-animations.md).
@@ -72,11 +72,12 @@ After the first, each **different** notebook that passes Validate for the first 
 and each different notebook proven after Proof Forged earns 20 XP, for up to three new notebooks a
 day. Finishing a Learn lesson or lab for the first time earns 25 XP. Lessons and new notebooks share
 the same three a day, so finishing lessons can use a day's slots.
-A proof runs the notebook in Fabric, which uses some capacity, so Proof Forged is never needed
-to level up. New revisions of a notebook already counted earn no XP. Nothing rewards
+A side-by-side run whose tables all match (same columns, rows and checksum) counts as a proof
+(rules version 5); proving the same code again adds nothing. Both run the notebook in Fabric, which
+uses some capacity, so Proof Forged is never needed to level up. New revisions of a notebook already counted earn no XP. Nothing rewards
 hours, run counts, lines of code or compute used.
 
-Levels (rules version 3; version 2 added Learn, version 3 added checked fixes, and both kept the level curve): reaching level L takes `round(100 × (L − 1)^1.5)` XP, so level 2 is 100
+Levels (rules version 5; version 2 added Learn, version 3 added checked fixes, version 4 Academy exercises and version 5 side-by-side runs as proofs, and all kept the level curve): reaching level L takes `round(100 × (L − 1)^1.5)` XP, so level 2 is 100
 XP, level 5 is 800, level 10 is 2,700 and level 50 is 34,300. A level is a number; your title is
 your rank (below). A later rules version won't change what you've already earned.
 

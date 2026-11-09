@@ -47,7 +47,7 @@ class Rule:
         return self.severity if isinstance(self.severity, str) else self.severity[target]
 
 
-def _r(id: str, severity, category: str, targets, title: str, reason: str, action: str, doc: str,
+def _r(id: str, severity: str | dict[str, str], category: str, targets: Iterable[str], title: str, reason: str, action: str, doc: str,
        confidence: str = "high") -> Rule:
     return Rule(id, severity, category, title, reason, action, doc, tuple(targets), confidence)
 
@@ -302,7 +302,7 @@ def _name_at(s: Stmt, i: int) -> tuple[list[Tok], int]:
     return parts, i
 
 
-def _hit(rule: str, a: Tok, b: Tok | None = None, **detail) -> Hit:
+def _hit(rule: str, a: Tok, b: Tok | None = None, **detail: object) -> Hit:
     return Hit(rule, a.start, (b or a).end, detail)
 
 
@@ -384,7 +384,7 @@ def _context(s: Stmt) -> list[str]:
 _CHECKS: list[Callable[[Stmt], Iterable[Hit]]] = []
 
 
-def check(fn):
+def check(fn: Callable[[Stmt], Iterable[Hit]]) -> Callable[[Stmt], Iterable[Hit]]:
     _CHECKS.append(fn)
     return fn
 
@@ -413,7 +413,7 @@ def run_checks(stmt: Stmt, target: str) -> list[Hit]:
 # ---------- syntax
 
 @check
-def _limit(s: Stmt):
+def _limit(s: Stmt) -> Iterator[Hit]:
     for i, t in enumerate(s.toks):
         if t.kw == "LIMIT" and (not i or s.toks[i - 1].type != TokenType.DOT) and i + 1 < len(s.toks) \
                 and s.toks[i + 1].type in (TokenType.NUMBER, TokenType.PARAMETER, TokenType.VAR):
@@ -421,14 +421,14 @@ def _limit(s: Stmt):
 
 
 @check
-def _top(s: Stmt):
+def _top(s: Stmt) -> Iterator[Hit]:
     for i, t in enumerate(s.toks[1:], 1):
         if t.kw == "TOP" and s.toks[i - 1].kw in {"SELECT", "DISTINCT", "ALL"}:
             yield _hit("SYN-002", t)
 
 
 @check
-def _brackets(s: Stmt):
+def _brackets(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     after_name = {"FROM", "JOIN", "INTO", "UPDATE", "TABLE"}
     for i, t in enumerate(toks):
@@ -461,14 +461,14 @@ def _after_top(s: Stmt, close: int) -> bool:
 
 
 @check
-def _variables(s: Stmt):
+def _variables(s: Stmt) -> Iterator[Hit]:
     for i, t in enumerate(s.toks[:-1]):
         if t.type == TokenType.PARAMETER and t.raw == "@" and s.toks[i + 1].start == t.end and _is_name(s.toks[i + 1]):
             yield _hit("SYN-004", t, s.toks[i + 1])
 
 
 @check
-def _go(s: Stmt):
+def _go(s: Stmt) -> Iterator[Hit]:
     for t in s.toks:
         if t.kw == "GO" and _alone(s, t):
             yield _hit("SYN-005", t)
@@ -483,7 +483,7 @@ def _alone(s: Stmt, t: Tok) -> bool:
 
 
 @check
-def _backticks(s: Stmt):
+def _backticks(s: Stmt) -> Iterator[Hit]:
     for t in s.toks:
         if t.raw.startswith("`"):
             yield _hit("SYN-006", t)
@@ -491,7 +491,7 @@ def _backticks(s: Stmt):
 
 
 @check
-def _double_quoted_values(s: Stmt):
+def _double_quoted_values(s: Stmt) -> Iterator[Hit]:
     for i, t in enumerate(s.toks[1:], 1):
         if t.type == TokenType.IDENTIFIER and t.raw.startswith('"') and \
                 s.toks[i - 1].type in (TokenType.EQ, TokenType.NEQ, TokenType.LIKE, TokenType.LT, TokenType.GT):
@@ -513,7 +513,7 @@ _SECURABLE_CLASSES = {"SCHEMA", "OBJECT", "DATABASE", "ROLE", "USER", "TYPE", "L
 
 
 @check
-def _spark_syntax(s: Stmt):
+def _spark_syntax(s: Stmt) -> Iterator[Hit]:
     for words, construct, fix in _SPARK_SYNTAX:
         for i in s.find(*words):
             yield _hit("SYN-009", s.toks[i], s.toks[i + len(words) - 1], construct=construct, fix=fix)
@@ -544,7 +544,7 @@ def _spark_types(s: Stmt) -> Iterator[int]:
 
 
 @check
-def _warehouse_only(s: Stmt):
+def _warehouse_only(s: Stmt) -> Iterator[Hit]:
     for i in s.find("QUALIFY"):
         yield _hit("SYN-010", s.toks[i], construct="QUALIFY", fix="Filter the window function in an outer query.")
     for i in s.find(("GROUP", "ORDER"), "BY", "ALL"):
@@ -599,7 +599,7 @@ _LISTED = set(_TSQL_ONLY) | set(_SPARK_ONLY) | _REGEX_PREVIEW | set(_WAREHOUSE_U
 
 
 @check
-def _functions(s: Stmt):
+def _functions(s: Stmt) -> Iterator[Hit]:
     for i, t in _calls(s):
         name = t.kw
         if name == "ISNULL" and _args(s, i + 1) == 2:
@@ -690,7 +690,7 @@ _KNOWN = {"spark": _KNOWN_SPARK, "warehouse": _KNOWN_TSQL, "endpoint": _KNOWN_TS
 
 
 @check
-def _unknown_functions(s: Stmt):
+def _unknown_functions(s: Stmt) -> Iterator[Hit]:
     if s.ast is None:
         return
     used: set[int] = set()
@@ -770,7 +770,7 @@ def _is_ctas(s: Stmt) -> bool:
 
 
 @check
-def _types(s: Stmt):
+def _types(s: Stmt) -> Iterator[Hit]:
     for j, _col in _column_defs(s):
         t = s.toks[j]
         if t.kw in _TYPE_ALTERNATIVES:
@@ -802,7 +802,7 @@ _NOT_SUPPORTED_OBJECTS = [
 
 
 @check
-def _ddl(s: Stmt):
+def _ddl(s: Stmt) -> Iterator[Hit]:
     toks, kws = s.toks, s.kws
     for words, name, fix in _NOT_SUPPORTED_OBJECTS:
         for i in s.find(*words):
@@ -856,7 +856,7 @@ def _ddl(s: Stmt):
         yield _hit("DDL-015", toks[i], toks[i + 1])
 
 
-def _constraints(s: Stmt):
+def _constraints(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     for i, t in enumerate(toks):
         if t.kw == "PRIMARY" and i + 1 < len(toks) and toks[i + 1].kw == "KEY":
@@ -885,7 +885,7 @@ def _constraints(s: Stmt):
             yield _hit("DDL-004", first, last, name=kind, need=need)
 
 
-def _alter_table(s: Stmt):
+def _alter_table(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     _, k = _name_at(s, 2)
     if k >= len(toks):
@@ -949,7 +949,7 @@ _DB_UNSUPPORTED_PROCS = {
 
 
 @check
-def _sqldb(s: Stmt):
+def _sqldb(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     for words, name, fix in _DB_UNSUPPORTED:
         for i in s.find(*words):
@@ -988,7 +988,7 @@ def _writes(s: Stmt) -> Iterator[tuple[Tok, Tok, bool]]:
 
 
 @check
-def _endpoint(s: Stmt):
+def _endpoint(s: Stmt) -> Iterator[Hit]:
     for a, b, temp in _writes(s):
         if not temp:
             yield _hit("EP-001", a, b)
@@ -998,7 +998,7 @@ def _endpoint(s: Stmt):
 # ---------- queries and DML
 
 @check
-def _queries(s: Stmt):
+def _queries(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     for i in s.find("BULK", "INSERT"):
         yield _hit("DML-001", toks[i], toks[i + 1], name="BULK INSERT", fix="Load files with COPY INTO or OPENROWSET.")
@@ -1017,7 +1017,7 @@ def _queries(s: Stmt):
     yield from _names(s)
 
 
-def _ctes(s: Stmt):
+def _ctes(s: Stmt) -> Iterator[Hit]:
     """Recursive CTEs (WITH RECURSIVE, or a CTE that names itself) and WITH nested inside a CTE."""
     toks = s.toks
     fix = "Unroll the levels you need with joins, or compute the hierarchy in a notebook."
@@ -1063,7 +1063,7 @@ def _ctes(s: Stmt):
             yield _hit("DML-003", t)
 
 
-def _hints(s: Stmt):
+def _hints(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     for i in s.find("OPTION"):
         if i + 1 < len(toks) and toks[i + 1].type == TokenType.L_PAREN:
@@ -1080,7 +1080,7 @@ def _hints(s: Stmt):
 _SYSTEM = {"SYS", "INFORMATION_SCHEMA"}
 
 
-def _names(s: Stmt):
+def _names(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     system, user = None, None
     for i, t in enumerate(toks[:-1]):
@@ -1115,7 +1115,7 @@ def _names(s: Stmt):
 # ---------- transactions
 
 @check
-def _transactions(s: Stmt):
+def _transactions(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     tran = ("TRAN", "TRANSACTION")
     for i in s.find("SET", "TRANSACTION", "ISOLATION"):
@@ -1142,7 +1142,7 @@ def _transactions(s: Stmt):
 # ---------- meaning
 
 @check
-def _semantics(s: Stmt):
+def _semantics(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     ctx = _context(s)
     told_case = False
@@ -1184,7 +1184,7 @@ def _update_statistics(s: Stmt, i: int) -> bool:
 
 
 @check
-def _destructive(s: Stmt):
+def _destructive(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     for i, verb in _verbs(s):
         nxt = toks[i + 1] if i + 1 < len(toks) else None
@@ -1206,7 +1206,7 @@ _LOCAL_WRITES = _WRITE_VERBS | {"CREATE", "DROP", "ALTER", "OPTIMIZE", "VACUUM",
 
 
 @check
-def _local(s: Stmt):
+def _local(s: Stmt) -> Iterator[Hit]:
     toks = s.toks
     for i, verb in _verbs(s):
         if verb in _LOCAL_WRITES:

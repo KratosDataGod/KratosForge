@@ -7219,14 +7219,16 @@
       "owner": "Build developer class and mastery system",
       "category": "Developer Experience and Productivity",
       "effort": "L",
-      "prs": [],
+      "prs": [
+        2206
+      ],
       "problem": "The profile turns verified evidence into XP, a level, ranks and achievements, but it doesn't say which data engineering skills someone has shown, to what depth, or what to learn next. So it can't back a competency conversation with a manager.",
       "capability": "Developer classes (for example Lakehouse Warden, an enterprise data engineer) with specializations as talent trees. Each talent has a mastery level from Initiate to Grandmaster, worked out from the evidence the app already verifies. There's an interactive, accessible talent tree in a Profile tab, and a professional competency report. Character level stays separate from mastery, and nothing claims to be a certification.",
       "evidence": [
         "Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup",
         "First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data",
-        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)",
-        "Owner's notes (2026-11-07): Phase 1 is S to M and engine-only. The main risks are the art source (decision pending with the product owner) and reviewer verification for Grandmaster (an architecture call later). It depends on progress.py, ranks.py, Academy and Learn content and the effects API. The owner asked for P2. Priority follows the seven scores, which stay provisional until the owner sends its own"
+        "Scores set by the owner (Build developer class and mastery system) on 2026-11-09: developer value 3 (shows each engineer which data engineering skills their own verified work proves and what to learn next, but it isn't part of building or running Fabric work), CU reduction 1 (it reads evidence already on this PC and starts no Fabric job), enterprise value 3 (a professional competency report backed by verified evidence for manager conversations, not a rollout condition), differentiation 4 (talent trees and mastery levels tied to locally verified exercises, labs and checks; no other Fabric developer tool has this), strategic alignment 3 (builds on Academy, Learn and the Living Experience work, beside the core build loop), complexity 5 (the engine and the first class, Lakehouse Warden, are built and tested in #2206; the other 13 class catalogs are drafted but not yet in a pull request, and the talent tree UI, evidence ledger states, the report and art all remain), risk 3 (anti-farming rules, keeping levels distinct from certifications, and art originality)",
+        "Owner's notes (2026-11-07): Phase 1 is S to M and engine-only. The main risks are the art source (decision pending with the product owner) and reviewer verification for Grandmaster (an architecture call later). It depends on progress.py, ranks.py, Academy and Learn content and the effects API. The owner asked for P2"
       ],
       "features": [
         "FEAT-DEV-01",

@@ -12,15 +12,25 @@ is sent anywhere. A crash keeps its stack as file, line and function names only.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import traceback
 from pathlib import Path
 
-from . import __version__
+from . import __version__, jsonfile
 from .redact import describe, one_line
 
 START_LOG = "agent-start.log"
 MAX_BYTES = 256 << 10
 STAGES = ("settings", "data", "start", "crash")
+
+
+_PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _short(filename: str) -> str:
+    """A file in the engine as its path inside it, so the record carries no install or profile path."""
+    full = os.path.abspath(filename)
+    return os.path.relpath(full, _PACKAGE) if full.startswith(_PACKAGE + os.sep) else os.path.basename(full)
 
 
 def record(home: Path | None, stage: str, reason: BaseException | str, code: int) -> Path | None:
@@ -32,14 +42,15 @@ def record(home: Path | None, stage: str, reason: BaseException | str, code: int
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         lines = [f"{now} agent run stopped: stage={stage} exit={code} version={__version__}", f"  {text}"]
         if stage == "crash" and isinstance(reason, BaseException):
-            lines += [f"  at {f.filename}:{f.lineno} in {f.name}" for f in traceback.extract_tb(reason.__traceback__)[-12:]]
+            lines += [f"  at {_short(f.filename)}:{f.lineno} in {f.name}"
+                      for f in traceback.extract_tb(reason.__traceback__)[-12:]]
         entry = ("\n".join(lines) + "\n").encode("utf-8", "replace")
         path.parent.mkdir(parents=True, exist_ok=True)
         old = path.read_bytes() if path.exists() else b""
         if len(old) + len(entry) > MAX_BYTES:
             old = old[len(old) // 2:]
             old = old[old.find(b"\n") + 1:]  # from a whole line
-            path.write_bytes(old + entry)
+            jsonfile.write_bytes(path, old + entry)  # swapped in whole: a cut-short trim keeps the old file
         else:
             with open(path, "ab") as f:
                 f.write(entry)

@@ -308,3 +308,16 @@ def test_the_start_record_stays_small_and_starts_on_a_whole_line(tmp_path):
 def test_a_home_that_cant_be_written_doesnt_stop_the_refusal(tmp_path):
     (tmp_path / "logs").write_text("a file where the folder would be", encoding="utf-8")
     assert agent_start.record(tmp_path, "settings", "bad", 2) is None
+
+
+def test_a_crash_record_names_engine_files_inside_the_engine_only(setup, tmp_path, monkeypatch, capsys):  # noqa: F811
+    monkeypatch.setattr(Agent, "run_forever", lambda self, install_signals=True: 1 / 0)
+    _run(["--config", str(tmp_path / "agent.toml"), "run"], monkeypatch, tmp_path / "other")
+    text = (setup.home / "logs" / START_LOG).read_text(encoding="utf-8")
+    assert "at fabric_desktop/cli.py:" in text.replace("\\", "/") and str(tmp_path) not in text
+
+
+def test_a_saved_age_is_never_taken_as_more_than_thirty_days(setup):  # noqa: F811
+    setup.home.mkdir(parents=True, exist_ok=True)
+    (setup.home / "incident-ages.json").write_text(json.dumps({"dev": {"a": [1.0, 1e12]}}), encoding="utf-8")
+    assert Agent(setup, clock=Clock(10.0))._incident_seen["dev"]["a"] == (1.0, 30 * 86400.0)

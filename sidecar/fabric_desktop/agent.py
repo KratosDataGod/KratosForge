@@ -54,6 +54,7 @@ from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, v
 from .workloads.platform_notify import send as send_notices
 
 INCIDENT_CLOCK = "incident-ages.json"  # in the agent's home: open incidents' ages, kept across restarts
+MAX_SAVED_AGE = 30 * 86400.0  # a saved age past this is taken as this: no escalation waits that long
 CRASHED_NEXT = ("Its worker stopped on every attempt: look in the service log for an out-of-memory kill or a crash, "
                 "then lower agent.concurrency or run its tables in smaller jobs.")
 PIPELINE_NEXT = "Fix the cause, then submit the request again from the pipeline."
@@ -161,7 +162,7 @@ class Agent:
         for env, items in (saved.items() if isinstance(saved, dict) else ()):
             if env not in self.config.environments or not isinstance(items, dict):
                 continue
-            seen[str(env)] = {str(i): ((at if at <= now else now), max(0.0, age))
+            seen[str(env)] = {str(i): ((at if at <= now else now), min(max(0.0, age), MAX_SAVED_AGE))
                               for i, v in items.items() if isinstance(v, list) and len(v) == 2
                               and all(isinstance(x, (int, float)) for x in v) for at, age in [v]}
         return seen

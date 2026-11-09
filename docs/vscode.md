@@ -105,6 +105,23 @@ What a paired window can and can't do:
 
 How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused. Before the extension sends the hello or a token, it checks that whatever answers on that port knows the hello (it asks for an HMAC of a random value), so another user on a shared PC who takes the port after KratosForge stops gets nothing. The extension stays off in VS Code's Restricted Mode. The same check tells the extension which version of the channel the app speaks: if the app is newer than the extension, or the extension is too old for the app, the window says which one to update and sends nothing else.
 
+### Versions
+
+The extension and the app each speak a version of the channel's API. The extension sends its version in its first check, and the app answers with its own. The app sets the oldest extension version it still serves. An extension from before versions were sent counts as version 1. Each row below is a test in `vscode/test/compat.test.cjs`, which runs against the real engine.
+
+| Extension | App | What happens |
+| --- | --- | --- |
+| Current | Current (the same version) | It pairs and runs cells. |
+| Current | From before versions were reported | Taken as version 1, so it pairs and runs cells. |
+| Older than the app, and the app still serves it | Newer | The window stops and says to install `kratosforge.vsix` from the latest release. No pairing request reaches the app. |
+| Older than the oldest the app serves | Newer | The app refuses it, and the window says to install `kratosforge.vsix` from the latest release. No pairing request reaches the app. |
+| From before versions were sent | Serves version 1 | It works. Once the app no longer serves version 1, the app tells it to update. |
+| Sends a garbled version | Any | The app refuses the check (`invalid_input`) and proves nothing. |
+| Any | `editor-port` missing or garbled | The window says KratosForge isn't running or the switch is off. It sends nothing. |
+| Any | Answers the check with something other than KratosForge's proof, or with a garbled version | The window says something else is on the port, or that it can't read the reply. It sends neither the hello nor a token. |
+
+To update, install the newer `kratosforge.vsix` (each Preview and Stable release carries one) and reload the window, or update KratosForge.
+
 ## What it reads and writes
 
 | Action | Reads | Writes |

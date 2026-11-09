@@ -11,7 +11,7 @@ This page lists the automated checks every change passes, what each one enforces
 | `lint` | `ruff check` (rules E9, F) and the mypy ratchet: new type errors fail, against `sidecar/mypy-baseline/` (one file per module) | Yes |
 | `ui-browser` | Real UI in headless Chromium, with the engine for SQL and Optimize, plus the axe accessibility audit | Yes |
 | `vscode-extension` | Build and tests of the VS Code extension | Yes |
-| `audit` | `pip-audit` on `constraints.txt` and `cargo audit` on `Cargo.lock`. The CI tools' own advisories are informational only | Yes |
+| `audit` | `pip-audit` on `constraints.txt`, `engine-requirements.txt` and the Databricks Connect locks; `npm audit` on the UI vendor and VS Code lock files (high and critical fail); `cargo audit` on `Cargo.lock`. The CI tools' own advisories are informational only | Yes |
 | `engine`, `shell` | Windows build of the engine zip and the exe; Rust tests (`cargo test --release --locked`) | Yes |
 | `sbom-app`, `release` | SBOMs, provenance attestations, and the Preview publish (main only) | Main only |
 | `docs.yml` | `zensical build --strict`, which fails on broken links | Yes |

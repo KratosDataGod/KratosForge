@@ -121,3 +121,59 @@ def test_only_the_machines_key_is_read():
     admx = (Path(__file__).resolve().parents[2] / "deploy" / "policy" / "KratosForge.admx").read_text(encoding="utf-8")
     assert re.findall(r'class="(\w+)"', admx) and set(re.findall(r'class="(\w+)"', admx)) == {"Machine"}
     assert all('valuePrefix=""' in line for line in admx.splitlines() if "<list " in line)  # items named 1, 2, 3
+
+
+def test_an_empty_list_subkey_leaves_the_files_list_in_force(policy, gp):
+    # Not Configured after Enabled can leave the subkey behind with no items: that mustn't allow every tenant.
+    tenant = "11111111-1111-1111-1111-111111111111"
+    policy({"allowed_tenants": [tenant]})
+    gp({}, {"allowed_tenants": []})
+    assert app_settings.read_policy()[0]["allowed_tenants"] == [tenant]
+    assert app_settings.load()["allowed_tenants"]["value"] == [tenant]
+    assert registry_policy.read() == ({}, ["Group Policy key allowed_tenants has no items, so it sets nothing and the policy file's value applies"])
+
+
+def test_list_items_are_read_up_to_the_first_missing_number(monkeypatch):
+    class Key:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    names = {"1": "a.contoso.com", "3": "c.contoso.com", "x": "ignored"}
+
+    class Winreg:
+        HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY = 0, 0x20019, 0x100
+
+        @staticmethod
+        def OpenKey(*a):
+            return Key()
+
+        @staticmethod
+        def QueryInfoKey(key):
+            return (1, 0, 0) if key is root else (0, len(names), 0)
+
+        @staticmethod
+        def EnumKey(key, i):
+            return "fabric_view_sign_in_hosts"
+
+        @staticmethod
+        def EnumValue(key, j):
+            name = list(names)[j]
+            return name, names[name], SZ
+
+    root = Key()
+    monkeypatch.setattr(Winreg, "OpenKey", staticmethod(lambda base, path, *a: root if path == policy_schema.REGISTRY_KEY else Key()))
+    monkeypatch.setitem(__import__("sys").modules, "winreg", Winreg)
+    monkeypatch.setattr(registry_policy.sys, "platform", "win32")
+    values, lists = registry_policy._winreg_read()
+    assert values == {} and lists == {"fabric_view_sign_in_hosts": ["a.contoso.com"]}  # as the shell reads them
+
+
+def test_a_broken_policy_file_still_fails_closed_whatever_group_policy_sets(policy, gp):
+    policy("{not json")
+    gp({"telemetry": (1, DWORD), "allow_fabric_runs": (1, DWORD)})
+    assert app_settings.policy_fingerprint()["state"] == "fail_closed"
+    settings = app_settings.load()
+    assert settings["allow_fabric_runs"]["value"] is False and settings["telemetry"]["value"] is False

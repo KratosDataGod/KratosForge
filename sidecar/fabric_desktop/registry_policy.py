@@ -6,7 +6,8 @@ value per setting, named as the policy file's key:
 - on/off settings: a DWORD, 1 or 0;
 - numbers: a DWORD;
 - choices and text: a string;
-- lists: a subkey named after the setting, with one string value per item, named 1, 2, 3 and so on.
+- lists: a subkey named after the setting, with one string value per item, named 1, 2, 3 and so on
+  (read up to the first missing number). A subkey with no items sets nothing.
 
 Only the machine's key is read, never HKCU's: a person can change their own HKCU. A value here wins over
 the same key in policy.json (app_settings._policy_file), since Group Policy is the newer way IT manages
@@ -60,7 +61,10 @@ def _winreg_read() -> Raw:
                     name, data, kind = winreg.EnumValue(child, j)
                     if name.isdigit() and kind in (REG_SZ, REG_EXPAND_SZ):
                         items[int(name)] = data
-                lists[sub] = [items[n] for n in sorted(items)]
+                found: list[Any] = []
+                while len(found) + 1 in items:  # 1, 2, 3, ... up to the first gap, as the shell reads them
+                    found.append(items[len(found) + 1])
+                lists[sub] = found
     return values, lists
 
 
@@ -104,7 +108,11 @@ def read(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], list[
         if st is None or st.kind != "list":
             problems.append(f"Group Policy key {name[:80]!r} isn't a list setting KratosForge reads, so it's ignored")
             continue
-        out[name] = [item for item in items if isinstance(item, str)]
+        kept = [item for item in items if isinstance(item, str)]
+        if not kept:  # a subkey left with no items (Group Policy set to Not Configured) sets nothing
+            problems.append(f"Group Policy key {name} has no items, so it sets nothing and the policy file's value applies")
+            continue
+        out[name] = kept
     return out, problems
 
 

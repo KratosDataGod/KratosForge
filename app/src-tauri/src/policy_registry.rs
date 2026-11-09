@@ -3,7 +3,8 @@
 //! shell reads (the engine reads the rest, registry_policy.py). Only HKLM is read, never HKCU, which
 //! the person can change. A value there wins over the same key in policy.json, as in the engine. A
 //! value of the wrong type is skipped, so the file's value applies (the engine reports it). Lists are
-//! a subkey of numbered values (1, 2, 3, ...), as the templates write them.
+//! a subkey of numbered values (1, 2, 3, ...), as the templates write them, read up to the first
+//! missing number, as the engine reads them; a subkey with no items sets nothing.
 
 use serde_json::{Map, Value};
 
@@ -39,7 +40,10 @@ fn typed(kind: Kind, raw: &Raw) -> Option<Value> {
         (Kind::Bool, Raw::Dword(0)) => Some(Value::Bool(false)),
         (Kind::Bool, Raw::Dword(1)) => Some(Value::Bool(true)),
         (Kind::Text, Raw::Text(s)) => Some(Value::String(s.clone())),
-        (Kind::List, Raw::List(items)) => Some(Value::Array(items.iter().cloned().map(Value::String).collect())),
+        // A subkey left with no items (Group Policy set to Not Configured) sets nothing.
+        (Kind::List, Raw::List(items)) if !items.is_empty() => {
+            Some(Value::Array(items.iter().cloned().map(Value::String).collect()))
+        }
         _ => None,
     }
 }
@@ -221,5 +225,13 @@ mod tests {
             assert_eq!(out, serde_json::json!({"register_link_scheme": false}), "{file:?}");
         }
         assert_eq!(overlay("", &[]), "");
+    }
+
+    #[test]
+    fn an_empty_list_subkey_leaves_the_files_list_in_force() {
+        let file = r#"{"fabric_view_sign_in_hosts": ["adfs.contoso.com"]}"#;
+        let gp = found(&[("fabric_view_sign_in_hosts", Raw::List(Vec::new()))]);
+        assert_eq!(overlay(file, &gp), file);
+        assert!(!sets(&gp, "fabric_view_sign_in_hosts"));
     }
 }

@@ -40,7 +40,13 @@
  },
  {
   "name": "charindex",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT charindex('bar', 'abcbarbar', 5)",
+  "value": [
+   [
+    7
+   ]
+  ]
  },
  {
   "name": "collate",
@@ -88,7 +94,13 @@
  },
  {
   "name": "dayname",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT dayname(DATE'2024-11-01')",
+  "value": [
+   [
+    "Fri"
+   ]
+  ]
  },
  {
   "name": "from_xml",
@@ -111,7 +123,13 @@
  },
  {
   "name": "iff",
-  "group": "databricks:conditional"
+  "group": "databricks:conditional",
+  "example": "SELECT iff(1 < 2, 'a', 'b')",
+  "value": [
+   [
+    "a"
+   ]
+  ]
  },
  {
   "name": "ip_as_binary",
@@ -235,7 +253,13 @@
  },
  {
   "name": "jaro_winkler_similarity",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT jaro_winkler_similarity('MARTHA', 'MARHTA')",
+  "value": [
+   [
+    "float:0.961111111111"
+   ]
+  ]
  },
  {
   "name": "kll_merge_agg_bigint",
@@ -324,7 +348,13 @@
  {
   "name": "listagg",
   "group": "databricks:aggregate",
-  "probe": "SELECT listagg(a, ',') WITHIN GROUP (ORDER BY a) FROM VALUES ('x'), ('y') AS t(a)"
+  "example": "SELECT listagg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)",
+  "value": [
+   [
+    "cba"
+   ]
+  ],
+  "note": "Joins with no delimiter unless one is given, as in Databricks"
  },
  {
   "name": "localtime",
@@ -332,7 +362,13 @@
  },
  {
   "name": "make_time",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT make_time(6, 30, 45.887)",
+  "value": [
+   [
+    "time:06:30:45.887000"
+   ]
+  ]
  },
  {
   "name": "make_valid_utf8",
@@ -346,7 +382,13 @@
  },
  {
   "name": "monthname",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT monthname(TIMESTAMP'2024-04-08 13:08:15')",
+  "value": [
+   [
+    "Apr"
+   ]
+  ]
  },
  {
   "name": "nullifzero",
@@ -376,12 +418,22 @@
  {
   "name": "percentile_cont",
   "group": "databricks:aggregate",
-  "probe": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY a) FROM VALUES (1), (2), (3) AS t(a)"
+  "example": "SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)",
+  "value": [
+   [
+    "float:6.5"
+   ]
+  ]
  },
  {
   "name": "percentile_disc",
   "group": "databricks:aggregate",
-  "probe": "SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY a) FROM VALUES (1), (2), (3) AS t(a)"
+  "example": "SELECT percentile_disc(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)",
+  "value": [
+   [
+    6
+   ]
+  ]
  },
  {
   "name": "randstr",
@@ -410,7 +462,13 @@
  {
   "name": "string_agg",
   "group": "databricks:aggregate",
-  "probe": "SELECT string_agg(a, ',') WITHIN GROUP (ORDER BY a) FROM VALUES ('x'), ('y') AS t(a)"
+  "example": "SELECT string_agg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)",
+  "value": [
+   [
+    "cba"
+   ]
+  ],
+  "note": "Joins with no delimiter unless one is given, as in Databricks"
  },
  {
   "name": "theta_difference",
@@ -442,12 +500,24 @@
  },
  {
   "name": "time",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time(TIMESTAMP'2026-10-29 16:45:30')",
+  "value": [
+   [
+    "time:16:45:30"
+   ]
+  ],
+  "note": "A timestamp gives its time of day in UTC, this PC's session time zone"
  },
  {
   "name": "time_bucket",
   "group": "databricks:datetime",
-  "probe": "SELECT time_bucket(INTERVAL 1 HOUR, TIMESTAMP '2026-01-01 10:30:00')"
+  "example": "SELECT time_bucket(INTERVAL '1' HOUR, TIMESTAMP '2024-01-01 11:27:00', TIMESTAMP '1970-01-01 00:05:00')",
+  "value": [
+   [
+    "timestamp:2024-01-01T11:05:00"
+   ]
+  ]
  },
  {
   "name": "time_diff",
@@ -553,12 +623,22 @@
  {
   "name": "timestampadd",
   "group": "databricks:datetime",
-  "probe": "SELECT timestampadd(HOUR, 1, TIMESTAMP'2024-01-01')"
+  "example": "SELECT timestampadd(MONTH, -1, TIMESTAMP'2022-03-31 00:00:00')",
+  "value": [
+   [
+    "timestamp:2022-02-28T00:00:00"
+   ]
+  ]
  },
  {
   "name": "timestampdiff",
   "group": "databricks:datetime",
-  "probe": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-01', TIMESTAMP'2024-01-03')"
+  "example": "SELECT timestampdiff(YEAR, DATE'2021-01-01', DATE'1900-03-28')",
+  "value": [
+   [
+    -120
+   ]
+  ]
  },
  {
   "name": "to_time",
@@ -588,7 +668,12 @@
  {
   "name": "try_cast",
   "group": "databricks:conditional",
-  "probe": "SELECT try_cast('5' AS INT)"
+  "example": "SELECT try_cast('a' AS INT)",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "try_ip_as_binary",

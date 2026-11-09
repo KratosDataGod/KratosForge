@@ -243,8 +243,7 @@
           "path": "masking.Customers.Phone",
           "one_of": [
             "default()",
-            "partial(0,\"XXX-XXX-\",4)",
-            "partial(0,\"XXXXXXX\",4)"
+            "partial(0,\"XXX-XXX-\",4)"
           ],
           "why": "Masking only hides values from users without UNMASK or CONTROL; RegionalManagers must get masked phones."
         },

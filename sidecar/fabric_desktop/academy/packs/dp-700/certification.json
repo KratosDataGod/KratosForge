@@ -808,7 +808,8 @@
                 "E58"
               ],
               "capstones": [
-                "C1"
+                "C1",
+                "C2"
               ],
               "lessons": [
                 "LM-13",
@@ -843,9 +844,7 @@
               "exercises": [
                 "E40"
               ],
-              "capstones": [
-                "C2"
-              ],
+              "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -867,9 +866,7 @@
               "exercises": [
                 "E41"
               ],
-              "capstones": [
-                "C2"
-              ],
+              "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -922,9 +919,7 @@
               "exercises": [
                 "E34"
               ],
-              "capstones": [
-                "C2"
-              ],
+              "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1078,9 +1073,7 @@
               "exercises": [
                 "E46"
               ],
-              "capstones": [
-                "C2"
-              ],
+              "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1207,9 +1200,7 @@
               "exercises": [
                 "E54"
               ],
-              "capstones": [
-                "C2"
-              ],
+              "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [

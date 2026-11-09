@@ -247,12 +247,12 @@ jobs:
     # pages call the real Python engine. Fakes only: no Fabric tenant, no secrets.
     needs: changes
     if: needs.changes.outputs.browser == 'true'
-    # Not ubuntu-latest: that moved to 26.04, where Playwright 1.56.1 has no Chromium build ("does not
-    # support chromium on ubuntu26.04-x64"). Move this with PLAYWRIGHT_VERSION to a release that supports it.
-    runs-on: ubuntu-24.04
+    # The Ubuntu release Playwright supports: 26.04 from Playwright 1.63 (1.56.1 refused it, "does not
+    # support chromium on ubuntu26.04-x64"). Move it together with PLAYWRIGHT_VERSION.
+    runs-on: ubuntu-26.04
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
-      PLAYWRIGHT_VERSION: "1.56.1"
+      PLAYWRIGHT_VERSION: "1.65.0"
       # The accessibility audit's rules (a11y-audit.test.cjs); a new version can add rules, so change it on its own.
       AXE_CORE_VERSION: "4.10.2"
     steps:

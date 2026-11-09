@@ -153,6 +153,8 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
     # The clock, the network, other notebooks: things a clean run can't make repeatable.
     pr = proof.check(cells, lakehouse, load, resources)
     for w in pr["warnings"]:
+        if w["text"].startswith("may not run on"):
+            continue  # compute_check's Unknown, already said above as runs_on_*_unknown
         title, text = _effect(w["text"])
         out.append(finding("warning", "side_effect", f"Cell {w['cell']} {title}", text, "", w["cell"], cells, w.get("line")))
     for w in pr["notes"]:

@@ -123,7 +123,7 @@ def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     status = {r["name"]: r["status"] for r in rows}
     for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
         assert status[name] == "not checked", name  # runs here; no value check yet
-    assert status["collate"] == "fails"  # no UTF8_LCASE collation here
+    assert status["collate"] == "runs"  # UTF8_LCASE is DuckDB's NOCASE
 
 
 def test_a_function_of_ones_own_named_like_a_sketch_is_left_alone():
@@ -419,5 +419,101 @@ def test_the_engine_session_has_the_ip_functions():
     session = DuckDBSession(SessionConfig(notebook="ip"))
     try:
         assert session._con.sql("SELECT __kf_ip('ip_version:fixed', 'VARCHAR', hex('::1'))").fetchall() == [("6",)]
+    finally:
+        session.close()
+
+
+# Every example in Databricks' reference for the byte-level string functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT is_valid_utf8('Spark')", True),
+    ("SELECT is_valid_utf8('SQL' COLLATE UTF8_LCASE)", True),
+    ("SELECT is_valid_utf8(x'61')", True),
+    ("SELECT is_valid_utf8(x'80')", False),
+    ("SELECT is_valid_utf8(x'61C262')", False),
+    ("SELECT is_valid_utf8(NULL)", None),
+    ("SELECT make_valid_utf8('Spark')", "Spark"),
+    ("SELECT make_valid_utf8('SQL' COLLATE UTF8_LCASE)", "SQL"),
+    ("SELECT make_valid_utf8(x'61')", "a"),
+    ("SELECT make_valid_utf8(x'80')", "\ufffd"),
+    ("SELECT make_valid_utf8(x'61C262')", "a\ufffdb"),
+    ("SELECT validate_utf8('Spark')", "Spark"),
+    ("SELECT validate_utf8('SQL' COLLATE UTF8_LCASE)", "SQL"),
+    ("SELECT validate_utf8(x'61')", "a"),
+    ("SELECT try_validate_utf8('Spark')", "Spark"),
+    ("SELECT try_validate_utf8('SQL' COLLATE UTF8_LCASE)", "SQL"),
+    ("SELECT try_validate_utf8(x'61')", "a"),
+    ("SELECT try_validate_utf8(x'80')", None),
+    ("SELECT try_validate_utf8(x'61C262')", None),
+    ("SELECT url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')", "http://spark.apache.org/path?query=1"),
+    ("SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')",
+     "http://spark.apache.org/path?query=1"),
+    ("SELECT try_url_decode('http%3A%2F%2spark.apache.org')", None),
+    ("SELECT url_decode('a+b%20c%C3%A9')", "a b cé"),  # + is a space; the bytes are UTF-8
+    ("SELECT url_decode('%80')", "\ufffd"),  # java.net.URLDecoder's U+FFFD, where DuckDB's url_decode stops
+    ("SELECT url_decode(NULL)", None),
+    ("SELECT hex(hmac('key', 'message'))", "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"),
+    ("SELECT hex(hmac('key', 'message', 'SHA-512'))",
+     "E477384D7CA229DD1426E64B63EBF2D36EBD6D7E669A6735424E72EA6C01D3F8B56EB39C36D8232F5427999B8D1A3F9CD1128FC69F4D"
+     "75B434216810FA367E98"),
+    ("SELECT hex(hmac(hmac('key', 'message'), 'message2'))",
+     "28042756E0362D954B61661BB4DEC9FF9F6C970D346CAEB6DB36ED7B735AB38C"),
+    ("SELECT hmac(CAST(NULL AS BINARY), 'message')", None),
+    ("SELECT hex(hmac(CAST('key' AS BINARY), x'6D657373616765', 'sha256'))",
+     "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"),
+    ("SELECT bit_reverse(64Y)", 2),
+    ("SELECT bit_reverse(64L)", 144115188075855872),
+    ("SELECT bit_reverse(-1)", -1),
+    ("SELECT bit_reverse(-2)", 2147483647),
+    ("SELECT bit_reverse(NULL)", None),
+    ("SELECT 'Café' = 'café' COLLATE UTF8_LCASE", True),
+    ("SELECT 'Cafe' = 'café' COLLATE UTF8_LCASE", False),
+    ("SELECT 'a' COLLATE UTF8_BINARY = 'A'", False),
+    ("SELECT 'a' COLLATE utf8_lcase = 'A'", True),
+])
+def test_databricks_string_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT validate_utf8(x'80')", "[INVALID_UTF8_STRING]"),
+    ("SELECT url_decode('http%3A%2F%2spark.apache.org')", "[CANNOT_DECODE_URL]"),
+    ("SELECT url_decode('100%')", "[CANNOT_DECODE_URL]"),
+    ("SELECT hmac('key', 'message', 'SHA-3')", "[INVALID_PARAMETER_VALUE.HMAC_ALGORITHM]"),
+    ("SELECT hmac('', 'message')", "[INVALID_PARAMETER_VALUE.HMAC_CRYPTO_ERROR]"),
+])
+def test_bad_string_input_stops_with_databricks_error_class(code, error):
+    with pytest.raises(duckdb.Error, match=re.escape(error)):
+        _one(code)
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT zstd_compress('Apache Spark')",
+    "SELECT zstd_decompress(x'DEADBEEF')",
+    "SELECT try_zstd_decompress(x'DEADBEEF')",
+    "SELECT 'Café' = 'cafe' COLLATE UNICODE_CI",
+])
+def test_zstd_and_icu_collations_are_refused_by_name(code):
+    with pytest.raises(ValueError, match="can't run on this PC the way it runs in Databricks"):
+        _one(code)
+
+
+def test_url_decode_reads_escapes_as_java_does():
+    from fabric_desktop import databricks_bytes
+    assert databricks_bytes.url_decode("%+1%-0", False) == "\x01\x00"  # Integer.parseInt(.., 16) takes a sign
+    assert databricks_bytes.url_decode("%-1", True) is None
+
+
+def test_byte_functions_read_a_column_of_either_type():
+    assert _one("SELECT is_valid_utf8(c), make_valid_utf8(c) FROM VALUES (X'61'), (X'FF'), (NULL) AS t(c)") == [
+        [False, "\ufffd"], [None, None], [True, "a"]]  # run() sorts the rows
+    assert _one("SELECT bit_reverse(c) FROM VALUES (CAST(1 AS SMALLINT)) AS t(c)") == [[-32768]]
+
+
+def test_the_engine_session_has_the_byte_functions():
+    from fabric_desktop.engines.contract import SessionConfig
+    from fabric_desktop.engines.local_sql import DuckDBSession
+    session = DuckDBSession(SessionConfig(notebook="bytes"))
+    try:
+        assert session._con.sql("SELECT __kf_bit_reverse('TINYINT', 64)").fetchall() == [(2,)]
     finally:
         session.close()

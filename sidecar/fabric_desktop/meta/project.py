@@ -19,6 +19,7 @@ import hashlib
 import importlib
 import inspect
 import json
+import os
 import re
 import sys
 import tomllib
@@ -366,12 +367,22 @@ class Project:
     def version(self) -> str:
         """Content hash of every config and code file, so any edit makes a new version."""
         h = hashlib.sha1()
-        for p in sorted(self.root.rglob("*")):
+        for p in sorted(self.versioned_files()):
             rel = p.relative_to(self.root)
             if p.is_file() and not (set(rel.parts) & _IGNORED) and p.suffix not in (".pyc",) \
                     and rel.as_posix() not in _UNVERSIONED:
                 h.update(rel.as_posix().encode() + b"\0" + p.read_bytes().replace(b"\r\n", b"\n"))
         return h.hexdigest()[:7]
+
+    def versioned_files(self) -> list[Path]:
+        """Every file under the project folder outside the ignored folders, which are never entered:
+        .local holds the environment's tables on this PC, whose files grow with every run, and walking
+        them made each run slower than the last."""
+        found = []
+        for folder, dirs, files in os.walk(self.root):
+            dirs[:] = [d for d in dirs if d not in _IGNORED]
+            found += [Path(folder, f) for f in files]
+        return found
 
     def fingerprint(self, e: Entity) -> str:
         """The entity's logic plus any Python it runs, so code changes count as logic changes."""

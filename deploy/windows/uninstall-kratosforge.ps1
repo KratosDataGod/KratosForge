@@ -13,7 +13,8 @@
       mail server password in Windows Credential Manager (KratosForge/mail-server)
     - kratosforge.exe, when you give -AppPath
   It keeps notebooks, settings, stores and backups in the data folder unless you pass -RemoveData,
-  which deletes the whole folder. It never touches Fabric, %ProgramData%\FabricDesktop (IT's policy
+  which deletes everything in it except the audit trails (<data>\audit and <data>\integrations\audit),
+  which an organization may have to keep. Add -RemoveAuditTrail to delete those too. It never touches Fabric, %ProgramData%\FabricDesktop (IT's policy
   file and the agent's folder), Documents\FabricDesktop, or VS Code's own settings and extensions.
   See docs/install.md, "Uninstall".
 
@@ -22,11 +23,15 @@
 
 .EXAMPLE
   .\uninstall-kratosforge.ps1 -RemoveData -WhatIf
+
+.EXAMPLE
+  .\uninstall-kratosforge.ps1 -RemoveData -RemoveAuditTrail
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string] $AppPath,
     [switch] $RemoveData,
+    [switch] $RemoveAuditTrail,
     [string] $DataDir = (Join-Path $env:LOCALAPPDATA "FabricDesktop"),
     # The next three are for tests: a scratch task folder, link key and credential, never the real ones.
     [string] $TaskFolder = "\FabricDesktop\",
@@ -47,6 +52,12 @@ function Assert-Target([string] $Path, [string[]] $Leaves, [string] $What) {
 Assert-Target $DataDir @("FabricDesktop") "the data folder"
 Assert-Target $WebViewDir @("com.kratosbi.fabricdesktop") "the app window's profile"
 if ($AppPath) { Assert-Target $AppPath @("kratosforge.exe", "fabric-desktop.exe") "the app" }
+
+if ($RemoveAuditTrail -and -not $RemoveData) {
+    throw "-RemoveAuditTrail goes with -RemoveData: without it the data folder, audit trail included, is kept."
+}
+# The audit trails, relative to the data folder: -RemoveData keeps them unless -RemoveAuditTrail is given.
+$AuditTrails = @("audit", "integrations\audit")
 
 $running = Get-Process -Name kratosforge, fabric-desktop -ErrorAction SilentlyContinue
 if ($running -and -not $WhatIfPreference) {
@@ -80,6 +91,21 @@ function Remove-IfThere([string] $Path) {
     }
 }
 
+# Everything but the audit trails. A folder holding one (integrations) is emptied around it; anything
+# else, a link included, is removed whole (Remove-Tree never follows a link).
+function Remove-AllBut([string] $Folder, [string] $Rel) {
+    foreach ($child in @(Get-ChildItem -LiteralPath $Folder -Force)) {
+        $childRel = if ($Rel) { "$Rel\$($child.Name)" } else { $child.Name }
+        if ($AuditTrails -contains $childRel) { continue }
+        $holdsTrail = @($AuditTrails | Where-Object { $_ -like "$childRel\*" }).Count -gt 0
+        if ($holdsTrail -and $child.PSIsContainer -and -not ($child.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Remove-AllBut $child.FullName $childRel
+        } else {
+            Remove-IfThere $child.FullName
+        }
+    }
+}
+
 # Scheduled tasks the app registered for its schedules. The agent's task is IT's, from install-agent.ps1.
 if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
     foreach ($task in @(Get-ScheduledTask -TaskPath $TaskFolder -ErrorAction SilentlyContinue)) {
@@ -104,8 +130,10 @@ foreach ($target in $Credentials) {
 }
 
 Remove-IfThere $WebViewDir
-if ($RemoveData) {
+if ($RemoveData -and $RemoveAuditTrail) {
     Remove-IfThere $DataDir
+} elseif ($RemoveData) {
+    if (Test-Path -LiteralPath $DataDir) { Remove-AllBut $DataDir "" }
 } else {
     foreach ($name in @("engine", "bin", "fabric-view", "msal_cache.bin", "msal_cache.bin.lock",
                         "fabric-view-signin.bin", "link-port", "instance.lock", "instance.handover")) {
@@ -122,6 +150,12 @@ if ($removed.Count) {
 }
 if (-not $RemoveData -and (Test-Path -LiteralPath $DataDir)) {
     Write-Host "Kept your notebooks, settings and stores in $DataDir. Delete that folder to remove them too."
+}
+if ($RemoveData -and -not $RemoveAuditTrail) {
+    $kept = @($AuditTrails | ForEach-Object { Join-Path $DataDir $_ } | Where-Object { Test-Path -LiteralPath $_ })
+    if ($kept.Count) {
+        Write-Host "Kept the audit trail, which your organization may have to keep: $($kept -join ', '). Add -RemoveAuditTrail to delete it too."
+    }
 }
 if (-not $AppPath) {
     Write-Host "Delete kratosforge.exe (or fabric-desktop.exe) yourself, and any shortcut to it."

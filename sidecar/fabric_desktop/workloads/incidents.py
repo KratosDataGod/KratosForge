@@ -43,7 +43,9 @@ incident opened on OneLake's own clock (its reply's Date), and its age is OneLak
 that, so a PC whose clock is off, or jumps, escalates neither early nor late. Where there is no
 store clock (a local folder, or a record written before the field existed), the age is the one
 this evaluator first saw plus the monotonic time since, so a clock change while it runs doesn't
-move the escalation either way.
+move the escalation either way. An agent keeps those ages across a restart (agent.py,
+``incident-ages.json``), so only an incident nobody was watching counts its first minutes from
+``opened_at``.
 """
 
 from __future__ import annotations

@@ -1,0 +1,253 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "C1",
+  "version": 1,
+  "status": "draft",
+  "title": "Capstone: retail lakehouse from landing to a Gold star",
+  "objectives": [
+    "1.4.3",
+    "2.1.1",
+    "2.1.2",
+    "2.2.6",
+    "2.2.7",
+    "2.2.8",
+    "2.2.9"
+  ],
+  "objective_text": "Build a small lakehouse end to end: land new days through a parameterised notebook, MERGE them into Silver with quality checks, keep a type 2 customer dimension, and build a Gold fact table and a denormalised aggregate, so that a rerun changes nothing.",
+  "scenario": "A shop drops each day's orders and customer changes into landing. Orders get sent twice, corrected days later, or sent for customers who don't exist yet; customer changes arrive out of order. Finance wants daily sales by customer segment as it was when each sale happened, and operations wants proof that no day lands twice.",
+  "prerequisites": [
+    "E20",
+    "E22",
+    "E24",
+    "E25",
+    "E37"
+  ],
+  "minutes": 180,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "notebooks": [
+    "land_day.py"
+  ],
+  "datasets": [
+    {
+      "name": "landing.orders",
+      "rows": 14,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "landing.customers",
+      "rows": 9,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "bronze.products",
+      "rows": 4,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "parity": null,
+  "starting_environment": "landing.orders and landing.customers with three days of files, bronze.products, empty bronze.orders, bronze.customers, silver.orders and ops.load_log, the notebook land_day in notebooks/, and a starter answer.py that lands one day.",
+  "required": [
+    "ops.load_log has one row per day ever landed, with rows_landed, the number land_day exited with for that day.",
+    "silver.orders has one row per order: its newest load. An order whose newest row has no customer_id or a quantity that isn't positive isn't in it.",
+    "silver.orders_rejected has those orders: order_id, the load_date of their newest row, and reason 'missing customer_id' or 'quantity not positive' (the first that applies).",
+    "silver.dim_customer has a version per change of city or segment, in changed_at order; a row that changes neither adds no version. customer_key is customer_id * 100 + the version number from 1. valid_to is the next version's valid_from, NULL for the current one. name is the latest name on every version.",
+    "gold.fact_sales has a row per order in silver.orders with the customer_key of the version valid at order_ts, or -1 when there isn't one; order_date is the order_ts date and amount is qty * unit_price.",
+    "gold.sales_by_segment has orders and amount per order_date, segment (from the version on the sale, 'Unknown' for -1) and product category."
+  ],
+  "expected": {
+    "description": "Six tables as listed under required, on the practice data and on four days of data you haven't seen, where day 1 has already landed and been merged."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "silver.orders holds the newest valid row of each order.",
+      "fail": "silver.orders isn't right: which load of an order wins, and which orders fail a check?"
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "silver.orders is right on data you haven't seen, starting from a day already merged.",
+      "fail": "On other data silver.orders is wrong: an order corrected later can also become invalid."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders_rejected",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "The rejected orders and their reasons are right.",
+      "fail": "silver.orders_rejected isn't right: judge each order by its newest row."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.orders_rejected",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "Rejections are right on other data too.",
+      "fail": "On other data the rejected orders are wrong."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.dim_customer",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "The customer dimension keeps the right versions.",
+      "fail": "silver.dim_customer isn't right: when does a change make a new version, and in what order do versions go?"
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.dim_customer",
+      "weight": 2,
+      "required": true,
+      "data": "hidden",
+      "pass": "The dimension is right on other data too.",
+      "fail": "On other data the dimension is wrong: a change can arrive after a newer one."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.fact_sales",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "Each sale points at the customer as they were when they ordered.",
+      "fail": "gold.fact_sales isn't right: check which customer version each order joins to, and orders with no customer yet."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.fact_sales",
+      "weight": 2,
+      "required": true,
+      "data": "hidden",
+      "pass": "The fact table is right on other data too.",
+      "fail": "On other data gold.fact_sales is wrong."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.sales_by_segment",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "The daily aggregate is right.",
+      "fail": "gold.sales_by_segment isn't right: the segment comes from the customer version on the sale."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.sales_by_segment",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "The aggregate is right on other data too.",
+      "fail": "On other data gold.sales_by_segment is wrong."
+    },
+    {
+      "kind": "result_matches",
+      "table": "ops.load_log",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "The load log has each day once, with the rows it landed.",
+      "fail": "ops.load_log isn't right: log each landing's exit value as a number."
+    },
+    {
+      "kind": "result_matches",
+      "table": "ops.load_log",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "Days already landed aren't landed again.",
+      "fail": "On other data ops.load_log is wrong: a day that's already in the log has landed."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.dim_customer",
+      "weight": 1,
+      "required": true,
+      "columns": {
+        "customer_key": "BIGINT",
+        "valid_from": "TIMESTAMP",
+        "is_current": "BOOLEAN"
+      },
+      "unique": [
+        "customer_key"
+      ],
+      "not_null": [
+        "customer_key",
+        "customer_id",
+        "valid_from",
+        "is_current"
+      ],
+      "pass": "silver.dim_customer has a unique surrogate key and its validity columns.",
+      "fail": "silver.dim_customer's keys or columns are off: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "ops.load_log",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it again lands nothing twice.",
+      "fail": "A second run landed days again."
+    },
+    {
+      "kind": "idempotent",
+      "table": "gold.fact_sales",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it again leaves the same fact table.",
+      "fail": "A second run changed gold.fact_sales."
+    }
+  ],
+  "verifies": [
+    "After your code runs, the six tables hold the right rows on the exercise data and on data you haven't seen, starting from a lakehouse where a day has already landed, on this PC.",
+    "No day lands twice, the dimension has a unique surrogate key, and running your code again changes nothing."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in Fabric, and land_day runs here as a notebook called from yours, not from a pipeline's Notebook activity. Pipelines are E31 and E19.",
+    "Table maintenance: OPTIMIZE, V-Order and VACUUM on the Gold tables are E56, and query tuning is E59 and E64.",
+    "How you build each table: the grading checks the tables, so a full rebuild of Silver that gives the same rows also passes."
+  ],
+  "hints": [
+    "Read ops.load_log before landing anything: the days to land are the load_dates in landing that aren't in the log.",
+    "notebookutils.notebook.run returns the exit value as a string; int() it before you log it.",
+    "An order can arrive again on a later day, corrected. Rank each order's rows by load_date, newest first, and judge the order by that row.",
+    "A MERGE can delete as well as update: whenMatchedDelete with a condition removes an order whose correction made it invalid.",
+    "Build the dimension from all of bronze.customers, ordered by changed_at, so a change that arrives last still lands in its place. lag() over that order tells you whether city or segment changed.",
+    "Join each order to the version where valid_from <= order_ts and order_ts is before valid_to (or valid_to is NULL). A LEFT JOIN keeps orders whose customer hasn't arrived."
+  ],
+  "explanation": "The load log is the watermark: landing a day appends to Bronze, so a day must land once, and the log says which days have. Silver takes the newest load of each order, because a later day can correct an earlier one, and the quality checks judge that newest row; a MERGE with a delete clause handles a correction that makes an order invalid, while rejected orders are kept with a reason rather than lost. The customer dimension is type 2 on city and segment: a version per real change, in the order the changes happened rather than the order they arrived, with valid_from and valid_to, while the name is type 1. The fact table joins each order to the version valid when it was placed, so a later move doesn't rewrite history, and orders for customers who haven't arrived get the Unknown key -1 instead of disappearing; because the dimension and Gold are rebuilt from history, those orders pick up the right key when the customer lands. The aggregate denormalises segment and category onto the sales. Every step can run again: nothing lands twice, and the same history gives the same tables.",
+  "troubleshooting": [
+    "ops.load_log has a day twice: the code landed days that were already in the log.",
+    "Order 1002 has quantity 1: the oldest load won. Rank by load_date, newest first.",
+    "A customer who moved and moved back is missing a version: compare each change with the one before it in changed_at order, not in the order the rows arrived.",
+    "Customer 1 has two versions with the same city and segment: a row that changes neither adds no version.",
+    "Order 1011 is missing from Gold: an inner join dropped the customer that hasn't arrived. Use -1."
+  ],
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-notebook-run",
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset rebuilds landing, bronze, silver.orders and ops.load_log from setup.sql, removes the tables your runs made, and puts the starter back.",
+  "review_notes": [
+    "LOCAL VERIFIED on DuckDB's PySpark API with delta-rs; the shop data is synthetic and the same every time.",
+    "Objectives 2.2.5 (pipelines), 3.2.1 (pipeline errors), 3.3.1 (OPTIMIZE) and 3.3.6 (query performance) from the plan aren't claimed: this engine can't run a pipeline or OPTIMIZE and C1 plants no pipeline error, so they stay with E31, E48, E49, E58, E56, E59 and E64 and the Fabric verified version.",
+    "Learn facts used (2026-11-07): notebookutils.notebook.run returns the exit value as a string; type 2 dimensions keep history with validity columns and surrogate keys; an unknown member stands in for a missing dimension row."
+  ]
+}

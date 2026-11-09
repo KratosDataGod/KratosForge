@@ -8,7 +8,6 @@ only), so the Delta profile is checked before anything leaves the machine.
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import tempfile
@@ -21,7 +20,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, WriterProperties, write_deltalake
 
-from . import delta_profile
+from . import delta_profile, runlog
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
@@ -241,7 +240,5 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
         finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     )
     if history_file:
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        with history_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(asdict(record)) + "\n")
+        runlog.append(history_file, asdict(record))
     return record

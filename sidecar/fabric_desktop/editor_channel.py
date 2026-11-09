@@ -162,7 +162,14 @@ class Channel:
             nonce = _field(query, "nonce", limit=128)
             if len(nonce) < 16:
                 raise Refused(400, "invalid_input", "nonce should be at least 16 characters.")
-            client_api = _int(query.get("api"), API_VERSION)
+            # An extension from before the version was sent speaks API 1, and is told to update once that's too old.
+            raw_api = query.get("api")
+            if raw_api is None:
+                client_api = 1
+            elif isinstance(raw_api, str) and raw_api.isascii() and raw_api.isdigit() and len(raw_api) <= 6:
+                client_api = int(raw_api)
+            else:
+                raise Refused(400, "invalid_input", "api should be the channel API version the extension speaks, a whole number.")
             if client_api < OLDEST_CLIENT_API:
                 raise Refused(426, "extension_too_old", "This KratosForge extension for VS Code is too old for this "
                               "KratosForge. Install kratosforge.vsix from KratosForge's latest release.")

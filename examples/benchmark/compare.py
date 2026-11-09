@@ -4,7 +4,7 @@
     python ../examples/benchmark/startup_and_sql.py --json bench.json
     python ../examples/benchmark/compare.py bench.json --baseline ../examples/benchmark/baseline-windows.json
     python ../examples/benchmark/compare.py bench.json --write-baseline ../examples/benchmark/baseline-windows.json \\
-        --runner "GitHub Actions windows-latest"
+        --runner "GitHub Actions windows-2025-vs2026"
 
 Each measurement's median is compared with the baseline's median. A measurement counts as a
 regression only when it is more than --ratio times the baseline (1.5 by default) AND more than

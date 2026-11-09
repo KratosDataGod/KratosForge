@@ -95,14 +95,16 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Past 20 MB its older half is dropped. Attach it to a problem report if asked. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.prev.log` | The engine's log from the run before, kept when the app restarts the engine, so a crash's log survives. The support bundle includes both. |
+| `%LOCALAPPDATA%\FabricDesktop\app-crash.log` | Only after the app itself has crashed: when, which build and where. Nothing is uploaded; the support bundle includes it. |
 | `%LOCALAPPDATA%\FabricDesktop\local-data\` | Local data projects (Preview): each project's settings, registered folders and database. See [Local data projects](local-data.md). |
 | `%LOCALAPPDATA%\FabricDesktop\usage_imports\` | Measured usage you imported from Capacity Metrics app and Azure Cost Management exports (Preview), one file per import. See [Measured usage](finops/usage-import.md). |
 | `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` | The audit trail: one line for each thing you ran or changed. See [Audit trail](user-guide.md#audit-trail). |
 | `%LOCALAPPDATA%\FabricDesktop\files`, `onelake-cache` | Local copies of lakehouse data: files notebooks and the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
 | `%LOCALAPPDATA%\FabricDesktop\staging` | Nothing, normally. Each table write checks its schema in an empty table here and deletes it straight after; full copies older builds kept are deleted on that table's next write. A notebook's write kept on this PC for a background upload (`staging\_writes`) is deleted when its upload ends, succeeded, failed or cancelled; one left by an engine ended mid-upload goes a day later, whatever the retention setting. Skip unchanged keeps nothing here: its fingerprint is in the table's Delta log in OneLake. **Settings > Advanced > OneLake writes > Files on this PC** shows what's here, opens the folder and has **Delete left-overs**. |
 | `%TEMP%\tpch_*` | Nothing, normally. The TPC-H data notebook generates its data here and deletes it when its write cell ends, whether or not the writes worked, or when the engine closes. A folder is only left when the engine was ended mid-run; **Settings > Advanced > OneLake writes > Files on this PC** lists it, opens it and deletes it. |
-| `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`) and their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made). See [Connect your AI tool](ai/README.md). |
-| `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. |
+| `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`), their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made), and the local API's log (`http.log`, kept as `http.prev.log` past 5 MB). See [Connect your AI tool](ai/README.md). |
+| `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. The run histories (`history.jsonl`, `schedule_runs.jsonl`) keep their newest rows: past 8 MB the older ones are dropped. |
+| `%LOCALAPPDATA%\FabricDesktop\replays` | The app's copy of each replay bundle you opened. A bundle can hold a sample of the tables its notebook read, so a copy unused for 30 days (your organization can change that) is deleted like the local copies above; the bundle you opened stays where it was. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
 | `Documents\FabricDesktop\metadata` | The default folder for a new metadata project. You can pick another, and you should keep it in Git. |
 
@@ -114,14 +116,17 @@ These prove where a file came from; they don't replace code signing, which is st
 
    ```powershell
    .\uninstall-kratosforge.ps1             # keeps your notebooks, settings and stores
-   .\uninstall-kratosforge.ps1 -RemoveData # deletes %LOCALAPPDATA%\FabricDesktop as well
+   .\uninstall-kratosforge.ps1 -RemoveData # deletes %LOCALAPPDATA%\FabricDesktop as well, except the audit trail
+   .\uninstall-kratosforge.ps1 -RemoveData -RemoveAuditTrail # deletes the whole folder, audit trail included
    ```
+
+   `-RemoveData` keeps the audit trails (`audit` and `integrations\audit` in that folder), because your organization may have to keep them. Ship or copy them first if they must outlive the PC, then add `-RemoveAuditTrail`.
 
    Add `-WhatIf` to see what it would remove, and `-AppPath <path to kratosforge.exe>` to delete a copy you placed yourself.
 
 | The script removes | It keeps |
 | --- | --- |
-| The app's scheduled tasks (`\FabricDesktop\`, except the agent's task `\FabricDesktop\Agent`) | Your notebooks, settings, stores, audit trail and backups in `%LOCALAPPDATA%\FabricDesktop`, unless you pass `-RemoveData` |
+| The app's scheduled tasks (`\FabricDesktop\`, except the agent's task `\FabricDesktop\Agent`) | Your notebooks, settings, stores and backups in `%LOCALAPPDATA%\FabricDesktop`, unless you pass `-RemoveData`; the audit trail, unless you also pass `-RemoveAuditTrail` |
 | The `kratosforge://` link handler (`HKCU\Software\Classes\kratosforge`) | `%ProgramData%\FabricDesktop` (your organization's policy file, the agent's folder) |
 | The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `Documents\FabricDesktop` and your Git repositories |
 | Every saved sign-in and token: `msal_cache.bin`, `fabric-view-signin.bin`, the Fabric view's browser profile (`fabric-view`), the app window's browser profile (`%LOCALAPPDATA%\com.kratosbi.fabricdesktop`), the link listener's token (`link-port`), and the mail server password in Windows Credential Manager (`KratosForge/mail-server`) | VS Code's own settings and the KratosForge extension: remove the `fabric-desktop` MCP server and the extension in VS Code |

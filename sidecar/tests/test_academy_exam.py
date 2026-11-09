@@ -52,6 +52,17 @@ def test_option_ids_never_give_the_answer_away(bank):
             assert q["answer"] != sorted(q["answer"]), q["id"]
 
 
+def test_the_longest_option_is_not_a_reliable_cue(bank):
+    # By chance the key is the longest of four options about a quarter of the time; keep it well under half.
+    singles = [q for q in bank["questions"].values() if q["type"] == "single"]
+    longest = 0
+    for q in singles:
+        lengths = {o["id"]: len(o["text"]) for o in q["options"]}
+        key = q["answer"][0]
+        longest += lengths[key] > max(v for k, v in lengths.items() if k != key)
+    assert longest < 0.35 * len(singles), f"{longest} of {len(singles)}"
+
+
 def test_every_case_study_is_used(bank):
     used = {q.get("case") for q in bank["questions"].values()}
     assert set(bank["cases"]) <= used
@@ -82,8 +93,9 @@ def _edit(packs: Path, objective: str, change) -> None:
     (lambda d: d["questions"][0].update(case="nowhere"), "unknown case study"),
     (lambda d: d["questions"][0].update(explanation=""), "explanation is empty"),
     (lambda d: d.update(objective="2.2.8"), "objective doesn't match"),
-    (lambda d: d["questions"].pop(), "has 3 live questions; needs 4"),
-    (lambda d: d["questions"][1].update(status="draft"), "has 3 live questions; needs 4"),
+    (lambda d: d.update(questions=d["questions"][:3]), "has 3 live questions; needs 4"),
+    (lambda d: (d.update(questions=d["questions"][:4]), d["questions"][1].update(status="draft")),
+     "has 3 live questions; needs 4"),
 ])
 def test_problems_catch_each_kind_of_broken_question(tmp_path, change, expect):
     packs = _pack_copy(tmp_path)
@@ -166,6 +178,29 @@ def test_questions_spread_evenly_over_the_objectives(bank):
     s = exam.build(bank, cert_version="v", objectives=["2.2.9", "3.3.1"], seed=1, now=T0)
     assert {it["objective"] for it in s["items"]} == {"2.2.9", "3.3.1"}
     assert len(s["items"]) == len([q for q in bank["questions"].values() if q["objective"] in ("2.2.9", "3.3.1")])
+
+
+def test_retakes_draw_unseen_then_missed_questions_first(bank):
+    first = exam.build(bank, cert_version="v", count=49, seed=3, now=T0)
+    asked = {it["q"] for it in first["items"]}
+    history = {q: "right" for q in asked}
+    second = exam.build(bank, cert_version="v", count=49, seed=3, now=T0, history=history)
+    assert not asked & {it["q"] for it in second["items"]}      # every objective has an unseen question left
+    one = sorted(q for q in bank["questions"] if bank["questions"][q]["objective"] == "1.1.1")
+    missed = one[0]
+    history = {q: "right" for q in one} | {missed: "wrong"}
+    s = exam.build(bank, cert_version="v", objectives=["1.1.1"], count=1, seed=9, now=T0, history=history)
+    assert [it["q"] for it in s["items"]] == [missed]
+    again = exam.build(bank, cert_version="v", count=49, seed=3, now=T0, history=history)
+    assert again["items"] == exam.build(bank, cert_version="v", count=49, seed=3, now=T0, history=history)["items"]
+
+
+def test_history_keeps_each_questions_latest_finished_outcome():
+    def done(at, rows, status="finished"):
+        return {"status": status, "finished_at": at, "result": {"items": [{"q": q, "correct": c} for q, c in rows]}}
+    sessions = [done("2026-11-02", [("a", True), ("b", True)]), done("2026-11-01", [("a", False), ("c", False)]),
+                done(None, [("d", False)], status="in_progress"), {"status": "finished", "result": None}]
+    assert exam.history(sessions) == {"a": "right", "b": "right", "c": "wrong"}
 
 
 def test_case_study_questions_sit_together(bank):
@@ -322,7 +357,8 @@ def test_a_finished_exam_is_never_scored_again(bank):
     # The bank changes later: a key is edited and a question is retired.
     changed = copy.deepcopy(bank)
     first, second = s["items"][0]["q"], s["items"][1]["q"]
-    changed["questions"][first] = {**changed["questions"][first], "answer": ["zz"], "version": 2}
+    changed["questions"][first] = {**changed["questions"][first], "answer": ["zz"],
+                                  "version": changed["questions"][first]["version"] + 1}
     del changed["questions"][second]
     with pytest.raises(exam.ExamError, match="finished"):
         exam.finish(s, changed, now=at(7))

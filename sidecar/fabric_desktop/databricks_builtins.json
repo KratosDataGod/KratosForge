@@ -1,0 +1,757 @@
+[
+ {
+  "name": "approx_top_k",
+  "group": "databricks:aggregate",
+  "probe": "SELECT approx_top_k(a) FROM VALUES (1) AS t(a)"
+ },
+ {
+  "name": "approx_top_k_accumulate",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "approx_top_k_combine",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "approx_top_k_estimate",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "bit_reverse",
+  "group": "databricks:string"
+ },
+ {
+  "name": "bitmap_and_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "charindex",
+  "group": "databricks:string"
+ },
+ {
+  "name": "collate",
+  "group": "databricks:string",
+  "probe": "SELECT 'a' COLLATE UTF8_LCASE"
+ },
+ {
+  "name": "collation",
+  "group": "databricks:string",
+  "probe": "SELECT collation('a')"
+ },
+ {
+  "name": "counter_diff",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "cube",
+  "group": "databricks:aggregate",
+  "probe": "SELECT a, count(*) FROM VALUES (1), (2) AS t(a) GROUP BY CUBE(a)"
+ },
+ {
+  "name": "current_time",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "dayname",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "from_xml",
+  "group": "databricks:xml"
+ },
+ {
+  "name": "getdate",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "hmac",
+  "group": "databricks:string"
+ },
+ {
+  "name": "iff",
+  "group": "databricks:conditional"
+ },
+ {
+  "name": "ip_as_binary",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_as_string",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_cidr",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_cidr_contains",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_host",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_network",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_network_first",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_network_last",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_prefix_length",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "ip_version",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "is_valid_utf8",
+  "group": "databricks:string"
+ },
+ {
+  "name": "is_variant_null",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "jaro_winkler_similarity",
+  "group": "databricks:string"
+ },
+ {
+  "name": "kll_merge_agg_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_merge_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_merge_agg_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_agg_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_agg_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_n_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_n_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_n_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_quantile_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_quantile_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_quantile_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_rank_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_rank_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_get_rank_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_merge_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_merge_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_merge_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_to_string_bigint",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_to_string_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "kll_sketch_to_string_float",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "listagg",
+  "group": "databricks:aggregate",
+  "probe": "SELECT listagg(a, ',') WITHIN GROUP (ORDER BY a) FROM VALUES ('x'), ('y') AS t(a)"
+ },
+ {
+  "name": "localtime",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "make_time",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "make_valid_utf8",
+  "group": "databricks:string"
+ },
+ {
+  "name": "monthname",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "nullifzero",
+  "group": "databricks:conditional",
+  "example": "SELECT nullifzero(0)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "parse_json",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "parse_timestamp",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "percentile_cont",
+  "group": "databricks:aggregate",
+  "probe": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY a) FROM VALUES (1), (2), (3) AS t(a)"
+ },
+ {
+  "name": "percentile_disc",
+  "group": "databricks:aggregate",
+  "probe": "SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY a) FROM VALUES (1), (2), (3) AS t(a)"
+ },
+ {
+  "name": "randstr",
+  "group": "databricks:misc"
+ },
+ {
+  "name": "schema_of_json_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "schema_of_variant",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "schema_of_variant_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "schema_of_xml",
+  "group": "databricks:xml"
+ },
+ {
+  "name": "session_user",
+  "group": "databricks:misc"
+ },
+ {
+  "name": "string_agg",
+  "group": "databricks:aggregate",
+  "probe": "SELECT string_agg(a, ',') WITHIN GROUP (ORDER BY a) FROM VALUES ('x'), ('y') AS t(a)"
+ },
+ {
+  "name": "theta_difference",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_intersection",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_intersection_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_sketch_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_sketch_estimate",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_union",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "theta_union_agg",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "time",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "time_bucket",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "time_diff",
+  "group": "databricks:datetime",
+  "example": "SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')",
+  "value": [
+   [
+    13
+   ]
+  ]
+ },
+ {
+  "name": "time_from_micros",
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_micros(52200500000)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_from_millis",
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_millis(52200500)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_from_seconds",
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_seconds(52200.5)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_to_micros",
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_micros(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500000
+   ]
+  ]
+ },
+ {
+  "name": "time_to_millis",
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_millis(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500
+   ]
+  ]
+ },
+ {
+  "name": "time_to_seconds",
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_seconds(TIME'14:30:00.5')",
+  "value": [
+   [
+    "decimal:52200.500000"
+   ]
+  ]
+ },
+ {
+  "name": "time_trunc",
+  "group": "databricks:datetime",
+  "example": "SELECT time_trunc('HOUR', TIME'13:08:15.123')",
+  "value": [
+   [
+    "time:13:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "timediff",
+  "group": "databricks:datetime",
+  "example": "SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "timestamp_nanos",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "timestampadd",
+  "group": "databricks:datetime",
+  "probe": "SELECT timestampadd(HOUR, 1, TIMESTAMP'2024-01-01')"
+ },
+ {
+  "name": "timestampdiff",
+  "group": "databricks:datetime",
+  "probe": "SELECT timestampdiff(DAY, TIMESTAMP'2024-01-01', TIMESTAMP'2024-01-03')"
+ },
+ {
+  "name": "to_time",
+  "group": "databricks:datetime",
+  "example": "SELECT to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
+ },
+ {
+  "name": "to_variant_object",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "to_xml",
+  "group": "databricks:xml"
+ },
+ {
+  "name": "try_cast",
+  "group": "databricks:conditional",
+  "probe": "SELECT try_cast('5' AS INT)"
+ },
+ {
+  "name": "try_ip_as_binary",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "try_ip_as_string",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "try_ip_cidr",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "try_ip_host",
+  "group": "databricks:ip"
+ },
+ {
+  "name": "try_make_interval",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "try_make_timestamp",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "try_make_timestamp_ltz",
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "try_make_timestamp_ntz",
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "try_mod",
+  "group": "databricks:conditional",
+  "example": "SELECT try_mod(2, 1.8)",
+  "value": [
+   [
+    "decimal:0.2"
+   ]
+  ]
+ },
+ {
+  "name": "try_parse_json",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "try_parse_timestamp",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "try_reflect",
+  "group": "databricks:conditional"
+ },
+ {
+  "name": "try_to_date",
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_date('2016-12-31')",
+  "value": [
+   [
+    "date:2016-12-31"
+   ]
+  ]
+ },
+ {
+  "name": "try_to_time",
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
+ },
+ {
+  "name": "try_url_decode",
+  "group": "databricks:string"
+ },
+ {
+  "name": "try_validate_utf8",
+  "group": "databricks:string"
+ },
+ {
+  "name": "try_variant_get",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "try_zstd_decompress",
+  "group": "databricks:string"
+ },
+ {
+  "name": "tuple_difference_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_difference_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_difference_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_difference_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_agg_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_intersection_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_agg_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_estimate_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_estimate_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_summary_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_summary_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_sketch_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_agg_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_agg_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_theta_double",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "tuple_union_theta_integer",
+  "group": "databricks:aggregate"
+ },
+ {
+  "name": "uniform",
+  "group": "databricks:misc"
+ },
+ {
+  "name": "unix_nanos",
+  "group": "databricks:datetime"
+ },
+ {
+  "name": "validate_utf8",
+  "group": "databricks:string"
+ },
+ {
+  "name": "variant_explode",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "variant_explode_outer",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "variant_get",
+  "group": "databricks:variant"
+ },
+ {
+  "name": "vector_avg",
+  "group": "databricks:vector"
+ },
+ {
+  "name": "vector_cosine_similarity",
+  "group": "databricks:vector",
+  "example": "SELECT vector_cosine_similarity(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:0.974631846197"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_inner_product",
+  "group": "databricks:vector",
+  "example": "SELECT vector_inner_product(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:32"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_l2_distance",
+  "group": "databricks:vector",
+  "example": "SELECT vector_l2_distance(array(1.0f, 2.0f, 3.0f), array(4.0f, 5.0f, 6.0f))",
+  "value": [
+   [
+    "float:5.19615242271"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_norm",
+  "group": "databricks:vector",
+  "example": "SELECT vector_norm(array(3.0f, 4.0f), 2.0f)",
+  "value": [
+   [
+    "float:5"
+   ]
+  ],
+  "note": "DOUBLE here, FLOAT in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_normalize",
+  "group": "databricks:vector",
+  "example": "SELECT vector_normalize(array(3.0f, 4.0f), 2.0f)",
+  "value": [
+   [
+    [
+     "float:0.6",
+     "float:0.8"
+    ]
+   ]
+  ],
+  "note": "ARRAY<DOUBLE> here, ARRAY<FLOAT> in Databricks (the documented digits are DOUBLE's)"
+ },
+ {
+  "name": "vector_sum",
+  "group": "databricks:vector"
+ },
+ {
+  "name": "zeroifnull",
+  "group": "databricks:conditional",
+  "example": "SELECT zeroifnull(NULL)",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "zstd_compress",
+  "group": "databricks:string"
+ },
+ {
+  "name": "zstd_decompress",
+  "group": "databricks:string"
+ }
+]

@@ -63,7 +63,7 @@ class Source:
     # A file or table folder's path below the source ("sales/2026.csv") -> "schema.table" to call it.
     names: dict[str, str] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.naming not in NAMING_RULES:
             raise ValueError(f"naming must be one of {NAMING_RULES}, got {self.naming!r}")
         if not 0 <= int(self.max_depth) <= 10:

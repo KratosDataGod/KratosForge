@@ -211,6 +211,7 @@ def test_app_call_for_delta_changes(tmp_path):
     call("local_write_delta", project=pid, table="t", query="SELECT 1 AS a", mode="create")
     assert call("local_change_delta", project=pid, query="DELETE FROM t WHERE a = 1", dry_run=True)["rows_deleted"] == 1
     assert call("local_change_delta", project=pid, query="UPDATE t SET a = 2", confirm=True)["rows_updated"] == 1
-    changes = svc.audit.recent(10, "local_change_delta")
-    assert len(changes) == 2 and changes[0]["target"]["query"] == "(given)"  # never the SQL text
+    lines = svc.audit.recent(10, "local_change_delta")
+    assert [r["outcome"] for r in lines] == ["ok", "started", "ok"]  # given a confirm: a line first; the dry run not
+    assert all(r["target"]["query"] == "(given)" for r in lines)  # never the SQL text
     svc.local_data.close_all()

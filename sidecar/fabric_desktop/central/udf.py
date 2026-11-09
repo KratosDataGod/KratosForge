@@ -14,6 +14,7 @@ import base64
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 ALIAS = "platform"
 ITEM = "UDF_Platform"
@@ -35,6 +36,22 @@ import fabric.functions as fn
 udf = fn.UserDataFunctions()
 
 
+def _refused(conn, op, ctx, kwargs):
+    # The refused change is rolled back first; the row goes in on its own, and the refusal is raised
+    # unchanged even when it can't be written.
+    try:
+        conn.rollback()
+        change = _platform.refused_operation(op, kwargs)
+        if change:
+            user = ctx.executing_user if ctx is not None else {}
+            _platform.record_refusal(Db(conn, "tsql"), user.get("PreferredUsername") or user.get("Oid", ""), change)
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
 def _run(sqlDB, op, ctx=None, **kwargs):
     conn = sqlDB.connect()
     try:
@@ -44,6 +61,7 @@ def _run(sqlDB, op, ctx=None, **kwargs):
             kwargs["by"] = ctx.executing_user.get("PreferredUsername") or ctx.executing_user.get("Oid", "")
         return fn_(db, **kwargs)
     except PlatformError as exc:
+        _refused(conn, op, ctx, kwargs)
         raise fn.UserThrownError(str(exc), {"operation": op})
     finally:
         conn.close()
@@ -65,9 +83,10 @@ def ensure_key_table(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCont
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def issue_keys(sqlDB: fn.FabricSqlConnection, name: str, businessKeys: list) -> dict:
-    return _run(sqlDB, "issue_keys", name=name, business_keys=businessKeys)
+def issue_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str, businessKeys: list) -> dict:
+    return _run(sqlDB, "issue_keys", ctx, name=name, business_keys=businessKeys)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -188,9 +207,9 @@ def resolve_port(sqlDB: fn.FabricSqlConnection, productId: str, port: str, env: 
 @udf.context(argName="ctx")
 @udf.function()
 def register_link(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, consumer: str, alias: str,
-                  productId: str, port: str, reads: dict, accepts: str = "", columns: dict = None) -> dict:
+                  productId: str, port: str, reads: dict, columns: dict, accepts: str = "") -> dict:
     return _run(sqlDB, "register_link", ctx, consumer=consumer, alias=alias, product_id=productId, port=port,
-                reads=reads, accepts=accepts, columns=columns)
+                reads=reads, accepts=accepts, columns=columns or None)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -235,8 +254,9 @@ def audit(sqlDB: fn.FabricSqlConnection, limit: int = 100) -> list:
 @udf.context(argName="ctx")
 @udf.function()
 def log_workload_action(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, workload: str, action: str,
-                        status: str, entry: dict = None) -> dict:
-    return _run(sqlDB, "log_workload_action", ctx, workload=workload, action=action, status=status, entry=entry)
+                        status: str, entry: dict) -> dict:
+    return _run(sqlDB, "log_workload_action", ctx, workload=workload, action=action, status=status,
+                entry=entry or None)
 
 
 # ---- who may change what, key tables, sources and requests
@@ -339,8 +359,8 @@ def switch_landing_reads(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunction
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
-def request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, target: str,
-            project: str = "", reason: str = "", detail: dict = None) -> dict:
+def request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, target: str, detail: dict,
+            project: str = "", reason: str = "") -> dict:
     return _run(sqlDB, "request", ctx, kind=kind, target=target, project=project, reason=reason, detail=detail or {})
 
 
@@ -424,8 +444,9 @@ def record_shortcuts(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCont
 @udf.context(argName="ctx")
 @udf.function()
 def log_shortcut_change(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, shortcut: dict,
-                        before: dict = None, after: dict = None, note: str = "") -> dict:
-    return _run(sqlDB, "log_shortcut_change", ctx, kind=kind, shortcut=shortcut, before=before, after=after, note=note)
+                        before: dict, after: dict, note: str = "") -> dict:
+    return _run(sqlDB, "log_shortcut_change", ctx, kind=kind, shortcut=shortcut, before=before or None,
+                after=after or None, note=note)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -495,8 +516,8 @@ def product_trust(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext
 @udf.context(argName="ctx")
 @udf.function()
 def record_endorsements(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, items: list,
-                        cleared: list = None) -> dict:
-    return _run(sqlDB, "record_endorsements", ctx, items=items, cleared=cleared)
+                        cleared: list) -> dict:
+    return _run(sqlDB, "record_endorsements", ctx, items=items, cleared=cleared or None)
 
 
 # ---- a project's members (Preview)
@@ -557,8 +578,8 @@ def change_window(sqlDB: fn.FabricSqlConnection) -> dict:
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
-def save_change_window(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, window: dict = None) -> dict:
-    return _run(sqlDB, "save_change_window", ctx, window=window)
+def save_change_window(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, window: dict) -> dict:
+    return _run(sqlDB, "save_change_window", ctx, window=window or None)
 
 
 # ---- how each product is doing now (Preview)
@@ -726,7 +747,7 @@ def policy_version(sqlDB: fn.FabricSqlConnection, id: str, version: int) -> dict
 @udf.context(argName="ctx")
 @udf.function()
 def save_assignment(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, policy: str, scope: str,
-                    target: str = "", settings: dict = None, note: str = "") -> dict:
+                    settings: dict, target: str = "", note: str = "") -> dict:
     return _run(sqlDB, "save_assignment", ctx, policy=policy, scope=scope, target=target, settings=settings or {},
                 note=note)
 
@@ -753,16 +774,16 @@ def policy_applicability(sqlDB: fn.FabricSqlConnection, id: str) -> dict:
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
-def resolve_policies(sqlDB: fn.FabricSqlConnection, project: str = "", entity: str = "", domain: str = "",
-                     subdomain: str = "", local: list = None, context: dict = None, today: str = "") -> dict:
+def resolve_policies(sqlDB: fn.FabricSqlConnection, local: list, context: dict, project: str = "", entity: str = "",
+                     domain: str = "", subdomain: str = "", today: str = "") -> dict:
     return _run(sqlDB, "resolve_policies", project=project, entity=entity, domain=domain, subdomain=subdomain,
                 local=local or [], context=context or {}, today=today)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
-def policy_snapshot(sqlDB: fn.FabricSqlConnection, policies: list = None) -> dict:
-    return _run(sqlDB, "policy_snapshot", policies=policies)
+def policy_snapshot(sqlDB: fn.FabricSqlConnection, policies: list) -> dict:
+    return _run(sqlDB, "policy_snapshot", policies=policies or None)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -877,7 +898,7 @@ def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
 @udf.context(argName="ctx")
 @udf.function()
 def call_once(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, callId: str, operation: str,
-              args: dict = None) -> dict:
+              args: dict) -> dict:
     return _run(sqlDB, "call_once", ctx, call_id=callId, operation=operation, args=args or {})
 
 '''
@@ -933,6 +954,33 @@ def _functions() -> list[dict]:
                     "fabricProperties": {"fabricMetadataSchemaVersion": "1.1.0", "fabricFunctionParameters": params,
                                          "fabricFunctionReturnType": ast.unparse(node.returns) if node.returns else "str"}})
     return out
+
+
+_EMPTY_LEFT_OUT: dict[str, dict[str, Any]] | None = None
+
+
+def left_out_as_empty() -> dict[str, dict[str, Any]]:
+    """Each function's dict and list parameters that the app may leave out, with the empty value sent
+    for them: {"register_link": {"columns": {}}, ...}. Fabric refuses a default value for a dict
+    parameter (live run 7, 2026-11-07: "Default values are not allowed for 'dict' type parameters"),
+    so these are required in UDF_Platform, and the function takes an empty one as not given. They are
+    the parameters a function passes on as ``name or ...``."""
+    global _EMPTY_LEFT_OUT
+    if _EMPTY_LEFT_OUT is None:
+        out: dict[str, dict[str, Any]] = {}
+        for node in ast.parse(_WRAPPERS).body:
+            if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
+                continue
+            kinds = {arg.arg: ast.unparse(arg.annotation) for arg in node.args.args if arg.annotation}
+            for call in ast.walk(node):
+                for kw in getattr(call, "keywords", []) if isinstance(call, ast.Call) else []:
+                    value = kw.value
+                    if isinstance(value, ast.BoolOp) and isinstance(value.op, ast.Or) \
+                            and isinstance(value.values[0], ast.Name) and kinds.get(value.values[0].id) in ("dict", "list"):
+                        name = value.values[0].id
+                        out.setdefault(node.name, {})[name] = {} if kinds[name] == "dict" else []
+        _EMPTY_LEFT_OUT = out
+    return _EMPTY_LEFT_OUT
 
 
 def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:

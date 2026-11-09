@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "It encrypts the column on disk"
+          "text": "It encrypts the column's values on disk, so they can be read only by users holding the decryption key"
         },
         {
           "id": "b",
@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "It removes the column from the table"
+          "text": "It removes the column from the table and stores its values in a separate secured table that only UNMASK users can read"
         },
         {
           "id": "d",
-          "text": "It blocks every query on the table"
+          "text": "It blocks every query on the table for users without the UNMASK permission until an admin approves"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "Masking changes what non-privileged users see in results. The data itself is stored unchanged.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.4-q2",
@@ -73,7 +73,7 @@
     {
       "id": "1.3.4-q3",
       "type": "single",
-      "stem": "At Harbor Health, one compliance officer among the analysts must see real email addresses. What do you do?",
+      "stem": "At Harbor Health, one compliance officer among the analysts must see real email addresses. What do you do, with the least privilege?",
       "options": [
         {
           "id": "a",
@@ -95,12 +95,12 @@
       "answer": [
         "c"
       ],
-      "explanation": "UNMASK lets a user see the real values while the mask stays in place for everyone else.",
+      "explanation": "UNMASK lets a user see the real values while the mask stays in place for everyone else. Making the officer a workspace Admin would also unmask the data, but it gives far more access than needed.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
       "case": "harbor-analytics",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.4-q4",
@@ -109,15 +109,15 @@
       "options": [
         {
           "id": "a",
-          "text": "It applies to warehouse admins too"
+          "text": "It applies to workspace Admins, Members and Contributors too, so no workspace role can ever see the unmasked values"
         },
         {
           "id": "b",
-          "text": "It makes masked values impossible to infer"
+          "text": "It makes masked values impossible to infer, because filters such as WHERE or LIKE on a masked column are always blocked"
         },
         {
           "id": "c",
-          "text": "It replaces the need for row-level security"
+          "text": "It replaces the need for row-level security, because rows with masked values are also filtered out of query results for non-privileged users"
         },
         {
           "id": "d",
@@ -129,9 +129,200 @@
       ],
       "explanation": "Masking limits exposure in results, but a user with SELECT can run queries such as WHERE Email LIKE 'a%' to learn about values. Use it alongside column and row permissions.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q5",
+      "type": "single",
+      "stem": "A Salary column is masked. An engineer with the Contributor workspace role queries it and sees real salaries. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Masks apply only to queries that come from Power BI reports, not from T-SQL"
+        },
+        {
+          "id": "b",
+          "text": "The mask was applied with the default() function instead of the partial() function"
+        },
+        {
+          "id": "c",
+          "text": "Admin, Member and Contributor roles have CONTROL on the database, which includes UNMASK"
+        },
+        {
+          "id": "d",
+          "text": "Contributors see masked values only when querying the table through the SQL analytics endpoint"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Workspace Admins, Members and Contributors have CONTROL on the database by design, and CONTROL includes UNMASK, so they see unmasked data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q6",
+      "type": "single",
+      "stem": "An Email column is masked with email(). What does a user without UNMASK see for the value john.smith@contoso.net?",
+      "options": [
+        {
+          "id": "a",
+          "text": "jXXX@XXXX.com"
+        },
+        {
+          "id": "b",
+          "text": "XXXX"
+        },
+        {
+          "id": "c",
+          "text": "j*********@contoso.net"
+        },
+        {
+          "id": "d",
+          "text": "john.smith@XXXX.net"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "email() exposes the first letter and the constant suffix .com in the form of an email address.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q7",
+      "type": "single",
+      "stem": "A Phone column is masked with partial(1,\"XXXXXXX\",0). What does a user without UNMASK see for 555.123.1234?",
+      "options": [
+        {
+          "id": "a",
+          "text": "XXXX"
+        },
+        {
+          "id": "b",
+          "text": "5XXXXXXX"
+        },
+        {
+          "id": "c",
+          "text": "555.1XXXXXXX"
+        },
+        {
+          "id": "d",
+          "text": "XXXXXXX1234"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "partial() keeps the given number of leading and trailing characters and puts the padding in between. With a prefix of 1 and a suffix of 0, only the first character remains.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q8",
+      "type": "multiple",
+      "stem": "A security officer must add a mask to an existing column in a warehouse table. Which two permissions does this require? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "ALTER ANY SECURITY POLICY"
+        },
+        {
+          "id": "b",
+          "text": "UNMASK on the column"
+        },
+        {
+          "id": "c",
+          "text": "ALTER ANY MASK"
+        },
+        {
+          "id": "d",
+          "text": "ALTER on the table"
+        },
+        {
+          "id": "e",
+          "text": "SELECT on the table"
+        }
+      ],
+      "answer": [
+        "c",
+        "d"
+      ],
+      "explanation": "Adding, replacing or removing a mask needs ALTER ANY MASK and ALTER on the table. UNMASK lets you see real values, and ALTER ANY SECURITY POLICY is for row-level security.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q9",
+      "type": "single",
+      "stem": "A BirthDate column of type date is masked with default(). What do users without UNMASK see?",
+      "options": [
+        {
+          "id": "a",
+          "text": "1900-01-01 00:00:00.0000000"
+        },
+        {
+          "id": "b",
+          "text": "NULL"
+        },
+        {
+          "id": "c",
+          "text": "The year only"
+        },
+        {
+          "id": "d",
+          "text": "A random date in the same year"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "default() masks by data type: strings become XXXX, numbers become zero, and date and time values become 1900-01-01 00:00:00.0000000.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q10",
+      "type": "single",
+      "stem": "A numeric Month column must show users a random value from 1 to 12 instead of the real month. Which statement do you run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ALTER COLUMN [Month] ADD MASKED WITH (FUNCTION = 'random(1, 12)')"
+        },
+        {
+          "id": "b",
+          "text": "ALTER COLUMN [Month] ADD MASKED WITH (FUNCTION = 'partial(1,\"X\",12)')"
+        },
+        {
+          "id": "c",
+          "text": "ALTER COLUMN [Month] ADD MASKED WITH (FUNCTION = 'default()')"
+        },
+        {
+          "id": "d",
+          "text": "GRANT UNMASK ON [Month] TO public"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "random() replaces a numeric value with a random value in the range you give. default() would show zero, and partial() is for strings.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

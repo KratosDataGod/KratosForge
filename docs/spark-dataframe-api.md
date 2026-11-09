@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 95 |
-| Differs | 5 |
+| Runs | 99 |
+| Differs | 7 |
 | Refused | 15 |
-| Fails | 48 |
+| Fails | 42 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -37,7 +37,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
 | `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `colRegex` | Fails | `df.select(df.colRegex("`(Col1)?+.+`")).show()`: AttributeError: 'DataFrame' object has no attribute 'colRegex' |
+| `colRegex` | Runs |  |
 | `collect` | Runs |  |
 | `columns` | Fails | `for col_name in df.columns: df = df.withColumn(col_name, ...`: BinderException: Binder Error: No function matches the given name and argument types 'upper(BIGINT)'. You might need to add explicit type casts. |
 | `corr` | Runs |  |
@@ -48,7 +48,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `createOrReplaceTempView` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
 | `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
 | `crossJoin` | Runs |  |
-| `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
+| `crosstab` | Runs |  |
 | `cube` | Runs |  |
 | `describe` | Differs | `df.describe(['age', 'weight', 'height']).show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
 | `distinct` | Runs |  |
@@ -98,7 +98,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `rollup` | Runs |  |
 | `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
 | `sample` | Runs |  |
-| `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |
+| `sampleBy` | Differs | `sampled.groupBy("key").count().orderBy("key").show()`: {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    7\|\n\|  1\| here, {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    3\|\n\|  1\| in Spark |
 | `schema` | Runs |  |
 | `select` | Runs |  |
 | `selectExpr` | Runs |  |
@@ -116,7 +116,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `take` | Runs |  |
 | `to` | Not checked |  |
 | `toDF` | Runs |  |
-| `toJSON` | Fails | `df.toJSON().first()`: AttributeError: 'DataFrame' object has no attribute 'toJSON' |
+| `toJSON` | Runs |  |
 | `toLocalIterator` | Runs |  |
 | `toPandas` | Not checked |  |
 | `to_koalas` | Not checked |  |
@@ -245,6 +245,6 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `approxQuantile` | Not checked |  |
 | `corr` | Runs |  |
 | `cov` | Runs |  |
-| `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
+| `crosstab` | Runs |  |
 | `freqItems` | Runs |  |
-| `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |
+| `sampleBy` | Differs | `sampled.groupBy("key").count().orderBy("key").show()`: {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    7\|\n\|  1\| here, {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    3\|\n\|  1\| in Spark |

@@ -1,7 +1,8 @@
 """Profile (progress.py has the rules): what the app calls, and the one place evidence comes in.
 
 ``_progress_observe`` runs when a validation finishes (validate_service), ``_progress_observe_proof``
-when a proof does, and ``_progress_observe_lab`` when a Learn exercise passes. Each records a row unless
+when a proof does, ``_progress_observe_side_by_side`` when a side-by-side run does, and
+``_progress_observe_lab`` when a Learn exercise passes. Each records a row unless
 the signed-in person has turned off Record my accomplishments (on by default) or preview features
 are hidden (Profile is one), and it never changes the validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
 """
@@ -21,6 +22,7 @@ from typing import Any
 from . import app_settings, jsonfile, pdfreport, progress, ranks, roadmap
 from .learn import content as learn_content
 from .redact import describe
+from . import known_folders
 
 _log = logging.getLogger(__name__)
 
@@ -73,6 +75,10 @@ class ProgressMixin:
     def _progress_observe_proof(self, record: dict[str, Any]) -> list[dict[str, Any]]:
         """Record a finished proof whose tables all matched. Returns achievements it earned."""
         return self._progress_record(progress.from_proof(record, record.get("receipt_id")))
+
+    def _progress_observe_side_by_side(self, record: dict[str, Any]) -> list[dict[str, Any]]:
+        """Record a finished side-by-side run whose tables all matched (rules v5). Returns achievements it earned."""
+        return self._progress_record(progress.from_side_by_side(record))
 
     def _progress_observe_lab(self, result: dict[str, Any], module: dict[str, Any]) -> list[dict[str, Any]]:
         """Record a Learn exercise whose checks all passed, and the lesson finished when it was its last
@@ -140,7 +146,7 @@ class ProgressMixin:
         return self._profile_view(profile)
 
     def profile_backfill(self) -> dict[str, Any]:
-        """Once: add notebooks that passed Validate or Prove before recording was on, dated when they ran."""
+        """Once: add notebooks that passed Validate, Prove or Side by side before recording was on, dated when they ran."""
         path = self._profile_path()
         with _LOCK:
             profile = progress.load(path)
@@ -153,6 +159,9 @@ class ProgressMixin:
                     added += bool(row and progress.add(profile, row))
                 for record in self._proofs_saved():  # type: ignore[attr-defined]
                     row = progress.from_proof(record, record.get("receipt_id"), origin="backfill")
+                    added += bool(row and progress.add(profile, row))
+                for record in self._sbs_saved():  # type: ignore[attr-defined]
+                    row = progress.from_side_by_side(record, origin="backfill")
                     added += bool(row and progress.add(profile, row))
                 profile["settings"]["backfilled"] = True
                 progress.save(path, profile)
@@ -252,7 +261,7 @@ def _avatar_ok(data: bytes) -> bool:
 
 def _save_new(stem: str, ext: str, text: str | bytes) -> Path:
     """A new file in Downloads; one already there (even one made a moment ago) is never replaced."""
-    folder = Path.home() / "Downloads"
+    folder = known_folders.downloads()
     folder.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^\w.-]+", "-", stem)
     path, n = folder / f"{stem}.{ext}", 2

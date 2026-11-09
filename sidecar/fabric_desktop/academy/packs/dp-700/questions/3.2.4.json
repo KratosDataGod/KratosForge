@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": ".show version"
+          "text": ".show ingestion mappings"
         },
         {
           "id": "d",
-          "text": ".show tables"
+          "text": ".show tables details"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": ".show ingestion failures lists failed ingestion operations with their error details.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/ingestion-failures",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q2",
@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Run the same query again"
+          "text": "Run the same query again, since the result limit resets after each failed run"
         },
         {
           "id": "b",
-          "text": "Add a sensitivity label"
+          "text": "Add a sensitivity label to the database so larger results are allowed"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "Switch to a warehouse"
+          "text": "Switch to a warehouse, which returns the same millions of raw rows without any size limit"
         }
       ],
       "answer": [
@@ -60,9 +60,9 @@
       ],
       "explanation": "Query results are limited in rows and size by default. Queries for people should summarize or filter, which is also faster.",
       "source": "https://learn.microsoft.com/en-us/kusto/concepts/query-limits",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q3",
@@ -75,15 +75,15 @@
         },
         {
           "id": "b",
-          "text": "The workspace role"
+          "text": "The workspace role of the identity that ingests the data"
         },
         {
           "id": "c",
-          "text": "The caching policy"
+          "text": "The table's caching policy, so the renamed field is kept in hot cache"
         },
         {
           "id": "d",
-          "text": "The table's retention policy"
+          "text": "The table's retention policy, so new fields are kept"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Ingestion mappings map source fields to table columns. When a field is renamed, update the mapping.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/mappings",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.4-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The semantic model settings"
+          "text": "The refresh history in the settings of the Power BI semantic model built on the target table"
         },
         {
           "id": "b",
-          "text": "The capacity metrics only"
+          "text": "The capacity metrics only, since update policies fail only when the capacity is throttled"
         },
         {
           "id": "c",
@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "The Git panel"
+          "text": "The Git panel, which shows whether the update policy was committed"
         }
       ],
       "answer": [
@@ -122,9 +122,200 @@
       ],
       "explanation": "An update policy's failures appear as ingestion failures. Its query may fail on new data, such as an unexpected type.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q5",
+      "type": "single",
+      "stem": "`.show ingestion failures` returns a row for a KQL table with FailureKind `Permanent` and ErrorCode `Stream_ClosingQuoteMissing`. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Fix the source file, because it has a malformed CSV format, and ingest it again"
+        },
+        {
+          "id": "b",
+          "text": "Grant the eventhouse access to the storage account"
+        },
+        {
+          "id": "c",
+          "text": "Increase the table's caching policy"
+        },
+        {
+          "id": "d",
+          "text": "Wait, because the service retries permanent failures automatically"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Stream_ClosingQuoteMissing means the stream has a malformed CSV format, and a permanent failure won't succeed by waiting. Download_Forbidden is the error that points to storage access.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/ingestion-failures?view=microsoft-fabric",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q6",
+      "type": "single",
+      "stem": "You want to list only the ingestion failures of the last hour that happened while an update policy ran. Which query do you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`.show ingestion failures | where FailedOn > ago(1h) and ShouldRetry == true`"
+        },
+        {
+          "id": "b",
+          "text": "`.show table T policy update | where FailedOn > ago(1h)`"
+        },
+        {
+          "id": "c",
+          "text": "`.show ingestion failures | where FailedOn > ago(1h) and OriginatesFromUpdatePolicy == true`"
+        },
+        {
+          "id": "d",
+          "text": "`.show ingestion failures | where FailedOn > ago(1h) and FailureKind == \"Transient\"`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The OriginatesFromUpdatePolicy column shows whether the failure was registered while running an update policy. FailureKind and ShouldRetry don't identify update policy failures, and the policy command doesn't return failures.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/ingestion-failures?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q7",
+      "type": "single",
+      "stem": "An update policy copies rows from RawEvents to CleanEvents. When the policy's query fails, rows land in RawEvents but not in CleanEvents, and the ingestion still reports success. The team wants both tables to stay consistent. What should you set?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A longer retention policy on RawEvents"
+        },
+        {
+          "id": "b",
+          "text": "A shorter caching policy on CleanEvents"
+        },
+        {
+          "id": "c",
+          "text": "`PropagateIngestionProperties` to true on the update policy"
+        },
+        {
+          "id": "d",
+          "text": "`IsTransactional` to true on the update policy"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "With the default IsTransactional false, a failed policy still ingests into the source only. Setting it to true means a failure ingests into neither table and the ingestion fails, keeping them consistent. PropagateIngestionProperties only copies properties like extent tags.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q8",
+      "type": "single",
+      "stem": "A KQL query that runs `summarize count() by UserId` over a table with millions of distinct users fails with E_RUNAWAY_QUERY because the aggregation exceeded its memory budget. Which change does the documentation recommend that is also likely to improve performance?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run the query as a management command"
+        },
+        {
+          "id": "b",
+          "text": "Change the query to use the shuffle query strategy"
+        },
+        {
+          "id": "c",
+          "text": "Set notruncation on the query"
+        },
+        {
+          "id": "d",
+          "text": "Remove the time filter so the query uses more shards"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "For E_RUNAWAY_QUERY, the workaround is to use the shuffle query strategy, which is also likely to improve performance. notruncation affects result size limits, not memory budget.",
+      "source": "https://learn.microsoft.com/en-us/kusto/concepts/query-limits?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q9",
+      "type": "single",
+      "stem": "A long-running KQL query in an eventhouse always fails after about four minutes. The query is correct and only needs more time. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Increase the request timeout with the servertimeout property, up to one hour"
+        },
+        {
+          "id": "b",
+          "text": "Change the table's retention policy so the query scans less history"
+        },
+        {
+          "id": "c",
+          "text": "Set truncationmaxrecords to a higher value so that the query can run for longer"
+        },
+        {
+          "id": "d",
+          "text": "Split the eventhouse into two databases and query each one separately"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The default query timeout is four minutes and can be raised up to one hour, for example with servertimeout. Truncation settings control result size, not time.",
+      "source": "https://learn.microsoft.com/en-us/kusto/concepts/query-limits?view=microsoft-fabric",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q10",
+      "type": "multiple",
+      "stem": "Which two are common reasons for an update policy to fail? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The source table has a caching policy shorter than its retention"
+        },
+        {
+          "id": "b",
+          "text": "The target table has OneLake availability turned on"
+        },
+        {
+          "id": "c",
+          "text": "The policy query's output schema doesn't match the target table"
+        },
+        {
+          "id": "d",
+          "text": "The source table receives more than one ingestion per minute"
+        },
+        {
+          "id": "e",
+          "text": "The policy query has an error"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "The documentation lists a schema mismatch between the query output and the target table, and any query error. The function and target table must match in column types and order.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

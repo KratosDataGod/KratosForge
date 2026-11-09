@@ -29,6 +29,7 @@ from typing import Any
 
 from .filenames import file_stem
 from . import jsonfile
+from . import known_folders
 
 METHODS = {"sql_templates_list", "sql_template_save", "sql_template_import", "sql_template_delete",
            "sql_template_export"}
@@ -136,7 +137,8 @@ class SqlTemplatesMixin:
             raise ValueError(f"That {what} file is a link to somewhere else, so it isn't used.")
         return path
 
-    def _sql_files(self, folder: str = FOLDER, mine: str = "My templates", what: str = "templates"):
+    def _sql_files(self, folder: str = FOLDER, mine: str = "My templates", what: str = "templates"
+                   ) -> tuple[list[dict[str, Any]], list[tuple[dict[str, Any], Path]], list[str]]:
         """(places, [(place, file)], notes): the .sql files in every place, links and all but the
         first MAX_PER_PLACE by name left out, with a note for each place that was skipped or cut."""
         places, found, notes = self._template_places(folder, mine), [], []
@@ -237,7 +239,7 @@ class SqlTemplatesMixin:
         """Copies a template to a new file in Downloads; an existing file is never replaced."""
         src = self._template_file(place, name)
         text = src.read_text(encoding="utf-8")
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         stem = file_stem(src.stem, "Template")
         for n in range(1, 1000):

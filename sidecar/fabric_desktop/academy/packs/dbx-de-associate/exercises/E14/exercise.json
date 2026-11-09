@@ -12,7 +12,7 @@
   "minutes": 30,
   "mode": "guided",
   "class": "local_verified",
-  "adapter": "python_lab",
+  "adapter": "delta_lab",
   "engine_label": "Python with delta-rs and pyarrow on this PC",
   "lesson": "lesson.md",
   "starter": "land_customers.py",

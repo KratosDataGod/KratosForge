@@ -95,7 +95,8 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
+    assert status["session_user"] == "not checked"  # DuckDB accepts it; its value is the session's
+    assert status["iff"] == "runs"  # Databricks' own example, value checked
     notes = {r["name"]: r["note"] for r in rows}
     assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
     assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
@@ -122,8 +123,9 @@ def test_a_sketch_name_in_spark_sql_is_left_alone():
 
 def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     status = {r["name"]: r["status"] for r in rows}
-    for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
-        assert status[name] == "not checked", name  # runs here; no value check yet
+    assert status["cube"] == "not checked"  # runs here; no value check yet
+    for name in ("try_cast", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
+        assert status[name] == "runs", name  # Databricks' own example, value checked
     assert status["collate"] == "runs"  # UTF8_LCASE is DuckDB's NOCASE
 
 
@@ -774,3 +776,21 @@ def test_unix_nanos_says_when_a_timestamp_is_past_its_range():
         [None, "decimal:2000000000", None]]
     with pytest.raises(duckdb.Error, match="past the nanoseconds"):
         _one("SELECT unix_nanos(TIMESTAMP'2262-04-12')")
+
+
+@pytest.mark.parametrize(("code", "want"), [
+    # Databricks' reference examples: short English day and month names (run() sorts the rows)
+    ("SELECT dayname(DATE'2024-11-01' + CAST(offset AS INT)) AS days FROM range(8) AS t(offset)",
+     [["Fri"], ["Fri"], ["Mon"], ["Sat"], ["Sun"], ["Thu"], ["Tue"], ["Wed"]]),
+    ("SELECT monthname(DATE'2024-11-01'), monthname(NULL)", [["Nov", None]]),
+    # listagg and string_agg join with no delimiter unless given one, and skip NULLs
+    ("SELECT listagg(col) FROM VALUES ('a'), (NULL), ('c') AS tab(col)", [["ac"]]),
+    ("SELECT string_agg(DISTINCT col) WITHIN GROUP (ORDER BY col) FROM VALUES ('a'), ('a'), ('b') AS tab(col)",
+     [["ab"]]),
+    ("SELECT listagg(col, ', ') WITHIN GROUP (ORDER BY col) FROM VALUES ('b'), ('a'), ('c') AS tab(col)",
+     [["a, b, c"]]),
+    # time() from a string and from a timestamp's time of day
+    ("SELECT time('10:30:00'), time(TIMESTAMP'2026-10-29 16:45:30')", [["time:10:30:00", "time:16:45:30"]]),
+])
+def test_databricks_names_aggregates_and_time_give_its_values(code, want):
+    assert _one(code) == want

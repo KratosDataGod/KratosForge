@@ -15,10 +15,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 _STATUSES = {408, 429, 500, 502, 503, 504}
 
 # "module.py:function" -> why it's still written by hand. Take an entry out in the PR that moves it.
-HAND_WRITTEN: dict[str, str] = {
-    "fabric_api.py:_wait": "Follows a long-running operation, waiting as its Retry-After says until the "
-                           "deadline; moves to a poller in retrying.py (WR-201, next PR).",
-}
+HAND_WRITTEN: dict[str, str] = {}
 
 
 def _sleeps(node: ast.AST) -> bool:

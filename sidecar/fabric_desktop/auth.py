@@ -545,13 +545,14 @@ class Authenticator:
         self._check_tenant(result)
         return result["access_token"]
 
-    def _sign_in(self, scopes: list[str], refused: str = "") -> dict:
+    def _sign_in(self, scopes: list[str], refused: str = "", claims: str = "") -> dict:
         """The interactive sign-in. One window at a time: a call that waited for another's sign-in uses
         the token it brought, rather than opening a second window. ``refused``: a token the platform just
         refused, which never counts as one a sign-in brought (it is still in the cache when the refusal
         wasn't one that ends the sign-in, such as a policy now asking for MFA). What Conditional Access
         asked for when it refused the saved sign-in (its claims challenge) goes to the window, so the
-        window asks for that step. A refusal in BLOCKED_CODES is answered again without a window."""
+        window asks for that step; ``claims`` is one a caller already has (a forced refresh's refusal).
+        A refusal in BLOCKED_CODES is answered again without a window."""
         with self._sign_in_lock:
             why: dict = {}
             accounts = self.app.get_accounts()
@@ -563,8 +564,8 @@ class Authenticator:
             if blocked is not None:
                 raise blocked
             self.cache.removed_elsewhere.clear()  # signing in here: the account may come back
-            claims = why.get("claims")
-            more = {"claims_challenge": claims} if isinstance(claims, str) and claims else {}
+            asked = why.get("claims") or claims
+            more = {"claims_challenge": asked} if isinstance(asked, str) and asked else {}
             if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle(), **more)
             else:
@@ -624,7 +625,8 @@ class Authenticator:
             raise SignInRequired(headless_refusal(why))
         cached = self._silent(self.scopes_for(scopes), accounts[0]) if accounts else None
         refused = (cached or {}).get("access_token") or ""  # the token the caller sent: MSAL's cached one
-        result = self._sign_in(self.scopes_for(scopes), refused)
+        claims = why.get("claims")
+        result = self._sign_in(self.scopes_for(scopes), refused, claims if isinstance(claims, str) else "")
         self._save()
         if "access_token" not in result:
             raise sign_in_error(result)

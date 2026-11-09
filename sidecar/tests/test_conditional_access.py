@@ -167,3 +167,15 @@ def test_a_sign_in_frequency_rule_ends_the_saved_sign_in_and_asks_once(tmp_path)
     app = FakeApp(silent=ended, interactive={"access_token": "new", "expires_in": 3600})
     assert authenticator(tmp_path, app).fabric_token() == "new"
     assert len(app.windows) == 1 and "claims_challenge" not in app.windows[0]
+
+
+def test_a_401_passes_what_the_forced_refresh_was_told_to_the_window(tmp_path):
+    # Fabric refused the cached token; the forced refresh is refused with claims, the plain lookup
+    # still finds the cached (refused) token.
+    class App(FakeApp):
+        def acquire_token_silent_with_error(self, scopes, account, force_refresh=False):
+            return MFA if force_refresh else {"access_token": "cached", "expires_in": 3600}
+
+    app = App(interactive={"access_token": "new", "expires_in": 3600})
+    assert authenticator(tmp_path, app).refreshed_token(auth.FABRIC_SCOPES) == "new"
+    assert [w.get("claims_challenge") for w in app.windows] == [CLAIMS]

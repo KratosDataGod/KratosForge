@@ -116,6 +116,10 @@ What each choice draws so far:
 - **rail_tone:** `light` draws the rail on `--surface`. `brand` fills it from `--accent` to `--accent-dark`
   with `--on-accent` labels, an orange active item, the white KratosForge lettering above it, and a mountain
   line at its foot, below the last item so the art never sits under a page link.
+  The art scrolls with the rail, and a window shorter than 640 px leaves it out.
+
+The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look,
+so KratosForge keeps its light, narrow rail.
 - **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
   text, buttons and lettering turn to `--on-accent`, and the search box sits on `--accent-dark`. `none`
   blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and

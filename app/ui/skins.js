@@ -30,8 +30,8 @@ function applySkin() {
   document.body.dataset.skin = skinState.applied.id;
   // The skin's look (appearance.style), one attribute per part, e.g. data-skin-rail="inline". The engine
   // checked each value against its fixed choices; styles.css draws them. A part the skin leaves out is
-  // KratosForge's own.
-  const style = skin?.appearance?.style || {};
+  // KratosForge's own. The look is Preview: with Preview features hidden, every part is the default.
+  const style = PREVIEW_FEATURES.skins && previewShown() ? skin?.appearance?.style || {} : {};
   for (const [part, own] of Object.entries(SKIN_STYLE_DEFAULTS)) {
     const key = part.replace(/(^|_)(\w)/g, (_, __, c) => c.toUpperCase());  // rail_tone: data-skin-rail-tone
     document.body.dataset[`skin${key}`] = style[part] || own;

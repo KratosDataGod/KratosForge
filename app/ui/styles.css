@@ -3408,10 +3408,14 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 /* Rail tone: light is the rail on --surface. Brand is a navy rail (--accent to --accent-dark) with white
    labels and icons, a navy active item with a glowing orange outline, and the bottom group straight after
    the divider. Mountain art fills the rail's foot below the last item (beside the work, never under it).
-   The art is a placeholder until the final painting lands; it's a background, so it stays still. */
+   The art is a placeholder until the final painting lands; it's a background, so it stays still. The
+   whole look is Preview: skins.js applies a skin's style only while Preview features are shown. */
 body[data-skin-rail-tone="brand"] .rail { --rail-art: clamp(120px, 34vh, 300px); padding-bottom: calc(var(--rail-art) + 8px);
   border-right-color: var(--accent-dark);
-  background: url("rail-mountains.svg") bottom / 100% var(--rail-art) no-repeat, linear-gradient(180deg, var(--accent), var(--accent-dark)); }
+  background: url("rail-mountains.svg") bottom / 100% var(--rail-art) no-repeat local, linear-gradient(180deg, var(--accent), var(--accent-dark)); }
+/* The art scrolls with the rail (local), so in a short window it stays below Settings instead of under it.
+   Shorter still, the rail drops it and keeps its room for the links. */
+@media (max-height: 640px) { body[data-skin-rail-tone="brand"] .rail { --rail-art: 0px; } }
 body[data-skin-rail-tone="brand"] .rail-spacer { flex: 0; }
 body[data-skin-rail-tone="brand"] #rail-open:not(:empty) ~ #rail-bottom { margin-top: 6px; padding-top: 8px; border-top: 1px solid rgb(255 255 255 / .35); }
 body[data-skin-rail-tone="brand"] .rail-item { color: var(--on-accent); font-weight: 500; border: 1px solid transparent; }

@@ -182,6 +182,39 @@ test("the KratosForge rail is navy with white labels and an orange active item, 
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("in a short window the rail's art stays below its last link, and leaves when there's no room", { skip }, async () => {
+  // Where the art's top and the last link's bottom sit in the rail's scrolled content, and the art's height.
+  const art = () => page().evaluate(() => {
+    const rail = document.getElementById("rail");
+    const last = [...rail.querySelectorAll(".rail-item")].pop();
+    const artPx = parseFloat(getComputedStyle(rail).getPropertyValue("--rail-art")) || 0;
+    const top = rail.getBoundingClientRect().top;
+    return { last: last.getBoundingClientRect().bottom - top + rail.scrollTop, artTop: rail.scrollHeight - artPx, artPx,
+      attach: getComputedStyle(rail).backgroundAttachment.split(",")[0].trim() };
+  });
+  await page().evaluate(() => { state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "kratosforge" }; applySkin(); go("home"); });
+  for (const height of [720, 600]) {
+    await page().setViewportSize({ width: 1280, height });
+    await page().waitForFunction((h) => window.innerHeight === h, height, { timeout: 3000 }).catch(() => {});
+    const a = await art();
+    assert.strictEqual(a.attach, "local");
+    assert.ok(a.last <= a.artTop, `at ${height} px the last link ends at ${a.last}, below the art's top at ${a.artTop}`);
+    if (height === 600) assert.strictEqual(a.artPx, 0);
+  }
+  await page().setViewportSize({ width: 1440, height: 900 });
+});
+
+test("with Preview features hidden, a skin's look falls back to the app's own, so KratosForge keeps its light rail", { skip }, async () => {
+  const tone = (shown) => page().evaluate((shown) => {
+    state.settings.show_preview = { ...(state.settings.show_preview || {}), value: shown };
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "kratosforge" };
+    applySkin();
+    return [document.body.dataset.skinRail, document.body.dataset.skinRailTone];
+  }, shown);
+  assert.deepStrictEqual(await tone(false), ["stacked", "light"]);
+  assert.deepStrictEqual(await tone(true), ["inline", "brand"]);
+});
+
 test("a brand header fills the bar with the skin's accent and keeps its text readable", { skip }, async () => {
   const bar = () => page().evaluate(() => {
     const cs = (sel) => getComputedStyle(document.querySelector(sel));

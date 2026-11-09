@@ -247,7 +247,9 @@ jobs:
     # pages call the real Python engine. Fakes only: no Fabric tenant, no secrets.
     needs: changes
     if: needs.changes.outputs.browser == 'true'
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: that moved to 26.04, where Playwright 1.56.1 has no Chromium build ("does not
+    # support chromium on ubuntu26.04-x64"). Move this with PLAYWRIGHT_VERSION to a release that supports it.
+    runs-on: ubuntu-24.04
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
       PLAYWRIGHT_VERSION: "1.56.1"
@@ -333,10 +335,11 @@ jobs:
           exit $status
 
   sbom-app:
-    # The shell's software bill of materials (every Rust crate in Cargo.lock), and the UI's (the npm
-    # packages bundled into app/ui/vendor, from their package-lock.json files, by
-    # .github/scripts/sbom_npm.py), attached to releases next to the engine's (built in the engine
-    # job from the engine itself).
+    # The shell's software bill of materials (every Rust crate the Windows exe compiles, from
+    # Cargo.lock), and the UI's (the npm packages bundled into app/ui/vendor, from their
+    # package-lock.json files, by .github/scripts/sbom_npm.py), attached to releases next to the
+    # engine's (built in the engine job from the engine itself). .github/scripts/sbom_check.py fails
+    # the job when a lock file pins a dependency without a hash, or an SBOM misses one or its hash.
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -349,11 +352,19 @@ jobs:
           workspaces: app/src-tauri
           cache-targets: "false"
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Every lock file entry has a hash
+        run: python3 .github/scripts/sbom_check.py locks
+      # For the Windows target, which the exe is built for: the runner's own (Linux) target lists GTK
+      # crates the exe never has and leaves out the Windows ones.
       - run: |
           cargo cyclonedx --version 2>/dev/null | grep -qwF 0.5.9 || cargo install --locked cargo-cyclonedx --version 0.5.9
-          cd app/src-tauri && rustup toolchain install && cargo cyclonedx --format json --override-filename sbom-app
+          cd app/src-tauri && rustup toolchain install
+          cargo cyclonedx --format json --override-filename sbom-app --target x86_64-pc-windows-msvc
           mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
+          cargo metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc > "$RUNNER_TEMP/cargo-metadata.json"
+      - run: python3 .github/scripts/sbom_check.py app sbom-app.cdx.json "$RUNNER_TEMP/cargo-metadata.json"
       - run: python3 .github/scripts/sbom_npm.py ui sbom-ui.cdx.json
+      - run: python3 .github/scripts/sbom_check.py ui sbom-ui.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-app
@@ -423,7 +434,8 @@ jobs:
           # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
           # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
           # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
-          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages"
+          # The report keeps the SHA-256 of each file installed, for the SBOM (sbom_npm.py add-hashes).
+          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages" --report "$env:RUNNER_TEMP\engine-install.json"
           if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
           python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
           if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
@@ -505,6 +517,12 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           # cyclonedx-py lists the packages, not the interpreter: add the embeddable Python with its pinned hash.
           python .github\scripts\sbom_npm.py add-python sbom-engine.cdx.json $env:PYTHON_VERSION $env:PYTHON_EMBED_SHA256 "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip"
+          if ($LASTEXITCODE) { exit 1 }
+          # cyclonedx-py reads the installed folder, which no longer holds each package's hash: add the
+          # hash of the file each package came from, then check every pin is listed with a hash it pins.
+          python .github\scripts\sbom_npm.py add-hashes sbom-engine.cdx.json "$env:RUNNER_TEMP\engine-install.json"
+          if ($LASTEXITCODE) { exit 1 }
+          python .github\scripts\sbom_check.py engine sbom-engine.cdx.json sidecar\engine-requirements.txt
           if ($LASTEXITCODE) { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

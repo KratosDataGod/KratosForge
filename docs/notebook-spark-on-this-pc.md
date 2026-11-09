@@ -86,6 +86,15 @@ type names (`long`, `integer`, `short`, `byte`) and shows a nested type one part
 `randomSplit` checks the weights as Spark does; its parts never overlap and together hold every row, and a seed gives
 the same split each time, but not the rows Spark picks (Spark's depend on its partitions).
 
+`spark.createDataFrame(rows)` with no types given infers the schema as PySpark does: a tuple, `Row` or namedtuple
+inside a row is a struct (fields `_1`, `_2`, ... when it has no names), a dict inside a row is a map, a dict row's
+keys come in sorted order, unnamed columns are `_1`, `_2`, ..., an int is a `bigint` and a `Decimal` a
+`decimal(38,18)`. Every row's types are merged, and, as in Spark, types that can't merge (`1` and `2.5` in one
+column) or a column with only NULLs is an error. Rows holding a `datetime` still take DuckDB's own inference
+(columns `col0`, `col1`). A dict whose values don't share one type (`{"a": 1, "b": 2.5}`) is refused with
+`CANNOT_INFER_TYPE_FOR_FIELD`; Spark refuses it too, with a field-type error. A struct's field is named `r.b` whether you write `r.getField("b")`, `r.b` or `r["b"]`,
+and a map's key `m[k]`, as in Spark.
+
 ### DataFrame: 85 of 102
 
 | Method | On this PC |

@@ -39,6 +39,19 @@ def test_it_removes_every_sign_in_and_token_the_app_keeps_outside_backups():
         assert leaf in text
 
 
+def test_remove_data_keeps_the_audit_trails_the_app_writes_unless_asked():
+    text = SCRIPT.read_text(encoding="utf-8")
+    from fabric_desktop.integrations import audit as integrations_audit
+    from fabric_desktop import service
+    # The folders the script keeps are the ones the app's and the AI tools' audit trails write to.
+    assert 'AuditLog(self.root / "audit"' in Path(service.__file__).read_text(encoding="utf-8")
+    assert 'Path(store.path).parent / "audit"' in Path(integrations_audit.__file__).read_text(encoding="utf-8")
+    assert '$AuditTrails = @("audit", "integrations\\audit")' in text
+    assert "[switch] $RemoveAuditTrail" in text
+    assert "if ($RemoveData -and $RemoveAuditTrail) {\n    Remove-IfThere $DataDir" in text
+    assert "-RemoveAuditTrail goes with -RemoveData" in text
+
+
 def _ps(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                            "-File", str(SCRIPT), *args], capture_output=True, text=True, timeout=180)
@@ -52,7 +65,8 @@ def test_on_windows_it_removes_the_app_and_keeps_the_data_until_asked(tmp_path):
     (outside / "keep.txt").parent.mkdir(parents=True)
     (outside / "keep.txt").write_text("not the app's")
     for rel in ("engine/abc/python.exe", "bin/fabric-desktop-mcp.cmd", "fabric-view/Default/Cookies", "msal_cache.bin",
-                "fabric-view-signin.bin", "link-port", "notebooks/keep.ipynb", "settings.json", "workloads.sqlite"):
+                "fabric-view-signin.bin", "link-port", "notebooks/keep.ipynb", "settings.json", "workloads.sqlite",
+                "audit/audit-2026-11.jsonl", "integrations/audit/audit-2026-11.jsonl", "integrations/integrations.sqlite"):
         (data / rel).parent.mkdir(parents=True, exist_ok=True)
         (data / rel).write_text("x")
     (webview / "EBWebView").mkdir(parents=True)
@@ -84,10 +98,19 @@ def test_on_windows_it_removes_the_app_and_keeps_the_data_until_asked(tmp_path):
         creds = subprocess.run(["cmdkey.exe", f"/list:{cred}"], capture_output=True, text=True, timeout=60).stdout
         assert "NONE" in creds, creds
         assert "Kept your notebooks" in done.stdout
-        everything = _ps(*common, "-RemoveData")
+        alone = _ps(*common, "-RemoveAuditTrail")
+        assert alone.returncode != 0 and "goes with -RemoveData" in alone.stdout + alone.stderr
+        assert (data / "notebooks" / "keep.ipynb").exists()
+        data_only = _ps(*common, "-RemoveData")
+        assert data_only.returncode == 0, data_only.stderr
+        # Everything but the audit trails, which the organization may have to keep.
+        assert sorted(p.relative_to(data).as_posix() for p in data.rglob("*") if p.is_file()) == [
+            "audit/audit-2026-11.jsonl", "integrations/audit/audit-2026-11.jsonl"]
+        assert "Kept the audit trail" in data_only.stdout
+        assert (outside / "keep.txt").read_text() == "not the app's", "the junction was followed"
+        everything = _ps(*common, "-RemoveData", "-RemoveAuditTrail")
         assert everything.returncode == 0, everything.stderr
         assert not data.exists()
-        assert (outside / "keep.txt").read_text() == "not the app's", "the junction was followed"
         # Only full paths with the expected names: anything else is refused before anything is removed.
         for bad in (["-DataDir", "FabricDesktop"], ["-DataDir", str(outside)], ["-AppPath", str(outside / "keep.txt")],
                     ["-WebViewDir", str(outside)]):

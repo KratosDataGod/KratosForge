@@ -465,7 +465,7 @@ function whDeployGate(env, plan) {
 }
 
 async function whProjectDeploy(ref, project) {
-  if (!whChangesAllowed()) { toast("Warehouse changes are turned off in Settings > Advanced > SQL queries.", true); return; }
+  if (!whChangesAllowed()) { toast("Warehouse changes are turned off. Turn them on in Settings > Advanced > SQL queries to deploy.", true); return; }
   if (!(await warehouseRunOk(ref))) return;
   toast(`Reading ${ref.name}'s catalog to plan the deploy...`);
   let plan;

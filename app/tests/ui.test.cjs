@@ -5956,3 +5956,34 @@ test("every dialog has an axe case, or is in the baseline that only shrinks", ()
   assert.deepStrictEqual(problems, []);
   assert.deepStrictEqual(baseline, [...baseline].sort(), "keep a11y-dialog-baseline.json sorted");
 });
+
+// WR-503: an error says what to do next. Every error toast whose words are written here (toast(text, true))
+// and every plain-language error in friendlyError (activity.js) must name a next step: a verb the person can
+// act on (try, check, sign in, pick, ask...), "again", who can help ("an admin can"), or where the details
+// are. A message built around friendlyError(...) or an error's own text carries that step already, so it
+// isn't judged here. error-next-step-baseline.json lists the ones not fixed yet: the list may only shrink.
+test("error toasts and plain-language errors name a next step (WR-503)", () => {
+  const NEXT = /\b(try|retry|check|sign (?:in|out)|open|pick|choose|close|ask|run|install|restart|save|select|add|turn|free|reconnect|wait|use|connect|report|refresh|set|rename|remove|delete|publish|start|fix|enter|type|go to|update|see|read|make|copy|change|stop|give|allow|attach|create|edit|reload|unlock|import|move|keep|switch|re-?run|upgrade|download|fill|clear|load|resolve|commit|push|pull|reopen|undo|tick|cancel|name)\b|\bagain\b|\b(?:admin|IT|owner)\b.*\bcan\b|details below|Activity/i;
+  const carries = /\$\{[^}]*(friendlyError|\.text\b|err\b|\.error\b|\.message|reason|why|msg)/i;  // the error's own words follow
+  const found = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js")).sort()) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const toasts = /\btoast\(\s*(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*")\s*,\s*true\b/g;
+    for (let m; (m = toasts.exec(src));) {
+      if (carries.test(m[1])) continue;
+      const text = m[1].slice(1, -1).replace(/\$\{[^}]*\}/g, "…");
+      if (!NEXT.test(text)) found.push(`${name}: ${text}`);
+    }
+  }
+  const act = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const fe = act.slice(act.indexOf("function friendlyError("));
+  const table = fe.slice(0, fe.indexOf("\n}\n"));
+  for (const m of table.matchAll(/\[\/(?:[^/\\\n]|\\.)+\/[a-z]*, "((?:[^"\\]|\\.)*)"\]/g)) {
+    if (!NEXT.test(m[1])) found.push(`activity.js friendlyError: ${m[1]}`);
+  }
+  const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "error-next-step-baseline.json"), "utf8")).without_next_step;
+  assert.deepStrictEqual(found.filter((f) => !baseline.includes(f)), [],
+    "a new error with no next step: say what the person can do (try again, check, pick, ask an admin...)");
+  assert.deepStrictEqual(baseline.filter((b) => !found.includes(b)), [],
+    "a listed error now names a next step or is gone: remove it from error-next-step-baseline.json");
+});

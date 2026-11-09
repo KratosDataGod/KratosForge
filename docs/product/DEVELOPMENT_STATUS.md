@@ -3,7 +3,7 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-07 23:42 UTC, main e5e6bec4.** Covers the PRs merged from #135 to #2247.
+**Product check of 2026-11-09 11:42 UTC, main 2bf8ea1b.** Covers the PRs merged from #135 to #2290.
 
 ## Summary
 
@@ -11,6 +11,11 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   limitations. 48 of 49 objectives have built exercises, eventstream errors has a recorded gap, and objectives that
   need Fabric complete only with Fabric runs. The Databricks track moves to PB-135 (In progress), because 7 of its 33
   objectives have neither an exercise nor a gap.
+- Morning check, 2026-11-09: 41 PRs merged after e5e6bec4 (nothing merged on 2026-11-08). 2 were product data and
+  docs audit PRs, and the other 39 were linked. Academy DP-700 gained three capstones (PB-128), and the last failing
+  Databricks SQL functions now run or are refused by name (PB-120). Local Delta's first-append race, slowdown from run
+  count and stores without limits are fixed (PB-099). Expired sign-ins, HTTPS inspection and the agent's install folder
+  are hardened (PB-124). The app works at 200% zoom and in Windows contrast themes (PB-063). No item changed state.
 - Evening check, 2026-11-07: 74 PRs merged after 56e3826b. 4 were product data PRs, and the other 70 were linked.
   Audit lines for Prod and confirmed actions are now written first, and the action doesn't run without one. An
   authorization matrix lists every state-changing call (PB-124). The Living Experience Home hero, Forge Activity view,

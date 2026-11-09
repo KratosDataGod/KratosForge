@@ -99,7 +99,8 @@ def test_a_databricks_function_with_no_check_is_probed(rows):
     notes = {r["name"]: r["note"] for r in rows}
     assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
     assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
-    assert status["from_xml"] == "fails"  # DuckDB has none and nothing writes it
+    assert status["from_xml"] == "refused"  # no XML reader here, said by name
+    assert [name for name, s in status.items() if s == "fails"] == []  # every function runs, differs, or is refused
 
 
 @pytest.mark.parametrize("code", [
@@ -679,3 +680,82 @@ def test_long_input_reads_and_errors_stay_short():
     with pytest.raises(ValueError, match=re.escape("[INVALID_VARIANT_CAST]")) as error:
         databricks_variant.variant_get("[" + ",".join(["1"] * 1000) + "]", "JSON", "[]", "int", False)
     assert len(str(error.value)) < 300
+
+
+_COUNTER = ("('http_requests', TIMESTAMP '2026-01-01T00:00:00', 100), ('http_requests', TIMESTAMP '2026-01-01T00:01:00', 200), "
+            "('http_requests', TIMESTAMP '2026-01-01T00:02:00', 400)")
+
+
+# Every example in Databricks' reference for these, with the value it shows (timestamps in UTC)
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT try_make_interval(100, 11)", [["interval:3138912000.0"]]),  # 100 years 11 months
+    ("SELECT CAST(try_make_interval(100, 11) AS STRING)", [["100 years 11 months"]]),
+    ("SELECT try_make_interval(0)", [["interval:0.0"]]),  # 0 seconds
+    ("SELECT try_make_interval(2147483647, 0)", [[None]]),
+    ("SELECT CAST(try_make_interval(1, 2, 1, 1, 12, 30, 01.001001) AS STRING)", [["1 year 2 months 8 days 12:30:01.001001"]]),
+    ("SELECT try_make_interval(NULL, 1)", [[None]]),
+    ("SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)", [["timestamp:2014-12-28T06:30:45.887000"]]),
+    ("SELECT try_make_timestamp(2014, 13, 28, 6, 30, 45.887)", [[None]]),
+    ("SELECT try_make_timestamp(DATE'2014-12-28', TIME'06:30:45.887')", [["timestamp:2014-12-28T06:30:45.887000"]]),
+    ("SELECT try_make_timestamp(DATE'2014-12-28')", [["timestamp:2014-12-28T00:00:00"]]),
+    ("SELECT try_make_timestamp(2014, 12, 28, 6, 30, 60)", [["timestamp:2014-12-28T06:31:00"]]),  # 60 s: next minute
+    ("SELECT string(timestamp_nanos(1230219000123456789))", [["2008-12-25 15:30:00.123456789"]]),
+    ("SELECT string(timestamp_nanos(-1.5))", [["1969-12-31 23:59:59.999999998"]]),  # a fraction rounds down
+    ("SELECT timestamp_nanos(NULL)", [[None]]),
+    ("SELECT unix_nanos(TIMESTAMP'1970-01-01 00:00:01.123456789Z')", [["decimal:1123456789"]]),
+    ("SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)", [["300000"]]),
+    ("SELECT octet_length(bitmap_and_agg(val)) FROM VALUES(x'F0'), (NULL), (x'30FF') AS T(val)", [[4096]]),
+    ("SELECT substring(hex(bitmap_and_agg(val)), 0, 4) FROM VALUES(x'F0'), (x'30FF') AS T(val)", [["3000"]]),
+    (f"SELECT m, t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER} AS tab(m, t, c)",
+     [["http_requests", "timestamp:2026-01-01T00:00:00", None], ["http_requests", "timestamp:2026-01-01T00:01:00", 100],
+      ["http_requests", "timestamp:2026-01-01T00:02:00", 200]]),
+    (f"SELECT t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER}, "
+     "('http_requests', TIMESTAMP '2026-01-01T00:04:00', 50) AS tab(m, t, c)",
+     [["timestamp:2026-01-01T00:00:00", None], ["timestamp:2026-01-01T00:01:00", 100],
+      ["timestamp:2026-01-01T00:02:00", 200], ["timestamp:2026-01-01T00:04:00", None]]),
+    ("SELECT t, counter_diff(c, st) OVER (PARTITION BY m ORDER BY t) FROM VALUES "
+     "('h', TIMESTAMP '2026-01-01T00:01:00', TIMESTAMP '2026-01-01T00:00:00', 100), "
+     "('h', TIMESTAMP '2026-01-01T00:02:00', TIMESTAMP '2026-01-01T00:00:00', 200), "
+     "('h', TIMESTAMP '2026-01-01T00:04:00', TIMESTAMP '2026-01-01T00:02:31', 400) AS tab(m, t, st, c)",
+     [["timestamp:2026-01-01T00:01:00", None], ["timestamp:2026-01-01T00:02:00", 100],
+      ["timestamp:2026-01-01T00:04:00", None]]),
+    # a NULL value gives NULL and is skipped; a NULL start_time doesn't reset
+    ("SELECT t, counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 10, TIMESTAMP '2026-01-01'), (2, NULL, NULL), "
+     "(3, 15, NULL), (4, 18, TIMESTAMP '2026-01-01') AS tab(t, c, st)", [[1, None], [2, None], [3, 5], [4, 3]]),
+])
+def test_databricks_time_bitmap_and_counter_examples_give_its_values(code, want):
+    assert _one(code) == want
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, -1) AS tab(t, c)", "[COUNTER_DIFF_NEGATIVE_COUNTER_VALUE]"),
+    ("SELECT counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 1, TIMESTAMP '2026-01-02'), "
+     "(2, 2, TIMESTAMP '2026-01-01') AS tab(t, c, st)", "[COUNTER_DIFF_START_TIME_DECREASED]"),
+])
+def test_counter_diff_stops_with_databricks_error_class(code, error):
+    with pytest.raises(duckdb.Error, match=re.escape(error)):
+        _one(code)
+
+
+@pytest.mark.parametrize(("code", "message"), [
+    ("SELECT counter_diff(1)", "[WINDOW_FUNCTION_WITHOUT_OVER_CLAUSE]"),
+    ("SELECT counter_diff(c) OVER (PARTITION BY t) FROM VALUES (1, 1) AS tab(t, c)", "[WINDOW_FUNCTION_FRAME_NOT_ORDERED]"),
+    ("SELECT try_reflect('java.util.UUID', 'randomUUID')", "runs no Java"),
+    ("SELECT from_xml('<p><a>1</a></p>', 'a INT')", "no XML reader"),
+    ("SELECT to_xml(named_struct('a', 1))", "no XML reader"),
+    ("SELECT schema_of_xml('<p><a>1</a></p>')", "no XML reader"),
+    ("SELECT schema_of_json_agg(j) FROM VALUES ('{\"a\": 1}') AS t(j)", "no merge"),
+    ("SELECT bitmap_and_agg(v) FILTER (WHERE v IS NOT NULL) FROM VALUES (x'01') AS t(v)", "plain aggregate"),
+])
+def test_these_stop_by_name_before_running(code, message):
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _one(code)
+
+
+@pytest.mark.parametrize(("code", "message"), [
+    ("SELECT timestamp_nanos(1e30)", "past the nanoseconds"),
+    ("SELECT bitmap_and_agg(v) FROM VALUES (CAST(NULL AS BINARY)) AS t(v)", "isn't documented"),
+])
+def test_these_stop_by_name_as_they_run(code, message):
+    with pytest.raises(duckdb.Error, match=re.escape(message)):
+        _one(code)

@@ -184,7 +184,7 @@
             "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
           ],
           "gaps": [],
-          "status": "planned",
+          "status": "in_progress",
           "earlier_wording": {
             "2026-05-04": "Understand the core components of the Databricks Data Intelligence Platform, such as its architecture, Delta Lake, and Unity Catalog."
           }
@@ -386,7 +386,7 @@
             "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         },
         {
           "id": "2.7",
@@ -408,7 +408,7 @@
             "https://docs.databricks.com/aws/en/query/formats/json"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         }
       ]
     },
@@ -732,7 +732,7 @@
             "https://docs.databricks.com/aws/en/jobs/triggers"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         }
       ]
     },

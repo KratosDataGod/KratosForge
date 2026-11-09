@@ -465,7 +465,9 @@ function whDeployGate(env, plan) {
 }
 
 async function whProjectDeploy(ref, project) {
-  if (!whChangesAllowed()) { toast("Warehouse changes are turned off. Turn them on in Settings > Advanced > SQL queries to deploy.", true); return; }
+  if (!whChangesAllowed()) { toast(["policy", "environment"].includes(state.settings?.sql_warehouse_writes?.source)
+    ? "Your organization has turned warehouse changes off, so this can't be deployed from here. Ask IT if you need it."
+    : "Warehouse changes are turned off. Turn them on in Settings > Advanced > SQL queries to deploy.", true); return; }
   if (!(await warehouseRunOk(ref))) return;
   toast(`Reading ${ref.name}'s catalog to plan the deploy...`);
   let plan;

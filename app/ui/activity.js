@@ -97,6 +97,7 @@ function friendlyError(err) {
   // file is never "Fabric couldn't find that item" and a local time limit is never "Couldn't reach Fabric".
   const engine = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
+    [/^The engine keeps stopping as it starts/, "The local engine keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes. Your files and settings are untouched. The details below say when it tries again and which files to send IT."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
     [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
   ];

@@ -3263,6 +3263,7 @@ test("friendlyError checks the engine first, then files on this PC, then Fabric'
   const cases = [
     ["The engine stopped answering, so KratosForge restarted it. (sql_page)", /stopped answering/],
     ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
+    ["The engine keeps stopping as it starts, so KratosForge has stopped starting it for now. The last time: 403 Forbidden", /keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes/],
     ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
     ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
     ["FileNotFoundError: The notebook nb_sales does not exist on this PC", /^The notebook nb_sales does not exist on this PC$/],

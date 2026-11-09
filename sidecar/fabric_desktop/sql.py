@@ -771,10 +771,13 @@ def _spark_cast_functions(statement: exp.Expression, legacy: bool = False) -> ex
 def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
     """Spark SQL and the DataFrame API only (ANSI off, as Fabric runs): int('1.9') is Spark's CAST, which
     gives 1. sqlglot reads Spark's CAST and :: as a TryCast, so a plain Cast came from a cast function
-    (int(x), double(x), ...); it becomes a TryCast before spark_fixes. Databricks SQL is ANSI and
+    (int(x), double(x), ...) or is a typed literal; a cast function's becomes a TryCast before spark_fixes. Databricks SQL is ANSI and
     doesn't use this. Casts to a timestamp are left to spark_legacy_times."""
     for node in list(statement.find_all(exp.Cast)):
-        if type(node) is exp.Cast and node.to.this not in _TIMESTAMPS:
+        # A typed literal (DATE '2026-13-01') is a Cast too, but Spark refuses a bad one even with ANSI off,
+        # so it stays a Cast. sqlglot tells them apart only by position: a cast function's Cast carries
+        # its name's place in the query (tests/test_spark_builtins_sql.py pins it).
+        if type(node) is exp.Cast and node.to.this not in _TIMESTAMPS and "start" in node.meta:
             replacement = exp.TryCast(this=node.this, to=node.to)
             if node is statement:
                 return replacement

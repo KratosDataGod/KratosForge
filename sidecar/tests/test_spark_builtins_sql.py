@@ -597,3 +597,19 @@ def test_binary_of_a_number_is_refused_not_guessed():
     """Spark writes a number's bytes (binary(12) is 0000000C); this PC stops and says so."""
     with pytest.raises(duckdb.Error, match="binary\\(\\) of type INTEGER can't run on this PC"):
         sql.run("SELECT binary(12)")
+
+
+def test_a_bad_typed_literal_still_stops_while_the_function_gives_null():
+    """Spark refuses DATE '2026-13-01' even with ANSI off; date('2026-02-30') is NULL there."""
+    with pytest.raises(duckdb.Error, match="out of range|Conversion"):
+        sql.run("SELECT DATE '2026-13-01'")
+    assert one("SELECT date('2026-02-30')") is None
+    assert one("SELECT DATE '2026-01-31'") == dt.date(2026, 1, 31)
+
+
+def test_sqlglot_marks_a_cast_function_but_not_a_typed_literal():
+    """spark_legacy_casts relies on this: only the function form's Cast carries its name's position."""
+    import sqlglot
+    literal = sqlglot.parse_one("SELECT DATE '2026-01-01'", read="spark").expressions[0]
+    function = sqlglot.parse_one("SELECT date('2026-01-01')", read="spark").expressions[0]
+    assert "start" not in literal.meta and "start" in function.meta

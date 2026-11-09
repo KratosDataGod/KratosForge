@@ -28,7 +28,9 @@ function sqlExplorerOpen() {
 function setSqlExplorerOpen(open) {
   try { localStorage.setItem(SQL_EXPLORER_KEY, open ? "open" : "closed"); } catch { /* kept until the page is drawn again */ }
   sqlPage.explorerOpen = open;
-  renderQuery();
+  // Shown or hidden in place, not drawn again, so the editor keeps its undo history, cursor and scroll.
+  for (const el of document.querySelectorAll(".sql-explorer")) el.hidden = !open;
+  for (const el of document.querySelectorAll(".sql-explorer-strip")) el.hidden = open;
   document.querySelector(open ? ".sql-explorer-hide" : ".sql-explorer-show")?.focus();
 }
 
@@ -38,8 +40,8 @@ function sqlExplorerHide() {
     { "aria-label": "Collapse the Explorer", title: "Collapse the Explorer", "aria-expanded": "true" });
 }
 
-function sqlExplorerStrip() {
-  return h("aside", { class: "explorer sql-explorer-strip", "aria-label": "Explorer" },
+function sqlExplorerStrip(open) {
+  return h("aside", { class: "sql-explorer-strip", "aria-label": "Explorer", hidden: open },
     btn("", "panel", () => setSqlExplorerOpen(true), "tool small sql-explorer-show",
       { "aria-label": "Expand the Explorer", title: "Expand the Explorer", "aria-expanded": "false" }));
 }
@@ -1062,7 +1064,7 @@ function renderQuery() {
         whChangesTicked(ref) ? "Runs in Fabric · uses capacity · changes after you confirm" : "Runs in Fabric · uses capacity · reads only"),
       learnMore("warehouse-queries-preview"))),
     h("div", { class: "nb-body" },
-      !explorerOpen ? sqlExplorerStrip() : h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views-head" },
+      sqlExplorerStrip(explorerOpen), h("aside", { class: "explorer sql-explorer", hidden: !explorerOpen }, h("div", { class: "explorer-head sql-views-head" },
         h("div", { class: "sql-views", role: "tablist", "aria-label": "Explorer views" },
           asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History"), whProj ? asideTab("project", "Project") : null),
         sqlExplorerHide()),
@@ -1095,7 +1097,7 @@ function renderQuery() {
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
-      !explorerOpen ? sqlExplorerStrip() : h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
+      sqlExplorerStrip(explorerOpen), h("aside", { class: "explorer sql-explorer", hidden: !explorerOpen }, h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
         h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
           h("span", { class: "label" }, ref.name)),
         tablesBox),

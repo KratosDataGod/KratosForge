@@ -96,6 +96,11 @@ test("the SQL page's Explorer collapses, expands and remembers the choice", { sk
   await page().setViewportSize(TALL);
   await page().evaluate((lh) => { localStorage.removeItem("fd.sql.explorer"); sqlPage.ref = null; openSqlQuery(lh); }, LH);
   await page().locator(".sql-edit .cm-editor").waitFor();
+  // An edit in the query, so collapsing can be shown to keep the editor (its undo history and scroll) as it was.
+  await page().evaluate(() => { window.__editorBefore = sqlPage.editor; });
+  await page().locator(".sql-edit .cm-content").click();
+  await page().keyboard.press("Control+End");
+  await page().keyboard.type("SELECT 1");
   const hide = page().getByRole("button", { name: "Collapse the Explorer" });
   assert.strictEqual(await hide.getAttribute("aria-expanded"), "true");
   await hide.click();
@@ -103,7 +108,12 @@ test("the SQL page's Explorer collapses, expands and remembers the choice", { sk
   await show.waitFor();
   assert.strictEqual(await show.getAttribute("aria-expanded"), "false");
   assert.ok(await show.evaluate((b) => document.activeElement === b), "focus was lost when the Explorer collapsed");
-  assert.strictEqual(await page().locator("aside.explorer .explorer-content").count(), 0, "the tables still show");
+  assert.strictEqual(await page().locator("aside.explorer .explorer-content").isVisible(), false, "the tables still show");
+  assert.ok(await page().evaluate(() => sqlPage.editor === window.__editorBefore && sqlPage.editor.view?.dom.isConnected !== false),
+    "collapsing the Explorer drew the editor again");
+  await page().locator(".sql-edit .cm-content").click();
+  await page().keyboard.press("Control+z");
+  assert.ok(!(await page().locator(".sql-edit .cm-content").textContent()).includes("SELECT 1"), "undo history was lost");
   const strip = await page().locator("aside.sql-explorer-strip").boundingBox();
   assert.ok(strip.width <= 40, `the strip is ${strip.width} px wide`);
   assert.strictEqual(await page().evaluate(() => localStorage.getItem("fd.sql.explorer")), "closed");

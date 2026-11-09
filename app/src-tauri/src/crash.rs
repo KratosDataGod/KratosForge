@@ -142,42 +142,11 @@ pub const MESSAGE_CAP: usize = 1024;
 /// (`eyJ...` and whatever follows `Bearer`), the values of secret-named settings (`password=`, `sig=`,
 /// `AccountKey=`...), ids (GUIDs) and the user name in `\Users\<name>\` paths. Then cut to [`MESSAGE_CAP`].
 pub fn scrub(message: &str) -> String {
-    const SECRET_KEYS: [&str; 9] = ["password", "pwd", "secret", "token", "sig", "key", "credential", "auth", "code"];
-    let is_cut = |c: char| c.is_whitespace() || "\"'`;&?,()[]{}<>|".contains(c);
-    let mut out = String::new();
-    let mut after_bearer = false;
-    let mut rest = message;
-    while !rest.is_empty() {
-        let end = rest.find(is_cut).unwrap_or(rest.len());
-        let (word, tail) = rest.split_at(end);
-        if !word.is_empty() {
-            let lower = word.to_ascii_lowercase();
-            let guid = word.len() >= 36 && word.split('-').map(str::len).collect::<Vec<_>>().ends_with(&[8, 4, 4, 4, 12])
-                && word.chars().all(|c| c.is_ascii_hexdigit() || c == '-' || c == ':' || c == '/');
-            let scrubbed = if after_bearer || word.starts_with("eyJ") {
-                "<token>".to_string()
-            } else if word.contains('@') && word.rsplit('@').next().is_some_and(|d| d.contains('.')) {
-                "<email>".to_string()
-            } else if guid {
-                "<id>".to_string()
-            } else if let Some((key, _)) = word.split_once('=').filter(|(k, _)| SECRET_KEYS.iter().any(|s| k.to_ascii_lowercase().contains(s))) {
-                format!("{key}=<removed>")
-            } else if let Some(at) = lower.find("users\\").or_else(|| lower.find("users/")) {
-                let (head, user) = word.split_at(at + 6);
-                let after = user.find(['\\', '/']).map_or("", |i| &user[i..]);
-                format!("{head}<user>{after}")
-            } else {
-                word.to_string()
-            };
-            after_bearer = lower == "bearer";
-            out.push_str(&scrubbed);
-        }
-        let mut chars = tail.chars();
-        if let Some(c) = chars.next() {
-            out.push(c);
-        }
-        rest = chars.as_str();
-    }
+    let mut out = user_names(message);
+    out = replace_runs(&out, |s, i| guid_at(s, i).then_some(36), "<id>");
+    out = replace_runs(&out, |s, i| s[i..].starts_with("eyJ").then(|| run(s, i, |c| c.is_ascii_alphanumeric() || "-_.".contains(c))), "<token>");
+    out = secret_values(&out);
+    out = emails(&out);
     if out.len() > MESSAGE_CAP {
         let mut cut = MESSAGE_CAP;
         while !out.is_char_boundary(cut) {
@@ -185,6 +154,110 @@ pub fn scrub(message: &str) -> String {
         }
         out.truncate(cut);
         out.push_str(" (cut)");
+    }
+    out
+}
+
+/// Bytes from `i` while `keep` holds.
+fn run(s: &str, i: usize, keep: impl Fn(char) -> bool) -> usize {
+    s[i..].find(|c: char| !keep(c)).unwrap_or(s.len() - i)
+}
+
+/// Every place where `at` finds a match (its length in bytes) replaced by `with`, scanning left to right.
+fn replace_runs(s: &str, at: impl Fn(&str, usize) -> Option<usize>, with: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if let Some(len) = at(s, i).filter(|&l| l > 0) {
+            out.push_str(with);
+            i += len;
+        } else {
+            let c = s[i..].chars().next().expect("in bounds");
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
+/// A GUID (8-4-4-4-12 hex) starting at byte `i`, not part of a longer run of hex.
+fn guid_at(s: &str, i: usize) -> bool {
+    let b = s.as_bytes();
+    if i + 36 > b.len() || (i > 0 && b[i - 1].is_ascii_hexdigit()) || b.get(i + 36).is_some_and(u8::is_ascii_hexdigit) {
+        return false;
+    }
+    b[i..i + 36].iter().enumerate().all(|(n, c)| if [8, 13, 18, 23].contains(&n) { *c == b'-' } else { c.is_ascii_hexdigit() })
+}
+
+/// The folder after `Users\` or `Users/`, to the next separator: a user name can have spaces in it.
+fn user_names(s: &str) -> String {
+    let lower = s.to_ascii_lowercase();
+    let mut out = String::new();
+    let mut i = 0;
+    while let Some(found) = ["users\\", "users/"].iter().filter_map(|p| lower[i..].find(p).map(|at| i + at + p.len())).min() {
+        let name = run(s, found, |c| !"\\/\r\n\"'`".contains(c));
+        out.push_str(&s[i..found]);
+        out.push_str("<user>");
+        i = found + name;
+    }
+    out.push_str(&s[i..]);
+    out
+}
+
+/// The value after a secret-named key (`password`, `sig`, `AccountKey`, `token:`...) and after `Bearer`,
+/// whatever the spaces around its `=` or `:`.
+fn secret_values(s: &str) -> String {
+    const SECRET_KEYS: [&str; 9] = ["password", "pwd", "secret", "token", "sig", "key", "credential", "auth", "code"];
+    let mut out = String::new();
+    let mut i = 0;
+    while i < s.len() {
+        let word = run(s, i, |c| c.is_ascii_alphanumeric() || c == '_');
+        if word == 0 {
+            let c = s[i..].chars().next().expect("in bounds");
+            out.push(c);
+            i += c.len_utf8();
+            continue;
+        }
+        let key = &s[i..i + word];
+        out.push_str(key);
+        i += word;
+        let lower = key.to_ascii_lowercase();
+        let gap = run(s, i, |c| c == ' ' || c == '\t');
+        let sep = s[i + gap..].chars().next().filter(|c| *c == '=' || *c == ':');
+        let value_at = if lower == "bearer" && gap > 0 {
+            Some(i + gap)
+        } else if sep.is_some() && SECRET_KEYS.iter().any(|k| lower.contains(k)) {
+            Some(i + gap + 1 + run(s, i + gap + 1, |c| c == ' ' || c == '\t'))
+        } else {
+            None
+        };
+        if let Some(at) = value_at {
+            let value = run(s, at, |c| !c.is_whitespace() && !";&,\"'`)]}".contains(c));
+            if value > 0 {
+                out.push_str(&s[i..at]);
+                out.push_str(if lower == "bearer" { "<token>" } else { "<removed>" });
+                i = at + value;
+            }
+        }
+    }
+    out
+}
+
+/// Email addresses: a word with an `@` and a dot after it.
+fn emails(s: &str) -> String {
+    let is_cut = |c: char| c.is_whitespace() || "\"'`;&?,()[]{}<>|:=/\\".contains(c);
+    let mut out = String::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        let end = rest.find(is_cut).unwrap_or(rest.len());
+        let (word, tail) = rest.split_at(end);
+        let email = word.split_once('@').is_some_and(|(user, domain)| !user.is_empty() && domain.contains('.'));
+        out.push_str(if email { "<email>" } else { word });
+        let mut chars = tail.chars();
+        if let Some(c) = chars.next() {
+            out.push(c);
+        }
+        rest = chars.as_str();
     }
     out
 }
@@ -304,13 +377,16 @@ mod tests {
         let planted = "failed for ann.lee@contoso.com with Bearer abcdefghijklmnop0123 and eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln \
             at https://acct.blob.core.windows.net/c?sv=2024&sig=SECRETSIGNATUREVALUE123 \
             Server=x;Password=Hunter2Secret!;AccountKey=QUJDREVG== tenant 72f988bf-86f1-41af-91ab-2d7cd011db47 \
-            path C:\\Users\\Ann.Lee\\AppData\\Local\\x.py and /home/x/Users/bob/y";
+            path C:\\Users\\Ann.Lee\\AppData\\Local\\x.py and /home/x/Users/bob/y \
+            url /v1/workspaces/0a1b2c3d-1111-2222-3333-444455556666/items token:eyJsecondtoken AccountKey = SPACEDKEYVALUE \
+            and C:\\Users\\Ann Lee\\Documents";
         let out = scrub(planted);
-        for leaked in ["ann.lee@", "abcdefghijklmnop0123", "eyJ", "SECRETSIGNATUREVALUE123", "Hunter2Secret!", "QUJDREVG", "72f988bf", "Ann.Lee", "bob"] {
+        for leaked in ["ann.lee@", "abcdefghijklmnop0123", "eyJ", "SECRETSIGNATUREVALUE123", "Hunter2Secret!", "QUJDREVG", "72f988bf", "Ann.Lee", "bob", "0a1b2c3d", "SPACEDKEYVALUE", "Lee"] {
             assert!(!out.contains(leaked), "{leaked} in {out}");
         }
         assert!(out.contains("Bearer <token>") && out.contains("sig=<removed>") && out.contains("Password=<removed>"), "{out}");
-        assert!(out.contains("Users\\<user>\\AppData") && out.contains("tenant <id>"), "{out}");
+        assert!(out.contains("Users\\<user>\\AppData") && out.contains("tenant <id>") && out.contains("Users\\<user>\\Documents"), "{out}");
+        assert!(out.contains("/workspaces/<id>/items") && out.contains("token:<removed>") && out.contains("AccountKey = <removed>"), "{out}");
         assert_eq!(scrub("called `Option::unwrap()` on a `None` value"), "called `Option::unwrap()` on a `None` value");
         let long = scrub(&"é".repeat(2000));
         assert!(long.len() <= MESSAGE_CAP + 6 && long.ends_with(" (cut)"));

@@ -241,6 +241,55 @@ def _ip(name: str, args: list[exp.Expression]) -> exp.Expression | None:
     return _template(sql, a=args[0])
 
 
+# Byte-level strings: a DuckDB VARCHAR is always UTF-8, so the bytes come from hex(), which gives a STRING's
+# UTF-8 bytes and a BINARY's own; databricks_bytes has the ones DuckDB has no function for
+_UTF8 = "TRY(decode(unhex(hex(_a))))"
+_STRINGS = {
+    "is_valid_utf8": f"CASE WHEN _a IS NULL THEN NULL ELSE {_UTF8} IS NOT NULL END",
+    "try_validate_utf8": _UTF8,
+    "validate_utf8": f"CASE WHEN _a IS NULL THEN NULL WHEN {_UTF8} IS NULL THEN error('[INVALID_UTF8_STRING] "
+                     "validate_utf8() got bytes that aren''t valid UTF-8; try_validate_utf8 gives NULL for them, "
+                     "and make_valid_utf8 replaces them.') ELSE decode(unhex(hex(_a))) END",
+    "make_valid_utf8": "__kf_make_valid_utf8(hex(_a))",
+    "url_decode": "__kf_url_decode(_a, false)",
+    "try_url_decode": "__kf_url_decode(_a, true)",
+}
+_ZSTD = ("zstd_compress", "zstd_decompress", "try_zstd_decompress")
+_INTEGERS = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT, exp.DataType.Type.BIGINT)
+
+
+def _hmac(args: list[exp.Expression]) -> exp.Expression:
+    _arity("hmac", args, 2, 3)
+    algorithm = args[2] if len(args) == 3 else exp.Literal.string("SHA-256")
+    return _template("unhex(__kf_hmac(hex(_a), hex(_b), _c))", a=args[0], b=args[1], c=algorithm)
+
+
+def _bit_reverse(args: list[exp.Expression]) -> exp.Expression:
+    """bit_reverse, in the argument's own type where it shows as written (64Y, CAST(x AS SMALLINT), -2),
+    and BIGINT otherwise, since a DuckDB function has one result type."""
+    _arity("bit_reverse", args, 1, 1)
+    value = args[0]
+    call = _template("__kf_bit_reverse(typeof(_a), _a)", a=value)
+    bare = value.this if isinstance(value, exp.Neg) else value
+    if isinstance(value, exp.Cast) and value.to.this in _INTEGERS:
+        return exp.cast(call, value.to.copy())
+    if isinstance(bare, exp.Literal) and not bare.is_string and bare.this.isdigit() and int(bare.this) < 2**31:
+        return exp.cast(call, "INT")
+    return call
+
+
+def _collate(node: exp.Collate) -> exp.Expression:
+    """UTF8_BINARY is how DuckDB compares already, and UTF8_LCASE (lower case, then byte by byte) is its
+    NOCASE; the ICU ones (UNICODE, a language, _CI, _AI, _RTRIM) order and match another way."""
+    name = node.expression.name.upper()
+    if name == "UTF8_BINARY":
+        return node.this
+    if name == "UTF8_LCASE":
+        return exp.Collate(this=node.this, expression=exp.var("NOCASE"))
+    raise _refusal("collate", f"it compares by the {name} collation, and this PC has UTF8_BINARY and "
+                              "UTF8_LCASE only.", "use UTF8_LCASE, or lower() on both sides")
+
+
 # Element-wise aggregates over vectors: DuckDB has no aggregate that sums lists element by element.
 _VECTOR_AGGREGATES = {"vector_sum", "vector_avg"}
 
@@ -281,6 +330,16 @@ def _function(node: exp.Anonymous) -> exp.Expression:
         raise ValueError("timediff() takes a unit first, as in timediff(HOUR, start, end).")
     if name.startswith(("ip_", "try_ip_")):
         return _ip(name, args) or node
+    if name in _STRINGS:
+        _arity(name, args, 1, 1)
+        return exp.paren(_template(_STRINGS[name], a=args[0]))
+    if name == "hmac":
+        return _hmac(args)
+    if name == "bit_reverse":
+        return _bit_reverse(args)
+    if name in _ZSTD:
+        raise _refusal(name, "this PC has no Zstandard codec.", "use base64 or hex for text that has to "
+                                                                "travel as bytes")
     if name in _VECTOR_AGGREGATES:
         raise _refusal(name, "DuckDB has no aggregate that adds vectors element by element.",
                        "posexplode the vectors and GROUP BY the position")
@@ -298,7 +357,8 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
                                  "same way.", instead)
 
     # innermost first, so a call inside another's arguments is written before the outer one copies them
-    for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, bfs=False))):
+    for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate,
+                                                   bfs=False))):
         written = _written(call)
         if written is not None:
             if call.parent is None:  # the statement itself
@@ -313,6 +373,8 @@ def _written(call: exp.Expr) -> exp.Expression | None:
         return _time_diff(call)
     if isinstance(call, exp.TimeTrunc):
         return _time_trunc(call)
+    if isinstance(call, exp.Collate):
+        return _collate(call)
     if isinstance(call, exp.Anonymous):
         written = _function(call)
         return None if written is call else written

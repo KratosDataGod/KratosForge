@@ -136,6 +136,7 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
     trail.add_argument("--export", metavar="FILE", help="copy the trail to FILE with a manifest IT can check on its own")
     trail.add_argument("--since", default="", help="with --export: from this date (YYYY-MM-DD) or time on")
+    trail.add_argument("--replace", action="store_true", help="with --export: replace an earlier export of that name")
     trail.add_argument("--verify-export", metavar="FILE", help="check an export and its manifest; with --folder, "
                                                                 "also that its lines are that trail's own; exit 1 if not")
     p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
@@ -924,10 +925,17 @@ def _audit(args: argparse.Namespace) -> int:
         return 0 if result["ok"] else 1
     if args.export:
         try:
-            print(json.dumps(audit_chain.export(folder, Path(args.export), args.since), indent=2))
+            made = audit_chain.export(folder, Path(args.export), args.since, replace=args.replace)
         except ValueError as exc:
             print(exc, file=sys.stderr)
             return 2
+        if not args.folder:  # this PC's trail records that a copy of it was taken (after the copy, so not in it)
+            try:
+                AuditLog(folder).record("audit_export", "ok", 0.0, {"since": args.since, "lines": made["lines"],
+                                                                    "sha256": made["sha256"]})
+            except Exception as exc:  # noqa: BLE001 - the copy is made; say the line is missing
+                print(f"audit: could not record the export: {type(exc).__name__}", file=sys.stderr)
+        print(json.dumps(made, indent=2))
         return 0
     log = AuditLog(folder)
     if args.verify:

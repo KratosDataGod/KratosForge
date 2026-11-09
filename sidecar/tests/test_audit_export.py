@@ -119,3 +119,36 @@ def test_an_export_into_the_audit_folder_is_refused_and_the_trail_is_untouched(t
         audit_chain.export(trail, trail / where, since="2026-11-02")
     assert {p.name: p.read_bytes() for p in trail.iterdir()} == before
     assert audit_chain.verify(trail)["ok"]
+
+
+def test_an_earlier_export_is_kept_unless_replaced_on_purpose(trail, tmp_path):
+    out = tmp_path / "audit-export.jsonl"
+    audit_chain.export(trail, out, since="2026-11-03")
+    with pytest.raises(ValueError, match="there already"):
+        audit_chain.export(trail, out)
+    assert audit_chain.verify_export(out)["lines"] == 1
+    assert audit_chain.export(trail, out, replace=True)["lines"] == 5
+
+
+@pytest.mark.parametrize("since", ["yesterday", "11/09/2026", "2026-13-01"])
+def test_a_since_that_isnt_a_date_is_refused(trail, tmp_path, since):
+    with pytest.raises(ValueError, match="isn't a date"):
+        audit_chain.export(trail, tmp_path / "x.jsonl", since=since)
+    assert not (tmp_path / "x.jsonl").exists()
+
+
+def test_exporting_this_pcs_trail_is_itself_recorded_after_the_copy(tmp_path):
+    import os
+
+    from fabric_desktop.audit import AuditLog
+    env = {**os.environ, "LOCALAPPDATA": str(tmp_path / "appdata")}
+    folder = tmp_path / "appdata" / "FabricDesktop" / "audit"
+    AuditLog(folder).record("meta_promote", "ok", 1.0, {"env": "prod"})
+    out = tmp_path / "audit-export.jsonl"
+    run = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "audit", "--export", str(out)],
+                         capture_output=True, text=True, env=env)
+    assert run.returncode == 0, run.stderr
+    assert [json.loads(line)["action"] for line in _lines(out)] == ["meta_promote"]  # the copy doesn't hold its own line
+    (line,) = AuditLog(folder).recent(1, "audit_export")
+    assert line["target"] == {"since": "", "lines": 1, "sha256": json.loads(run.stdout)["sha256"]}
+    assert AuditLog(folder).verify()["ok"] and audit_chain.verify_export(out, folder)["ok"]

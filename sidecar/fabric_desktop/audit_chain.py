@@ -17,6 +17,7 @@ an attacker with write access.
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -197,7 +198,7 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def export(folder: Path, out: Path, since: str = "") -> dict[str, Any]:
+def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> dict[str, Any]:
     """Copy the trail, from the first line at or after ``since`` (an ISO date or time; all of it when
     empty) to the newest, into ``out``, and write ``<out>.manifest.json`` beside it. The lines are
     copied as they are and without gaps, so the copy is a chain of its own: its first line's ``prev``
@@ -209,6 +210,14 @@ def export(folder: Path, out: Path, since: str = "") -> dict[str, Any]:
         if path.resolve() == inside or inside in path.resolve().parents:
             # A copy in the trail's own folder would replace a month's file or be read as part of the trail.
             raise ValueError(f"Save the export outside the audit folder ({folder}): a file there is part of the trail")
+    if not replace and (out.exists() or manifest_path(out).exists()):
+        raise ValueError(f"{out} is there already: choose another name, or replace it on purpose")
+    if since:
+        try:
+            dt.datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError(f"--since {since!r} isn't a date: use YYYY-MM-DD, or a time such as "
+                             "2026-11-01T09:00:00+00:00") from None
     lines: list[str] = []
     with locked(folder):  # a still copy: no line lands half-way through
         for path in files(folder):

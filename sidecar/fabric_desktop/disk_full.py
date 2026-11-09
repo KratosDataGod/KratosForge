@@ -114,11 +114,12 @@ def _inside(name: object, folder: Path) -> bool:
         return False
 
 
-def data_folder_message(folder: str | Path, exc: BaseException, outcome: str = "so this wasn't saved") -> str | None:
+def data_folder_message(folder: str | Path, exc: BaseException, outcome: str = "so this wasn't saved",
+                        then: str = "try again") -> str | None:
     """The message for a failure to write the app's own data folder, or None when ``exc`` is
     something else. A full disk anywhere counts; a refusal counts only when it names a file in
     ``folder``, since a refused export or OneLake call is that place's, not the profile's. ``outcome``
-    says what that meant ("so this wasn't saved")."""
+    says what that meant ("so this wasn't saved") and ``then`` what to do once there is room ("try again")."""
     folder = Path(folder)
     if any("the disk is full" in str(e).lower() for e in _chain(exc)):
         return None  # the caller already said so, in its own words
@@ -126,7 +127,7 @@ def data_folder_message(folder: str | Path, exc: BaseException, outcome: str = "
         name = next((getattr(e, "filename", None) for e in _chain(exc) if getattr(e, "filename", None)), None)
         where = free_space(name if isinstance(name, (str, Path)) else folder)
         return (f"The disk is full{f' ({where})' if where else ''}, {outcome}. "
-                "Free some space and try again. On a shared or virtual desktop, ask IT to make your profile disk bigger.")
+                f"Free some space, then {then}. On a shared or virtual desktop, ask IT to make your profile disk bigger.")
     if is_unwritable(exc) and any(_inside(getattr(e, "filename", None), folder) for e in _chain(exc)):
         return (f"Windows won't let KratosForge write to its data folder ({folder}), {outcome}. "
                 "On a shared or virtual desktop the profile disk may be attached read-only; sign out and in again, "

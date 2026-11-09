@@ -557,8 +557,9 @@ def main() -> None:
     except OSError as exc:
         # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
         # engine can't save anything, so every call says why rather than the engine ending unexplained.
-        reason = OSError(disk_full.data_folder_message(data_dir(), exc, "so KratosForge can't open its data")
-                         or f"KratosForge can't write to its data folder ({data_dir()}): {exc}")
+        reason = OSError(disk_full.data_folder_message(data_dir(), exc, "so KratosForge can't open its data",
+                                                    "restart KratosForge")
+                         or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
         print(f"engine: {reason}", file=sys.stderr)
         serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
         return

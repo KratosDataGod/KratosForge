@@ -18,7 +18,9 @@ from fabric_desktop import disk_full, server
 def test_a_full_disk_says_so_and_what_to_do(tmp_path):
     exc = OSError(errno.ENOSPC, "No space left on device", str(tmp_path / "settings.json"))
     text = disk_full.data_folder_message(tmp_path, exc)
-    assert text and text.startswith("The disk is full") and "Free some space" in text
+    assert text and text.startswith("The disk is full") and "Free some space, then try again" in text
+    at_start = disk_full.data_folder_message(tmp_path, exc, "so KratosForge can't open its data", "restart KratosForge")
+    assert at_start and "then restart KratosForge" in at_start
 
 
 def test_a_message_that_already_says_the_disk_is_full_is_left_alone(tmp_path):
@@ -65,4 +67,5 @@ def test_an_engine_that_cant_write_its_data_folder_answers_instead_of_ending(tmp
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert replies and replies[0]["id"] == 1
     assert "can't write to its data folder" in replies[0]["error"]
+    assert "Restart KratosForge" in replies[0]["error"]  # it stays refused until then
     assert "Traceback" not in proc.stderr

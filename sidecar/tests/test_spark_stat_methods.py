@@ -108,3 +108,16 @@ def test_a_seeded_sampleby_keeps_the_same_rows(kernel):
                             "print(a == b, 30 < sum(i % 3 == 0 for i in a) < 110, sum(i % 3 == 2 for i in a), "
                             "any(i % 3 == 1 for i in a))")
     assert text.strip() == "True True 333 False"
+
+
+def test_a_seeded_sampleby_and_randomsplit_keep_the_same_rows_across_row_groups(kernel):
+    # 300,000 rows span several of DuckDB's 122,880-row groups, read in parallel
+    text = _printed(kernel, "from pyspark.sql import functions as F\n"
+                            "s = spark.range(300000).withColumn('key', (F.col('id') % 2).cast('int'))\n"
+                            "runs = [s.sampleBy('key', {0: 0.3, 1: 0.6}, seed=11).agg(F.count('*'), F.sum('id')).collect()[0] "
+                            "for _ in range(3)]\n"
+                            "print(len(set(map(tuple, runs))) == 1)\n"
+                            "parts = [[p.agg(F.count('*'), F.sum('id')).collect()[0] for p in s.randomSplit([0.4, 0.6], 5)] "
+                            "for _ in range(3)]\n"
+                            "print(len({tuple(map(tuple, p)) for p in parts}) == 1, sum(r[0] for r in parts[0]) == 300000)")
+    assert text.splitlines() == ["True", "True True"]

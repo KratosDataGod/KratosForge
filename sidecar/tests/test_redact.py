@@ -71,9 +71,10 @@ def test_agent_log_lines_with_quotes_leak_nothing(message, secret):
 
 def test_agent_log_fields_named_like_secrets_are_blanked():
     raw = _log_line("connecting", password="plain words", job_id="j1", attempt=2,
-                    conn={"Connection_String": "Server=x;Pwd2=y", "API-Key": "k1", "secrets_ignored": 3})
+                    conn={"Connection_String": "Server=x;Pwd2=y", "API-Key": "fake-api-key-1", "secrets_ignored": 3})
     line = json.loads(raw)
-    assert "plain words" not in raw and "Server=x" not in raw and "k1" not in raw
+    # A value no runner's hostname or path can hold: the line also carries the host's name.
+    assert "plain words" not in raw and "Server=x" not in raw and "fake-api-key-1" not in raw
     assert line["password"] == line["conn"]["Connection_String"] == line["conn"]["API-Key"] == "[removed]"
     assert line["job_id"] == "j1" and line["attempt"] == 2 and line["conn"]["secrets_ignored"] == 3
 

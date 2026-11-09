@@ -9,6 +9,9 @@ const { playwright, openApp } = require("./harness.cjs");
 const skip = !playwright && "Playwright is not installed";
 const SHOTS = process.env.SCREENSHOT_DIR;
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+// "Today" counts runs by when they ended, so a finished fixture never starts before local midnight:
+// run just after midnight, ago(30) would land on yesterday and count nowhere.
+const todayAgo = (min) => new Date(Math.max(Date.now() - min * 60000, new Date().setHours(0, 0, 0, 0))).toISOString();
 let level = 2;
 let meta = [];
 let cloud = [];
@@ -19,8 +22,8 @@ const RUNNING_META = [
   { run_id: "m3", env: "dev", entity: "gold.sales", status: "running", started_at: ago(7), seconds: null, rows_written: null },
 ];
 const DONE_META = [
-  { run_id: "d1", env: "dev", entity: "silver.customers", status: "ok", started_at: ago(30), seconds: 72, rows_written: 48210 },
-  { run_id: "d2", env: "dev", entity: "gold.dim_customer", status: "failed", started_at: ago(40), seconds: 22, rows_written: 0, message: "table not found" },
+  { run_id: "d1", env: "dev", entity: "silver.customers", status: "ok", started_at: todayAgo(30), seconds: 72, rows_written: 48210 },
+  { run_id: "d2", env: "dev", entity: "gold.dim_customer", status: "failed", started_at: todayAgo(40), seconds: 22, rows_written: 0, message: "table not found" },
 ];
 const FABRIC_RUNNING = [{ job_id: "j1", name: "Daily close", kind: "Pipeline", status: "InProgress", started_at: ago(6), env: "prod" }];
 
@@ -130,7 +133,7 @@ test("a failure cools the forge without a made-up bar, never replays on opening,
   for (const name of ["forge.run.failed", "forge.run.succeeded"]) assert.strictEqual(after[name] || 0, before[name] || 0, `${name} replayed`);
   // The forge is at rest: nothing ticks.
   assert.strictEqual(await page().evaluate(() => forgeActivity.timer), 0, "the band ticks at rest");
-  meta = [DONE_META[0]];  // finished half an hour ago
+  meta = [{ ...DONE_META[0], started_at: ago(30) }];  // finished half an hour ago, whatever the hour
   await open();
   assert.strictEqual(await page().locator(".forge-band").getAttribute("data-state"), "idle");
   assert.match(await page().locator(".forge-band").innerText(), /THE FORGE IS QUIET[\s\S]*Nothing is running/);

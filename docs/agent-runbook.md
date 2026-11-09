@@ -92,7 +92,31 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Check first.** Read every line of the message; it names the key and shows a valid value.
 
+A stop before the agent's own log starts is also kept in `<home>/logs/agent-start.log` (the default home when `agent.toml` can't be read), since Task Scheduler keeps only the exit code; see [The agent stopped as it started](#the-agent-stopped-as-it-started).
+
 **Recover.** Fix `agent.toml` and start the agent again. Until it starts, its schedules don't run. Other agents and the app report it as [offline](#agent-offline) once its last status record goes stale.
+
+### The agent stopped as it started
+
+- **Message** (`agent_start.py`, `agent-start.log`): `<time> agent run stopped: stage=<stage> exit=<code> version=<version>`
+- **Message** (`cli.py`, log): `agent stopped by an error`
+
+**Means.** `agent run` stopped before or as it started. Task Scheduler shows only "the task ended with code 2" (or 1) and restarts it every minute, so each stop adds an entry to `logs/agent-start.log` in the agent's home: when (UTC), the stage, the exit code, the version and the reason, made log-safe. `settings` is an `agent.toml` problem, `data` is a home written by a newer version, `start` is a refusal such as [another agent using the control folder](#another-agent-is-using-the-control-folder), and `crash` is an error nobody expected, with the files and lines it went through (no values). When `agent.toml` couldn't be read, the entry is in the default home (`%ProgramData%\FabricDesktop\agent`). The file stays under 256 KB and is never sent anywhere.
+
+**Check first.** Read the newest entry: its stage says which section below applies. For `crash`, `agent.log` has the same error with its stack.
+
+**Recover.** Fix what the entry names, then let Task Scheduler start it again or start the task by hand. Send `agent-start.log` with `agent.log` when you report a crash.
+
+### Another agent is using the control folder
+
+- **Message** (`mailbox.py`, at start): `The control folder <folder> is already in use by <agent>. Only one agent can work in a local control folder: two would take each other's requests. Stop that agent first, or give this one a different environment.`
+- **Message** (`agent.py`, log): `agent not started: <message>`
+
+**Means.** The agent was pointed at a local environment whose control folder (`.local/<env>/_control` in the project) another running agent already works in, so it didn't start. The message names the agent holding it, its process id and machine when they can be read. Agents on OneLake environments share `LH_Meta` safely and are never refused. The hold is the operating system's file lock on `_control/agent.lock`: it goes when that agent stops, even when it is ended with Task Manager, so a crashed agent never leaves a folder held.
+
+**Check first.** Is a second copy of the agent running on this PC, for example one started by hand while the service runs? Do two `agent.toml` files name the same project and environment?
+
+**Recover.** Stop the agent the message names, or give this agent a different environment. Then start it again. Deleting `agent.lock` doesn't help: the lock is on the open file, not on the file being there.
 
 ### The job queue file couldn't be read
 

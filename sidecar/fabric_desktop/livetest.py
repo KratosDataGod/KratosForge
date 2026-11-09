@@ -245,7 +245,7 @@ class LiveTest:
         try:
             check.detail = fn() or ""
             check.status = "passed"
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             check.status = "failed"
             check.detail = scrub(f"{type(exc).__name__}: {exc}")
         check.seconds = round(self.clock() - start, 3)
@@ -477,7 +477,7 @@ class LiveTest:
 
             try:  # a lost commit race is tried again: 3 tries, waiting 1 s then 2 s
                 retrying.retry_call(once, _commit_conflict, 3, lambda tries: tries, self.sleep)
-            except Exception as exc:  # recorded as the check's failure below
+            except Exception as exc:  # noqa: BLE001 - recorded as the check's failure below
                 errors[name] = f"{type(exc).__name__}: {exc}"
 
         threads = [threading.Thread(target=writer, args=(name, first), daemon=True)
@@ -787,7 +787,7 @@ def _ipynb_cells(definition: dict[str, Any]) -> list[tuple[str, str]]:
 def _safe(fn: Callable[[], Any]) -> str:
     try:
         return str(fn() or "")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a detail is optional in the report; logged
         _log.info("Couldn't read a live-test detail: %s", redact.describe(exc))
         return ""
 

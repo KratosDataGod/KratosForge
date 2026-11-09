@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("audit_exceptions", ROOT / ".github" / "scripts" / "audit_exceptions.py")
 audit_exceptions = importlib.util.module_from_spec(spec)
@@ -88,3 +90,70 @@ def test_advisory_text_cant_start_a_workflow_command_and_an_unknown_report_is_sh
     out = subprocess.run([sys.executable, str(ROOT / ".github" / "scripts" / "audit_exceptions.py"), "hint", "pip",
                           str(path)], capture_output=True, text=True, check=True)
     assert '"ABC-1"' in out.stdout and "::error" not in out.stdout
+
+
+NPM_REPORT = {"auditReportVersion": 2, "vulnerabilities": {
+    "minimatch": {"name": "minimatch", "severity": "high", "fixAvailable": True, "via": [
+        {"source": 1, "name": "minimatch", "title": "ReDoS", "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+         "severity": "high", "range": ">=7.0.0 <11.0.1"}]},
+    "@vscode/vsce": {"name": "@vscode/vsce", "severity": "high", "fixAvailable": True, "via": ["minimatch"]},
+    "esbuild": {"name": "esbuild", "severity": "moderate", "fixAvailable": False, "via": [
+        {"source": 2, "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99", "severity": "moderate", "range": "<=0.24.2"}]}}}
+
+
+def test_npm_high_advisories_fail_unless_excepted_and_lower_ones_only_warn():
+    assert [a["id"] for a in audit_exceptions.npm_advisories(NPM_REPORT)] == ["GHSA-67mh-4wv8-2f99", "GHSA-g3hv-75wg-m249"]
+    errors, warnings = audit_exceptions.npm_check(NPM_REPORT, "vscode/package-lock.json", [], TODAY)
+    assert len(errors) == 1 and errors[0].startswith("GHSA-g3hv-75wg-m249 (high) in minimatch >=7.0.0 <11.0.1, vscode/package-lock.json")
+    assert errors[0].endswith("GHSA-g3hv-75wg-m249  until=2026-11-27  <why it is accepted>")
+    assert warnings == ["GHSA-67mh-4wv8-2f99 (moderate) in esbuild <=0.24.2, vscode/package-lock.json: below high, reported only"]
+    assert audit_exceptions.npm_check(NPM_REPORT, "x", ["GHSA-g3hv-75wg-m249"], TODAY)[0] == []
+    assert audit_exceptions.npm_check({"vulnerabilities": {}}, "x", [], TODAY) == ([], [])
+
+
+def test_the_npm_command_fails_on_a_high_advisory_or_a_failed_audit(tmp_path):
+    script = str(ROOT / ".github" / "scripts" / "audit_exceptions.py")
+    def run(report):
+        path = tmp_path / "npm.json"
+        path.write_text(report, encoding="utf-8")
+        return subprocess.run([sys.executable, script, "npm", str(path), "vscode/package-lock.json"], capture_output=True, text=True)
+    import json
+    bad = run(json.dumps(NPM_REPORT))
+    assert bad.returncode == 1 and "::error file=.github/audit-exceptions.txt::GHSA-g3hv-75wg-m249 (high)" in bad.stdout
+    assert "::warning::GHSA-67mh-4wv8-2f99 (moderate)" in bad.stdout
+    assert run(json.dumps({"auditReportVersion": 2, "vulnerabilities": {}})).returncode == 0
+    offline = run(json.dumps({"error": {"code": "ENOTFOUND", "summary": "request failed"}}))
+    assert offline.returncode == 1 and "npm audit failed for vscode/package-lock.json" in offline.stdout
+    assert run("not json").returncode == 1
+
+
+def test_the_audit_job_covers_every_lock_that_ships():
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    job = ci.split("\n  audit:\n", 1)[1].split("\n  sbom-app:\n", 1)[0]
+    for lock in ("sidecar/constraints.txt", "sidecar/engine-requirements.txt", "sidecar/fabric_desktop/engines/dbconnect_locks/*.txt",
+                 "app/ui/vendor/*/package-lock.json", "vscode/package-lock.json", "app/src-tauri/Cargo.lock"):
+        assert lock in job, lock
+    assert "audit_exceptions.py npm" in job
+
+
+def test_an_npm_advisory_without_a_ghsa_gets_an_id_the_exceptions_file_accepts():
+    report = {"vulnerabilities": {"x": {"severity": "high", "via": [{"source": 1234, "url": "https://example.com/a", "severity": "high"}]}}}
+    [error], _ = audit_exceptions.npm_check(report, "vscode/package-lock.json", [], TODAY)
+    suggested = error.rsplit(": ", 1)[1].replace("<why it is accepted>", "not shipped")
+    ids, problems = audit_exceptions.parse(suggested + "\n", TODAY)
+    assert problems == [] and ids == ["NPM-1234"]
+    assert audit_exceptions.npm_check(report, "x", ids, TODAY) == ([], [])
+
+
+@pytest.mark.parametrize("via", [{"url": "https://example.com/a", "severity": "low"},
+                                 {"source": "abc", "url": "", "severity": "high"}, {"source": True, "severity": "high"}])
+def test_an_npm_advisory_with_no_id_fails_and_no_exceptions_line_lets_it_through(via):
+    report = {"vulnerabilities": {"x": {"severity": via["severity"], "via": [via]}}}
+    errors, warnings = audit_exceptions.npm_check(report, "vscode/package-lock.json", ["NPM-0", "NPM-1234", ""], TODAY)
+    assert warnings == [] and len(errors) == 1 and errors[0].startswith("An advisory with no id")
+
+
+def test_the_npm_step_clears_the_last_report_before_each_lock():
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    step = ci.split("- name: npm packages", 1)[1].split("\n      - ", 1)[0]
+    assert step.index('rm -f "$RUNNER_TEMP/npm-audit.json"') < step.index("npm audit --package-lock-only")

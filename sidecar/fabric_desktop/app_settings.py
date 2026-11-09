@@ -25,7 +25,7 @@ Keys:
     motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
                      transitions only), 2 Refined (default), 3 Expressive
     motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
-                     levels 2 and 3; motion_achievements the same, but false by default
+                     levels 2 and 3; motion_achievements the same
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
     ui_explanations  "on_request" (default): each page's How this works panel and its one-line
@@ -82,7 +82,8 @@ Keys:
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
-                     metadata framework's download cache) are deleted after this many days unused;
+                     metadata framework's download cache, replay bundle copies) are deleted after this
+                     many days unused;
                      0 keeps them (default 30)
     onelake_writes   "local_first" (default): a notebook cell's table writes are staged on this PC and
                      upload in the background while the cell goes on; the cell ends when they're in.
@@ -200,8 +201,9 @@ USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
 MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
-# Achievement celebrations are something people turn on (UX review, #361); the rest start on.
-DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key in MOTION_SWITCHES})
+# Every switch starts on, Achievement celebrations included (Chris, 2026-11-07). A choice someone
+# already saved stays: only people who never changed it get the new default.
+DEFAULTS.update({"motion_level": 2} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 

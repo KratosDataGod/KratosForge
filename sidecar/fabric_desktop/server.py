@@ -21,9 +21,9 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, net_trust, rpc_params
+from . import audit, disk_full, net_trust, rpc_params
 from .redact import secrets
-from .service import Service
+from .service import Service, data_dir
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
@@ -297,14 +297,17 @@ def handle(service: Service, line: str) -> dict:
     try:
         call = getattr(service, method)
         rpc_params.check(method, call, params)
+        if audit.audited(method) and audit.fails_closed(method, params):
+            _audit_started(service, method, params)  # raises when the line can't be written: nothing runs
         reply = {"id": req_id, "result": call(**params)}
-    except Exception as exc:  # report every failure to the UI rather than dying
+    except Exception as exc:  # noqa: BLE001 - report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            hint = net_trust.explain(exc)  # a certificate, proxy or timeout: one line that says what to do
+            # A certificate, proxy or timeout, or a full or read-only profile disk: one line that says what to do.
+            hint = net_trust.explain(exc) or disk_full.data_folder_message(data_dir(), exc)
             if hint:
                 text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}
@@ -336,16 +339,34 @@ def _short(message: str) -> str:
     return message if len(message) <= ERROR_CHARS else message[:ERROR_CHARS] + f"… ({len(message) - ERROR_CHARS} more characters)"
 
 
+def _who(service: Service) -> tuple[str, str]:
+    auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
+    if auth is None:
+        return "", ""
+    return auth.signed_in_user() or "", auth.signed_in_tenant() or ""
+
+
+def _audit_started(service: Service, method: str, params: dict) -> None:
+    """The line before a call that must not run unrecorded (audit.FAIL_CLOSED, or one given a
+    confirmation, approval, typed name or risk acknowledgement). A line that can't be
+    written refuses the call, and nothing was started."""
+    log = getattr(service, "audit", None)
+    if log is None:
+        return
+    try:
+        who, tenant = _who(service)
+        log.record(method, "started", 0.0, params if isinstance(params, dict) else {}, who=who, tenant=tenant)
+    except Exception as exc:  # noqa: BLE001 - any failure to write refuses the call
+        raise PermissionError(audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")) from exc
+
+
 def _audit(service: Service, method: str, params: dict, reply: dict, seconds: float) -> None:
     """One audit line per call that changes or runs something. Never fails the call itself."""
     try:
         log = getattr(service, "audit", None)
         if log is None:
             return
-        auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
-        who = tenant = ""
-        if auth is not None:
-            who, tenant = auth.signed_in_user() or "", auth.signed_in_tenant() or ""
+        who, tenant = _who(service)
         result, reason = ("error", "") if "error" in reply else audit.outcome(reply.get("result"))
         log.record(method, result, seconds, params if isinstance(params, dict) else {},
                    who=who, tenant=tenant, error=str(reply.get("error") or ""), reason=reason)
@@ -499,6 +520,18 @@ def _log_to_stderr() -> None:
     logger.setLevel(logging.INFO)
 
 
+def _report_native_crashes(log: IO[str]) -> None:
+    """A crash in native code (DuckDB, Polars, delta-rs: an access violation, say) ends the process
+    without a Python traceback. ``faulthandler`` writes one to the engine's log first, for every thread:
+    file names, function names and line numbers only, never a value. It writes to the file itself,
+    which the redacting stream can't sit in front of; the support bundle redacts it with the rest."""
+    import faulthandler
+    try:
+        faulthandler.enable(file=log, all_threads=True)
+    except (AttributeError, OSError, ValueError) as exc:  # a stream without a real file: no report, the engine still runs
+        print(f"engine: native crashes won't be reported: {exc}", file=log)
+
+
 def main() -> None:
     # Started from a windowed app, Python can have no stderr at all (sys.stderr is
     # None). Log to a file then, rather than failing on the first write.
@@ -508,10 +541,28 @@ def main() -> None:
     # anything a notebook cell or a native library prints cannot corrupt the protocol.
     rpc_out = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", newline="\n")
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
+    from . import data_format
+    try:
+        data_format.check(data_dir())
+    except data_format.NewerData as exc:
+        # Every call gets the reason, so the app says it, and nothing opens a store.
+        print(f"engine: {exc}", file=sys.stderr)
+        serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
+    except OSError as exc:
+        # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
+        # engine can't save anything, so every call says why rather than the engine ending unexplained.
+        reason = OSError(disk_full.data_folder_message(data_dir(), exc, "so KratosForge can't open its data",
+                                                    "restart KratosForge")
+                         or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
+        print(f"engine: {reason}", file=sys.stderr)
+        serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
     _refresh_integration_launcher()
     from . import notebook
     notebook.sweep_spills()  # output files a closed notebook session left behind
@@ -529,6 +580,19 @@ def main() -> None:
             engines.close_all()  # end engine sessions (and remote sessions in Fabric) with the app
 
 
+class _Refused:
+    """The engine's stand-in when the data folder is a newer build's: every method raises why."""
+
+    audit = None  # nothing is recorded: no call runs
+    telemetry = None
+
+    def __init__(self, reason: Exception):
+        self._reason = reason
+
+    def __getattr__(self, name: str) -> object:
+        raise self._reason
+
+
 def _start_integration_http(service: Service) -> None:
     """If the person switched the local API on, start it with the engine (it stops with it)."""
     try:
@@ -537,7 +601,7 @@ def _start_integration_http(service: Service) -> None:
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
     try:
         service.editor_sync()  # the editor channel, if VS Code may run notebooks
-    except Exception as exc:  # noqa: BLE001 - likewise
+    except Exception as exc:  # noqa: BLE001 - the app works without the editor channel; Settings shows why
         print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
@@ -545,7 +609,6 @@ def _refresh_integration_launcher() -> None:
     """After an update the engine is in a new folder: point the AI tools' and the CLI's launchers at it."""
     try:
         from .integrations.config import launcher_path, write_cli_launcher, write_launcher
-        from .service import data_dir
         if launcher_path(data_dir()).exists():
             write_launcher(data_dir())
         write_cli_launcher(data_dir())  # VS Code's Validate task runs it on every developer's PC

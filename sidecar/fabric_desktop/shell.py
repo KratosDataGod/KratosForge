@@ -70,7 +70,7 @@ def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> i
             raise OSError("%%cmd runs in Windows' command prompt, which this computer doesn't have. Use %%sh.")
         fd, name = tempfile.mkstemp(suffix=".cmd", prefix="kratosforge-cell-")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write("@echo off\r\n" + body.replace("\r\n", "\n").replace("\n", "\r\n"))
             code, out = _run(["cmd.exe", "/d", "/c", name], echo=echo)
             if hint := cmd_blocked_hint(code, out):

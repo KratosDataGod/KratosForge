@@ -71,7 +71,36 @@ error, as in Spark. `%g`, `%c`, `%h`, `%t` and the `#`, `(` and `<` flags stop t
 of printing something else. `conv` rewrites a number between bases as Spark's does. `selectExpr` and
 `F.expr` read Spark SQL as `spark.sql` does and name a column as Spark does, such as `(id + 1)`.
 
-### DataFrame: 81 of 102
+`crosstab` (also `df.stat.crosstab`) counts each pair of values as Spark does: values written as Java writes them,
+`null` for NULL, and the columns in sorted order. `colRegex` matches whole column names, ignoring case, with a
+regex that reads Java's syntax. `toJSON` gives each row's JSON text, leaving out a row's or a struct's NULL fields
+(a map keeps them), with `collect`, `first`, `take` and `count`; Spark returns an RDD, which this PC doesn't have.
+`sampleBy` keeps each key's share of rows; a seed gives the same rows each time here, not the rows Spark picks.
+A timestamp in `toJSON` is written as UTC (`...Z`), as Spark writes it in a UTC session.
+
+`describe` and `summary` give each value as Spark writes it as text, with `stddev` to Spark's last digit (Spark's
+running update over the rows in order), and the mean and stddev of a text column taken as numbers. With no column
+named, `groupBy(...).max()`, `min()`, `sum()`, `avg()` and `mean()` take every number column, grouping ones too, and a
+column that isn't a number is an error, as in Spark; the sum of whole numbers is a `bigint`. `printSchema` uses Spark's
+type names (`long`, `integer`, `short`, `byte`) and shows a nested type one part per line, down to the level given.
+`randomSplit` checks the weights as Spark does; its parts never overlap and together hold every row, and a seed gives
+the same split each time, but not the rows Spark picks (Spark's depend on its partitions).
+
+`spark.createDataFrame(rows)` with no types given infers the schema as PySpark does: a tuple, `Row` or namedtuple
+inside a row is a struct (fields `_1`, `_2`, ... when it has no names), a dict inside a row is a map, a dict row's
+keys come in sorted order, unnamed columns are `_1`, `_2`, ..., an int is a `bigint` and a `Decimal` a
+`decimal(38,18)`. Every row's types are merged, and, as in Spark, types that can't merge (`1` and `2.5` in one
+column) or a column with only NULLs is an error. Rows holding a `datetime` still take DuckDB's own inference
+(columns `col0`, `col1`). A dict whose values don't share one type (`{"a": 1, "b": 2.5}`) is refused with
+`CANNOT_INFER_TYPE_FOR_FIELD`; Spark refuses it too, with a field-type error. A struct's field is named `r.b` whether you write `r.getField("b")`, `r.b` or `r["b"]`,
+and a map's key `m[k]`, as in Spark.
+
+`url_decode` and `url_encode` in Spark SQL work as Spark's (Java's): `+` decodes to a space, a `%` that doesn't start
+two hex digits is Spark's `CANNOT_DECODE_URL` error, and encoding keeps only `A-Z a-z 0-9 . - * _` (a space is `+`).
+Decoding to bytes that aren't UTF-8 is refused by name, since Spark puts U+FFFD in their place. A quote or backslash in
+a map key, a struct field name or an unpivoted column's name is read as written.
+
+### DataFrame: 85 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -81,7 +110,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `cache` | Accepted, does nothing on one PC |
 | `checkpoint` | Accepted, does nothing on one PC |
 | `coalesce` | Accepted, does nothing on one PC |
-| `colRegex` | Not yet on this PC |
+| `colRegex` | Works |
 | `collect` | Works |
 | `columns` | Works |
 | `corr` | Works |
@@ -92,7 +121,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `createOrReplaceTempView` | Works |
 | `createTempView` | Works |
 | `crossJoin` | Works |
-| `crosstab` | Not yet on this PC |
+| `crosstab` | Works |
 | `cube` | Works |
 | `describe` | Works |
 | `distinct` | Works |
@@ -141,7 +170,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `rollup` | Works |
 | `sameSemantics` | Not yet on this PC |
 | `sample` | Works |
-| `sampleBy` | Not yet on this PC |
+| `sampleBy` | Works |
 | `schema` | Works |
 | `select` | Works |
 | `selectExpr` | Works |
@@ -158,7 +187,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `take` | Works |
 | `to` | Not yet on this PC |
 | `toDF` | Works |
-| `toJSON` | Not yet on this PC |
+| `toJSON` | Works |
 | `toLocalIterator` | Works |
 | `toPandas` | Works |
 | `transform` | Works |

@@ -149,7 +149,7 @@ class SmokeTest:
         try:
             step.detail = fn() or ""
             step.status = "passed"
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             step.status = "failed"
             step.detail = livetest.scrub(f"{type(exc).__name__}: {exc}")
         self.steps.append(step)

@@ -305,7 +305,7 @@ function openSqlTemplates(ref, open, opts = {}) {
       return;
     }
     const params = sqlTemplateParams(t.sql);
-    const script = h("pre", { class: "sqlt-preview", "aria-label": "Script" });
+    const script = h("pre", { class: "sqlt-preview", tabindex: "0", "aria-label": "Script" });  // scrolls: arrow keys reach its long lines
     const problems = () => params.filter((p) => sqlTemplateProblem(p.kind, sel.values[p.name] ?? p.value));
     const openBtn = btn("Open in a new tab", null, () => { closeDialog(); open(t.title, `${sqlTemplateFill(t.sql, sel.values)}\n`); }, "tool primary");
     const refresh = () => {

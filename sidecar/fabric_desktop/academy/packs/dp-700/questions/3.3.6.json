@@ -27,11 +27,11 @@
       "answer": [
         "c"
       ],
-      "explanation": "Comparing the column itself to a range lets the engine use per-file statistics. Wrapping the column in a function hides its values from that check.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "explanation": "The engine keeps per-file metadata and skips files whose values fall outside the filter's range. A range on OrderDate itself can be checked against that metadata directly. The other options first compute a new value from every row's OrderDate.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.6-q2",
@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Use SELECT * twice"
+          "text": "Use SELECT * with a TOP clause"
         },
         {
           "id": "b",
-          "text": "Add ORDER BY"
+          "text": "Add ORDER BY on the six columns"
         },
         {
           "id": "c",
-          "text": "Add DISTINCT"
+          "text": "Add DISTINCT to the SELECT *"
         },
         {
           "id": "d",
@@ -60,9 +60,9 @@
       ],
       "explanation": "Columnar storage reads only the columns a query names, so listing six columns reads far less data.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.6-q3",
@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.6-q5",
+      "type": "single",
+      "stem": "You want to check whether recent warehouse queries were served from the result set cache. In queryinsights.exec_requests_history, which result_cache_hit value means a cache hit?",
+      "options": [
+        {
+          "id": "a",
+          "text": "1"
+        },
+        {
+          "id": "b",
+          "text": "-1"
+        },
+        {
+          "id": "c",
+          "text": "2"
+        },
+        {
+          "id": "d",
+          "text": "0"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "result_cache_hit is 2 when the query used the cache, 1 when it created the cache, and 0 when it wasn't eligible.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.6-q6",
+      "type": "single",
+      "stem": "A dashboard runs this query every few seconds against a 50-million-row table, but it never uses the result set cache: `SELECT Region, SUM(Amount) FROM dbo.Sales WHERE SaleDate = CAST(GETDATE() AS date) GROUP BY Region;` Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The query returns fewer than 10,000 rows"
+        },
+        {
+          "id": "b",
+          "text": "The query contains a runtime constant, GETDATE()"
+        },
+        {
+          "id": "c",
+          "text": "The table has more than 100,000 rows"
+        },
+        {
+          "id": "d",
+          "text": "The query uses GROUP BY"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Queries with runtime constants such as GETDATE() or CURRENT_USER don't qualify for result set caching. A table must have at least 100,000 rows, and results over 10,000 rows are excluded, so the other options would help, not block.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.6-q7",
+      "type": "single",
+      "stem": "A KQL query looks for the full word `timeout` in a Message column. Which filter is recommended for performance?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`where tolower(Message) contains \"timeout\"`"
+        },
+        {
+          "id": "b",
+          "text": "`where Message matches regex \".*timeout.*\"`"
+        },
+        {
+          "id": "c",
+          "text": "`where Message contains \"timeout\"`"
+        },
+        {
+          "id": "d",
+          "text": "`where Message has \"timeout\"`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "When looking for full tokens, has works better because it doesn't look for substrings. contains and regex scan for substrings.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.6-q8",
+      "type": "single",
+      "stem": "Which KQL pattern follows the best practice for filtering?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`T | where Duration > 1000`"
+        },
+        {
+          "id": "b",
+          "text": "`T | extend d = Duration * 1 | where d > 1000`"
+        },
+        {
+          "id": "c",
+          "text": "`T | extend d = Duration | where d > 1000`"
+        },
+        {
+          "id": "d",
+          "text": "`T | project-rename d = Duration | extend x = d | where x > 1000`"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Filter on a table column rather than on a calculated column created with extend. The other patterns filter on a calculated value.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.6-q9",
+      "type": "single",
+      "stem": "A KQL query joins a very large fact table on the left with a small dimension table on the right. Which operator is recommended?",
+      "options": [
+        {
+          "id": "a",
+          "text": "union"
+        },
+        {
+          "id": "b",
+          "text": "join kind=fullouter"
+        },
+        {
+          "id": "c",
+          "text": "mv-expand"
+        },
+        {
+          "id": "d",
+          "text": "lookup"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "When the right side is small and the left side is large, use lookup instead of join. Note that lookup fails if the right side is larger than several tens of MB.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.6-q10",
+      "type": "multiple",
+      "stem": "A warehouse query that used to hit the result set cache now runs in full. Which two changes can stop the cache from being used? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The query now uses different column aliases than the original query"
+        },
+        {
+          "id": "b",
+          "text": "The same user ran the identical query ten minutes later"
+        },
+        {
+          "id": "c",
+          "text": "The referenced table now has more rows than 100,000"
+        },
+        {
+          "id": "d",
+          "text": "The query runs on the same warehouse connection as before"
+        },
+        {
+          "id": "e",
+          "text": "Data in a referenced table changed since the cache was created"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "Any change to referenced tables, or different output columns, ordering or aliases, prevents reuse. Running the same query again soon on the same connection is how a cache hit happens.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

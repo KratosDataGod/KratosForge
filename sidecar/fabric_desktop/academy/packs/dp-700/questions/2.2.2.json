@@ -89,11 +89,11 @@
       "answer": [
         "c"
       ],
-      "explanation": "When data lives in the warehouse and the team works in T-SQL, stored procedures there keep the work in one engine and one language. Warehouse tables are written through T-SQL, not by rewriting their files.",
-      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
-      "version": 1,
+      "explanation": "When data lives in the warehouse and the team works in T-SQL, stored procedures there keep the work in one engine and one language. Moving T-SQL rules into Spark or a dataflow would add a second engine and language for no gain.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-warehousing",
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.2-q4",
@@ -130,6 +130,210 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.2-q5",
+      "type": "single",
+      "stem": "Business users must apply custom cleanup steps to source data before it's ingested into a Fabric warehouse, and they don't write code. Which ingestion option fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A pipeline Copy activity with column mapping"
+        },
+        {
+          "id": "b",
+          "text": "A Dataflow Gen2 with the warehouse as its destination"
+        },
+        {
+          "id": "c",
+          "text": "The COPY INTO statement"
+        },
+        {
+          "id": "d",
+          "text": "A CREATE TABLE AS SELECT statement"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Dataflows give a code-free experience with custom transformations before ingestion. COPY INTO and CTAS are T-SQL, and the Copy activity only does lightweight transformations such as type conversion and column mapping.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.2-q6",
+      "type": "single",
+      "stem": "A warehouse transformation joins a table with a CSV file in ADLS Gen2 through OPENROWSET, and several other procedures read the same file every day. What should you do to improve performance?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Convert the warehouse table to a CSV file next to the source file"
+        },
+        {
+          "id": "b",
+          "text": "Replace the join with a Dataflow Gen2 that reads the file on every refresh"
+        },
+        {
+          "id": "c",
+          "text": "Read the file through OPENROWSET again in each procedure"
+        },
+        {
+          "id": "d",
+          "text": "Ingest the file into a dedicated warehouse table and join to that table"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Reading through OPENROWSET can be slower than reading a table, so external data that's accessed repeatedly should be ingested into a dedicated table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.2-q7",
+      "type": "single",
+      "stem": "A SQL team writes all its logic in T-SQL. It must load Parquet files from ADLS Gen2 into a warehouse table as part of a stored procedure, with the highest ingestion throughput. What should it use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The COPY statement"
+        },
+        {
+          "id": "b",
+          "text": "A Dataflow Gen2 started from the procedure"
+        },
+        {
+          "id": "c",
+          "text": "A notebook that writes the files to the warehouse"
+        },
+        {
+          "id": "d",
+          "text": "An INSERT ... SELECT from a lakehouse shortcut, run row by row"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "COPY is the code-rich option with the highest ingestion throughput, and it can be part of T-SQL logic. It supports CSV, JSONL and Parquet from ADLS Gen2, Blob Storage and OneLake.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.2-q8",
+      "type": "multiple",
+      "stem": "Which two statements about Dataflow Gen2 are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The DataflowStaging items should be deleted once the first dataflow is published"
+        },
+        {
+          "id": "b",
+          "text": "A published dataflow must be refreshed by hand, because Dataflow Gen2 can't be scheduled"
+        },
+        {
+          "id": "c",
+          "text": "New Dataflow Gen2 items are created without CI/CD and Git support unless you opt in"
+        },
+        {
+          "id": "d",
+          "text": "The first dataflow in a workspace creates background staging items that are shared by all dataflows and shouldn't be deleted"
+        },
+        {
+          "id": "e",
+          "text": "When you set a lakehouse destination, you choose whether to append new data or replace what's there"
+        }
+      ],
+      "answer": [
+        "d",
+        "e"
+      ],
+      "explanation": "The destination offers Append or Replace, and Fabric creates shared background Lakehouse and Warehouse items that shouldn't be deleted. Scheduled refresh is supported, and new items have CI/CD and Git support by default.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/create-first-dataflow-gen2",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.2-q9",
+      "type": "order",
+      "stem": "Put the steps of building a first Dataflow Gen2 that counts orders per customer and loads the result into a lakehouse in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Get data from the source and select the Orders and Customers tables"
+        },
+        {
+          "id": "b",
+          "text": "Create a new Dataflow Gen2 item in the workspace"
+        },
+        {
+          "id": "c",
+          "text": "Turn on scheduled refresh"
+        },
+        {
+          "id": "d",
+          "text": "Publish the dataflow"
+        },
+        {
+          "id": "e",
+          "text": "Group the Orders table by CustomerID with a count of rows"
+        },
+        {
+          "id": "f",
+          "text": "Set the lakehouse destination and choose Append or Replace"
+        }
+      ],
+      "answer": [
+        "b",
+        "a",
+        "e",
+        "f",
+        "d",
+        "c"
+      ],
+      "explanation": "You create the item, get data, transform it, set the destination, then publish. The dataflow is ready to refresh only after publishing finishes, so you schedule refresh last.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/create-first-dataflow-gen2",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.2-q10",
+      "type": "single",
+      "stem": "A SQL developer must build a reporting table in a warehouse by joining a warehouse table with a lakehouse table in the same workspace, using only T-SQL. What should they use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "COPY INTO pointed at the lakehouse table"
+        },
+        {
+          "id": "b",
+          "text": "A notebook that reads both tables and writes the result"
+        },
+        {
+          "id": "c",
+          "text": "CREATE TABLE AS SELECT with three-part names for the lakehouse table"
+        },
+        {
+          "id": "d",
+          "text": "A OneLake shortcut from the warehouse to the lakehouse Files folder"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "CTAS, INSERT...SELECT and SELECT INTO can read tables in other warehouses and lakehouses in the same workspace. A notebook isn't T-SQL, and COPY INTO loads files, not tables.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

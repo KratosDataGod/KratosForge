@@ -436,7 +436,7 @@ class AppStudioMixin:
         the publish's own failure is what the person needs to see)."""
         try:
             return str((self.fabric.find_item(ws, publishing.REPORT_TYPE, report) or {}).get("id") or "")  # type: ignore[attr-defined]
-        except Exception:  # silent-ok: only a hint after the real failure, which is raised and recorded
+        except Exception:  # noqa: BLE001  # silent-ok: only a hint after the real failure, which is raised and recorded
             return ""
 
     def appstudio_publish_check(self, project_name: str, workspace_id: str = "", name: str = "") -> dict[str, Any]:

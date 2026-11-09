@@ -23,19 +23,37 @@ const CELLS = [
   { type: "code", cell_id: "c2", source: "%%sql\nSELECT region, sum(amount) FROM sales GROUP BY region", meta: {} },
 ];
 const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
-const SCHEMES = ["light", "dark"];
+// Each page is checked four ways. Light and dark are the window's color scheme. At 200% (Windows display scale or
+// Ctrl+plus) the window's 1440x940 lays out as 720x470: nothing may make the whole page scroll sideways, and a Tab
+// stop must be on screen and not under something else when it has focus. A Windows contrast theme (forced colors)
+// replaces the app's colors with the theme's, so contrast is the theme's and isn't measured; what can break is a
+// focus ring drawn as a box shadow, which forced colors remove. The keyboard walk runs in light, at 200% and in
+// the contrast theme; it doesn't depend on light or dark.
+const MODES = [
+  { id: "light", media: { colorScheme: "light" }, walk: true },
+  { id: "dark", media: { colorScheme: "dark" } },
+  { id: "zoom-200", media: { colorScheme: "light" }, viewport: { width: 720, height: 470 }, walk: true },
+  { id: "high-contrast", media: { colorScheme: "dark", forcedColors: "active" }, walk: true, off: ["color-contrast"] },
+];
+const SCHEMES = MODES.map((m) => m.id);
+const VIEWPORT = { width: 1440, height: 940 };  // harness.cjs's
 
 // Findings this audit recorded that are filed to be fixed (#905): "page: rule @ element" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
 const KNOWN_RULES = new Set([]);
 const KNOWN_KEYBOARD = new Set([]);
 const KNOWN_FOCUS = new Set([]);
+// At 200%: "page: #view is Npx wide in a Mpx window" and "page: Tab stop" hidden when focused. Listed ones need a
+// layout change (docs/ux/accessibility-zoom-contrast.md); a new one fails.
+const KNOWN_SIDEWAYS = new Set([]);
+const KNOWN_HIDDEN = new Set([]);
 
 // Checks axe can't decide by itself, judged by a person (#945): "page: rule @ element" patterns and the verdict,
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
-  [/^home: color-contrast @ \.home-hero-(kicker|title|text > p)$/, "Pass: the hero's text sits on its light field (#fdf6ec to #f6e6d2), never on the art, which starts fully transparent where the 40% text column ends: the kicker #8a4a00 is 5.6:1 at worst, the title #0b1420 15.1:1, the line #242424 12.7:1 (axe can't read a gradient)."],
-  [/^home: color-contrast @ .*\.chev$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic)."],
+  [/^home: color-contrast @ (h1|\.hero-outline|.*\.home-hero-(kicker|title|welcome|text > p|actions\b.*))$/, "Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
+  // axe names the arrow `.chev` or, when it needs more to tell it apart, `.chev[aria-hidden="true"]`.
+  [/^home: color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
   [/^workspaces: color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
   [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
@@ -46,6 +64,7 @@ const JUDGED = [
   [/^report-problem: color-contrast @ \.mono$/, "Pass: the diagnostics are #424242 on #fafafa, 9.6:1."],
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > u:nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links, headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
+  [/^monitor: color-contrast @ (\.forge-(title|title > span|sub)|\.forge-more)$/, "Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient)."],
   [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\) > \.learn-more\[href="#"\]$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
@@ -183,11 +202,23 @@ async function focusNow(scope) {
   let shown = false;
   for (let n = el, depth = 0; n && depth < 6 && !shown; n = n.parentElement, depth++) shown = ring(n);
   const rect = el.getBoundingClientRect();
+  // On screen and on top: the middle of what has focus is inside the window and is it (or inside it), not
+  // something drawn over it (WCAG 2.4.11). A control the browser can't scroll to fails too.
+  // Taken at the middle of its part inside the window: a code editor taller than the window still shows.
+  let [l, t, r, btm] = [Math.max(rect.left, 0), Math.max(rect.top, 0), Math.min(rect.right, innerWidth), Math.min(rect.bottom, innerHeight)];
+  for (let n = el.parentElement; n; n = n.parentElement) {  // and inside what clips it (a code editor's wide lines scroll)
+    if (getComputedStyle(n).overflow === "visible") continue;
+    const c = n.getBoundingClientRect();
+    [l, t, r, btm] = [Math.max(l, c.left), Math.max(t, c.top), Math.min(r, c.right), Math.min(btm, c.bottom)];
+  }
+  const top = r > l && btm > t ? document.elementFromPoint((l + r) / 2, (t + btm) / 2) : null;
+  // A toast is passing over (it hides itself within 8 seconds, and while it has focus or the mouse it stays).
+  const visible = !!top && (top === el || el.contains(top) || top.contains(el) || !!top.closest("label")?.contains(el) || !!top.closest("#toast"));
   const label = (el.getAttribute("aria-label") || el.textContent || el.value || "").trim().replace(/\s+/g, " ").slice(0, 30);
   const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("");
   el.dataset.a11yStop ||= String(Math.random());
   return { key: el.id ? `#${el.id}` : `${el.tagName.toLowerCase()}${cls}${label ? ` "${label}"` : ""}`, stop: el.dataset.a11yStop,
-    inside: !!el.closest(scope), editor: el.matches(".cm-content, [data-esc-tab]"), shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
+    inside: !!el.closest(scope), editor: el.matches(".cm-content, [data-esc-tab]"), visible, shown: shown && rect.width > 0 && rect.height > 0 && getComputedStyle(el).opacity !== "0" };
 }
 
 // Tab from the top of the page until focus comes back to a stop it has seen. In a code editor Tab
@@ -220,7 +251,7 @@ async function tabStops(page, scope) {
     // A page still drawing can replace the control under focus or restyle it a frame late: read once more
     // before calling a ring missing.
     if (at.inside && !at.shown) { await page.waitForTimeout(150); at.shown = (await page.evaluate(focusNow, scope))?.shown ?? false; }
-    if (at.inside) stops.push({ key: at.key, shown: at.shown });
+    if (at.inside) stops.push({ key: at.key, shown: at.shown, visible: at.visible });
     if (at.editor) await page.keyboard.press("Escape");
   }
   return { stops, trap };
@@ -238,8 +269,11 @@ async function settle(page) {
 }
 
 async function audit(page, target, scheme) {
+  const mode = MODES.find((m) => m.id === scheme);
   // Reduced motion: a page fading in would be judged on its half-drawn colors.
-  await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+  await page.emulateMedia({ forcedColors: "none", ...mode.media, reducedMotion: "reduce" });
+  await page.setViewportSize(mode.viewport || VIEWPORT);
+  assert.strictEqual(await page.evaluate(() => matchMedia("(forced-colors: active)").matches), mode.media.forcedColors === "active", `${scheme} is drawn as it says`);
   await page.evaluate(() => { document.getElementById("palette")?.remove(); closeDialog(); go("home"); });
   await target.open(page);
   if (target.ready) await page.waitForSelector(target.ready);
@@ -247,17 +281,22 @@ async function audit(page, target, scheme) {
   await animationsDone(page);  // axe judges contrast as drawn: nothing still fading in (#1337)
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
-  const axeOut = await page.evaluate(async ([scope, tags]) => {
-    const res = await axe.run({ include: [...document.querySelectorAll(scope)] }, { runOnly: { type: "tag", values: tags } });
+  const axeOut = await page.evaluate(async ([scope, tags, off]) => {
+    const rules = Object.fromEntries(off.map((id) => [id, { enabled: false }]));
+    const res = await axe.run({ include: [...document.querySelectorAll(scope)] }, { runOnly: { type: "tag", values: tags }, rules });
     const brief = (v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.map((n) => n.target.join(" ")).slice(0, 5) });
     return { violations: res.violations.map(brief), incomplete: res.incomplete.map(brief), passes: res.passes.length };
-  }, [scope, RULES]);
+  }, [scope, RULES, mode.off || []]);
   const { unreachable } = await page.evaluate(keyboardScan, scope);
-  // The keyboard walk doesn't depend on the color scheme, so it runs once, in light.
-  const { stops, trap } = scheme === "light" ? await tabStops(page, scope) : { stops: [], trap: null };
+  const { stops, trap } = mode.walk ? await tabStops(page, scope) : { stops: [], trap: null };
   if (trap) unreachable.push(`Tab returns to ${trap.key}, ${trap.left} Tab stops later never reached`);
-  const result = { page: target.name, id: target.id, scheme, ...axeOut, unreachable, stops,
-    noRing: stops.filter((s) => !s.shown).map((s) => s.key) };
+  // At 200%, the page as a whole must not need scrolling sideways (WCAG 1.4.10); a table or code inside it may.
+  const sideways = mode.viewport ? await page.evaluate(() =>
+    [document.scrollingElement, document.getElementById("view")].filter((e) => e && e.scrollWidth > e.clientWidth + 1)
+      .map((e) => `${e.id ? `#${e.id}` : "the page"} is ${e.scrollWidth}px wide in a ${e.clientWidth}px window`)) : [];
+  const result = { page: target.name, id: target.id, scheme, ...axeOut, unreachable, stops, sideways,
+    noRing: stops.filter((s) => !s.shown).map((s) => s.key),
+    hidden: mode.viewport ? stops.filter((s) => !s.visible).map((s) => s.key) : [] };
   results.push(result);
   return result;
 }
@@ -268,7 +307,7 @@ async function targets(page) {
   return [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...EXTRA];
 }
 
-test("every page passes the WCAG A and AA rules, light and dark, with no serious or critical violation", { skip }, async () => {
+test("every page passes the WCAG A and AA rules, light, dark, at 200% and in a contrast theme, with no serious or critical violation", { skip }, async () => {
   const failures = [];
   for (const target of await targets(app.page)) {
     for (const scheme of SCHEMES) {
@@ -279,22 +318,39 @@ test("every page passes the WCAG A and AA rules, light and dark, with no serious
       }
     }
   }
-  assert.ok(results.length >= 2 * (EXTRA.length + 5), `audited ${results.length} page views`);
+  assert.ok(results.length >= MODES.length * (EXTRA.length + 5), `audited ${results.length} page views`);
   if (process.env.AXE_CORE_VERSION) assert.strictEqual(rowsVersion(), process.env.AXE_CORE_VERSION, "the axe-core that ran is the one ci.yml pins");
   assert.deepStrictEqual(failures, []);
   const seen = new Set(results.flatMap((r) => r.violations.flatMap((v) => v.nodes.map((n) => `${r.id}: ${v.id} @ ${n}`))));
   assert.deepStrictEqual([...KNOWN_RULES].filter((k) => !seen.has(k)), [], "fixed: remove these from KNOWN_RULES");
 });
 
-test("everything clickable is reached with Tab, and every Tab stop shows focus", { skip }, async () => {
-  const light = results.filter((r) => r.scheme === "light");
-  const keyboard = light.flatMap((r) => r.unreachable.map((k) => `${r.id}: ${k}`)).filter((k) => !KNOWN_KEYBOARD.has(k));
-  const focus = light.flatMap((r) => r.noRing.map((k) => `${r.id}: ${k}`)).filter((k) => !KNOWN_FOCUS.has(k));
+// A finding's key: "page: what" in light, "page (mode): what" in the other modes.
+const where = (r) => (r.scheme === "light" ? r.id : `${r.id} (${r.scheme})`);
+
+test("everything clickable is reached with Tab, and every Tab stop shows focus, light, at 200% and in a contrast theme", { skip }, async () => {
+  const walked = results.filter((r) => MODES.find((m) => m.id === r.scheme).walk);
+  const keyboard = walked.flatMap((r) => r.unreachable.map((k) => `${where(r)}: ${k}`)).filter((k) => !KNOWN_KEYBOARD.has(k));
+  const focus = walked.flatMap((r) => r.noRing.map((k) => `${where(r)}: ${k}`)).filter((k) => !KNOWN_FOCUS.has(k));
   assert.deepStrictEqual(keyboard, [], "clickable but not reachable with Tab");
   assert.deepStrictEqual(focus, [], "Tab stops with no visible focus");
-  const found = new Set(light.flatMap((r) => [...r.unreachable, ...r.noRing].map((k) => `${r.id}: ${k}`)));
+  const found = new Set(walked.flatMap((r) => [...r.unreachable, ...r.noRing].map((k) => `${where(r)}: ${k}`)));
   assert.deepStrictEqual([...KNOWN_KEYBOARD, ...KNOWN_FOCUS].filter((k) => !found.has(k)), [], "fixed: remove these from the known lists");
-  assert.ok(light.filter((r) => r.stops.length).length >= light.length - 1, "Tab reached the pages' controls");
+  for (const id of MODES.filter((m) => m.walk).map((m) => m.id)) {
+    const rows = walked.filter((r) => r.scheme === id);
+    assert.ok(rows.filter((r) => r.stops.length).length >= rows.length - 1, `Tab reached the pages' controls (${id})`);
+  }
+});
+
+test("at 200% no page scrolls sideways, and focus is never off screen or under something", { skip }, async () => {
+  const zoomed = results.filter((r) => r.scheme === "zoom-200");
+  assert.ok(zoomed.length >= EXTRA.length + 5, `checked ${zoomed.length} pages at 200%`);
+  const sideways = zoomed.flatMap((r) => r.sideways.map((k) => `${r.id}: ${k}`)).filter((k) => !KNOWN_SIDEWAYS.has(k));
+  const hidden = zoomed.flatMap((r) => r.hidden.map((k) => `${r.id}: ${k}`)).filter((k) => !KNOWN_HIDDEN.has(k));
+  assert.deepStrictEqual(sideways, [], "pages that scroll sideways at 200%");
+  assert.deepStrictEqual(hidden, [], "Tab stops off screen or covered when they have focus, at 200%");
+  const found = new Set(zoomed.flatMap((r) => [...r.sideways, ...r.hidden].map((k) => `${r.id}: ${k}`)));
+  assert.deepStrictEqual([...KNOWN_SIDEWAYS, ...KNOWN_HIDDEN].filter((k) => !found.has(k)), [], "fixed: remove these from the known lists");
 });
 
 test("every check axe couldn't decide has a person's verdict", { skip }, async () => {
@@ -325,6 +381,31 @@ test("the audit catches a violation put into a page", { skip }, async () => {
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-shadowed")), `a container's own shadow isn't a ring: ${r.noRing.join(", ")}`);
 });
 
+test("the audit catches a page that breaks at 200% or in a contrast theme", { skip }, async () => {
+  const page = app.page;
+  const before = results.length;
+  const plant = (p) => p.evaluate(() => {
+    const ringByShadow = h("button", { class: "a11y-shadow-ring", style: "outline:none" }, "Shadow ring");
+    ringByShadow.addEventListener("focus", () => { ringByShadow.style.boxShadow = "0 0 0 3px #1b3664"; });  // a contrast theme removes it
+    ringByShadow.addEventListener("blur", () => { ringByShadow.style.boxShadow = ""; });
+    const covered = h("button", { class: "a11y-covered" }, "Covered");
+    document.getElementById("view").append(h("div", { id: "a11y-zoomed", style: "width:1100px" }, "Wide"), ringByShadow, covered);
+    // Something drawn over the button wherever it is (a fixed bar would be the real case).
+    const r = covered.getBoundingClientRect();
+    document.body.append(h("div", { class: "a11y-cover",
+      style: `position:fixed;left:${r.left - 4}px;top:${r.top - 4}px;width:${r.width + 8}px;height:${r.height + 8}px;background:#fff;z-index:5` }));
+  });
+  const zoomed = await audit(page, { id: "injected", name: "Injected", ready: "#a11y-zoomed", open: plant }, "zoom-200");
+  await page.evaluate(() => document.querySelectorAll(".a11y-cover").forEach((e) => e.remove()));
+  const contrast = await audit(page, { id: "injected", name: "Injected", ready: "#a11y-zoomed", open: plant }, "high-contrast");
+  await page.evaluate(() => document.querySelectorAll(".a11y-cover").forEach((e) => e.remove()));
+  results.length = before;  // not part of the report
+  assert.ok(zoomed.sideways.some((k) => k.startsWith("#view is ")), zoomed.sideways.join(", "));
+  assert.ok(zoomed.hidden.some((k) => k.startsWith("button.a11y-covered")), zoomed.hidden.join(", "));
+  assert.ok(contrast.noRing.some((k) => k.startsWith("button.a11y-shadow-ring")), contrast.noRing.join(", "));
+  assert.ok(!zoomed.noRing.some((k) => k.startsWith("button.a11y-shadow-ring")), "outside a contrast theme the shadow ring shows");
+});
+
 function report(rows) {
   const ids = [...new Set(rows.map((r) => r.id))];
   const byId = (id, scheme) => rows.find((r) => r.id === id && r.scheme === scheme);
@@ -339,7 +420,11 @@ function report(rows) {
       "Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top " +
       "must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page " +
       "must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has " +
-      "one theme, so dark is checked to show nothing breaks when Windows is set to dark.",
+      "one theme, so dark is checked to show nothing breaks when Windows is set to dark. At 200% (the 1440x940 window laid out " +
+      "as 720x470) no page may scroll sideways as a whole, and each Tab stop must be on screen and not under something when " +
+      "it has focus. In a Windows contrast theme (forced colors) contrast is the theme's, so it isn't measured, and each Tab " +
+      "stop must still show a ring (the theme removes rings drawn as box shadows). The keyboard walk runs in light, at 200% " +
+      "and in the contrast theme. Dialogs opened from buttons are checked the same way in `a11y-dialogs.test.cjs`.",
     "",
     "The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows " +
       "where they can. Screens that need a live tenant to fill are audited in their empty or signed-in state. " +
@@ -358,10 +443,12 @@ function report(rows) {
   }
   const findings = rows.flatMap((r) => [
     ...r.violations.map((v) => `- **${r.page}** (${r.scheme}): ${v.id}, ${v.impact}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}`),
-    ...(r.scheme === "light" ? r.unreachable.map((k) => (k.startsWith("Tab returns")
-      ? `- **${r.page}**: keyboard: ${k} (Escape, then Tab, used to leave each code editor)`
-      : `- **${r.page}**: \`${k}\` looks clickable but isn't reached with Tab`)) : []),
-    ...(r.scheme === "light" ? r.noRing.map((k) => `- **${r.page}**: \`${k}\` shows no focus ring`) : []),
+    ...r.unreachable.map((k) => (k.startsWith("Tab returns")
+      ? `- **${r.page}** (${r.scheme}): keyboard: ${k} (Escape, then Tab, used to leave each code editor)`
+      : `- **${r.page}** (${r.scheme}): \`${k}\` looks clickable but isn't reached with Tab`)),
+    ...r.noRing.map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` shows no focus ring`),
+    ...(r.sideways || []).map((k) => `- **${r.page}** (${r.scheme}): ${k}`),
+    ...(r.hidden || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` is off screen or covered when it has focus`),
   ]);
   const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) => {
     const verdicts = [...new Set(v.nodes.map((n) => judged(`${r.id}: ${v.id} @ ${n}`) || "Not judged yet."))];

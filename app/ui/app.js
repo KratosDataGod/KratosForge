@@ -652,7 +652,7 @@ function renderChrome() {
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
     h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
-      onclick: onOpen }, icon(iconName, 22), label),
+      title: label, onclick: onOpen }, icon(iconName, 22), h("span", { class: "rail-label" }, label)),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();
@@ -835,8 +835,11 @@ async function renderHome() {
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   // Continue opens the notebook changed last; it appears once the list is read and there is one.
   const resume = h("span", { class: "home-continue" });
-  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume,
-    btn("New notebook", "notebook", newNotebook, "tool outline"),
+  // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
+  // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
+  const living = typeof homeHero === "function" && homeLivingOn();
+  const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
     btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
     btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
@@ -844,12 +847,12 @@ async function renderHome() {
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
   const started = gettingStarted();
-  // Living Experience (home-hero.js, Preview): the hero band and the progression panel beside the page.
-  const living = typeof homeHero === "function";
-  const hero = living ? homeHero() : null;
+  // The hero band and the progression panel beside the page.
+  const welcome = name ? `Welcome back, ${name}` : "Welcome to KratosForge";
+  const hero = living ? homeHero({ welcome, actions: [resume, newNb] }) : null;
   const main = h("div", { class: "home-main" },
     h("div", { class: "row home-head" },
-      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      hero ? h("span", { class: "grow" }) : h("h1", { class: "grow" }, welcome),
       living ? homeShowPanelLink() : null,
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
@@ -895,12 +898,18 @@ async function renderHome() {
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
     const recentList = shown.length ? homeRecentList(shown) : null;
-    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
-      notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    // With Preview off, Home keeps its one plain line (Start something already has New notebook).
+    list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query && previewShown()
+      ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet",
+        text: "Create your first notebook and run it on this PC. Nothing goes to Fabric until you publish.",
+        action: btn("New notebook", "notebook", newNotebook, "tool primary") })
+      : h("p", { class: "muted-text" }, notebooks === null ? "Couldn't list notebooks."
+        : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
     return recentList?.done;
   });
-  // The progression panel reads Profile once the notebooks are in, so Home's own lists come first.
-  if (panel) notebooksDone.then(panel.load, panel.load);
+  // The progression panel asks for Profile (local and quick) right after the notebooks, ahead of the
+  // Fabric calls below: the engine answers one call at a time, so behind them it would sit empty.
+  if (panel) panel.load();
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);
@@ -1142,7 +1151,8 @@ async function renderMonitor() {
       seg("env", "Environment", [["all", "All"], ...Object.entries(ENV_LABEL)]),
       seg("where", "Where it ran", [["any", "Anywhere"], ["local", "This PC"], ["fabric", "Fabric"]]),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: monitorPage.problemsFirst ? true : null,
-        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first")],
+        onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
+      forgeViewShown() ? forgeViewToggle() : null],
     op ? h("select", { class: "group-select", "aria-label": "Operations view", title: "Which Operations view to show",
       onchange: (e) => show(e.target.value)() }, ops.map((o) => h("option", { value: o.panel, selected: o === op }, o.label))) : null,
     monitorSlots.views, h("span", { class: "spacer" }), monitorSlots.tools,
@@ -1153,15 +1163,19 @@ async function renderMonitor() {
     : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
+  // The Forge Activity view (forge-activity.js, Preview): today's counts in the header, the band above the table.
+  const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
+  const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
+  const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
   setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
     POP_OUT ? null : h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      h("div", { class: "head-actions" }, popOutHere)),
+      forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
     tabs, runsBand ? null : viewRow,
     hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
       : h("section", { class: "card monitor-fabric" }, slot))
       : runsBand ? poppedOutBand("runs", "From KratosForge", "monitor-local")
-        : [note, h("section", { class: "card monitor-local" }, local)]));
+        : [forgeBandSlot, note, h("section", { class: "card monitor-local" }, local)]));
   if (hubShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
   if (hub || runsBand) return;
@@ -1206,7 +1220,7 @@ async function renderMonitor() {
     }, 2500);
   };
   if (fabricPipelines?.pending) waitForScan();
-  const rows = [
+  const all = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
       env: r.env, where: r.compute || "local", ranOn: ranOn(r), seconds: r.seconds, rows: r.rows_written,
@@ -1233,7 +1247,9 @@ async function renderMonitor() {
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
-  ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
+  ];
+  if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);
+  const rows = all.filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
       && (monitorPage.where === "any" || r.where === monitorPage.where)
       && matches(`${r.activity} ${r.kind} ${r.note} ${r.reason}`))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));

@@ -22,14 +22,15 @@ import datetime as dt
 import logging
 import os
 import signal
+import socket
 import sqlite3
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Any, Callable
+from typing import IO, Any, Callable
 
-from . import agent_status, policy_watch, shared_schedules, shortcut_watch
+from . import agent_status, jsonfile, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .audit import outcome as audit_outcome
@@ -38,7 +39,7 @@ from .fabric_api import FabricClient
 from .jobqueue import JobQueue
 from .local_schedules import next_run
 from .logs import fields
-from .mailbox import Mailbox
+from .mailbox import ControlFolderInUse, LocalControl, Mailbox, hold_control_folder
 from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
 from .onelake import FileStore
@@ -52,6 +53,8 @@ from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, fail
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
+INCIDENT_CLOCK = "incident-ages.json"  # in the agent's home: open incidents' ages, kept across restarts
+MAX_SAVED_AGE = 30 * 86400.0  # a saved age past this is taken as this: no escalation waits that long
 CRASHED_NEXT = ("Its worker stopped on every attempt: look in the service log for an out-of-memory kill or a crash, "
                 "then lower agent.concurrency or run its tables in smaller jobs.")
 PIPELINE_NEXT = "Fix the cause, then submit the request again from the pipeline."
@@ -102,6 +105,12 @@ class Agent:
             self.log.error("the job queue file couldn't be read; started with an empty queue", extra=fields(
                 moved_to=str(self._queue_set_aside)))
         self.clock = clock
+        # Escalation ages run on this, so a clock change while the agent runs doesn't move them. A
+        # clock handed in (tests) stands in for it, so moving that clock moves both.
+        self.monotonic: Callable[[], float] = time.monotonic if clock is time.time else clock
+        self._incident_seen = self._load_incident_clock()  # env -> IncidentLog.first_seen
+        self._held: dict[str, IO[bytes]] = {}  # local control folders this running agent holds (run_forever)
+        self._hold_folders = False
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}
         self._claims: dict[str, str | None] = {}  # running job id -> its claim id, to renew it after a sleep
@@ -137,15 +146,73 @@ class Agent:
         """The environment's control files (mailbox and status records), built once."""
         with self._controls_lock:
             if env not in self._controls:
-                self._controls[env] = self.runtime.control_backend(env)
+                backend = self.runtime.control_backend(env)
+                self._hold(backend)
+                self._controls[env] = backend
             return self._controls[env]
+
+    def _load_incident_clock(self) -> dict[str, dict[str, tuple[float, float]]]:
+        """How long each open incident had been open when this agent last looked, so a restart goes
+        on from there rather than from the wall clock. Saved with the monotonic time it was saved at:
+        when that is still behind now, the agent restarted without a reboot and the time between
+        counts in full; after a reboot (monotonic time went back) the time the agent was down isn't
+        known and isn't counted, so escalation can come later by that much, never earlier."""
+        saved = jsonfile.read_json(self.config.home / INCIDENT_CLOCK, {})
+        now, seen = self.monotonic(), {}
+        for env, items in (saved.items() if isinstance(saved, dict) else ()):
+            if env not in self.config.environments or not isinstance(items, dict):
+                continue
+            seen[str(env)] = {str(i): ((at if at <= now else now), min(max(0.0, age), MAX_SAVED_AGE))
+                              for i, v in items.items() if isinstance(v, list) and len(v) == 2
+                              and all(isinstance(x, (int, float)) for x in v) for at, age in [v]}
+        return seen
+
+    def _save_incident_clock(self) -> None:
+        now = self.monotonic()
+        data = {env: {i: [now, age + (now - at)] for i, (at, age) in items.items()}
+                for env, items in self._incident_seen.items() if items}
+        try:
+            jsonfile.write_json(self.config.home / INCIDENT_CLOCK, data, indent=None)
+        except OSError as exc:  # escalation still works this run; only a restart would start the ages again
+            self.log.warning("couldn't save the incident ages", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+
+    def _hold(self, backend: Any) -> None:
+        """While it runs, hold each local control folder it works in, so a second agent pointed at the
+        same folder is refused rather than sharing it (mailbox.hold_control_folder)."""
+        if not isinstance(backend, LocalControl) or not self._hold_folders:
+            return
+        key = str(Path(backend.folder).resolve())
+        if key not in self._held:
+            self._held[key] = hold_control_folder(Path(key), {
+                "agent": self.config.name, "pid": os.getpid(), "host": socket.gethostname(),
+                "since": dt.datetime.fromtimestamp(self.clock(), dt.timezone.utc).isoformat(timespec="seconds")})
+
+    def hold_control_folders(self) -> None:
+        """Hold the local control folder of every environment before starting, or raise
+        ControlFolderInUse. An environment whose folder can't be worked out yet is held when it can."""
+        self._hold_folders = True
+        for env in self.config.environments:
+            try:
+                self._control(env)
+            except ControlFolderInUse:
+                self.release_control_folders()
+                raise
+            except Exception as exc:  # noqa: BLE001 - the control files open on a later beat; logged
+                self.log.warning("couldn't open the control files yet", extra=fields(
+                    env=env, error=f"{type(exc).__name__}: {exc}"))
+
+    def release_control_folders(self) -> None:
+        self._hold_folders = False
+        for f in self._held.values():
+            f.close()
+        self._held.clear()
 
     def publish_status(self, state: str = "running") -> None:
         """Write agents/<name>.json to each environment's control area. A failure is logged, never fatal."""
         for env in self.config.environments:
             try:
                 agent_status.publish(self._control(env), self.config.name, agent_status.record(self, env, state))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - a status write must not stop the agent; logged, rebuilt next time
                 self._controls.pop(env, None)
                 self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
@@ -201,8 +268,9 @@ class Agent:
         routing = self.incident_routing()
         for env in self.config.environments:
             try:
-                log = IncidentLog(self._control(env), env, clock=self.clock)
-            except Exception as exc:  # no control area: nowhere to keep incidents, so only the log says
+                log = IncidentLog(self._control(env), env, clock=self.clock, monotonic=self.monotonic,
+                                  first_seen=self._incident_seen.setdefault(env, {}))
+            except Exception as exc:  # noqa: BLE001 - no control area: nowhere to keep incidents, so only the log says
                 self._controls.pop(env, None)
                 self.log.warning("couldn't open the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
                 continue
@@ -210,7 +278,7 @@ class Agent:
             try:
                 project = self.runtime._project()
                 runs = self.runtime.meta_runs(env, 2000)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - an unreadable environment becomes its own signal
                 signals, _ = evaluate.unreadable(env, exc)
             else:
                 specs = {n: e.spec for n, e in project.entities.items()}
@@ -221,13 +289,13 @@ class Agent:
             try:
                 signals += evaluate.agent_signals(read_status(log.backend), env, now, me=self.config.name)
                 evaluated.add("agent_offline")
-            except Exception as exc:  # agent records unreadable: their incidents stay as they are
+            except Exception as exc:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
                 self.log.warning("couldn't read the agent records", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
             try:
                 changes = log.sync(signals, evaluated=evaluated, by=by)
                 if routing.escalate_after:
                     changes += log.escalate(routing.escalate_after, routing.escalate_to, by)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - an incident write must not stop the other environments; logged
                 self._controls.pop(env, None)
                 self.log.warning("couldn't update the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
                 continue
@@ -235,6 +303,7 @@ class Agent:
                 self.log.info(f"incident {c['change']}", extra=fields(env=env, incident=c["incident"]["id"],
                                                                      title=c["incident"]["title"]))
             changed[env] = changes
+        self._save_incident_clock()
         all_changes = [c for cs in changed.values() for c in cs]
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
@@ -262,7 +331,7 @@ class Agent:
         for env in self.config.shortcut_health.environments:
             try:
                 workspaces = shortcut_watch.env_workspaces(self.runtime.environment_config(env))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one unreadable project skips that environment; logged
                 self.log.warning("couldn't read the project for the shortcut check", extra=fields(env=env, error=describe(exc)))
                 out[env] = {"skipped": "the project can't be read"}
                 continue
@@ -271,7 +340,7 @@ class Agent:
                 continue
             try:
                 records = read_status(self._control(env))
-            except Exception as exc:  # better a second message than none: check here
+            except Exception as exc:  # noqa: BLE001 - better a second message than none: check here
                 self._controls.pop(env, None)
                 records = []
                 self.log.warning("couldn't read the agent records; checking shortcuts here", extra=fields(
@@ -284,7 +353,7 @@ class Agent:
                 rt = self.runtime
                 rows, problems = shortcut_watch.scan(workspaces, FabricClient(rt.auth.fabric_token),
                                                      FabricClient(rt.onelake_token), FileStore(rt.auth.storage_token))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one environment's check failing doesn't stop the rest; logged
                 self.log.warning("couldn't check the shortcuts", extra=fields(env=env, error=describe(exc)))
                 out[env] = {"skipped": "the check failed"}
                 continue
@@ -374,7 +443,7 @@ class Agent:
         deadline passed. A mailbox that can't be reached is logged; the agents that can reach it run it."""
         try:
             rid, outcome = shared_schedules.submit(self._control(s.env), s, due, now, self.config.name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a request that can't be written is logged; the schedule runs next time
             self._controls.pop(s.env, None)
             self.log.warning("couldn't write the shared schedule's request", extra=fields(
                 schedule=s.id, env=s.env, error=f"{type(exc).__name__}: {exc}"))
@@ -394,7 +463,7 @@ class Agent:
         self._missed.add(rid)
         try:
             requested = self._control(s.env).read(f"requests/{rid}.json") is not None
-        except Exception as exc:  # can't tell: say so rather than stay quiet about a run that may not have happened
+        except Exception as exc:  # noqa: BLE001 - can't tell: say so rather than stay quiet about a run that may not have happened
             self._controls.pop(s.env, None)
             self.log.warning("couldn't check whether another agent requested the shared schedule", extra=fields(
                 schedule=s.id, env=s.env, request_id=rid, error=f"{type(exc).__name__}: {exc}"))
@@ -489,7 +558,7 @@ class Agent:
             self._audit(job, "handed_over", time.monotonic() - t0, error=str(exc))
             self.log.warning("job stopped: another agent took its request over", extra=fields(**ctx, error=str(exc)))
             return
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any job error is audited and, when retryable, retried
             from .retrying import is_retryable
             error = f"{type(exc).__name__}: {exc}"
             self._audit(job, "error", time.monotonic() - t0, error=error)
@@ -553,7 +622,7 @@ class Agent:
                   "attempt": job["attempts"], "agent": self.config.name, **summary}
         try:
             self.audit.record("agent_job", outcome, seconds, params, error=error, reason=reason)
-        except Exception as exc:  # a full disk mustn't stop the job; the log has it
+        except Exception as exc:  # noqa: BLE001 - a full disk mustn't stop the job; the log has it
             self.log.warning("couldn't write the audit line", extra=fields(job_id=job["id"], error=str(exc)))
 
     def _narrow(self, job_id: str, entities: list[str]) -> None:
@@ -619,7 +688,7 @@ class Agent:
                 if box:
                     box.route_ok(DEFAULT_ROUTE)
                 return
-            except Exception as exc:  # kept, and sent with the next try
+            except Exception as exc:  # noqa: BLE001 - kept, and sent with the next try
                 problem = _without_webhook(failure(exc), url)
                 self._alert_outbox().add(title, lines, problem)
                 self._alert_outbox().route_failed(DEFAULT_ROUTE, url, problem)
@@ -730,6 +799,7 @@ class Agent:
         if _due(self._pruned_at, 86400, self.clock()):
             self._pruned_at = self.clock()
             self.prune_queue()
+            self.sweep_home()
         if _due(self._policy_at, POLICY_CHECK_SECONDS, self.clock()):
             self._policy_at = self.clock()
             self.check_policy()
@@ -748,12 +818,30 @@ class Agent:
         brought pipeline statuses up to date. A failure is logged and tried again the next day."""
         try:
             gone = self.queue.prune(self.config.queue_retention_days)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - pruning is housekeeping; logged and tried again later
             self.log.warning("couldn't prune the queue", extra=fields(error=f"{type(exc).__name__}: {exc}"))
             return
         if gone:
             self.log.info("finished jobs removed from the queue",
                           extra=fields(jobs=len(gone), older_than_days=self.config.queue_retention_days))
+
+    def sweep_home(self) -> None:
+        """Delete local copies of lakehouse data the agent's runs left in its data folder
+        (``<home>/data``, Runtime.root, where the download cache and staging live) unused for longer
+        than the organization allows, as the app does with its own folder (retention.py,
+        local_retention_days): at start, then daily, after the queue is pruned. Only the sweep's cache
+        folders are touched: never the queue, audit, logs, settings or a project's This PC data. A
+        failure is logged and tried again the next day."""
+        from . import app_settings, retention
+        try:
+            days = int(app_settings.value("local_retention_days"))
+            result = retention.sweep(self.runtime.root, days)  # file times are real ones, not the loop's clock
+        except Exception as exc:  # noqa: BLE001 - a cache sweep never stops jobs
+            self.log.warning("couldn't clean up local copies", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if result["removed"]:
+            self.log.info("local copies removed from the agent's home",
+                          extra=fields(items=len(result["removed"]), bytes=result["bytes"], older_than_days=days))
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:
@@ -777,6 +865,11 @@ class Agent:
         if install_signals:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 signal.signal(sig, lambda *_: self.stop())
+        try:
+            self.hold_control_folders()
+        except ControlFolderInUse as exc:
+            self.log.error(f"agent not started: {exc}")
+            raise
         self.log.info("agent started", extra=fields(concurrency=self.config.concurrency,
                                                     environments=self.config.environments,
                                                     schedules=[s.id for s in self.config.schedules],
@@ -799,6 +892,7 @@ class Agent:
                 self.publish_status("stopping")
         self._pool.shutdown(wait=True)
         self.publish_status("stopped")
+        self.release_control_folders()
         self.log.info("agent stopped")
 
     def stop(self) -> None:

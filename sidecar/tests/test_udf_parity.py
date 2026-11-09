@@ -91,7 +91,7 @@ def _has_context_decorator(fn_def: ast.FunctionDef) -> bool:
 def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
     """Every difference between the generated functions in `source` and `operations`, by operation."""
     tree = ast.parse(source)
-    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name != "_run"}
+    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")}  # helpers, as functions.json skips them
     problems: dict[str, list[str]] = {}
 
     for op, impl in operations.items():
@@ -325,7 +325,7 @@ def test_drift_check_catches_a_drifted_real_operation():
     """The real tree: give one operation a new parameter and the real check reports it."""
     ops = copy.copy(core.OPERATIONS)
     ns: dict = {}
-    exec("def issue_keys(db, name, business_keys, env='dev'): pass", ns)  # noqa: S102
+    exec("def issue_keys(db, name, business_keys, by='', env='dev'): pass", ns)  # noqa: S102
     ops["issue_keys"] = ns["issue_keys"]
     problems = parity_problems(udf.function_app(), ops)
     assert problems.get("issue_keys") == ["missing parameter env"]

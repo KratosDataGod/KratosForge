@@ -64,11 +64,12 @@ import datetime as dt
 import fnmatch
 import json
 import logging
+import os
 import re
 import socket
 import threading
 from pathlib import Path
-from typing import Any, Callable
+from typing import IO, Any, Callable
 
 import requests
 
@@ -110,6 +111,64 @@ class LocalControl(LocalBackend):
             return sorted(p.name for p in (self.folder / folder).iterdir() if p.suffix == ".json")
         except FileNotFoundError:
             return []
+
+
+CONTROL_LOCK = "agent.lock"  # held by the agent that works in a local control folder, while it runs
+
+
+class ControlFolderInUse(RuntimeError):
+    """Another agent already works in this local control folder."""
+
+
+def hold_control_folder(folder: Path, holder: dict[str, Any]) -> IO[bytes]:
+    """Hold ``folder/agent.lock`` for as long as the returned file stays open, or refuse with
+    ControlFolderInUse when another agent holds it. Two agents on one local folder would judge each
+    other's records with one clock that can jump, and take over each other's requests; on OneLake
+    they share safely, so only a local folder is held. The lock is the operating system's: it goes
+    when the process ends, even when it is killed, so a crashed agent never leaves it behind."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / CONTROL_LOCK
+    f = open(path, "a+b")
+    try:
+        f.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]  # Windows-only; byte 0 only
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        raise ControlFolderInUse(_in_use(folder, _holder(path))) from None
+    try:  # who holds it, after byte 0 (which Windows locks against reading too)
+        f.truncate(0)
+        f.write(b" " + json.dumps(holder).encode())
+        f.flush()
+    except OSError:
+        pass  # the lock holds without it; the refusal just names nobody
+    return f
+
+
+def _holder(path: Path) -> dict[str, Any]:
+    try:
+        with open(path, "rb") as f:
+            f.seek(1)
+            got = json.loads(f.read(4096) or b"{}")
+        return got if isinstance(got, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _in_use(folder: Path, holder: dict[str, Any]) -> str:
+    who = f"agent {holder['agent']}" if _ID.fullmatch(str(holder.get("agent") or "")) else "another agent"
+    where = []
+    if str(holder.get("pid") or "").isdigit():
+        where.append(f"process {holder['pid']}")
+    if holder.get("host"):
+        where.append(f"on {str(holder['host'])[:64]}")
+    return (f"The control folder {folder} is already in use by {who}{' (' + ' '.join(where) + ')' if where else ''}. "
+            "Only one agent can work in a local control folder: two would take each other's requests. "
+            "Stop that agent first, or give this one a different environment.")
 
 
 class OneLakeControl(OneLakeBackend):
@@ -233,7 +292,7 @@ class Mailbox:
         for env in self.environments:
             try:
                 self._poll_env(env)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - the mailbox is read again next poll; logged
                 self._controls.pop(env, None)  # build it again next time (a token or lakehouse may have changed)
                 getattr(self.agent, "_controls", {}).pop(env, None)
                 self.log.warning("couldn't read the pipeline mailbox", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
@@ -273,7 +332,7 @@ class Mailbox:
                 status, stored = self._read(env, f"status/{rid}.json")
                 if status and stored and status.get("agent") == self.agent.config.name and status.get("state") not in FINAL:
                     self._sync(env, rid, status, stored)
-        except Exception as exc:  # the next poll tries again
+        except Exception as exc:  # noqa: BLE001 - the next poll tries again
             self.log.warning("couldn't update the pipeline status", extra=fields(env=env, request_id=rid, error=str(exc)))
 
     def taken_over(self, job: dict[str, Any]) -> str:
@@ -285,7 +344,7 @@ class Mailbox:
             return ""
         try:
             status, _ = self._read(env, f"status/{source.split(':', 1)[1]}.json")
-        except Exception as exc:  # can't tell: carry on; the table lease keeps two writers apart
+        except Exception as exc:  # noqa: BLE001 - can't tell: carry on; the table lease keeps two writers apart
             self.log.warning("Couldn't read the pipeline job's status; carrying on: %s", describe(exc))
             return ""
         owner = str((status or {}).get("agent") or "")
@@ -299,7 +358,7 @@ class Mailbox:
             return False
         try:
             return self.control(env).read(f"cancel/{source.split(':', 1)[1]}.json") is not None
-        except Exception as exc:  # can't tell: run it, as the request asked
+        except Exception as exc:  # noqa: BLE001 - can't tell: run it, as the request asked
             self.log.warning("Couldn't check for a cancel request; running the job: %s", describe(exc))
             return False
 
@@ -439,7 +498,7 @@ class Mailbox:
             return out | {"detail": "this agent doesn't check pipeline runs"}
         try:
             job = self.verify_run(env, run["item_id"], run["run_id"])
-        except Exception as exc:  # recorded on the status; require_run decides whether it matters
+        except Exception as exc:  # noqa: BLE001 - recorded on the status; require_run decides whether it matters
             if getattr(exc, "status", None) in _TRANSIENT or isinstance(exc, (requests.ConnectionError, requests.Timeout)):
                 return out | {"detail": f"couldn't look it up in the {env} workspace just now: {describe(exc)}",
                               "transient": True}

@@ -30,10 +30,11 @@ import pyarrow as pa
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
+from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped
+from .retrying import data_upload_dropped, log_commit_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -303,7 +304,7 @@ def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaT
     if point is not None:
         try:
             opened.load_as_version(point)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any read failure at a version becomes the same plain message
             what = f"version {point}" if isinstance(point, int) else f"{point.isoformat()}"
             raise ValueError(f"{table} has no {what} to read: {exc}. DESCRIBE HISTORY {table} lists its versions; "
                              "versions removed by VACUUM can't be read.") from None
@@ -470,6 +471,10 @@ def _stream(data: Any) -> tuple[pa.Schema, Iterator[pa.Table]] | None:
     return first.schema, chain()
 
 
+class CommitOutcomeUnknown(RuntimeError):
+    """A table write whose Delta log entry may or may not have gone in (retrying.log_commit_dropped)."""
+
+
 # A table write whose data file upload was dropped (retrying.data_upload_dropped) is written again,
 # whole: nothing of it was committed. On top of object_store's own retries of each part.
 UPLOAD_ATTEMPTS = 3
@@ -558,6 +563,11 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                                     schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
                     break
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+                    if log_commit_dropped(exc):
+                        raise CommitOutcomeUnknown(
+                            f"Writing {name_}: the connection dropped while the commit was being written, so it "
+                            "may or may not have gone in. Look at the table's history before writing it again, "
+                            "so an append isn't in the table twice.") from exc
                     if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
                         raise
                     wait = UPLOAD_RETRY_WAIT * (attempt + 1)
@@ -580,9 +590,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             if skipped:
                 record["skipped"] = "unchanged"
-            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
-            with lh.history_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            runlog.append(lh.history_file, record)
         return result
 
     queue = _queue()  # set for this cell when its notebook writes local first (notebook.py)
@@ -639,7 +647,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
             return DeltaTable(uri, storage_options=opts)
         try:
             p.read_location(ref.schema, ref.table)  # a table the proof can't read can't be changed in it
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the reader's own error types vary; all mean the table isn't there
             raise TableNotFoundError(str(exc)) from None
         uri = p.write_location(ref.schema, ref.table, "append", seed)  # "append": the pinned version comes first
     else:
@@ -668,9 +676,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
                       "rows": out["rows_inserted"] + out["rows_updated"] + out["rows_deleted"],
                       "delta_version": result.delta_version,
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
-            with lh.history_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            runlog.append(lh.history_file, record)
     return result
 
 

@@ -233,3 +233,29 @@ def test_validate_reads_a_notebook_it_runs_from_the_same_folder(tmp_path):
     (tmp_path / "Helpers.ipynb").unlink()
     out = json.loads(_validate(tmp_path / "Main.ipynb", tmp_path, "--json", "--runs-on", "pc").stdout)
     assert [f["code"] for f in out["findings"] if f["code"].startswith("runs_on_pc")] == ["runs_on_pc_unknown"]
+
+
+def test_link_paths_built_from_traversal_and_odd_parts_only_ever_name_a_real_notebook_inside(svc, tmp_path):
+    import os
+    import random
+    svc.save_notebook("Sales/Daily", [{"type": "code", "source": "x = 1"}])
+    home = Path(svc.notebook_file_path("Sales/Daily")["path"])
+    top = home.parent.parent
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "Daily.ipynb").write_text(home.read_text(encoding="utf-8"), encoding="utf-8")
+    (top / "Folder.ipynb").mkdir()  # a folder named like a notebook
+    pieces = ["..", ".", "Sales", "Daily.ipynb", "Daily", "outside", "x" * 300, "%2e%2e", "\\", "/", "//", "Daily.IPYNB",
+              "Daily.ipynb.", "Daily.ipynb ", "Folder.ipynb", "‮", "é", "*", "?", ":", "\x00", "\n"]
+    rng = random.Random(11)
+    for _ in range(2000):
+        rel = os.sep.join(rng.choice(pieces) for _ in range(rng.randrange(1, 7)))
+        for path in (str(top) + os.sep + rel, rel, str(tmp_path) + os.sep + rel):
+            name = svc.notebook_name_for_path(path)["name"]
+            if name is not None:
+                assert name == "Sales/Daily", (path, name)
+                assert Path(path).resolve() == home.resolve(), path
+    assert svc.notebook_name_for_path(str(top / "Sales" / ".." / "Sales" / "Daily.ipynb")) == {"name": "Sales/Daily"}
+    assert svc.notebook_name_for_path(str(top / "Sales" / ".." / ".." / "outside" / "Daily.ipynb")) == {"name": None}
+    assert svc.notebook_name_for_path(str(top / "Folder.ipynb")) == {"name": None}
+    assert svc.notebook_name_for_path(str(top) + os.sep + "a" * 100_000 + ".ipynb") == {"name": None}

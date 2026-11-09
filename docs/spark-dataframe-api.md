@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 95 |
-| Differs | 5 |
+| Runs | 104 |
+| Differs | 3 |
 | Refused | 15 |
-| Fails | 48 |
+| Fails | 41 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -37,7 +37,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
 | `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `colRegex` | Fails | `df.select(df.colRegex("`(Col1)?+.+`")).show()`: AttributeError: 'DataFrame' object has no attribute 'colRegex' |
+| `colRegex` | Runs |  |
 | `collect` | Runs |  |
 | `columns` | Fails | `for col_name in df.columns: df = df.withColumn(col_name, ...`: BinderException: Binder Error: No function matches the given name and argument types 'upper(BIGINT)'. You might need to add explicit type casts. |
 | `corr` | Runs |  |
@@ -48,9 +48,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `createOrReplaceTempView` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
 | `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
 | `crossJoin` | Runs |  |
-| `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
+| `crosstab` | Runs |  |
 | `cube` | Runs |  |
-| `describe` | Differs | `df.describe(['age', 'weight', 'height']).show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
+| `describe` | Runs |  |
 | `distinct` | Runs |  |
 | `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
 | `dropDuplicates` | Runs |  |
@@ -66,7 +66,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `foreach` | Refused | `df.foreach(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `foreachPartition` | Refused | `df.foreachPartition(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `freqItems` | Runs |  |
-| `groupBy` | Differs | `df.groupBy(df.name).max().sort("name").show()`: {"printed": "+-----+\n\| name\|\n+-----+\n\|Alice\|\n\|  Bob\|\n+-----+"} here, {"printed": "+-----+--------+\n\| name\|max(age)\|\n+-----+--------+\n\|Al in Spark |
+| `groupBy` | Runs |  |
 | `groupby` | Not checked |  |
 | `head` | Runs |  |
 | `hint` | Not checked |  |
@@ -88,7 +88,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `orderBy` | Runs |  |
 | `pandas_api` | Runs |  |
 | `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
-| `printSchema` | Differs | `df.printSchema()`: {"printed": "root\n \|-- age: bigint (nullable = true)\n \|-- name: stri here, {"printed": "root\n \|-- age: long (nullable = true)\n \|-- name: string in Spark |
+| `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
 | `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
@@ -98,7 +98,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `rollup` | Runs |  |
 | `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
 | `sample` | Runs |  |
-| `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |
+| `sampleBy` | Differs | `sampled.groupBy("key").count().orderBy("key").show()`: {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    7\|\n\|  1\| here, {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    3\|\n\|  1\| in Spark |
 | `schema` | Runs |  |
 | `select` | Runs |  |
 | `selectExpr` | Runs |  |
@@ -111,12 +111,12 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `stat` | Runs |  |
 | `storageLevel` | Fails | `df1.storageLevel`: AttributeError: 'DataFrame' object has no attribute 'storageLevel' |
 | `subtract` | Runs |  |
-| `summary` | Differs | `df.select("age", "weight", "height").summary().show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
+| `summary` | Runs |  |
 | `tail` | Runs |  |
 | `take` | Runs |  |
 | `to` | Not checked |  |
 | `toDF` | Runs |  |
-| `toJSON` | Fails | `df.toJSON().first()`: AttributeError: 'DataFrame' object has no attribute 'toJSON' |
+| `toJSON` | Runs |  |
 | `toLocalIterator` | Runs |  |
 | `toPandas` | Not checked |  |
 | `to_koalas` | Not checked |  |
@@ -156,10 +156,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc` | Runs |  |
 | `desc_nulls_first` | Runs |  |
 | `desc_nulls_last` | Runs |  |
-| `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
+| `dropFields` | Fails | `df.withColumn('a', df['a'].dropFields('b')).show()`: TypeError: 'Column' object is not callable |
 | `endswith` | Runs |  |
 | `eqNullSafe` | Runs |  |
-| `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
+| `getField` | Runs |  |
 | `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |
@@ -245,6 +245,6 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `approxQuantile` | Not checked |  |
 | `corr` | Runs |  |
 | `cov` | Runs |  |
-| `crosstab` | Fails | `df.crosstab("c1", "c2").sort("c1_c2").show()`: AttributeError: 'DataFrame' object has no attribute 'crosstab' |
+| `crosstab` | Runs |  |
 | `freqItems` | Runs |  |
-| `sampleBy` | Fails | `sampled = dataset.sampleBy("key", fractions={0: 0.1, 1: 0...`: AttributeError: 'DataFrame' object has no attribute 'sampleBy' |
+| `sampleBy` | Differs | `sampled.groupBy("key").count().orderBy("key").show()`: {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    7\|\n\|  1\| here, {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    3\|\n\|  1\| in Spark |

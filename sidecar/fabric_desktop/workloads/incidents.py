@@ -15,7 +15,7 @@ Document, contract 1::
         "workload": "meta:sales:silver.orders", "name": "silver.orders", "env": "prod",
         "title": "...", "text": "...", "evidence": {...}, "evidence_id": "<run id>",
         "state": "open" | "acknowledged" | "resolved",
-        "opened_at", "last_seen_at", "occurrences", "opened_by",
+        "opened_at", "opened_store_at", "last_seen_at", "occurrences", "opened_by",
         "owner", "acknowledged_by", "acknowledged_at",
         "resolved_at", "resolved_by", "resolution": "recovered" | "resolved" | "cleared",
         "team", "criticality", "classification": {"category", "label", "hint", "retry_helps"},
@@ -37,6 +37,15 @@ environment; records written before numbers existed get one on the next write, o
 priority P1 (many people blocked) to P4 (minor), and a timeline of ``events``. A detected
 incident's priority follows the workload's criticality (``default_priority``) until a person sets
 it; SLA targets per priority are applied when the incidents are read (``sla.py``), not stored.
+
+Escalation timing never trusts one PC's clock alone. In OneLake, ``opened_store_at`` is when the
+incident opened on OneLake's own clock (its reply's Date), and its age is OneLake's Date now less
+that, so a PC whose clock is off, or jumps, escalates neither early nor late. Where there is no
+store clock (a local folder, or a record written before the field existed), the age is the one
+this evaluator first saw plus the monotonic time since, so a clock change while it runs doesn't
+move the escalation either way. An agent keeps those ages across a restart (agent.py,
+``incident-ages.json``), so only an incident nobody was watching counts its first minutes from
+``opened_at``.
 """
 
 from __future__ import annotations
@@ -135,13 +144,22 @@ def _numbered(doc: dict[str, Any]) -> None:
 class IncidentLog:
     """The incidents of one environment, over a control backend (create/read/replace with etags)."""
 
-    def __init__(self, backend: Any, env: str, clock: Callable[[], float] = time.time):
+    def __init__(self, backend: Any, env: str, clock: Callable[[], float] = time.time, *,
+                 monotonic: Callable[[], float] | None = None,
+                 first_seen: dict[str, tuple[float, float]] | None = None):
         self.backend, self.env, self.clock = backend, env, clock
+        # A clock handed in (tests) also stands in for the monotonic one, so moving it moves both.
+        self.monotonic = monotonic or (time.monotonic if clock is time.time else clock)
+        # incident id -> (monotonic time, age) when this evaluator first saw it open. An agent keeps
+        # one per environment across evaluations, since it builds a new IncidentLog each time.
+        self.first_seen = {} if first_seen is None else first_seen
+        self._store_now: float | None = None  # the store's clock at the last read, when it gives one
 
     # ---- reading
 
     def _load(self) -> tuple[dict[str, Any], str | None]:
         stored = self.backend.read(KEY)
+        self._store_now = getattr(stored, "store_now", None)
         if stored is None:
             return {"contract": CONTRACT, "kind": "incidents", "env": self.env, "incidents": []}, None
         try:
@@ -230,7 +248,8 @@ class IncidentLog:
                 inc = {"id": _id(), "key": key, "kind": s["kind"], "workload": s.get("workload"),
                        "name": s.get("name") or "", "env": self.env, "title": s.get("title", ""),
                        "text": s.get("text", ""), "evidence": s.get("evidence") or {}, "evidence_id": evidence_id,
-                       "state": "open", "opened_at": now, "last_seen_at": now, "occurrences": 1, "opened_by": by,
+                       "state": "open", "opened_at": now, "opened_store_at": self._store_iso(),
+                       "last_seen_at": now, "occurrences": 1, "opened_by": by,
                        "owner": s.get("owner") or "", "acknowledged_by": None, "acknowledged_at": None,
                        "resolved_at": None, "resolved_by": None, "resolution": None,
                        "team": s.get("team") or "", "criticality": s.get("criticality") or "",
@@ -266,19 +285,37 @@ class IncidentLog:
 
         def apply(doc: dict[str, Any]) -> list[dict[str, Any]] | None:
             changes = []
+            mono, open_ids = self.monotonic(), set()
             for inc in doc["incidents"]:
                 if inc["state"] != "open" or inc.get("escalated_at") or inc["kind"] == "cant_evaluate":
                     continue
-                if now_t - _epoch(inc.get("opened_at")) < after_seconds or not applies(inc):
+                open_ids.add(inc["id"])
+                if self._age(inc, now_t, mono) < after_seconds or not applies(inc):
                     continue
                 inc.update(escalated_at=now, escalated_to=to)
+                open_ids.discard(inc["id"])
                 inc.setdefault("notes", []).append(
                     {"at": now, "by": by, "text": f"Escalated to {to}: not acknowledged in {after_seconds / 60:g} min"})
                 _event(inc, now, by, "escalated", f"To {to}: not acknowledged in {after_seconds / 60:g} min")
                 changes.append({"change": "escalated", "incident": inc})
+            for gone in set(self.first_seen) - open_ids:  # acknowledged, resolved or escalated: done with
+                del self.first_seen[gone]
             return changes or None
 
         return self._change(apply) or []
+
+    def _store_iso(self) -> str | None:
+        """Now on the store's clock (OneLake's Date at the last read), or None where it has none."""
+        return _iso(self._store_now) if self._store_now is not None else None
+
+    def _age(self, inc: dict[str, Any], now_t: float, mono: float) -> float:
+        """How long the incident has been open, as far as escalation goes (see the module notes)."""
+        if self._store_now is not None and inc.get("opened_store_at"):
+            return self._store_now - _epoch(inc["opened_store_at"])
+        seen = self.first_seen.get(inc["id"])
+        if seen is None:
+            seen = self.first_seen[inc["id"]] = (mono, max(0.0, now_t - _epoch(inc.get("opened_at"))))
+        return seen[1] + (mono - seen[0])
 
     def _manual(self, incident_id: str, fn: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
         def apply(doc: dict[str, Any]) -> dict[str, Any]:
@@ -369,7 +406,7 @@ class IncidentLog:
         _event(inc, now, by, "reported", title[:200])
 
         def apply(doc: dict[str, Any]) -> dict[str, Any]:
-            doc["incidents"].append(dict(inc, events=list(inc["events"])))
+            doc["incidents"].append(dict(inc, events=list(inc["events"]), opened_store_at=self._store_iso()))
             _numbered(doc)
             return doc["incidents"][-1]
         return self._change(apply)

@@ -29,6 +29,10 @@ import sys
 import threading
 import time
 import traceback
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # annotations only: this worker imports nothing more at run time
+    from collections.abc import Callable, Iterator
 
 _OUT = sys.stdout
 _SEND = threading.Lock()
@@ -40,18 +44,18 @@ def send(message: dict) -> None:
         _OUT.flush()
 
 
-def _preview(df, rows: int) -> dict:
+def _preview(df: Any, rows: int) -> dict[str, Any]:
     """The first ``rows`` rows of a DataFrame. Counting all of them would run another Spark job."""
     pdf = df.limit(rows).toPandas()
     data = pdf.astype(object).where(pdf.notna(), None).values.tolist()
     return {"type": "frame", "columns": [str(c) for c in pdf.columns], "rows": data}
 
 
-def _is_frame(value) -> bool:
+def _is_frame(value: Any) -> bool:
     return hasattr(value, "toPandas") and hasattr(value, "limit") and hasattr(value, "schema")
 
 
-def _protocol_lines(stream):
+def _protocol_lines(stream: Any) -> Iterator[str]:
     """Lines from the engine. On Windows a read left waiting on a pipe blocks every other call on
     that pipe (GetFileType, fstat, isatty) until a line comes, so a cell whose imports check stdin
     (pandas does) would hang while the main loop waits. There the loop asks PeekNamedPipe what has
@@ -90,7 +94,7 @@ def _version(distribution: str) -> str:
         return ""
 
 
-def _start_databricks_connect():
+def _start_databricks_connect() -> tuple[dict[str, Any], Callable[[], Any], str]:
     """``spark`` as a Databricks session; interrupt stops its Spark jobs on the cluster."""
     import databricks.connect as dbc
     from databricks.connect import DatabricksSession
@@ -113,7 +117,7 @@ class Worker:
         self.kind = kind
         self.namespace: dict = {"__name__": "__main__"}
         self.running = False
-        self._interrupt = None
+        self._interrupt: Callable[[], Any] | None = None
 
     def start(self) -> None:
         if self.kind not in STARTS:
@@ -131,7 +135,7 @@ class Worker:
         send({"op": "started", "client": client,
               "python": "%d.%d" % sys.version_info[:2]})
 
-    def run(self, cid, code: str, rows: int) -> None:
+    def run(self, cid: Any, code: str, rows: int) -> None:
         self.running = True
         self._shown.clear()
         buf = io.StringIO()
@@ -165,7 +169,22 @@ class Worker:
                 self._interrupt()
 
 
+def _trust_windows() -> None:
+    """On Windows, check HTTPS (the Databricks SDK's sign-in and API calls) against the Windows
+    certificate store, as the engine does (net_trust.py): a network that inspects HTTPS re-signs
+    sites with a root only Windows holds. gRPC reads GRPC_DEFAULT_SSL_ROOTS_FILE_PATH instead,
+    which the engine sets."""
+    if sys.platform != "win32":
+        return
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except Exception:  # noqa: BLE001  # silent-ok: HTTPS keeps Python's own list, as before
+        pass
+
+
 def main() -> None:
+    _trust_windows()
     # addsitedir, not sys.path.insert: the folder's .pth files must run (setuptools' distutils
     # shim is one, and pyspark 3.5 imports distutils on Python 3.12). Its entries then go first.
     import site

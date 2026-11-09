@@ -40,30 +40,30 @@
       "options": [
         {
           "id": "a",
-          "text": "Add an Office 365 Outlook or Teams activity on the failure path of the last activities"
+          "text": "Add an Office 365 Outlook or Teams activity connected Upon failure to each activity that can fail"
         },
         {
           "id": "b",
-          "text": "Turn off retries"
+          "text": "Turn off retries on every activity so failures show up sooner in the Monitor hub"
         },
         {
           "id": "c",
-          "text": "Schedule the pipeline twice"
+          "text": "Schedule the pipeline twice so a second run starts and covers for a failed first run"
         },
         {
           "id": "d",
-          "text": "Add a Wait activity"
+          "text": "Add a Wait activity at the end of the pipeline that pauses the run until someone checks its status in the hub"
         }
       ],
       "answer": [
         "a"
       ],
-      "explanation": "A notification activity connected with an Upon failure dependency runs only when that activity fails and sends the message.",
+      "explanation": "A notification activity connected Upon failure runs when that activity fails. Use one per monitored activity, because an activity wired to several only fires when all of them fail.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/outlook-activity",
       "case": "fernway-telemetry",
-      "version": 1,
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.4-q3",
@@ -76,15 +76,15 @@
         },
         {
           "id": "b",
-          "text": "Export the visual to Excel each day"
+          "text": "Export the visual's data to Excel each day and check the value"
         },
         {
           "id": "c",
-          "text": "Add a sensitivity label"
+          "text": "Add a sensitivity label that alerts when the value changes"
         },
         {
           "id": "d",
-          "text": "Ask for a new pipeline"
+          "text": "Ask for a new pipeline that refreshes the report more often"
         }
       ],
       "answer": [
@@ -92,9 +92,9 @@
       ],
       "explanation": "Power BI visuals can create Activator alerts that watch the value and send an email or Teams message.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.4-q4",
@@ -132,6 +132,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.4-q5",
+      "type": "single",
+      "stem": "You created an Activator rule that should send a Teams message when a temperature goes above 30. Hours later, no message has been sent, even though readings above 30 arrived. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Rules are created in a Stopped state and you didn't select Save and start"
+        },
+        {
+          "id": "b",
+          "text": "The rule needs a Power Automate flow before it can send Teams messages"
+        },
+        {
+          "id": "c",
+          "text": "Teams actions only fire once per day"
+        },
+        {
+          "id": "d",
+          "text": "Activator only evaluates rules when a Power BI report is opened"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "New rules start Stopped and aren't evaluated until you select Save and start. Teams is a built-in action, and rules are evaluated continuously.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-create-activators",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.4-q6",
+      "type": "single",
+      "stem": "You start a new Activator rule at 10:00. The data already ingested at 09:00 met the rule's condition. What happens?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The rule doesn't activate on data that was already ingested, only on new data"
+        },
+        {
+          "id": "b",
+          "text": "The rule can't start until the past events are deleted"
+        },
+        {
+          "id": "c",
+          "text": "The rule fires one summary action for all past events"
+        },
+        {
+          "id": "d",
+          "text": "The rule fires once for each 09:00 event that met the condition"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "When a rule starts, activations run against newly ingested data only; the rule doesn't activate on data that already arrived.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-create-activators",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.4-q7",
+      "type": "single",
+      "stem": "An Activator rule's email action goes to the on-call team. You select Send me a test alert to preview the message. Who receives the test?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nobody, until the rule is started and an event matches"
+        },
+        {
+          "id": "b",
+          "text": "The workspace Admins of the rule's workspace"
+        },
+        {
+          "id": "c",
+          "text": "You, regardless of the recipients in the Action card"
+        },
+        {
+          "id": "d",
+          "text": "Everyone in the on-call team listed in the Action card"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The test alert always goes to you, whatever the recipient field says. It needs at least one past event for which the condition is true.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-create-activators",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.4-q8",
+      "type": "single",
+      "stem": "An Activator rule `value < 5` on a sensor sends an alert for every event while the value stays low, which floods the operators. What is the recommended change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use a stateful condition such as DECREASES or BECOMES so the rule fires on the transition"
+        },
+        {
+          "id": "b",
+          "text": "Add a second identical rule with an OR condition so the alerts are grouped together"
+        },
+        {
+          "id": "c",
+          "text": "Send the alert to a Teams channel instead of email so repeated alerts are collapsed into one"
+        },
+        {
+          "id": "d",
+          "text": "Raise the threshold to 50 so that fewer events match"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Stateless filters evaluate each event alone and can be noisy; stateful conditions like DECREASES or BECOMES fire on transitions and reduce spam. Changing the channel or threshold doesn't fix the repeat firing.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-rules-overview",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.4-q9",
+      "type": "single",
+      "stem": "Operators must be alerted when a device that normally sends readings every minute stops sending data altogether. Which kind of Activator condition supports this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Power BI visual alert on the report's card"
+        },
+        {
+          "id": "b",
+          "text": "Absence of data (heartbeat) detection"
+        },
+        {
+          "id": "c",
+          "text": "A stateless comparison such as value < threshold"
+        },
+        {
+          "id": "d",
+          "text": "A pipeline Fail activity in the ingestion pipeline"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Activator rules can detect absence of data (heartbeat) through temporal sequencing. A stateless comparison needs an event to arrive, so it can't fire when events stop.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-rules-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.4-q10",
+      "type": "multiple",
+      "stem": "Which two event sources can Fabric Activator monitor to trigger actions? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventstream"
+        },
+        {
+          "id": "b",
+          "text": "The Windows event log on an on-premises gateway machine"
+        },
+        {
+          "id": "c",
+          "text": "The commit history of a Git repository connected to the workspace"
+        },
+        {
+          "id": "d",
+          "text": "The Spark UI's Stages tab of a running notebook"
+        },
+        {
+          "id": "e",
+          "text": "Fabric workspace item events, such as an item being created or deleted"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "Activator takes events from eventstreams and from Fabric events such as workspace item events (create, update, delete). Git history, the Spark UI and gateway machine logs aren't Activator sources.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

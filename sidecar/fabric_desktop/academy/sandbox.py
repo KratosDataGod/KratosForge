@@ -73,6 +73,12 @@ def environment(work: Path, parent: dict[str, str] | None = None) -> dict[str, s
     env.update({"TEMP": tmp, "TMP": tmp, "TMPDIR": tmp, "HOME": tmp, "USERPROFILE": tmp, "APPDATA": tmp,
                 "LOCALAPPDATA": tmp, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1",
                 "OPENBLAS_NUM_THREADS": "2", "POLARS_MAX_THREADS": "4", "RAYON_NUM_THREADS": "4"})
+    if sys.platform != "win32":
+        # The memory limit here (RLIMIT_DATA) counts address space a process reserves, not only what it
+        # uses. pyarrow's default pool (mimalloc) reserves 1 GiB the first time it allocates, which left
+        # delta-rs and Polars too little room under the 1 GiB limit: one of their allocations failed and
+        # Rust aborted the learner's script (SIGABRT). The system pool reserves nothing up front.
+        env["ARROW_DEFAULT_MEMORY_POOL"] = "system"
     return env
 
 

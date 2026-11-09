@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import logging
 import os
 import math
@@ -243,7 +244,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+        except Exception as exc:  # noqa: BLE001 - no client ID yet, or offline: the UI offers sign-in
             _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
@@ -414,6 +415,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
+        retry = getattr(self.auth, "retry_sign_in", None)
+        if callable(retry):  # chosen by the person: a window even after a Conditional Access refusal
+            retry()
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
@@ -478,7 +482,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 if all_types:
                     return ws, client.list_items(ws["id"])
                 return ws, [lh | {"type": "Lakehouse"} for lh in client.list_lakehouses(ws["id"])]
-            except Exception:  # e.g. a paused capacity; list the rest
+            except Exception:  # noqa: BLE001 - e.g. a paused capacity; list the rest
                 return ws, None
 
         items, skipped = [], []
@@ -956,11 +960,21 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 resolve_warehouse=lambda ref: warehouse.resolve(self.fabric, ref))
         return self._sql_runs
 
-    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
+    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any],
+                       reason: str = "") -> None:
         auth = getattr(self, "_auth", None)  # only an account already signed in; never sign in here
         who = (auth.signed_in_user() or "") if auth is not None else ""
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
-        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
+        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant, reason=reason)
+
+    def _audit_finished(self, action: str, reason: str, seconds: float, params: dict[str, Any]) -> None:
+        """The line for work that ended after the call that started it had returned (a pipeline run on
+        this PC, a job in Fabric): ``ok`` when ``reason`` is "", else ``error`` with that reason
+        ("failed", "cancelled", "refused"). Never fails the work."""
+        try:
+            self._audit_sql_run(action, "error" if reason else "ok", seconds, params, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - the run has ended either way; stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",

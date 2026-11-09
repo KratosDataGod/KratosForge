@@ -30,6 +30,7 @@ import re
 import shutil
 import sys
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 import time
 import uuid
@@ -139,7 +140,7 @@ def _load(folder: str, version: int | None, timestamp: str | None, name: str) ->
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): its first is from {start}.")
     try:
         table.load_as_version(when)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - any read failure at that time becomes the same plain message
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): {_short(exc)}") from None
     return table
 
@@ -157,6 +158,8 @@ def _local_path(uri: str) -> str:
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
+    if not len(schema):  # DuckDB can't register a table without columns
+        return {}
     con = duckdb.connect()
     con.register("__empty", schema.empty_table())
     return {row[0]: row[1] for row in con.execute("DESCRIBE SELECT * FROM __empty").fetchall()}
@@ -347,9 +350,10 @@ class LocalEngine:
                      "paths": table.paths if table.files <= 50 else table.paths[:1], "folder": table.folder,
                      "files": table.files, "bytes": table.size, "status": "ok", "error": "", "columns": []}
             if key in others:
+                where = ("is one of this project's Delta tables" if catalog[key].get("kind") == OWN
+                         else f"already comes from another folder ({catalog[key]['source']})")
                 issues.append({"path": table.folder or table.paths[0],
-                               "problem": f"{table.schema}.{table.table} already comes from another folder "
-                                          f"({catalog[key]['source']}). Set a different name for one of them."})
+                               "problem": f"{table.schema}.{table.table} {where}. Set a different name for one of them."})
                 continue
             if key not in mine and self._exists(table.schema, table.table):
                 issues.append({"path": table.folder or table.paths[0],
@@ -368,7 +372,7 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
-            except Exception as exc:  # one unreadable file never stops the others
+            except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
             catalog[key] = entry
@@ -505,7 +509,7 @@ class LocalEngine:
                 raise
             raise
 
-        def batches():
+        def batches() -> Iterator[pa.RecordBatch]:
             try:
                 for batch in inner:
                     if state.get("cancelled") or state.get("timed_out"):  # an interrupt DuckDB missed
@@ -529,7 +533,8 @@ class LocalEngine:
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False, change: bool = False,
                confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None,
-               lazy: bool = False):
+               lazy: bool = False
+               ) -> Iterator[tuple[Any, dict[str, Any]]]:  # (DuckDB result or relation, run record)
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -548,7 +553,7 @@ class LocalEngine:
                 raise QueryCancelled("The query was cancelled.")
             timer = None
             if timeout and timeout > 0:
-                def expire():
+                def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
                 timer = threading.Timer(timeout, expire)
@@ -1114,7 +1119,7 @@ class LocalEngine:
         return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
-    def _shadow(self, folder: Path):
+    def _shadow(self, folder: Path) -> Iterator[Path]:
         """A copy of the Delta table at ``folder`` to try a change on: its log copied, its data files
         hard-linked (copied where links aren't possible). delta-rs only adds files and log entries,
         so nothing the copy does reaches the table."""
@@ -1436,7 +1441,7 @@ def _split_script(sql: str) -> list[str]:
 
     try:
         tokens = Dialect.get_or_raise("duckdb").tokenize(sql)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the splitter's own errors vary; all become one plain message
         raise ValueError(f"Could not split the script into statements: {exc}") from None
     out, begin = [], 0
     for token in tokens:
@@ -1489,7 +1494,7 @@ class ResultStream:
         self._generator = generator
         self.reader = pa.RecordBatchReader.from_batches(schema, batches)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
         return iter(self.reader)
 
     def read_next_batch(self) -> pa.RecordBatch:

@@ -41,7 +41,7 @@ def _source(df: Any) -> tuple[pa.Table, str]:
     if relation is None:
         raise TypeError("DeltaTable.merge needs a spark DataFrame as its source.")
     alias = getattr(relation, "alias", "") or ""
-    if not alias or alias.startswith("unnamed_relation"):
+    if not alias or alias.startswith(("unnamed_relation", "arrow_object")):
         alias = "source"
     return (getattr(relation, "to_arrow_table", None) or relation.arrow)(), alias
 

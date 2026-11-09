@@ -122,3 +122,24 @@ def test_send_with_retry_stops_waiting_at_its_deadline():
     now[0] = 0.0
     send_with_retry(send, "PUT", sleep=sleep, attempts=5, safe=False, clock=lambda: now[0])
     assert len(sent) == 5 and slept == [4.0] * 4  # no deadline: every attempt
+
+
+def test_poll_until_waits_as_each_answer_says_and_stops_at_its_deadline():
+    from fabric_desktop.retrying import PollTimedOut, poll_until
+    now = [0.0]
+    slept: list[float] = []
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+        now[0] += s
+
+    states = iter([("Running", {"Retry-After": "3"}), ("Running", {}), ("Succeeded", {})])
+    assert poll_until(lambda: next(states), lambda s: s == "Succeeded", 60, {"Retry-After": "1"},
+                      sleep=sleep, clock=lambda: now[0]) == "Succeeded"
+    assert slept == [1.0, 3.0, 2.0]  # the start's Retry-After, then each look's, else the default
+    slept.clear()
+    now[0] = 0.0
+    with pytest.raises(PollTimedOut) as exc:
+        poll_until(lambda: ("Running", {"Retry-After": "10"}), lambda s: s == "Succeeded", 25, None,
+                   sleep=sleep, clock=lambda: now[0])
+    assert exc.value.last == "Running" and slept == [2.0, 10.0, 10.0, 10.0]  # past 25 after the fourth look

@@ -121,11 +121,11 @@ function friendlyError(err) {
     [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
     [/AADSTS|interaction_required/i, "Your sign-in needs attention. Sign in again and retry; if it happens again, ask IT and quote the code in the details below."],
     [/\b403\b|Forbidden|InsufficientPrivileges|PrincipalTypeNotSupported/i, "You don't have permission for that in this workspace. A workspace admin can make you a Contributor or above."],
-    [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed."],
+    [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed, so refresh the list and pick it again."],
     [/\b429\b|TooManyRequests|throttl/i, "Fabric is busy and asked the app to slow down. Try again in a minute."],
     [/ConnectionError|Max retries|timed out|Timeout|NameResolution|getaddrinfo|ECONN|network/i, "Couldn't reach Fabric. Check the internet connection and try again."],
     [/DisplayName is Invalid|InvalidDisplayName/i, "Fabric doesn't accept that name. A lakehouse name can use only letters, numbers and underscores, and must start with a letter."],
-    [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
+    [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full. Ask a capacity admin to resume or scale it, or try again later. Work on this PC isn't affected."],
   ];
   if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
   if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };

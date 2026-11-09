@@ -95,3 +95,30 @@ def test_retry_call_retries_what_it_is_told_and_raises_the_rest():
     assert len(calls) == 1
     with pytest.raises(ValueError):
         retry_call(lambda: "never", lambda e: True, 0, lambda n: 0.0)
+
+
+def test_send_with_retry_stops_waiting_at_its_deadline():
+    """A wait that would end at or after the deadline isn't started: the 429 in hand is the answer."""
+    from types import SimpleNamespace
+
+    from fabric_desktop.retrying import send_with_retry
+    now = [0.0]
+    slept: list[float] = []
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+        now[0] += s
+
+    sent = []
+
+    def send():
+        sent.append(1)
+        return SimpleNamespace(status_code=429, headers={"Retry-After": "4"})
+
+    resp = send_with_retry(send, "PUT", sleep=sleep, attempts=5, safe=False, deadline=10.0, clock=lambda: now[0])
+    assert resp.status_code == 429 and slept == [4.0, 4.0] and len(sent) == 3  # 8 + 4 would pass 10
+    sent.clear()
+    slept.clear()
+    now[0] = 0.0
+    send_with_retry(send, "PUT", sleep=sleep, attempts=5, safe=False, clock=lambda: now[0])
+    assert len(sent) == 5 and slept == [4.0] * 4  # no deadline: every attempt

@@ -52,7 +52,8 @@ const KNOWN_HIDDEN = new Set([]);
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
   [/^home: color-contrast @ (h1|\.hero-outline|.*\.home-hero-(kicker|title|welcome|text > p|actions\b.*))$/, "Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
-  [/^home: color-contrast @ .*\.chev$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic)."],
+  // axe names the arrow `.chev` or, when it needs more to tell it apart, `.chev[aria-hidden="true"]`.
+  [/^home: color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
   [/^workspaces: color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
   [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],

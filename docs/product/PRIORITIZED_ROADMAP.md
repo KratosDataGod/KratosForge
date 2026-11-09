@@ -276,11 +276,11 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
 | [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: DP-700 certification preparation | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
+| [PB-134](PRODUCT_BACKLOG.md#pb-134) | Developer classes and mastery | 3 | 1 | 3 | 4 | 3 | 4 | 3 | 2.75 | 3.5 | 1.38 | none | L | Medium | none | Build developer class and mastery system |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
 | [PB-097](PRODUCT_BACKLOG.md#pb-097) | Extensions | 3 | 1 | 4 | 4 | 3 | 4 | 4 | 3.0 | 4.0 | 1.2 | none | XL | Low | none | Git-native development |
 | [PB-093](PRODUCT_BACKLOG.md#pb-093) | Telemetry decision | 1 | 1 | 3 | 1 | 2 | 2 | 3 | 1.65 | 2.5 | 1.15 | none | M | Low | none | Enterprise readiness |
-| [PB-134](PRODUCT_BACKLOG.md#pb-134) | Developer classes and mastery | 3 | 1 | 3 | 4 | 3 | 5 | 3 | 2.75 | 4.0 | 1.1 | none | L | Medium | none | Build developer class and mastery system |
 | [PB-127](PRODUCT_BACKLOG.md#pb-127) | Fabric App Studio | 3 | 2 | 3 | 5 | 4 | 5 | 4 | 3.25 | 4.5 | 0.97 | none | L | Medium | none | Fabric App Studio (AS) |
 | [PB-045](PRODUCT_BACKLOG.md#pb-045) | Shared queue for several workers | 2 | 3 | 4 | 3 | 3 | 5 | 4 | 3.0 | 4.5 | 0.9 | none | L | Low | PB-003 | Workload management |
 <!-- END GENERATED: ranking -->

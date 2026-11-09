@@ -95,6 +95,8 @@ function Set-OnlyTheseRights([string] $Path, [object[]] $Rules) {
             $rule[0], $rule[1], 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
     }
     Set-Acl -LiteralPath $Path -AclObject $acl
+    # Only now, with no one else able to add a file, is what's there final: check it before re-owning it.
+    Assert-PlainAndAdminOwned
     if (Get-ChildItem -LiteralPath $Path -Force) {
         # /L: a link inside is changed itself, never what it points to
         icacls "$Path\*" /setowner "*S-1-5-32-544" /T /C /L /Q | Out-Null
@@ -103,7 +105,6 @@ function Set-OnlyTheseRights([string] $Path, [object[]] $Rules) {
         if ($LASTEXITCODE) { throw "couldn't set the rights on what is already in $Path (icacls exit code $LASTEXITCODE)" }
     }
 }
-Assert-PlainAndAdminOwned   # again: pip took a while
 Set-OnlyTheseRights $DataDir @(@($admins, 'FullControl'), @($system, 'FullControl'), @($users, 'ReadAndExecute'), @($agent, 'ReadAndExecute'))
 Set-OnlyTheseRights "$DataDir\agent" @(@($admins, 'FullControl'), @($system, 'FullControl'), @($agent, 'Modify'))
 

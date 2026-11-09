@@ -204,6 +204,11 @@ def export(folder: Path, out: Path, since: str = "") -> dict[str, Any]:
     and last line's ``hash`` are in the manifest with the line count and the file's SHA-256, and
     ``verify_export()`` checks all of them with nothing but the two files."""
     folder, out = Path(folder), Path(out)
+    inside = Path(folder).resolve()
+    for path in (out, manifest_path(out)):
+        if path.resolve() == inside or inside in path.resolve().parents:
+            # A copy in the trail's own folder would replace a month's file or be read as part of the trail.
+            raise ValueError(f"Save the export outside the audit folder ({folder}): a file there is part of the trail")
     lines: list[str] = []
     with locked(folder):  # a still copy: no line lands half-way through
         for path in files(folder):

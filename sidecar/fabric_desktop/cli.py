@@ -923,7 +923,11 @@ def _audit(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2))
         return 0 if result["ok"] else 1
     if args.export:
-        print(json.dumps(audit_chain.export(folder, Path(args.export), args.since), indent=2))
+        try:
+            print(json.dumps(audit_chain.export(folder, Path(args.export), args.since), indent=2))
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
         return 0
     log = AuditLog(folder)
     if args.verify:

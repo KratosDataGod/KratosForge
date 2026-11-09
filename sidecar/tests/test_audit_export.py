@@ -110,3 +110,12 @@ def test_the_command_line_exports_and_checks(trail, tmp_path):
     assert ok.returncode == 0 and json.loads(ok.stdout)["lines"] == 2
     _tamper(out, lambda lines: lines.pop(0))
     assert subprocess.run([*run, "--verify-export", str(out)], capture_output=True).returncode == 1
+
+
+@pytest.mark.parametrize("where", ["audit-2026-11.jsonl", "copy.jsonl", "sub/copy.jsonl"])
+def test_an_export_into_the_audit_folder_is_refused_and_the_trail_is_untouched(trail, where):
+    before = {p.name: p.read_bytes() for p in trail.iterdir()}
+    with pytest.raises(ValueError, match="outside the audit folder"):
+        audit_chain.export(trail, trail / where, since="2026-11-02")
+    assert {p.name: p.read_bytes() for p in trail.iterdir()} == before
+    assert audit_chain.verify(trail)["ok"]

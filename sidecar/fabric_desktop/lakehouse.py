@@ -30,6 +30,7 @@ import pyarrow as pa
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
+from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
@@ -580,9 +581,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             if skipped:
                 record["skipped"] = "unchanged"
-            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
-            with lh.history_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            runlog.append(lh.history_file, record)
         return result
 
     queue = _queue()  # set for this cell when its notebook writes local first (notebook.py)
@@ -668,9 +667,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
                       "rows": out["rows_inserted"] + out["rows_updated"] + out["rows_deleted"],
                       "delta_version": result.delta_version,
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
-            with lh.history_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            runlog.append(lh.history_file, record)
     return result
 
 

@@ -58,7 +58,7 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 
 Close the app first, and check the folder on a pilot PC.
 
-The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
+The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, keeps the audit trail even then unless you also pass `-RemoveAuditTrail`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
 
 ## Deploy
 

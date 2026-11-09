@@ -75,7 +75,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
 4. **Order the batch.** Smallest blast radius first: docs-only, then single-module fixes, then features; stacked PRs in stack order; PRs whose CI hasn't finished or is unproven last. Nearly every UI PR appends to `app/tests/ui.test.cjs`, so two UI PRs always conflict after the first merges: chain them (each branch merges the previous) so one CI round proves the whole chain.
 5. **Validate the integrated result**, not just each PR. On the trial branch, run what CI runs that can run on Linux:
    - `node --test app/tests/ui.test.cjs`
-   - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.56.1 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
+   - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.65.0 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
    - `cd sidecar && python -m pip install -e ".[dev]" -c constraints.txt && python -m pytest -q`
    Windows-only jobs (engine build, shell build, Windows pytest) are taken from each PR's own CI and are re-proven by the post-merge CI run on `main`.
    A pull request's CI runs only the slower jobs its changed paths need (the `changes` job in ci.yml): a job it doesn't need ends as skipped, not failed. A docs-only PR skips the Windows jobs and the browser tests, and a PR that changes only the shell or UI skips the Linux engine tests. A skipped job is proven only by the run on `main`, which always runs every job.

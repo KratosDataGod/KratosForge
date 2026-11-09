@@ -13,7 +13,7 @@
 
 **Accepted with Documented Limitations** for the DP-700 track (recommended). The Databricks Data Engineer Associate track doesn't meet criterion 1 yet, so it should move to an item of its own.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept DP-700, split Databricks' on the decision card on 2026-11-09 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR).
 
 ## Acceptance criteria
 
@@ -45,9 +45,10 @@ Recommended by: Product management thread. Decided by (product owner): pending.
 | --- | --- | --- |
 | DP-700 objective 3.2.5 (eventstream errors) has no exercise yet | docs/academy/dp-700-coverage.md, gap G-02 | PB-128 follow-up E54 (ACD-014) |
 | Objectives that need Fabric can only be completed with Fabric runs, which Academy doesn't start | docs/academy/fabric-gaps.md | none: by design |
-| The Databricks track isn't complete | docs/academy/databricks/coverage.md | A new item for the Databricks track, if the product owner agrees |
+| The Databricks track isn't complete | docs/academy/databricks/coverage.md | PB-135 |
 
 ## Inventory and backlog changes
 
-- PB-128: In progress → In review. Evidence links this review.
+- PB-128: In progress → In review → Accepted (DP-700 track), retitled for DP-700. Evidence links this review.
+- PB-135: new, In progress, for the Databricks Data Engineer Associate track.
 - No feature row status changed.

@@ -7,10 +7,10 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
-- Review, 2026-11-09: PB-128 (Academy) moved to In review. Its implementation review recommends accepting the DP-700
-  track with documented limitations: 48 of 49 objectives have built exercises, and eventstream errors has a recorded gap.
-  The Databricks track has 7 objectives with neither an exercise nor a gap, so the review proposes moving it to an item
-  of its own.
+- Acceptance, 2026-11-09: the product owner accepted PB-128 (Academy) for the DP-700 track with documented
+  limitations. 48 of 49 objectives have built exercises, eventstream errors has a recorded gap, and objectives that
+  need Fabric complete only with Fabric runs. The Databricks track moves to PB-135 (In progress), because 7 of its 33
+  objectives have neither an exercise nor a gap.
 - Evening check, 2026-11-07: 74 PRs merged after 56e3826b. 4 were product data PRs, and the other 70 were linked.
   Audit lines for Prod and confirmed actions are now written first, and the action doesn't run without one. An
   authorization matrix lists every state-changing call (PB-124). The Living Experience Home hero, Forge Activity view,

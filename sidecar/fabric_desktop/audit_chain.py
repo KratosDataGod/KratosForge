@@ -198,6 +198,16 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _moment(text: str) -> dt.datetime | None:
+    """An ISO date or time as an aware UTC time (a date, or a time with no offset, is UTC); None if it
+    isn't one. Compared as times, not text, so "20261101" and "+02:00" cut where they say."""
+    try:
+        value = dt.datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (value if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)).astimezone(dt.timezone.utc)
+
+
 def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> dict[str, Any]:
     """Copy the trail, from the first line at or after ``since`` (an ISO date or time; all of it when
     empty) to the newest, into ``out``, and write ``<out>.manifest.json`` beside it. The lines are
@@ -212,24 +222,22 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
             raise ValueError(f"Save the export outside the audit folder ({folder}): a file there is part of the trail")
     if not replace and (out.exists() or manifest_path(out).exists()):
         raise ValueError(f"{out} is there already: choose another name, or replace it on purpose")
-    if since:
-        try:
-            dt.datetime.fromisoformat(since.replace("Z", "+00:00"))
-        except ValueError:
-            raise ValueError(f"--since {since!r} isn't a date: use YYYY-MM-DD, or a time such as "
-                             "2026-11-01T09:00:00+00:00") from None
+    start = _moment(since) if since else None
+    if since and start is None:
+        raise ValueError(f"--since {since!r} isn't a date: use YYYY-MM-DD, or a time such as "
+                         "2026-11-01T09:00:00+00:00")
     lines: list[str] = []
     with locked(folder):  # a still copy: no line lands half-way through
         for path in files(folder):
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
-                if not lines and since:
+                if not lines and start is not None:
                     try:
-                        at = str(json.loads(line).get("at", ""))
+                        at = _moment(str(json.loads(line).get("at", "")))
                     except (ValueError, AttributeError):
-                        at = ""
-                    if at < since:
+                        at = None
+                    if at is None or at < start:
                         continue
                 lines.append(line)
         head = _head(folder)

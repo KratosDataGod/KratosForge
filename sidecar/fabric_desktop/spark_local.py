@@ -32,7 +32,7 @@ from duckdb.experimental.spark.sql import session as _session_module
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, spark_compat, sql as _sql
+from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
 from .spark_decimals import spark_decimal_types
@@ -1121,6 +1121,12 @@ class LocalSparkSession(SparkSession):
             fields = getattr(data[0], "__fields__", None)  # Row(name=..., age=...): its names, as Spark infers them
             if isinstance(fields, (list, tuple)) and fields and all(isinstance(f, str) for f in fields):
                 schema = list(fields)  # a tuple (a Row itself) when the Row came from Row("name", "age")
+        if isinstance(data, (list, tuple)) and data and (
+                schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))):
+            # PySpark's inference (a tuple in a row is a struct, a dict a map, columns _1, _2), not DuckDB's
+            inferred_rows = spark_infer.infer(data, list(schema) if schema else None)
+            if inferred_rows is not None:  # as one Arrow table, which DuckDB reads far faster than row by row
+                return DataFrame(self.conn.from_arrow(spark_infer.arrow_table(*inferred_rows)), self)
         if verifySchema:  # verifySchema=False skips the check, as in Spark
             check_not_null(data, schema)
         # DuckDB 1.x's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
@@ -1473,7 +1479,7 @@ class LocalMergeBuilder:
         spark = session()
         view = f"__merge_builder_{next(self._MERGE_VIEWS)}"
         source_alias = getattr(relation, "alias", "") or ""
-        if not source_alias or source_alias.startswith("unnamed_relation"):  # no df.alias(...)
+        if not source_alias or source_alias.startswith(("unnamed_relation", "arrow_object")):  # no df.alias(...)
             source_alias = "source"
         relation.create_view(view, replace=True)
         try:

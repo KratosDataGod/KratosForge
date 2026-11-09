@@ -58,7 +58,7 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 
 Close the app first, and check the folder on a pilot PC.
 
-The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
+The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, keeps the audit trail even then unless you also pass `-RemoveAuditTrail`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
 
 ## Deploy
 
@@ -249,6 +249,7 @@ When your help desk needs logs, ask for a support bundle: **Settings > Help and 
 | `about.json` | The app and engine versions, Python and Windows versions, and where each setting comes from. The policy file's state: whether it applies, or the last copy that could be read stands in, and the names of the settings it sets, never their values. The file's SHA-256 and the last change this PC recorded (`policy_record`), to compare with `Get-FileHash` of the file you shipped. Under `paths`, facts about the app's data folder that can trip programs up, without the path itself: its length, whether its name has non-ASCII letters or a space, whether it's on a network share, and whether Windows allows long paths |
 | `sidecar.log` | The last 2,000 lines of the engine's log |
 | `sidecar.prev.log` | The last 2,000 lines of the run before, when the engine has restarted |
+| `app-crash.log` | When the app itself has crashed: the time, the build, the thread and the place in the code of each crash |
 | `agent.log` | On an agent server, with `--agent-home`: the last 2,000 lines of the agent's log |
 | `CONTENTS.txt` | What is in the zip and what was taken out |
 
@@ -259,7 +260,15 @@ Every file goes through the same redaction before it is written. It takes out:
 - user names in paths;
 - tenant, workspace and item ids.
 
-A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
+A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company.
+
+### Crashes
+
+KratosForge never uploads crash reports. A crash leaves its report on the PC, in the files the support bundle collects:
+
+- **The app.** A crash in the app is written to `app-crash.log`: the time, the build, and where in the code it happened, with the first 1 KB of its message.
+- **The engine.** When the engine stops on its own, the app adds a line to `sidecar.log` saying when, after how long, and with which exit code. A crash in native code, such as an access violation, is named in that line. The engine also writes a traceback of every thread to the log first: file and function names only, never a value.
+- **Crash loops.** The engine restarts on the next action. But if it stops 3 times in a row within a minute of starting, KratosForge stops starting it for 5 minutes. Every action then says why, instead of starting a new engine for each one. It tries once more after the pause, or when KratosForge is restarted. Your files and settings are untouched. The support bundle can't be made while the engine won't start, so collect `sidecar.log`, `sidecar.prev.log` and `app-crash.log` from `%LOCALAPPDATA%\FabricDesktop` yourself. The app takes tokens, email addresses, ids and the user name out of `app-crash.log` as it writes it, and the engine does the same for most of what goes in `sidecar.log`. But they don't get the bundle's full redaction, so read them before they leave your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
 
 ### Crash dumps
 

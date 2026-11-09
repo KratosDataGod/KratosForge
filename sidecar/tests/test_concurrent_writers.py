@@ -187,3 +187,38 @@ def test_only_an_append_refused_its_staged_commit_is_sent_again(tmp_path, monkey
     with pytest.raises(OSError):
         store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [2]}), mode="append")
     assert calls == ["overwrite", "append"]
+
+
+@pytest.mark.parametrize("refusal", ["Protocol changed since last commit: protocol changed",
+                                     "Metadata changed since last commit."])
+def test_a_first_append_that_loses_creating_the_table_lands_on_the_one_made(tmp_path, monkeypatch, refusal):
+    """Two first appends to a meta table not made yet each create it, and delta-rs refuses the one
+    that loses (seen on Windows CI with four writers). It is now made again on the table the other
+    one created, so both rows land."""
+    from deltalake.exceptions import CommitFailedError
+    store, other = LocalStore(tmp_path), LocalStore(tmp_path)
+    real = store_mod.write_deltalake
+    raced = []
+
+    def write(target, data, **kw):
+        if not raced:
+            raced.append(1)
+            real(target, data, **kw)  # the other writer gets there first, so this one is refused
+            raise CommitFailedError(f"Failed to commit transaction: {refusal}")
+        return real(target, data, **kw)
+
+    monkeypatch.setattr(store_mod, "write_deltalake", write)
+    store.meta_append("watermarks", [{"entity": "e", "value": "mine", "run_id": "r1"}])
+    assert sorted(other.meta("watermarks")["value"].to_list()) == ["mine", "mine"]  # the other's row and this one
+
+
+def test_an_append_refused_for_another_reason_still_fails(tmp_path, monkeypatch):
+    from deltalake.exceptions import CommitFailedError
+    store = LocalStore(tmp_path)
+
+    def write(target, data, **kw):
+        raise CommitFailedError("Failed to commit transaction: something else")
+
+    monkeypatch.setattr(store_mod, "write_deltalake", write)
+    with pytest.raises(CommitFailedError, match="something else"):
+        store.meta_append("watermarks", [{"entity": "e", "value": "x", "run_id": "r1"}])

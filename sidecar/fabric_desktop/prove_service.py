@@ -18,6 +18,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -274,7 +275,14 @@ class ProveMixin:
         info = self.notebooks.extra(name, "replay")  # type: ignore[attr-defined]
         if not info:
             raise LookupError(f"{name} isn't a replay notebook.")
-        return info, replay.read(self.root / "replays" / f"{info['bundle']}.zip")
+        path = self.root / "replays" / f"{info['bundle']}.zip"
+        try:
+            os.utime(path)  # in use: the retention sweep (retention.py) keeps a copy used within its days
+        except FileNotFoundError:
+            raise LookupError(f"The app's copy of this replay's bundle is gone: copies unused for a while are "
+                              f"deleted from this PC. Open the bundle again ({info.get('notebook') or name}) "
+                              f"to replay it.") from None
+        return info, replay.read(path)
 
     def _replay_live(self) -> dict[str, Any] | None:
         """The replay holding the kernel, while its process (with the runtime bound) still runs."""

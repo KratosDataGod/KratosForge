@@ -712,7 +712,9 @@ def _order_of(c: Any) -> str:
 
 
 # A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
-_RELATION = re.compile(r'"?\bunnamed_relation_[0-9a-f]+"?\.')  # quoted on DuckDB 2.0
+# DuckDB's own name for a frame: unnamed_relation_<hex>, or arrow_object_<hex> for one read from Arrow
+# (a polars or pyarrow frame, or inferred rows)
+_RELATION = re.compile(r'"?\b(?:unnamed_relation|arrow_object)_[0-9a-f]+"?\.')  # quoted on DuckDB 2.0
 # A quoted identifier ("name", quoted as a keyword) or a string literal ('x') in DuckDB's name, read
 # left to right in one pass so a quote inside one never pairs with the next: Spark writes each bare.
 _QUOTED = re.compile(r'"((?:[^"]|"")*)"|\'((?:[^\']|\'\')*)\'')
@@ -732,12 +734,30 @@ def _spark_named_cols(cols: Any) -> Any:
             else c for c in cols]
 
 
+def _field_names(frame: Any, cols: Any) -> Any:
+    """``col[key]`` and ``col.key`` are named col.key when col is a struct (its field) and col[key] when
+    it's a map, as in Spark; which one is known only from the frame's types, here."""
+    relation = getattr(frame, "relation", None) or getattr(getattr(frame, "_df", None), "relation", None)
+    for c in cols:
+        field = vars(c).get("_fd_field") if isinstance(c, Column) else None
+        if field is None or relation is None or "_fd_top" in vars(c):
+            continue
+        base, key = field
+        try:
+            kind = str(relation.project(_col_sql(base)).types[0])
+        except duckdb.Error:  # the frame can't read it; the select itself says why
+            continue
+        if kind.upper().startswith("STRUCT"):
+            c._fd_name = f"{_spark_text(base)}.{key}"
+    return cols
+
+
 def _naming(fn: Any) -> Any:
     """DataFrame.select, DataFrame.agg and GroupedData.agg, giving their columns Spark's names."""
     def call(self: Any, *cols: Any) -> Any:
         if len(cols) == 1 and isinstance(cols[0], list):
-            return fn(self, _spark_named_cols(cols[0]))
-        return fn(self, *_spark_named_cols(cols))
+            return fn(self, _spark_named_cols(_field_names(self, cols[0])))
+        return fn(self, *_spark_named_cols(_field_names(self, list(cols))))
     call.__name__ = getattr(fn, "__name__", "call")
     call.__doc__ = fn.__doc__
     return call
@@ -819,7 +839,9 @@ def _get_item(self: Column, key: Any) -> Column:
         raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
     if isinstance(key, int):
         return _named(_sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]"), f"{_spark_text(self)}[{key}]")
-    return _named(_sql(f"({_col_sql(self)})[{_lit(key)}]"), f"{_spark_text(self)}[{key}]")
+    out = _named(_sql(f"({_col_sql(self)})[{_lit(key)}]"), f"{_spark_text(self)}[{key}]")
+    out._fd_field = (self, key)  # type: ignore[attr-defined]  # a struct's field is named col.key; see _field_names
+    return out
 
 
 def _getitem(original: Any) -> Any:
@@ -829,10 +851,10 @@ def _getitem(original: Any) -> Any:
 
 
 def _get_field(self: Column, name: str) -> Column:
-    """``col.getField(name)``: a struct's field."""
+    """``col.getField(name)``: a struct's field, named ``col.name`` as in Spark."""
     if not isinstance(name, str):
         raise TypeError(f"getField takes a field name, not {type(name).__name__}")
-    return _sql(f"({_col_sql(self)})[{_lit(name)}]")
+    return _named(_sql(f"({_col_sql(self)})[{_lit(name)}]"), f"{_spark_text(self)}.{name}")
 
 
 def _ordered(name: str, fn: Any) -> Any:
@@ -950,7 +972,7 @@ def _text_method_named(template: str, fn: Any) -> Any:
 
 
 # A plain column, as DuckDB writes one: relation.name ("relation"."name" on DuckDB 2.0), "name" or name.
-_PLAIN_COLUMN = re.compile(r'^(?:"?unnamed_relation_[0-9a-f]+"?\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
+_PLAIN_COLUMN = re.compile(r'^(?:"?(?:unnamed_relation|arrow_object)_[0-9a-f]+"?\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
 # Spark's SQL name for a type, from its simpleString (DuckDB's spells some types Spark's long way).
 _TYPE_SQL = {"integer": "INT", "long": "BIGINT", "short": "SMALLINT", "byte": "TINYINT"}
 

@@ -24,6 +24,7 @@ import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -255,7 +256,7 @@ class Entity:
             cols |= set(DELETE_COLUMNS)
         return cols | set(self.key_columns)
 
-    def python_refs(self):
+    def python_refs(self) -> Iterator[tuple[str, str, dict[str, Any]]]:
         """(kind, "module:function", settings) for every piece of custom code."""
         hooks = self.spec.get("hooks", {})
         for point in ("after_clean", "before_write"):
@@ -530,7 +531,7 @@ def check_expr(expr: str, available: set[str]) -> list[str]:
     return [f"uses unknown column {c}" for c in roots if c not in available]
 
 
-def load_python(ref: str):
+def load_python(ref: str) -> Any:
     module, fn = ref.split(":")
     return getattr(importlib.import_module(module), fn)
 

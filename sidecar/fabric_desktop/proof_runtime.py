@@ -21,12 +21,15 @@ Nothing here imports Fabric Desktop: only the Python standard library, pyarrow a
 which both sides have.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
 import platform
 import random
 import time
+from collections.abc import Callable, Iterable
 from typing import Any
 
 PROOF_ROOT = "Files/_fabric_desktop/proofs"
@@ -43,31 +46,31 @@ class ReadOnlyTable:
     _CHANGES = {"merge", "delete", "update", "restore", "vacuum", "optimize", "create_checkpoint", "cleanup_metadata",
                 "alter", "repair", "create_write_transaction", "set_table_properties"}
 
-    def __init__(self, table):
+    def __init__(self, table: Any) -> None:
         object.__setattr__(self, "_table", table)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         if name in self._CHANGES:
             raise PermissionError(f"A proof doesn't change shared tables ({name} was called). Write results with "
                                   f"lakehouse.write_table; a proof writes them to its own folder.")
         return getattr(self._table, name)
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: Any) -> None:
         raise PermissionError("A proof doesn't change shared tables.")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"ReadOnlyTable({self._table!r})"
 
 
 class ProofRuntime:
-    def __init__(self, config, side):
+    def __init__(self, config: dict[str, Any], side: str) -> None:
         self.id = config["id"]
         self.side = side
         self.pins = dict(config.get("pins") or {})
         self.flat = bool(config.get("flat"))
         self.seed = int(config.get("seed", 0))
-        self.root = None
-        self.mount = None
+        self.root: str | None = None
+        self.mount: str | None = None
         self._options: Any = lambda: {}  # replaced by the side's storage options
         self.log = {"proof": self.id, "side": side, "reads": {}, "files": {}, "writes": {},
                     "seed": self.seed, "timezone": None, "started": time.time()}
@@ -78,7 +81,8 @@ class ProofRuntime:
 
     # ---- where things are
 
-    def bind(self, root, options=None, mount=None):
+    def bind(self, root: Any, options: Callable[[], dict[str, str]] | None = None,
+             mount: str | None = None) -> ProofRuntime:
         """``root`` is the lakehouse (``abfss://ws@onelake.../lh`` or a folder in tests);
         ``options`` returns the storage options for it; ``mount`` is the lakehouse's local mount
         (``/lakehouse/default`` in Fabric), used to save the log."""
@@ -89,26 +93,26 @@ class ProofRuntime:
         self._fix_randomness()
         return self
 
-    def options(self):
+    def options(self) -> dict[str, str]:
         return self._options()
 
     @staticmethod
-    def key(schema, table):
+    def key(schema: str | None, table: str) -> str:
         return f"{(schema or 'dbo').lower()}.{table.lower()}"
 
-    def sandbox(self, rel=""):
+    def sandbox(self, rel: str = "") -> str:
         return f"{self.root}/{PROOF_ROOT}/{self.id}/{self.side}" + (f"/{rel}" if rel else "")
 
-    def sandbox_table(self, key):
+    def sandbox_table(self, key: str) -> str:
         schema, table = key.split(".", 1)
         return self.sandbox(f"tables/{schema}/{table}")
 
-    def shared_table(self, schema, table):
+    def shared_table(self, schema: str | None, table: str) -> str:
         if self.flat:
             return f"{self.root}/Tables/{table}"
         return f"{self.root}/Tables/{schema or 'dbo'}/{table}"
 
-    def _pin(self, key):
+    def _pin(self, key: str) -> tuple[str, int] | tuple[None, None]:
         """The pinned version of ``key``; pins are kept lower case like keys."""
         for k, v in self.pins.items():
             if k.lower() == key:
@@ -117,7 +121,7 @@ class ProofRuntime:
 
     # ---- what the lakehouse module asks
 
-    def read_location(self, schema, table):
+    def read_location(self, schema: str | None, table: str) -> tuple[str, int | None]:
         """(uri, version) to read ``schema.table``: this side's own output, or the pinned input."""
         key = self.key(schema, table)
         if key in self.log["writes"]:
@@ -128,14 +132,15 @@ class ProofRuntime:
         self.log["reads"][name] = version
         return self.shared_table(*name.split(".", 1)), version  # the table's own spelling: paths are case-sensitive
 
-    def open(self, schema, table, open_delta):
+    def open(self, schema: str | None, table: str, open_delta: Callable[[str, int | None], Any]) -> Any:
         """The table to read, opened with ``open_delta(uri, version)``: read-only when it is a
         shared table (pinned), as it is when it is this side's own output."""
         uri, version = self.read_location(schema, table)
         opened = open_delta(uri, version)
         return opened if version is None else ReadOnlyTable(opened)
 
-    def write_location(self, schema, table, mode, write_delta):
+    def write_location(self, schema: str | None, table: str, mode: str,
+                       write_delta: Callable[[str, Any], object]) -> str:
         """The sandbox uri to write ``schema.table`` to. Before the first append to a table that
         existed at the start, the pinned version is copied in with ``write_delta(uri, arrow)``, so
         the append changes the same starting state on both sides."""
@@ -152,7 +157,7 @@ class ProofRuntime:
         self.log["writes"].setdefault(key, []).append(mode)
         return uri
 
-    def file_read(self, rel, local_path):
+    def file_read(self, rel: str, local_path: str) -> None:
         """Hash a file the notebook reads (``rel`` as the notebook named it: Files/...)."""
         h = hashlib.sha256()
         size = 0
@@ -164,7 +169,7 @@ class ProofRuntime:
 
     # ---- reproducibility
 
-    def _fix_randomness(self):
+    def _fix_randomness(self) -> None:
         random.seed(self.seed)
         seeded = ["random"]
         try:
@@ -182,7 +187,7 @@ class ProofRuntime:
             tz = "UTC"
         self.log["timezone"] = tz
 
-    def restore(self):
+    def restore(self) -> None:
         """Put the process time zone back (on this PC, where the engine keeps running)."""
         if hasattr(self, "_old_tz"):
             if self._old_tz is None:
@@ -192,7 +197,7 @@ class ProofRuntime:
             time.tzset()
             del self._old_tz
 
-    def environment(self, modules=None):
+    def environment(self, modules: Iterable[str] | None = None) -> dict[str, Any]:
         """Python and the versions of the distributions that provide ``modules`` (all when None)."""
         import importlib.metadata as md
         packages = {}
@@ -214,12 +219,12 @@ class ProofRuntime:
         return {"python": platform.python_version(), "implementation": platform.python_implementation(),
                 "platform": platform.system(), "packages": dict(sorted(packages.items()))}
 
-    def finish(self, modules=None):
+    def finish(self, modules: Iterable[str] | None = None) -> dict[str, Any]:
         self.log["seconds"] = round(time.time() - self.log["started"], 3)
         self.log["environment"] = self.environment(modules)
         return self.log
 
-    def save(self, modules=None):
+    def save(self, modules: Iterable[str] | None = None) -> dict[str, Any]:
         """Write this side's log next to its outputs, through the lakehouse mount (in Fabric)."""
         log = self.finish(modules)
         base = self.mount or self.root

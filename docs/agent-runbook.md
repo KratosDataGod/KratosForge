@@ -94,6 +94,17 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Recover.** Fix `agent.toml` and start the agent again. Until it starts, its schedules don't run. Other agents and the app report it as [offline](#agent-offline) once its last status record goes stale.
 
+### Another agent is using the control folder
+
+- **Message** (`mailbox.py`, at start): `The control folder <folder> is already in use by <agent>. Only one agent can work in a local control folder: two would take each other's requests. Stop that agent first, or give this one a different environment.`
+- **Message** (`agent.py`, log): `agent not started: <message>`
+
+**Means.** The agent was pointed at a local environment whose control folder (`.local/<env>/_control` in the project) another running agent already works in, so it didn't start. The message names the agent holding it, its process id and machine when they can be read. Agents on OneLake environments share `LH_Meta` safely and are never refused. The hold is the operating system's file lock on `_control/agent.lock`: it goes when that agent stops, even when it is ended with Task Manager, so a crashed agent never leaves a folder held.
+
+**Check first.** Is a second copy of the agent running on this PC, for example one started by hand while the service runs? Do two `agent.toml` files name the same project and environment?
+
+**Recover.** Stop the agent the message names, or give this agent a different environment. Then start it again. Deleting `agent.lock` doesn't help: the lock is on the open file, not on the file being there.
+
 ### The job queue file couldn't be read
 
 - **Message** (`agent.py`, log): `the job queue file couldn't be read; started with an empty queue`

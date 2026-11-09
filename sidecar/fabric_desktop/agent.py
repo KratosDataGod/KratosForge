@@ -22,12 +22,13 @@ import datetime as dt
 import logging
 import os
 import signal
+import socket
 import sqlite3
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Any, Callable
+from typing import IO, Any, Callable
 
 from . import agent_status, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
@@ -38,7 +39,7 @@ from .fabric_api import FabricClient
 from .jobqueue import JobQueue
 from .local_schedules import next_run
 from .logs import fields
-from .mailbox import Mailbox
+from .mailbox import ControlFolderInUse, LocalControl, Mailbox, hold_control_folder
 from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
 from .onelake import FileStore
@@ -102,6 +103,12 @@ class Agent:
             self.log.error("the job queue file couldn't be read; started with an empty queue", extra=fields(
                 moved_to=str(self._queue_set_aside)))
         self.clock = clock
+        # Escalation ages run on this, so a clock change while the agent runs doesn't move them. A
+        # clock handed in (tests) stands in for it, so moving that clock moves both.
+        self.monotonic: Callable[[], float] = time.monotonic if clock is time.time else clock
+        self._incident_seen: dict[str, dict[str, tuple[float, float]]] = {}  # env -> IncidentLog.first_seen
+        self._held: dict[str, IO[bytes]] = {}  # local control folders this running agent holds (run_forever)
+        self._hold_folders = False
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}
         self._claims: dict[str, str | None] = {}  # running job id -> its claim id, to renew it after a sleep
@@ -137,8 +144,41 @@ class Agent:
         """The environment's control files (mailbox and status records), built once."""
         with self._controls_lock:
             if env not in self._controls:
-                self._controls[env] = self.runtime.control_backend(env)
+                backend = self.runtime.control_backend(env)
+                self._hold(backend)
+                self._controls[env] = backend
             return self._controls[env]
+
+    def _hold(self, backend: Any) -> None:
+        """While it runs, hold each local control folder it works in, so a second agent pointed at the
+        same folder is refused rather than sharing it (mailbox.hold_control_folder)."""
+        if not isinstance(backend, LocalControl) or not self._hold_folders:
+            return
+        key = str(Path(backend.folder).resolve())
+        if key not in self._held:
+            self._held[key] = hold_control_folder(Path(key), {
+                "agent": self.config.name, "pid": os.getpid(), "host": socket.gethostname(),
+                "since": dt.datetime.fromtimestamp(self.clock(), dt.timezone.utc).isoformat(timespec="seconds")})
+
+    def hold_control_folders(self) -> None:
+        """Hold the local control folder of every environment before starting, or raise
+        ControlFolderInUse. An environment whose folder can't be worked out yet is held when it can."""
+        self._hold_folders = True
+        for env in self.config.environments:
+            try:
+                self._control(env)
+            except ControlFolderInUse:
+                self.release_control_folders()
+                raise
+            except Exception as exc:
+                self.log.warning("couldn't open the control files yet", extra=fields(
+                    env=env, error=f"{type(exc).__name__}: {exc}"))
+
+    def release_control_folders(self) -> None:
+        self._hold_folders = False
+        for f in self._held.values():
+            f.close()
+        self._held.clear()
 
     def publish_status(self, state: str = "running") -> None:
         """Write agents/<name>.json to each environment's control area. A failure is logged, never fatal."""
@@ -201,7 +241,8 @@ class Agent:
         routing = self.incident_routing()
         for env in self.config.environments:
             try:
-                log = IncidentLog(self._control(env), env, clock=self.clock)
+                log = IncidentLog(self._control(env), env, clock=self.clock, monotonic=self.monotonic,
+                                  first_seen=self._incident_seen.setdefault(env, {}))
             except Exception as exc:  # no control area: nowhere to keep incidents, so only the log says
                 self._controls.pop(env, None)
                 self.log.warning("couldn't open the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
@@ -777,6 +818,11 @@ class Agent:
         if install_signals:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 signal.signal(sig, lambda *_: self.stop())
+        try:
+            self.hold_control_folders()
+        except ControlFolderInUse as exc:
+            self.log.error(f"agent not started: {exc}")
+            raise
         self.log.info("agent started", extra=fields(concurrency=self.config.concurrency,
                                                     environments=self.config.environments,
                                                     schedules=[s.id for s in self.config.schedules],
@@ -799,6 +845,7 @@ class Agent:
                 self.publish_status("stopping")
         self._pool.shutdown(wait=True)
         self.publish_status("stopped")
+        self.release_control_folders()
         self.log.info("agent stopped")
 
     def stop(self) -> None:

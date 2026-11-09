@@ -15,9 +15,10 @@ that same path and gives each function a status:
 Databricks SQL's built-ins are Spark's with Databricks' own added. ``databricks_builtins.json`` lists
 Databricks' own (from its alphabetical list of built-in functions, sql-ref-functions-builtin-alpha),
 leaving out those that need a Databricks service: AI, geospatial (h3_, st_), files, streams, secrets,
-Unity Catalog and account functions. They have no value checks yet, so each is tried with NULL
-arguments (0 to 4 of them), or with a listed probe when it has its own syntax: "not checked" means only
-that DuckDB accepts it. For the shared ones, the
+Unity Catalog and account functions. One with an example from Databricks' reference has its value
+checked as above (the value Databricks documents). Any other is tried with NULL arguments (0 to 4 of
+them), or with a listed probe when it has its own syntax: "not checked" means only that DuckDB accepts
+it. For the shared ones, the
 values are Spark 3.5's with ANSI mode off. Databricks SQL warehouses run with ANSI mode on, which
 changes overflow and bad-input cases rather than these examples, but that isn't checked here.
 ``docs/databricks-functions.md`` is ``markdown()``'s output, and tests/test_databricks_coverage.py
@@ -103,7 +104,8 @@ def check(function: dict[str, Any], con: Any) -> tuple[str, str]:
 
 
 def load() -> list[dict[str, Any]]:
-    """Databricks' own built-ins (not in Spark 3.5), each with its group."""
+    """Databricks' own built-ins (not in Spark 3.5), each with its group, and an example and the value
+    Databricks' reference documents for it where it has a value check."""
     return list(json.loads(DATA.read_text(encoding="utf-8")))
 
 
@@ -142,9 +144,10 @@ def coverage() -> list[dict[str, Any]]:
         out.append({"name": function["name"], "group": function.get("group") or "other",
                     "example": function.get("example") or "", "status": status, "note": note})
     for function in load():
-        status, note = probe(function, con)
-        out.append({"name": function["name"], "group": function["group"], "example": "", "status": status,
-                    "note": note})
+        status, note = check(function, con) if "value" in function else probe(function, con)
+        note = note or function.get("note", "")  # a known difference the value check doesn't show
+        out.append({"name": function["name"], "group": function["group"], "example": function.get("example", ""),
+                    "status": status, "note": note})
     return out
 
 
@@ -169,10 +172,11 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "where the DuckDB engine runs it. For the functions Databricks SQL shares with Spark 3.5, each",
         "one's first example from Spark's documentation goes through the same translation as a cell and",
         "is compared with the value Databricks gives (Spark 3.5's, or Databricks' own where its reference",
-        "shows another). Databricks' own functions, in the groups headed \"Databricks only\", have no value",
-        "checks yet: each is tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN",
-        "GROUP, a unit keyword). No Databricks workspace was used. CI runs every check again, so this page",
-        "changes when a function is fixed or breaks.",
+        "shows another). Databricks' own functions are in the groups headed \"Databricks only\": one with",
+        "an example is compared with the value Databricks' reference documents for it, and any other is",
+        "tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN GROUP, a unit keyword).",
+        "No Databricks workspace was used. CI runs every check again, so this page changes when a",
+        "function is fixed or breaks.",
         "",
         "- **Runs**: gives Databricks' value for its example.",
         "- **Differs**: runs, but gives another value. Check results that use it on the warehouse.",

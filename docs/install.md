@@ -108,11 +108,30 @@ These prove where a file came from; they don't replace code signing, which is st
 
 ## Uninstall
 
-1. If you added schedules on this PC, remove them in **Monitor > KratosForge > Schedules** first. They live in Windows Task Scheduler under the `FabricDesktop` folder.
-2. Close the app and delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name).
-3. Delete `%LOCALAPPDATA%\FabricDesktop` to remove the engine, your notebooks, settings and sign-in. Copy the `notebooks` folder somewhere first if you want to keep them.
+1. If you added schedules on this PC, remove them in **Monitor > KratosForge > Schedules** first, or let the script below remove them. They live in Windows Task Scheduler under the `FabricDesktop` folder.
+2. Close the app. If it came from the MSI, uninstall it from **Settings > Apps > Installed apps** (that removes `kratosforge.exe` and its Start menu shortcut). Otherwise you delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name) yourself.
+3. Remove the rest with [`uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as yourself in PowerShell (not as administrator):
 
-Nothing in Fabric is removed. Lakehouses, tables and notebooks you published stay where they are.
+   ```powershell
+   .\uninstall-kratosforge.ps1             # keeps your notebooks, settings and stores
+   .\uninstall-kratosforge.ps1 -RemoveData # deletes %LOCALAPPDATA%\FabricDesktop as well
+   ```
+
+   Add `-WhatIf` to see what it would remove, and `-AppPath <path to kratosforge.exe>` to delete a copy you placed yourself.
+
+| The script removes | It keeps |
+| --- | --- |
+| The app's scheduled tasks (`\FabricDesktop\`, except the agent's task `\FabricDesktop\Agent`) | Your notebooks, settings, stores, audit trail and backups in `%LOCALAPPDATA%\FabricDesktop`, unless you pass `-RemoveData` |
+| The `kratosforge://` link handler (`HKCU\Software\Classes\kratosforge`) | `%ProgramData%\FabricDesktop` (your organization's policy file, the agent's folder) |
+| The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `Documents\FabricDesktop` and your Git repositories |
+| Every saved sign-in and token: `msal_cache.bin`, `fabric-view-signin.bin`, the Fabric view's browser profile (`fabric-view`), the app window's browser profile (`%LOCALAPPDATA%\com.kratosbi.fabricdesktop`), the link listener's token (`link-port`), and the mail server password in Windows Credential Manager (`KratosForge/mail-server`) | VS Code's own settings and the KratosForge extension: remove the `fabric-desktop` MCP server and the extension in VS Code |
+| `kratosforge.exe`, when you give `-AppPath` | Anything in Fabric: lakehouses, tables and notebooks you published stay where they are |
+
+What stays when you keep your data holds no usable token: connected AI tools' and VS Code windows' tokens are stored only as hashes, and settings that are secrets stay encrypted for your Windows account ([Security](security.md)). Credential Manager entries you named yourself for a Databricks secret (`credman:<name>`) are yours, and stay.
+
+## Going back to an older build
+
+An update keeps everything in `%LOCALAPPDATA%\FabricDesktop`: each store is upgraded in place when the new build first opens it, and older builds can still open what newer ones saved. The folder carries a data format mark (`data-format.json`). If a future build ever has to change your data in a way older builds can't read, it raises that mark, and an older build then refuses to start rather than damage the data: the app and its commands say "saved by a newer KratosForge" and name the folder. To go back past such a build, restore a [backup](backup.md) taken before the upgrade, or run the newer build again. Builds made before the mark don't read it, so this protection starts with the build that adds it: the current Stable build and the builds before it would open the folder whatever its mark says.
 
 ## For developers: run from source
 

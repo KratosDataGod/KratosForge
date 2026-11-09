@@ -554,7 +554,7 @@ class Engine:
             return
         from ..schedule_service import process_identity
         note = {"run_id": self.run_id, "entity": e.name, "started_at": started_at, "pid": os.getpid(),
-                "host": socket.gethostname(),
+                "pc": socket.gethostname(),  # not "host": run_context may carry its own
                 "identity": process_identity(os.getpid()), "load_date": self.load_date.isoformat(),
                 "backfill": backfill or "", "batch_id": batch_id} | self.run_context
         path = self.running_dir / f"{self.run_id}.json"
@@ -586,7 +586,7 @@ class Engine:
                 if not isinstance(note, dict) or note.get("entity") != e.name or note.get("run_id") == self.run_id:
                     continue
                 run = str(note.get("run_id", ""))
-                if note.get("host") != socket.gethostname():
+                if note.get("pc") != socket.gethostname():
                     continue  # another PC's run, in a synced folder: its PID means nothing here
                 if note.get("pid") == os.getpid() or _pid_alive(note.get("pid"), note.get("identity")):
                     continue  # its process is still running (or may be): not stopped
@@ -614,7 +614,8 @@ class Engine:
                    "started_at": text("started_at"), "seconds": None, "rows_read": None,
                    "rows_written": None, "quarantined": None, "delta_version": None,
                    "backfill": text("backfill"), "message": message, "steps": "[]"}
-            row |= {k: v for k, v in note.items() if k in self.run_context}
+            row |= {k: v if v is None or isinstance(v, int) else text(k) for k, v in note.items()
+                    if k in self.run_context}
             def append(m: dict[str, str], r: dict[str, Any] = row) -> None:
                 self.store.meta_append("run_log", [r], metadata=m)
             if self._after_commit(res, "the record of a run that stopped", (META_LAKEHOUSE, "meta", "run_log"),

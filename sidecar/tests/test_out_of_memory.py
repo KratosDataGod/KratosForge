@@ -81,7 +81,7 @@ def plant(s: Setup, run_id: str, pid: int, entity: str = "bronze.events", host: 
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{run_id}.json"
     path.write_text(json.dumps({"run_id": run_id, "entity": entity, "started_at": "2026-11-09T18:00:00+00:00",
-                                "pid": pid, "host": host or socket.gethostname(), "load_date": DAY2.isoformat(), "backfill": "", "batch_id": ""}))
+                                "pid": pid, "pc": host or socket.gethostname(), "load_date": DAY2.isoformat(), "backfill": "", "batch_id": ""}))
     return path
 
 
@@ -152,3 +152,19 @@ def test_what_counts_as_out_of_memory():
     assert not engine_mod._out_of_memory(RuntimeError(
         "Out of Memory Error: failed to offload data block of size 256 KiB (max_temp_directory_size)"))
     assert not engine_mod._out_of_memory(ValueError("memory_guard must be true or false"))
+
+
+def test_the_note_names_this_pc_whatever_host_the_run_context_names(tmp_path):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1), mode="overwrite")
+    eng = s.engine()
+    eng.run_context = {"worker": "w1", "host": "worker-1.example.com", "attempt": 2}
+    seen = {}
+    real = s.store.write
+
+    def write(*a, **k):
+        seen.update(json.loads(running(s)[0].read_text()))
+        return real(*a, **k)
+    s.store.write = write
+    assert eng.run("bronze.events").status == "ok"
+    assert seen["pc"] == socket.gethostname() and seen["host"] == "worker-1.example.com"

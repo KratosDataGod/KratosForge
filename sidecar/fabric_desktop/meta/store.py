@@ -319,6 +319,23 @@ class Store:
                     if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
                         raise
                     time.sleep(0.05 * (attempt + 1))
+                except CommitFailedError as exc:
+                    # Two first appends to a table not made yet each create it; the one that loses is
+                    # refused ("Protocol changed", or "Metadata changed" when it lost to another
+                    # writer's schema meanwhile), and is made again as an append to the table as it
+                    # is now, with that table's checks.
+                    text = str(exc).lower()
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 \
+                            or not ("protocol changed" in text or "metadata changed" in text):
+                        raise
+                    current = open_table(uri, self.options())
+                    if current is None:
+                        raise
+                    delta_profile.check_table(current)
+                    safe = self._delta_safe(uri, schema, table, data.schema, True, current)
+                    if safe != data.schema:
+                        data = data.cast(safe)
+                    target = current
         except Exception as exc:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc

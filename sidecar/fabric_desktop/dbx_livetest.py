@@ -202,7 +202,7 @@ class DatabricksLiveTest:
         try:
             check.detail = fn() or ""
             check.status = "passed"
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             check.status = "failed"
             check.detail = scrub(f"{type(exc).__name__}: {exc}")
         check.seconds = round(self.clock() - start, 3)

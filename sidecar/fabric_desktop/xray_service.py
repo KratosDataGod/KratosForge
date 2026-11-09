@@ -160,14 +160,14 @@ class XRayMixin:
                 report = self.cost_report(30)  # type: ignore[attr-defined]
                 local = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
                 result["findings"] = xray.rank(result["findings"] + xray.cost_findings(report | {"days": 30}, local))
-            except Exception as exc:  # cost needs the run logs; the rest stands without it
+            except Exception as exc:  # noqa: BLE001 - cost needs the run logs; the rest stands without it
                 _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
             result["shared"] = self._xray_share(result, lambda: storage_token)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             jsonfile.write_text(self._xray_file, json.dumps(result, default=str))
             state: dict[str, Any] = {"running": False}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the scan's failure is shown in its state
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
         with self._xray_lock:
             self._xray_state = state
@@ -202,7 +202,7 @@ class XRayMixin:
             project = self._project()  # type: ignore[attr-defined]
             managed |= {(ws, layer.lakehouse) for ws, layer in _layer_workspaces(project)}
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - no metadata project leaves those findings out; logged
             _log.info("No metadata project for X-ray: %s", describe(exc))
         fixes = self._xray_fixes(result.get("scanned"), refresh)
         rows = []
@@ -384,7 +384,7 @@ class XRayMixin:
             listed = FileStore(self.auth.storage_token).list(workspace_id, lakehouse_id, folder, recursive=True)  # type: ignore[attr-defined]
             sizes = {e["path"][len(folder) + 1:]: e["size"] for e in listed if not e["is_dir"]}
             size = sum(sizes.get(f, 0) for f in doomed)
-        except Exception as exc:  # the count still stands without the sizes
+        except Exception as exc:  # noqa: BLE001 - the count still stands without the sizes
             _log.warning("Couldn't size the files a vacuum would delete: %s", describe(exc))
         return {"files": len(doomed), "bytes": size, "keep_days": days, "why": why,
                 "risk": self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
@@ -601,7 +601,7 @@ class XRayMixin:
             raise ValueError(f"{layer} is not a layer")
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-        except Exception:
+        except Exception:  # noqa: BLE001 - no owner leaves it blank
             owner = ""
         written, problems = [], []
         for t in tables:
@@ -612,7 +612,7 @@ class XRayMixin:
             try:
                 uri, table = self._source_table(workspace_id, lakehouse_id, t.get("schema"), t["table"])
                 schema = _table_schema(table)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one table's failure is listed and the rest go on
                 problems.append(f"{t['table']}: {type(exc).__name__}: {exc}")
                 continue
             keys = [k for k in t.get("keys") or [] if k in schema] or guess_keys(list(schema))

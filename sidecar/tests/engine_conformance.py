@@ -83,7 +83,7 @@ class Harness:
         for s in self._opened:
             try:
                 s.close()
-            except Exception as exc:  # teardown must close the rest; the checks report failures
+            except Exception as exc:  # noqa: BLE001 - teardown must close the rest; the checks report failures
                 print(f"closing a {self.engine} session failed: {exc!r}")
         self._opened.clear()
 

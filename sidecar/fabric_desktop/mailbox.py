@@ -292,7 +292,7 @@ class Mailbox:
         for env in self.environments:
             try:
                 self._poll_env(env)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - the mailbox is read again next poll; logged
                 self._controls.pop(env, None)  # build it again next time (a token or lakehouse may have changed)
                 getattr(self.agent, "_controls", {}).pop(env, None)
                 self.log.warning("couldn't read the pipeline mailbox", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
@@ -332,7 +332,7 @@ class Mailbox:
                 status, stored = self._read(env, f"status/{rid}.json")
                 if status and stored and status.get("agent") == self.agent.config.name and status.get("state") not in FINAL:
                     self._sync(env, rid, status, stored)
-        except Exception as exc:  # the next poll tries again
+        except Exception as exc:  # noqa: BLE001 - the next poll tries again
             self.log.warning("couldn't update the pipeline status", extra=fields(env=env, request_id=rid, error=str(exc)))
 
     def taken_over(self, job: dict[str, Any]) -> str:
@@ -344,7 +344,7 @@ class Mailbox:
             return ""
         try:
             status, _ = self._read(env, f"status/{source.split(':', 1)[1]}.json")
-        except Exception as exc:  # can't tell: carry on; the table lease keeps two writers apart
+        except Exception as exc:  # noqa: BLE001 - can't tell: carry on; the table lease keeps two writers apart
             self.log.warning("Couldn't read the pipeline job's status; carrying on: %s", describe(exc))
             return ""
         owner = str((status or {}).get("agent") or "")
@@ -358,7 +358,7 @@ class Mailbox:
             return False
         try:
             return self.control(env).read(f"cancel/{source.split(':', 1)[1]}.json") is not None
-        except Exception as exc:  # can't tell: run it, as the request asked
+        except Exception as exc:  # noqa: BLE001 - can't tell: run it, as the request asked
             self.log.warning("Couldn't check for a cancel request; running the job: %s", describe(exc))
             return False
 
@@ -498,7 +498,7 @@ class Mailbox:
             return out | {"detail": "this agent doesn't check pipeline runs"}
         try:
             job = self.verify_run(env, run["item_id"], run["run_id"])
-        except Exception as exc:  # recorded on the status; require_run decides whether it matters
+        except Exception as exc:  # noqa: BLE001 - recorded on the status; require_run decides whether it matters
             if getattr(exc, "status", None) in _TRANSIENT or isinstance(exc, (requests.ConnectionError, requests.Timeout)):
                 return out | {"detail": f"couldn't look it up in the {env} workspace just now: {describe(exc)}",
                               "transient": True}

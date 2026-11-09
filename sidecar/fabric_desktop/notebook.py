@@ -255,7 +255,7 @@ def _mime_bundle(value: Any) -> dict[str, Any]:
             continue
         try:
             rendered = fn()
-        except Exception as exc:  # noqa: BLE001 - as above
+        except Exception as exc:  # noqa: BLE001 - a broken view falls back to the other views
             _log.info("%s failed: %s", method, describe(exc))
             continue
         if isinstance(rendered, tuple):
@@ -1211,7 +1211,7 @@ class Kernel:
                 print(f"Notebook exited with value: {done.value}")
                 namespace["__fd_exit__"] = done.value
             raise
-        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
@@ -1219,7 +1219,7 @@ class Kernel:
     def _guarded(self, run: _Run | None, fn: Callable[[], Any]) -> str:
         try:
             fn()
-        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
@@ -1397,7 +1397,7 @@ class Kernel:
                     namespace["_sqldf"] = result
                 self._emit(run, self._show(result))
             return "ok"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
 

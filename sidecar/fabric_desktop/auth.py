@@ -443,7 +443,7 @@ class Authenticator:
                 self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
                                                         enable_broker_on_windows=True, timeout=SIGN_IN_TIMEOUT)
                 self.broker = True
-            except Exception as exc:  # noqa: BLE001  # the broker's runtime failed to load: sign in with the browser
+            except Exception as exc:  # noqa: BLE001 - the broker's runtime failed to load: sign in with the browser
                 _log.warning("Windows sign-in broker didn't start; using the browser: %s", describe(exc))
         if not self.broker:
             self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,

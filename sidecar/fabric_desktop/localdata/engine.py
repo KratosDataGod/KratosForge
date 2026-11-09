@@ -140,7 +140,7 @@ def _load(folder: str, version: int | None, timestamp: str | None, name: str) ->
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): its first is from {start}.")
     try:
         table.load_as_version(when)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - any read failure at that time becomes the same plain message
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): {_short(exc)}") from None
     return table
 
@@ -372,7 +372,7 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
-            except Exception as exc:  # one unreadable file never stops the others
+            except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
             catalog[key] = entry
@@ -1441,7 +1441,7 @@ def _split_script(sql: str) -> list[str]:
 
     try:
         tokens = Dialect.get_or_raise("duckdb").tokenize(sql)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the splitter's own errors vary; all become one plain message
         raise ValueError(f"Could not split the script into statements: {exc}") from None
     out, begin = [], 0
     for token in tokens:

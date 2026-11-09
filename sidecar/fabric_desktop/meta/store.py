@@ -241,7 +241,7 @@ class Store:
         try:
             kept = (version, lazy(table, uri, self.options()).collect_schema())
             self._written = {**getattr(self, "_written", {}), uri: kept}
-        except Exception as exc:  # noqa: BLE001  silent-ok: the commit stands; written_schema then reads the log
+        except Exception as exc:  # noqa: BLE001  # silent-ok: the commit stands; written_schema then reads the log
             _log.debug("Couldn't keep the schema of %s after writing it: %s", uri, describe(exc))
         return version
 

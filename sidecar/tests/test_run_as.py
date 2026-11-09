@@ -81,7 +81,7 @@ def test_token_requests_are_recorded_without_the_token_or_its_ids():
     facts = credential_facts.facts({"type": "service_principal", "client_secret_env": "S"}, sp)
     err = facts["last_token_error"]["error"]
     assert "AADSTS7000222" in err and "0f1e2d3c" not in err and "chris@contoso.com" not in err
-    assert "login.microsoftonline.com" not in err and "[url]" in err
+    assert "login.microsoftonline.com" not in err and "client secret has expired" in err
     assert "eyJ-secret" not in json.dumps(facts)
 
 

@@ -142,9 +142,11 @@ class TokenProvider:
     """``token()`` gives a current access token, fetching a new one only when it is near expiry."""
 
     def __init__(self, host: str, fetch: Callable[[], tuple[str, float | None]], method: str,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time, sign_in_again: str = ""):
         self.host = host
         self.method = method
+        # What to do when the workspace refuses this sign-in (401): it expired or was revoked.
+        self.sign_in_again = sign_in_again
         self._fetch = fetch
         self._clock = clock
         self._token = ""
@@ -161,6 +163,14 @@ class TokenProvider:
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token()}"}
+
+    def drop(self, token: str) -> None:
+        """Forget ``token``, which the workspace refused (401) before it expired: revoked, or a sign-in
+        ended. The next call fetches one again (the CLI's cache, which a new ``databricks auth login``
+        refreshed), rather than sending the refused one until its expiry time."""
+        with self._lock:
+            if self._token == token:
+                self._token, self._expires = "", None
 
 
 def _cfg_section(profile: str, path: Path | None) -> dict[str, str]:
@@ -290,6 +300,12 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     return data.get("access_token") or "", (clock() + seconds) if seconds is not None else None
 
 
+PAT_REFUSED = ("The personal access token in the CLI profile {profile!r} has expired or was revoked. Create a new "
+               "one in the workspace (Settings > Developer > Access tokens) and save it as token in ~/.databrickscfg.")
+M2M_REFUSED = ("The service principal's sign-in was refused: check that its OAuth secret hasn't expired or been "
+               "revoked, and that the principal is still in the workspace.")
+
+
 def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subprocess.run, http: Any = None,
                  environ: Mapping[str, str] | None = None, cfg_path: Path | None = None,
                  clock: Callable[[], float] = time.time) -> TokenProvider:
@@ -313,19 +329,22 @@ def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subpro
         check_profile_host(name, section, host)
         if section.get("token"):
             pat = section["token"]
-            return TokenProvider(host, lambda: (pat, None), "pat", clock)
+            return TokenProvider(host, lambda: (pat, None), "pat", clock, PAT_REFUSED.format(profile=name))
         if section.get("client_id") and section.get("client_secret"):
             cid, sec = section["client_id"], section["client_secret"]
-            return TokenProvider(host, lambda: _m2m_token(host, cid, sec, http, clock), "oauth-m2m", clock)
-        return TokenProvider(host, lambda: _cli_token(["--profile", name], run), "databricks-cli", clock)
+            return TokenProvider(host, lambda: _m2m_token(host, cid, sec, http, clock), "oauth-m2m", clock,
+                                 M2M_REFUSED)
+        return TokenProvider(host, lambda: _cli_token(["--profile", name], run), "databricks-cli", clock,
+                             f"Sign in again with: databricks auth login --profile {name}")
     host = check_host(connection.get("host") or "")
     if method == "oauth-u2m":
-        return TokenProvider(host, lambda: _cli_token(["--host", host], run), "oauth-u2m", clock)
+        return TokenProvider(host, lambda: _cli_token(["--host", host], run), "oauth-u2m", clock,
+                             f"Sign in again with: databricks auth login --host {host}")
     if method == "oauth-m2m":
         cid = str(cred.get("client_id") or "")
         ref = str(cred.get("secret") or "")
         if not cid or not ref:
             raise DatabricksAuthError("OAuth machine-to-machine needs client_id and a secret reference.")
         return TokenProvider(host, lambda: _m2m_token(host, cid, resolve_secret(ref, environ), http, clock),
-                             "oauth-m2m", clock)
+                             "oauth-m2m", clock, M2M_REFUSED)
     raise DatabricksAuthError(f"Unknown Databricks sign-in method {method!r}.")

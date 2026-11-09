@@ -42,8 +42,8 @@ function homeHero({ welcome, actions = [] } = {}) {
       h("div", { class: "row wrap home-hero-actions" }, actions)));
 }
 
-// The side column: the rank card, Your journey, Recent achievement and Forge stats. The first three read
-// profile_get; Forge stats count this PC's own run logs (the ones Monitor reads). Returns { el, load } so
+// The side column: the rank card, Your journey, Recent achievement and Your activity. The first three read
+// profile_get; Your activity count this PC's own run logs (the ones Monitor reads). Returns { el, load } so
 // Home can draw it at once and fill it when the engine answers. With progression off in Profile, or the
 // panel hidden, it shows nothing and the page closes the gap.
 function homeProgressPanel() {
@@ -103,7 +103,7 @@ async function homeWeekStats(card) {
   const notYet = (label, why) => h("div", { class: "home-stat muted-text", title: why },
     h("span", {}, label), h("span", { class: "home-stat-none" }, "Not measured yet"));
   card.replaceChildren(
-    h("h2", { class: "home-stats-head" }, homeBarsIcon(), "Forge stats ", h("span", { class: "muted-text small" }, "(last 7 days)")),
+    h("h2", { class: "home-stats-head" }, homeBarsIcon(), "Your activity ", h("span", { class: "muted-text small" }, "(last 7 days)")),
     runs.read
       ? row("Runs on this PC", c.cut ? `${c.thisWeek}+` : String(c.thisWeek), delta(c.change),
         "Metadata runs, scheduled and Home runs, and pipeline runs on this PC, from their run logs.")

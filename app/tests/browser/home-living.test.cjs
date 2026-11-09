@@ -35,7 +35,7 @@ before(async () => {
   assert.strictEqual(out.status, 0, out.stderr);
   profile = JSON.parse(out.stdout);
   // This PC's run logs: four local runs in the last 7 days (one metadata run went to Fabric and doesn't
-  // count), two in the 7 before, so Forge stats reads 4 and +100%.
+  // count), two in the 7 before, so Your activity reads 4 and +100%.
   const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
   app = await openApp({ engine: ["app_settings", "app_settings_save"], mocks: {
     profile_get: () => profile, list_notebooks: () => [],
@@ -60,7 +60,8 @@ test("Home shows the hero and the progression panel from profile_get", { skip },
   assert.ok(await page().locator(".home-id-level").getByText(`${p.xp.toLocaleString("en-US")} / ${p.next_level_xp.toLocaleString("en-US")} XP`).isVisible());
   assert.ok(await page().locator(".home-id-rank").getByText(p.title, { exact: true }).isVisible());
   assert.ok(await page().getByText("First Flame", { exact: true }).isVisible());
-  // Forge stats: runs counted from this PC's run logs, week against week; CU and optimized never guessed.
+  // Your activity: runs counted from this PC's run logs, week against week; CU and optimized never guessed.
+  assert.ok(await page().getByRole("heading", { name: /^Your activity/ }).isVisible());
   const runs = page().locator(".home-stat").filter({ hasText: "Runs on this PC" });
   await runs.locator("b").getByText("4", { exact: true }).waitFor();
   assert.match(await runs.innerText(), /\+100%/);

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "56e3826bcb5ff380d68b06f1f51144fa81ffb281",
+    "commit": "e5e6bec443b36ea22e6d9e0a8e76dbce147cd0ff",
     "date": "2026-11-07",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -46,7 +46,8 @@
       "Acceptance of PB-129 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-06 19:18 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpGnum6rorUUxKrjte6fjpjv).",
       "Product check 2026-11-06 23:42 at c750da45a4eae0b9d5bd1bc45f4c9e38c70ba7d7: 97 PRs merged after de881016; 3 were product data PRs and the other 94 were linked by title; other rows were not re-read.",
       "Product check 2026-11-07 11:42 at 56e3826bcb5ff380d68b06f1f51144fa81ffb281: 83 PRs merged after c750da45; 2 were product data and docs audit PRs and the other 81 were linked by title; other rows were not re-read.",
-      "Acceptance of PB-130 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst)."
+      "Acceptance of PB-130 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst).",
+      "Product check 2026-11-07 23:42 at e5e6bec443b36ea22e6d9e0a8e76dbce147cd0ff: 74 PRs merged after 56e3826b; 4 were product data PRs and the other 70 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -132,6 +133,7 @@
         1958,
         1993,
         2021,
+        2045,
         2050,
         2055,
         2058,
@@ -139,7 +141,20 @@
         2078,
         2143,
         2148,
-        2161
+        2161,
+        2185,
+        2188,
+        2191,
+        2196,
+        2205,
+        2207,
+        2220,
+        2223,
+        2228,
+        2230,
+        2231,
+        2233,
+        2236
       ]
     },
     {
@@ -331,7 +346,17 @@
         1925,
         1963,
         1966,
-        1967
+        1967,
+        2056,
+        2201,
+        2211,
+        2213,
+        2215,
+        2216,
+        2218,
+        2222,
+        2225,
+        2226
       ]
     },
     {
@@ -2449,7 +2474,9 @@
         1941,
         1971,
         2008,
-        2154
+        2154,
+        2178,
+        2240
       ]
     },
     {
@@ -2979,7 +3006,9 @@
         1900,
         1912,
         1913,
-        1939
+        1939,
+        2194,
+        2212
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -5687,8 +5716,10 @@
       "prs": [
         117,
         1742,
+        2061,
         2147,
-        2163
+        2163,
+        2165
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
       "next_action": "Calibrate against the Capacity Metrics app and label every number (PB-050)",
@@ -6219,7 +6250,9 @@
       "prs": [
         2074,
         2077,
-        2156
+        2156,
+        2167,
+        2199
       ]
     },
     {
@@ -7524,7 +7557,9 @@
         1965,
         2041,
         2042,
-        2043
+        2043,
+        2183,
+        2214
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go.",
@@ -8087,7 +8122,15 @@
         1934,
         1938,
         2011,
-        2150
+        2150,
+        2174,
+        2189,
+        2193,
+        2221,
+        2224,
+        2227,
+        2232,
+        2234
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8584,7 +8627,15 @@
         2059,
         2152,
         2153,
-        2159
+        2159,
+        2170,
+        2173,
+        2200,
+        2219,
+        2229,
+        2238,
+        2244,
+        2247
       ],
       "backlog": [
         "PB-119",

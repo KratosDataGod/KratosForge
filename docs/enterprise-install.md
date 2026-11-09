@@ -278,11 +278,24 @@ KratosForge writes no crash dumps of its own. If the engine crashes, Windows Err
 
 ## User profiles
 
-KratosForge keeps its data in `%LOCALAPPDATA%\FabricDesktop`, which a roaming profile doesn't copy between PCs, so the engine and caches stay on each PC. Backups, notebooks and local Delta tables are tested under a profile path with spaces and non-ASCII letters, but not yet on a Windows PC with such a user name.
+KratosForge keeps everything in `%LOCALAPPDATA%\FabricDesktop`: the engine, notebooks, settings, the sign-in cache, local tables and caches. A classic roaming profile doesn't copy that folder between PCs, so on a PC that keeps the profile everything stays there, and on one that doesn't (below) the person starts again each time. Backups, notebooks and local Delta tables are tested under a profile path with spaces and non-ASCII letters, but not yet on a Windows PC with such a user name.
 
 - **Exports and support bundles** go to the Downloads folder Windows reports. The default metadata folder is under the Documents folder Windows reports. Both follow OneDrive's known folder move and folder redirection.
 - **Long paths.** The engine's tables and caches sit a few folders deep under `%LOCALAPPDATA%`, and a long table name with partition folders can pass 260 characters. Turn on **Enable Win32 long paths** (Computer Configuration > Administrative Templates > System > Filesystem), which sets `LongPathsEnabled`. The support bundle's `about.json` says whether it's on.
 - **Profiles on a network share.** `kratosforge://` links and **Open in VS Code** open notebooks only on a drive letter. A `\\server\share` path is refused, so a link can't make Windows contact another host with the person's sign-in. Where Documents is redirected to a share, map it to a drive letter.
+
+### Virtual desktops and shared PCs
+
+On Azure Virtual Desktop, Citrix and other multi-session hosts, and on non-persistent desktops:
+
+- **Keep the whole profile.** Use an FSLogix profile container (or anything that keeps `%LOCALAPPDATA%`). With only a classic roaming profile on a non-persistent desktop, notebooks saved in KratosForge's own folder, settings and the sign-in are gone at sign-out. Notebooks in a folder of their own (a Git repository, OneDrive) are kept wherever that folder is.
+- **Size the profile disk for the engine.** The engine is about 950 MB and 25,000 files per person (a 315 MB download), plus the browser data of the app's window. A new build usually updates it with a few MB, but a new Python or package set downloads it whole. To save the download on each host, [host the engine yourself](#host-the-engine-yourself) on the same network. Excluding `FabricDesktop\engine` from the container means each new session downloads it again.
+- **A full or read-only profile disk** (FSLogix can attach one read-only, for example to a second session of the same person) stops saving: the app says the disk is full, or that Windows won't let it write its data folder, and changes nothing. It doesn't fall back to another folder.
+- **Ports.** The app and its engine talk over pipes, and the `kratosforge://` link listener and the VS Code channel take a free port each, so any number of people can run the app on one host. The optional local API uses one fixed port (47615): on a shared host only the first person to turn it on gets it. The others are told so and can add their tools as MCP tools, which need no port.
+- **Memory and CPU.** Each person runs the app's window, the engine and, with `kernel_process`, one process per open notebook (about 0.8 GB each before any data). A local query can use most of the host's free memory and every core. On a shared host, set `kernel_process`, `kernel_memory_limit_gb`, `kernel_max_sessions`, `kernel_idle_minutes` and `sql_memory_limit_percent` in the [policy file](azure-setup.md#4-push-settings-to-everyone), and leave CPU sharing to the host (fair-share CPU scheduling on multi-session Windows).
+- **Schedules** live in the person's Windows Task Scheduler on that host and run only there, so on a non-persistent or pooled desktop they may not run at all. Use Fabric's own schedules there.
+
+**UNVERIFIED:** none of this has run on an Azure Virtual Desktop, Citrix or FSLogix host yet.
 
 ## Uninstall
 

@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-09 11:42 UTC, main 2bf8ea1b.** Covers the PRs merged from #135 to #2290.
+**Product check of 2026-11-09 23:42 UTC, main d5a867c0.** Covers the PRs merged from #135 to #2375.
 
 ## Summary
 
+- Evening check, 2026-11-09: 54 PRs merged after 2bf8ea1b. 5 were product data, docs audit and operations PRs, and
+  the other 49 were linked. The weekly review's hardening stories landed: retries go through one module, Fabric
+  errors and the app's errors name a next step, a write whose reply was lost is never made twice, IT can check audit
+  exports, and every shipped lock file is scanned (PB-124). A seeded kill test for local Delta writes runs in CI on
+  Linux and Windows (PB-099). The Databricks Associate track gained seven exercises (PB-135). PB-120 moved to In
+  review with its implementation review, which recommends Accept with documented limitations; the decision card waits
+  on the product owner. Docs audit 16 marked the 28 features whose only verification gap is a live tenant run.
 - Acceptance, 2026-11-09: the product owner accepted PB-128 (Academy) for the DP-700 track with documented
   limitations. 48 of 49 objectives have built exercises, eventstream errors has a recorded gap, and objectives that
   need Fabric complete only with Fabric runs. The Databricks track moves to PB-135 (In progress), because 7 of its 33
@@ -190,7 +197,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 2 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-120), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

@@ -102,7 +102,13 @@ function friendlyError(err) {
     [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
   ];
   const known = [
-    [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
+    // Conditional Access, by what it asked for (docs/troubleshooting.md). Windows sign-in not starting comes first: then the device was never shown.
+    [/Windows sign-in didn't start, so this sign-in used the browser/, "Windows sign-in didn't start, so KratosForge signed in through the browser, and your organization's sign-in rules (Conditional Access) need Windows to show that this PC is managed. Restart KratosForge and sign in again; if it repeats, the details below help IT."],
+    [/AADSTS53000\b|AADSTS530003\b/, "Your organization's sign-in rules (Conditional Access) only allow a PC it manages and finds compliant, and this one isn't. Use a managed PC, or ask IT to check this one; docs/permissions.md says what they can allow."],
+    [/AADSTS53001\b/, "Your organization's sign-in rules (Conditional Access) only allow a PC joined to its domain, and this one isn't. Use a joined PC, or ask IT."],
+    [/AADSTS53002\b/, "Your organization's sign-in rules (Conditional Access) only allow approved apps, and KratosForge's sign-in (Microsoft's Fabric CLI app) isn't one. Ask IT; docs/permissions.md says what they can allow."],
+    [/AADSTS53004\b/, "Your organization needs you to set up multi-factor authentication before you sign in. Set it up at https://aka.ms/mfasetup, then sign in again."],
+    [/AADSTS53003\b|AADSTS530032\b|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example from this location or network, or for Microsoft's developer tools. Ask IT and quote the code in the details below; docs/permissions.md says what they can allow."],
     [/AADSTS700016|AADSTS90094|AADSTS90008|admin_consent|needs? admin approval/i, "Your organization hasn't allowed this sign-in yet. Ask a Microsoft Entra admin; docs/permissions.md says what they can do."],
     [/Capacity\.Read\.All|list_?capacities/i, "Your sign-in can't list capacities, so pick the workspace's capacity in Fabric instead. docs/permissions.md explains why and what IT can change."],
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],

@@ -1082,6 +1082,13 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50079: The user is required to use multi-factor authentication"), /multi-factor/);
   assert.match(say("SignInError: AADSTS50020: User account from identity provider does not exist in tenant"), /work account/);
   assert.match(say("SignInError: AADSTS53003: Access has been blocked by Conditional Access policies"), /Conditional Access/);
+  assert.match(say("SignInError: AADSTS53000: Device is not in required device state: compliant"), /manages and finds compliant/);
+  assert.match(say("SignInError: AADSTS530003: Your device is required to be managed"), /manages and finds compliant/);
+  assert.match(say("SignInError: AADSTS53001: Device is not in required device state: domainJoined"), /joined to its domain/);
+  assert.match(say("SignInError: AADSTS53002: Application used is not an approved application"), /approved apps/);
+  assert.match(say("SignInError: AADSTS53004: Proof up required"), /aka\.ms\/mfasetup/);
+  assert.match(say("SignInError: AADSTS530032: Blocked by security policy"), /location or network/);
+  assert.match(say("SignInError: AADSTS53000: Device is not compliant. Windows sign-in didn't start, so this sign-in used the browser, which can't show your organization that this PC is managed."), /Restart KratosForge/);
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);

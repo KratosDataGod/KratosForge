@@ -1,6 +1,6 @@
 {
  "spark": "3.5.3",
- "source": "JSON and CSV: the keyword arguments of pyspark 3.5.3's DataFrameReader.json and DataFrameReader.csv (path and schema left out). Parquet: the read options in Spark 3.5's Parquet data source option table, and the path filters from its generic file source options.",
+ "source": "JSON and CSV: the keyword arguments of pyspark 3.5.3's DataFrameReader.json and DataFrameReader.csv (path and schema left out). Parquet: the read options in Spark 3.5's Parquet data source option table, and the path filters from its generic file source options. Every format: the generic file source options ignoreCorruptFiles and ignoreMissingFiles.",
  "aliases": {
   "csv": {
    "delimiter": "sep",
@@ -33,6 +33,8 @@
   "recursiveFileLookup",
   "modifiedBefore",
   "modifiedAfter",
+  "ignoreCorruptFiles",
+  "ignoreMissingFiles",
   "allowNonNumericNumbers"
  ],
  "csv": [
@@ -67,6 +69,8 @@
   "recursiveFileLookup",
   "modifiedBefore",
   "modifiedAfter",
+  "ignoreCorruptFiles",
+  "ignoreMissingFiles",
   "unescapedQuoteHandling"
  ],
  "parquet": [
@@ -76,6 +80,8 @@
   "pathGlobFilter",
   "recursiveFileLookup",
   "modifiedBefore",
-  "modifiedAfter"
+  "modifiedAfter",
+  "ignoreCorruptFiles",
+  "ignoreMissingFiles"
  ]
 }

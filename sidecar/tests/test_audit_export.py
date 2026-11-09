@@ -152,3 +152,11 @@ def test_exporting_this_pcs_trail_is_itself_recorded_after_the_copy(tmp_path):
     (line,) = AuditLog(folder).recent(1, "audit_export")
     assert line["target"] == {"since": "", "lines": 1, "sha256": json.loads(run.stdout)["sha256"]}
     assert AuditLog(folder).verify()["ok"] and audit_chain.verify_export(out, folder)["ok"]
+
+
+@pytest.mark.parametrize("since, first", [("20261101", "a2"), ("2026-11-01T10:30:00+02:00", "a2"),
+                                          ("2026-11-01T09:00:01Z", "a3"), ("2026-11-01T09:00:00", "a2")])
+def test_since_is_compared_as_a_time_whatever_its_iso_form(trail, tmp_path, since, first):
+    out = tmp_path / "since.jsonl"
+    audit_chain.export(trail, out, since=since)
+    assert json.loads(_lines(out)[0])["action"] == first

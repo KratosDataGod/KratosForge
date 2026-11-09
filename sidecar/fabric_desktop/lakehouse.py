@@ -34,7 +34,7 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped
+from .retrying import data_upload_dropped, log_commit_dropped
 
 _log = logging.getLogger(__name__)
 
@@ -471,6 +471,10 @@ def _stream(data: Any) -> tuple[pa.Schema, Iterator[pa.Table]] | None:
     return first.schema, chain()
 
 
+class CommitOutcomeUnknown(RuntimeError):
+    """A table write whose Delta log entry may or may not have gone in (retrying.log_commit_dropped)."""
+
+
 # A table write whose data file upload was dropped (retrying.data_upload_dropped) is written again,
 # whole: nothing of it was committed. On top of object_store's own retries of each part.
 UPLOAD_ATTEMPTS = 3
@@ -559,6 +563,11 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                                     schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
                     break
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+                    if log_commit_dropped(exc):
+                        raise CommitOutcomeUnknown(
+                            f"Writing {name_}: the connection dropped while the commit was being written, so it "
+                            "may or may not have gone in. Look at the table's history before writing it again, "
+                            "so an append isn't in the table twice.") from exc
                     if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
                         raise
                     wait = UPLOAD_RETRY_WAIT * (attempt + 1)

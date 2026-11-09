@@ -107,11 +107,43 @@ def send_with_retry(send: Callable[[], Any], method: str, sleep: Callable[[float
         wait = retry_after(getattr(resp, "headers", None), default_wait, cap=wait_cap)
         if no_time_for(wait):
             return resp
-        sleep(wait)
         close = getattr(resp, "close", None)
         if callable(close):
-            close()  # a streamed response holds its connection until closed
+            close()  # a streamed response holds its connection until closed: let it go before waiting
+        sleep(wait)
     raise AssertionError("unreachable")
+
+
+R = TypeVar("R")
+
+
+class PollTimedOut(Exception):
+    """A long-running operation still unfinished at its deadline. ``last`` is the last thing fetched."""
+
+    def __init__(self, last: Any):
+        super().__init__("the operation didn't finish in time")
+        self.last = last
+
+
+def poll_until(fetch: Callable[[], tuple[R, Mapping[str, Any] | None]], finished: Callable[[R], bool],
+               timeout: float, headers: Mapping[str, Any] | None, sleep: Callable[[float], None] = time.sleep,
+               clock: Callable[[], float] = time.monotonic, default_wait: float = 2.0,
+               cap: float = RETRY_AFTER_CAP) -> R:
+    """Follow a long-running operation until ``finished`` says its state is final, and return that state.
+
+    Before each look it waits as the last answer's ``Retry-After`` says (``headers``: first the answer
+    that started the operation, then each ``fetch``'s), else ``default_wait``, capped at ``cap``.
+    ``fetch`` makes one request and returns (state, its headers); it is never sent again within one
+    look, so a failed look raises as it is. Once ``timeout`` seconds (on ``clock``) have passed and the
+    state isn't final, PollTimedOut is raised with the last state: the operation may still finish."""
+    deadline = clock() + timeout
+    while True:
+        sleep(retry_after(headers, default_wait, cap=cap))
+        state, headers = fetch()
+        if finished(state):
+            return state
+        if clock() > deadline:
+            raise PollTimedOut(state)
 
 
 # The statuses a remote engine call (Databricks SQL, Fabric Spark over Livy) tries again: throttled,
@@ -206,6 +238,14 @@ def data_upload_dropped(exc: BaseException) -> bool:
     low = text.lower()
     return ("Error performing PUT" in text and ".parquet" in text and "_delta_log" not in text
             and any(d in low for d in _DROPPED))
+
+
+def log_commit_dropped(exc: BaseException) -> bool:
+    """A table write that failed writing its Delta log entry on a dropped connection, a timeout or a
+    5xx: the commit may have gone in. It is never written again by itself (an append would be in the
+    table twice); the error says to check the table's history first."""
+    text = str(exc)
+    return "Error performing PUT" in text and "_delta_log" in text and any(d in text.lower() for d in _DROPPED)
 
 
 T = TypeVar("T")

@@ -105,6 +105,20 @@ What a paired window can and can't do:
 
 How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused. Before the extension sends the hello or a token, it checks that whatever answers on that port knows the hello (it asks for an HMAC of a random value), so another user on a shared PC who takes the port after KratosForge stops gets nothing. The extension stays off in VS Code's Restricted Mode. The same check tells the extension which version of the channel the app speaks: if the app is newer than the extension, or the extension is too old for the app, the window says which one to update and sends nothing else.
 
+### Paths
+
+A window pairs from its folder exactly as VS Code has it open. KratosForge keeps that folder whole, never shortened or altered to show it, and compares each notebook's path with it as text, without case, as Windows does. Each kind of folder below either works or is refused with a message that says why; none is taken for another folder.
+
+| Folder or path | Pairing and running cells | **Open in KratosForge** and `kratosforge://` links |
+| --- | --- | --- |
+| Spaces, letters outside ASCII, emoji, `&`, `+`, `#`, `%` | Works | Works. The extension encodes every character of the path. |
+| Documents moved to OneDrive (`C:\Users\…\OneDrive - Contoso\Documents`) | Works, including files kept online only | Works |
+| A path past 260 characters | Works where long paths are turned on for the PC. Where they aren't, a notebook in a known folder is refused with a message to use a shorter folder or ask IT to turn long paths on. Paths are limited to 4,096 characters. | Same as pairing |
+| A network folder (`\\server\share\…`) | Refused at pairing, with a message to clone or copy the notebooks to this PC, or use a mapped drive | Refused before anything reads it |
+| A mapped drive (`Z:\…`) | Works like any drive, for notebooks in a repository opened from that drive | Same as pairing |
+| Folders whose names differ only in case | One folder, as Windows treats them | One folder |
+| A control or text-direction character in the folder's path | Refused at pairing, because the folder would show as a different one | A control character is refused |
+
 ### Versions
 
 The extension and the app each speak a version of the channel's API. The extension sends its version in its first check, and the app answers with its own. The app sets the oldest extension version it still serves. An extension from before versions were sent counts as version 1. Each row below is a test in `vscode/test/compat.test.cjs`, which runs against the real engine.

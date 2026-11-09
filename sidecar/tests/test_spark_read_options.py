@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import spark_local, spark_read_options
+from fabric_desktop.notebook import Kernel
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,8 +39,17 @@ def test_each_option_has_one_status_and_both_kinds_appear(rows):
 
 @pytest.mark.parametrize("fmt", spark_read_options.FORMATS)
 def test_a_refused_option_stops_the_read_and_names_itself(rows, fmt, tmp_path):
-    reader = spark_local.LakehouseReader.__new__(spark_local.LakehouseReader)
-    for r in (r for r in rows if r["format"] == fmt and r["status"] == "refused"):
-        reader._options, reader._names = {r["name"].lower(): "x"}, {r["name"].lower(): r["name"]}
-        with pytest.raises(NotImplementedError, match=r["name"]):
-            reader._refusal(fmt)
+    """Through a notebook's own spark.read, before any file is opened."""
+    names = [r["name"] for r in rows if r["format"] == fmt and r["status"] == "refused"]
+    path = (tmp_path / f"none.{fmt}").as_posix()
+    k = Kernel()
+    out = k.run("stopped = {}\n"
+                f"for name in {names!r}:\n"
+                "    try:\n"
+                f"        spark.read.format({fmt!r}).option(name, 'x').load('file:{path}')\n"
+                "    except NotImplementedError as exc:\n"
+                "        stopped[name] = str(exc)\n")
+    assert out["status"] == "ok", out
+    stopped = k.namespace["stopped"]
+    assert sorted(stopped) == sorted(names)
+    assert all(name in why and "wasn't read" in why for name, why in stopped.items())

@@ -929,7 +929,7 @@ def _audit(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(exc, file=sys.stderr)
             return 2
-        if not args.folder:  # this PC's trail records that a copy of it was taken (after the copy, so not in it)
+        if folder.resolve() == (data_dir() / "audit").resolve():  # this PC's trail records that a copy was taken (after it)
             try:
                 AuditLog(folder).record("audit_export", "ok", 0.0, {"since": args.since, "lines": made["lines"],
                                                                     "sha256": made["sha256"]})

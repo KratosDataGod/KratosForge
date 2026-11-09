@@ -16,9 +16,9 @@ Spark. Time travel (`versionAsOf`, `timestampAsOf`) is taken by every reader.
 
 | Format | Honoured | Refused |
 | --- | ---: | ---: |
-| JSON | 3 | 20 |
-| CSV | 10 | 22 |
-| Parquet | 3 | 4 |
+| JSON | 3 | 22 |
+| CSV | 10 | 24 |
+| Parquet | 3 | 6 |
 
 ## JSON
 
@@ -48,6 +48,8 @@ Also taken under another name: `charset` (as `encoding`).
 | `recursiveFileLookup` | Refused |  |
 | `modifiedBefore` | Refused |  |
 | `modifiedAfter` | Refused |  |
+| `ignoreCorruptFiles` | Refused |  |
+| `ignoreMissingFiles` | Refused |  |
 | `allowNonNumericNumbers` | Refused |  |
 
 ## CSV
@@ -87,6 +89,8 @@ Also taken under another name: `charset` (as `encoding`), `delimiter` (as `sep`)
 | `recursiveFileLookup` | Refused |  |
 | `modifiedBefore` | Refused |  |
 | `modifiedAfter` | Refused |  |
+| `ignoreCorruptFiles` | Refused |  |
+| `ignoreMissingFiles` | Refused |  |
 | `unescapedQuoteHandling` | Refused |  |
 
 ## Parquet
@@ -100,5 +104,7 @@ Also taken under another name: `charset` (as `encoding`), `delimiter` (as `sep`)
 | `recursiveFileLookup` | Refused |  |
 | `modifiedBefore` | Refused |  |
 | `modifiedAfter` | Refused |  |
+| `ignoreCorruptFiles` | Refused |  |
+| `ignoreMissingFiles` | Refused |  |
 
-Source: JSON and CSV: the keyword arguments of pyspark 3.5.3's DataFrameReader.json and DataFrameReader.csv (path and schema left out). Parquet: the read options in Spark 3.5's Parquet data source option table, and the path filters from its generic file source options.
+Source: JSON and CSV: the keyword arguments of pyspark 3.5.3's DataFrameReader.json and DataFrameReader.csv (path and schema left out). Parquet: the read options in Spark 3.5's Parquet data source option table, and the path filters from its generic file source options. Every format: the generic file source options ignoreCorruptFiles and ignoreMissingFiles.

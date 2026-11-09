@@ -106,8 +106,13 @@ async function showLink(link) {
     return;
   }
   if (link?.kind !== "notebook") return;
-  const name = link.name ?? (await rpc("notebook_name_for_path", { path: link.path }).catch(() => ({}))).name;
+  const found = link.name ? { name: link.name } : await rpc("notebook_name_for_path", { path: link.path }).catch(() => ({}));
+  const name = found.name;
   const known = name && (await rpc("list_notebooks").catch(() => [])).some((n) => n.name === name);
+  if (!known && found.why) {
+    toast(`${link.path}: ${found.why}`, true);
+    return;
+  }
   if (!known) {
     toast(link.path ? `${link.path} isn't in the notebooks folder or a notebooks repository KratosForge knows. Import it, or open its repository in Source control.`
       : `There's no notebook named ${name}.`, true);

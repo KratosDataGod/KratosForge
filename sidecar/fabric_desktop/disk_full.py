@@ -87,3 +87,49 @@ def spill_message(temp_dir: str | Path | None) -> str:
     return (f"Stopped: the query ran out of room for its temp files, as the temp folder's drive is full"
             f"{f' ({where})' if where else ''}. Nothing was saved. "
             "Free some space, or narrow the query, and run it again.")
+
+
+# Windows: ERROR_ACCESS_DENIED (5) and ERROR_WRITE_PROTECT (19), the second for a read-only disk.
+_DENIED_WINERRORS = frozenset({5, 19})
+
+
+def is_unwritable(exc: BaseException) -> bool:
+    """True when ``exc``, or an exception it was raised from, is a folder Windows won't let this
+    account write: access denied, or a read-only disk (a profile disk that FSLogix or a roaming
+    profile attached read-only)."""
+    for e in _chain(exc):
+        if isinstance(e, OSError) and (e.errno in (errno.EACCES, errno.EPERM, errno.EROFS)
+                                       or getattr(e, "winerror", None) in _DENIED_WINERRORS):
+            return True
+    return False
+
+
+def _inside(name: object, folder: Path) -> bool:
+    if not isinstance(name, (str, Path)) or not name:
+        return False
+    try:
+        Path(name).resolve().relative_to(folder.resolve())
+        return True
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def data_folder_message(folder: str | Path, exc: BaseException, outcome: str = "so this wasn't saved",
+                        then: str = "try again") -> str | None:
+    """The message for a failure to write the app's own data folder, or None when ``exc`` is
+    something else. A full disk anywhere counts; a refusal counts only when it names a file in
+    ``folder``, since a refused export or OneLake call is that place's, not the profile's. ``outcome``
+    says what that meant ("so this wasn't saved") and ``then`` what to do once there is room ("try again")."""
+    folder = Path(folder)
+    if any("the disk is full" in str(e).lower() for e in _chain(exc)):
+        return None  # the caller already said so, in its own words
+    if is_disk_full(exc):
+        name = next((getattr(e, "filename", None) for e in _chain(exc) if getattr(e, "filename", None)), None)
+        where = free_space(name if isinstance(name, (str, Path)) else folder)
+        return (f"The disk is full{f' ({where})' if where else ''}, {outcome}. "
+                f"Free some space, then {then}. On a shared or virtual desktop, ask IT to make your profile disk bigger.")
+    if is_unwritable(exc) and any(_inside(getattr(e, "filename", None), folder) for e in _chain(exc)):
+        return (f"Windows won't let KratosForge write to its data folder ({folder}), {outcome}. "
+                "On a shared or virtual desktop the profile disk may be attached read-only; sign out and in again, "
+                "or ask IT to check it.")
+    return None

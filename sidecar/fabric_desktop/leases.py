@@ -47,7 +47,7 @@ import requests
 from . import http_session
 from .onelake import _onelake_error, item_url
 from .redact import describe
-from .retrying import retry_after, send_with_retry
+from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -243,18 +243,8 @@ class OneLakeBackend:
     def _change(self, send: Callable[[], requests.Response], deadline: float) -> requests.Response:
         """Send one request of a lease change; wait out a 429 (OneLake did nothing) while the
         change's deadline allows. Anything else, a 5xx included, is the answer."""
-        for attempt in range(THROTTLE_ATTEMPTS):
-            resp = send()
-            if resp.status_code != 429 or attempt == THROTTLE_ATTEMPTS - 1:
-                return resp
-            wait = min(retry_after(resp.headers, 2.0), THROTTLE_WAIT_CAP)
-            if self._clock() + wait >= deadline:
-                return resp  # no time left in this change: fail while the lease is still held
-            close = getattr(resp, "close", None)
-            if callable(close):
-                close()
-            self._sleep(wait)
-        raise AssertionError("unreachable")
+        return send_with_retry(send, "PUT", sleep=self._sleep, attempts=THROTTLE_ATTEMPTS, safe=False,
+                               wait_cap=THROTTLE_WAIT_CAP, deadline=deadline, clock=self._clock)
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)

@@ -733,9 +733,9 @@ lists more checks and the differences known in more detail.
 | --- | --- | --- | --- |
 | `bit_reverse` | Runs | `SELECT bit_reverse(-2)` | BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type |
 | `charindex` | Not checked |  |  |
-| `collate` | Runs | `SELECT 'Café' = 'café' COLLATE UTF8_LCASE` | UTF8_BINARY and UTF8_LCASE run; the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name |
+| `collate` | Runs | `SELECT 'Café' = 'café' COLLATE UTF8_LCASE` | UTF8_BINARY and UTF8_LCASE run (UTF8_LCASE as DuckDB's NOCASE, which may lower a few letters such as U+0130 differently from Java); the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name |
 | `collation` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: COLLATION function is not supported by DuckDB Run it in Fabric, or rewrite th |
-| `hmac` | Runs | `SELECT hex(hmac('key', 'message'))` |  |
+| `hmac` | Runs | `SELECT hex(hmac('key', 'message'))` | A key written in the SQL is kept in the cell and its query history, as in Databricks: read it from a secret |
 | `is_valid_utf8` | Runs | `SELECT is_valid_utf8(x'61C262')` |  |
 | `jaro_winkler_similarity` | Not checked |  |  |
 | `make_valid_utf8` | Runs | `SELECT make_valid_utf8(x'61C262')` |  |

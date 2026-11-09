@@ -44,7 +44,7 @@
     true
    ]
   ],
-  "note": "UTF8_BINARY and UTF8_LCASE run; the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name"
+  "note": "UTF8_BINARY and UTF8_LCASE run (UTF8_LCASE as DuckDB's NOCASE, which may lower a few letters such as U+0130 differently from Java); the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name"
  },
  {
   "name": "collation",
@@ -84,7 +84,8 @@
    [
     "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"
    ]
-  ]
+  ],
+  "note": "A key written in the SQL is kept in the cell and its query history, as in Databricks: read it from a secret"
  },
  {
   "name": "iff",

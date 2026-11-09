@@ -98,6 +98,8 @@ function friendlyError(err) {
   const engine = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
     [/^The engine keeps stopping as it starts/, "The local engine keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes. Your files and settings are untouched. The details below say when it tries again and which files to send IT."],
+    // Rust aborts the whole engine when an allocation fails (Polars, delta-rs), and its log says so.
+    [/^The Python sidecar stopped[\s\S]*(memory allocation of \d+ bytes failed|running out of memory)/, "This PC ran out of memory, so the local engine stopped. Nothing was half-written: a table being written keeps its last version. Close other apps, or read less at once, then run it again. The engine restarts on your next action."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
     [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
   ];

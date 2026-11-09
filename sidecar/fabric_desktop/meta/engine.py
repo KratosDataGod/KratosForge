@@ -597,7 +597,7 @@ class Engine:
                     if self.store.exists(self.lakehouse(e), e.schema, e.table) else []
                 committed = any(c.get("fabric_desktop_run_id") == run for c in history)
                 logged = self.store.meta_where("run_log", (pl.col("entity") == e.name) & (pl.col("run_id") == run))
-            except Exception as exc:  # noqa: BLE001  only the earlier run's record is missed; this run goes on
+            except Exception as exc:  # noqa: BLE001 - only the earlier run's record is missed; this run goes on
                 _log.warning("Couldn't check %s for a run that stopped: %s", path.name, exc)
                 continue
             if committed or logged.height:  # committed: _record_unlogged records it; logged: nothing to do

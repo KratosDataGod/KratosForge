@@ -2,7 +2,7 @@
 
 ruff runs with BLE on (pyproject.toml), so a new ``except Exception`` that doesn't re-raise fails lint
 unless it is marked ``# noqa: BLE001 - <reason>``. This test keeps the reason required, so the marks
-stay a list a reviewer can read: ``grep -rn "noqa: BLE001"``.
+stay a list a reviewer can read: ``grep -rn "BLE001"``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 
 SIDECAR = Path(__file__).resolve().parents[1]
-MARK = re.compile(r"#\s*noqa:\s*BLE001\b(?P<rest>.*)$")
+# BLE001 anywhere in a noqa list (`noqa: BLE001`, `noqa: E501, BLE001, S110`); the reason follows the list.
+CODE = r"[A-Z]+[0-9]+"
+MARK = re.compile(rf"#\s*noqa:\s*(?:{CODE}\s*,\s*)*BLE001\b(?:\s*,\s*{CODE})*(?P<rest>.*)$")
 REASON = re.compile(r"^\s*(?:-|#\s*silent-ok:)\s*(?P<reason>.+)$")
 MIN_REASON = 10  # characters, as tests/test_silent_except.py asks of silent-ok
 
@@ -47,6 +49,8 @@ def test_every_blind_except_mark_says_why():
     "except Exception:  # noqa: BLE001",
     "except Exception:  # noqa: BLE001 - ok",
     "except Exception:  # noqa: BLE001 because",
+    "except Exception:  # noqa: E501, BLE001",
+    "except Exception:  # noqa: BLE001, S110  ok",
 ])
 def test_a_mark_without_a_reason_is_caught(line):
     assert _missing_reason(line)
@@ -55,6 +59,8 @@ def test_a_mark_without_a_reason_is_caught(line):
 @pytest.mark.parametrize("line", [
     "except Exception:  # noqa: BLE001 - shown to the person as the reason",
     "except Exception:  # noqa: BLE001  # silent-ok: best-effort cleanup of a temp file",
+    "except Exception:  # noqa: BLE001, S110  # silent-ok: wrong arguments mean the call exists",
+    "except Exception:  # noqa: E501, BLE001 - shown to the person as the reason",
     "except Exception:  # noqa: B023",
 ])
 def test_a_mark_with_a_reason_passes(line):

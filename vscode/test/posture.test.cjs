@@ -42,3 +42,19 @@ test("no telemetry, and nothing reached but KratosForge on 127.0.0.1", () => {
   const channel = code(sources.find((s) => s.f === "channel.ts").text);
   assert.deepStrictEqual(channel.match(/host: [^,}]+/g), ["host: \"127.0.0.1\""]);
 });
+
+test("the .vsix holds the compiled extension, its manifest and readme, and nothing left in the folder", () => {
+  const { execFileSync } = require("node:child_process");
+  // What a hand-built file could pick up: an SBOM or an older .vsix from an earlier build (names of
+  // the test's own, so a real one left in the folder is never touched).
+  const stray = ["sbom-posture-test.cdx.json", "kratosforge-posture-test.vsix"].map((f) => path.join(root, f));
+  for (const f of stray) fs.writeFileSync(f, "{}");
+  try {
+    const listed = execFileSync(process.execPath, [require.resolve("@vscode/vsce/vsce"), "ls", "--no-dependencies"],
+      { cwd: root, encoding: "utf8" }).split(/\r?\n/).filter(Boolean).sort();
+    const compiled = fs.readdirSync(path.join(root, "out")).filter((f) => f.endsWith(".js")).map((f) => `out/${f}`);
+    assert.deepStrictEqual(listed, ["README.md", "package.json", ...compiled].sort());
+  } finally {
+    for (const f of stray) fs.rmSync(f, { force: true });
+  }
+});

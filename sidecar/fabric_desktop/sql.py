@@ -47,7 +47,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
                                                read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
             statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
-    except ParseError as first_error:
+    except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
                 return parse(respelled, dialect)
@@ -59,7 +59,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
             statements = _statements(sqlglot.parse(query, read="duckdb"))
-        except ParseError:
+        except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
         raise ValueError("The query is empty.")

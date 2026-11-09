@@ -178,3 +178,102 @@ def verify(folder: Path) -> dict[str, Any]:
         if want and isinstance(lines, int) and seen.get(lines) != want:
             problems.append(f"{HEAD}: the trail ends before the {name} (line {lines}); lines were deleted from the end")
     return {"lines": count, "ok": not problems, "problems": problems}
+
+
+# ---------------------------------------------------------------- exports IT can check on their own
+
+EXPORT_SCHEMA = "audit-export@1"
+
+
+def manifest_path(out: Path) -> Path:
+    return Path(str(out) + ".manifest.json")
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def export(folder: Path, out: Path, since: str = "") -> dict[str, Any]:
+    """Copy the trail, from the first line at or after ``since`` (an ISO date or time; all of it when
+    empty) to the newest, into ``out``, and write ``<out>.manifest.json`` beside it. The lines are
+    copied as they are and without gaps, so the copy is a chain of its own: its first line's ``prev``
+    and last line's ``hash`` are in the manifest with the line count and the file's SHA-256, and
+    ``verify_export()`` checks all of them with nothing but the two files."""
+    folder, out = Path(folder), Path(out)
+    lines: list[str] = []
+    with locked(folder):  # a still copy: no line lands half-way through
+        for path in files(folder):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                if not lines and since:
+                    try:
+                        at = str(json.loads(line).get("at", ""))
+                    except (ValueError, AttributeError):
+                        at = ""
+                    if at < since:
+                        continue
+                lines.append(line)
+        head = _head(folder)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    first = json.loads(lines[0]) if lines else {}
+    last = json.loads(lines[-1]) if lines else {}
+    manifest = {
+        "schema": EXPORT_SCHEMA, "lines": len(lines), "since": since, "first_prev": first.get("prev", GENESIS),
+        "first_at": first.get("at", ""), "last_hash": last.get("hash", GENESIS), "last_at": last.get("at", ""),
+        "sha256": _sha256(out), "trail_head": {"hash": head.get("hash", ""), "lines": head.get("lines")},
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    jsonfile.write_json(manifest_path(out), manifest)
+    return {"file": str(out), "manifest": str(manifest_path(out)), **manifest}
+
+
+def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
+    """Check an export: the file is the one the manifest describes (SHA-256, line count), every line's
+    hash matches its content and the line before it, and the chain runs from the manifest's first
+    ``prev`` to its last ``hash``. Anyone can rebuild a file and its manifest so they agree, so with
+    ``folder`` (the trail it came from) the export's lines must also be the trail's own lines."""
+    out = Path(out)
+    problems: list[str] = []
+    manifest = jsonfile.read_json(manifest_path(out), None)
+    if not isinstance(manifest, dict) or manifest.get("schema") != EXPORT_SCHEMA:
+        return {"ok": False, "lines": 0, "problems": [f"{manifest_path(out).name}: missing or not an audit export manifest"]}
+    if not out.exists():
+        return {"ok": False, "lines": 0, "problems": [f"{out.name}: missing"]}
+    if _sha256(out) != manifest.get("sha256"):
+        problems.append(f"{out.name}: its SHA-256 isn't the manifest's: the file was changed after it was exported")
+    prev, count, hashes = str(manifest.get("first_prev", GENESIS)), 0, []
+    for number, line in enumerate(out.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        count += 1
+        try:
+            entry = json.loads(line)
+            stored = entry.pop("hash")
+        except (ValueError, KeyError, AttributeError, TypeError):
+            problems.append(f"line {number}: not an audit line")
+            continue
+        if entry.get("prev") != prev:
+            problems.append(f"line {number}: a line before it is missing or changed")
+        if hash_entry(entry.get("prev", ""), entry) != stored:
+            problems.append(f"line {number}: this line was changed")
+        prev = str(stored)
+        hashes.append(prev)
+    if count != manifest.get("lines"):
+        problems.append(f"{count} lines, but the manifest says {manifest.get('lines')}")
+    if count and prev != manifest.get("last_hash"):
+        problems.append("the last line isn't the one the manifest names: lines were cut from the end")
+    if folder is not None and hashes:
+        trail = [h for h in _hashes(Path(folder)) if h]
+        if hashes[0] not in trail:
+            problems.append("the export's lines aren't in this trail")
+        else:
+            start = trail.index(hashes[0])
+            if trail[start:start + len(hashes)] != hashes:
+                problems.append("the export's lines differ from this trail's")
+    return {"ok": not problems, "lines": count, "problems": problems}

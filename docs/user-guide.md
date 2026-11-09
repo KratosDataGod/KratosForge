@@ -825,4 +825,14 @@ fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 
 Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too. Each audited action writes `head.json` to disk (a small extra write and flush next to the line itself). Once you've looked into a reported gap (for example, the files were restored from an older backup on purpose), clear it by deleting `head.json`: the next write starts a new one from the trail as it is, and `--verify` stops reporting the gap.
 
+To hand the trail to IT or an auditor as a copy they can check without this PC:
+
+```powershell
+fabric-desktop audit --export D:\handover\audit.jsonl --since 2026-10-01   # from 1 October on; all of it without --since
+fabric-desktop audit --verify-export D:\handover\audit.jsonl               # exit code 1 if anything in it changed
+fabric-desktop audit --verify-export D:\handover\audit.jsonl --folder "%LOCALAPPDATA%\FabricDesktop\audit"
+```
+
+`--export` copies the lines as they are, with no gaps, so the copy is a chain of its own, and writes `audit.jsonl.manifest.json` next to it: the line count, the first line's `prev`, the last line's `hash`, the file's SHA-256 and `trail_head` (the trail's `head.json` at the time). `--verify-export` checks the file against the manifest and every line against the one before, so a changed, deleted, reordered or added line fails, and so does a file cut short. The two files prove the copy wasn't changed after export, not where it came from: anyone could build a new file and a manifest that agree. Give `--folder` (the trail it came from) to check that its lines are that trail's own, or keep the manifest's `last_hash` somewhere the copy's holder can't change. The integrations trail exports the same way with its own `--folder`.
+
 The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

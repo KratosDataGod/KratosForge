@@ -134,6 +134,10 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
     trail.add_argument("--action", default="", help="only this action, such as meta_promote")
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
+    trail.add_argument("--export", metavar="FILE", help="copy the trail to FILE with a manifest IT can check on its own")
+    trail.add_argument("--since", default="", help="with --export: from this date (YYYY-MM-DD) or time on")
+    trail.add_argument("--verify-export", metavar="FILE", help="check an export and its manifest; with --folder, "
+                                                                "also that its lines are that trail's own; exit 1 if not")
     p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
     p.add_argument("--client", default="", help="the client id Settings > Integrations gave this tool")
     sub.add_parser("capabilities", help="print every capability external tools can use, with schemas, as JSON")
@@ -912,7 +916,16 @@ def _audit(args: argparse.Namespace) -> int:
 
     from .audit import AuditLog
     from .service import data_dir
-    log = AuditLog(Path(args.folder) if args.folder else data_dir() / "audit")
+    from . import audit_chain
+    folder = Path(args.folder) if args.folder else data_dir() / "audit"
+    if args.verify_export:
+        result = audit_chain.verify_export(Path(args.verify_export), folder if args.folder else None)
+        print(json.dumps(result, indent=2))
+        return 0 if result["ok"] else 1
+    if args.export:
+        print(json.dumps(audit_chain.export(folder, Path(args.export), args.since), indent=2))
+        return 0
+    log = AuditLog(folder)
     if args.verify:
         result = log.verify()
         print(json.dumps(result, indent=2))

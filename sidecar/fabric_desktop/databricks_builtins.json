@@ -203,7 +203,13 @@
  },
  {
   "name": "is_variant_null",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT is_variant_null(v:key) FROM VALUES(parse_json('{\"key\": null, \"a\": 1}')) AS T(v)",
+  "value": [
+   [
+    true
+   ]
+  ]
  },
  {
   "name": "jaro_winkler_similarity",
@@ -332,7 +338,14 @@
  },
  {
   "name": "parse_json",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT parse_json('{\"key\": 123, \"data\": [4, 5, \"str\"]}')",
+  "value": [
+   [
+    "{\"data\":[4,5,\"str\"],\"key\":123}"
+   ]
+  ],
+  "note": "A VARIANT is JSON text here, written as Databricks prints it; v:key reads it with DuckDB's JSON functions, which keep a number to DOUBLE's 17 digits"
  },
  {
   "name": "parse_timestamp",
@@ -529,7 +542,14 @@
  },
  {
   "name": "to_variant_object",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT to_variant_object(named_struct('a', 1, 'b', 2))",
+  "value": [
+   [
+    "{\"a\":1,\"b\":2}"
+   ]
+  ],
+  "note": "A STRUCT, MAP or ARRAY of integers, strings and booleans; a DOUBLE, DECIMAL, date or timestamp inside stops by name"
  },
  {
   "name": "to_xml",
@@ -620,7 +640,13 @@
  },
  {
   "name": "try_parse_json",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT try_parse_json('{ bad }')",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "try_parse_timestamp",
@@ -673,7 +699,13 @@
  },
  {
   "name": "try_variant_get",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT try_variant_get(parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}'), '$.key', 'boolean')",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "try_zstd_decompress",
@@ -795,15 +827,41 @@
  },
  {
   "name": "variant_explode",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT * FROM variant_explode(parse_json('{\"foo\":1,\"bar\":\"hello\"}'))",
+  "value": [
+   [
+    0,
+    "bar",
+    "\"hello\""
+   ],
+   [
+    1,
+    "foo",
+    "1"
+   ]
+  ]
  },
  {
   "name": "variant_explode_outer",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "variant_get",
-  "group": "databricks:variant"
+  "group": "databricks:variant",
+  "example": "SELECT variant_get(parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}'), '$.data[1].a', 'string')",
+  "value": [
+   [
+    "hello"
+   ]
+  ],
+  "note": "A cast that turns on a number's exact VARIANT type (a STRING, or a DECIMAL with a fraction, to an integer; a date; a STRUCT) stops by name"
  },
  {
   "name": "vector_avg",

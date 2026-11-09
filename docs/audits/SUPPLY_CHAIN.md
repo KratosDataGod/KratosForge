@@ -8,8 +8,8 @@ This page records what KratosForge ships, which licenses it ships under, and how
 
 | Part | What it is | Where its parts are pinned | SBOM |
 | --- | --- | --- | --- |
-| Engine | python.org's embeddable Python 3.12.10, the 76 packages the engine installs, and the engine's own package | `sidecar/engine-requirements.txt` holds versions and SHA-256 hashes. `ci.yml` holds the Python zip's MD5 and SHA-256 | `sbom-engine.cdx.json`, made by `cyclonedx-py environment` from the built engine folder, plus the embeddable Python itself with its pinned SHA-256 (`.github/scripts/sbom_npm.py add-python`) |
-| Shell | The Tauri app (`app/src-tauri`) and its 243 Rust crates on Windows | `app/src-tauri/Cargo.lock` holds versions and crate checksums | `sbom-app.cdx.json`, made by `cargo cyclonedx` from `Cargo.lock` |
+| Engine | python.org's embeddable Python 3.12.10, the 76 packages the engine installs, and the engine's own package | `sidecar/engine-requirements.txt` holds versions and SHA-256 hashes. `ci.yml` holds the Python zip's MD5 and SHA-256 | `sbom-engine.cdx.json`, made by `cyclonedx-py environment` from the built engine folder, each package with the SHA-256 of the file pip installed (`.github/scripts/sbom_npm.py add-hashes`, from pip's install report), plus the embeddable Python itself with its pinned SHA-256 (`sbom_npm.py add-python`) |
+| Shell | The Tauri app (`app/src-tauri`) and its 243 Rust crates on Windows | `app/src-tauri/Cargo.lock` holds versions and crate checksums | `sbom-app.cdx.json`, made by `cargo cyclonedx --target x86_64-pc-windows-msvc` from `Cargo.lock`, with each crate's checksum |
 | Notebook editor | CodeMirror, bundled into `app/ui/vendor/codemirror/codemirror.js` | That folder's `package.json` gives exact versions for the direct packages. The built file is committed | `sbom-ui.cdx.json`: the packages `package.json` names (build tools left out) and everything they depend on, from `package-lock.json` with its SHA-512 hashes. Its license is in `LICENSE` there |
 | Charts | Vega, Vega-Lite, vega-embed and the d3 packages they bundle, in `app/ui/vendor/vega/vega-frame.js` | That folder's `package.json` gives exact versions for the direct packages. `THIRD-PARTY-NOTICES.md` there lists each bundled package and its version | `sbom-ui.cdx.json`: Vega, Vega-Lite and vega-embed from `package-lock.json` with their hashes, and the packages their prebuilt files bundle from `THIRD-PARTY-NOTICES.md` (the versions the upstream build used, so no hash) |
 | Skin typefaces | Inter and DM Sans, latin `woff2` files copied from Fontsource into `app/ui/vendor/fonts` | That folder's `package.json` gives exact versions. The font files are committed | `sbom-ui.cdx.json`: both packages from `package-lock.json` with their hashes. Their licence (SIL OFL 1.1) is in `LICENSE-inter` and `LICENSE-dm-sans` there |
@@ -17,6 +17,8 @@ This page records what KratosForge ships, which licenses it ships under, and how
 | VS Code extension | `vscode/` | `vscode/package-lock.json`. It has no runtime dependencies, only build and test tools | Listed as itself in `sbom-ui.cdx.json`, with no npm packages (it is packaged with `--no-dependencies`) |
 
 Every CI build makes three SBOMs: `sbom-engine` in the engine job, and `sbom-app` and `sbom-ui` in the `sbom-app` job. `sbom-ui` is made by `.github/scripts/sbom_npm.py` from the committed lock files, with no extra tool. All three are CycloneDX JSON. The release job attaches them to each Preview and Stable release, and `version.json` gives each one's SHA-256 (`sbom_engine_sha256`, `sbom_app_sha256`, `sbom_ui_sha256`). Promote to stable checks those before copying them. The engine and the shell need no new CI job.
+
+`.github/scripts/sbom_check.py` fails CI when a dependency is pinned without a hash, or an SBOM doesn't match its lock file. In the `sbom-app` job it checks every lock file: each npm package comes from registry.npmjs.org with a SHA-512, each crate from crates.io with a checksum, and each pip pin in a hashed requirements file is `name==version` with SHA-256 hashes. It then checks that `sbom-app` lists exactly the crates the Windows build compiles (from `cargo metadata --filter-platform`), each with its `Cargo.lock` checksum, and that `sbom-ui` lists every bundled package with its lock file's hash. In the engine job it checks that `sbom-engine` lists every package `engine-requirements.txt` pins, at that version, with a hash the file pins. The packages Vega's prebuilt files bundle are the one listed exception: they come from `THIRD-PARTY-NOTICES.md` and have no hash of their own.
 
 ## Licenses
 
@@ -145,3 +147,38 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 | CI-only Rust tools (cargo-audit, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
 | Bundled JavaScript | The built files are committed | They can't change without a PR |
 
+
+## Reproducible builds
+
+Checked in CI on 2026-11-09 by building each part twice from the same commit and diffing the results.
+
+| Part | Reproducible? | How it's kept that way, or why not |
+| --- | --- | --- |
+| Engine zip (`fabric-desktop-engine.zip`, and the update zip) | Yes, byte for byte, unsigned | The engine job builds the engine folder twice, in two different folders, and "Check the engine zip is reproducible" fails when the two zips differ. It lists each differing entry, with the changed lines of small text files |
+| MSI | No, by design. Everything but four fields matches | Two MSIs built from the same exe differed in 70 bytes: the ProductCode, the PackageCode (summary field 9), and the created and saved times (fields 12 and 13). The exe and icon inside were byte-identical, and every other table matched once decompiled (`wix msi decompile`) |
+| Shell exe | Not checked | A second Rust release build would double the shell job. The PE header's link timestamp and the paths rustc records are the known sources |
+| Signed builds of main | No | Each Authenticode signature carries its own timestamp (RFC 3161), so signed files never match byte for byte |
+
+### What made the engine zip differ, and the fix
+
+`.github/scripts/engine_build.py` does each fix. It is stdlib only and runs with the engine's own Python.
+
+- **Compiled files:** pip's own compiled files (`.pyc`) contained the path of its random temp folder (`pip-target-xxxx`) and the install time. Packages now install with `--no-compile`. `engine_build.py finish` then compiles them in one process, in sorted order, as checked-hash pycs that name each file by its path inside the engine (for example `Lib/site-packages/polars/__init__.py`). A checked-hash pyc stays valid whatever time its source file has, so a fixed zip time never makes Python recompile on a user's PC. Python checks the source's hash when it imports the module instead of its time.
+- **`direct_url.json`:** the engine's own package recorded the runner's wheel folder here. `finish` removes it, along with its line in `RECORD`.
+- **Zip times and order:** 7z stored each file's build-time mtime, in the order the file system listed them. `engine_build.py zip` writes entries in sorted order, with the commit's time (`SOURCE_DATE_EPOCH`, from `git log -1 --format=%ct`) on every entry, MS-DOS attributes and zlib's default level.
+- **`engine.json`:** its keys are now in a fixed order.
+- **Launchers:** `SOURCE_DATE_EPOCH` also fixes the time pip writes into console-script launchers.
+- **Runtime key:** `engine_runtime.py` LAYOUT went to 2 with this change, because every package's `.pyc` changed. Installed engines download the full engine once.
+
+### What the zip still depends on
+
+- **Build Python:** the zip's bytes depend on the build Python's zlib. `setup-python` resolves `3.12` to a patch release (3.12.10 when this was checked). A later patch release with a different zlib can change the compressed bytes without changing any file. The per-entry CRCs that `compare` lists stay the same.
+- **Signing:** on main, once signing is set up, signing changes the packages' DLLs after the check runs. The check then proves the unsigned folder is reproducible, and the signatures are the only difference.
+
+### MSI
+
+- **ProductCode:** WiX generates a new one for each build, as a major upgrade needs.
+- **PackageCode:** a new one for each build, as Windows Installer requires for each distinct package.
+- **Version:** comes from the run number (`0.1.<run>`), so two runs of the same commit differ anyway.
+
+To check that an MSI holds the published exe, extract it (`wix msi decompile -x`) and compare the exe's SHA-256 with `exe_sha256` in `version.json`.

@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 99 |
-| Differs | 7 |
+| Runs | 104 |
+| Differs | 3 |
 | Refused | 15 |
-| Fails | 42 |
+| Fails | 41 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -50,7 +50,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `crossJoin` | Runs |  |
 | `crosstab` | Runs |  |
 | `cube` | Runs |  |
-| `describe` | Differs | `df.describe(['age', 'weight', 'height']).show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
+| `describe` | Runs |  |
 | `distinct` | Runs |  |
 | `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
 | `dropDuplicates` | Runs |  |
@@ -66,7 +66,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `foreach` | Refused | `df.foreach(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `foreachPartition` | Refused | `df.foreachPartition(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `freqItems` | Runs |  |
-| `groupBy` | Differs | `df.groupBy(df.name).max().sort("name").show()`: {"printed": "+-----+\n\| name\|\n+-----+\n\|Alice\|\n\|  Bob\|\n+-----+"} here, {"printed": "+-----+--------+\n\| name\|max(age)\|\n+-----+--------+\n\|Al in Spark |
+| `groupBy` | Runs |  |
 | `groupby` | Not checked |  |
 | `head` | Runs |  |
 | `hint` | Not checked |  |
@@ -88,7 +88,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `orderBy` | Runs |  |
 | `pandas_api` | Runs |  |
 | `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
-| `printSchema` | Differs | `df.printSchema()`: {"printed": "root\n \|-- age: bigint (nullable = true)\n \|-- name: stri here, {"printed": "root\n \|-- age: long (nullable = true)\n \|-- name: string in Spark |
+| `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
 | `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
@@ -111,7 +111,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `stat` | Runs |  |
 | `storageLevel` | Fails | `df1.storageLevel`: AttributeError: 'DataFrame' object has no attribute 'storageLevel' |
 | `subtract` | Runs |  |
-| `summary` | Differs | `df.select("age", "weight", "height").summary().show()`: {"printed": "+-------+----+------------------+-----------------+\n\|sum here, {"printed": "+-------+----+-----------------+-----------------+\n\|summ in Spark |
+| `summary` | Runs |  |
 | `tail` | Runs |  |
 | `take` | Runs |  |
 | `to` | Not checked |  |
@@ -156,10 +156,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc` | Runs |  |
 | `desc_nulls_first` | Runs |  |
 | `desc_nulls_last` | Runs |  |
-| `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
+| `dropFields` | Fails | `df.withColumn('a', df['a'].dropFields('b')).show()`: TypeError: 'Column' object is not callable |
 | `endswith` | Runs |  |
 | `eqNullSafe` | Runs |  |
-| `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
+| `getField` | Runs |  |
 | `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |

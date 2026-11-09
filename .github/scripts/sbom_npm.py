@@ -12,12 +12,17 @@ the engine's Python runtime added to the engine's SBOM. Standard library only: n
     add-python SBOM VERSION SHA256 URL
                         add python.org's embeddable Python (the engine's runtime) to an existing SBOM
                         made by cyclonedx-py, which lists packages but not the interpreter.
+    add-hashes SBOM REPORT
+                        give each package in an SBOM made by cyclonedx-py the SHA-256 of the file
+                        pip installed it from, read from that install's --report (cyclonedx-py
+                        reads an installed environment, which no longer holds those hashes).
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -145,12 +150,33 @@ def add_python(path: Path, version: str, sha256: str, url: str) -> None:
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+def _norm(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()  # PEP 503, as pip compares names
+
+
+def add_hashes(path: Path, report: Path) -> None:
+    installed = {}
+    for item in json.loads(report.read_text(encoding="utf-8"))["install"]:
+        sha = item.get("download_info", {}).get("archive_info", {}).get("hashes", {}).get("sha256")
+        if sha:
+            installed[(_norm(item["metadata"]["name"]), item["metadata"]["version"])] = sha
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for component in data.get("components", []):
+        sha = installed.get((_norm(component.get("name", "")), component.get("version", "")))
+        if sha and not component.get("hashes"):
+            component["hashes"] = [{"alg": "SHA-256", "content": sha}]
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["ui"] and len(argv) == 2:
         Path(argv[1]).write_text(json.dumps(ui(), indent=2), encoding="utf-8")
         return 0
     if argv[:1] == ["add-python"] and len(argv) == 5:
         add_python(Path(argv[1]), argv[2], argv[3], argv[4])
+        return 0
+    if argv[:1] == ["add-hashes"] and len(argv) == 3:
+        add_hashes(Path(argv[1]), Path(argv[2]))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

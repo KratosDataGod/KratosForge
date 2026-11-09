@@ -77,6 +77,15 @@ def test_where_it_runs_decides_whether_a_fabric_only_cell_is_an_error():
     assert sev == {"pc": ["error"], "fabric": ["info"], None: ["warning"]}
 
 
+def test_a_notebook_the_check_cant_read_is_said_once_for_each_place():
+    def load(name):
+        raise OSError(name)
+    out = validate.check([code("%run Missing")], LH, None, load=load)
+    said = [(f["code"], f["title"]) for f in out["findings"] if "Missing" in f["title"] + f["text"]]
+    assert said == [("runs_on_pc_unknown", "Cell 1 may not run on this PC"),
+                    ("runs_on_fabric_unknown", "Cell 1 may not run on Fabric")]
+
+
 def test_the_clock_pip_parameters_frozen_cells_and_the_lakehouse_are_reported():
     cells = [code("run_date = '2026-10-18'", tags=["parameters"]), code("%pip install rich\nimport datetime\nt = datetime.datetime.now()"),
              code("from fabric_desktop import lakehouse\ndf = lakehouse.read_table('dbo.orders')\n"

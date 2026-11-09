@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-07 11:42 UTC, main 56e3826b.** Covers the PRs merged from #135 to #2171.
+**Product check of 2026-11-07 23:42 UTC, main e5e6bec4.** Covers the PRs merged from #135 to #2247.
 
 ## Summary
 
+- Evening check, 2026-11-07: 74 PRs merged after 56e3826b. 4 were product data PRs, and the other 70 were linked.
+  Audit lines for Prod and confirmed actions are now written first, and the action doesn't run without one. An
+  authorization matrix lists every state-changing call (PB-124). The Living Experience Home hero, Forge Activity view,
+  empty-state art and motion modes landed in Preview (PB-102). Databricks and Snowflake SQL answer as their docs show
+  in more places (PB-120), and Academy's question bank is re-checked and grows to 498 (PB-128). The Data mesh owner's
+  own scores moved PB-130 from P2 to P3 (#2182) before it was accepted. PB-134's owner is now the mastery thread, and
+  its scores stay provisional until that owner sends its own.
 - New item, 2026-11-07: PB-134 Developer classes and mastery (In progress), from the product owner's brief of 14:17 UTC.
   Classes and talent trees build on the profile's verified evidence, and mastery levels never come from time spent.
   The first PR is engine-only (#2206, draft). Screens wait for the owner's reaction to the mockup.

@@ -307,7 +307,7 @@ def test_a_browser_sign_in_left_open_gives_up_instead_of_holding_the_engine(tmp_
 
 
 def test_a_refreshed_token_skips_msals_cache_and_falls_back_to_a_normal_sign_in(tmp_path):
-    from fabric_desktop.auth import FABRIC_SCOPES, Authenticator
+    from fabric_desktop.auth import FABRIC_SCOPES, Authenticator, SignInRequired
 
     class App:
         def __init__(self, fresh):
@@ -323,5 +323,8 @@ def test_a_refreshed_token_skips_msals_cache_and_falls_back_to_a_normal_sign_in(
     auth = Authenticator(cache_path=tmp_path / "cache.bin")
     auth.app = App({"access_token": "new"})
     assert auth.refreshed_token(FABRIC_SCOPES) == "new" and auth.app.asked == [True]
-    auth.app = App(None)  # MSAL couldn't refresh silently: the usual path decides
-    assert auth.refreshed_token(FABRIC_SCOPES) == "cached" and auth.app.asked == [True, False]
+    auth.app = App(None)  # MSAL couldn't refresh silently: never the refused cached token again
+    auth.interactive = False
+    with pytest.raises(SignInRequired, match="sign in"):
+        auth.refreshed_token(FABRIC_SCOPES)
+    assert auth.app.asked == [True]

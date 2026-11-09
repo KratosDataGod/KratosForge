@@ -37,6 +37,7 @@ from typing import Any, Callable, Mapping
 
 import pyarrow as pa
 
+from .. import net_trust
 from . import runtimes
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
@@ -172,9 +173,12 @@ def _check_profile_host(profile: str, host: str, cfg_path: Path | None) -> None:
 
 
 def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, str] | None = None,
-               environ: Mapping[str, str] | None = None, cfg_path: Path | None = None) -> dict[str, str]:
+               environ: Mapping[str, str] | None = None, cfg_path: Path | None = None,
+               roots_dir: Path | None = None) -> dict[str, str]:
     """The process's environment: this PC's, minus any DATABRICKS_* or PYTHON* variable, plus the
-    connection's sign-in and the cluster. A service principal's secret is read from its reference here."""
+    connection's sign-in and the cluster. A service principal's secret is read from its reference here.
+    With ``roots_dir``, gRPC trusts the root certificates Windows trusts (net_trust.windows_roots_pem),
+    unless GRPC_DEFAULT_SSL_ROOTS_FILE_PATH is already set."""
     # SPARK_REMOTE and SPARK_CONNECT_* too: databricks-connect reads them before the SDK's settings.
     env = runtimes.scrub_env(base, ("DATABRICKS_", "SPARK_REMOTE", "SPARK_CONNECT_"))
     host = check_host(connection.get("host") or "")
@@ -205,6 +209,10 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
         env = runtimes.drop_ref_variable(env, str(cred["secret"]))
     else:
         raise DatabricksAuthError(f"Unknown Databricks sign-in method {method!r}.")
+    if roots_dir is not None and not env.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"):
+        roots = net_trust.windows_roots_pem(roots_dir)
+        if roots:
+            env["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = str(roots)
     return env
 
 
@@ -287,7 +295,7 @@ class DatabricksConnectAdapter:
         folder = self.runtimes.folder(line)
         command = runtimes.worker_command(self._python, folder, KIND)
         # Run in the runtime's folder, not wherever the app was started from.
-        return DatabricksConnectSession(config, command, worker_env(conn, cluster), cwd=str(folder),
+        return DatabricksConnectSession(config, command, worker_env(conn, cluster, roots_dir=folder.parent.parent), cwd=str(folder),
                                         cell_seconds=self.cell_seconds)
 
 

@@ -652,7 +652,7 @@ function renderChrome() {
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
     h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
-      onclick: onOpen }, icon(iconName, 22), label),
+      title: label, onclick: onOpen }, icon(iconName, 22), h("span", { class: "rail-label" }, label)),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-07",
+  "updated": "2026-11-09",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -6760,7 +6760,7 @@
     {
       "id": "PB-128",
       "title": "KratosForge Academy: certification preparation",
-      "state": "In progress",
+      "state": "In review",
       "owner": "Academy",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -6852,7 +6852,8 @@
         "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016",
         "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45",
         "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b",
-        "Question bank re-checked against Learn and grown to 498 (#2219); retakes draw unseen questions first (#2200); distractors as specific as the answer (#2229); exercises E45, E47, E52 and E60 (#2173, #2238) on main at e5e6bec4"
+        "Question bank re-checked against Learn and grown to 498 (#2219); retakes draw unseen questions first (#2200); distractors as specific as the answer (#2229); exercises E45, E47, E52 and E60 (#2173, #2238) on main at e5e6bec4",
+        "Implementation review docs/product/reviews/PB-128-academy.md recommends accepting the DP-700 track with documented limitations: 48 of 49 objectives have built exercises and 3.2.5 has gap G-02. The Databricks track meets criterion 1 for 26 of 33 objectives, so it would move to an item of its own. 779 Academy tests pass"
       ],
       "features": [
         "FEAT-DEV-04"

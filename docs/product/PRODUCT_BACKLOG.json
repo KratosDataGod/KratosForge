@@ -6295,7 +6295,10 @@
         "FEAT-SQL-03"
       ],
       "source_refs": [
-        "KUDP-01..06"
+        "KUDP-01",
+        "KUDP-02",
+        "KUDP-05",
+        "KUDP-06"
       ],
       "acceptance": [
         "KUDP-01: one contract check every engine adapter passes; an adapter that overclaims fails it, and a new adapter without a check run fails the coverage test",

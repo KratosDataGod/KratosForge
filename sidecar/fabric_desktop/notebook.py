@@ -154,7 +154,7 @@ def as_table(value: Any) -> pa.Table | None:
         if hasattr(value, "collect"):
             value = value.head(PREVIEW_ROWS + 1).collect()
         return value.to_arrow() if hasattr(value, "to_arrow") else None
-    if module.startswith("duckdb") and hasattr(value, "limit"):
+    if module.startswith(("duckdb", "_duckdb")) and hasattr(value, "limit"):  # DuckDBPyRelation is in _duckdb
         rel = value.limit(PREVIEW_ROWS + 1)
         return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
     if module.startswith("pandas") and hasattr(value, "columns"):
@@ -164,7 +164,7 @@ def as_table(value: Any) -> pa.Table | None:
 
 def _total_rows(value: Any, table: pa.Table) -> int | None:
     """All rows, when that is cheap to know; None means "more than the preview"."""
-    if type(value).__module__.startswith("duckdb.experimental.spark"):
+    if type(value).__module__.startswith(("duckdb", "_duckdb")):  # counting would run the whole query again
         return table.num_rows if table.num_rows <= PREVIEW_ROWS else None
     total = getattr(value, "height", None)
     if total is None and not hasattr(value, "collect"):
@@ -2091,6 +2091,9 @@ def _fs_magic(fs: Any, line: str) -> Any:
         raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
     command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}
     args = [w for w in words[1:] if w not in ("-r", "-f")]
+    from .dbutils_local import fs_magic_path
+    for path in args[:1] if command in ("put", "head") else args:
+        fs_magic_path(path)  # /mnt/..., /tmp/... and dbfs:/ are Databricks storage, as in dbutils.fs
     usage = {"ls": 1, "head": 1, "cp": 2, "mv": 2, "rm": 1, "mkdirs": 1, "put": 2}
     if command not in usage:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")

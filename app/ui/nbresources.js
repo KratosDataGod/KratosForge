@@ -44,7 +44,7 @@ async function nbResAdd(nb, box, files) {
   let added = 0;
   try {
     for (const f of files) {
-      if (f.size > NB_RES_MAX_BYTES) { toast(`${f.name} is ${sizeText(f.size)}. Resource files can be up to 50 MB each.`, true); continue; }
+      if (f.size > NB_RES_MAX_BYTES) { toast(`${f.name} is ${sizeText(f.size)}. Resource files can be up to 50 MB each, so pick a smaller file.`, true); continue; }
       const content = replayBase64(await f.arrayBuffer());
       let name = f.name;
       for (;;) {

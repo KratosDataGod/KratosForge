@@ -95,11 +95,13 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["iff"] == "not checked"  # DuckDB accepts it; no value check yet
+    assert status["session_user"] == "not checked"  # DuckDB accepts it; its value is the session's
+    assert status["iff"] == "runs"  # Databricks' own example, value checked
     notes = {r["name"]: r["note"] for r in rows}
     assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
     assert status["vector_avg"] == "refused"  # no element-wise aggregate here, said by name
-    assert status["from_xml"] == "fails"  # DuckDB has none and nothing writes it
+    assert status["from_xml"] == "refused"  # no XML reader here, said by name
+    assert [name for name, s in status.items() if s == "fails"] == []  # every function runs, differs, or is refused
 
 
 @pytest.mark.parametrize("code", [
@@ -121,9 +123,10 @@ def test_a_sketch_name_in_spark_sql_is_left_alone():
 
 def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     status = {r["name"]: r["status"] for r in rows}
-    for name in ("try_cast", "cube", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
-        assert status[name] == "not checked", name  # runs here; no value check yet
-    assert status["collate"] == "fails"  # no UTF8_LCASE collation here
+    assert status["cube"] == "not checked"  # runs here; no value check yet
+    for name in ("try_cast", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
+        assert status[name] == "runs", name  # Databricks' own example, value checked
+    assert status["collate"] == "runs"  # UTF8_LCASE is DuckDB's NOCASE
 
 
 def test_a_function_of_ones_own_named_like_a_sketch_is_left_alone():
@@ -421,3 +424,373 @@ def test_the_engine_session_has_the_ip_functions():
         assert session._con.sql("SELECT __kf_ip('ip_version:fixed', 'VARCHAR', hex('::1'))").fetchall() == [("6",)]
     finally:
         session.close()
+
+
+# Every example in Databricks' reference for the byte-level string functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT is_valid_utf8('Spark')", True),
+    ("SELECT is_valid_utf8('SQL' COLLATE UTF8_LCASE)", True),
+    ("SELECT is_valid_utf8(x'61')", True),
+    ("SELECT is_valid_utf8(x'80')", False),
+    ("SELECT is_valid_utf8(x'61C262')", False),
+    ("SELECT is_valid_utf8(NULL)", None),
+    ("SELECT make_valid_utf8('Spark')", "Spark"),
+    ("SELECT make_valid_utf8('SQL' COLLATE UTF8_LCASE)", "SQL"),
+    ("SELECT make_valid_utf8(x'61')", "a"),
+    ("SELECT make_valid_utf8(x'80')", "\ufffd"),
+    ("SELECT make_valid_utf8(x'61C262')", "a\ufffdb"),
+    ("SELECT validate_utf8('Spark')", "Spark"),
+    ("SELECT validate_utf8('SQL' COLLATE UTF8_LCASE)", "SQL"),
+    ("SELECT validate_utf8(x'61')", "a"),
+    ("SELECT try_validate_utf8('Spark')", "Spark"),
+    ("SELECT try_validate_utf8('SQL' COLLATE UTF8_LCASE)", "SQL"),
+    ("SELECT try_validate_utf8(x'61')", "a"),
+    ("SELECT try_validate_utf8(x'80')", None),
+    ("SELECT try_validate_utf8(x'61C262')", None),
+    ("SELECT url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')", "http://spark.apache.org/path?query=1"),
+    ("SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')",
+     "http://spark.apache.org/path?query=1"),
+    ("SELECT try_url_decode('http%3A%2F%2spark.apache.org')", None),
+    ("SELECT url_decode('a+b%20c%C3%A9')", "a b cé"),  # + is a space; the bytes are UTF-8
+    ("SELECT url_decode('%80')", "\ufffd"),  # java.net.URLDecoder's U+FFFD, where DuckDB's url_decode stops
+    ("SELECT url_decode(NULL)", None),
+    ("SELECT hex(hmac('key', 'message'))", "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"),
+    ("SELECT hex(hmac('key', 'message', 'SHA-512'))",
+     "E477384D7CA229DD1426E64B63EBF2D36EBD6D7E669A6735424E72EA6C01D3F8B56EB39C36D8232F5427999B8D1A3F9CD1128FC69F4D"
+     "75B434216810FA367E98"),
+    ("SELECT hex(hmac(hmac('key', 'message'), 'message2'))",
+     "28042756E0362D954B61661BB4DEC9FF9F6C970D346CAEB6DB36ED7B735AB38C"),
+    ("SELECT hmac(CAST(NULL AS BINARY), 'message')", None),
+    ("SELECT hex(hmac(CAST('key' AS BINARY), x'6D657373616765', 'sha256'))",
+     "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"),
+    ("SELECT bit_reverse(64Y)", 2),
+    ("SELECT bit_reverse(64L)", 144115188075855872),
+    ("SELECT bit_reverse(-1)", -1),
+    ("SELECT bit_reverse(-2)", 2147483647),
+    ("SELECT bit_reverse(NULL)", None),
+    ("SELECT 'Café' = 'café' COLLATE UTF8_LCASE", True),
+    ("SELECT 'Cafe' = 'café' COLLATE UTF8_LCASE", False),
+    ("SELECT 'a' COLLATE UTF8_BINARY = 'A'", False),
+    ("SELECT 'a' COLLATE utf8_lcase = 'A'", True),
+])
+def test_databricks_string_examples_give_its_values(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT validate_utf8(x'80')", "[INVALID_UTF8_STRING]"),
+    ("SELECT url_decode('http%3A%2F%2spark.apache.org')", "[CANNOT_DECODE_URL]"),
+    ("SELECT url_decode('100%')", "[CANNOT_DECODE_URL]"),
+    ("SELECT hmac('key', 'message', 'SHA-3')", "[INVALID_PARAMETER_VALUE.HMAC_ALGORITHM]"),
+    ("SELECT hmac('', 'message')", "[INVALID_PARAMETER_VALUE.HMAC_CRYPTO_ERROR]"),
+])
+def test_bad_string_input_stops_with_databricks_error_class(code, error):
+    with pytest.raises(duckdb.Error, match=re.escape(error)):
+        _one(code)
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT zstd_compress('Apache Spark')",
+    "SELECT zstd_decompress(x'DEADBEEF')",
+    "SELECT try_zstd_decompress(x'DEADBEEF')",
+    "SELECT 'Café' = 'cafe' COLLATE UNICODE_CI",
+])
+def test_zstd_and_icu_collations_are_refused_by_name(code):
+    with pytest.raises(ValueError, match="can't run on this PC the way it runs in Databricks"):
+        _one(code)
+
+
+def test_url_decode_reads_escapes_as_java_does():
+    from fabric_desktop import databricks_bytes
+    assert databricks_bytes.url_decode("%+1%-0", False) == "\x01\x00"  # Integer.parseInt(.., 16) takes a sign
+    assert databricks_bytes.url_decode("%-1", True) is None
+
+
+def test_byte_functions_read_a_column_of_either_type():
+    assert _one("SELECT is_valid_utf8(c), make_valid_utf8(c) FROM VALUES (X'61'), (X'FF'), (NULL) AS t(c)") == [
+        [False, "\ufffd"], [None, None], [True, "a"]]  # run() sorts the rows
+    assert _one("SELECT bit_reverse(c) FROM VALUES (CAST(1 AS SMALLINT)) AS t(c)") == [[-32768]]
+
+
+def test_the_engine_session_has_the_byte_functions():
+    from fabric_desktop.engines.contract import SessionConfig
+    from fabric_desktop.engines.local_sql import DuckDBSession
+    session = DuckDBSession(SessionConfig(notebook="bytes"))
+    try:
+        assert session._con.sql("SELECT __kf_bit_reverse('TINYINT', 64)").fetchall() == [(2,)]
+    finally:
+        session.close()
+
+
+_STORE = "parse_json('{\"key\": 123, \"data\": [4, {\"a\": \"hello\"}, \"str\"]}')"
+
+
+# Every example in Databricks' reference for its VARIANT functions, with the value it shows
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT is_variant_null(v:key), is_variant_null(v:a) FROM VALUES(parse_json('{\"key\": null, \"a\": 1}')) AS T(v)",
+     [[True, False]]),
+    ("SELECT is_variant_null(v:key), v:key IS NULL FROM VALUES(parse_json('{\"key\": null}')) AS T(v)", [[True, False]]),
+    ("SELECT parse_json('{\"key\": 123, \"data\": [4, 5, \"str\"]}')", [['{"data":[4,5,"str"],"key":123}']]),
+    ("SELECT parse_json('123')", [["123"]]),
+    ("SELECT parse_json(NULL)", [[None]]),
+    ("SELECT try_parse_json('{\"key\": 123, \"data\": [4, 5, \"str\"]}')", [['{"data":[4,5,"str"],"key":123}']]),
+    ("SELECT try_parse_json('123')", [["123"]]),
+    ("SELECT try_parse_json('{ bad }')", [[None]]),
+    (f"SELECT variant_get({_STORE}, '$.data[1].a', 'string')", [["hello"]]),
+    (f"SELECT variant_get({_STORE}, '$.missing', 'int')", [[None]]),
+    (f"SELECT try_variant_get({_STORE}, '$.data[1].a', 'string')", [["hello"]]),
+    (f"SELECT try_variant_get({_STORE}, '$.missing', 'int')", [[None]]),
+    (f"SELECT try_variant_get({_STORE}, '$.key', 'boolean')", [[None]]),
+    ("SELECT to_variant_object(named_struct('a', 1, 'b', 2))", [['{"a":1,"b":2}']]),
+    ("SELECT to_variant_object(array(1, 2, 3))", [["[1,2,3]"]]),
+    ("SELECT to_variant_object(array(named_struct('a', 1)))", [['[{"a":1}]']]),
+    ("SELECT to_variant_object(array(map('a', 2)))", [['[{"a":2}]']]),
+    ("SELECT * FROM variant_explode(parse_json('[1, \"a\", {\"b\": \"hello\"}]'))",
+     [[0, None, "1"], [1, None, '"a"'], [2, None, '{"b":"hello"}']]),
+    ("SELECT * FROM variant_explode(parse_json('{\"foo\":1,\"bar\":\"hello\"}'))", [[0, "bar", '"hello"'], [1, "foo", "1"]]),
+    ("SELECT t.value AS outer, u.value AS inner FROM variant_explode(parse_json('[[1, 2], [3, 4]]')) AS t, "
+     "LATERAL variant_explode(t.value) AS u", [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
+    ("SELECT s.id, e.pos, e.key, e.value FROM VALUES (1, parse_json('[{\"a\":1},{\"b\":2}]')), (2, parse_json('[]')), "
+     "(3, parse_json('{\"x\":10,\"y\":20}')) AS s(id, v), LATERAL variant_explode(s.v) AS e",
+     [[1, 0, None, '{"a":1}'], [1, 1, None, '{"b":2}'], [3, 0, "x", "10"], [3, 1, "y", "20"]]),
+    ("SELECT * FROM variant_explode_outer(parse_json('[1, \"a\", {\"b\": \"hello\"}]'))",
+     [[0, None, "1"], [1, None, '"a"'], [2, None, '{"b":"hello"}']]),
+    ("SELECT value FROM variant_explode_outer(null) AS t(pos, key, value)", [[None]]),
+    ("SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)", [[None]]),
+    ("SELECT t.value AS outer, u.value AS inner FROM variant_explode_outer(parse_json('[[1, 2], [3, 4]]')) AS t, "
+     "LATERAL variant_explode(t.value) AS u", [["[1,2]", "1"], ["[1,2]", "2"], ["[3,4]", "3"], ["[3,4]", "4"]]),
+    ("SELECT PARSE_JSON('{ \"price\": 5 }'):price, PARSE_JSON('{ \"price\": 5 }'):price::decimal(5,2)",
+     [["5", "decimal:5.00"]]),
+    ("SELECT parse_json(NULL) IS NULL, parse_json('null') IS NULL, parse_json('{ \"field_a\": null }'):field_a IS NULL, "
+     "parse_json('{ \"field_a\": null }'):missing IS NULL", [[True, False, False, True]]),
+])
+def test_databricks_variant_examples_give_its_values(code, want):
+    assert _one(code) == want
+
+
+@pytest.mark.parametrize(("text", "printed"), [
+    ('{"a" : 0.01000}', '{"a":0.01}'),  # Databricks drops a decimal's trailing zeros
+    ("1.0", "1"),
+    ("-0.0", "0"),
+    ("1e2", "100.0"),  # an exponent makes a DOUBLE, printed as Java prints one
+    ("1E7", "1.0E7"),
+    ("1.5e-5", "1.5E-5"),
+    ("12345678901234567890", "12345678901234567890"),  # past BIGINT: a DECIMAL
+    ("0.10000000000000000001", "0.10000000000000000001"),  # a DECIMAL keeps all 38 digits
+    ('"tab\\there\\u0001"', '"tab\\there\\u0001"'),
+    ('{"b": 1, "a": {"d": [true, null], "c": "x"}}', '{"a":{"c":"x","d":[true,null]},"b":1}'),
+])
+def test_parse_json_prints_as_databricks_keeps_a_variant(text, printed):
+    from fabric_desktop import databricks_variant
+    assert databricks_variant.parse_json(text, False) == printed
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT parse_json('{ bad }')", "[MALFORMED_RECORD_IN_PARSING]"),
+    ("SELECT parse_json('NaN')", "[MALFORMED_RECORD_IN_PARSING]"),
+    ("SELECT parse_json('{\"a\": 1, \"a\": 2}')", "[VARIANT_DUPLICATE_KEY]"),
+    (f"SELECT variant_get({_STORE}, '$.key', 'array<int>')", "[INVALID_VARIANT_CAST]"),
+    (f"SELECT variant_get({_STORE}, '$.key', 'tinyint')", None),
+    (f"SELECT variant_get({_STORE}, '$.data', 'int')", "[INVALID_VARIANT_CAST]"),
+    ("SELECT variant_get(parse_json('300'), '$', 'tinyint')", "[INVALID_VARIANT_CAST]"),
+    ("SELECT variant_get(parse_json('1234.5'), '$', 'decimal(4,1)')", "[INVALID_VARIANT_CAST]"),
+    ("SELECT variant_get('{\"a\": 1}', '$.a', 'int')", "[DATATYPE_MISMATCH]"),
+    ("SELECT to_variant_object(1)", "[DATATYPE_MISMATCH]"),
+])
+def test_bad_variant_input_stops_with_databricks_error_class(code, error):
+    if error is None:  # 123 fits a TINYINT
+        assert _one(code) == [[123]]
+        return
+    with pytest.raises(duckdb.Error, match=re.escape(error)):
+        _one(code)
+
+
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT variant_get(parse_json('{\"a\": {\"b c\": [1, 2.50]}}'), '$.a[\"b c\"][1]', 'decimal(5,2)')", "decimal:2.50"),
+    ("SELECT variant_get(parse_json('{\"a\": 1}'), '$', 'string')", '{"a":1}'),
+    ("SELECT variant_get(parse_json('{\"a\": 1}'), '$.a', 'variant')", "1"),
+    ("SELECT variant_get(parse_json('0.10000000000000000001'), '$', 'string')", "0.10000000000000000001"),
+    ("SELECT try_variant_get(parse_json('300'), '$', 'tinyint')", None),
+    ("SELECT variant_get(parse_json('{\"a\": null}'), '$.a', 'int')", None),
+])
+def test_variant_get_walks_the_path_itself(code, want):
+    assert _one(code) == [[want]]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT variant_get(parse_json('\"5\"'), '$', 'int')",  # a STRING to a number
+    "SELECT variant_get(parse_json('1.5'), '$', 'int')",  # a DECIMAL to an integer
+    "SELECT variant_get(parse_json('[1]'), '$', 'array<int>')",
+    "SELECT variant_get(parse_json('\"2024-01-01\"'), '$', 'date')",
+    "SELECT to_variant_object(named_struct('a', 1.5D))",
+    "SELECT schema_of_variant(parse_json('1'))",
+    "SELECT schema_of_variant_agg(v) FROM VALUES (parse_json('1')) AS t(v)",
+])
+def test_a_variant_cast_this_pc_cannot_tell_is_refused_by_name(code):
+    with pytest.raises((ValueError, duckdb.Error), match="can't run on this PC the way it runs in Databricks"):
+        _one(code)
+
+
+def test_a_variant_path_must_be_a_path():
+    with pytest.raises(ValueError, match=re.escape("[INVALID_VARIANT_GET_PATH]")):
+        _one("SELECT variant_get(parse_json('[1]'), '$[*]', 'int')")
+    with pytest.raises(ValueError, match="is a table function"):
+        _one("SELECT variant_explode(parse_json('[1]'))")
+
+
+def test_the_engine_session_has_the_variant_functions():
+    from fabric_desktop.engines.contract import SessionConfig
+    from fabric_desktop.engines.local_sql import DuckDBSession
+    session = DuckDBSession(SessionConfig(notebook="variant"))
+    try:
+        assert session._con.sql("SELECT __kf_parse_json('{\"b\": 1, \"a\": 2}', false)").fetchall() == [
+            ('{"a":2,"b":1}',)]
+    finally:
+        session.close()
+
+
+def test_try_parse_json_stops_on_a_repeated_key():  # Databricks refuses to build that VARIANT at all
+    with pytest.raises(duckdb.Error, match=re.escape("[VARIANT_DUPLICATE_KEY]")):
+        _one("SELECT try_parse_json('{\"a\": 1, \"a\": 2}')")
+
+
+@pytest.mark.parametrize("text", [
+    "[" * 257 + "]" * 257,  # deeper than this PC reads
+    "[" * 5000,  # deep and broken: refused before json.loads could recurse
+    "1e400",  # past DOUBLE's range
+])
+def test_hostile_json_stops_by_name_even_in_try(text):
+    from fabric_desktop import databricks_variant
+    for safe in (False, True):
+        with pytest.raises(ValueError, match="can't run on this PC the way it runs in Databricks"):
+            databricks_variant.parse_json(text, safe)
+
+
+def test_long_input_reads_and_errors_stay_short():
+    from fabric_desktop import databricks_variant
+    assert databricks_variant.parse_json("[" * 256 + "]" * 256, False) == "[" * 256 + "]" * 256
+    assert databricks_variant.parse_json('["[{"]', False) == '["[{"]'  # brackets in a string don't nest
+    digits = "1" * 5000  # past int()'s 4300 digits: a DOUBLE, not a ValueError
+    assert databricks_variant.parse_json("0." + digits[:300], False).startswith("0.111")
+    with pytest.raises(ValueError, match="past DOUBLE's range") as error:
+        databricks_variant.parse_json(digits, False)
+    assert len(str(error.value)) < 300
+    key = "k" * 1000
+    with pytest.raises(ValueError, match=re.escape("[VARIANT_DUPLICATE_KEY]")) as error:
+        databricks_variant.parse_json(f'{{"{key}": 1, "{key}": 2}}', False)
+    assert len(str(error.value)) < 300
+    with pytest.raises(ValueError, match=re.escape("[INVALID_VARIANT_CAST]")) as error:
+        databricks_variant.variant_get("[" + ",".join(["1"] * 1000) + "]", "JSON", "[]", "int", False)
+    assert len(str(error.value)) < 300
+
+
+_COUNTER = ("('http_requests', TIMESTAMP '2026-01-01T00:00:00', 100), ('http_requests', TIMESTAMP '2026-01-01T00:01:00', 200), "
+            "('http_requests', TIMESTAMP '2026-01-01T00:02:00', 400)")
+
+
+# Every example in Databricks' reference for these, with the value it shows (timestamps in UTC)
+@pytest.mark.parametrize(("code", "want"), [
+    ("SELECT try_make_interval(100, 11)", [["interval:3138912000.0"]]),  # 100 years 11 months
+    ("SELECT CAST(try_make_interval(100, 11) AS STRING)", [["100 years 11 months"]]),
+    ("SELECT try_make_interval(0)", [["interval:0.0"]]),  # 0 seconds
+    ("SELECT try_make_interval(2147483647, 0)", [[None]]),
+    ("SELECT CAST(try_make_interval(1, 2, 1, 1, 12, 30, 01.001001) AS STRING)", [["1 year 2 months 8 days 12:30:01.001001"]]),
+    ("SELECT try_make_interval(NULL, 1)", [[None]]),
+    ("SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)", [["timestamp:2014-12-28T06:30:45.887000"]]),
+    ("SELECT try_make_timestamp(2014, 13, 28, 6, 30, 45.887)", [[None]]),
+    ("SELECT try_make_timestamp(DATE'2014-12-28', TIME'06:30:45.887')", [["timestamp:2014-12-28T06:30:45.887000"]]),
+    ("SELECT try_make_timestamp(DATE'2014-12-28')", [["timestamp:2014-12-28T00:00:00"]]),
+    ("SELECT try_make_timestamp(2014, 12, 28, 6, 30, 60)", [["timestamp:2014-12-28T06:31:00"]]),  # 60 s: next minute
+    ("SELECT string(timestamp_nanos(1230219000123456789))", [["2008-12-25 15:30:00.123456789"]]),
+    ("SELECT string(timestamp_nanos(-1.5))", [["1969-12-31 23:59:59.999999998"]]),  # a fraction rounds down
+    ("SELECT timestamp_nanos(NULL)", [[None]]),
+    ("SELECT unix_nanos(TIMESTAMP'1970-01-01 00:00:01.123456789Z')", [["decimal:1123456789"]]),
+    ("SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)", [["300000"]]),
+    ("SELECT octet_length(bitmap_and_agg(val)) FROM VALUES(x'F0'), (NULL), (x'30FF') AS T(val)", [[4096]]),
+    ("SELECT substring(hex(bitmap_and_agg(val)), 0, 4) FROM VALUES(x'F0'), (x'30FF') AS T(val)", [["3000"]]),
+    (f"SELECT m, t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER} AS tab(m, t, c)",
+     [["http_requests", "timestamp:2026-01-01T00:00:00", None], ["http_requests", "timestamp:2026-01-01T00:01:00", 100],
+      ["http_requests", "timestamp:2026-01-01T00:02:00", 200]]),
+    (f"SELECT t, counter_diff(c) OVER (PARTITION BY m ORDER BY t) FROM VALUES {_COUNTER}, "
+     "('http_requests', TIMESTAMP '2026-01-01T00:04:00', 50) AS tab(m, t, c)",
+     [["timestamp:2026-01-01T00:00:00", None], ["timestamp:2026-01-01T00:01:00", 100],
+      ["timestamp:2026-01-01T00:02:00", 200], ["timestamp:2026-01-01T00:04:00", None]]),
+    ("SELECT t, counter_diff(c, st) OVER (PARTITION BY m ORDER BY t) FROM VALUES "
+     "('h', TIMESTAMP '2026-01-01T00:01:00', TIMESTAMP '2026-01-01T00:00:00', 100), "
+     "('h', TIMESTAMP '2026-01-01T00:02:00', TIMESTAMP '2026-01-01T00:00:00', 200), "
+     "('h', TIMESTAMP '2026-01-01T00:04:00', TIMESTAMP '2026-01-01T00:02:31', 400) AS tab(m, t, st, c)",
+     [["timestamp:2026-01-01T00:01:00", None], ["timestamp:2026-01-01T00:02:00", 100],
+      ["timestamp:2026-01-01T00:04:00", None]]),
+    # a NULL value gives NULL and is skipped; a NULL start_time doesn't reset
+    ("SELECT t, counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 10, TIMESTAMP '2026-01-01'), (2, NULL, NULL), "
+     "(3, 15, NULL), (4, 18, TIMESTAMP '2026-01-01') AS tab(t, c, st)", [[1, None], [2, None], [3, 5], [4, 3]]),
+])
+def test_databricks_time_bitmap_and_counter_examples_give_its_values(code, want):
+    assert _one(code) == want
+
+
+@pytest.mark.parametrize(("code", "error"), [
+    ("SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, -1) AS tab(t, c)", "[COUNTER_DIFF_NEGATIVE_COUNTER_VALUE]"),
+    ("SELECT counter_diff(c, st) OVER (ORDER BY t) FROM VALUES (1, 1, TIMESTAMP '2026-01-02'), "
+     "(2, 2, TIMESTAMP '2026-01-01') AS tab(t, c, st)", "[COUNTER_DIFF_START_TIME_DECREASED]"),
+])
+def test_counter_diff_stops_with_databricks_error_class(code, error):
+    with pytest.raises(duckdb.Error, match=re.escape(error)):
+        _one(code)
+
+
+@pytest.mark.parametrize(("code", "message"), [
+    ("SELECT counter_diff(1)", "[WINDOW_FUNCTION_WITHOUT_OVER_CLAUSE]"),
+    ("SELECT counter_diff(c) OVER (PARTITION BY t) FROM VALUES (1, 1) AS tab(t, c)", "[WINDOW_FUNCTION_FRAME_NOT_ORDERED]"),
+    ("SELECT try_reflect('java.util.UUID', 'randomUUID')", "runs no Java"),
+    ("SELECT from_xml('<p><a>1</a></p>', 'a INT')", "no XML reader"),
+    ("SELECT to_xml(named_struct('a', 1))", "no XML reader"),
+    ("SELECT schema_of_xml('<p><a>1</a></p>')", "no XML reader"),
+    ("SELECT schema_of_json_agg(j) FROM VALUES ('{\"a\": 1}') AS t(j)", "no merge"),
+    ("SELECT bitmap_and_agg(v) FILTER (WHERE v IS NOT NULL) FROM VALUES (x'01') AS t(v)", "plain aggregate"),
+])
+def test_these_stop_by_name_before_running(code, message):
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _one(code)
+
+
+@pytest.mark.parametrize(("code", "message"), [
+    ("SELECT timestamp_nanos(1e30)", "past the nanoseconds"),
+    ("SELECT bitmap_and_agg(v) FROM VALUES (CAST(NULL AS BINARY)) AS t(v)", "isn't documented"),
+])
+def test_these_stop_by_name_as_they_run(code, message):
+    with pytest.raises(duckdb.Error, match=re.escape(message)):
+        _one(code)
+
+
+def test_counter_diff_reads_a_named_window():
+    assert _one("SELECT t, counter_diff(c) OVER w FROM VALUES (1, 10), (2, 15) AS tab(t, c) WINDOW w AS (ORDER BY t)") == [
+        [1, None], [2, 5]]
+    with pytest.raises(ValueError, match="write the window inline"):
+        _one("SELECT counter_diff(c) OVER w FROM VALUES (1, 10) AS tab(t, c) WINDOW v AS (ORDER BY t)")
+
+
+def test_unix_nanos_says_when_a_timestamp_is_past_its_range():
+    assert _one("SELECT unix_nanos(NULL), unix_nanos(c), unix_nanos(d) FROM VALUES "
+                "(TIMESTAMP '1970-01-01 00:00:02', CAST(NULL AS TIMESTAMP)) AS t(c, d)") == [
+        [None, "decimal:2000000000", None]]
+    with pytest.raises(duckdb.Error, match="past the nanoseconds"):
+        _one("SELECT unix_nanos(TIMESTAMP'2262-04-12')")
+
+
+@pytest.mark.parametrize(("code", "want"), [
+    # Databricks' reference examples: short English day and month names (run() sorts the rows)
+    ("SELECT dayname(DATE'2024-11-01' + CAST(offset AS INT)) AS days FROM range(8) AS t(offset)",
+     [["Fri"], ["Fri"], ["Mon"], ["Sat"], ["Sun"], ["Thu"], ["Tue"], ["Wed"]]),
+    ("SELECT monthname(DATE'2024-11-01'), monthname(NULL)", [["Nov", None]]),
+    # listagg and string_agg join with no delimiter unless given one, and skip NULLs
+    ("SELECT listagg(col) FROM VALUES ('a'), (NULL), ('c') AS tab(col)", [["ac"]]),
+    ("SELECT string_agg(DISTINCT col) WITHIN GROUP (ORDER BY col) FROM VALUES ('a'), ('a'), ('b') AS tab(col)",
+     [["ab"]]),
+    ("SELECT listagg(col, ', ') WITHIN GROUP (ORDER BY col) FROM VALUES ('b'), ('a'), ('c') AS tab(col)",
+     [["a, b, c"]]),
+    # time() from a string and from a timestamp's time of day
+    ("SELECT time('10:30:00'), time(TIMESTAMP'2026-10-29 16:45:30')", [["time:10:30:00", "time:16:45:30"]]),
+])
+def test_databricks_names_aggregates_and_time_give_its_values(code, want):
+    assert _one(code) == want

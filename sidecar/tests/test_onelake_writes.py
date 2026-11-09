@@ -2,6 +2,7 @@
 a rewrite holds the same rows. The upload line is what a write waits on (thread "Local TPC-H run
 slowdown"), so a cell goes on computing while its writes upload, and unchanged tables upload nothing."""
 
+import json
 import threading
 import time
 
@@ -396,3 +397,18 @@ def test_other_write_errors_arent_tried_again(service, monkeypatch):
     monkeypatch.setattr(lakehouse, "publish", forbidden)
     out = service.run_cell(WRITE, LH)
     assert out["status"] == "error" and len(tries) == 1
+
+
+def test_a_dropped_commit_is_not_written_again_and_says_it_may_have_gone_in(service, monkeypatch):
+    """The Delta log entry's write was dropped: the commit may be in the table, so an append isn't sent
+    again (it would be there twice), and the cell's error says to look at the table's history first."""
+    monkeypatch.setattr(lakehouse, "UPLOAD_RETRY_WAIT", 0.0)
+    tries = []
+
+    def dropped_commit(*args, **kwargs):
+        tries.append(1)
+        raise OSError(DROPPED.replace("part-00000-x.zstd.parquet", "_delta_log/00000000000000000003.json"))
+    monkeypatch.setattr(lakehouse, "publish", dropped_commit)
+    out = service.run_cell(WRITE, LH)
+    assert out["status"] == "error" and len(tries) == 1
+    assert "may or may not have gone in" in json.dumps(out) and "history" in json.dumps(out)

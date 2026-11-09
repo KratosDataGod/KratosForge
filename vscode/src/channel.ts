@@ -57,14 +57,33 @@ export const APP_TOO_NEW = "This KratosForge is newer than this extension. Insta
 export const EXTENSION_TOO_OLD = "This extension is too old for this KratosForge. Install kratosforge.vsix from "
   + "KratosForge's latest release, then reload this window.";
 
+// The most one answer from the app may hold: a cell's outputs are capped in the app at about 17 MB of
+// text and HTML, and errors on top. A longer answer is cut off and the call fails, rather than held.
+export const MAX_REPLY = 64 * 1024 * 1024;
+export const TOO_LARGE = "KratosForge's answer was larger than this extension accepts. Open the notebook in KratosForge to see this cell's output.";
+
 interface Reply { status: number; payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } } | null }
 
 function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: "127.0.0.1", port, method, path: url, headers: { Host: `127.0.0.1:${port}`, ...headers },
       timeout: 60_000 }, (res) => {
+      if (Number(res.headers["content-length"]) > MAX_REPLY) {
+        req.destroy();
+        reject(new ChannelError(0, "too_large", TOO_LARGE));
+        return;
+      }
       const chunks: Buffer[] = [];
-      res.on("data", (c: Buffer) => chunks.push(c));
+      let size = 0;
+      res.on("data", (c: Buffer) => {
+        size += c.length;
+        if (size > MAX_REPLY) {
+          req.destroy();
+          reject(new ChannelError(0, "too_large", TOO_LARGE));
+          return;
+        }
+        chunks.push(c);
+      });
       res.on("end", () => {
         try {
           resolve({ status: res.statusCode || 0, payload: JSON.parse(Buffer.concat(chunks).toString("utf8")) });

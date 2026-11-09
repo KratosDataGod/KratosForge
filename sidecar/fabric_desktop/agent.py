@@ -30,7 +30,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import agent_status, policy_watch, shared_schedules, shortcut_watch
+from . import agent_status, jsonfile, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .audit import outcome as audit_outcome
@@ -53,6 +53,8 @@ from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, fail
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
+INCIDENT_CLOCK = "incident-ages.json"  # in the agent's home: open incidents' ages, kept across restarts
+MAX_SAVED_AGE = 30 * 86400.0  # a saved age past this is taken as this: no escalation waits that long
 CRASHED_NEXT = ("Its worker stopped on every attempt: look in the service log for an out-of-memory kill or a crash, "
                 "then lower agent.concurrency or run its tables in smaller jobs.")
 PIPELINE_NEXT = "Fix the cause, then submit the request again from the pipeline."
@@ -106,7 +108,7 @@ class Agent:
         # Escalation ages run on this, so a clock change while the agent runs doesn't move them. A
         # clock handed in (tests) stands in for it, so moving that clock moves both.
         self.monotonic: Callable[[], float] = time.monotonic if clock is time.time else clock
-        self._incident_seen: dict[str, dict[str, tuple[float, float]]] = {}  # env -> IncidentLog.first_seen
+        self._incident_seen = self._load_incident_clock()  # env -> IncidentLog.first_seen
         self._held: dict[str, IO[bytes]] = {}  # local control folders this running agent holds (run_forever)
         self._hold_folders = False
         self.stopping = threading.Event()
@@ -148,6 +150,31 @@ class Agent:
                 self._hold(backend)
                 self._controls[env] = backend
             return self._controls[env]
+
+    def _load_incident_clock(self) -> dict[str, dict[str, tuple[float, float]]]:
+        """How long each open incident had been open when this agent last looked, so a restart goes
+        on from there rather than from the wall clock. Saved with the monotonic time it was saved at:
+        when that is still behind now, the agent restarted without a reboot and the time between
+        counts in full; after a reboot (monotonic time went back) the time the agent was down isn't
+        known and isn't counted, so escalation can come later by that much, never earlier."""
+        saved = jsonfile.read_json(self.config.home / INCIDENT_CLOCK, {})
+        now, seen = self.monotonic(), {}
+        for env, items in (saved.items() if isinstance(saved, dict) else ()):
+            if env not in self.config.environments or not isinstance(items, dict):
+                continue
+            seen[str(env)] = {str(i): ((at if at <= now else now), min(max(0.0, age), MAX_SAVED_AGE))
+                              for i, v in items.items() if isinstance(v, list) and len(v) == 2
+                              and all(isinstance(x, (int, float)) for x in v) for at, age in [v]}
+        return seen
+
+    def _save_incident_clock(self) -> None:
+        now = self.monotonic()
+        data = {env: {i: [now, age + (now - at)] for i, (at, age) in items.items()}
+                for env, items in self._incident_seen.items() if items}
+        try:
+            jsonfile.write_json(self.config.home / INCIDENT_CLOCK, data, indent=None)
+        except OSError as exc:  # escalation still works this run; only a restart would start the ages again
+            self.log.warning("couldn't save the incident ages", extra=fields(error=f"{type(exc).__name__}: {exc}"))
 
     def _hold(self, backend: Any) -> None:
         """While it runs, hold each local control folder it works in, so a second agent pointed at the
@@ -276,6 +303,7 @@ class Agent:
                 self.log.info(f"incident {c['change']}", extra=fields(env=env, incident=c["incident"]["id"],
                                                                      title=c["incident"]["title"]))
             changed[env] = changes
+        self._save_incident_clock()
         all_changes = [c for cs in changed.values() for c in cs]
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
@@ -771,6 +799,7 @@ class Agent:
         if _due(self._pruned_at, 86400, self.clock()):
             self._pruned_at = self.clock()
             self.prune_queue()
+            self.sweep_home()
         if _due(self._policy_at, POLICY_CHECK_SECONDS, self.clock()):
             self._policy_at = self.clock()
             self.check_policy()
@@ -795,6 +824,24 @@ class Agent:
         if gone:
             self.log.info("finished jobs removed from the queue",
                           extra=fields(jobs=len(gone), older_than_days=self.config.queue_retention_days))
+
+    def sweep_home(self) -> None:
+        """Delete local copies of lakehouse data the agent's runs left in its data folder
+        (``<home>/data``, Runtime.root, where the download cache and staging live) unused for longer
+        than the organization allows, as the app does with its own folder (retention.py,
+        local_retention_days): at start, then daily, after the queue is pruned. Only the sweep's cache
+        folders are touched: never the queue, audit, logs, settings or a project's This PC data. A
+        failure is logged and tried again the next day."""
+        from . import app_settings, retention
+        try:
+            days = int(app_settings.value("local_retention_days"))
+            result = retention.sweep(self.runtime.root, days)  # file times are real ones, not the loop's clock
+        except Exception as exc:  # noqa: BLE001 - a cache sweep never stops jobs
+            self.log.warning("couldn't clean up local copies", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if result["removed"]:
+            self.log.info("local copies removed from the agent's home",
+                          extra=fields(items=len(result["removed"]), bytes=result["bytes"], older_than_days=days))
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:

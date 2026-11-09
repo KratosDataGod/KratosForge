@@ -5,6 +5,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { Channel, ChannelError, Snapshot } from "./channel";
+import { notebookLink } from "./links";
 import { convert, failed, Output } from "./outputs";
 
 const SECRET = "kratosforge.pairing";
@@ -157,8 +158,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("kratosforge.openInApp", () => {
       const nb = vscode.window.activeNotebookEditor?.notebook;
-      const link = nb && nb.uri.scheme === "file" ? `kratosforge://notebook?path=${encodeURIComponent(nb.uri.fsPath)}` : "kratosforge://";
-      vscode.env.openExternal(vscode.Uri.parse(link));
+      const link = nb && nb.uri.scheme === "file" ? notebookLink(nb.uri.fsPath) : "kratosforge://";
+      // Given as text, VS Code opens the link exactly as written. Given as a Uri, it writes the link out again
+      // and a `#` in a path comes out encoded twice, so the text goes first; the app reads either form.
+      const open = (target: string | vscode.Uri) => vscode.env.openExternal(target as vscode.Uri);
+      Promise.resolve(open(link)).catch(() => open(vscode.Uri.parse(link)));
     }));
 }
 

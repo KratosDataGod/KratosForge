@@ -1,0 +1,144 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A job must start whenever new files arrive in a Unity Catalog volume, at unpredictable times. Which trigger fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Scheduled, every five minutes"
+        },
+        {
+          "id": "b",
+          "text": "Continuous"
+        },
+        {
+          "id": "c",
+          "text": "Manual"
+        },
+        {
+          "id": "d",
+          "text": "File arrival"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A file arrival trigger starts a job run when new files arrive in a monitored Unity Catalog storage location, so the job runs when the data is there rather than on a clock.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "A finance job must run at 06:00 every weekday, whether or not new data has arrived, because a report is due then. Which trigger fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Table update"
+        },
+        {
+          "id": "b",
+          "text": "Scheduled"
+        },
+        {
+          "id": "c",
+          "text": "File arrival"
+        },
+        {
+          "id": "d",
+          "text": "Job completion"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A scheduled trigger starts a job run based on a time-based schedule, which fits a deadline that doesn't depend on when data arrives.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "A gold job should run only after its silver source tables have been updated by another team's pipeline. Which trigger reacts to that directly?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Scheduled, an hour after the other pipeline usually finishes"
+        },
+        {
+          "id": "b",
+          "text": "Manual"
+        },
+        {
+          "id": "c",
+          "text": "Table update"
+        },
+        {
+          "id": "d",
+          "text": "Continuous"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A table update trigger starts a job run when source tables are updated, so a downstream job follows its data instead of guessing a time.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "A streaming job must always be running, and a new run should start whenever a run completes or fails. Which trigger fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Continuous"
+        },
+        {
+          "id": "b",
+          "text": "Scheduled, every minute"
+        },
+        {
+          "id": "c",
+          "text": "File arrival"
+        },
+        {
+          "id": "d",
+          "text": "Table update"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A continuous trigger keeps the job always running by triggering another run whenever a run completes or fails.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "A team adds a file arrival trigger and also clicks Run now while a run is already in progress. By default, how many runs of one job can be active at a time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Two: one triggered and one manual"
+        },
+        {
+          "id": "b",
+          "text": "One"
+        },
+        {
+          "id": "c",
+          "text": "Five"
+        },
+        {
+          "id": "d",
+          "text": "Unlimited"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "By default, only a single run of a job can be active at a time.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers"
+    }
+  ]
+}

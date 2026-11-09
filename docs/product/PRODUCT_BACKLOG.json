@@ -6188,7 +6188,7 @@
     {
       "id": "PB-120",
       "title": "Platform support levels and one engine contract",
-      "state": "In progress",
+      "state": "In review",
       "owner": "Fabric and Databricks unified development",
       "category": "Extensibility, APIs, CLI, and MCP",
       "effort": "L",
@@ -6287,7 +6287,8 @@
         "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a",
         "Snowflake on this PC: divide by zero stops as in Snowflake and a generated, CI-checked function coverage list (#1863, #1864) on main at a7631920",
         "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016",
-        "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b"
+        "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b",
+        "Implementation review docs/product/reviews/PB-120-kudp.md recommends Accept with documented limitations: only Fabric has live evidence (level 2), Databricks and Snowflake are verified at level 0, and the portability report and two-engine comparison have no screen. Databricks functions at 013281be: 440 run, 0 differ, 0 fail, 92 refused by name, 57 not checked. 1,404 engine tests and 4 browser tests pass on main at bddb5b27"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6297,7 +6298,10 @@
         "KUDP-01..06"
       ],
       "acceptance": [
-        "Owned and specified by the unified platform program (KUDP)"
+        "KUDP-01: one contract check every engine adapter passes; an adapter that overclaims fails it, and a new adapter without a check run fails the coverage test",
+        "KUDP-02: a platform's support level can't exceed its evidence, the docs table equals the code, and Fabric verified shows level 2",
+        "KUDP-05: a static SQL portability report per statement, with reasons, that never rewrites the user's SQL",
+        "KUDP-06: one query compared on two engines finds a planted difference, and a remote side runs only after its copy confirm"
       ],
       "scores": {
         "developer_value": 4,

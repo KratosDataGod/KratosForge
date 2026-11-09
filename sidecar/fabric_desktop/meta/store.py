@@ -24,7 +24,7 @@ from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile, durable
 from ..errors import NotSetUp
-from ..leases import LeaseLost, check_held
+from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
 from ..retrying import local_retry, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
@@ -758,19 +758,31 @@ class LocalStore(Store):
 
     def _tidy_meta(self, table: str, version: int) -> None:
         """Compact the meta table at every META_COMPACT_EVERY-th commit, so its file count (and the time
-        each run spends reading it) stays bounded. Exactly one writer makes that commit, so two never
-        compact at once. Compaction only rewrites files into one and keeps every row and every
-        version; VACUUM (Optimize on the Maintain page) is what removes the old files. Never raises:
+        each run spends reading it) stays bounded. Compaction only rewrites files into one and keeps
+        every row and every version; VACUUM (Optimize on the Maintain page) is what removes the old
+        files. A writer that finds the table being compacted already skips its round. Never raises:
         the append stands either way, and the next round tries again."""
         if version <= 0 or version % META_COMPACT_EVERY:
             return
         uri = self.uri(META_LAKEHOUSE, "meta", table)
         try:
-            dt_ = DeltaTable(uri)
-            dt_.optimize.compact()
-            durable.sync_commits(uri, version + 1, dt_.version())
+            with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0):
+                dt_ = DeltaTable(uri)
+                dt_.optimize.compact()
+                durable.sync_commits(uri, version + 1, dt_.version())
+        except LeaseBusy:  # silent-ok: another writer is compacting it right now, which is all this round needed
+            _log.debug("The %s table is being compacted by another writer; skipped this round", table)
         except Exception as exc:  # noqa: BLE001 - only slower reads until the next round
             _log.warning("Couldn't compact the %s table: %s", table, describe(exc))
+
+    def compaction_lease(self, lakehouse: str, schema: str, table: str, wait: float) -> Any:
+        """Held around every compaction of a table on this PC (the meta tables now and then, Optimize
+        on the Maintain page), by any process. Two compactions of one table at once each commit,
+        neither refused as a conflict, and the rows they rewrote are then in the table twice. Appends
+        meanwhile are safe, so this is a lease of its own, not the table's write lease. Waits up to
+        ``wait`` seconds, then raises LeaseBusy."""
+        leases = Leases(LocalBackend(self.root / "_leases"), owner="KratosForge compaction", ttl=120, wait=wait)
+        return leases.hold("compact/" + table_key(lakehouse, schema, table))
 
     def _committed(self, uri: str, table: DeltaTable) -> int:
         """On this PC, each commit is also flushed to disk (durable.py) before the write returns."""

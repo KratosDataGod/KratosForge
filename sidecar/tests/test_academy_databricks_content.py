@@ -77,3 +77,9 @@ def test_the_ci_workflow_accepts_other_spellings_of_the_same_answer():
     alt["env"]["DATABRICKS_CLIENT_SECRET"] = "${{secrets.DATABRICKS_CLIENT_SECRET}}"
     checks = exercises.get(PACK, "E48")["validation"]
     assert all(configlab.validators.config_matches(alt, c["rules"])["passed"] for c in checks)
+
+
+def test_an_exercise_that_writes_delta_runs_outside_the_appcontainer():
+    """delta-rs is denied a call it needs inside an AppContainer, so a Delta-writing script runs as delta_lab."""
+    from fabric_desktop.academy import pylab
+    assert not pylab.appcontainer_ok(exercises.get(PACK, "E14"))

@@ -3,7 +3,9 @@
 Reading OneLake from this PC leaves copies of the data behind: files notebooks read (``files/``), tables
 staged before a publish (``staging/``) and the metadata framework's download cache
 (``onelake-cache/``). They are only caches, fetched again when needed, but they are customer data
-at rest on a laptop. ``sweep`` deletes what hasn't changed for ``days`` days (policy
+at rest on a laptop. The app's copy of a replay bundle someone opened (``replays/``) goes the same
+way: a bundle can hold a sample of the tables its notebook read, and the original stays wherever it
+was opened from (Downloads, usually). Replaying a bundle touches its copy, so one in use stays. ``sweep`` deletes what hasn't changed for ``days`` days (policy
 ``local_retention_days``, default 30; 0 keeps everything).
 
 A Delta table (a folder with ``_delta_log``) goes as a whole, judged by its newest file, so a table
@@ -21,7 +23,7 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-CACHE_FOLDERS = ("files", "staging", "onelake-cache")
+CACHE_FOLDERS = ("files", "staging", "onelake-cache", "replays")
 DAY = 86400
 
 

@@ -7,6 +7,10 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
+- Acceptance, 2026-11-09: the product owner accepted PB-128 (Academy) for the DP-700 track with documented
+  limitations. 48 of 49 objectives have built exercises, eventstream errors has a recorded gap, and objectives that
+  need Fabric complete only with Fabric runs. The Databricks track moves to PB-135 (In progress), because 7 of its 33
+  objectives have neither an exercise nor a gap.
 - Morning check, 2026-11-09: 41 PRs merged after e5e6bec4 (nothing merged on 2026-11-08). 2 were product data and
   docs audit PRs, and the other 39 were linked. Academy DP-700 gained three capstones (PB-128), and the last failing
   Databricks SQL functions now run or are refused by name (PB-120). Local Delta's first-append race, slowdown from run

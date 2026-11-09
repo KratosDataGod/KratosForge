@@ -71,7 +71,13 @@ error, as in Spark. `%g`, `%c`, `%h`, `%t` and the `#`, `(` and `<` flags stop t
 of printing something else. `conv` rewrites a number between bases as Spark's does. `selectExpr` and
 `F.expr` read Spark SQL as `spark.sql` does and name a column as Spark does, such as `(id + 1)`.
 
-### DataFrame: 81 of 102
+`crosstab` (also `df.stat.crosstab`) counts each pair of values as Spark does: values written as Java writes them,
+`null` for NULL, and the columns in sorted order. `colRegex` matches whole column names, ignoring case, with a
+regex that reads Java's syntax. `toJSON` gives each row's JSON text, leaving out a row's or a struct's NULL fields
+(a map keeps them), with `collect`, `first`, `take` and `count`; Spark returns an RDD, which this PC doesn't have.
+`sampleBy` keeps each key's share of rows; a seed gives the same rows each time here, not the rows Spark picks.
+
+### DataFrame: 85 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -81,7 +87,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `cache` | Accepted, does nothing on one PC |
 | `checkpoint` | Accepted, does nothing on one PC |
 | `coalesce` | Accepted, does nothing on one PC |
-| `colRegex` | Not yet on this PC |
+| `colRegex` | Works |
 | `collect` | Works |
 | `columns` | Works |
 | `corr` | Works |
@@ -92,7 +98,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `createOrReplaceTempView` | Works |
 | `createTempView` | Works |
 | `crossJoin` | Works |
-| `crosstab` | Not yet on this PC |
+| `crosstab` | Works |
 | `cube` | Works |
 | `describe` | Works |
 | `distinct` | Works |
@@ -141,7 +147,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `rollup` | Works |
 | `sameSemantics` | Not yet on this PC |
 | `sample` | Works |
-| `sampleBy` | Not yet on this PC |
+| `sampleBy` | Works |
 | `schema` | Works |
 | `select` | Works |
 | `selectExpr` | Works |
@@ -158,7 +164,7 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 | `take` | Works |
 | `to` | Not yet on this PC |
 | `toDF` | Works |
-| `toJSON` | Not yet on this PC |
+| `toJSON` | Works |
 | `toLocalIterator` | Works |
 | `toPandas` | Works |
 | `transform` | Works |

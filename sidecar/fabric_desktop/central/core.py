@@ -65,6 +65,7 @@ import datetime as dt
 import json
 import math
 import re
+import threading
 import time
 import uuid
 from typing import Any, Callable, cast
@@ -437,12 +438,13 @@ def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
     return {"cleared": names}
 
 
-def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
+def issue_keys(db: Db, name: str, business_keys: list[Any], by: str = "") -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
     New keys are inserted in business key order inside one transaction, under a lock on the
     range they would go in, so two runs asking at the same time never get two keys for one
-    business key. Returns {"keys": {bk: sk}, "inserted": n}."""
+    business key. Returns {"keys": {bk: sk}, "inserted": n}. A call that issued new keys adds one
+    "issue keys" audit row (who, the table, how many); a call that only looked keys up adds none."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
     _require_open(db)
@@ -464,8 +466,11 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
             f"SELECT k.{name}_bk AS bk, k.{name}_sk AS sk, @inserted AS inserted FROM {t} k JOIN @in i ON i.bk = k.{name}_bk;",
             (json.dumps(bks),))
         issued = cur.fetchall()
+        inserted = int(issued[0][2]) if issued else 0
+        if inserted:
+            _audit(db, by, "issue keys", f"keys:{name}", {"count": inserted})
         db.commit()
-        return {"keys": {r[0]: int(r[1]) for r in issued}, "inserted": int(issued[0][2]) if issued else 0}
+        return {"keys": {r[0]: int(r[1]) for r in issued}, "inserted": inserted}
     def found() -> dict[str, int]:
         out: dict[str, int] = {}
         for i in range(0, len(bks), 500):
@@ -481,6 +486,8 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     new = [(b, _now()) for b in bks if b not in have]
     db.conn.executemany(f"INSERT INTO {t} ({name}_bk, create_date) VALUES (?, ?)", new)
     out = found() if new else have
+    if new:
+        _audit(db, by, "issue keys", f"keys:{name}", {"count": len(new)})
     db.commit()
     return {"keys": out, "inserted": len(new)}
 
@@ -1481,6 +1488,65 @@ def save_term(db: Db, term: dict[str, Any], by: str = "") -> dict[str, Any]:
     _audit(db, by, "save term", name)
     db.commit()
     return row
+
+
+# A change the platform refused leaves a "refused <operation>" row, so a refusal is on the platform's own
+# audit even when the caller wasn't the app (a script, another tool with Execute rights). The row says
+# who (the platform's resolved identity) and which operation, never its arguments or the refusal's
+# words, which can quote them. Every row is a write the capacity pays for, so a person and operation get
+# at most one row a minute, with how many refusals it stands for; a caller at most REFUSAL_PERSON_CAP
+# rows an hour and the platform REFUSAL_CAP. Past either, one "refusals not recorded" row marks the gap.
+REFUSAL_EVERY = 60
+REFUSAL_CAP = 300
+REFUSAL_PERSON_CAP = 30  # one caller's share of the hour, so one can't use up everyone's
+NOT_RECORDED = "refusals not recorded"
+_REFUSALS: dict[tuple[str, str], int] = {}  # refusals this process saw since its last row, per (who, op)
+_REFUSALS_LOCK = threading.Lock()
+
+
+def refused_operation(op: str, kwargs: dict[str, Any]) -> str:
+    """The change a refused call was for, by its fixed name: call_once's own operation when it carried
+    one; "" for a read, which leaves no row. Never a name taken from the caller as it is."""
+    if op == "call_once" and str(kwargs.get("operation") or "") in OPERATIONS:
+        op = str(kwargs["operation"])
+    if op not in OPERATIONS or op in READ_OPERATIONS:
+        return ""
+    return op
+
+
+def record_refusal(db: Db, by: str, op: str) -> bool:
+    """Write the "refused <op>" row in a transaction of its own, after the refused change was rolled
+    back; True when a row was written. Callers raise the refusal unchanged whatever happens here."""
+    who, action = str(by or "").strip(), f"refused {op}"
+    with _REFUSALS_LOCK:
+        if len(_REFUSALS) > 10_000:  # a long-lived process: start the counts again rather than grow
+            _REFUSALS.clear()
+        _REFUSALS[(who, op)] = _REFUSALS.get((who, op), 0) + 1
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    minute = (now - dt.timedelta(seconds=REFUSAL_EVERY)).isoformat()
+    hour = (now - dt.timedelta(hours=1)).isoformat()
+    if db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?", (action, who, minute)):
+        return False
+    everyone = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' AND at > ?",
+                       (hour,))[0]["n"]
+    theirs = db.rows(f"SELECT COUNT(*) AS n FROM {db.t('catalog', 'audit')} WHERE action LIKE 'refused %' "
+                     "AND by_user = ? AND at > ?", (who, hour))[0]["n"]
+    if everyone >= REFUSAL_CAP or theirs >= REFUSAL_PERSON_CAP:
+        # Past a cap: one marker an hour (per person, or for the platform) says refusals from here on
+        # aren't recorded, so the gap shows on the audit itself. They're still refused.
+        cap, marker_by = ("platform", "") if everyone >= REFUSAL_CAP else ("person", who)
+        if not db.rows(f"SELECT 1 AS x FROM {db.t('catalog', 'audit')} WHERE action = ? AND by_user = ? AND at > ?",
+                       (NOT_RECORDED, marker_by, hour)):
+            with _REFUSALS_LOCK:
+                count = _REFUSALS.pop((who, op), 1)
+            _audit(db, marker_by, NOT_RECORDED, "", {"count": count, "cap": cap})
+            db.commit()
+        return False
+    with _REFUSALS_LOCK:
+        count = _REFUSALS.pop((who, op), 1)
+    _audit(db, who, action, "", {"count": count})
+    db.commit()
+    return True
 
 
 def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:

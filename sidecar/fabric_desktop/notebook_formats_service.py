@@ -20,6 +20,7 @@ from typing import Any
 from . import notebook_formats as nbf
 from .filenames import file_stem
 from .notebook import to_ipynb
+from . import known_folders
 
 METHODS = {"notebook_export", "notebook_formats_import_check", "notebook_formats_import"}
 
@@ -127,7 +128,7 @@ class NotebookFormatsMixin:
         if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
             raise ValueError("cells is a list of cells")
         text = nbf.export_text(format, name, cells, lakehouse_ref)
-        folder = Path.home() / "Downloads"
+        folder = known_folders.downloads()
         folder.mkdir(parents=True, exist_ok=True)
         ext = nbf.EXTENSIONS[format]
         base = file_stem(name, "Notebook") + (" with outputs" if format == "ipynb_outputs" else "")

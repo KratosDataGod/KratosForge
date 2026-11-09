@@ -11,6 +11,9 @@ from __future__ import annotations
 import datetime as dt
 import fnmatch
 import logging
+import os
+import re
+import time
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -22,7 +25,7 @@ from deltalake.exceptions import TableNotFoundError
 from .. import delta_profile, durable
 from ..errors import NotSetUp
 from ..leases import LeaseLost, check_held
-from ..retrying import local_retry
+from ..retrying import local_retry, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -30,6 +33,10 @@ _log = logging.getLogger(__name__)
 _LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease, so the files this write left are "
                                      "left for VACUUM"}
 
+# How many versions an append may move up past other writers' commits before it gives up.
+APPEND_COMMIT_RETRIES = 100
+# How many times an append is sent again after losing the Windows staged-commit race (retrying.staged_commit_race).
+APPEND_RACE_ATTEMPTS = 10
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
 # Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
@@ -294,9 +301,20 @@ class Store:
         try:
             how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
-            write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
-                            schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
-                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+            # Appends never conflict with each other, so one that loses the race for a version is made on
+            # the next; delta-rs's default 15 tries ran out with four runs appending to the run log at once.
+            retries = APPEND_COMMIT_RETRIES if mode == "append" else None
+            for attempt in range(APPEND_RACE_ATTEMPTS):
+                try:
+                    write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
+                                    schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                                    commit_properties=CommitProperties(custom_metadata=metadata, max_commit_retries=retries)
+                                    if metadata or retries else None)
+                    break
+                except OSError as exc:  # on Windows that same race can surface as the staged commit refused
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
         except Exception as exc:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
@@ -647,6 +665,32 @@ class Store:
         return df.sort(order, maintain_order=True) if order else df
 
 
+# The names Delta gives files in _delta_log that start with a version: a commit, a checksum, a
+# checkpoint (classic, multi-part or v2), a compacted log, each perhaps staged as <name>#<n>.
+_DELTA_LOG_NAME = re.compile(r"\d{20}(\.json|\.crc|\.checkpoint(\.[0-9A-Za-z-]+)*\.(parquet|json)|\.\d{20}\.compacted\.json)(#\d+)?")
+_VERSIONED = re.compile(r"(\d{20})")
+
+
+def sync_conflicts(log: Path) -> list[tuple[int, str]]:
+    """Commits in the table log folder ``log`` that a file sync client set aside, as (version, file name).
+
+    When two PCs write the same table in a synced folder (OneDrive, Dropbox, Google Drive) each makes
+    the same next version, and the sync client keeps one and saves the other beside it under another
+    name ("00000000000000000005-PC2.json", "... (conflicted copy).json"). Delta reads only the one
+    with its own name, so the other PC's rows are lost though its run said it wrote them. Any file
+    here that starts with a version but isn't a name Delta uses is one of those."""
+    try:
+        names = [entry.name for entry in os.scandir(log) if entry.is_file()]
+    except OSError:  # no log yet, or it can't be listed: nothing to report
+        return []
+    found = []
+    for name in names:
+        version = _VERSIONED.match(name)
+        if version and not _DELTA_LOG_NAME.fullmatch(name):
+            found.append((int(version.group(1)), name))
+    return sorted(found)
+
+
 class LocalStore(Store):
     """Delta tables on this PC, laid out like OneLake: <root>/<lakehouse>/Tables/<schema>/<table>."""
 
@@ -658,6 +702,10 @@ class LocalStore(Store):
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
+
+    def sync_conflicts(self, lakehouse: str, schema: str, table: str) -> list[tuple[int, str]]:
+        """The table's commits a file sync client set aside (module ``sync_conflicts``)."""
+        return sync_conflicts(Path(self.uri(lakehouse, schema, table)) / "_delta_log")
 
     # Runs at once on this PC can hit the Windows Delta log race (retrying.windows_log_race). Each call here
     # is safe to repeat: a read, create-if-absent, or an insert-only MERGE (a repeat after a commit

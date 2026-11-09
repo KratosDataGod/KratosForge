@@ -12,7 +12,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 from .. import http_session, sql_exec
@@ -21,6 +20,7 @@ from ..redact import describe, one_line
 from ..retrying import send_with_retry
 from . import core, entra
 from .requests_service import call_or_repair
+from .. import known_folders
 
 _log = logging.getLogger(__name__)
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -113,7 +113,7 @@ class EntraGroupsMixin:
         out: dict[str, Any] = {"kind": kind, "text": text, "new": sum(1 for r in rows if not r["linked"]),
                                "steps": list(entra.MANUAL_STEPS) if kind == "csv" else []}
         if save:
-            folder = Path.home() / "Downloads"
+            folder = known_folders.downloads()
             folder.mkdir(parents=True, exist_ok=True)
             label = {"powershell": "groups", "az": "groups", "csv": "groups", "roles": "Fabric roles"}[kind]
             path = sql_exec._reserve(folder, f"{entra._part(domain.get('name') or domain_id)} Entra {label}", f".{ext}")

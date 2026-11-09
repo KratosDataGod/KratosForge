@@ -95,7 +95,7 @@ Smaller findings kept for later (P2-P3): policy check calls valid integration ke
 - **Now:** App (client) ID is the second row in Settings > Account for everyone (`settings.js:207-216`); saving it does nothing when the environment variable is set, but says "Saved" (`app_settings.py:205-208`). Five SQL limits, kernel process and cell limits are on the main page.
 - **Proposed:** an **Advanced** section, folded by default, holding App ID, kernel, cell and SQL limits and the SQL temp folder. When policy or the environment sets a value, the field is read-only and says which.
 - **Scope:** `settings.js`; `app_settings.save` refuses values that the environment overrides.
-- **Acceptance:** a default install's Settings shows Account, Updates, Preview features, Usage data, Notifications, Help; Advanced is one click away; no "Saved" for a value that won't apply.
+- **Acceptance:** a default install's Settings shows Account, Updates, Preview features, Notifications, Help (Usage data is hidden until it's on); Advanced is one click away; no "Saved" for a value that won't apply.
 - **Tests:** `ui.test.cjs` for the fold and the read-only state; engine test for the env override.
 
 ### UX-007 Help opens the docs for the running build (P1)

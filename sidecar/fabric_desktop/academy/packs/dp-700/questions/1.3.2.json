@@ -75,15 +75,15 @@
         },
         {
           "id": "b",
-          "text": "Nothing; sharing without extra permissions fails"
+          "text": "Nothing; sharing a warehouse without extra permissions fails and must be redone"
         },
         {
           "id": "c",
-          "text": "Edit every table"
+          "text": "Edit and read every table, because sharing grants write access to the whole warehouse by default"
         },
         {
           "id": "d",
-          "text": "Read every table"
+          "text": "Read every table and view, because sharing alone grants ReadData on the warehouse"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Read lets the user connect. Access to data then comes from the extra sharing permissions or from T-SQL GRANT statements on specific objects.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.2-q4",
@@ -114,7 +114,7 @@
         },
         {
           "id": "d",
-          "text": "Item permissions let you give someone less than any workspace role would"
+          "text": "Item permissions can give someone less than any workspace role, such as only connecting to a shared warehouse"
         },
         {
           "id": "e",
@@ -125,11 +125,202 @@
         "b",
         "d"
       ],
-      "explanation": "Item permissions are narrower than workspace roles: they apply to one item and can be limited to, for example, SQL access.",
-      "source": "https://learn.microsoft.com/en-us/fabric/security/permission-model",
+      "explanation": "Item permissions apply to one item only. A plain share of a warehouse gives Read, which only lets the user connect, which is less than the Viewer role gives.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q5",
+      "type": "single",
+      "stem": "A workspace Contributor tries to share a warehouse with a business user, but sharing fails. What role must the person sharing have?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Any role, if the warehouse is endorsed"
+        },
+        {
+          "id": "b",
+          "text": "Contributor with Build permission"
+        },
+        {
+          "id": "c",
+          "text": "Admin or Member"
+        },
+        {
+          "id": "d",
+          "text": "Viewer"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Sharing a warehouse requires the Admin or Member workspace role.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q6",
+      "type": "single",
+      "stem": "You share a warehouse and select Read all data using SQL. What can the recipient do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Read all tables and views in read-only mode, like the db_datareader role"
+        },
+        {
+          "id": "b",
+          "text": "Read the warehouse's underlying Delta files in OneLake with Spark only"
+        },
+        {
+          "id": "c",
+          "text": "Only connect, until you grant access to each object with T-SQL GRANT"
+        },
+        {
+          "id": "d",
+          "text": "Read and write all tables, like the db_datawriter and db_datareader roles"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Read all data using SQL grants ReadData, which reads all tables and views read-only and is the equivalent of db_datareader.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q7",
+      "type": "single",
+      "stem": "A support engineer must query DMVs such as sys.dm_exec_requests on a warehouse to troubleshoot slow queries, without reading business data. Which permission fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Monitor"
+        },
+        {
+          "id": "b",
+          "text": "ReadData"
+        },
+        {
+          "id": "c",
+          "text": "ReadAll"
+        },
+        {
+          "id": "d",
+          "text": "Audit"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Monitor lets a user query DMVs, query text, sessions and Insights views. Audit is for audit logs, and ReadData and ReadAll give access to data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q8",
+      "type": "single",
+      "stem": "A user has Read all with SQL analytics endpoint on a shared lakehouse. They can query through the SQL endpoint URL but can't access the data through the lakehouse URL. What do you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Execute Apache Spark"
+        },
+        {
+          "id": "b",
+          "text": "SubscribeOneLakeEvents"
+        },
+        {
+          "id": "c",
+          "text": "Read all with Apache Spark"
+        },
+        {
+          "id": "d",
+          "text": "The Contributor workspace role"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Access through the lakehouse URL needs Read all with Apache Spark in addition to the SQL permission.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q9",
+      "type": "single",
+      "stem": "A partner team was given a shared lakehouse and now must write new files to it. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Re-share the lakehouse with Read all with Apache Spark"
+        },
+        {
+          "id": "b",
+          "text": "Grant them a OneLake security role with read on the folder"
+        },
+        {
+          "id": "c",
+          "text": "Give them the Contributor role (or higher) on the workspace"
+        },
+        {
+          "id": "d",
+          "text": "Add the Reshare permission to the lakehouse"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Lakehouse sharing never gives write permissions, and OneLake security grants read only. Write access comes from a workspace role of Contributor or higher.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q10",
+      "type": "multiple",
+      "stem": "Which two statements about sharing a warehouse are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Recipients get access only to the shared warehouse, not to other items in the workspace"
+        },
+        {
+          "id": "b",
+          "text": "New or removed permissions can take up to two hours to propagate"
+        },
+        {
+          "id": "c",
+          "text": "You can share a warehouse directly with a service principal"
+        },
+        {
+          "id": "d",
+          "text": "Recipients can save their own queries in the warehouse editor"
+        },
+        {
+          "id": "e",
+          "text": "Recipients can reshare the warehouse with others"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Sharing is scoped to the one warehouse, and permission changes can take up to two hours. Recipients can't reshare, sharing with an SPN isn't supported, and shared recipients can't save queries.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

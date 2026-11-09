@@ -51,6 +51,24 @@ FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
+# How a Fabric job ended, as an audit reason: Deduped means Fabric didn't run a duplicate submission.
+_FINISHED_REASON = {"Completed": "", "Cancelled": "cancelled", "Deduped": "refused"}
+
+
+def _seconds(started: Any, finished: Any) -> float:
+    """Seconds between two ISO times (ours, or Fabric's endTimeUtc); 0.0 when either is missing or odd."""
+    try:
+        start = dt.datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        end = dt.datetime.fromisoformat(str(finished).replace("Z", "+00:00"))
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt.timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=dt.timezone.utc)
+        return max(0.0, round((end - start).total_seconds(), 3))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -116,10 +134,15 @@ class CloudMixin:
                 unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
                 continue
             unreachable = 0
+            was = r.get("status")
             r["status"] = job.get("status", r["status"])
             r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
             reason = job.get("failureReason") or {}
             r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
+            if was not in TERMINAL and r["status"] in TERMINAL:  # first seen ending: the start already has its line
+                self._audit_finished("fabric_run_finished", _FINISHED_REASON.get(r["status"], "failed"),  # type: ignore[attr-defined]
+                                     _seconds(r.get("started_at"), r.get("finished_at")),
+                                     {k: r.get(k) for k in ("job_id", "kind", "name", "workspace_id", "item_id", "status")})
         return unchecked
 
     def _quiet_fabric(self) -> FabricClient | None:

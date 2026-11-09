@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "V-Order is turned off"
+          "text": "V-Order is turned off on the source table, so Spark can't read that column's metadata from the Parquet footer"
         },
         {
           "id": "b",
@@ -17,21 +17,21 @@
         },
         {
           "id": "c",
-          "text": "The Spark pool is too small"
+          "text": "The Spark pool is too small, so the column was dropped when the executors ran out of memory during the read"
         },
         {
           "id": "d",
-          "text": "The lakehouse is in a different domain"
+          "text": "The lakehouse belongs to a different domain from the notebook's workspace, so its columns aren't visible to the notebook's Spark session"
         }
       ],
       "answer": [
         "b"
       ],
       "explanation": "An unresolved column error means the plan refers to a column the DataFrame doesn't have at that point. Print the schema before the failing step.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-detail-monitoring",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/error-messages/unresolved-column-error-class",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q2",
@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Turn off autoscale"
+          "text": "Turn off autoscale so the pool keeps a fixed number of executors for the conversion"
         },
         {
           "id": "b",
@@ -48,21 +48,21 @@
         },
         {
           "id": "c",
-          "text": "Use collect() instead"
+          "text": "Use collect() instead, since it streams rows to the driver a partition at a time"
         },
         {
           "id": "d",
-          "text": "Call toPandas() twice"
+          "text": "Call toPandas() twice so the second call reads from the cached first result"
         }
       ],
       "answer": [
         "b"
       ],
       "explanation": "toPandas and collect pull all the data onto the driver. Keep the work distributed in Spark and only bring small results back.",
-      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pandas/pyspark-pandas-conversion",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q3",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Rename the import"
+          "text": "Rename the import to the package's module alias so Python finds it in the runtime"
         },
         {
           "id": "b",
-          "text": "Install it on your PC"
+          "text": "Install the package on your PC so it's uploaded with the notebook when it runs"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "Run the notebook again"
+          "text": "Run the notebook again, since the runtime installs missing packages on the second attempt"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "An environment's libraries are installed in every session that uses it, including scheduled runs. An in-session install lasts only for that session.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/environment-manage-library",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.2.3-q4",
@@ -102,11 +102,11 @@
       "options": [
         {
           "id": "a",
-          "text": "`https://<workspace>.blob.core.windows.net/orders.csv`"
+          "text": "`https://<workspace>.blob.core.windows.net/<lakehouse>.Lakehouse/Files/raw/orders.csv`"
         },
         {
           "id": "b",
-          "text": "`C:/Files/raw/orders.csv`"
+          "text": "`file:///C:/Users/<user>/OneLake - Microsoft/<workspace>/<lakehouse>.Lakehouse/Files/raw/orders.csv`"
         },
         {
           "id": "c",
@@ -122,9 +122,200 @@
       ],
       "explanation": "A relative Files/ path depends on the lakehouse attached to the notebook. A full OneLake address names the workspace and item, so it resolves the same way from any notebook with access to the data.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q5",
+      "type": "single",
+      "stem": "A notebook's session fails to start with `Spark_User_Conda_PipFailed`. The environment pins a library version that conflicts with a package already installed in the Fabric runtime. What should you try?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn on V-Order for the session so packages install in order"
+        },
+        {
+          "id": "b",
+          "text": "Run the notebook in high concurrency mode to reuse a session"
+        },
+        {
+          "id": "c",
+          "text": "Increase spark.sql.shuffle.partitions for the pip install step"
+        },
+        {
+          "id": "d",
+          "text": "Remove the version pin so pip can resolve a compatible version"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "PipFailed can come from a version conflict with pre-installed packages; removing the pin lets pip resolve a compatible version. Session mode, V-Order and shuffle partitions don't affect library installation.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q6",
+      "type": "single",
+      "stem": "A notebook that calls a Scala library fails with `Spark_User_UserApp_ClassNotFound`. The library's JAR isn't installed. What fixes it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Restart the session with a smaller node size so the class reloads"
+        },
+        {
+          "id": "b",
+          "text": "Run OPTIMIZE on the source table so its classes are rebuilt"
+        },
+        {
+          "id": "c",
+          "text": "Convert the cell to PySpark so the class is loaded from Python instead"
+        },
+        {
+          "id": "d",
+          "text": "Upload the JAR to the Fabric environment or attach it to the session"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "ClassNotFound means a class isn't on the classpath, typically a missing library; you add the JAR to the environment or attach it with %%configure. The other options don't add the class.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q7",
+      "type": "single",
+      "stem": "A notebook fails with `Spark_Ambiguous_UserApp_JobAborted`. Where do you find the real reason the stage failed?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the Capacity Metrics app's Storage page, under the failed operation for that notebook's run"
+        },
+        {
+          "id": "b",
+          "text": "In the workspace's sensitivity label settings, which record why labeled jobs are aborted"
+        },
+        {
+          "id": "c",
+          "text": "In the Spark UI, on the Stages tab, by selecting the failed stage and reviewing the task failure reason"
+        },
+        {
+          "id": "d",
+          "text": "In the lakehouse's table properties pane, which shows the last error raised by any failed write to the table"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "JobAborted wraps the real error; you review the failed stage's task failure reason in the Spark UI Stages tab. The other places don't show task failures.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q8",
+      "type": "single",
+      "stem": "A scheduled notebook fails with `Spark_Ambiguous_MsSparkUtils_EmptyString` at this line: `notebookutils.fs.ls(folder)`. The `folder` parameter is set by the pipeline, but this run passed no value. What is the best fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Give the folder parameter a default value and check it isn't empty before the call"
+        },
+        {
+          "id": "b",
+          "text": "Replace notebookutils.fs.ls with df.toPandas() to list the folder contents"
+        },
+        {
+          "id": "c",
+          "text": "Run the notebook in a different workspace where the folder parameter already exists"
+        },
+        {
+          "id": "d",
+          "text": "Increase the driver memory so that the empty string can be resolved"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The error means a notebookutils function got an empty string; you make sure parameters are non-empty and provide default values. Memory or workspace changes don't fix an empty argument.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q9",
+      "type": "single",
+      "stem": "A data scientist's cell uses `randomSplit()` on a DataFrame, and the Spark advisor shows a warning in the cell output. What does the advisor recommend?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run OPTIMIZE ZORDER BY on the source table"
+        },
+        {
+          "id": "b",
+          "text": "Cache the DataFrame before using randomSplit()"
+        },
+        {
+          "id": "c",
+          "text": "Replace randomSplit() with a broadcast join"
+        },
+        {
+          "id": "d",
+          "text": "Disable the Spark advisor for the workspace"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Spark advisor warns that randomSplit can return inconsistent results and recommends caching before calling it. The other options don't address the inconsistency.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-advisor-introduction",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q10",
+      "type": "multiple",
+      "stem": "A notebook job fails with executor crashes. Which two checks in the Spark UI match the Fabric troubleshooting guidance? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Check exit codes in the Executors tab"
+        },
+        {
+          "id": "b",
+          "text": "Detect data skew in the lakehouse explorer"
+        },
+        {
+          "id": "c",
+          "text": "Review memory usage in the Jobs tab's DAG view only"
+        },
+        {
+          "id": "d",
+          "text": "Check exit codes in the Environment tab"
+        },
+        {
+          "id": "e",
+          "text": "Detect data skew in the Stages tab"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "The guide names checking exit codes in the Executors tab and detecting data skew in the Stages tab (and memory usage in the Storage tab). The other tabs and tools aren't where it points.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "The OneLake file explorer"
+          "text": "The OneLake file explorer, which lists each notebook run's job, stage and log files"
         },
         {
           "id": "b",
@@ -17,7 +17,7 @@
         },
         {
           "id": "c",
-          "text": "The semantic model settings"
+          "text": "The refresh history in the settings of the lakehouse's default semantic model"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "The Spark application detail page shows the application's jobs, stages, resources and logs, and links to the Spark UI.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-detail-monitoring",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.2-q2",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "The Git history"
+          "text": "The commit history of the warehouse in the workspace's Git panel"
         },
         {
           "id": "b",
-          "text": "The pipeline's output"
+          "text": "The output of the pipeline's Script activity that ran the warehouse queries"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "The Spark UI"
+          "text": "The Spark UI of the warehouse's SQL analytics endpoint"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "Query insights keeps history of completed queries, with durations, so you can find long-running ones.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.1.2-q4",
@@ -130,6 +130,202 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.2-q5",
+      "type": "single",
+      "stem": "In the Fabric Capacity Metrics app, you need to find which notebooks and dataflows used the most compute on the capacity over the past two weeks. What should you do on the Compute page?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sort the matrix by item and operation by the CU (s) column"
+        },
+        {
+          "id": "b",
+          "text": "Sort the matrix by item and operation by the Users column"
+        },
+        {
+          "id": "c",
+          "text": "Filter the Utilization chart to show only red columns"
+        },
+        {
+          "id": "d",
+          "text": "Open the Storage page and sort by the largest tables"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The CU (s) column in the items matrix is sorted to see the items that used the most capacity over the past two weeks. The Storage page shows storage, not compute, and the Utilization chart doesn't list items.",
+      "source": "https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app-compute-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.2-q6",
+      "type": "single",
+      "stem": "Your capacity has consumed about 30 minutes of future capacity. Users report that their interactive Spark notebook runs are slower to start, but scheduled jobs still run. Which throttling stage is the capacity in?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Background rejection"
+        },
+        {
+          "id": "b",
+          "text": "Overage protection"
+        },
+        {
+          "id": "c",
+          "text": "Interactive rejection"
+        },
+        {
+          "id": "d",
+          "text": "Interactive delay"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Between 10 and 60 minutes of future usage, interactive jobs are throttled (delayed). Overage protection covers up to 10 minutes with no throttling, interactive rejection starts above 60 minutes, and background rejection above 24 hours.",
+      "source": "https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app-compute-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.2-q7",
+      "type": "single",
+      "stem": "Scheduled transformation notebooks have stopped running at all, and the Capacity Metrics app shows heavy overload. Which condition causes scheduled background jobs to be rejected?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Any 30-second timepoint above 100% utilization"
+        },
+        {
+          "id": "b",
+          "text": "Future capacity usage above 24 hours"
+        },
+        {
+          "id": "c",
+          "text": "Future capacity usage above 60 minutes"
+        },
+        {
+          "id": "d",
+          "text": "Future capacity usage above 10 minutes"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Background rejection applies when usage exceeds 24 hours of future capacity. Above 10 minutes interactive jobs are delayed and above 60 minutes they're rejected, but background jobs still run.",
+      "source": "https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app-compute-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.2-q8",
+      "type": "single",
+      "stem": "The Capacity Metrics app shows a spike above the CU limit at 02:10. You need to see which operations, interactive or background, used the most compute at that moment. Which page do you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Timepoint page"
+        },
+        {
+          "id": "b",
+          "text": "The Health page"
+        },
+        {
+          "id": "c",
+          "text": "The Storage page"
+        },
+        {
+          "id": "d",
+          "text": "The Compute page's Storage tab"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The Timepoint page drills into a 30-second timepoint to show which interactive or background operations used the most compute. The Storage page covers storage over 30 days, and the Health page summarizes capacities.",
+      "source": "https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.2-q9",
+      "type": "single",
+      "stem": "In the Compute page's matrix, a dataflow's Performance delta cell is red. What does this tell you?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The item's performance is more than 25% worse than seven days ago"
+        },
+        {
+          "id": "b",
+          "text": "The item was throttled by background rejection today"
+        },
+        {
+          "id": "c",
+          "text": "The item used more than 25% of the capacity's CU in the last hour"
+        },
+        {
+          "id": "d",
+          "text": "The item failed in its most recent run"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Performance delta shows the percent change in performance from seven days ago, and red means a value lower than -25. It doesn't report run failures or share of capacity.",
+      "source": "https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app-compute-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.2-q10",
+      "type": "multiple",
+      "stem": "A Spark notebook run failed. In the Monitor hub you open the Spark application and select the Logs tab. Which three log types can you choose from the left panel? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deployment pipeline"
+        },
+        {
+          "id": "b",
+          "text": "Livy"
+        },
+        {
+          "id": "c",
+          "text": "Driver"
+        },
+        {
+          "id": "d",
+          "text": "Prelaunch"
+        },
+        {
+          "id": "e",
+          "text": "OneLake audit"
+        },
+        {
+          "id": "f",
+          "text": "Git sync"
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "d"
+      ],
+      "explanation": "The Logs tab of a Spark application lets you choose Driver, Livy or Prelaunch logs. Git sync, deployment pipeline and OneLake audit aren't log types there.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

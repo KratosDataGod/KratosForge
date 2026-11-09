@@ -82,6 +82,15 @@ def test_a_zip_needs_the_commit_time_and_holds_no_links(tmp_path, monkeypatch):
         build.make_zip(root, tmp_path / "x.zip", [])
 
 
+def test_a_zip_holds_no_folder_junctions(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", EPOCH)
+    root = _engine(tmp_path / "e", ["engine.json", "Lib/site-packages/pkg/__init__.py"])
+    junction = root / "Lib" / "site-packages" / "pkg"
+    monkeypatch.setattr(Path, "is_junction", lambda self: self == junction)  # only Windows can make one
+    with pytest.raises(SystemExit, match="is a link"):
+        build.make_zip(root, tmp_path / "x.zip", [])
+
+
 def test_compare_names_each_entry_that_differs_and_the_lines_that_changed(tmp_path, monkeypatch):
     monkeypatch.setenv("SOURCE_DATE_EPOCH", EPOCH)
     names = ["engine.json", "Lib/site-packages/pkg/__init__.py", "python312._pth"]

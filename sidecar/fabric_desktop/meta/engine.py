@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import socket
 import time
 import uuid
 from collections.abc import Iterator
@@ -553,6 +554,7 @@ class Engine:
             return
         from ..schedule_service import process_identity
         note = {"run_id": self.run_id, "entity": e.name, "started_at": started_at, "pid": os.getpid(),
+                "host": socket.gethostname(),
                 "identity": process_identity(os.getpid()), "load_date": self.load_date.isoformat(),
                 "backfill": backfill or "", "batch_id": batch_id} | self.run_context
         path = self.running_dir / f"{self.run_id}.json"
@@ -584,6 +586,8 @@ class Engine:
                 if not isinstance(note, dict) or note.get("entity") != e.name or note.get("run_id") == self.run_id:
                     continue
                 run = str(note.get("run_id", ""))
+                if note.get("host") != socket.gethostname():
+                    continue  # another PC's run, in a synced folder: its PID means nothing here
                 if note.get("pid") == os.getpid() or _pid_alive(note.get("pid"), note.get("identity")):
                     continue  # its process is still running (or may be): not stopped
                 if not _RUN_ID.fullmatch(run):
@@ -602,12 +606,14 @@ class Engine:
             message = (f"Stopped: the engine ended during this run, so nothing was written to the table. "
                        f"The likely reason is that this PC ran out of memory (the engine's log says). "
                        f"{OUT_OF_MEMORY_ADVICE} Recorded by run {self.run_id}.")
-            row = {"run_id": run, "batch_id": str(note.get("batch_id", "")), "entity": e.name,
+            def text(key: str, note: dict[str, Any] = note) -> str:
+                return str(note.get(key, ""))[:200]
+            row = {"run_id": run, "batch_id": text("batch_id"), "entity": e.name,
                    "env": self.store.env, "status": "failed", "metadata": self.project.version,
-                   "logic": self.project.fingerprint(e), "load_date": str(note.get("load_date", "")),
-                   "started_at": str(note.get("started_at", "")), "seconds": None, "rows_read": None,
+                   "logic": self.project.fingerprint(e), "load_date": text("load_date"),
+                   "started_at": text("started_at"), "seconds": None, "rows_read": None,
                    "rows_written": None, "quarantined": None, "delta_version": None,
-                   "backfill": str(note.get("backfill", "")), "message": message, "steps": "[]"}
+                   "backfill": text("backfill"), "message": message, "steps": "[]"}
             row |= {k: v for k, v in note.items() if k in self.run_context}
             def append(m: dict[str, str], r: dict[str, Any] = row) -> None:
                 self.store.meta_append("run_log", [r], metadata=m)

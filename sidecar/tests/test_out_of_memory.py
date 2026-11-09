@@ -9,6 +9,7 @@ ended as failed. A MemoryError the run does see gets a plain message.
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import textwrap
@@ -75,12 +76,12 @@ def test_a_run_that_ends_its_process_mid_run_is_recorded_as_failed_by_the_next_o
     assert len([r for r in log(s) if r["run_id"] == stopped["run_id"]]) == 1  # recorded once
 
 
-def plant(s: Setup, run_id: str, pid: int, entity: str = "bronze.events") -> Path:
+def plant(s: Setup, run_id: str, pid: int, entity: str = "bronze.events", host: str = "") -> Path:
     folder = s.store.root / "_running"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{run_id}.json"
     path.write_text(json.dumps({"run_id": run_id, "entity": entity, "started_at": "2026-11-09T18:00:00+00:00",
-                                "pid": pid, "load_date": DAY2.isoformat(), "backfill": "", "batch_id": ""}))
+                                "pid": pid, "host": host or socket.gethostname(), "load_date": DAY2.isoformat(), "backfill": "", "batch_id": ""}))
     return path
 
 
@@ -89,8 +90,10 @@ def test_a_run_whose_process_is_still_running_or_another_tables_is_left_alone(tm
     s.source(rows(range(3), DAY1), mode="overwrite")
     live = plant(s, "r-20261109-180000-aaaaaaaaaaaa", os.getpid())
     other = plant(s, "r-20261109-180000-bbbbbbbbbbbb", ended_pid(), entity="bronze.amounts")
+    # A synced folder: another PC's run is under way there, and its PID means nothing on this one.
+    elsewhere = plant(s, "r-20261109-180000-cccccccccccc", ended_pid(), host="ANOTHER-PC")
     s.run()
-    assert live.exists() and other.exists() and [r["status"] for r in log(s)] == ["ok"]
+    assert live.exists() and other.exists() and elsewhere.exists() and [r["status"] for r in log(s)] == ["ok"]
 
 
 def test_a_stopped_run_that_had_committed_is_left_to_the_unlogged_record(tmp_path):

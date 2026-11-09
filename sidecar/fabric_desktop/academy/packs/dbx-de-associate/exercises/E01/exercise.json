@@ -1,0 +1,47 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E01",
+  "title": "Map the platform: control plane, compute, Delta Lake and Unity Catalog",
+  "objectives": [
+    "1.1"
+  ],
+  "objective_text": "Explain where the control plane and compute run, what makes a table Delta, and how Unity Catalog names and manages tables.",
+  "scenario": "A security reviewer at a bank asks a new data engineer where Databricks runs each part of the platform, what format the team's tables are in, and who owns the files when a governed table is dropped.",
+  "minutes": 10,
+  "verifies": [
+    "You can pick the right component, method or trigger for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can do it in Databricks: nothing is set up or run here. Reading a real table's log and history is exercise E02."
+  ],
+  "expected": {
+    "description": "All 6 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/getting-started/high-level-architecture",
+    "https://docs.databricks.com/aws/en/delta/",
+    "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-09."
+  ]
+}

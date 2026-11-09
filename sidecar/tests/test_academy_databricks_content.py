@@ -12,7 +12,7 @@ import pytest
 from fabric_desktop.academy import exercises
 
 PACK = "dbx-de-associate"
-BATCH = ("E21", "E23", "E24", "E31", "E33")
+BATCH = ("E17", "E21", "E23", "E24", "E31", "E33")
 
 
 def test_the_batch_has_no_problems():

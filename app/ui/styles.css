@@ -1091,6 +1091,8 @@ body.pop-out .page.monitor { padding: 12px; }
 .page.living-head h1.home-hero-title { margin: 0; font-size: 64px; color: var(--lx-hero-title); font-weight: 800; letter-spacing: 0; }
 .page.living-head .home-hero-actions { margin-top: 14px; }
 .page.living-head .home-hero-actions:empty { display: none; }
+/* The Preview tag on the sky: its own solid fill, not the page's soft one blended with the navy. */
+.home-hero .preview-tag { background: var(--brand-orange); color: var(--lx-hero-ink); border-color: var(--brand-orange); }
 .page.living-head .profile-name { margin: 0 0 4px; font-size: 24px; font-weight: 600; }
 /* A tab's own buttons on the sky: outline buttons read as the hero's outline, light on navy. */
 .home-hero-actions .tool.outline { background: transparent; color: var(--lx-hero-title); border: 1px solid var(--lx-hero-line); }

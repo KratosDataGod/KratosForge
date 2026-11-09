@@ -132,6 +132,8 @@ test("While you type, celebrations hold off; small effects still play; after a p
     box.id = "deep-work-box";
     box.setAttribute("aria-label", "Deep work");
     document.querySelector(".motion-settings").prepend(box);
+    // On screen, under Settings' header art: an effect off the screen is skipped, not held.
+    document.querySelector(".motion-settings h2").scrollIntoView({ block: "center" });
   });
   const box = page.getByRole("textbox", { name: "Deep work" });
   await box.click();
@@ -159,6 +161,8 @@ test("An achievement unlocked while you type is held and revealed once you pause
     const box = document.createElement("textarea");
     box.setAttribute("aria-label", "Deep work");
     document.querySelector(".motion-settings").prepend(box);
+    // On screen, under Settings' header art: a reveal off the screen is skipped, not held.
+    document.querySelector(".motion-settings h2").scrollIntoView({ block: "center" });
   });
   const box = page.getByRole("textbox", { name: "Deep work" });
   await box.click();

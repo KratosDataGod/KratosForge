@@ -117,9 +117,6 @@ What each choice draws so far:
   with `--on-accent` labels, an orange active item, the white KratosForge lettering above it, and a mountain
   line at its foot, below the last item so the art never sits under a page link.
   The art scrolls with the rail, and a window shorter than 640 px leaves it out.
-
-The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look,
-so KratosForge keeps its light, narrow rail.
 - **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
   text, buttons and lettering turn to `--on-accent`, and the search box sits on `--accent-dark`. `none`
   blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and
@@ -132,6 +129,9 @@ so KratosForge keeps its light, narrow rail.
   soft border, larger corners and an accent ring when chosen. `flat` keeps square cells with their header
   bar always shown. `rounded` uses large corners and a soft ring. In every style, a cell being edited
   keeps KratosForge's orange edge, so edit and command mode still look different.
+
+The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look,
+so KratosForge keeps its light, narrow rail.
 
 `buttons` and `tiles` belong to the KratosForge skin's redraw (`forge` buttons, `duotone` tiles). Until
 it lands they draw as `accent` and `plain`.

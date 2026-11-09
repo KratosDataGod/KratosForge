@@ -3474,4 +3474,4 @@ body[data-skin-rail-tone="brand"] .topbar .brand { align-self: stretch; margin-l
   background: var(--accent); }
 body[data-skin-rail-tone="brand"] .topbar .brand-name { content: url("kratosforge-lettering-light.png"); height: 24px; max-width: 150px; object-fit: contain; }
 body[data-skin-rail-tone="brand"][data-skin-rail="stacked"] .topbar .brand { width: auto; }
-@media (max-width: 1000px) { body[data-skin-rail-tone="brand"] .topbar .brand { width: auto; } }
+@media (max-width: 1000px), (max-height: 640px) { body[data-skin-rail-tone="brand"] .topbar .brand { width: auto; } }

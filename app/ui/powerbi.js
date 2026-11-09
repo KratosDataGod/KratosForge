@@ -222,6 +222,7 @@ function pbiFatal(detail) {
 function pbiOpenProblem(err) {
   const text = String(err?.message || err || "");
   const fabric = ["Open in Fabric", () => openInFabric(fabricItemLink(pbiStudio.item))];
+  if (/sign[- ]in (?:has )?expired|sign-in: it has expired|isn't signed in|sign in again/i.test(text)) return pbiProblem({ errorCode: "401" }, pbiStudio.item);
   return /licen[cs]e|access|not allowed|forbidden/i.test(text)
     ? { tag: "No access", tone: "stop", title: "Your account can't open this", body: text.slice(0, 400), primary: fabric }
     : { tag: "Couldn't open", tone: "stop", title: "Embed Studio couldn't open this", body: text.slice(0, 400), primary: fabric };

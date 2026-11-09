@@ -29,8 +29,10 @@ function railFeatures(bottom = false) {
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
-  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
-    icon(f.rail.icon, 22), typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label);
+  const label = typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label;
+  // The name stays the button's text, so it is the accessible name even when a short window shows icons only.
+  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, title: label, onclick: () => go(view) },
+    icon(f.rail.icon, 22), h("span", { class: "rail-label" }, label));
 }
 
 // ---------- preview ----------

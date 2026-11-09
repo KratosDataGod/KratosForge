@@ -555,7 +555,8 @@ class CloudMixin:
             try:
                 days = t.get("retention_days") or maintenance.RETENTION_HOURS // 24
                 if isinstance(store, LocalStore):
-                    result = maintenance.compact_local(store.uri(t["lakehouse"], t["schema"], t["table"]), days)
+                    with store.compaction_lease(t["lakehouse"], t["schema"], t["table"], wait=120):
+                        result = maintenance.compact_local(store.uri(t["lakehouse"], t["schema"], t["table"]), days)
                     out.append({"table": label, "status": "Completed", **result})
                     continue
                 lh_id = store.lakehouse_ids[t["lakehouse"]]

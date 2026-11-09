@@ -187,3 +187,82 @@ def test_only_an_append_refused_its_staged_commit_is_sent_again(tmp_path, monkey
     with pytest.raises(OSError):
         store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [2]}), mode="append")
     assert calls == ["overwrite", "append"]
+
+
+@pytest.mark.parametrize("refusal", ["Protocol changed since last commit: protocol changed",
+                                     "Metadata changed since last commit."])
+def test_a_first_append_that_loses_creating_the_table_lands_on_the_one_made(tmp_path, monkeypatch, refusal):
+    """Two first appends to a meta table not made yet each create it, and delta-rs refuses the one
+    that loses (seen on Windows CI with four writers). It is now made again on the table the other
+    one created, so both rows land."""
+    from deltalake.exceptions import CommitFailedError
+    store, other = LocalStore(tmp_path), LocalStore(tmp_path)
+    real = store_mod.write_deltalake
+    raced = []
+
+    def write(target, data, **kw):
+        if not raced:
+            raced.append(1)
+            real(target, data, **kw)  # the other writer gets there first, so this one is refused
+            raise CommitFailedError(f"Failed to commit transaction: {refusal}")
+        return real(target, data, **kw)
+
+    monkeypatch.setattr(store_mod, "write_deltalake", write)
+    store.meta_append("watermarks", [{"entity": "e", "value": "mine", "run_id": "r1"}])
+    assert sorted(other.meta("watermarks")["value"].to_list()) == ["mine", "mine"]  # the other's row and this one
+
+
+def test_an_append_refused_for_another_reason_still_fails(tmp_path, monkeypatch):
+    from deltalake.exceptions import CommitFailedError
+    store = LocalStore(tmp_path)
+
+    def write(target, data, **kw):
+        raise CommitFailedError("Failed to commit transaction: something else")
+
+    monkeypatch.setattr(store_mod, "write_deltalake", write)
+    with pytest.raises(CommitFailedError, match="something else"):
+        store.meta_append("watermarks", [{"entity": "e", "value": "x", "run_id": "r1"}])
+
+
+def test_the_retry_checks_the_lease_again_before_writing(tmp_path, monkeypatch):
+    from deltalake.exceptions import CommitFailedError
+    from fabric_desktop.leases import LeaseLost
+    store, real = LocalStore(tmp_path), store_mod.write_deltalake
+    checks = []
+
+    def check():
+        checks.append(1)
+        if len(checks) > 1:
+            raise LeaseLost("lease lost while waiting")
+
+    def write(target, data, **kw):
+        real(target, data, **kw)  # another writer creates the table first
+        raise CommitFailedError("Failed to commit transaction: Protocol changed since last commit")
+
+    monkeypatch.setattr(store_mod, "check_held", check)
+    monkeypatch.setattr(store_mod, "write_deltalake", write)
+    with pytest.raises(LeaseLost):
+        store.meta_append("watermarks", [{"entity": "e", "value": "mine", "run_id": "r1"}])
+    assert len(checks) == 2
+    assert LocalStore(tmp_path).meta("watermarks").height == 1  # only the other writer's row
+
+
+def _first_writer(root: str, table: str, k: int) -> None:  # runs in a spawned process
+    LocalStore(root).meta_append(table, [{"entity": "e", "value": str(k), "run_id": str(k)}])
+
+
+@pytest.mark.parametrize("table", ["watermarks", "restores"])
+def test_first_appends_from_several_processes_all_land(tmp_path, table):
+    """Six processes each make the first append to a meta table that doesn't exist yet (as Promote,
+    a release snapshot or a restore would): every row lands, none raises."""
+    import multiprocessing as mp
+    ctx = mp.get_context("spawn")  # forking after deltalake has loaded can hang
+    for round_ in range(2):
+        root = tmp_path / str(round_)
+        procs = [ctx.Process(target=_first_writer, args=(str(root), table, k)) for k in range(6)]
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join(120)
+        assert [p.exitcode for p in procs] == [0] * 6
+        assert LocalStore(root).meta(table).height == 6

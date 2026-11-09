@@ -104,7 +104,20 @@ def streak(regressed: list[str], previous: dict[str, Any], image: str) -> list[s
     the same image: the ones the gate fails on."""
     if not previous or previous.get("image") != image:
         return []
-    return [name for name in regressed if name in set(previous.get("regressed", []))]
+    before = previous.get("regressed")
+    if not isinstance(before, list):
+        return []
+    return [name for name in regressed if name in set(map(str, before))]
+
+
+def read_streak(path: Path) -> dict[str, Any]:
+    """The previous run's streak file, or {} when it is missing or can't be read. A damaged file is
+    treated as no previous run, so this run's result replaces it instead of failing every later run."""
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return previous if isinstance(previous, dict) else {}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     regressions = [r for r in rows if r["status"] == "regression"]
     failing = [r["name"] for r in regressions]
     if args.streak:
-        previous = json.loads(args.streak.read_text(encoding="utf-8")) if args.streak.exists() else {}
+        previous = read_streak(args.streak)
         failing = streak(failing, previous, args.image)
         args.streak.write_text(json.dumps({"image": args.image, "commit": os.environ.get("GITHUB_SHA", ""),
                                            "regressed": [r["name"] for r in regressions]}) + "\n", encoding="utf-8")

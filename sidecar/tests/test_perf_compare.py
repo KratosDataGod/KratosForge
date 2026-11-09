@@ -129,6 +129,21 @@ def test_the_gate_fails_only_on_two_runs_in_a_row_on_the_same_image(tmp_path):
     assert check("slow.json", "other") == 0  # the last run was on another image: not a streak
 
 
+@pytest.mark.parametrize("damaged", ["{not json", "[1, 2]", '{"image": "img", "regressed": "startup"}', "\xff\xfe"])
+def test_a_damaged_streak_file_counts_as_no_previous_run_and_is_replaced(tmp_path, damaged):
+    cmp = load()
+    (tmp_path / "baselines").mkdir()
+    (tmp_path / "baselines" / "img.json").write_text(json.dumps(cmp.baseline_from(run(), "img")))
+    (tmp_path / "ok.json").write_text(json.dumps(run()))
+    (tmp_path / "slow.json").write_text(json.dumps(run(startup=2000.0)))
+    streak = tmp_path / "streak.json"
+    args = ["--baselines", str(tmp_path / "baselines"), "--image", "img", "--streak", str(streak), "--gate"]
+    for result in ("ok.json", "slow.json"):
+        streak.write_bytes(damaged.encode("latin-1"))
+        assert cmp.main([str(tmp_path / result), *args]) == 0
+        assert json.loads(streak.read_text())["image"] == "img"
+
+
 def test_an_image_with_no_baseline_compares_nothing_and_never_fails(tmp_path, capsys):
     cmp = load()
     (tmp_path / "baselines").mkdir()

@@ -12,6 +12,7 @@ import decimal
 from functools import reduce
 from typing import Any
 
+import pyarrow as pa
 from duckdb.experimental.spark.errors import PySparkTypeError, PySparkValueError
 from duckdb.experimental.spark.sql import types as T
 
@@ -126,10 +127,21 @@ def _has_null(t: Any) -> bool:
     return False
 
 
+def _has_struct(t: Any) -> bool:
+    if isinstance(t, T.StructType):
+        return True
+    if isinstance(t, T.ArrayType):
+        return _has_struct(t.elementType)
+    if isinstance(t, T.MapType):
+        return _has_struct(t.keyType) or _has_struct(t.valueType)
+    return False
+
+
 def _fit(value: Any, t: Any) -> Any:
-    """``value`` shaped for type ``t``: a struct's values in its fields' order (a Row's by name)."""
-    if value is None:
-        return None
+    """``value`` shaped for type ``t``: a struct's values in its fields' order (a Row's by name). A part
+    with no struct in it needs no reshaping and is left as it is."""
+    if value is None or not _has_struct(t):
+        return value
     if isinstance(t, T.StructType):
         names = _names(value)
         if isinstance(value, dict) or names is not None:
@@ -144,11 +156,45 @@ def _fit(value: Any, t: Any) -> Any:
     return value
 
 
+_SCALARS = (type(None), bool, int, float, str, bytes, bytearray, decimal.Decimal, datetime.date, datetime.datetime)
+
+
+def _shape(value: Any) -> Any:
+    """A key that two values share only when _infer gives them the same type, cheap to make: the value's
+    Python type, a tuple's names and shapes; None for a list or dict (inferred each time)."""
+    kind = type(value)
+    if kind is int:
+        return int if -2**63 <= value < 2**63 else "big"
+    if kind in _SCALARS:
+        return kind
+    if isinstance(value, tuple):
+        inner = tuple(_shape(v) for v in value)
+        return None if None in inner else ("tuple", tuple(_names(value) or ()), inner)
+    if kind is list:
+        items = frozenset(_shape(v) for v in value if v is not None)
+        return None if None in items else ("list", items)
+    if kind is dict:
+        keys = frozenset(_shape(k) for k in value if k is not None)
+        values = frozenset(_shape(v) for v in value.values() if v is not None)
+        return None if None in keys or None in values else ("dict", keys, values)
+    return None
+
+
 def infer(data: list[Any] | tuple[Any, ...], names: list[str] | None) -> tuple[list[Any], Any] | None:
     """Rows and the schema PySpark infers for them, or None when a value is one this doesn't cover
-    (DuckDB's own inference runs then)."""
+    (DuckDB's own inference runs then). Rows of one shape are inferred once, and each new type merged
+    once, in the order rows first show it (merging a type again changes nothing)."""
+    seen: set[Any] = set()
+    schema: Any = None
     try:
-        schema = reduce(_merge, (_row_type(row, names) for row in data))
+        for row in data:
+            shape = _shape(row) if isinstance(row, tuple) else None
+            if shape is not None:
+                if shape in seen:
+                    continue
+                seen.add(shape)
+            row_type = _row_type(row, names)
+            schema = row_type if schema is None else _merge(schema, row_type)
     except _Unsupported:
         return None
     except PySparkTypeError as e:
@@ -159,4 +205,28 @@ def infer(data: list[Any] | tuple[Any, ...], names: list[str] | None) -> tuple[l
     if _has_null(schema):
         raise PySparkValueError(error_class="CANNOT_DETERMINE_TYPE",
                                 message_parameters={})
+    flat = not any(_has_struct(f.dataType) for f in schema.fields)
+    if flat and all(type(row) is tuple for row in data):  # nothing to reshape: the rows go as they are
+        return list(data), schema
     return [_fit(row, schema) for row in data], schema
+
+
+def _arrow_type(t: Any) -> Any:
+    if isinstance(t, T.StructType):
+        return pa.struct([(f.name, _arrow_type(f.dataType)) for f in t.fields])
+    if isinstance(t, T.ArrayType):
+        return pa.list_(_arrow_type(t.elementType))
+    if isinstance(t, T.MapType):
+        return pa.map_(_arrow_type(t.keyType), _arrow_type(t.valueType))
+    if isinstance(t, T.DecimalType):
+        return pa.decimal128(t.precision, t.scale)
+    return {T.LongType: pa.int64(), T.DoubleType: pa.float64(), T.StringType: pa.string(), T.BooleanType: pa.bool_(),
+            T.BinaryType: pa.binary(), T.DateType: pa.date32()}[type(t)]
+
+
+def arrow_table(rows: list[Any], schema: Any) -> pa.Table:
+    """The rows (as infer gives them) as an Arrow table of the schema's types: DuckDB reads it in one go,
+    where a schema given to createDataFrame converts each value on its own."""
+    columns = list(zip(*rows, strict=True)) if rows else [() for _ in schema.fields]
+    return pa.Table.from_arrays([pa.array(list(c), _arrow_type(f.dataType)) for c, f in zip(columns, schema.fields, strict=True)],
+                                names=[f.name for f in schema.fields])

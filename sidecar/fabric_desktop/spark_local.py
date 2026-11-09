@@ -1125,8 +1125,8 @@ class LocalSparkSession(SparkSession):
                 schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))):
             # PySpark's inference (a tuple in a row is a struct, a dict a map, columns _1, _2), not DuckDB's
             inferred_rows = spark_infer.infer(data, list(schema) if schema else None)
-            if inferred_rows is not None:
-                data, schema = inferred_rows
+            if inferred_rows is not None:  # as one Arrow table, which DuckDB reads far faster than row by row
+                return DataFrame(self.conn.from_arrow(spark_infer.arrow_table(*inferred_rows)), self)
         if verifySchema:  # verifySchema=False skips the check, as in Spark
             check_not_null(data, schema)
         # DuckDB 1.x's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
@@ -1479,7 +1479,7 @@ class LocalMergeBuilder:
         spark = session()
         view = f"__merge_builder_{next(self._MERGE_VIEWS)}"
         source_alias = getattr(relation, "alias", "") or ""
-        if not source_alias or source_alias.startswith("unnamed_relation"):  # no df.alias(...)
+        if not source_alias or source_alias.startswith(("unnamed_relation", "arrow_object")):  # no df.alias(...)
             source_alias = "source"
         relation.create_view(view, replace=True)
         try:

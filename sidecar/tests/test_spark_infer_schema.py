@@ -141,3 +141,13 @@ def test_get_field_is_named_as_spark_names_it(kernel):
 
 def test_a_struct_field_by_attribute_or_key_is_named_as_spark_names_it(kernel):
     assert _printed(kernel, ITEM_CELL).splitlines() == ITEM_SPARK.splitlines()
+
+
+def test_create_dataframe_stays_fast_on_many_rows(kernel):
+    # inferred rows go to DuckDB as one Arrow table; a row-by-row schema took several seconds here
+    text = _printed(kernel, "import time\nflat = [(i, f's{i}', i * 0.5) for i in range(200000)]\n"
+                            "nested = [(i, (i, f'x{i}'), {'k': [i]}) for i in range(200000)]\n"
+                            "t = time.monotonic(); a = spark.createDataFrame(flat, ['a', 'b', 'c']); b = spark.createDataFrame(nested)\n"
+                            "print(a.count(), b.count(), a.dtypes, b.dtypes, time.monotonic() - t < 10)")
+    assert text.strip() == ("200000 200000 [('a', 'bigint'), ('b', 'string'), ('c', 'double')] [('_1', 'bigint'), "
+                            "('_2', 'struct<_1:bigint,_2:string>'), ('_3', 'map<string,array<bigint>>')] True")

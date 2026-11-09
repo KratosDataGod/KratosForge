@@ -712,7 +712,9 @@ def _order_of(c: Any) -> str:
 
 
 # A column's name with DuckDB's relation qualifier (unnamed_relation_<hex>.age) left out, as Spark shows it.
-_RELATION = re.compile(r'"?\bunnamed_relation_[0-9a-f]+"?\.')  # quoted on DuckDB 2.0
+# DuckDB's own name for a frame: unnamed_relation_<hex>, or arrow_object_<hex> for one read from Arrow
+# (a polars or pyarrow frame, or inferred rows)
+_RELATION = re.compile(r'"?\b(?:unnamed_relation|arrow_object)_[0-9a-f]+"?\.')  # quoted on DuckDB 2.0
 # A quoted identifier ("name", quoted as a keyword) or a string literal ('x') in DuckDB's name, read
 # left to right in one pass so a quote inside one never pairs with the next: Spark writes each bare.
 _QUOTED = re.compile(r'"((?:[^"]|"")*)"|\'((?:[^\']|\'\')*)\'')
@@ -970,7 +972,7 @@ def _text_method_named(template: str, fn: Any) -> Any:
 
 
 # A plain column, as DuckDB writes one: relation.name ("relation"."name" on DuckDB 2.0), "name" or name.
-_PLAIN_COLUMN = re.compile(r'^(?:"?unnamed_relation_[0-9a-f]+"?\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
+_PLAIN_COLUMN = re.compile(r'^(?:"?(?:unnamed_relation|arrow_object)_[0-9a-f]+"?\.)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*)$')
 # Spark's SQL name for a type, from its simpleString (DuckDB's spells some types Spark's long way).
 _TYPE_SQL = {"integer": "INT", "long": "BIGINT", "short": "SMALLINT", "byte": "TINYINT"}
 

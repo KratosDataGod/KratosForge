@@ -86,7 +86,7 @@ def test_folders_and_files_that_cant_be_opened_are_issues_and_the_rest_are_found
 
 def test_a_file_that_vanishes_while_a_table_folder_is_sized_is_left_out(tmp_path, monkeypatch):
     touch(tmp_path / "t" / "part-0.csv")
-    touch(tmp_path / "t" / "part-1.csv", "a\n1\n2\n")
+    kept = touch(tmp_path / "t" / "part-1.csv", "a\n1\n2\n").stat().st_size  # Windows writes \r\n: read, not assumed
     real = os.stat
 
     def stat(path, *args, **kwargs):
@@ -96,14 +96,14 @@ def test_a_file_that_vanishes_while_a_table_folder_is_sized_is_left_out(tmp_path
 
     monkeypatch.setattr(D.os, "stat", stat)
     size, count, _newest = D._folder_stats(tmp_path / "t")
-    assert (size, count) == (6, 1)
+    assert (size, count) == (kept, 1)
 
 
 # ---- files
 
 
 def test_a_file_whose_name_cant_be_a_table_name_is_an_issue(tmp_path):
-    touch(tmp_path / 'say "hi".csv')
+    touch(tmp_path / " lead.csv")  # a legal file name everywhere, but a table name can't start with a space
     touch(tmp_path / "ok.csv")
     out = D.discover(D.Source(str(tmp_path)))
     assert [t.key for t in out.tables] == ["dbo.ok"]

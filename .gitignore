@@ -20,3 +20,4 @@ build/
 vscode/node_modules/
 vscode/out/
 vscode/*.vsix
+vscode/sbom-*.cdx.json

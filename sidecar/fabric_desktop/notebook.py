@@ -154,7 +154,7 @@ def as_table(value: Any) -> pa.Table | None:
         if hasattr(value, "collect"):
             value = value.head(PREVIEW_ROWS + 1).collect()
         return value.to_arrow() if hasattr(value, "to_arrow") else None
-    if module.startswith("duckdb") and hasattr(value, "limit"):
+    if module.startswith(("duckdb", "_duckdb")) and hasattr(value, "limit"):  # DuckDBPyRelation is in _duckdb
         rel = value.limit(PREVIEW_ROWS + 1)
         return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
     if module.startswith("pandas") and hasattr(value, "columns"):
@@ -164,7 +164,7 @@ def as_table(value: Any) -> pa.Table | None:
 
 def _total_rows(value: Any, table: pa.Table) -> int | None:
     """All rows, when that is cheap to know; None means "more than the preview"."""
-    if type(value).__module__.startswith("duckdb.experimental.spark"):
+    if type(value).__module__.startswith(("duckdb", "_duckdb")):  # counting would run the whole query again
         return table.num_rows if table.num_rows <= PREVIEW_ROWS else None
     total = getattr(value, "height", None)
     if total is None and not hasattr(value, "collect"):

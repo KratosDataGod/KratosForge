@@ -799,6 +799,7 @@ class Agent:
         if _due(self._pruned_at, 86400, self.clock()):
             self._pruned_at = self.clock()
             self.prune_queue()
+            self.sweep_home()
         if _due(self._policy_at, POLICY_CHECK_SECONDS, self.clock()):
             self._policy_at = self.clock()
             self.check_policy()
@@ -823,6 +824,24 @@ class Agent:
         if gone:
             self.log.info("finished jobs removed from the queue",
                           extra=fields(jobs=len(gone), older_than_days=self.config.queue_retention_days))
+
+    def sweep_home(self) -> None:
+        """Delete local copies of lakehouse data the agent's runs left in its data folder
+        (``<home>/data``, Runtime.root, where the download cache and staging live) unused for longer
+        than the organization allows, as the app does with its own folder (retention.py,
+        local_retention_days): at start, then daily, after the queue is pruned. Only the sweep's cache
+        folders are touched: never the queue, audit, logs, settings or a project's This PC data. A
+        failure is logged and tried again the next day."""
+        from . import app_settings, retention
+        try:
+            days = int(app_settings.value("local_retention_days"))
+            result = retention.sweep(self.runtime.root, days)  # file times are real ones, not the loop's clock
+        except Exception as exc:  # noqa: BLE001 - a cache sweep never stops jobs
+            self.log.warning("couldn't clean up local copies", extra=fields(error=f"{type(exc).__name__}: {exc}"))
+            return
+        if result["removed"]:
+            self.log.info("local copies removed from the agent's home",
+                          extra=fields(items=len(result["removed"]), bytes=result["bytes"], older_than_days=days))
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:

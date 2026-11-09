@@ -9,8 +9,8 @@
     - the engine (<data>\engine) and the launchers AI tools and VS Code run (<data>\bin)
     - every saved sign-in and token: the Fabric sign-in (msal_cache.bin), the Fabric view's saved sign-in
       and browser profile (fabric-view-signin.bin, fabric-view), the app window's browser profile
-      (%LOCALAPPDATA%\com.kratosbi.fabricdesktop), the link listener's token (link-port), and the
-      mail server password in Windows Credential Manager (KratosForge/mail-server)
+      (%LOCALAPPDATA%\com.kratosbi.fabricdesktop), the link listener's token (link-port), the VS Code
+      pairing hello (editor-port), sealed copies a cut-off save left (*.tmp), and the mail server password in Windows Credential Manager (KratosForge/mail-server)
     - kratosforge.exe, when you give -AppPath
   It keeps notebooks, settings, stores and backups in the data folder unless you pass -RemoveData,
   which deletes everything in it except the audit trails (<data>\audit and <data>\integrations\audit),
@@ -136,8 +136,15 @@ if ($RemoveData -and $RemoveAuditTrail) {
     if (Test-Path -LiteralPath $DataDir) { Remove-AllBut $DataDir "" }
 } else {
     foreach ($name in @("engine", "bin", "fabric-view", "msal_cache.bin", "msal_cache.bin.lock",
-                        "fabric-view-signin.bin", "link-port", "instance.lock", "instance.handover")) {
+                        "fabric-view-signin.bin", "fabric-view-signin.tmp", "fabric-view.forget", "link-port",
+                        "editor-port", "instance.lock", "instance.handover")) {
         Remove-IfThere (Join-Path $DataDir $name)
+    }
+    # A sign-in cache save cut off part way leaves its sealed copy as msal_cache.bin.<process id>.tmp.
+    if (Test-Path -LiteralPath $DataDir) {
+        foreach ($left in @(Get-ChildItem -LiteralPath $DataDir -Filter "msal_cache.bin.*.tmp" -File -Force)) {
+            Remove-IfThere $left.FullName
+        }
     }
 }
 if ($AppPath) { Remove-IfThere $AppPath }

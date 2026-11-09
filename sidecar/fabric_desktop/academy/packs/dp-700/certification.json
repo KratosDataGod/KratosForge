@@ -57,7 +57,7 @@
                 "G-04",
                 "G-08"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.1.2",
@@ -81,7 +81,7 @@
               "gaps": [
                 "G-04"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.1.3",
@@ -108,7 +108,7 @@
               "gaps": [
                 "G-04"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.1.4",
@@ -133,7 +133,7 @@
                 "G-04",
                 "G-07"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -166,7 +166,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.2.2",
@@ -193,7 +193,7 @@
               "gaps": [
                 "G-03"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.2.3",
@@ -219,7 +219,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -252,7 +252,7 @@
               "gaps": [
                 "G-04"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.3.2",
@@ -280,7 +280,7 @@
               "gaps": [
                 "G-04"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.3.3",
@@ -315,7 +315,7 @@
               "gaps": [
                 "G-03"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.3.4",
@@ -341,7 +341,7 @@
               "gaps": [
                 "G-03"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.3.5",
@@ -365,7 +365,7 @@
               "gaps": [
                 "G-05"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.3.6",
@@ -389,7 +389,7 @@
               "gaps": [
                 "G-04"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -418,7 +418,7 @@
                 "https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.4.2",
@@ -442,7 +442,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "1.4.3",
@@ -469,7 +469,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/notebook-utilities"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         }
@@ -516,7 +516,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.1.2",
@@ -546,7 +546,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.1.3",
@@ -573,7 +573,7 @@
               "gaps": [
                 "G-08"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -603,7 +603,7 @@
                 "https://learn.microsoft.com/fabric/fundamentals/decision-guide-data-store"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.2",
@@ -626,7 +626,7 @@
                 "https://learn.microsoft.com/fabric/data-factory/create-first-dataflow-gen2"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.3",
@@ -652,7 +652,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.4",
@@ -676,7 +676,7 @@
               "gaps": [
                 "G-06"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.5",
@@ -700,7 +700,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.6",
@@ -737,7 +737,7 @@
               "gaps": [
                 "G-01"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.7",
@@ -764,7 +764,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.8",
@@ -791,7 +791,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.2.9",
@@ -827,7 +827,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -855,7 +855,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/lakehouse-streaming-data"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.3.2",
@@ -880,7 +880,7 @@
               "gaps": [
                 "G-02"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.3.3",
@@ -908,7 +908,7 @@
               "gaps": [
                 "G-08"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.3.4",
@@ -933,7 +933,7 @@
               "gaps": [
                 "G-01"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "2.3.5",
@@ -963,7 +963,7 @@
               "gaps": [
                 "G-01"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         }
@@ -1006,7 +1006,7 @@
               "gaps": [
                 "G-09"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.1.2",
@@ -1034,7 +1034,7 @@
               "gaps": [
                 "G-09"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.1.3",
@@ -1062,7 +1062,7 @@
               "gaps": [
                 "G-09"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.1.4",
@@ -1086,7 +1086,7 @@
               "gaps": [
                 "G-09"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -1118,7 +1118,7 @@
                 "https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.2.2",
@@ -1142,7 +1142,7 @@
               "gaps": [
                 "G-11"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.2.3",
@@ -1165,7 +1165,7 @@
                 "https://learn.microsoft.com/fabric/data-engineering/spark-monitoring-overview"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.2.4",
@@ -1189,7 +1189,7 @@
               "gaps": [
                 "G-01"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.2.5",
@@ -1239,7 +1239,7 @@
               "gaps": [
                 "G-03"
               ],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         },
@@ -1271,7 +1271,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.3.2",
@@ -1295,7 +1295,7 @@
               "gaps": [
                 "G-10"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.3.3",
@@ -1319,7 +1319,7 @@
               "gaps": [
                 "G-03"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.3.4",
@@ -1344,7 +1344,7 @@
                 "G-01",
                 "G-02"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.3.5",
@@ -1373,7 +1373,7 @@
               "gaps": [
                 "G-08"
               ],
-              "status": "planned"
+              "status": "covered"
             },
             {
               "id": "3.3.6",
@@ -1400,7 +1400,7 @@
                 "https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance"
               ],
               "gaps": [],
-              "status": "planned"
+              "status": "covered"
             }
           ]
         }

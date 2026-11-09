@@ -7,7 +7,9 @@
   - a fresh install gets only the rights docs/agent.md describes, owned by Administrators;
   - a second run on that install passes, with files the agent's account made in its home;
   - a file someone else made first is refused, and nothing is changed;
-  - a link (junction) where a folder should be is refused, and its target is left alone.
+  - a link (junction) where a folder should be is refused, and its target is left alone;
+  - a file with a second name elsewhere is refused, and that file is left alone;
+  - a file whose names can't be listed is refused, not passed (where fsutil fails on it).
   It creates two local accounts (fd-test-agent, fd-test-other) and removes them at the end.
 #>
 param([string] $Root = (Join-Path ([System.IO.Path]::GetTempPath()) "fd-install-test-$PID"))
@@ -81,6 +83,32 @@ try {
     Check ($err -match "is a link") "a junction is refused ($err)"
     Check (-not (Rights $target).Protected) "its target's rights are left alone"
     Check (-not (Test-Path "$target\agent.toml")) "nothing is written through it"
+
+    # 5. A file in the agent's home that is also a file somewhere else.
+    $twice, $outside = (Join-Path $Root "twice"), (Join-Path $Root "outside.txt")
+    New-Item -ItemType Directory -Force -Path "$twice\agent" | Out-Null
+    Set-Content -LiteralPath $outside -Value "x"
+    $before = Rights $outside
+    cmd /c mklink /H "$twice\agent\queue.sqlite3" "$outside" | Out-Null
+    Check (@(fsutil hardlink list $outside).Count -eq 2) "(set up) a file with two names"
+    $err = Install $twice
+    Check ($err -match "more than one name") "it is refused ($err)"
+    Check ((Rights $outside).Rules -eq $before.Rules -and (Rights $outside).Owner -eq $before.Owner) "the file's rights and owner are left alone"
+    Check (-not (Rights $twice).Protected) "the folder's rights are left as they were"
+
+    # 6. A file whose names can't be listed (held open with no sharing): refused, not passed.
+    $locked = Join-Path $Root "locked"
+    New-Item -ItemType Directory -Force -Path "$locked\agent" | Out-Null
+    Set-Content -LiteralPath "$locked\agent\queue.sqlite3" -Value "x"
+    $hold = [System.IO.File]::Open("$locked\agent\queue.sqlite3", 'Open', 'ReadWrite', 'None')
+    try {
+        $code = try { $null = fsutil hardlink list "$locked\agent\queue.sqlite3" 2>$null; $LASTEXITCODE } catch { -1 }
+        if ($code -ne 0) {
+            $err = Install $locked
+            Check ($err -match "Couldn't check whether") "a file whose names can't be listed is refused ($err)"
+            Check (-not (Rights $locked).Protected) "and the folder's rights are left as they were"
+        } else { Write-Host "skip a file whose names can't be listed (fsutil can still list a file held open here)" }
+    } finally { $hold.Dispose() }
 } finally {
     cmd /c rmdir "$Root\linked\agent" 2>$null
     Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue

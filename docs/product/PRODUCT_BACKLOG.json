@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-07",
+  "updated": "2026-11-09",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -2708,7 +2708,8 @@
         "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7",
         "Axe cases for the dialogs people open most and a guard that fails when a new dialog has none (#1673, #1854, #1855, #1856, #1858, #1876); every rail page reflows at 320 px and stays whole at 200% (#1681) on main at a7631920",
         "Axe runs on every dialog and the baseline is empty (#1878, #1884, #1886, #1888, #1890); a 20-minute Narrator checklist for the Windows pass (EA-030, #1930) on main at de881016",
-        "Screen readers: dialogs read their lead sentence, the command bar announces the chosen result, OneLake has a level 1 heading, and a page change moves focus to its heading (#1931, #1932, #1935, #1937); Narrator check on Windows still pending on main at c750da45"
+        "Screen readers: dialogs read their lead sentence, the command bar announces the chosen result, OneLake has a level 1 heading, and a page change moves focus to its heading (#1931, #1932, #1935, #1937); Narrator check on Windows still pending on main at c750da45",
+        "Accessibility at 200% zoom and in a Windows contrast theme (#2286) on main at 2bf8ea1b"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2772,7 +2773,8 @@
         1931,
         1932,
         1935,
-        1937
+        1937,
+        2286
       ],
       "issues": [
         880,
@@ -4496,7 +4498,10 @@
         1712,
         1755,
         2194,
-        2212
+        2212,
+        2248,
+        2273,
+        2277
       ]
     },
     {
@@ -4900,7 +4905,22 @@
         2237,
         2239,
         2241,
-        2242
+        2242,
+        2251,
+        2254,
+        2259,
+        2260,
+        2261,
+        2267,
+        2268,
+        2270,
+        2274,
+        2275,
+        2279,
+        2283,
+        2284,
+        2288,
+        2289
       ],
       "issues": [
         910,
@@ -5007,7 +5027,8 @@
         2218,
         2222,
         2225,
-        2226
+        2226,
+        2290
       ],
       "issues": [
         928,
@@ -5183,7 +5204,11 @@
         2008,
         2154,
         2178,
-        2240
+        2240,
+        2250,
+        2266,
+        2271,
+        2272
       ]
     },
     {
@@ -6163,7 +6188,7 @@
     {
       "id": "PB-120",
       "title": "Platform support levels and one engine contract",
-      "state": "In progress",
+      "state": "In review",
       "owner": "Fabric and Databricks unified development",
       "category": "Extensibility, APIs, CLI, and MCP",
       "effort": "L",
@@ -6247,7 +6272,12 @@
         2224,
         2227,
         2232,
-        2234
+        2234,
+        2243,
+        2255,
+        2263,
+        2276,
+        2278
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6256,17 +6286,25 @@
         "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb",
         "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a",
         "Snowflake on this PC: divide by zero stops as in Snowflake and a generated, CI-checked function coverage list (#1863, #1864) on main at a7631920",
-        "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016"
+        "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016",
+        "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b",
+        "Implementation review docs/product/reviews/PB-120-kudp.md recommends Accept with documented limitations: only Fabric has live evidence (level 2), Databricks and Snowflake are verified at level 0, and the portability report and two-engine comparison have no screen. Databricks functions at 013281be: 440 run, 0 differ, 0 fail, 92 refused by name, 57 not checked. 1,404 engine tests and 4 browser tests pass on main at bddb5b27"
       ],
       "features": [
         "FEAT-EXT-05",
         "FEAT-SQL-03"
       ],
       "source_refs": [
-        "KUDP-01..06"
+        "KUDP-01",
+        "KUDP-02",
+        "KUDP-05",
+        "KUDP-06"
       ],
       "acceptance": [
-        "Owned and specified by the unified platform program (KUDP)"
+        "KUDP-01: one contract check every engine adapter passes; an adapter that overclaims fails it, and a new adapter without a check run fails the coverage test",
+        "KUDP-02: a platform's support level can't exceed its evidence, the docs table equals the code, and Fabric verified shows level 2",
+        "KUDP-05: a static SQL portability report per statement, with reasons, that never rewrites the user's SQL",
+        "KUDP-06: one query compared on two engines finds a planted difference, and a remote side runs only after its copy confirm"
       ],
       "scores": {
         "developer_value": 4,
@@ -6579,7 +6617,14 @@
         2230,
         2231,
         2233,
-        2236
+        2236,
+        2256,
+        2262,
+        2280,
+        2281,
+        2282,
+        2285,
+        2287
       ],
       "issues": [],
       "computed": {
@@ -6759,8 +6804,8 @@
     },
     {
       "id": "PB-128",
-      "title": "KratosForge Academy: certification preparation",
-      "state": "In progress",
+      "title": "KratosForge Academy: DP-700 certification preparation",
+      "state": "Accepted",
       "owner": "Academy",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -6835,7 +6880,10 @@
         2219,
         2229,
         2238,
-        2244
+        2244,
+        2257,
+        2265,
+        2269
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6852,14 +6900,16 @@
         "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016",
         "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45",
         "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b",
-        "Question bank re-checked against Learn and grown to 498 (#2219); retakes draw unseen questions first (#2200); distractors as specific as the answer (#2229); exercises E45, E47, E52 and E60 (#2173, #2238) on main at e5e6bec4"
+        "Question bank re-checked against Learn and grown to 498 (#2219); retakes draw unseen questions first (#2200); distractors as specific as the answer (#2229); exercises E45, E47, E52 and E60 (#2173, #2238) on main at e5e6bec4",
+        "DP-700 capstones C1 (retail lakehouse to a Gold star), C2 (real-time telemetry) and C3 (governed warehouse release) (#2257, #2265, #2269) on main at 2bf8ea1b",
+        "Implementation review docs/product/reviews/PB-128-academy.md recommends accepting the DP-700 track with documented limitations: 48 of 49 objectives have built exercises and 3.2.5 has gap G-02. The Databricks track meets criterion 1 for 26 of 33 objectives, so it would move to an item of its own. 779 Academy tests pass",
+        "Implementation review docs/product/reviews/PB-128-academy.md: Accepted with Documented Limitations for the DP-700 track (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); limitations: objective 3.2.5 (eventstream errors) has gap G-02 until E54 can be written; objectives that need Fabric complete only with Fabric runs. The Databricks Data Engineer Associate track moves to PB-135"
       ],
       "features": [
         "FEAT-DEV-04"
       ],
       "source_refs": [
-        "ACD-001..020",
-        "DBA-001..016"
+        "ACD-001..020"
       ],
       "acceptance": [
         "Every objective in a certification's registry has exercises or a recorded gap",
@@ -7209,6 +7259,51 @@
         "benefit": 2.75,
         "cost": 4.0,
         "score": 1.1,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-135",
+      "title": "KratosForge Academy: Databricks Data Engineer Associate track",
+      "state": "In progress",
+      "owner": "Academy",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [],
+      "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
+      "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",
+      "evidence": [
+        "Split from PB-128 (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR). At main 2bf8ea1b, 6 of 33 objectives have built exercises and 20 rely on recorded gaps G-01 to G-10. Objectives 1.1, 2.5, 2.6, 2.7, 4.4, 5.2 and 5.4 name planned exercises (E01, E02, E14 to E17, E41, E46, E48 to E50) that aren't built and have no gap",
+        "Scores carried from PB-128 until the Academy owner sets the track's own"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "DBA-001..016"
+      ],
+      "acceptance": [
+        "Every objective in a certification's registry has exercises or a recorded gap",
+        "An exercise is graded on what the learner made, read as untrusted input, in a limited process",
+        "Practice exams, diagnostics and drills run on one exam engine with original questions",
+        "Nothing in Academy writes to Fabric or spends capacity"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 4,
+        "strategic_alignment": 3,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.95,
+        "cost": 3.5,
+        "score": 1.48,
         "priority": "P3"
       }
     }

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import threading
 import time
 
@@ -27,9 +28,11 @@ class Clock:
 def test_a_pairing_hands_its_token_over_once_and_keeps_only_a_hash(tmp_path):
     clock = Clock()
     p = Pairings(tmp_path, clock)
-    req = p.request("C:\\repos\\sales\x07", "KratosForge for VS Code 0.1.0")
+    with pytest.raises(PermissionError, match="control characters"):  # refused, never altered into another folder
+        p.request("C:\\repos\\sales\x07", "KratosForge for VS Code 0.1.0")
+    req = p.request("C:\\repos\\sales", "KratosForge for VS Code 0.1.0\x07")
     assert p.collect(req["id"]) == {"state": "waiting"}
-    assert [w["window"] for w in p.waiting()] == ["C:\\repos\\sales"]  # control characters dropped
+    assert [(w["window"], w["client"]) for w in p.waiting()] == [("C:\\repos\\sales", "KratosForge for VS Code 0.1.0")]
     assert p.decide(req["id"], True, "8h")["paired"]
     got = p.collect(req["id"])
     assert got["state"] == "paired" and got["token"].startswith("kfp_")
@@ -418,10 +421,16 @@ def test_the_hello_names_the_channel_api_and_refuses_an_extension_too_old_for_it
     nonce = "n" * 32
     status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
     assert status == 200 and res["result"]["api"] == editor_channel.API_VERSION
-    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say is taken as current
+    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say speaks API 1
+    for garbled in ("abc", "1.5", "-1", "0x1", "%C2%B2", "1" * 7):
+        status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={garbled}")
+        assert status == 400 and res["error"]["code"] == "invalid_input" and "proof" not in json.dumps(res), garbled
     monkeypatch.setattr(editor_channel, "OLDEST_CLIENT_API", editor_channel.API_VERSION + 1)
     status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
     assert status == 426 and res["error"]["code"] == "extension_too_old" and "proof" not in json.dumps(res)
+    # An extension from before the version was sent speaks API 1, so it's told to update too, not let through.
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}")
+    assert status == 426 and res["error"]["code"] == "extension_too_old"
 
 
 def _raw(port, data, read_timeout=15, half_close=False):
@@ -527,3 +536,113 @@ def test_numbers_in_a_query_that_arent_finite_fall_back_to_the_default():
         assert _float(text, 0.5) == 0.5, text
     assert _float("2.5", 0) == 2.5
     assert _int("9" * 5000, -1) == -1 and _int("4", -1) == 4
+
+
+# Real-world folders (docs/vscode.md, "Paths"): each one works, or is refused with words that say why. A
+# paired folder is kept and compared whole, so no folder is ever taken for another.
+
+def test_a_paired_folder_is_kept_whole_however_long_or_unusual(tmp_path):
+    p = Pairings(tmp_path, Clock())
+    for folder in ["C:\\Users\\Ana Lima\\OneDrive - Contoso\\Documents\\Notebooks",
+                   "C:\\Users\\José\\📊 Q1\\👩\u200d💻 work",  # an emoji with a zero-width joiner
+                   "C:\\a\u00a0b",  # a no-break space
+                   "C:\\" + "\\".join(["d" * 50] * 8)]:  # past 300 characters
+        req = p.request(folder, "t")
+        assert [w["window"] for w in p.waiting()] == [folder]
+        p.decide(req["id"], False)
+
+
+@pytest.fixture
+def real_world(tmp_path, monkeypatch):
+    """The app with its data in a folder whose path has spaces, letters outside ASCII and emoji, as
+    a Documents folder OneDrive moved can."""
+    from fabric_desktop.service import Service
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    root = tmp_path / "José Ñúñez" / "OneDrive - Contoso" / "Documents" / "📊 Q1 notebooks"
+    s = Service(root=root)
+    s.save_notebook("Daily sales", [{"type": "code", "source": "x = 1"}])
+    call(s, "editor_set_enabled", enabled=True)
+    yield s, Window(s), s.notebook_file_path("Daily sales")["path"]
+    call(s, "editor_set_enabled", enabled=False)
+    for k in s.sessions.kernels():
+        getattr(k, "close", lambda: None)()
+
+
+def test_a_folder_with_spaces_letters_outside_ascii_and_emoji_pairs_and_runs(real_world):
+    svc, window, path = real_world
+    window.pair(svc, window=str(svc.root))
+    assert call(svc, "editor_status")["pairings"][-1]["window"] == str(svc.root)
+    snap = window.run(path, "print('ok')")
+    assert snap["status"] == "ok", snap
+    assert window.call("POST", "/v1/notebook", {"path": path})[1]["result"]["name"] == "Daily sales"
+
+
+def test_a_folder_differing_only_in_case_is_the_same_folder_on_windows_and_another_elsewhere(paired):
+    svc, window, path = paired
+    window.pair(svc, window=str(svc.root).swapcase())
+    status, res = window.call("POST", "/v1/notebook", {"path": path})
+    if os.name == "nt":  # Windows compares folder names without case, as the app does
+        assert status == 200, res
+    else:
+        assert status == 403 and "the folder this VS Code window was paired from" in res["error"]["message"]
+
+
+def test_a_long_folder_isnt_cut_short_into_its_parent(paired):
+    svc, window, _ = paired
+    # A folder whose first 300 characters are its parent: cut there to show it, it would reach the parent.
+    parent = str(svc.root) + os.sep + "p" * (299 - len(str(svc.root)))
+    assert len(parent) == 300
+    inner = parent + os.sep + "deeper"
+    window.pair(svc, window=inner)
+    assert call(svc, "editor_status")["pairings"][-1]["window"] == inner
+    status, res = window.call("POST", "/v1/notebook", {"path": parent + os.sep + "x.ipynb"})
+    assert status == 403 and "the folder this VS Code window was paired from" in res["error"]["message"]
+
+
+def test_a_path_past_windows_limit_says_why_it_cant_be_found(paired, monkeypatch):
+    svc, window, path = paired
+    window.pair(svc)
+    notebooks = os.path.dirname(path)
+    far = os.path.join(notebooks, "d" * 120, "e" * 120, "x.ipynb")
+    status, res = window.call("POST", "/v1/notebook", {"path": far})
+    assert status == 404 and "long paths" in res["error"]["message"] and str(len(far)) in res["error"]["message"]
+    assert call(svc, "notebook_name_for_path", path=far)["why"].startswith("KratosForge couldn't open it")
+    assert "why" not in call(svc, "notebook_name_for_path", path=os.path.join(notebooks, "missing.ipynb"))
+    # Outside every known folder, a long path gets no reason and nothing looks at it on disk: a link from
+    # anywhere could name a mapped drive or a junction, which would make Windows contact another computer.
+    outside = os.path.join(os.path.dirname(str(svc.root)), "x" * 150, "y" * 150, "x.ipynb")
+    looked = []
+    for name in ("exists", "isfile", "isdir", "lexists"):
+        real = getattr(os.path, name)
+        monkeypatch.setattr(os.path, name, lambda p, real=real: looked.append(str(p)) or real(p))
+    for name in ("stat", "lstat"):
+        real = getattr(os, name)
+        monkeypatch.setattr(os, name, lambda p, *a, real=real, **k: looked.append(str(p)) or real(p, *a, **k))
+    assert call(svc, "notebook_name_for_path", path=outside) == {"name": None}
+    assert not [p for p in looked if "x" * 150 in p], looked
+
+
+@pytest.mark.parametrize("folder", ["\\\\server\\share\\repo", "//server/share/repo", "\\\\server@SSL\\dav\\repo"])
+def test_a_network_folder_is_refused_with_what_to_do_instead(paired, folder):
+    svc, window, _ = paired
+    status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})
+    assert status == 403 and "network folder" in res["error"]["message"] and "mapped" in res["error"]["message"]
+    assert call(svc, "editor_pending")["pairing"] == []
+
+
+def test_a_mapped_drive_pairs_like_any_other_drive(paired):
+    svc, window, _ = paired
+    status, res = window.call("POST", "/v1/pair", {"window": "Z:\\team\\notebooks", "client": "t"},
+                              {"X-KratosForge-Hello": window.hello})
+    assert status == 200, res
+    assert [w["window"] for w in call(svc, "editor_pending")["pairing"]] == ["Z:\\team\\notebooks"]
+
+
+@pytest.mark.parametrize("odd", ["\x07", "\x1b", "\u202e", "\u2066", "\u200f"])
+def test_a_folder_that_would_show_as_another_is_refused(paired, odd):
+    svc, window, _ = paired
+    folder = str(svc.root) + odd + "gpj"
+    status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})
+    assert status == 403 and f"U+{ord(odd):04X}" in res["error"]["message"]
+    assert call(svc, "editor_pending")["pairing"] == []

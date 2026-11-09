@@ -154,14 +154,17 @@ AREAS: tuple[Area, ...] = (
     _skinned("databricks", "sql", "SQL warehouses and the SQL editor",
        cloud_api=Cell("built", ("test_databricks_sql.py", "test_databricks_sql_errors.py", "test_databricks_sql_cancel.py"),
                       note="Against fakes of the SQL Statement API; no live run yet."),
-       local=Cell("partial", ("test_databricks_sql_parity.py",),
-                  note="Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.")),
+       local=Cell("partial", ("test_databricks_sql_parity.py", "test_databricks_coverage.py"),
+                  note="Databricks SQL is translated to DuckDB; docs/databricks-functions.md says for every built-in "
+                       "whether it runs, differs, is refused or fails, checked in CI.")),
     _skinned("databricks", "notebooks", "Notebooks, Spark and dbutils",
        cloud_api=Cell("built", ("test_dbconnect.py", "test_databricks_workspace_sync.py", "test_databricks_sync_service.py"),
                       note="Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced "
                            "with a workspace folder (Preview); against fakes, no live run yet."),
-       local=Cell("partial", ("test_dbutils.py", "test_dbutils_parity.py", "test_spark_api.py", "test_spark_api_parity.py"),
-                  note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.")),
+       local=Cell("partial", ("test_dbutils.py", "test_dbutils_parity.py", "test_spark_api.py", "test_spark_api_parity.py",
+                              "test_databricks_notebook_helpers.py"),
+                  note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed. "
+                       "Each dbutils call and % magic: docs/databricks-notebook-helpers.md.")),
     _skinned("databricks", "unity", "Unity Catalog"),
     _skinned("databricks", "jobs", "Jobs and Lakeflow pipelines",
        workflow=Cell("partial", ("test_skins.py", "test_databricks_runs_service.py"),
@@ -183,8 +186,9 @@ AREAS: tuple[Area, ...] = (
     _skinned("snowflake", "connect", "Sign-in, roles and warehouses", cloud_api=MISSING),
     _skinned("snowflake", "worksheets", "SQL worksheets",
        cloud_api=MISSING,
-       local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py"),
-                  note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime.")),
+       local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py", "test_snowflake_coverage.py"),
+                  note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. "
+                       "docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.")),
     _skinned("snowflake", "objects", "Databases, schemas and object browser"),
     _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
     _skinned("snowflake", "loading", "Stages and data loading"),

@@ -26,6 +26,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -42,8 +43,14 @@ _log = logging.getLogger(__name__)
 SCHEMA = "fabric-desktop-backup@1"
 MANIFEST = "manifest.json"
 SAFETY = "restore-safety"  # where restore keeps the files it replaced
-SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "logs", "schedule_locks", "_leases", SAFETY}  # top level only
-SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port"}  # link-port: this run's link listener token
+# Restores whose replaced files are kept in SAFETY: the newest ones. Each holds full copies of the
+# databases and settings it replaced, so years of restores can't keep every old copy on the PC.
+KEEP_SAFETY = 5
+_STAMP = re.compile(r"\d{8}-\d{6}")
+# Top level only. fabric-view: the Fabric view's browser profile, whose cookies are its sign-in.
+SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "fabric-view", "logs", "schedule_locks", "_leases", SAFETY}
+# link-port and editor-port: this run's link listener token and VS Code pairing hello.
+SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port", "editor-port"}
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -221,7 +228,12 @@ def _has_sqlite_header(path: Path) -> bool:
 
 
 # Files older backups carry that are now left out: restored by no one and quietly passed over.
-NO_LONGER_BACKED_UP = {"app/link-port"}
+NO_LONGER_BACKED_UP = {"app/link-port", "app/editor-port"}
+NO_LONGER_BACKED_UP_DIRS = ("app/fabric-view/",)
+
+
+def _no_longer(name: str) -> bool:
+    return name in NO_LONGER_BACKED_UP or name.startswith(NO_LONGER_BACKED_UP_DIRS)
 
 
 def _safe(name: str) -> bool:
@@ -249,7 +261,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
         kept = []
         for entry in manifest.get("files") or []:
             name = str(entry.get("path", ""))
-            if name in NO_LONGER_BACKED_UP:
+            if _no_longer(name):
                 continue
             kept.append(entry)
             if not _safe(name):
@@ -259,7 +271,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
             listed[name] = entry
         manifest = dict(manifest, files=kept)
         all_names = z.namelist()
-        names = set(all_names) - {MANIFEST} - NO_LONGER_BACKED_UP
+        names = {n for n in all_names if not _no_longer(n)} - {MANIFEST}
         problems += [f"{name} is in the zip twice" for name in sorted({n for n in all_names if all_names.count(n) > 1})]
         for name in sorted(names - listed.keys()):
             problems.append(f"{name} is in the zip but not in its manifest")
@@ -414,8 +426,26 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
             _put_back(swapped, staged)
             raise
     kept = moved or any(i["replaces"] for i in plan)
-    result.update(applied=True, safety=str(safety) if kept else None)
+    result.update(applied=True, safety=str(safety) if kept else None, pruned=_prune_safety(data_dir / SAFETY, KEEP_SAFETY))
     return result
+
+
+def _prune_safety(folder: Path, keep: int = KEEP_SAFETY) -> list[str]:
+    """Delete all but the newest ``keep`` restores' copies in ``folder``, after a restore that worked.
+    Only plain folders named as restore names them: restore never makes a link there, so one (a symbolic
+    link or junction) is left alone rather than followed."""
+    if not folder.is_dir():
+        return []
+    stamps = sorted((d for d in folder.iterdir() if _STAMP.fullmatch(d.name) and d.is_dir()
+                     and not d.is_symlink() and not d.is_junction()), key=lambda d: d.name)
+    gone = []
+    for old in stamps[:-keep] if keep > 0 else stamps:
+        try:
+            shutil.rmtree(old)
+            gone.append(old.name)
+        except OSError:
+            _log.warning("restore: couldn't remove the old copies in %s", old, exc_info=True)
+    return gone
 
 
 def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], staged: list[Path]) -> None:

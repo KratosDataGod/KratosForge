@@ -1,0 +1,47 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "knowledge_only",
+  "adapter": "quiz",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "guided",
+  "engine_label": "Questions checked on this PC",
+  "prerequisites": [],
+  "id": "E16",
+  "title": "Choose the ingestion method for each requirement",
+  "objectives": [
+    "2.6"
+  ],
+  "objective_text": "Pick the ingestion method for a requirement from volume, frequency, data types and governance needs.",
+  "scenario": "A retailer's platform team gets six ingestion requests in one week: a SaaS CRM, a stream of JSON files, an operational SQL Server database, a SQL-only team, a source with no connector, and a stream whose folder listing has become expensive.",
+  "minutes": 15,
+  "verifies": [
+    "You can pick the right component, method or trigger for each scenario, with the reason and source shown afterwards."
+  ],
+  "does_not_verify": [
+    "That you can set it up in Databricks: nothing is created or run here."
+  ],
+  "expected": {
+    "description": "All 6 questions answered correctly."
+  },
+  "validation": [
+    {
+      "kind": "quiz_score",
+      "pass": "All right.",
+      "fail": "Not all right yet: reread the lesson's notes and try again."
+    }
+  ],
+  "explanation": "Each question's answer, reason and source page are shown after a pass or on request.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/ingestion/",
+    "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+    "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/"
+  ],
+  "reset": "Reset clears your answers.",
+  "review_notes": [
+    "Every claim was checked against its source page on 2026-11-09."
+  ]
+}

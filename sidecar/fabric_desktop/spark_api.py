@@ -242,8 +242,16 @@ def approxQuantile(self: DataFrame, col: Any, probabilities: list[float], relati
 
 def randomSplit(self: DataFrame, weights: list[float], seed: int | None = None) -> list[DataFrame]:  # noqa: N802
     """Splits by a hash of each row and the seed, so the parts never overlap and together hold
-    every row, however often each is read (identical rows go to the same part)."""
+    every row, however often each is read (identical rows go to the same part). Spark's own checks
+    on the weights come first."""
+    from duckdb.experimental.spark.errors import IllegalArgumentException, PySparkValueError
+    for w in weights:
+        if w < 0.0:
+            raise PySparkValueError(error_class="VALUE_NOT_POSITIVE",
+                                    message_parameters={"arg_name": "weights", "arg_value": str(w)})
     total = float(sum(weights))
+    if total <= 0:
+        raise IllegalArgumentException(f"requirement failed: Sum of weights must be positive, but got {weights}")
     cols = ", ".join(_q(c) for c in self.relation.columns)
     salt = int(seed) if seed is not None else int(time.time() * 1000)
     point = f"(hash({cols}, {salt}) % 1000000) / 1000000.0"
@@ -266,9 +274,10 @@ def crosstab(self: DataFrame, col1: str, col2: str) -> DataFrame:
     per value of ``col2``, as text (null for NULL) in sorted order, as Spark's."""
     pairs = self.relation.aggregate(f"{_text_sql(col1)} AS kf_a, {_text_sql(col2)} AS kf_b, count(*) AS kf_n",
                                     "kf_a, kf_b")
-    heads = sorted({row[0] for row in pairs.project("kf_b").fetchall()})
+    # one past Spark's limit is enough to refuse, without holding every value
+    heads = sorted({row[0] for row in pairs.project("kf_b").distinct().limit(10001).fetchall()})
     if len(heads) > 10000:  # Spark's own limit, so the frame stays a table someone can read
-        raise ValueError(f"crosstab: {col2} has {len(heads)} distinct values; Spark allows up to 10000.")
+        raise ValueError(f"crosstab: {col2} has more than 10000 distinct values; Spark allows up to 10000.")
     cells = ", ".join(f"CAST(coalesce(sum(kf_n) FILTER (WHERE kf_b = {_text(h)}), 0) AS BIGINT) AS {_q(h)}"
                       for h in heads)
     return _new(self, pairs.aggregate(f"kf_a AS {_q(f'{col1}_{col2}')}" + (f", {cells}" if cells else ""), "kf_a"))

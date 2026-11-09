@@ -39,7 +39,7 @@ for name in sorted({r[0] for r in spark.sql("SHOW SYSTEM FUNCTIONS").collect()})
         entry["example"] = " ".join(examples[0].split())
         try:
             entry["value"] = coverage.rows_value(spark.sql(entry["example"]).collect(), name)
-        except Exception as exc:  # noqa: BLE001  # an example Spark itself refuses has no value
+        except Exception as exc:  # noqa: BLE001 - an example Spark itself refuses has no value
             entry["spark_error"] = str(exc).strip().splitlines()[0][:160]
     out.append(entry)
 (HERE / "spark_builtins.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")

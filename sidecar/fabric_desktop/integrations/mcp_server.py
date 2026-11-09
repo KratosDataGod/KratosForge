@@ -169,7 +169,7 @@ def _client_name(ctx: Any) -> str:
         info = getattr(params, "client_info", None)
         if info is not None:
             return f"{info.name} {info.version or ''}".strip()
-    except Exception as exc:  # not known on this protocol version
+    except Exception as exc:  # noqa: BLE001 - not known on this protocol version
         _log.info("MCP client name unknown: %s", describe(exc))
     return ""
 

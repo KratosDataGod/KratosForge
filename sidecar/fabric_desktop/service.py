@@ -244,7 +244,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+        except Exception as exc:  # noqa: BLE001 - no client ID yet, or offline: the UI offers sign-in
             _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
@@ -415,6 +415,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
+        retry = getattr(self.auth, "retry_sign_in", None)
+        if callable(retry):  # chosen by the person: a window even after a Conditional Access refusal
+            retry()
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
@@ -479,7 +482,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 if all_types:
                     return ws, client.list_items(ws["id"])
                 return ws, [lh | {"type": "Lakehouse"} for lh in client.list_lakehouses(ws["id"])]
-            except Exception:  # e.g. a paused capacity; list the rest
+            except Exception:  # noqa: BLE001 - e.g. a paused capacity; list the rest
                 return ws, None
 
         items, skipped = [], []

@@ -3,7 +3,9 @@
 Reading OneLake from this PC leaves copies of the data behind: files notebooks read (``files/``), tables
 staged before a publish (``staging/``) and the metadata framework's download cache
 (``onelake-cache/``). They are only caches, fetched again when needed, but they are customer data
-at rest on a laptop. ``sweep`` deletes what hasn't changed for ``days`` days (policy
+at rest on a laptop. The app's copy of a replay bundle someone opened (``replays/``) goes the same
+way: a bundle can hold a sample of the tables its notebook read, and the original stays wherever it
+was opened from (Downloads, usually). Replaying a bundle touches its copy, so one in use stays. ``sweep`` deletes what hasn't changed for ``days`` days (policy
 ``local_retention_days``, default 30; 0 keeps everything).
 
 A Delta table (a folder with ``_delta_log``) goes as a whole, judged by its newest file, so a table
@@ -21,8 +23,14 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-CACHE_FOLDERS = ("files", "staging", "onelake-cache")
+CACHE_FOLDERS = ("files", "staging", "onelake-cache", "replays")
 DAY = 86400
+
+
+def _linked(path: Path) -> bool:
+    """A symbolic link or (Windows) junction: the sweep never goes into one, whatever it points to.
+    os.walk without followlinks still enters a junction on Windows."""
+    return path.is_symlink() or path.is_junction()
 
 
 def _newest(folder: Path) -> float:
@@ -42,7 +50,7 @@ SPILL_HOURS = 24
 
 def _stale_spills(root: Path, now: float) -> list[Path]:
     folder = root / SPILLS
-    if not folder.is_dir():
+    if not folder.is_dir() or _linked(root / "staging") or _linked(folder):
         return []
     return [p for p in folder.iterdir() if p.is_file() and p.stat().st_mtime < now - SPILL_HOURS * 3600]
 
@@ -57,7 +65,7 @@ PREVIEW_HOURS = 1
 
 def _stale_previews(root: Path, now: float) -> list[Path]:
     folder = root / PREVIEWS
-    if not folder.is_dir():
+    if not folder.is_dir() or _linked(folder):
         return []
     return [p for p in folder.iterdir() if p.is_dir() and p.stat().st_mtime < now - PREVIEW_HOURS * 3600]
 
@@ -82,10 +90,11 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
     cutoff = now - days * DAY
     for name in CACHE_FOLDERS:
         base = root / name
-        if not base.is_dir():
+        if not base.is_dir() or _linked(base):
             continue
         for dirpath, dirnames, filenames in os.walk(base):
             here = Path(dirpath)
+            dirnames[:] = [d for d in dirnames if not _linked(here / d)]  # never into a link or junction
             if "_delta_log" in dirnames:
                 dirnames.clear()  # judged as one table, below
                 if _newest(here) < cutoff:

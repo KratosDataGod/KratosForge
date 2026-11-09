@@ -214,6 +214,33 @@ _PATTERN_LISTS = ("parse_timestamp", "try_parse_timestamp")
 
 _PARSED = {"to_time": ("TIME", False), "try_to_time": ("TIME", True), "try_to_date": ("DATE", True)}
 
+# IP addresses: databricks_ip's functions, which local_sql registers on every DuckDB connection
+_IP_SAME_TYPE = ("ip_cidr", "ip_host", "ip_network", "ip_network_first", "ip_network_last")
+_IP_INTEGER = ("ip_version", "ip_prefix_length")
+
+
+def _binary(value: exp.Expression) -> bool:
+    """Whether ``value`` is BINARY as written: an X'..' literal or a cast to BINARY."""
+    return isinstance(value, exp.HexString) or (
+        isinstance(value, exp.Cast) and value.to.this in (exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY))
+
+
+def _ip(name: str, args: list[exp.Expression]) -> exp.Expression | None:
+    from . import databricks_ip
+    base = name.removeprefix("try_")
+    if base == "ip_cidr_contains" and name == base:
+        _arity(name, args, 2, 2)
+        return _template("__kf_ip_contains(typeof(_a), hex(_a), typeof(_b), hex(_b))", a=args[0], b=args[1])
+    if base not in databricks_ip.OPS:
+        return None
+    _arity(name, args, 1, 1)
+    binary = base == "ip_as_binary" or (base in _IP_SAME_TYPE and _binary(args[0]))
+    out = "binary" if binary else "text" if base in _IP_SAME_TYPE else "fixed"  # text: STRING as written
+    call = f"__kf_ip('{name}:{out}', typeof(_a), hex(_a))"
+    sql = f"unhex({call})" if binary else f"CAST({call} AS INTEGER)" if base in _IP_INTEGER else call
+    return _template(sql, a=args[0])
+
+
 # Element-wise aggregates over vectors: DuckDB has no aggregate that sums lists element by element.
 _VECTOR_AGGREGATES = {"vector_sum", "vector_avg"}
 
@@ -252,6 +279,8 @@ def _function(node: exp.Anonymous) -> exp.Expression:
                        f"use {'try_' if name.startswith('try_') else ''}to_timestamp with a format")
     if name == "timediff":  # a synonym of timestampdiff (sql.diff_spellings), so here only with no unit
         raise ValueError("timediff() takes a unit first, as in timediff(HOUR, start, end).")
+    if name.startswith(("ip_", "try_ip_")):
+        return _ip(name, args) or node
     if name in _VECTOR_AGGREGATES:
         raise _refusal(name, "DuckDB has no aggregate that adds vectors element by element.",
                        "posexplode the vectors and GROUP BY the position")

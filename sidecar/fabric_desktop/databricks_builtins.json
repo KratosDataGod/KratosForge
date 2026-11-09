@@ -73,43 +73,103 @@
  },
  {
   "name": "ip_as_binary",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT hex(ip_as_binary('192.168.1.1'))",
+  "value": [
+   [
+    "C0A80101"
+   ]
+  ]
  },
  {
   "name": "ip_as_string",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_as_string('192.168.1.1')",
+  "value": [
+   [
+    "192.168.1.1"
+   ]
+  ]
  },
  {
   "name": "ip_cidr",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_cidr('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0/24"
+   ]
+  ]
  },
  {
   "name": "ip_cidr_contains",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_cidr_contains('192.168.1.0/24', '192.168.2.1')",
+  "value": [
+   [
+    false
+   ]
+  ]
  },
  {
   "name": "ip_host",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_host('192.168.1.5')",
+  "value": [
+   [
+    "192.168.1.5"
+   ]
+  ]
  },
  {
   "name": "ip_network",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_network('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0"
+   ]
+  ]
  },
  {
   "name": "ip_network_first",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_network_first('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0"
+   ]
+  ]
  },
  {
   "name": "ip_network_last",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_network_last('192.168.1.0/24')",
+  "value": [
+   [
+    "192.168.1.255"
+   ]
+  ]
  },
  {
   "name": "ip_prefix_length",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_prefix_length('192.168.1.1/24')",
+  "value": [
+   [
+    24
+   ]
+  ]
  },
  {
   "name": "ip_version",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT ip_version('192.168.1.5')",
+  "value": [
+   [
+    4
+   ]
+  ]
  },
  {
   "name": "is_valid_utf8",
@@ -450,19 +510,43 @@
  },
  {
   "name": "try_ip_as_binary",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT hex(try_ip_as_binary('192.168.1.1'))",
+  "value": [
+   [
+    "C0A80101"
+   ]
+  ]
  },
  {
   "name": "try_ip_as_string",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT try_ip_as_string('192.168.1.1')",
+  "value": [
+   [
+    "192.168.1.1"
+   ]
+  ]
  },
  {
   "name": "try_ip_cidr",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT try_ip_cidr('192.168.1.100/24')",
+  "value": [
+   [
+    "192.168.1.0/24"
+   ]
+  ]
  },
  {
   "name": "try_ip_host",
-  "group": "databricks:ip"
+  "group": "databricks:ip",
+  "example": "SELECT try_ip_host('192.168.1.5')",
+  "value": [
+   [
+    "192.168.1.5"
+   ]
+  ]
  },
  {
   "name": "try_make_interval",

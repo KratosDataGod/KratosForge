@@ -7227,7 +7227,7 @@
       "evidence": [
         "Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup",
         "First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data",
-        "Scores set by the owner (Build developer class and mastery system) on 2026-11-09: developer value 3 (shows each engineer which data engineering skills their own verified work proves and what to learn next, but it isn't part of building or running Fabric work), CU reduction 1 (it reads evidence already on this PC and starts no Fabric job), enterprise value 3 (a professional competency report backed by verified evidence for manager conversations, not a rollout condition), differentiation 4 (talent trees and mastery levels tied to locally verified exercises, labs and checks; no other Fabric developer tool has this), strategic alignment 3 (builds on Academy, Learn and the Living Experience work, beside the core build loop), complexity 4 (the engine and all 14 class catalogs are built and tested; the talent tree UI, evidence ledger states and the report remain, with art from the product owner's asset pack), risk 3 (anti-farming rules, keeping levels distinct from certifications, and art originality)",
+        "Scores set by the owner (Build developer class and mastery system) on 2026-11-09: developer value 3 (shows each engineer which data engineering skills their own verified work proves and what to learn next, but it isn't part of building or running Fabric work), CU reduction 1 (it reads evidence already on this PC and starts no Fabric job), enterprise value 3 (a professional competency report backed by verified evidence for manager conversations, not a rollout condition), differentiation 4 (talent trees and mastery levels tied to locally verified exercises, labs and checks; no other Fabric developer tool has this), strategic alignment 3 (builds on Academy, Learn and the Living Experience work, beside the core build loop), complexity 5 (the engine and the first class, Lakehouse Warden, are built and tested in #2206; the other 13 class catalogs are drafted but not yet in a pull request, and the talent tree UI, evidence ledger states, the report and art all remain), risk 3 (anti-farming rules, keeping levels distinct from certifications, and art originality)",
         "Owner's notes (2026-11-07): Phase 1 is S to M and engine-only. The main risks are the art source (decision pending with the product owner) and reviewer verification for Grandmaster (an architecture call later). It depends on progress.py, ranks.py, Academy and Learn content and the effects API. The owner asked for P2"
       ],
       "features": [
@@ -7251,7 +7251,7 @@
         "enterprise_value": 3,
         "differentiation": 4,
         "strategic_alignment": 3,
-        "complexity": 4,
+        "complexity": 5,
         "risk": 3
       },
       "mandatory": "none",
@@ -7259,8 +7259,8 @@
       "external_dependencies": [],
       "computed": {
         "benefit": 2.75,
-        "cost": 3.5,
-        "score": 1.38,
+        "cost": 4.0,
+        "score": 1.1,
         "priority": "P3"
       }
     },

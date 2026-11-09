@@ -84,7 +84,7 @@ Notes:
 - **SQL warehouses and the SQL editor, Cloud API integration:** Against fakes of the SQL Statement API; no live run yet.
 - **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.
 - **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced with a workspace folder (Preview); against fakes, no live run yet.
-- **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.
+- **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed. Each dbutils call and % magic: docs/databricks-notebook-helpers.md.
 - **Jobs and Lakeflow pipelines, Workflow compatibility:** The skin names Monitor "Jobs and pipelines" and puts it where Databricks does; inside it, runs are read, not created or started.
 - **Jobs and Lakeflow pipelines, Cloud API integration:** Monitor > Databricks (Preview) reads job runs and Lakeflow updates with their tasks and errors; jobs aren't created or started here. Against fakes, no live run yet.
 - **Asset bundles and deployment, Cloud API integration:** Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; bundle run and destroy aren't offered. Against a fake CLI, no live run yet.

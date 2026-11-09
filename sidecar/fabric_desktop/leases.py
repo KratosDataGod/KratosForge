@@ -400,8 +400,8 @@ class Leases:
         delay = 1.0
         while (etag := self.try_acquire(key, started := self.clock())) is None:
             if self.clock() >= deadline:
-                raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}; "
-                                f"will try again later")
+                raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}, so "
+                                f"nothing was written. Run it again once that write has finished")
             self.sleep(delay)
             delay = min(delay * 2, 15)
         held = Held(self, key, etag, started)

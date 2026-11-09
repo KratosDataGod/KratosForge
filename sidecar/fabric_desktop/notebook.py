@@ -40,7 +40,7 @@ import uuid
 import warnings
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Callable, Iterator, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, NoReturn, cast
 
 import pyarrow as pa
 
@@ -51,6 +51,9 @@ from . import history
 from . import write_queue
 from .frames import Frames, pandas_table, type_name
 from .redact import describe
+
+if TYPE_CHECKING:
+    from .proof_runtime import ProofRuntime  # annotations only; bind_proof imports it when a proof starts
 
 # Charts are drawn off screen and shown as images in the cell.
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -124,7 +127,7 @@ def clear_spill_dir(folder: Path) -> None:
             path.unlink()
 
 
-def _no_input(*_args, **_kwargs):
+def _no_input(*_args: Any, **_kwargs: Any) -> NoReturn:
     raise RuntimeError("input() is not supported in notebook cells.")
 
 
@@ -1617,16 +1620,19 @@ class Kernel:
     def bind_proof(self, config: dict[str, Any], side: str, root: str, options: Callable[[], dict[str, str]]) -> None:
         from . import lakehouse
         from .proof_runtime import ProofRuntime
-        self._proof = ProofRuntime(config, side).bind(root, options)
+        self._proof: ProofRuntime | None = ProofRuntime(config, side).bind(root, options)
         lakehouse.proof = self._proof
 
     def unbind_proof(self) -> None:
         from . import lakehouse
         lakehouse.proof = None
-        if getattr(self, "_proof", None) is not None:
-            self._proof.restore()
+        proof: ProofRuntime | None = getattr(self, "_proof", None)
+        if proof is not None:
+            proof.restore()
 
     def finish_proof(self, modules: list[str]) -> dict[str, Any]:
+        if self._proof is None:
+            raise RuntimeError("No proof is running in this session.")
         log = self._proof.finish(modules)
         self._proof = None
         return log
@@ -1814,7 +1820,7 @@ class RunTimeout(TimeoutError):
 
 
 @contextlib.contextmanager
-def _deadline(seconds: float | None, message: str):
+def _deadline(seconds: float | None, message: str) -> Iterator[threading.Event]:
     """Raise RunTimeout in this thread if the block runs longer than ``seconds`` (None or 0: no limit).
 
     Like Cancel, it lands between Python steps: a long DuckDB query is asked to stop too. The

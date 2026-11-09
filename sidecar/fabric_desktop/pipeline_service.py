@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -284,6 +285,10 @@ class PipelineRunMixin:
                     run.notebooks.finish()  # already done unless the run raised; then it cleans up here
                 store.save(run.to_json())
                 store.trim()
+                finished = getattr(self, "_audit_finished", None)  # Service's; a bare mixin (tests) has none
+                if finished is not None:  # the start has its line already; this is how the run ended
+                    finished("pipeline_run_finished", {"succeeded": "", "cancelled": "cancelled"}.get(run.state, "failed"), getattr(run, "seconds", None) or 0.0,
+                             {"run_id": run.id, "pipeline": run.pipeline.name, "state": run.state})
                 for rid in [k for k, r in live.items() if r.state not in ("pending", "running")][:-MAX_RUNS]:
                     live.pop(rid, None)
 
@@ -359,7 +364,7 @@ _LIST_DEPTH = 4      # folder levels searched under a repository's root
 _SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 
 
-def _pipeline_folders(root: Path, depth: int = 0):
+def _pipeline_folders(root: Path, depth: int = 0) -> Iterator[Path]:
     """``<name>.DataPipeline`` folders under root, a few levels down, in name order."""
     try:
         entries = sorted((p for p in root.iterdir() if p.is_dir() and not p.is_symlink()), key=lambda p: p.name.lower())

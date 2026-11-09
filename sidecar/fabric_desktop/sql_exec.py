@@ -74,6 +74,7 @@ from sqlglot import exp
 
 from . import app_settings, free_memory, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
+from . import known_folders
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
@@ -206,7 +207,7 @@ class SqlExecutions:
         self._audit = audit
         self._limits = limits
         self.command = command or [sys.executable, "-m", "fabric_desktop.sql_worker"]
-        self._downloads = downloads or (lambda: Path.home() / "Downloads")
+        self._downloads = downloads or known_folders.downloads
         self._lock = threading.RLock()
         self._runs: dict[str, Execution] = {}
         self._exports: dict[str, Export] = {}

@@ -105,6 +105,8 @@ check_untyped_defs = true  # bodies of functions without annotations are checked
 strict_equality = true  # ==, is and in between types that can never match
 warn_redundant_casts = true
 warn_unused_ignores = true  # a stale ignore would hide the next real error on its line
+disallow_untyped_defs = true  # every function is annotated (tests/test_mypy_strict.py keeps it so)
+disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
 module = ["fabric_desktop._vendor.*"]  # vendored code stays as its authors wrote it

@@ -1,0 +1,58 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E45",
+  "version": 1,
+  "status": "draft",
+  "title": "Semantic model refresh: read the history, spot a Direct Lake fallback",
+  "objectives": [
+    "3.1.3"
+  ],
+  "objective_text": "From a refresh history and a query log, report each semantic model's latest refresh and its error, count the queries that fell back from Direct Lake to DirectQuery, and name the cause.",
+  "scenario": "Five Direct Lake semantic models sit on one F64 capacity. Finance says their numbers stopped moving, and the Stock report got slow last week. You have each model's refresh history, the tables it reads, and a log of which mode each report query really ran in. Find the stale model, the models that fell back, and why.",
+  "prerequisites": [],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "simulated",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC, over a simulated refresh history and query log",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "refresh_check.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your query finds each model's latest refresh by its start time, counts fallback only for models set to fall back, and traces it to a table over an F64 guardrail or to a SQL view, on simulated data with DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "The refresh history page, the DAX query view, or EVALUATE TABLETRAITS() in a real model. The history and query log here are made up and shaped like what they show.",
+    "Fallback causes this data doesn't include: row-level or object-level security defined at the SQL analytics endpoint, and the guardrails of capacities other than F64.",
+    "Fixing the causes: compacting the oversized table, or replacing the view with a table."
+  ],
+  "expected": {
+    "description": "Columns model_name, last_status, last_error, fallback_queries, cause_table, cause: 5 rows ordered by model_name."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The refresh check is right for all five models.",
+      "fail": "Some row is off: check how you pick the latest refresh, which DirectQuery queries count as a fallback, and how a guardrail breach is found."
+    }
+  ],
+  "hints": [
+    "refresh_id is an opaque id: the latest refresh is the one with the latest start_time.",
+    "A model set to DirectQueryOnly runs every query in DirectQuery on purpose. That isn't a fallback; only Automatic falls back.",
+    "One table over any guardrail sends the whole model to DirectQuery, so the queries that fell back may never touch that table. Check every table in the model, and check files, row groups and rows.",
+    "'More than 5,000' means 5,000 itself is still inside the guardrail."
+  ],
+  "explanation": "Refresh and fallback are separate questions. A Direct Lake refresh is framing, so a failed one leaves the model on the older Delta version: its queries still run in Direct Lake, just on stale data, which is the Finance complaint. Fallback is about where queries run. With DirectLakeBehavior set to Automatic, a Direct Lake on SQL endpoints model sends a query to the SQL analytics endpoint when it can't answer it in Direct Lake. A query that reads a SQL view falls back on its own, which is why only the HR queries over vw_headcount did. A single table over a guardrail is different: it stops Direct Lake for the entire model, so every Stock query fell back even though none of them read inventory_snapshot, which is over the row-group limit but not the file limit. The Ops model's DirectQuery queries aren't a fallback at all, because it's set to DirectQueryOnly.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview",
+    "https://learn.microsoft.com/fabric/fundamentals/direct-lake-how-it-works"
+  ],
+  "reset": "Reset rebuilds the four tables from setup.sql and puts the starter query back.",
+  "review_notes": [
+    "SIMULATED: the models, refreshes, table sizes and query log are synthetic; nothing here reads Fabric.",
+    "Facts used, from Learn (2026-11-07): Direct Lake on SQL endpoints falls back to DirectQuery through the SQL analytics endpoint (Direct Lake on OneLake doesn't); DirectLakeBehavior Automatic, DirectLakeOnly, DirectQueryOnly; SQL views fall back; one table over a guardrail prevents Direct Lake for the entire model; F64 guardrails 5,000 Parquet files, 5,000 row groups, 1,500 million rows per table; refresh is framing."
+  ]
+}

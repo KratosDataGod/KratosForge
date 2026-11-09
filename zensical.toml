@@ -65,6 +65,7 @@ nav = [
     { "Select cells and run part of a notebook" = "notebook-editor/select-and-run-parts.md" },
     { "Engines and connection profiles" = "engines.md" },
     { "Spark functions on this PC" = "spark-functions.md" },
+    { "Databricks SQL functions on this PC" = "databricks-functions.md" },
     { "Snowflake functions on this PC" = "snowflake-functions.md" },
     { "T-SQL functions on this PC" = "tsql-functions.md" },
     { "Decision patterns" = "decision-patterns.md" },

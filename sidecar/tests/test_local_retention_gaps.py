@@ -211,3 +211,27 @@ def test_seeding_a_replay_whose_copy_was_swept_says_so(tmp_path):
     svc.root = tmp_path
     with pytest.raises(LookupError, match="Open the bundle again"):
         svc._replay_seed({"bundle": "0123456789abcdef", "notebook": "Sales"}, "r1", str(tmp_path), lambda: {}, ["t"])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link to a folder needs rights on Windows")
+def test_left_over_spills_and_previews_are_never_taken_through_a_link(tmp_path):
+    outside = tmp_path / "outside"
+    (outside / "old-preview").mkdir(parents=True)
+    keep = outside / "keep.parquet"
+    keep.write_text("not a spill")
+    for p in (keep, outside / "old-preview"):
+        os.utime(p, (OLD, OLD))
+    data = tmp_path / "data"
+    (data / "staging").mkdir(parents=True)
+    (data / "staging" / "_writes").symlink_to(outside, target_is_directory=True)
+    (data / "preview-files").symlink_to(outside, target_is_directory=True)
+    result = retention.sweep(data, 0, now=NOW)
+    assert result["removed"] == [] and keep.exists() and (outside / "old-preview").is_dir()
+    (data / "staging" / "_writes").unlink()
+    (tmp_path / "data2").mkdir()
+    (tmp_path / "data2" / "staging").symlink_to(outside, target_is_directory=True)  # the staging folder itself
+    (outside / "_writes").mkdir()
+    spill = outside / "_writes" / "s.parquet"
+    spill.write_text("x")
+    os.utime(spill, (OLD, OLD))
+    assert retention.sweep(tmp_path / "data2", 0, now=NOW)["removed"] == [] and spill.exists()

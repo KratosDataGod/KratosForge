@@ -63,3 +63,17 @@ def test_the_api_bundle_and_ci_exercises_pass_their_reference_and_fail_each_wron
     assert len(result["wrong"]) >= 4
     for name, r in result["wrong"].items():
         assert not r["passed"], f"{eid} {name} passed"
+
+
+def test_the_ci_workflow_accepts_other_spellings_of_the_same_answer():
+    import copy
+    import json
+
+    from fabric_desktop.academy import configlab
+    grading = exercises.registry.ROOT / PACK / "grading" / "E48"
+    doc = json.loads((grading / "solution.json").read_text(encoding="utf-8"))
+    alt = copy.deepcopy(doc)
+    alt["steps"][2]["run"] = "databricks bundle deploy --target prod"
+    alt["env"]["DATABRICKS_CLIENT_SECRET"] = "${{secrets.DATABRICKS_CLIENT_SECRET}}"
+    checks = exercises.get(PACK, "E48")["validation"]
+    assert all(configlab.validators.config_matches(alt, c["rules"])["passed"] for c in checks)

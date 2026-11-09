@@ -52,8 +52,12 @@
         },
         {
           "path": "steps.2.run",
-          "equals": "databricks bundle deploy -t prod",
-          "why": "With no -t the CLI uses the bundle's default target, which is dev."
+          "why": "With no -t the CLI uses the bundle's default target, which is dev.",
+          "one_of": [
+            "databricks bundle deploy -t prod",
+            "databricks bundle deploy --target prod",
+            "databricks bundle deploy --target=prod"
+          ]
         }
       ]
     },
@@ -64,12 +68,18 @@
       "rules": [
         {
           "path": "env.DATABRICKS_CLIENT_ID",
-          "equals": "${{ secrets.DATABRICKS_CLIENT_ID }}"
+          "one_of": [
+            "${{ secrets.DATABRICKS_CLIENT_ID }}",
+            "${{secrets.DATABRICKS_CLIENT_ID}}"
+          ]
         },
         {
           "path": "env.DATABRICKS_CLIENT_SECRET",
-          "equals": "${{ secrets.DATABRICKS_CLIENT_SECRET }}",
-          "why": "A secret written in the workflow file is in every clone of the repository."
+          "why": "A secret written in the workflow file is in every clone of the repository.",
+          "one_of": [
+            "${{ secrets.DATABRICKS_CLIENT_SECRET }}",
+            "${{secrets.DATABRICKS_CLIENT_SECRET}}"
+          ]
         },
         {
           "path": "env.DATABRICKS_TOKEN",

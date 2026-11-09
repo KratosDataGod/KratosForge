@@ -28,7 +28,7 @@
     "Variable precedence from --var, BUNDLE_VAR_ environment variables or variable-overrides.json, or lookups."
   ],
   "expected": {
-    "description": "The job's catalog is ${var.catalog}; test and prod override it; dev is the only default and runs in development mode; prod is production mode, branch main, run as kf-deployer."
+    "description": "The job's catalog is ${var.catalog}; test and prod override it; dev is the only default and runs in development mode; prod is production mode, branch main, run as the kf-deployer service principal."
   },
   "validation": [
     {
@@ -99,8 +99,8 @@
         },
         {
           "path": "targets.prod.run_as.service_principal_name",
-          "equals": "kf-deployer",
-          "why": "Databricks recommends service principals for production deployments."
+          "equals": "6f1c2a9e-3b7d-4e8a-9c21-5d0b7a4e1f33",
+          "why": "Databricks recommends service principals for production deployments; run_as takes the service principal's application ID."
         },
         {
           "path": "targets.prod.run_as.user_name",

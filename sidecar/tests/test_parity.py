@@ -95,10 +95,11 @@ def _status_counts(page: str) -> dict[str, int]:
 ])
 def test_a_sql_rows_local_claim_follows_its_function_list(platform, area, page, test):
     """WR-303: the SQL row's Local execution cell rests on the generated function list, points to it,
-    and can't claim more than partial while the list has functions that differ, are refused or fail."""
+    and can't claim more than partial while the list has functions that differ, are refused, fail or
+    aren't checked yet."""
     cell = next(a for a in parity.AREAS if (a.platform, a.id) == (platform, area)).cell("local")
     assert test in cell.tests and f"docs/{page}" in cell.note
     counts = _status_counts((DOC.parent / page).read_text(encoding="utf-8"))
     assert set(counts) == {"Runs", "Differs", "Refused", "Fails", "Not checked"}
-    if counts["Differs"] or counts["Refused"] or counts["Fails"]:
+    if counts["Differs"] or counts["Refused"] or counts["Fails"] or counts["Not checked"]:
         assert cell.status in ("missing", "partial"), f"{platform} {area}: {counts} doesn't back {cell.status}"

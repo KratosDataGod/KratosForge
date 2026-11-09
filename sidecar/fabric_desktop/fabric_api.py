@@ -60,7 +60,15 @@ _HINTS = {
     403: "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access",
     429: "Fabric is limiting requests. Try again in a few minutes",
     500: "Fabric had a problem on its side. Try again, and give the request id to support if it keeps happening",
+    400: "Correct what Fabric's message names, then try again",
+    404: "Refresh the list: the workspace or item may have been deleted or moved",
+    409: "Refresh, then try again: something else changed it at the same time",
 }
+# The next step for any other error, so every Fabric error a person sees says what to do.
+_NEXT_STEP = "Check Fabric's message, then try again, or give the request id to support"
+_OPERATION_NEXT_STEP = "Open the item in Fabric to see what happened, then try again"
+_CAPACITY_NOT_ACTIVE = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
+                        "or use a workspace on an active capacity")
 
 
 _REQUEST_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
@@ -103,14 +111,14 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     request_id = _request_id(fields.get("request_id") or headers.get("x-ms-request-id") or headers.get("RequestId"))
     status = resp.status_code
     if code == "CapacityNotActive":
-        return FabricError("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
-                           "or use a workspace on an active capacity.", code, status, request_id)
+        return FabricError(_CAPACITY_NOT_ACTIVE + "." + (f" Request id {request_id}." if request_id else ""),
+                           code, status, request_id)
     path = url.split("?", 1)[0].split("#", 1)[0]
     path = path[len(API):] if path.startswith(API) else path
     parts = [_part(fields.get("message"))]
     parts += [_part(d.get("message")) for d in fields.get("details") or []
               if isinstance(d, dict) and d.get("message")][:3]
-    hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else "")
+    hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else _NEXT_STEP)
     parts = [p for p in parts if p] + ([hint] if hint else [])
     text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
     text += (": " + ". ".join(parts) + "." if parts else ".") + (f" Request id {request_id}." if request_id else "")
@@ -126,14 +134,14 @@ def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
     raw_more = error.get("moreDetails")
     more: list[Any] = raw_more if isinstance(raw_more, list) else []
     details = [_part(d.get("message")) for d in more if isinstance(d, dict) and d.get("message")]
+    hint = _HINTS.get(code or "", _OPERATION_NEXT_STEP)
     if code == "CapacityNotActive":
-        message = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
-                   "or use a workspace on an active capacity")
+        message, hint = _CAPACITY_NOT_ACTIVE, ""
     text = f"Fabric's operation {operation} {'failed' if state.get('status') == 'Failed' else 'ended in an unknown state'}"
     text += f": {message}" if message else " and gave no reason"
-    text += "".join(f". {d}" for d in details[:3]) + (f" ({code})" if code else "")
+    text += "".join(f". {d}" for d in details[:3]) + (f" ({code})" if code else "") + (f". {hint}" if hint else "")
     request_id = _request_id(error.get("requestId"))
-    return FabricError(text + (f". Request id {request_id}." if request_id else "."), code)
+    return FabricError(text + (f". Request id {request_id}." if request_id else "."), code, request_id=request_id)
 
 
 # Hosts a URL Fabric hands back (continuationUri, an operation's Location) may name before the

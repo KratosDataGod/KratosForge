@@ -45,8 +45,9 @@ def test_the_msi_and_registry_are_as_the_page_says():
     deep_link = (ROOT / "app" / "src-tauri" / "src" / "deep_link.rs").read_text(encoding="utf-8")
     assert r'"HKCU\\Software\\Classes\\{SCHEME}"' in deep_link
     assert r"`HKCU\Software\Classes\kratosforge`" in INSTALL
-    # No registry policy: nothing reads HKLM or HKCU\Software\Policies.
-    code = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in CODE)
+    # No registry policy: nothing reads HKLM or HKCU\Software\Policies. policy_schema only writes the path
+    # into the ADMX templates it generates; it reads nothing.
+    code = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in CODE if p.name != "policy_schema.py")
     assert "Software\\\\Policies" not in code and r"Software\Policies" not in code
     assert r"nothing under `HKLM\Software\Policies`" in INSTALL
 

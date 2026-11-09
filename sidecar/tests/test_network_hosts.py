@@ -33,6 +33,7 @@ NOT_CALLED: dict[str, str] = {
     "developer.microsoft.com": _SCHEMA,  # Fabric item definition $schema
     "schemas.microsoft.com": _SCHEMA,  # Task Scheduler XML namespace
     "schemas.openxmlformats.org": _SCHEMA,  # Excel export XML namespaces
+    "www.w3.org": _SCHEMA,  # XML Schema instance namespace in the generated Group Policy templates
     "docs.databricks.com": _LINK,
     "docs.snowflake.com": _LINK,  # snowflake_sql: SQL reference links in its conversion notes
     "duckdb.org": _LINK,

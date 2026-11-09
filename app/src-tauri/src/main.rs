@@ -2002,16 +2002,29 @@ mod signin {
     pub fn forget(app: &tauri::AppHandle) {
         let _ = std::fs::remove_file(file());
         *LAST.lock().unwrap() = Vec::new();
-        // The pop-out's view shares the profile, so this signs it out too; its window closes.
-        if let Some(window) = app.get_window(&super::pop_out_label("fabric")) {
-            let _ = window.close();
+        let views: Vec<_> = [super::FABRIC_VIEW, super::FABRIC_POP_OUT_VIEW]
+            .into_iter()
+            .filter_map(|label| app.get_webview(label))
+            .collect();
+        if views.is_empty() {
+            // The view hasn't opened since the app started, but its profile on disk still holds the
+            // cookies that signed it in. Nothing has the profile open, so it goes whole and the next
+            // view starts signed out.
+            let _ = std::fs::remove_dir_all(super::data_dir().join("fabric-view"));
         }
-        if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
+        // Both views share the profile, so either one's cookies are the sign-in.
+        if let Some(view) = views.first() {
             for cookie in view.cookies().unwrap_or_default() {
                 if cookie.domain().is_some_and(super::fabric_host) {
                     let _ = view.delete_cookie(cookie);
                 }
             }
+        }
+        // The pop-out's window closes; the main view hides.
+        if let Some(window) = app.get_window(&super::pop_out_label("fabric")) {
+            let _ = window.close();
+        }
+        if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
             let _ = view.hide();
         }
     }

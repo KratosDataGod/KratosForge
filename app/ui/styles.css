@@ -735,7 +735,10 @@ h2.flush { margin: 0; }
 .sql-table-row .tree-row.wh-more { flex: none; width: 28px; justify-content: center; padding: 0; opacity: 0; }
 .wh-object:hover .wh-more, .wh-more:focus-visible, .wh-more[aria-expanded="true"] { opacity: 1; }
 /* WH-06: saved and shared queries */
-.explorer-head.sql-views { justify-content: flex-start; padding: 8px 8px 0; }
+.explorer-head.sql-views-head { gap: 4px; padding: 8px 8px 0; }
+/* The SQL page's Explorer, collapsed: a thin strip holding the expand button. */
+.sql-explorer-strip { flex: none; display: flex; flex-direction: column; align-items: center; width: 36px; padding-top: 8px;
+  background: var(--surface); border-right: 1px solid var(--border); }
 .wh-q-head { padding: 10px 12px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .wh-queries.explorer-content { flex: none; overflow: visible; padding: 0 0 8px; }
 .wh-q-row { display: flex; align-items: center; }
@@ -3338,3 +3341,20 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .forge-time { flex-direction: row; gap: 6px; text-align: left; }
 }
 @media (forced-colors: active) { .forge-band { background: Canvas; border-color: CanvasText; } .forge-art, .forge-glow, .forge-sparks { display: none; } }
+/* A short window (under 640 px tall, such as 1280x940 at 200% zoom): the rail shows icons only, closer together,
+   so every item fits without scrolling. Each name stays the button's text (its accessible name) and its tooltip;
+   the active stripe and the focus ring are unchanged. Home's hero becomes one strip: the welcome and its actions. */
+@media (max-height: 640px) {
+  .rail { width: 52px; gap: 2px; padding: 4px 0; }
+  .rail-item { position: relative; width: 44px; min-height: 0; padding: 3px 0; }
+  .rail-item .rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .rail-divider { width: 28px; margin: 2px 0; }
+  .rail-group-label { width: 36px; height: 0; margin-top: 2px; padding-top: 0; overflow: hidden; }
+  #rail-open { gap: 2px; }
+  .rail-close { top: 0; right: 0; width: 14px; height: 14px; }
+  .home-hero { height: auto; min-height: 0; }
+  .home-hero-img, .home-hero-kicker, .home-hero-title { display: none; }
+  .home-hero-text { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 20px; }
+  .page .home-hero-welcome { margin: 0; }
+  .home-hero-actions { margin-top: 0; }
+}

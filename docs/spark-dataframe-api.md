@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 102 |
+| Runs | 103 |
 | Differs | 4 |
 | Refused | 15 |
-| Fails | 42 |
+| Fails | 41 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -88,7 +88,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `orderBy` | Runs |  |
 | `pandas_api` | Runs |  |
 | `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
-| `printSchema` | Differs | `df.printSchema(1)`: {"printed": "root\n \|-- a: long (nullable = true)\n \|-- b: array (null here, {"printed": "root\n \|-- a: long (nullable = true)\n \|-- b: struct (nul in Spark |
+| `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
 | `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
@@ -156,10 +156,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc` | Runs |  |
 | `desc_nulls_first` | Runs |  |
 | `desc_nulls_last` | Runs |  |
-| `dropFields` | Fails | `df = spark.createDataFrame([ Row(a=Row(b=1, c=2, d=3, e=R...`: InvalidInputException: Invalid Input Error: Failed to cast value: Unimplemented type for cast (INTEGER -> INTEGER[]) |
+| `dropFields` | Fails | `df.withColumn('a', df['a'].dropFields('b')).show()`: TypeError: 'Column' object is not callable |
 | `endswith` | Runs |  |
 | `eqNullSafe` | Runs |  |
-| `getField` | Fails | `df.select(df.r.getField("b")).show()`: ConversionException: Conversion Error: Could not convert string 'b' to INT64 |
+| `getField` | Differs | `df.select(df.r.a).show()`: {"printed": "+----+\n\|r[a]\|\n+----+\n\|   1\|\n+----+"} here, {"printed": "+---+\n\|r.a\|\n+---+\n\|  1\|\n+---+"} in Spark |
 | `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |

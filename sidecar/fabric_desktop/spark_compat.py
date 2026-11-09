@@ -829,10 +829,10 @@ def _getitem(original: Any) -> Any:
 
 
 def _get_field(self: Column, name: str) -> Column:
-    """``col.getField(name)``: a struct's field."""
+    """``col.getField(name)``: a struct's field, named ``col.name`` as in Spark."""
     if not isinstance(name, str):
         raise TypeError(f"getField takes a field name, not {type(name).__name__}")
-    return _sql(f"({_col_sql(self)})[{_lit(name)}]")
+    return _named(_sql(f"({_col_sql(self)})[{_lit(name)}]"), f"{_spark_text(self)}.{name}")
 
 
 def _ordered(name: str, fn: Any) -> Any:

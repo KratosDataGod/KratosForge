@@ -96,6 +96,8 @@ def _in_place() -> list[str]:
     for path in sorted(PACKAGE.rglob("*.py")):
         if path.name == "jsonfile.py":
             continue
+        if "academy/packs" in path.relative_to(PACKAGE).as_posix():
+            continue   # exercise content: a learner's starter or a grader's model answer, run in a learner process on its own workspace, never engine state
         finder = _Finder(path.relative_to(PACKAGE).as_posix())
         finder.visit(ast.parse(path.read_text(encoding="utf-8")))
         found |= finder.found

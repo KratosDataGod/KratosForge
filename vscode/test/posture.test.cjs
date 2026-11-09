@@ -45,8 +45,9 @@ test("no telemetry, and nothing reached but KratosForge on 127.0.0.1", () => {
 
 test("the .vsix holds the compiled extension, its manifest and readme, and nothing left in the folder", () => {
   const { execFileSync } = require("node:child_process");
-  // What a hand-built file could pick up: an SBOM or an older .vsix from an earlier build, scripts.
-  const stray = ["sbom-vscode.cdx.json", "kratosforge-old.vsix"].map((f) => path.join(root, f));
+  // What a hand-built file could pick up: an SBOM or an older .vsix from an earlier build (names of
+  // the test's own, so a real one left in the folder is never touched).
+  const stray = ["sbom-posture-test.cdx.json", "kratosforge-posture-test.vsix"].map((f) => path.join(root, f));
   for (const f of stray) fs.writeFileSync(f, "{}");
   try {
     const listed = execFileSync(process.execPath, [require.resolve("@vscode/vsce/vsce"), "ls", "--no-dependencies"],

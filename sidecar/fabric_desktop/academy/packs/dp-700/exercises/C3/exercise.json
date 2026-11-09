@@ -1,0 +1,287 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "C3",
+  "version": 1,
+  "status": "draft",
+  "title": "Capstone: a governed warehouse release from Git to Production",
+  "objectives": [
+    "1.2.1",
+    "1.2.3",
+    "1.3.1",
+    "1.3.2",
+    "1.3.3",
+    "1.3.4"
+  ],
+  "objective_text": "Plan one release of a Sales warehouse end to end: which workspace is in Git, the deployment pipeline's stages and rules, the least workspace roles and sharing permissions for four groups, and the row filter, column grants and masking that give each group exactly what it may see.",
+  "scenario": "The Sales warehouse is going to Production for four groups who need very different things. Engineers build and debug it, regional managers may only see their own region, Finance needs everything for invoicing, and Support must only look customers up. Write the release plan, and make sure no setting quietly gives someone more than they need.",
+  "prerequisites": [
+    "E06",
+    "E09",
+    "E10",
+    "E11",
+    "E12",
+    "E13",
+    "E15"
+  ],
+  "minutes": 90,
+  "mode": "challenge",
+  "class": "simulated",
+  "adapter": "config_model",
+  "engine_label": "Settings model on this PC (nothing is set in Fabric)",
+  "lesson": "lesson.md",
+  "starter": "release.json",
+  "config": null,
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your release plan's Git connections, deployment stages and rules, workspace roles, sharing permissions, row-level security, column grants and masking meet every group's needs, checked against a model of how Fabric applies them, on this PC."
+  ],
+  "does_not_verify": [
+    "Nothing is set in Fabric: no workspace is connected to Git, no pipeline deploys, no T-SQL runs. The Fabric verified version does that in a test workspace.",
+    "The T-SQL itself: the security function and policy, the GRANTs and the MASKED WITH clauses. E12, E13 and E15 grade those.",
+    "The database project, the deploy's safety and monitoring: E08, E44 and E55 cover them."
+  ],
+  "expected": {
+    "description": "release.json with every null and empty list filled in to meet the needs."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "pass": "Development is in Git on main; Test and Production change only through the pipeline.",
+      "fail": "The Git connections don't match how changes should move.",
+      "rules": [
+        {
+          "path": "git.Sales-Dev.connected",
+          "equals": true
+        },
+        {
+          "path": "git.Sales-Dev.branch",
+          "equals": "main"
+        },
+        {
+          "path": "git.Sales-Dev.folder",
+          "equals": "warehouse"
+        },
+        {
+          "path": "git.Sales-Test.connected",
+          "equals": false,
+          "why": "A stage that takes changes from the deployment pipeline isn't also updated from Git, or the two would overwrite each other."
+        },
+        {
+          "path": "git.Sales-Prod.connected",
+          "equals": false,
+          "why": "Production gets what was tested in Test, through the pipeline, not straight from a branch."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Three stages, and Sales model reads each stage's own warehouse.",
+      "fail": "The pipeline's stages or deployment rules aren't right.",
+      "rules": [
+        {
+          "path": "deployment_pipeline.stages",
+          "equals": [
+            "Development",
+            "Test",
+            "Production"
+          ]
+        },
+        {
+          "path": "deployment_pipeline.rules",
+          "count": 2
+        },
+        {
+          "path": "deployment_pipeline.rules",
+          "count": 1,
+          "where": {
+            "stage": "Test",
+            "item": "Sales model",
+            "rule": "data source",
+            "value": "Sales-Test/SalesWH"
+          },
+          "why": "Without a rule, a deployed semantic model keeps reading the source stage's data."
+        },
+        {
+          "path": "deployment_pipeline.rules",
+          "count": 1,
+          "where": {
+            "stage": "Production",
+            "item": "Sales model",
+            "rule": "data source",
+            "value": "Sales-Prod/SalesWH"
+          },
+          "why": "A rule is set on the target stage, on the item it changes: the semantic model, not the warehouse."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Only Engineers have a role in Sales-Prod, and it's Contributor.",
+      "fail": "Some Sales-Prod workspace role gives more, or less, than the need.",
+      "rules": [
+        {
+          "path": "workspace_roles.Sales-Prod.Engineers",
+          "equals": "Contributor",
+          "why": "Contributor can create, change and deploy items; only Admin and Member manage access, which Engineers never do."
+        },
+        {
+          "path": "workspace_roles.Sales-Prod.RegionalManagers",
+          "equals": null
+        },
+        {
+          "path": "workspace_roles.Sales-Prod.Finance",
+          "equals": null,
+          "why": "Admin, Member and Contributor have CONTROL on the warehouse: they can change it and see unmasked data."
+        },
+        {
+          "path": "workspace_roles.Sales-Prod.Support",
+          "equals": null,
+          "why": "A Viewer can read every table with T-SQL, which is more than Support may see."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Each reader gets the least sharing permission that works.",
+      "fail": "Someone's sharing permissions on SalesWH are off.",
+      "rules": [
+        {
+          "path": "warehouse_sharing.Sales-Prod/SalesWH.RegionalManagers",
+          "contains": "ReadData"
+        },
+        {
+          "path": "warehouse_sharing.Sales-Prod/SalesWH.RegionalManagers",
+          "not_contains": "ReadAll"
+        },
+        {
+          "path": "warehouse_sharing.Sales-Prod/SalesWH.Finance",
+          "contains": "ReadData"
+        },
+        {
+          "path": "warehouse_sharing.Sales-Prod/SalesWH.Finance",
+          "not_contains": "ReadAll",
+          "why": "ReadAll opens the warehouse's files to Spark, around the T-SQL security, and nobody needs it."
+        },
+        {
+          "path": "warehouse_sharing.Sales-Prod/SalesWH.Support",
+          "equals": [
+            "Read"
+          ],
+          "why": "Read only lets Support connect; the column GRANT then gives exactly the columns it needs. ReadData would open every table."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Row-level security filters dbo.Sales by region for everyone except Engineers and Finance.",
+      "fail": "The row filter on dbo.Sales doesn't give each group the rows it should see.",
+      "rules": [
+        {
+          "path": "row_level_security.filter_column",
+          "equals": "Region"
+        },
+        {
+          "path": "row_level_security.state",
+          "equals": "ON"
+        },
+        {
+          "path": "row_level_security.all_rows_for",
+          "count": 2
+        },
+        {
+          "path": "row_level_security.all_rows_for",
+          "contains": "Engineers",
+          "why": "A security policy applies to every user, Contributors included: the predicate has to let Engineers through."
+        },
+        {
+          "path": "row_level_security.all_rows_for",
+          "contains": "Finance"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Support can read exactly CustomerID, Name and Region.",
+      "fail": "Support's column grants aren't exactly what it needs.",
+      "rules": [
+        {
+          "path": "column_grants.Support.Customers",
+          "count": 3
+        },
+        {
+          "path": "column_grants.Support.Customers",
+          "contains": "CustomerID"
+        },
+        {
+          "path": "column_grants.Support.Customers",
+          "contains": "Name"
+        },
+        {
+          "path": "column_grants.Support.Customers",
+          "contains": "Region"
+        },
+        {
+          "path": "column_grants.Support.Sales",
+          "absent": true
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Email and phone are masked, and only Finance is granted UNMASK.",
+      "fail": "The masking or UNMASK settings would show full contact details to the wrong people.",
+      "rules": [
+        {
+          "path": "masking.Customers.Email",
+          "one_of": [
+            "email()",
+            "default()"
+          ]
+        },
+        {
+          "path": "masking.Customers.Phone",
+          "one_of": [
+            "default()",
+            "partial(0,\"XXX-XXX-\",4)",
+            "partial(0,\"XXXXXXX\",4)"
+          ],
+          "why": "Masking only hides values from users without UNMASK or CONTROL; RegionalManagers must get masked phones."
+        },
+        {
+          "path": "unmask",
+          "contains": "Finance"
+        },
+        {
+          "path": "unmask",
+          "not_contains": "RegionalManagers"
+        },
+        {
+          "path": "unmask",
+          "not_contains": "Support"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which stages take changes from the pipeline? A stage that also syncs from Git would fight it.",
+    "Deployment rules live on the target stage and on the item they change. Which item reads the warehouse?",
+    "Admin, Member and Contributor have CONTROL on a warehouse. What does that mean for masking?",
+    "A Viewer role or ReadData lets someone read every table. Who must not?",
+    "A security policy applies to everyone, Contributors too, unless its predicate lets them through.",
+    "GRANT SELECT on a column list gives exactly those columns; ReadAll opens the files to Spark."
+  ],
+  "explanation": "A release has two kinds of decision. How changes move: Development syncs with Git, and Test and Production take changes only through the deployment pipeline, with a data source rule on the target stages so Sales model reads each stage's own warehouse; the warehouse itself has no deployment rules. Who sees what: workspace roles are for people who build, because Admin, Member and Contributor have CONTROL on the warehouse, which bypasses masking and lets them change it, so Engineers get Contributor and nobody else gets a role. Readers get the warehouse shared: ReadData for the groups that read tables, only Read for Support, whose column GRANT gives exactly CustomerID, Name and Region, and ReadAll for nobody, because it opens the files to Spark. The row filter on Region applies to every user, so its predicate must let Engineers and Finance see all rows. Email and phone are masked, and only Finance gets UNMASK; Engineers already see unmasked values through CONTROL.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules",
+    "https://learn.microsoft.com/fabric/data-warehouse/share-warehouse-manage-permissions",
+    "https://learn.microsoft.com/fabric/data-warehouse/row-level-security",
+    "https://learn.microsoft.com/fabric/data-warehouse/dynamic-data-masking"
+  ],
+  "reset": "Reset puts release.json back as it started.",
+  "review_notes": [
+    "SIMULATED: a settings model checked against rules; nothing is set in Fabric.",
+    "Learn facts (2026-11-09): RLS uses CREATE SECURITY POLICY with an inline table-valued predicate and applies to all users, so Admin, Member and Contributor need the predicate to allow them; DDM functions default(), email(), random() and partial(); Admin, Member and Contributor have CONTROL and see unmasked data; UNMASK grants unmasked reads; sharing Read only connects, ReadData reads all tables and views, ReadAll gives the files to Spark; deployment rules are data source, parameter and default lakehouse rules, set on the target stage, never in Development, and the rules table lists no warehouse; only Admin and Member manage access.",
+    "Planned objectives not claimed: 1.2.2 (database projects), 3.1.1 (monitoring), 3.2.6 (T-SQL errors) and 3.3.3 (warehouse optimisation). A settings model can't grade them; they stay with E08, E44, E55 and E61."
+  ]
+}

@@ -24,7 +24,7 @@
   "scripts": {
     "compile": "tsc -p .",
     "test": "tsc -p . && node --test test/*.test.cjs",
-    "package": "tsc -p . && vsce package --no-dependencies --skip-license -o kratosforge.vsix"
+    "package": "tsc -p . && node scripts/modes.cjs && vsce package --no-dependencies --skip-license -o kratosforge.vsix"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

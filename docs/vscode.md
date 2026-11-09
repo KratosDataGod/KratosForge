@@ -145,3 +145,34 @@ What the KratosForge extension for VS Code does and doesn't do, for teams that r
 - **Network.** It connects only to KratosForge's editor channel on `127.0.0.1`. It makes no other requests and has no telemetry, so `telemetry.telemetryLevel` has nothing to turn off. VS Code sends loopback requests directly, so `http.proxy` and `http.proxySupport` don't affect it and need no exception.
 - **Allow lists.** It's published as `kratosbi.kratosforge`. Where `extensions.allowed` is set, allow that id (or the `kratosbi` publisher). It isn't on the VS Code Marketplace yet: install `kratosforge.vsix` from the release, check it with `gh attestation verify`, or host it in your private extension gallery. It has no runtime dependencies.
 - **Turning it off.** Turning off **Let VS Code run notebooks**, or setting `integrations_editors` to `false` in the policy file, stops every window whatever the extension does.
+
+### Verify the .vsix before you install it
+
+Each Preview and Stable release carries `kratosforge.vsix`, its SBOM `sbom-vscode.cdx.json` (CycloneDX) and `version.json`. Before you install or host the file, check three things:
+
+1. **It is the file the release names.** Its SHA-256 must equal `vsix_sha256` in the same release's `version.json`:
+
+   ```powershell
+   (Get-FileHash .\kratosforge.vsix -Algorithm SHA256).Hash.ToLower()
+   (Get-Content .\version.json | ConvertFrom-Json).vsix_sha256
+   ```
+
+2. **KratosForge's CI built it from this repository.** The command below checks the signed build provenance and prints the commit it was built from:
+
+   ```
+   gh attestation verify kratosforge.vsix -R KratosDataGod/KratosForge
+   ```
+
+3. **What's inside it.** The SBOM names the `.vsix` by the same SHA-256 and lists every file inside it, each with its own SHA-256. It also lists the build tools that made it, each with its lock file's hash; those are marked `excluded` because none of them ships in the file. Its own SHA-256 is `sbom_vscode_sha256` in `version.json`. The `.vsix` is a zip file, so you can list and hash what it holds and compare against the SBOM.
+
+**Rebuilding it yourself.** The build is reproducible: built from the same commit, the file comes out byte for byte the same. CI builds it twice, the second time from a fresh copy, and fails if the two differ. To rebuild it on Linux or WSL from a checkout of the commit `gh attestation verify` printed:
+
+```
+cd vscode
+export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+npm pkg set version="0.2.$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M)"
+npm ci --ignore-scripts && npm run package
+sha256sum kratosforge.vsix
+```
+
+`npm ci` installs exactly the versions `package-lock.json` pins and checks each one against the lock file's SHA-512. CI also runs `npm audit signatures`, which checks each package's npm registry signature. The version and the files' time come from the commit, and `scripts/modes.cjs` gives every file the same mode, so neither the build machine's clock nor its umask changes the result.

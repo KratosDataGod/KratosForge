@@ -234,22 +234,48 @@ jobs:
           node-version: "22"
       - run: python -m pip install -e . -c constraints.txt
         working-directory: sidecar
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # npm ci installs exactly what package-lock.json pins and checks each package against the lock
+      # file's SHA-512 (sbom_check.py locks requires one for every entry); install scripts don't run.
+      # npm audit signatures then checks each installed package's registry signature.
+      - run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm audit signatures
         working-directory: vscode
       - run: npm test
         working-directory: vscode
         env:
           FABRIC_DESKTOP_PYTHON: python
-      # The installable extension (.vsix), attached to each Preview release. Each run gets its own
-      # version, so VS Code takes a newer file as an update of the one it has.
-      - run: |
-          npm pkg set version="0.1.${{ github.run_number }}"
+      # The installable extension (.vsix), attached to each Preview release, built reproducibly:
+      # - The version and the files' time come from the commit (0.2.<commit time, UTC>, newer than
+      #   every 0.1.<run number> before it), so VS Code takes a newer file as an update.
+      # - vsce stores SOURCE_DATE_EPOCH as each file's time and sorts the files; scripts/modes.cjs gives
+      #   every file the same mode.
+      # - Built a second time from a fresh copy (another folder, another umask, its own npm ci), it must
+      #   come out byte for byte the same, or the job fails.
+      - name: Package the extension (reproducible)
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          npm pkg set version="0.2.$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M)"
           npm run package
+          AGAIN="$RUNNER_TEMP/vsix-again"
+          mkdir -p "$AGAIN"
+          git ls-files --cached --others --exclude-standard . | tar -cf - -T - | tar -xf - -C "$AGAIN"
+          (cd "$AGAIN" && umask 002 && npm ci --ignore-scripts --no-audit --no-fund && npm run package)
+          FIRST=$(sha256sum kratosforge.vsix | cut -d' ' -f1)
+          SECOND=$(sha256sum "$AGAIN/kratosforge.vsix" | cut -d' ' -f1)
+          echo "kratosforge.vsix $FIRST; built again: $SECOND"
+          [ "$FIRST" = "$SECOND" ] || { echo "::error::kratosforge.vsix isn't reproducible: two builds of $GITHUB_SHA differ"; exit 1; }
+          # Its SBOM, made from the file itself; also reproducible (the commit's time, a serial from the file's hash).
+          python ../.github/scripts/sbom_npm.py vscode sbom-vscode.cdx.json kratosforge.vsix
+          python ../.github/scripts/sbom_check.py vscode sbom-vscode.cdx.json kratosforge.vsix
         working-directory: vscode
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: kratosforge-vscode
-          path: vscode/kratosforge.vsix
+          # Both from vscode/, so they download side by side at the top of the release job's folder.
+          path: |
+            vscode/kratosforge.vsix
+            vscode/sbom-vscode.cdx.json
           if-no-files-found: error
 
   ui-browser:
@@ -796,18 +822,19 @@ jobs:
             --arg sbom_engine "$(sha256sum sbom-engine.cdx.json | cut -d' ' -f1)" \
             --arg sbom_app "$(sha256sum sbom-app.cdx.json | cut -d' ' -f1)" \
             --arg sbom_ui "$(sha256sum sbom-ui.cdx.json | cut -d' ' -f1)" \
+            --arg sbom_vscode "$(sha256sum sbom-vscode.cdx.json | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, msi_sha256: $msi, vsix_sha256: $vsix, engine_sha256: $engine,
               engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
-              sbom_engine_sha256: $sbom_engine, sbom_app_sha256: $sbom_app, sbom_ui_sha256: $sbom_ui,
+              sbom_engine_sha256: $sbom_engine, sbom_app_sha256: $sbom_app, sbom_ui_sha256: $sbom_ui, sbom_vscode_sha256: $sbom_vscode,
               published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json kratosforge.vsix)
+          BUILD_FILES=(kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json sbom-vscode.cdx.json kratosforge.vsix)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -835,12 +862,12 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json kratosforge.vsix --clobber
+            gh release upload latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json sbom-vscode.cdx.json kratosforge.vsix --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json kratosforge.vsix version.json \
+            gh release create latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json sbom-ui.cdx.json sbom-vscode.cdx.json kratosforge.vsix version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

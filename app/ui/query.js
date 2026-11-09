@@ -12,6 +12,38 @@ const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: 
 // Warehouses whose first run this session the person has confirmed (a warehouse run uses capacity).
 const sqlWarehouseOk = new Set();
 
+// The Explorer beside the query collapses to a thin strip with an expand button. The choice is kept on
+// this PC for this Windows user; with none made yet, it starts collapsed in a window under 900 px wide,
+// where the query needs the room (at 200% zoom, for one).
+const SQL_EXPLORER_KEY = "fd.sql.explorer";
+
+function sqlExplorerOpen() {
+  try {
+    const kept = localStorage.getItem(SQL_EXPLORER_KEY);
+    if (kept === "open" || kept === "closed") return kept === "open";
+  } catch { /* no storage: fall back to the window's width */ }
+  return !window.matchMedia("(max-width: 900px)").matches;
+}
+
+function setSqlExplorerOpen(open) {
+  try { localStorage.setItem(SQL_EXPLORER_KEY, open ? "open" : "closed"); } catch { /* kept until the page is drawn again */ }
+  sqlPage.explorerOpen = open;
+  renderQuery();
+  document.querySelector(open ? ".sql-explorer-hide" : ".sql-explorer-show")?.focus();
+}
+
+// The Explorer's collapse button, or the strip that stands in for it while collapsed.
+function sqlExplorerHide() {
+  return btn("", "panel", () => setSqlExplorerOpen(false), "tool small sql-explorer-hide",
+    { "aria-label": "Collapse the Explorer", title: "Collapse the Explorer", "aria-expanded": "true" });
+}
+
+function sqlExplorerStrip() {
+  return h("aside", { class: "explorer sql-explorer-strip", "aria-label": "Explorer" },
+    btn("", "panel", () => setSqlExplorerOpen(true), "tool small sql-explorer-show",
+      { "aria-label": "Expand the Explorer", title: "Expand the Explorer", "aria-expanded": "false" }));
+}
+
 // WH-01: a warehouse ref is { kind: "warehouse" | "endpoint", workspace_id, workspace_name, item_id,
 // name }. For "endpoint", item_id is the lakehouse's id, as sql_start's warehouse_ref takes it.
 function isWarehouseRef(ref) {
@@ -201,6 +233,7 @@ function renderQuery() {
   if (!p.tabs[p.active]) p.active = 0;
   const tab = p.tabs[p.active];
   const wh = isWarehouseRef(ref);
+  const explorerOpen = p.explorerOpen ?? sqlExplorerOpen();
   tab.dialect = wh ? ref.kind : sqlDialect(tab.dialect);
   const here = () => state.view === "query" && p.ref === ref && p.tabs[p.active] === tab;
   const runsHere = () => wh || SQL_DIALECTS[tab.dialect].runsHere;
@@ -1029,8 +1062,10 @@ function renderQuery() {
         whChangesTicked(ref) ? "Runs in Fabric · uses capacity · changes after you confirm" : "Runs in Fabric · uses capacity · reads only"),
       learnMore("warehouse-queries-preview"))),
     h("div", { class: "nb-body" },
-      h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views", role: "tablist", "aria-label": "Explorer views" },
-        asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History"), whProj ? asideTab("project", "Project") : null),
+      !explorerOpen ? sqlExplorerStrip() : h("aside", { class: "explorer" }, h("div", { class: "explorer-head sql-views-head" },
+        h("div", { class: "sql-views", role: "tablist", "aria-label": "Explorer views" },
+          asideTab("explorer", "Explorer"), asideTab("queries", "Queries"), asideTab("history", "History"), whProj ? asideTab("project", "Project") : null),
+        sqlExplorerHide()),
         asideView === "queries" ? whSaved.el : asideView === "history" ? whRuns.el : asideView === "project" ? whProj.el : null,
         asideView !== "explorer" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" },
           itemIcon(ref.kind === "endpoint" ? "SQLEndpoint" : "Warehouse", 16), h("span", { class: "label" }, ref.name), previewTag()),
@@ -1060,7 +1095,7 @@ function renderQuery() {
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
-      h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
+      !explorerOpen ? sqlExplorerStrip() : h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
         h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
           h("span", { class: "label" }, ref.name)),
         tablesBox),

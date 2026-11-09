@@ -27,16 +27,16 @@ How each check works:
 | SQL from a template, 200% | The script preview scrolled sideways but couldn't be reached from the keyboard. | It is a Tab stop, as the other script previews already are. |
 | Every dialog, the command bar and toasts, contrast theme | With shadows and background colors gone, they had no edge, so a dialog's text sat directly on the page's. | In a contrast theme they get a border in the theme's text color. |
 
-## For UX: works, but would read better with a layout change
+## Short and narrow windows
 
-The checks pass on all of these. They are not fixed here because each one needs a layout decision.
+UX chose these layout changes after the checks above. `app/tests/browser/short-window.test.cjs` checks them.
 
-1. **The left rail at 200%.** Academy, Source control and Settings fall below the window. The rail scrolls and Tab reaches them, but they can't be seen without scrolling. One option is a compact rail (icons only) below a height.
-2. **The SQL page's Explorer at 200%.** The Explorer keeps about 40% of the width, which leaves the query and results narrow. A way to collapse it would give the query the room.
-3. **The Home hero at 200%.** It fills most of the first screen, so Start something and Getting started begin below the fold.
-4. **Pictures in a contrast theme.** The theme keeps pictures as they are. These all keep their own colors, which is expected and readable but doesn't follow the theme:
-   - the header wordmark
-   - the page header art
-   - the hero art
+| Where | Before | Now |
+| --- | --- | --- |
+| The left rail, under 640 px tall | Academy, Source control and Settings fell below the window. The rail scrolled to them. | The rail shows icons only, closer together, so every item fits. Each name is still the button's text, so it is the accessible name, and it shows as a tooltip. The current page keeps its stripe and focus keeps its ring. |
+| The SQL page's Explorer | It kept about 40% of the width at 200%, leaving the query narrow. | A button in the Explorer's header collapses it to a thin strip with an expand button. The choice is kept on this PC. With no choice made, a window under 900 px wide starts with it collapsed. |
+| The Home hero, under 640 px tall | It filled most of the first screen, so Start something and Getting started began below the fold. | It is one strip with the welcome and its actions. The kicker, the title and the art are left out. |
 
-   Each of these already has its words as real text beside it.
+## Pictures in a contrast theme
+
+A contrast theme keeps pictures in their own colors. The Home hero art (`.home-hero-img`) and the Monitor page's header art (`.forge-art`) are hidden in a contrast theme (under `forced-colors: active` in `styles.css`), so no page shows them there. The header wordmark keeps its colors, which is right: it is the product's mark, and its name is real text beside it.

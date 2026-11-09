@@ -85,7 +85,8 @@ class NotebookFilesMixin:
                     return {"name": name}
             except (OSError, ValueError):
                 pass
-        return {"name": None}
+        why = _long_path_problem(full)
+        return {"name": None, "why": why} if why else {"name": None}
 
     def notebook_listing(self) -> list[dict[str, Any]]:
         """Every notebook (as list_notebooks), with the Fabric workspace it was last published to."""
@@ -204,6 +205,20 @@ class NotebookFilesMixin:
         except Exception as exc:  # noqa: BLE001 - the notebook is saved; Publish finds the item by name
             _log.warning("Couldn't record notebook %r's Fabric item: %s", out["name"], describe(exc))
         return out
+
+
+# Windows' limit on a path, unless long paths are turned on for the PC (LongPathsEnabled).
+WINDOWS_PATH_LIMIT = 260
+WINDOWS_LONG_PATH_LIMIT = 32_767  # with long paths turned on; nothing longer can be a file
+
+
+def _long_path_problem(full: str) -> str | None:
+    """Words for the person when a path past Windows' usual limit can't be found, which is what
+    happens on a PC where long paths aren't turned on."""
+    if not WINDOWS_PATH_LIMIT <= len(full) <= WINDOWS_LONG_PATH_LIMIT or os.path.exists(full):
+        return None
+    return (f"Windows couldn't find it. Its path is {len(full)} characters, past the {WINDOWS_PATH_LIMIT} Windows allows "
+            "unless long paths are turned on: move it to a folder with a shorter path, or ask IT to turn on long paths.")
 
 
 def _no_link_below(top: str, full: str) -> bool:

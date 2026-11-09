@@ -13,8 +13,15 @@ import json
 import os
 import sys
 
+# Annotations that name these are quoted: this process imports nothing for them (mypy reads the block;
+# no "from __future__ import annotations", which the learner's compile() would inherit).
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+    from typing import Any, NoReturn
 
-def _resolver(appcontainer, root=None):
+
+def _resolver(appcontainer: bool, root: "str | None" = None) -> "Callable[[str], str]":
     """How the guards turn a path into the one Windows will open.
 
     ``os.path.abspath`` first: Windows itself collapses ``.`` and ``..`` in a path before following any
@@ -28,7 +35,7 @@ def _resolver(appcontainer, root=None):
         return lambda p: realpath(abspath(p))
     roots = (abspath(root),) if root else ()   # the workspace: inside an AppContainer, nothing else is writable
 
-    def resolve(p, _roots=roots, _err=PermissionError):
+    def resolve(p: str, _roots: "tuple[str, ...]" = roots, _err: "type[Exception]" = PermissionError) -> str:
         full = abspath(p)
         for top in _roots:
             f, r = norm(full), norm(top)
@@ -120,12 +127,13 @@ def _main() -> None:
     exec(code, scope)  # noqa: S102 - the learner's own exercise script, in this guarded process
 
 
-def _guard_imports(blocked):
+def _guard_imports(blocked: "frozenset[str]") -> None:
     """The engine package and sign-in libraries can't be imported, from here on."""
     import importlib.abc
 
     class _Guard(importlib.abc.MetaPathFinder):
-        def find_spec(self, name, path=None, target=None, _blocked=blocked):
+        def find_spec(self, name: str, path: "Any" = None, target: "Any" = None,
+                      _blocked: "frozenset[str]" = blocked) -> None:
             if name.partition(".")[0] in _blocked:
                 raise ImportError(f"{name} isn't available in an Academy exercise.")
             return None
@@ -136,7 +144,8 @@ def _guard_imports(blocked):
     sys.meta_path.insert(0, _Guard())
 
 
-def _install(work, reads, denied, blocked, libs=(), real=os.path.realpath):
+def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blocked: "frozenset[str]", libs: "tuple[str, ...]" = (),
+             real: "Callable[[str], str]" = os.path.realpath) -> None:
     """The audit hook. Its state is bound as default arguments of immutable values, and the
     function is kept nowhere the learner's code can name."""
     refuse_names = ("socket.", "subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
@@ -151,18 +160,22 @@ def _install(work, reads, denied, blocked, libs=(), real=os.path.realpath):
     list_names = ("os.listdir", "os.scandir", "os.walk", "glob.glob", "os.getxattr", "os.listxattr", "pathlib.Path.glob",
                   "pathlib.Path.rglob")
 
-    def _paths(args):
+    def _paths(args: "tuple[Any, ...]") -> "Iterator[Any]":
         for a in args:
             if isinstance(a, (str, bytes, os.PathLike)):
                 yield a
 
-    def hook(event, args, _work=work, _libs=libs, _reads=reads, _denied=denied, _blocked=blocked, _refuse=refuse_names,
-             _write=write_names, _list=list_names, _real=real, _fspath=os.fsdecode, _norm=os.path.normcase,
-             _sep=os.sep, _paths=_paths, _err=PermissionError):
-        def under(path, roots):
+    def hook(event: str, args: "tuple[Any, ...]", _work: str = work, _libs: "tuple[str, ...]" = libs,
+             _reads: "tuple[str, ...]" = reads, _denied: "tuple[str, ...]" = denied, _blocked: "frozenset[str]" = blocked,
+             _refuse: "tuple[str, ...]" = refuse_names, _write: "tuple[str, ...]" = write_names, _list: "tuple[str, ...]" = list_names,
+             _real: "Callable[[str], str]" = real, _fspath: "Callable[[Any], str]" = os.fsdecode,
+             _norm: "Callable[[str], str]" = os.path.normcase, _sep: str = os.sep,
+             _paths: "Callable[[tuple[Any, ...]], Iterator[Any]]" = _paths,
+             _err: "type[Exception]" = PermissionError) -> None:
+        def under(path: str, roots: "tuple[str, ...]") -> bool:
             return any(path == r or path.startswith(r.rstrip(_sep) + _sep) for r in roots)
 
-        def where(p):
+        def where(p: "Any") -> str:
             return _norm(_real(_fspath(p)))
 
         if event == "import":
@@ -204,7 +217,7 @@ def _install(work, reads, denied, blocked, libs=(), real=os.path.realpath):
     sys.addaudithook(hook)
 
 
-def _wrap_native(work, resolve=os.path.realpath):
+def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) -> None:
     """Polars, DuckDB, delta-rs, pyarrow and pandas read and write files from native code the audit
     hook never sees. Their entry points refuse a URL, ``storage_options`` and a path outside the
     workspace. Only modules that are installed are wrapped; each import is checked by the hook."""
@@ -214,7 +227,7 @@ def _wrap_native(work, resolve=os.path.realpath):
     real, sep, norm = resolve, os.sep, os.path.normcase
     as_given, work = work, norm(work)   # DuckDB compares its allowed directories with case
 
-    def check(value, what):
+    def check(value: "Any", what: str) -> None:
         if isinstance(value, (list, tuple)):
             for v in value:
                 check(v, what)
@@ -231,10 +244,11 @@ def _wrap_native(work, resolve=os.path.realpath):
         if full != work and not full.startswith(work.rstrip(sep) + sep):
             raise PermissionError(f"An Academy exercise can use only files in its own folder ({what}).")
 
-    def guard(fn, what, arg_names=("source", "file", "path", "target", "table_or_uri", "table_uri", "where",
-                                    "database", "base_dir", "path_or_paths", "uri")):
+    def guard(fn: "Callable[..., Any]", what: str,
+              arg_names: "tuple[str, ...]" = ("source", "file", "path", "target", "table_or_uri", "table_uri", "where",
+                                           "database", "base_dir", "path_or_paths", "uri")) -> "Callable[..., Any]":
         @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: "Any", **kwargs: "Any") -> "Any":
             if kwargs.get("storage_options") or kwargs.get("filesystem"):
                 raise PermissionError("An Academy exercise can't use remote storage options.")
             first = args[0] if args else None
@@ -250,7 +264,7 @@ def _wrap_native(work, resolve=os.path.realpath):
 
     swapped: dict[int, object] = {}   # id(original) -> wrapped, so the same function reached through a submodule is wrapped too
 
-    def wrap_all(module, prefixes, what):
+    def wrap_all(module: "Any", prefixes: "tuple[str, ...]", what: str) -> None:
         for name in dir(module):
             fn = getattr(module, name, None)
             if name.startswith(prefixes) and callable(fn) and not isinstance(fn, type):   # classes: _guard_init
@@ -261,7 +275,7 @@ def _wrap_native(work, resolve=os.path.realpath):
                     continue
                 swapped[id(fn)] = wrapped
 
-    def rewire(package):
+    def rewire(package: str) -> None:
         """Every module of ``package`` (polars.io.csv.functions and the like) that holds one of the
         original functions gets the wrapped one instead."""
         for modname, mod in list(sys.modules.items()):
@@ -275,7 +289,7 @@ def _wrap_native(work, resolve=os.path.realpath):
                     except (AttributeError, TypeError):
                         pass
 
-    def maybe(name):
+    def maybe(name: str) -> "Any":
         try:
             return importlib.import_module(name)
         except ImportError:
@@ -311,10 +325,10 @@ def _wrap_native(work, resolve=os.path.realpath):
         # Remote and other file systems are refused.
         _local = pa_fs.LocalFileSystem
 
-        def _checked_method(name, n_paths):
+        def _checked_method(name: str, n_paths: int) -> "Callable[..., Any]":
             original = getattr(_local, name)
 
-            def method(self, *args, **kwargs):
+            def method(self: "Any", *args: "Any", **kwargs: "Any") -> "Any":
                 for p in args[:n_paths]:
                     if isinstance(p, (list, tuple)):
                         for q in p:
@@ -332,7 +346,7 @@ def _wrap_native(work, resolve=os.path.realpath):
         members["delete_root_dir_contents"] = _refused("pyarrow.fs delete_root_dir_contents")
         _base = pa_fs.FileSystem
 
-        def from_uri(uri):
+        def from_uri(uri: str) -> "tuple[Any, str]":
             """A plain path in the workspace only; a local file system comes back checked."""
             check(uri, "a pyarrow file")
             fs, path = _base.from_uri(uri)
@@ -342,10 +356,10 @@ def _wrap_native(work, resolve=os.path.realpath):
         checked_local = type("LocalFileSystem", (_local,), members)
 
         class _FileSystemMeta(type):   # isinstance and issubclass still answer for the real base class
-            def __instancecheck__(cls, obj):
+            def __instancecheck__(cls, obj: object) -> bool:
                 return isinstance(obj, _base)
 
-            def __subclasscheck__(cls, sub):
+            def __subclasscheck__(cls, sub: type) -> bool:
                 return issubclass(sub, _base)
 
         checked_base = _FileSystemMeta("FileSystem", (), {"from_uri": staticmethod(from_uri)})
@@ -388,20 +402,20 @@ def _wrap_native(work, resolve=os.path.realpath):
         rewire(package)
 
 
-def _is_frame(value):
+def _is_frame(value: object) -> bool:
     return type(value).__name__ in ("DataFrame", "LazyFrame", "Table", "RecordBatch")
 
 
-def _refused(name):
-    def refuse(*_a, **_k):
+def _refused(name: str) -> "Callable[..., NoReturn]":
+    def refuse(*_a: "Any", **_k: "Any") -> "NoReturn":
         raise PermissionError(f"An Academy exercise can't use {name}.")
     return refuse
 
 
-def _guard_init(cls, check, what):
+def _guard_init(cls: "Any", check: "Callable[[Any, str], None]", what: str) -> None:
     original = cls.__init__
 
-    def __init__(self, table_uri, *args, **kwargs):
+    def __init__(self: "Any", table_uri: "Any", *args: "Any", **kwargs: "Any") -> None:
         if kwargs.get("storage_options"):
             raise PermissionError("An Academy exercise can't use remote storage options.")
         check(table_uri, what)
@@ -410,7 +424,7 @@ def _guard_init(cls, check, what):
     cls.__init__ = __init__
 
 
-def _lock_query_builder():
+def _lock_query_builder() -> None:
     """deltalake's QueryBuilder runs DataFusion SQL, which reads and writes files from native code
     (CREATE EXTERNAL TABLE ... LOCATION, COPY ... TO). It runs one SELECT or WITH statement over the
     Delta tables registered with it, and its session settings are limited to execution ones."""
@@ -426,7 +440,7 @@ def _lock_query_builder():
     banned = re.compile(r"\b(copy|create|location|insert|delete|update|drop|alter|set|external|merge|load|install|"
                         r"attach|prepare|execute|explain\s+analyze)\b", re.I)
 
-    def allowed(sql):
+    def allowed(sql: "Any") -> "Any":
         text = comments.sub(" ", str(sql))
         bare = strings.sub("''", text).strip().rstrip(";").strip()
         if ";" in bare or not re.match(r"(?is)\s*(select|with)\b", bare) or banned.search(bare):
@@ -434,22 +448,22 @@ def _lock_query_builder():
                                   "registered with the QueryBuilder.")
         return sql
 
-    def builder(session_config):
+    def builder(session_config: "Any") -> "Any":
         """The native builder stays in this closure; the instance holds only what the class calls."""
         inner = real(session_config)
 
         class _Builder:
             __slots__ = ()
 
-            def register(self, table_name, delta_table):
+            def register(self, table_name: str, delta_table: "Any") -> "Any":
                 return inner.register(table_name=table_name, delta_table=delta_table)
 
-            def execute(self, sql):
+            def execute(self, sql: "Any") -> "Any":
                 return inner.execute(allowed(sql))
 
         return _Builder()
 
-    def __init__(self, session_config=None):
+    def __init__(self: "Any", session_config: "dict[str, Any] | None" = None) -> None:
         for key in (session_config or {}):
             if not str(key).startswith("datafusion.execution."):
                 raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
@@ -457,7 +471,7 @@ def _lock_query_builder():
 
     original = qb.execute
 
-    def execute(self, sql):
+    def execute(self: "Any", sql: "Any") -> "Any":
         return original(self, allowed(sql))
 
     qb.__init__, qb.execute = __init__, execute
@@ -468,13 +482,13 @@ def _lock_query_builder():
             setattr(mod, "PyQueryBuilder", refuse)  # noqa: B010 - replaces deltalake's own
 
 
-def _lock_duckdb(db, work, guard):
+def _lock_duckdb(db: "Any", work: str, guard: "Callable[..., Any]") -> None:
     """Every DuckDB connection, the module's default one included, reads only the workspace."""
     settings = ("SET allowed_directories = ['" + work.replace("'", "''") + "']",
                 "SET enable_external_access = false", "SET memory_limit = '1GB'", "SET lock_configuration = true")
     connect = db.connect
 
-    def locked(database=":memory:", *args, **kwargs):
+    def locked(database: "Any" = ":memory:", *args: "Any", **kwargs: "Any") -> "Any":
         if database not in (":memory:", "", None) and not str(database).startswith(":memory:"):
             guard(lambda d: d, "a DuckDB database")(database)
         con = connect(database, *args, **kwargs)

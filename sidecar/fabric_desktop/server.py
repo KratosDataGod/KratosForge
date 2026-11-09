@@ -297,6 +297,8 @@ def handle(service: Service, line: str) -> dict:
     try:
         call = getattr(service, method)
         rpc_params.check(method, call, params)
+        if audit.audited(method) and audit.fails_closed(method, params):
+            _audit_started(service, method, params)  # raises when the line can't be written: nothing runs
         reply = {"id": req_id, "result": call(**params)}
     except Exception as exc:  # report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
@@ -336,18 +338,37 @@ def _short(message: str) -> str:
     return message if len(message) <= ERROR_CHARS else message[:ERROR_CHARS] + f"… ({len(message) - ERROR_CHARS} more characters)"
 
 
+def _who(service: Service) -> tuple[str, str]:
+    auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
+    if auth is None:
+        return "", ""
+    return auth.signed_in_user() or "", auth.signed_in_tenant() or ""
+
+
+def _audit_started(service: Service, method: str, params: dict) -> None:
+    """The line before a call that must not run unrecorded (audit.FAIL_CLOSED, or one given a
+    confirmation, approval, typed name or risk acknowledgement). A line that can't be
+    written refuses the call, and nothing was started."""
+    log = getattr(service, "audit", None)
+    if log is None:
+        return
+    try:
+        who, tenant = _who(service)
+        log.record(method, "started", 0.0, params if isinstance(params, dict) else {}, who=who, tenant=tenant)
+    except Exception as exc:  # noqa: BLE001 - any failure to write refuses the call
+        raise PermissionError(audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")) from exc
+
+
 def _audit(service: Service, method: str, params: dict, reply: dict, seconds: float) -> None:
     """One audit line per call that changes or runs something. Never fails the call itself."""
     try:
         log = getattr(service, "audit", None)
         if log is None:
             return
-        auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
-        who = tenant = ""
-        if auth is not None:
-            who, tenant = auth.signed_in_user() or "", auth.signed_in_tenant() or ""
-        log.record(method, "error" if "error" in reply else "ok", seconds, params if isinstance(params, dict) else {},
-                   who=who, tenant=tenant, error=str(reply.get("error") or ""))
+        who, tenant = _who(service)
+        result, reason = ("error", "") if "error" in reply else audit.outcome(reply.get("result"))
+        log.record(method, result, seconds, params if isinstance(params, dict) else {},
+                   who=who, tenant=tenant, error=str(reply.get("error") or ""), reason=reason)
     except Exception as exc:  # noqa: BLE001 - an audit problem is logged, the user's call goes on
         print(f"audit: could not record {method}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
@@ -511,6 +532,15 @@ def main() -> None:
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
+    from . import data_format
+    from .service import data_dir
+    try:
+        data_format.check(data_dir())
+    except data_format.NewerData as exc:
+        # Every call gets the reason, so the app says it, and nothing opens a store.
+        print(f"engine: {exc}", file=sys.stderr)
+        serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
     _refresh_integration_launcher()
     from . import notebook
     notebook.sweep_spills()  # output files a closed notebook session left behind
@@ -526,6 +556,19 @@ def main() -> None:
         engines = getattr(service, "_engines", None)
         if engines is not None:
             engines.close_all()  # end engine sessions (and remote sessions in Fabric) with the app
+
+
+class _Refused:
+    """The engine's stand-in when the data folder is a newer build's: every method raises why."""
+
+    audit = None  # nothing is recorded: no call runs
+    telemetry = None
+
+    def __init__(self, reason: Exception):
+        self._reason = reason
+
+    def __getattr__(self, name: str) -> object:
+        raise self._reason
 
 
 def _start_integration_http(service: Service) -> None:

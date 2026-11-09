@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "So that the tables no longer need keys"
+          "text": "So that the dimension tables no longer need surrogate keys"
         },
         {
           "id": "b",
-          "text": "So that every attribute is stored only once"
+          "text": "So that every attribute value is stored only once in the model"
         },
         {
           "id": "c",
-          "text": "So that storage use goes down"
+          "text": "So that the tables use less storage in OneLake"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Flattening related attributes into one dimension per subject gives a star schema that reporting tools query with few joins. It stores some values more than once, which is the accepted trade-off.",
       "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.2.7-q2",
@@ -126,10 +126,201 @@
         "a"
       ],
       "explanation": "Denormalized tables repeat values, so they take more space and an attribute change touches every row that repeats it. They need fewer joins, not more.",
-      "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
+      "source": "https://learn.microsoft.com/en-us/office/troubleshoot/access/database-normalization-description",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q5",
+      "type": "single",
+      "stem": "Product data is stored as a snowflake dimension (Product, Subcategory, Category tables) to save space. The semantic model needs a Category > Subcategory > Product hierarchy. What should the warehouse deliver to the model?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A view that joins the snowflake tables into one denormalized result"
+        },
+        {
+          "id": "b",
+          "text": "Three separate fact tables, one at each level of the hierarchy"
+        },
+        {
+          "id": "c",
+          "text": "The three tables, related to each other in the semantic model"
+        },
+        {
+          "id": "d",
+          "text": "A parent-child table that has one row per hierarchy level"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A semantic model hierarchy can only use columns from one table, so a snowflake dimension should be exposed through a view that joins its tables.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q6",
+      "type": "single",
+      "stem": "A sales fact table is at order-line grain, and the order number has no other attributes. How should the order number be modeled?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Keep it in the fact table as a degenerate dimension"
+        },
+        {
+          "id": "b",
+          "text": "Add it to a junk dimension with the order status flags"
+        },
+        {
+          "id": "c",
+          "text": "Create an Order dimension table with a surrogate key and the order number"
+        },
+        {
+          "id": "d",
+          "text": "Move it into the Customer dimension as an attribute"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "An order or invoice number at fact grain is a degenerate dimension, and it's accepted practice not to copy it into a separate dimension table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q7",
+      "type": "multiple",
+      "stem": "An Employee dimension is built from a source that stores each employee's manager in a parent-child relationship. Which two practices does the guidance recommend? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Naturalize the hierarchy into one column per level"
+        },
+        {
+          "id": "b",
+          "text": "Where a level is missing in a ragged hierarchy, repeat the parent's value"
+        },
+        {
+          "id": "c",
+          "text": "Leave missing levels empty so that reports show the gaps"
+        },
+        {
+          "id": "d",
+          "text": "Keep only the self-referencing parent key, because level columns are redundant"
+        },
+        {
+          "id": "e",
+          "text": "Store each level in its own snowflake table"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Querying parent-child hierarchies can be complex and slow, so naturalize them; in ragged hierarchies missing levels repeat the parent value. Leaving gaps or snowflaking works against a denormalized dimension.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q8",
+      "type": "single",
+      "stem": "A wide reporting table must list every order with its customer's name and segment. Some orders reference customers that aren't in the customer table yet, and they must still appear. Which PySpark code builds it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`df_order.join(df_customer, on=df_order[\"cust_id\"] == df_customer[\"cust_id\"], how=\"left\")`"
+        },
+        {
+          "id": "b",
+          "text": "`df_customer.join(df_order, on=df_order[\"cust_id\"] == df_customer[\"cust_id\"], how=\"left\")`"
+        },
+        {
+          "id": "c",
+          "text": "`df_order.join(df_customer, on=df_order[\"cust_id\"] == df_customer[\"cust_id\"], how=\"inner\")`"
+        },
+        {
+          "id": "d",
+          "text": "`df_order.union(df_customer)`"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A left join keeps all rows of the first DataFrame (orders). The default inner join drops orders without a customer, the reversed left join keeps customers instead, and union appends rows instead of joining.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q9",
+      "type": "single",
+      "stem": "A sales fact table has OrderDateKey, ShipDateKey and DeliveryDateKey columns. How many physical date dimension tables does the model need?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Three date dimensions, one per date column"
+        },
+        {
+          "id": "b",
+          "text": "None; the dates should be stored as text in the fact table"
+        },
+        {
+          "id": "c",
+          "text": "Two: one for order dates and one shared by shipping and delivery"
+        },
+        {
+          "id": "d",
+          "text": "One date dimension that plays three roles"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A dimension referenced several times by a fact table is a role-playing dimension: three roles, one physical table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q10",
+      "type": "single",
+      "stem": "A KQL query enriches a very large Events table with a small Devices table to produce a wide result. For best join performance, how should it be written?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`Events | join kind=inner (Devices) on DeviceId`"
+        },
+        {
+          "id": "b",
+          "text": "`Events | join kind=fullouter (Devices) on DeviceId`"
+        },
+        {
+          "id": "c",
+          "text": "`Devices | join kind=inner (Events) on DeviceId`"
+        },
+        {
+          "id": "d",
+          "text": "`Events | union Devices`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "When one table is always smaller, put it on the left side of the join. union appends rows instead of joining, and fullouter keeps unmatched rows that weren't asked for.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/join-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

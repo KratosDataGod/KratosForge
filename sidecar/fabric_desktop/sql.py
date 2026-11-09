@@ -43,7 +43,8 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
-        statements = _statements(sqlglot.parse(query, read=chosen["sqlglot"]))
+        statements = _statements(sqlglot.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
+                                               read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
             statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
     except ParseError as first_error:
@@ -97,6 +98,46 @@ def _spark_spellings(query: str) -> str:
     return query
 
 
+_DIFF_UNITS = frozenset({"MICROSECOND", "MILLISECOND", "SECOND", "MINUTE", "HOUR", "DAY", "WEEK", "MONTH",
+                         "QUARTER", "YEAR"})
+
+
+def diff_spellings(query: str, databricks: bool = False) -> str:
+    """``query`` with datediff(unit, start, end) and date_diff(unit, start, end), and in Databricks SQL
+    timediff(unit, start, end), written as timestampdiff: Spark and Databricks read all of them as
+    timestampdiff, which counts whole units elapsed. sqlglot reads the two-argument datediff(end, start)
+    (days between the dates) into the same node as the three-argument DAY form, so they are told apart
+    here, by their spelling."""
+    names = ("datediff", "date_diff", "timediff") if databricks else ("datediff", "date_diff")
+    try:
+        tokens = sqlglot.tokenize(query, read="databricks" if databricks else "spark")
+    except TokenError:
+        return query
+    edits = [(name.start, name.end + 1)
+             for i, (name, paren, unit, comma) in enumerate(zip(tokens, tokens[1:], tokens[2:], tokens[3:], strict=False))
+             if name.token_type == TokenType.VAR and name.text.lower() in names and paren.token_type == TokenType.L_PAREN
+             and unit.text.upper() in _DIFF_UNITS and comma.token_type == TokenType.COMMA
+             and _arguments(tokens, i + 1) == 3]
+    for start, end in reversed(edits):
+        query = query[:start] + "timestampdiff" + query[end:]
+    return query
+
+
+def _arguments(tokens: list[Any], paren: int) -> int:
+    """How many arguments the call whose opening bracket is ``tokens[paren]`` has (commas at its own depth)."""
+    depth, count = 0, 1
+    for token in tokens[paren:]:
+        if token.token_type in (TokenType.L_PAREN, TokenType.L_BRACKET, TokenType.L_BRACE):
+            depth += 1
+        elif token.token_type in (TokenType.R_PAREN, TokenType.R_BRACKET, TokenType.R_BRACE):
+            depth -= 1
+            if depth == 0:
+                return count
+        elif token.token_type == TokenType.COMMA and depth == 1:
+            count += 1
+    return count
+
+
 _EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."
 
 
@@ -136,10 +177,11 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
     the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift.
     ``databricks``: schema_of_json writes every field name in backticks, as Databricks documents it;
-    Apache Spark 3.5 (Fabric) quotes only names that need it."""
+    Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
+    (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
-    return spark_builtins_sql.rewrite(
-        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement)))))))
+    return _spark_timestampdiff(spark_builtins_sql.rewrite(
+        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement))))))))
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -908,6 +950,52 @@ def _spark_dates(statement: exp.Expression) -> exp.Expression:
             if not spark_trunc:
                 continue
         node.replace(exp.cast(node.copy(), exp.DataType.Type.DATE))
+    return statement
+
+
+# timestampdiff(unit, start, end) counts whole units elapsed, as Java's ChronoUnit.between does for Spark:
+# up to WEEK by the microseconds between the two (a DAY is 86400 seconds, in the session's UTC), rounded
+# toward zero; MONTH, QUARTER and YEAR by whole months, where a month has elapsed once the calendar day
+# and time reach the start's. sqlglot writes DuckDB's date_diff, which counts the boundaries crossed
+# instead: timestampdiff(MONTH, '2021-02-28 12:00:00', '2021-03-28 11:59:59') is 1 there, 0 in Spark.
+_DIFF_MICROS = {"MICROSECOND": 1, "MILLISECOND": 1_000, "SECOND": 1_000_000, "MINUTE": 60_000_000,
+                "HOUR": 3_600_000_000, "DAY": 86_400_000_000, "WEEK": 604_800_000_000}
+_DIFF_MONTHS = {"MONTH": 1, "QUARTER": 3, "YEAR": 12}
+_MICROS_BETWEEN = "CAST((epoch_us(CAST(_e AS TIMESTAMP)) - epoch_us(CAST(_s AS TIMESTAMP))) // {n} AS BIGINT)"
+# Java's LocalDateTime.until: the end date moves a day toward the start when its time of day hasn't
+# reached the start's, then whole months are (month * 32 + day) apart, divided by 32 rounding toward zero
+_END_DAY = ("CASE WHEN CAST(_e AS DATE) > CAST(_s AS DATE) AND CAST(CAST(_e AS TIMESTAMP) AS TIME) < "
+            "CAST(CAST(_s AS TIMESTAMP) AS TIME) THEN CAST(_e AS DATE) - 1 WHEN CAST(_e AS DATE) < CAST(_s AS DATE) "
+            "AND CAST(CAST(_e AS TIMESTAMP) AS TIME) > CAST(CAST(_s AS TIMESTAMP) AS TIME) THEN CAST(_e AS DATE) + 1 "
+            "ELSE CAST(_e AS DATE) END")
+_PACKED = "((year({d}) * 12 + month({d})) * 32 + day({d}))"
+_MONTHS_BETWEEN = f"CAST((({_PACKED.format(d='_end_day')} - {_PACKED.format(d='CAST(_s AS DATE)')}) // 32) // {{n}} AS BIGINT)"
+
+
+def _diff_template(sql_text: str, **args: exp.Expression) -> exp.Expression:
+    def put(node: exp.Expression) -> exp.Expression:
+        if isinstance(node, exp.Column) and not node.table and node.name.startswith("_") and node.name[1:] in args:
+            return exp.paren(args[node.name[1:]].copy(), copy=False)
+        return node
+    return sqlglot.parse_one(sql_text, read="duckdb").transform(put)
+
+
+def _spark_timestampdiff(statement: exp.Expression) -> exp.Expression:
+    """timestampdiff (and the datediff, date_diff and timediff spellings of it) counting whole units, as Spark does."""
+    # innermost first, so one inside another's arguments is written before the outer one copies them
+    for node in reversed(list(statement.find_all(exp.TimestampDiff, bfs=False))):
+        unit = node.text("unit").upper()
+        start, end = node.expression, node.this
+        if unit in _DIFF_MICROS:
+            new = _diff_template(_MICROS_BETWEEN.format(n=_DIFF_MICROS[unit]), s=start, e=end)
+        elif unit in _DIFF_MONTHS:
+            end_day = _diff_template(_END_DAY, s=start, e=end)
+            new = _diff_template(_MONTHS_BETWEEN.format(n=_DIFF_MONTHS[unit]), s=start, end_day=end_day)
+        else:
+            continue
+        if node is statement:
+            return new
+        node.replace(new)
     return statement
 
 

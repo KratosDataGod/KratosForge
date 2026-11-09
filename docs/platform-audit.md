@@ -46,9 +46,22 @@ So a revoke's `detail.request` leads back to the request that gave the access.
 | `action` | `target` |
 | --- | --- |
 | `claim admin` (the first admin of an empty platform), `add admin`, `remove admin` | the person |
-| `delete domain`, `delete source`, `delete landing zone` | what was deleted. Each is refused while something still uses it, and the refusal writes no row |
+| `delete domain`, `delete source`, `delete landing zone` | what was deleted. Each is refused while something still uses it; the refusal writes only a `refused <operation>` row ([Refused changes](#refused-changes)) |
 
-Every other change writes a row too, each with its own `action`: `save domain`, `save source`, `save landing zone`, `save term`, `save shortcut rules`, `save Entra group naming`, `link Entra group` and `unlink Entra group`, `publish product`, `add product item` and `remove product item`, `add product term` and `remove product term`, `change project` and `project member`. Keys, shortcuts and the landing zone write theirs as well (for example `stage keys`, `keys live`, `shortcut scan`, `switch landing reads`), and so do actions taken from a workload page (`workload <action> <status>`). Filter on the exact names, not on a prefix. Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
+Every other change writes a row too, each with its own `action`: `save domain`, `save source`, `save landing zone`, `save term`, `save shortcut rules`, `save Entra group naming`, `link Entra group` and `unlink Entra group`, `publish product`, `add product item` and `remove product item`, `add product term` and `remove product term`, `change project` and `project member`. Keys, shortcuts and the landing zone write theirs as well (for example `issue keys`, one row per call that issued new keys, with the key table as `target` and how many in `detail.count`, never the business keys; `stage keys`, `keys live`, `shortcut scan`, `switch landing reads`), and so do actions taken from a workload page (`workload <action> <status>`). Filter on the exact names, not on a prefix. Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
+
+## Refused changes
+
+A change the platform refuses (the caller isn't an admin, an owner or a member, or a check on what was asked fails) leaves a `refused <operation>` row, for example `refused delete_domain`, whoever called: the app, a script, or another tool calling `UDF_Platform` directly. The change itself is rolled back first, and the row is written on its own.
+
+| Column | What it holds |
+| --- | --- |
+| `by_user` | The caller as the platform resolved it (Fabric's `executing_user` in Fabric, the signed-in person on one PC), never a name sent with the call |
+| `action` | `refused` and the operation's fixed name. A change sent through `call_once` is named by the operation it carried; a name the platform doesn't know is recorded as `refused call_once` |
+| `target` | Empty |
+| `detail` | `count`: how many refusals of that operation, by that caller, the row stands for |
+
+The row never holds the call's arguments or the refusal's message, which can quote them. Refused reads leave no row. Each row is a write the capacity pays for, so one caller and operation get at most one row a minute (later refusals in that minute are counted into the next row the same process writes), one caller gets at most 30 refused rows an hour, and the platform at most 300. The first refusal past either cap in an hour writes one `refusals not recorded` row (`by_user` is the caller for their own cap, empty for the platform's; `detail` has `cap`: `person` or `platform`, and `count`), and later ones that hour aren't recorded. They're still refused. A row that can't be written never changes the refusal the caller gets.
 
 ## Pulling one request's trail
 
@@ -76,4 +89,7 @@ To find a request's id, look it up in `catalog.request` by `target`, `requested_
 
 - Rows written before this release keep their older shape: a sent row without `request`, and a revoke without the grant's fields. Join those on `target` and time.
 - The platform's trail is append-only through its functions but isn't tamper-evident (no hash chain, unlike the app's per-PC log): its integrity rests on who can write to `SQL_Platform`, so keep write access to the Platform workspace for the central team.
-- Reading the platform writes no rows, except the first admin's claim on an empty platform (`claim admin`). A refused change writes none either.
+- Reading the platform writes no rows, except the first admin's claim on an empty platform (`claim admin`). A refused read writes none either. A refused change writes its `refused <operation>` row ([Refused changes](#refused-changes)).
+- `refused` covers every change the platform turns down: missing rights, and also a check on what was asked (a name in the wrong form, a missing value). Tell them apart by who and what was attempted, not by the row.
+- Past a cap, refusals that hour aren't recorded one by one: the `refusals not recorded` row marks when the gap began. Each caller's own cap (30 an hour) keeps one caller from using up the platform's 300.
+- The rate checks read `catalog.audit` by `action` and `at`, which have no index yet. An index on (`action`, `at`) is planned.

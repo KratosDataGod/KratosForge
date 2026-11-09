@@ -12,6 +12,11 @@ from .server import main as serve
 from .service import Service
 
 
+# The commands that open or change the stores in the app's data folder: refused there when a newer
+# build's data format marks it (data_format.py). `serve` checks in server.main, the agent in its home.
+DATA_COMMANDS = {"mcp", "integrations", "run-schedule", "run-notebooks", "run-notebook", "clean-local", "restore"}
+
+
 def main(argv: list[str] | None = None) -> None:
     from . import net_trust
     net_trust.use_system_store()  # before any HTTPS: a network that inspects HTTPS signs with a root Windows trusts
@@ -222,6 +227,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--print", action="store_true", help="print the link instead of opening it")
     args = parser.parse_args(argv)
 
+    if args.command in DATA_COMMANDS:
+        from . import data_format
+        from .service import data_dir
+        try:
+            data_format.check(data_dir())
+        except data_format.NewerData as exc:
+            print(exc, file=sys.stderr)
+            raise SystemExit(2) from None
     if args.command == "mcp":
         from .integrations.mcp_server import run_stdio
         run_stdio(args.client)
@@ -306,9 +319,21 @@ def _agent(args: argparse.Namespace) -> int:
     except (FileNotFoundError, agent_config.ConfigError) as exc:
         print(exc)
         return 2
+    if args.agent_command in ("run", "enqueue", "requeue", "prune"):
+        from . import data_format
+        try:
+            data_format.check(config.home)
+        except data_format.NewerData as exc:
+            print(exc)
+            return 2
     if args.agent_command == "run":
+        from .mailbox import ControlFolderInUse
         log = logs.setup(config.name, config.home / "logs", config.log_level)
-        Agent(config, log=log).run_forever()
+        try:
+            Agent(config, log=log).run_forever()
+        except ControlFolderInUse as exc:
+            print(exc)
+            return 2
         return 0
     if args.agent_command == "check":
         from .runtime import Runtime
@@ -883,6 +908,7 @@ def _audit(args: argparse.Namespace) -> int:
 def _run_schedule(schedule_id: str, trigger: str) -> None:
     """No console and no one watching: log to a file, never open a sign-in window."""
 
+    from .audit import outcome as audit_outcome
     from .server import _log_file
     if sys.stdout is None or sys.stderr is None or sys.executable.lower().endswith("pythonw.exe"):
         sys.stdout = sys.stderr = _log_file()
@@ -891,10 +917,12 @@ def _run_schedule(schedule_id: str, trigger: str) -> None:
     started = time.monotonic()
     result = service.run_schedule(schedule_id, trigger)
     try:
-        service.audit.record("run_schedule", "error" if result.get("status") == "failed" else "ok",
+        outcome, reason = audit_outcome(result)
+        service.audit.record("run_schedule", outcome,
                              time.monotonic() - started, {"schedule_id": schedule_id, "trigger": trigger},
                              who=(service._auth.signed_in_user() or "") if service._auth else "",
-                             error=str(result.get("error") or result.get("message") or "") if result.get("status") == "failed" else "")
+                             error=str(result.get("error") or result.get("message") or "") if result.get("status") == "failed" else "",
+                             reason=reason)
     except Exception as exc:  # noqa: BLE001 - the run's own result matters more than its audit line
         print(f"audit: {type(exc).__name__}: {exc}")
     print(json.dumps(result, default=str))

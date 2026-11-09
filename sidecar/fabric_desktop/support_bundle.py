@@ -80,11 +80,34 @@ def about(data_dir: Path | None = None) -> dict[str, Any]:
         "python": sys.version.split()[0],
         "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
         "policy_file": app_settings.policy_path().exists(),
+        "paths": path_facts(data_dir or _data_dir()),
         "policy": policy_state(settings),
         "policy_record": policy_record(data_dir or _data_dir()),
         "settings": summary,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+def long_paths_enabled() -> bool | None:
+    """Windows' LongPathsEnabled (a registry value, or the Group Policy that sets it); None off Windows
+    or when it can't be read. Without it, a path past 260 characters fails in most programs."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
+            return bool(winreg.QueryValueEx(key, "LongPathsEnabled")[0])
+    except OSError:
+        return False  # not set: off
+
+
+def path_facts(data_dir: Path) -> dict[str, Any]:
+    """What about the app's data folder can trip a program up, without the path itself (it holds the
+    user name): its length, whether its name is plain ASCII or has a space, whether it is on a network
+    share, and whether Windows allows long paths."""
+    text = str(data_dir)
+    return {"data_folder_length": len(text), "data_folder_ascii": text.isascii(), "data_folder_spaces": " " in text,
+            "data_folder_network": text[:2] in ("\\\\", "//"), "long_paths_enabled": long_paths_enabled()}
 
 
 def policy_state(settings: dict[str, Any] | None = None) -> dict[str, Any]:

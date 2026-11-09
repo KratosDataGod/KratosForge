@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -471,7 +472,7 @@ class Conform:
         self.error: str | None = None
         self.reader = pa.RecordBatchReader.from_batches(target, self._batches(reader))
 
-    def _batches(self, reader: Any):
+    def _batches(self, reader: Any) -> Iterator[pa.RecordBatch]:
         target = self.target
         for batch in reader:
             if batch.schema.equals(target):
@@ -499,7 +500,7 @@ class Counter:
         self.bytes = 0
         self.reader = pa.RecordBatchReader.from_batches(reader.schema, self._count(reader))
 
-    def _count(self, reader: Any):
+    def _count(self, reader: Any) -> Iterator[pa.RecordBatch]:
         for batch in reader:
             self.rows += batch.num_rows
             self.bytes += batch.nbytes

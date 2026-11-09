@@ -126,7 +126,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [local-data-engine-plan.md](local-data-engine-plan.md) | Contributors, platform owners | The local data engine program FD-LDE-001 to 020: audit, implementation matrix, owners, PR plan |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |
 | [quality/README.md](quality/README.md) | Contributors, release managers | Engineering quality baseline: scorecard, [findings](quality/findings.md) (QA-nnn), [architecture standards](quality/architecture.md), [remediation plan](quality/remediation.md), [PR quality gate](quality/pr-review.md) |
-| [audits/EXECUTIVE_SUMMARY.md](audits/EXECUTIVE_SUMMARY.md) | Maintainers, enterprise reviewers | Enterprise engineering audit: [scorecard](audits/ENTERPRISE_READINESS.md), [security and data integrity](audits/SECURITY_AND_DATA_INTEGRITY.md), [engine compatibility](audits/ENGINE_COMPATIBILITY.md), [quality gates](audits/QUALITY_GATES.md), [remediation backlog](audits/REMEDIATION_BACKLOG.md) (EA-nnn), [architecture decisions](audits/ARCHITECTURE_DECISIONS.md) |
+| [audits/EXECUTIVE_SUMMARY.md](audits/EXECUTIVE_SUMMARY.md) | Maintainers, enterprise reviewers | Enterprise engineering audit: [scorecard](audits/ENTERPRISE_READINESS.md), [security and data integrity](audits/SECURITY_AND_DATA_INTEGRITY.md), [engine compatibility](audits/ENGINE_COMPATIBILITY.md), [quality gates](audits/QUALITY_GATES.md), [remediation backlog](audits/REMEDIATION_BACKLOG.md) (EA-nnn), [architecture decisions](audits/ARCHITECTURE_DECISIONS.md), [authorization matrix](audits/AUTHORIZATION_MATRIX.md) |
 | [git-integration-plan.md](git-integration-plan.md) | Contributors | The Git integration program: assessment, Phase 1 (Git foundation, done), Fabric workspace Git, deployment and extensions |
 | [prove/plan.md](prove/plan.md) | Contributors | The Prove this notebook program: what exists, the stages, and all 100 backlog items ([continuation note](prove/continuation.md)) |
 | [orchestration/plan.md](orchestration/plan.md) | Contributors | Fabric pipelines on this PC, ORCH-001 to ORCH-010: definitions, compatibility registry, local execution ([continuation note](orchestration/continuation.md)) |
@@ -178,6 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
+| Forge Activity view in Monitor | Monitor > Runs, today's counts and a lane for each running run beside the forge ([user-guide.md](user-guide.md#forge-activity-view-preview)) |
 | Cancel a Fabric run | Monitor > Runs and the bell, Cancel on a running Fabric job this app started ([user-guide.md](user-guide.md#cancel-a-fabric-run-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |

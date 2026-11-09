@@ -18,6 +18,7 @@ import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ def referenced(project: Project) -> dict[str, list[str]]:
     return refs
 
 
-def _load(project: Project, path: Path):
+def _load(project: Project, path: Path) -> ModuleType:
     """Import a test file fresh, as module tests.<name>, so edits since the last run count."""
     project.purge_code()
     for mod in [m for m in sys.modules if m == "tests" or m.startswith("tests.")]:

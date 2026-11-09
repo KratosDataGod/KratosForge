@@ -6,6 +6,7 @@ because both run the same code (core.py). The Fabric one invokes a User Data Fun
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import uuid
@@ -65,8 +66,25 @@ class LocalPlatform:
         fn: Any = core.OPERATIONS[op]  # a mix of signatures; called with the caller's own kwargs
         if "by" in fn.__code__.co_varnames[:fn.__code__.co_argcount]:
             kwargs["by"] = self._user()
-        with self._lock, self._db() as db:
-            return fn(db, **kwargs)
+        with self._lock:
+            try:
+                with self._db() as db:
+                    return fn(db, **kwargs)
+            except core.PlatformError:
+                self._refused(op, kwargs)
+                raise
+
+    def _refused(self, op: str, kwargs: dict[str, Any]) -> None:
+        """The platform's "refused <op>" row, after the refused change was rolled back (the block above);
+        the refusal is raised as it was even when the row can't be written."""
+        change = core.refused_operation(op, kwargs)
+        if not change:
+            return
+        try:
+            with self._db() as db:
+                core.record_refusal(db, self._user(), change)
+        except Exception as exc:  # noqa: BLE001 - the refusal stands either way
+            print(f"platform: could not record a refused {change}: {type(exc).__name__}", file=sys.stderr)
 
 
 class FabricPlatform:
@@ -103,6 +121,11 @@ class FabricPlatform:
         # The functions' parameters are named without underscores (udf.fabric_name); call_once's args
         # go on to the operation as they are.
         params = {udf.fabric_name(k): v for k, v in kwargs.items()}
+        # A dict or list parameter has no default in UDF_Platform (Fabric refuses one), so one left out
+        # is sent empty, which the function takes as not given.
+        for name, empty in udf.left_out_as_empty().get(op, {}).items():
+            if params.get(name) is None:
+                params[name] = type(empty)()
         if op in core.READ_OPERATIONS or op in core.REPEATABLE_OPERATIONS:
             return self._answer(op, self._send(op, params, safe=True))
         if self._once is not False:

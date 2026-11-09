@@ -19,6 +19,7 @@ zone here and in Fabric gives the same number. Checked against Apache Spark 3.5.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import itertools
 import threading
 
@@ -35,7 +36,7 @@ def _name() -> str:
     return f"kf_h{next(_names)}"
 
 
-def _let(value: str, body) -> str:
+def _let(value: str, body: Callable[[str], str]) -> str:
     """``body(name)`` with ``value`` bound to a lambda variable, so it is written (and run) once."""
     name = _name()
     return f"(LIST_TRANSFORM([{value}], {name} -> {body(name)}))[1]"
@@ -115,7 +116,7 @@ def _word(b: str, start: str, size: int) -> str:
     return " | ".join(f"({b}[{start} + {j + 1}]::HUGEINT << {8 * j})" for j in range(size))
 
 
-def _each(values: str, block) -> str:
+def _each(values: str, block: Callable[[str], str]) -> str:
     """``block(v)``'s steps for each value in the SQL list ``values``, in order."""
     return f"FLATTEN(LIST_TRANSFORM({values}, kf_v -> {block('kf_v')}))"
 

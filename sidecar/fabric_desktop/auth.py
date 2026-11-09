@@ -23,6 +23,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import msal
@@ -298,13 +299,14 @@ class SharedTokenCache(msal.SerializableTokenCache):
             self.has_state_changed = True
             _log.warning("Couldn't save the sign-in, so it wasn't updated: %s", describe(exc))
 
-    def search(self, credential_type, target=None, query=None, *, now=None):  # MSAL's signature
+    def search(self, credential_type: Any, target: Any = None, query: Any = None, *,
+               now: Any = None) -> Any:  # MSAL's signature
         with self._lock:
             if not self._depth:
                 self._reload()
             return super().search(credential_type, target=target, query=query, now=now)
 
-    def add(self, event, **kwargs) -> None:  # MSAL's signature
+    def add(self, event: Any, **kwargs: Any) -> None:  # MSAL's signature
         with self.locked() as outer:
             before = self._accounts()
             super().add(event, **kwargs)
@@ -313,7 +315,7 @@ class SharedTokenCache(msal.SerializableTokenCache):
             if outer:
                 self.write_or_retry_later()
 
-    def modify(self, credential_type, old_entry, new_key_value_pairs=None) -> None:
+    def modify(self, credential_type: Any, old_entry: Any, new_key_value_pairs: Any = None) -> None:
         with self.locked() as outer:
             super().modify(credential_type, old_entry, new_key_value_pairs)
             if outer:

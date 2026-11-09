@@ -169,7 +169,22 @@ class Worker:
                 self._interrupt()
 
 
+def _trust_windows() -> None:
+    """On Windows, check HTTPS (the Databricks SDK's sign-in and API calls) against the Windows
+    certificate store, as the engine does (net_trust.py): a network that inspects HTTPS re-signs
+    sites with a root only Windows holds. gRPC reads GRPC_DEFAULT_SSL_ROOTS_FILE_PATH instead,
+    which the engine sets."""
+    if sys.platform != "win32":
+        return
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except Exception:  # noqa: BLE001  # silent-ok: HTTPS keeps Python's own list, as before
+        pass
+
+
 def main() -> None:
+    _trust_windows()
     # addsitedir, not sys.path.insert: the folder's .pth files must run (setuptools' distutils
     # shim is one, and pyspark 3.5 imports distutils on Python 3.12). Its entries then go first.
     import site

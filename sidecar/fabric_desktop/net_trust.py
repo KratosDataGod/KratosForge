@@ -16,9 +16,11 @@ a server that didn't answer in time into one line that says what to do."""
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import ssl
 import sys
+from pathlib import Path
 
 _log = logging.getLogger(__name__)
 _done = False
@@ -81,10 +83,48 @@ def _chain(exc: BaseException) -> list[BaseException]:
     return out
 
 
+# How a refused certificate reads when only its text survives: OpenSSL's code, the class name in a
+# wrapped error, and rustls' words (delta-rs, polars and object_store, which check against Windows'
+# store too, through rustls-platform-verifier).
+_CERT_TEXT = ("CERTIFICATE_VERIFY_FAILED", "SSLCertVerificationError", "invalid peer certificate")
+
+
 def certificate_refused(exc: BaseException) -> bool:
     """Whether ``exc`` (or what caused it) is a server certificate that couldn't be verified."""
-    return any(isinstance(e, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e)
+    return any(isinstance(e, ssl.SSLCertVerificationError) or any(t in str(e) for t in _CERT_TEXT)
                for e in _chain(exc))
+
+
+# A root certificate Windows trusts for server sign-in (or for every purpose), by its usage list.
+_SERVER_AUTH = "1.3.6.1.5.5.7.3.1"
+ROOTS_FILE = "windows-roots.pem"
+
+
+def windows_roots_pem(folder: Path) -> Path | None:
+    """The root certificates Windows trusts for HTTPS, written to ``folder``/windows-roots.pem, for
+    a client that reads a certificate file instead of asking Windows: gRPC, which Databricks
+    Connect uses, otherwise trusts only the list it ships, so a network that inspects HTTPS
+    refuses it. None off Windows or when Windows' store can't be read. Public certificates only:
+    nothing secret is written."""
+    if sys.platform != "win32":
+        return None
+    try:
+        pems = sorted({ssl.DER_cert_to_PEM_cert(der)
+                       for der, encoding, trust in ssl.enum_certificates("ROOT")
+                       if encoding == "x509_asn" and (trust is True or _SERVER_AUTH in trust)})
+        if not pems:
+            return None
+        text = "".join(pems)
+        path = folder / ROOTS_FILE
+        if not path.is_file() or path.read_text(encoding="ascii") != text:
+            folder.mkdir(parents=True, exist_ok=True)
+            part = path.with_suffix(".part")
+            part.write_text(text, encoding="ascii")
+            os.replace(part, path)
+        return path
+    except (OSError, ValueError) as exc:
+        _log.warning("Windows' root certificates couldn't be written for gRPC: %s", exc)
+        return None
 
 
 def proxy_refused(exc: BaseException) -> bool:
@@ -135,7 +175,7 @@ _PIP_UNREACHABLE = ("NameResolutionError", "NewConnectionError", "Failed to esta
 def pip_unreachable(log: str, fix: str) -> str | None:
     """One line saying pip couldn't reach the package index, from pip's output, or None. ``fix`` is
     what IT can do for this install (allow the index, or a folder or index of its own)."""
-    if "CERTIFICATE_VERIFY_FAILED" in log:
+    if "CERTIFICATE_VERIFY_FAILED" in log or "SSLCertVerificationError" in log:  # the second: pip's truststore on Windows
         return ("pip couldn't check the package index's certificate, so it reported the packages as not found. "
                 "If your network inspects HTTPS, ask IT to add its root certificate to Windows.")
     if "ProxyError" in log or "Tunnel connection failed" in log:

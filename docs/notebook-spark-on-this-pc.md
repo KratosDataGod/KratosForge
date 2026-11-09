@@ -95,6 +95,11 @@ column) or a column with only NULLs is an error. Rows holding a `datetime` still
 `CANNOT_INFER_TYPE_FOR_FIELD`; Spark refuses it too, with a field-type error. A struct's field is named `r.b` whether you write `r.getField("b")`, `r.b` or `r["b"]`,
 and a map's key `m[k]`, as in Spark.
 
+`url_decode` and `url_encode` in Spark SQL work as Spark's (Java's): `+` decodes to a space, a `%` that doesn't start
+two hex digits is Spark's `CANNOT_DECODE_URL` error, and encoding keeps only `A-Z a-z 0-9 . - * _` (a space is `+`).
+Decoding to bytes that aren't UTF-8 is refused by name, since Spark puts U+FFFD in their place. A quote or backslash in
+a map key, a struct field name or an unpivoted column's name is read as written.
+
 ### DataFrame: 85 of 102
 
 | Method | On this PC |

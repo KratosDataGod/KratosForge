@@ -20,18 +20,19 @@ function is fixed or breaks.
 - **Not checked**: no example whose value can be compared (random values, the clock or the session, or no example), or DuckDB accepts it but no check compares its value yet.
 
 AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions
-aren't listed: they need Databricks' own services. The IP address functions (`ip_`) run in Python,
-one row at a time, so a query that calls them on millions of rows takes seconds longer here.
+aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,
+`make_valid_utf8`, `hmac` and `bit_reverse` run in Python, one row at a time, so a query that calls
+them on millions of rows takes seconds longer here.
 
 One example per function is a first check, not proof: [Engines](engines.md#databricks-sql-functions-on-this-pc)
 lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 403 |
+| Runs | 411 |
 | Differs | 0 |
-| Refused | 82 |
-| Fails | 31 |
+| Refused | 85 |
+| Fails | 20 |
 | Not checked | 73 |
 | **All** | **589** |
 
@@ -730,20 +731,20 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bit_reverse` | Fails |  | DuckDB has no bit_reverse, and the translation doesn't write it |
+| `bit_reverse` | Runs | `SELECT bit_reverse(-2)` | BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type |
 | `charindex` | Not checked |  |  |
-| `collate` | Fails |  | Catalog Error: Collation with name utf8_lcase does not exist! |
+| `collate` | Runs | `SELECT 'Café' = 'café' COLLATE UTF8_LCASE` | UTF8_BINARY and UTF8_LCASE run; the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name |
 | `collation` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: COLLATION function is not supported by DuckDB Run it in Fabric, or rewrite th |
-| `hmac` | Fails |  | DuckDB has no hmac, and the translation doesn't write it |
-| `is_valid_utf8` | Fails |  | DuckDB has no is_valid_utf8, and the translation doesn't write it |
+| `hmac` | Runs | `SELECT hex(hmac('key', 'message'))` |  |
+| `is_valid_utf8` | Runs | `SELECT is_valid_utf8(x'61C262')` |  |
 | `jaro_winkler_similarity` | Not checked |  |  |
-| `make_valid_utf8` | Fails |  | DuckDB has no make_valid_utf8, and the translation doesn't write it |
-| `try_url_decode` | Fails |  | DuckDB has no try_url_decode, and the translation doesn't write it |
-| `try_validate_utf8` | Fails |  | DuckDB has no try_validate_utf8, and the translation doesn't write it |
-| `try_zstd_decompress` | Fails |  | DuckDB has no try_zstd_decompress, and the translation doesn't write it |
-| `validate_utf8` | Fails |  | DuckDB has no validate_utf8, and the translation doesn't write it |
-| `zstd_compress` | Fails |  | DuckDB has no zstd_compress, and the translation doesn't write it |
-| `zstd_decompress` | Fails |  | DuckDB has no zstd_decompress, and the translation doesn't write it |
+| `make_valid_utf8` | Runs | `SELECT make_valid_utf8(x'61C262')` |  |
+| `try_url_decode` | Runs | `SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')` | url_decode and try_url_decode follow java.net.URLDecoder: a bad % escape stops url_decode |
+| `try_validate_utf8` | Runs | `SELECT try_validate_utf8(x'61C262')` |  |
+| `try_zstd_decompress` | Refused |  | try_zstd_decompress() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no Zstandard codec. Run the cell on a Databricks SQL wareh |
+| `validate_utf8` | Runs | `SELECT validate_utf8(x'61')` |  |
+| `zstd_compress` | Refused |  | zstd_compress() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no Zstandard codec. Run the cell on a Databricks SQL warehouse,  |
+| `zstd_decompress` | Refused |  | zstd_decompress() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no Zstandard codec. Run the cell on a Databricks SQL warehouse |
 
 ## Databricks only: VARIANT and JSON
 

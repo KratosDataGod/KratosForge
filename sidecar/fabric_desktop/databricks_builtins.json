@@ -18,7 +18,14 @@
  },
  {
   "name": "bit_reverse",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT bit_reverse(-2)",
+  "value": [
+   [
+    2147483647
+   ]
+  ],
+  "note": "BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type"
  },
  {
   "name": "bitmap_and_agg",
@@ -31,7 +38,13 @@
  {
   "name": "collate",
   "group": "databricks:string",
-  "probe": "SELECT 'a' COLLATE UTF8_LCASE"
+  "example": "SELECT 'Caf\u00e9' = 'caf\u00e9' COLLATE UTF8_LCASE",
+  "value": [
+   [
+    true
+   ]
+  ],
+  "note": "UTF8_BINARY and UTF8_LCASE run; the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name"
  },
  {
   "name": "collation",
@@ -65,7 +78,13 @@
  },
  {
   "name": "hmac",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT hex(hmac('key', 'message'))",
+  "value": [
+   [
+    "6E9EF29B75FFFC5B7ABAE527D58FDADB2FE42E7219011976917343065F58ED4A"
+   ]
+  ]
  },
  {
   "name": "iff",
@@ -173,7 +192,13 @@
  },
  {
   "name": "is_valid_utf8",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT is_valid_utf8(x'61C262')",
+  "value": [
+   [
+    false
+   ]
+  ]
  },
  {
   "name": "is_variant_null",
@@ -282,7 +307,13 @@
  },
  {
   "name": "make_valid_utf8",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT make_valid_utf8(x'61C262')",
+  "value": [
+   [
+    "a\ufffdb"
+   ]
+  ]
  },
  {
   "name": "monthname",
@@ -620,11 +651,24 @@
  },
  {
   "name": "try_url_decode",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')",
+  "value": [
+   [
+    "http://spark.apache.org/path?query=1"
+   ]
+  ],
+  "note": "url_decode and try_url_decode follow java.net.URLDecoder: a bad % escape stops url_decode"
  },
  {
   "name": "try_validate_utf8",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT try_validate_utf8(x'61C262')",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "try_variant_get",
@@ -740,7 +784,13 @@
  },
  {
   "name": "validate_utf8",
-  "group": "databricks:string"
+  "group": "databricks:string",
+  "example": "SELECT validate_utf8(x'61')",
+  "value": [
+   [
+    "a"
+   ]
+  ]
  },
  {
   "name": "variant_explode",

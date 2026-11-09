@@ -128,7 +128,8 @@ def _has_null(t: Any) -> bool:
 
 
 def _has_struct(t: Any) -> bool:
-    if isinstance(t, T.StructType):
+    """Whether values of type ``t`` need reshaping: a struct (its fields' order) or a decimal (Spark's scale)."""
+    if isinstance(t, (T.StructType, T.DecimalType)):
         return True
     if isinstance(t, T.ArrayType):
         return _has_struct(t.elementType)
@@ -137,11 +138,27 @@ def _has_struct(t: Any) -> bool:
     return False
 
 
+_SCALE = decimal.Decimal(1).scaleb(-18)
+_LIMIT = decimal.Decimal(10) ** 20  # decimal(38,18) holds 20 whole digits
+
+
+def _spark_decimal(value: decimal.Decimal) -> decimal.Decimal | None:
+    """A Decimal as Spark stores it in decimal(38,18): rounded half up to 18 places, NaN as NULL; one
+    too large for it is an error, as Spark's is when the cell runs."""
+    if value.is_nan():
+        return None
+    if value.is_infinite() or abs(value) >= _LIMIT:
+        raise ArithmeticError(f"[NUMERIC_VALUE_OUT_OF_RANGE] {value} cannot be represented as Decimal(38, 18).")
+    return value.quantize(_SCALE, rounding=decimal.ROUND_HALF_UP, context=decimal.Context(prec=60))
+
+
 def _fit(value: Any, t: Any) -> Any:
     """``value`` shaped for type ``t``: a struct's values in its fields' order (a Row's by name). A part
     with no struct in it needs no reshaping and is left as it is."""
     if value is None or not _has_struct(t):
         return value
+    if isinstance(t, T.DecimalType):
+        return _spark_decimal(value)
     if isinstance(t, T.StructType):
         names = _names(value)
         if isinstance(value, dict) or names is not None:
@@ -180,10 +197,21 @@ def _shape(value: Any) -> Any:
     return None
 
 
+def _same_lengths(data: Any) -> None:
+    """Rows of values (not dicts) all of one length, with the error DuckDB's createDataFrame gives."""
+    rows = [row for row in data if isinstance(row, (tuple, list))]
+    for i, row in enumerate(rows[1:]):
+        if len(row) != len(rows[0]):
+            raise PySparkTypeError(error_class="LENGTH_SHOULD_BE_THE_SAME",
+                                   message_parameters={"arg1": f"data{i}", "arg2": f"data{i + 1}",
+                                                       "arg1_length": str(len(rows[0])), "arg2_length": str(len(row))})
+
+
 def infer(data: list[Any] | tuple[Any, ...], names: list[str] | None) -> tuple[list[Any], Any] | None:
     """Rows and the schema PySpark infers for them, or None when a value is one this doesn't cover
     (DuckDB's own inference runs then). Rows of one shape are inferred once, and each new type merged
     once, in the order rows first show it (merging a type again changes nothing)."""
+    _same_lengths(data)
     seen: set[Any] = set()
     schema: Any = None
     try:

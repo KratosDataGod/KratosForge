@@ -120,6 +120,24 @@ df.r.getField("a") ['r.a'] [Row(r.a=1)]
 '''
 
 
+DECIMAL_CELL = r'''import decimal
+D = decimal.Decimal
+for data in [[(D("1.1234567890123456789012"),)], [(D("NaN"),)], [(D("-0.0000000000000000005"),)], [(D("0.0000000000000000005"),)],
+             [(D("12345678901234567890.5"),)], [(1, (D("2.5"),))], [([D("1.25")],)]]:
+    d = spark.createDataFrame(data); print(d.dtypes, d.collect())
+'''
+
+# Apache Spark 3.5.3's output for DECIMAL_CELL.
+DECIMAL_SPARK = r'''[('_1', 'decimal(38,18)')] [Row(_1=Decimal('1.123456789012345679'))]
+[('_1', 'decimal(38,18)')] [Row(_1=None)]
+[('_1', 'decimal(38,18)')] [Row(_1=Decimal('-1E-18'))]
+[('_1', 'decimal(38,18)')] [Row(_1=Decimal('1E-18'))]
+[('_1', 'decimal(38,18)')] [Row(_1=Decimal('12345678901234567890.500000000000000000'))]
+[('_1', 'bigint'), ('_2', 'struct<_1:decimal(38,18)>')] [Row(_1=1, _2=Row(_1=Decimal('2.500000000000000000')))]
+[('_1', 'array<decimal(38,18)>')] [Row(_1=[Decimal('1.250000000000000000')])]
+'''
+
+
 @pytest.fixture(scope="module")
 def kernel():
     return Kernel()
@@ -151,3 +169,18 @@ def test_create_dataframe_stays_fast_on_many_rows(kernel):
                             "print(a.count(), b.count(), a.dtypes, b.dtypes, time.monotonic() - t < 10)")
     assert text.strip() == ("200000 200000 [('a', 'bigint'), ('b', 'string'), ('c', 'double')] [('_1', 'bigint'), "
                             "('_2', 'struct<_1:bigint,_2:string>'), ('_3', 'map<string,array<bigint>>')] True")
+
+
+def test_a_decimal_is_kept_as_spark_keeps_it(kernel):
+    assert _printed(kernel, DECIMAL_CELL).splitlines() == DECIMAL_SPARK.splitlines()
+
+
+@pytest.mark.parametrize("data, error", [
+    ("[(1,), (1, 2)]", "LENGTH_SHOULD_BE_THE_SAME"),
+    ("[(D('1e25'),)]", "NUMERIC_VALUE_OUT_OF_RANGE"),  # Spark fails on it too, when the cell runs
+    ("[(D('123456789012345678901'),)]", "NUMERIC_VALUE_OUT_OF_RANGE"),
+    ("[(D('Infinity'),)]", "NUMERIC_VALUE_OUT_OF_RANGE"),
+])
+def test_rows_spark_cannot_hold_are_refused(kernel, data, error):
+    out = kernel.run(f"from decimal import Decimal as D\nspark.createDataFrame({data}).collect()")
+    assert out["status"] == "error" and error in str(out["outputs"])

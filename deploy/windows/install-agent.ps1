@@ -9,9 +9,9 @@
   CONTOSO\fd-agent$ is best: no password to manage), and restarts every minute if it stops.
   Run from an elevated PowerShell in the repository root. See docs/agent.md, "Windows".
 
-  It refuses a folder that is a link (junction or symbolic link), and a settings file that someone
-  other than Administrators or SYSTEM owns, since anyone may create C:\ProgramData\FabricDesktop
-  before the install. Check such a file, then pass -Force to keep it.
+  Anyone may create C:\ProgramData\FabricDesktop before the install, so it changes nothing while
+  anything there is a link (junction or symbolic link) or was created by someone other than an
+  administrator; it names those, for IT to check and remove.
 
 .EXAMPLE
   .\deploy\windows\install-agent.ps1 -Account 'CONTOSO\fd-agent$'
@@ -20,30 +20,50 @@ param(
     [Parameter(Mandatory = $true)] [string] $Account,
     [string] $Python = "py -3.12",
     [string] $InstallDir = "$env:ProgramFiles\FabricDesktopAgent",
-    [string] $DataDir = "$env:ProgramData\FabricDesktop",
-    [switch] $Force   # keep an agent.toml or policy.json that Administrators or SYSTEM don't own
+    [string] $DataDir = "$env:ProgramData\FabricDesktop"
 )
 $ErrorActionPreference = "Stop"
 
-# Anyone may create these before the install. A link would send everything below, done elevated, to
-# its target, and a settings file someone else made would be kept and then look like an admin's.
+# Anyone may create C:\ProgramData\FabricDesktop before the install and leave files in it. A link would
+# send everything below, done elevated, to its target, and re-owning a planted policy.json or
+# agent.toml would make the app and the agent trust it. So nothing is changed while anything there is
+# a link, or is owned by someone other than Administrators, SYSTEM or TrustedInstaller (in the agent's
+# home, also the agent's own account, which writes its queue and logs there).
 $admins = [System.Security.Principal.SecurityIdentifier]'S-1-5-32-544'
 $system = [System.Security.Principal.SecurityIdentifier]'S-1-5-18'
-function Assert-PlainAndAdminOwned {
-  foreach ($path in @($DataDir, "$DataDir\agent", "$DataDir\agent.toml", "$DataDir\policy.json")) {
-    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
-    if (-not $item) { continue }
-    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-        throw "$path is a link (junction or symbolic link), not a plain folder or file. Remove it, then run this again."
-    }
-    if (-not $item.PSIsContainer) {
-        $owner = (Get-Acl -LiteralPath $path).GetOwner([System.Security.Principal.SecurityIdentifier])
-        if ($owner -ne $admins -and $owner -ne $system -and -not $Force) {
-            $who = try { $owner.Translate([System.Security.Principal.NTAccount]).Value } catch { $owner.Value }
-            throw "$path is owned by $who, not Administrators or SYSTEM, so someone may have made it before the install. Check what it says, then run this again with -Force to keep it, or delete it."
+$trusted = @('S-1-5-32-544', 'S-1-5-18', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+$agentSid = ([System.Security.Principal.NTAccount]$Account).Translate([System.Security.Principal.SecurityIdentifier]).Value
+function Get-EverythingUnder([string] $Root) {   # never into a link: that would be its target
+    $todo = New-Object System.Collections.Stack
+    $todo.Push((Get-Item -LiteralPath $Root -Force))
+    while ($todo.Count) {
+        $item = $todo.Pop()
+        $item
+        if ($item.PSIsContainer -and -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            Get-ChildItem -LiteralPath $item.FullName -Force | ForEach-Object { $todo.Push($_) }
         }
     }
-  }
+}
+function Assert-PlainAndAdminOwned {
+    if (-not (Test-Path -LiteralPath $DataDir)) { return }
+    $agentHome = (Join-Path $DataDir 'agent') + '\'
+    $odd = @()
+    foreach ($item in Get-EverythingUnder $DataDir) {
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "$($item.FullName) is a link (junction or symbolic link). Nothing was changed. Remove it, then run this again."
+        }
+        $owner = (Get-Acl -LiteralPath $item.FullName).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        $mine = $owner -eq $agentSid -and $item.FullName.StartsWith($agentHome, [StringComparison]::OrdinalIgnoreCase)
+        if ($trusted -notcontains $owner -and -not $mine) {
+            $who = try { ([System.Security.Principal.SecurityIdentifier]$owner).Translate([System.Security.Principal.NTAccount]).Value } catch { $owner }
+            $odd += "$($item.FullName) (created by $who)"
+        }
+    }
+    if ($odd) {
+        throw ("Something under $DataDir was created by someone other than an administrator, so nothing was changed:`n  " +
+               (($odd | Select-Object -First 10) -join "`n  ") +
+               "`nCheck policy.json and agent.toml, remove what you didn't put there, then run this again.")
+    }
 }
 Assert-PlainAndAdminOwned   # before creating anything inside them
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir | Out-Null
@@ -78,6 +98,7 @@ function Set-OnlyTheseRights([string] $Path, [object[]] $Rules) {
     if (Get-ChildItem -LiteralPath $Path -Force) {
         # /L: a link inside is changed itself, never what it points to
         icacls "$Path\*" /setowner "*S-1-5-32-544" /T /C /L /Q | Out-Null
+        if ($LASTEXITCODE) { throw "couldn't make Administrators the owner of what is in $Path (icacls exit code $LASTEXITCODE)" }
         icacls "$Path\*" /reset /T /C /L /Q | Out-Null   # children take the folder's rights only
         if ($LASTEXITCODE) { throw "couldn't set the rights on what is already in $Path (icacls exit code $LASTEXITCODE)" }
     }

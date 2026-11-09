@@ -94,52 +94,54 @@ test("Journey shows the level, milestones and badges; Achievements gives the rul
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-achievements.png"), fullPage: true });
 });
 
-test("Ranks shows your rank, the Forge progression, the next rank's requirements and rewards from real data (PB-125)", { skip }, async () => {
+test("Ranks shows the tiers, the tier's shields, the next rank's requirements and the next step from real data (PB-125)", { skip }, async () => {
   const page = app.page;
-  await page.getByRole("tab", { name: "Ranks" }).click();
-  await page.getByRole("heading", { name: "Your rank" }).waitFor();
+  await page.getByRole("tab", { name: "Ranks", exact: true }).click();
+  await page.getByRole("heading", { name: "Ranks", exact: true }).waitFor();
   const r = data.profile.ranks;
-  const pr = data.profile.progression;
-  for (const h of ["Ranks", "Next rank", "Rank rewards", `Rank requirements: ${r.next.name}`]) assert.ok(await page.getByRole("heading", { name: h, exact: true }).isVisible(), h);
-  assert.ok(await page.getByText(`${pr.xp} XP / ${pr.next_level_xp} XP`).isVisible(), "xp");
-  // The Forge tier's five ranks plus the top rank, yours marked; the top is further on, so the gap says how many ranks lie between.
-  assert.strictEqual(await page.locator(".rk-shield").count(), 6);
+  const nxt = r.next;
+  // The three tiers as tabs; the next rank's tier is open, with its five shields.
+  for (const t of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("tab", { name: new RegExp(t) }).isVisible(), t);
+  assert.strictEqual(await page.getByRole("tab", { name: /The Forge/ }).getAttribute("aria-selected"), "true");
+  assert.strictEqual(await page.locator(".rk-shield").count(), 5);
   assert.strictEqual(await page.locator('.rk-shield[aria-current="step"]').count(), 1);
-  assert.match(await page.locator(".rk-shield.top").innerText(), /Legend of the Forge/);
-  assert.ok(await page.getByText("+7 ranks").isVisible(), "gap");
-  assert.ok(await page.locator(".rk-reqs").getByText(r.next.checks[0].text).isVisible(), "req");
-  assert.strictEqual(await page.locator(".rk-reqs .rk-req").count(), r.next.checks.length);
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks.png"), fullPage: true });
-  await page.getByRole("button", { name: "View full rank path" }).click();
-  await page.getByRole("heading", { name: "The Pack" }).waitFor();
-  for (const tier of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("heading", { name: tier, exact: true }).isVisible());
+  assert.strictEqual(await page.locator(".rk-shield.held").count(), r.ladder.filter((x) => x.tier === "The Forge" && x.held).length);
+  assert.strictEqual(await page.locator(".rk-shield.next").count(), 1);
+  // The next rank and every one of its checks, counted from the engine's rows.
+  assert.ok(await page.locator(".rk-next").getByRole("heading", { name: nxt.name }).isVisible());
+  const met = nxt.checks.filter((c) => c.met).length;
+  assert.strictEqual(await page.locator(".rk-req-head").innerText(), `Requirements\n${met} of ${nxt.checks.length}`);
+  assert.strictEqual(await page.locator(".rk-next .rk-req").count(), nxt.checks.length);
+  assert.ok(await page.locator(".rk-quest").getByText(`${nxt.checks.find((c) => !c.met).text}.`).isVisible());
+  // Chris's art: lit for held ranks and the one you're working toward, plain for the rest; the hero is his wolf at the forge.
+  assert.deepStrictEqual(await page.locator(".rk-strip img").evaluateAll((l) => l.map((i) => i.getAttribute("src"))),
+    ["forge-initiate-active", "iron-forger-inactive", "steel-forger-inactive", "master-forger-inactive"].map((f) => `art/ranks/${f}.webp`));
+  assert.strictEqual(await page.locator(".rk-hero-art").evaluate((i) => i.complete && i.naturalWidth > 0), true);
+  if (SHOTS) {
+    await page.screenshot({ path: path.join(SHOTS, "profile-ranks.png"), fullPage: true });
+    await page.locator(".rk-row-2").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, "profile-ranks-next.png"), fullPage: true });
+  }
+  // Another tier's shields, then every rank with its picture prompt.
+  await page.getByRole("tab", { name: /The Myth/ }).click();
+  await page.locator('.rk-strip[aria-label="The Myth ranks"]').waitFor();
+  assert.strictEqual(await page.locator(".rk-strip img").last().getAttribute("src"), "art/ranks/legend-of-the-forge-inactive.webp");
+  await page.getByRole("button", { name: "All ranks and picture prompts" }).click();
+  await page.getByRole("heading", { name: "The Pack", exact: true }).waitFor();
   assert.strictEqual(await page.locator(".profile-rank").count(), 13);
   assert.strictEqual(await page.getByRole("button", { name: "Copy picture prompt" }).count(), 13);
   assert.doesNotMatch(await page.locator(".profile").innerText(), /\bgod\b|deity|divine/i);
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-full.png"), fullPage: true });
-  await page.getByRole("button", { name: "Hide full rank path" }).click();
-  // Chris's approved art: plain while a rank is ahead, glowing once it is yours. Labels stay real text.
-  assert.deepStrictEqual(await page.locator(".rk-shield.has-art img").evaluateAll((l) => l.map((i) => i.getAttribute("src"))),
-    ["forge-initiate", "iron-forger", "steel-forger", "master-forger", "legend-of-the-forge"].map((id) => `art/ranks/${id}-inactive.webp`));
-  const art = page.locator(".rk-shield.has-art").filter({ hasText: "Forge Initiate" });
-  assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-inactive.webp");
-  assert.match(await art.innerText(), /Forge Initiate\s+Rank 2/);
+  await page.getByRole("button", { name: "Hide all ranks" }).click();
+  // Every rank held: the top rank glows and nothing is left to earn.
   const saved = structuredClone(r);
-  Object.assign(r, { number: 2, rank: r.ladder[1].name, next: r.ladder[2] });
-  r.ladder[1].held = true;
-  await page.evaluate(() => render());
-  await page.locator('.rk-shield.has-art[aria-current="step"]').waitFor();
-  assert.strictEqual(await art.locator("img").getAttribute("src"), "art/ranks/forge-initiate-active.webp");
-  assert.strictEqual(await art.locator("img").evaluate((i) => i.naturalWidth > 0), true);
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-forge-initiate.png"), fullPage: true });
-  // Every rank held: the Myth tier shows, the top rank glows, and nothing is left to earn.
   Object.assign(r, { number: r.of, rank: r.ladder[r.of - 1].name, next: null });
   for (const x of r.ladder) x.held = true;
   await page.evaluate(() => render());
-  await page.getByText("You hold every rank there is.").waitFor();
+  await page.locator(".rk-quest").getByText("You hold every rank there is.").waitFor();
   assert.strictEqual(await page.locator('.rk-shield[aria-current="step"] img').getAttribute("src"), "art/ranks/legend-of-the-forge-active.webp");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks-top.png"), fullPage: true });
   data.profile.ranks = saved;
+  await page.evaluate(() => { profilePage.tier = null; render(); });
 });
 
 test("a profile picture shows on the page and the account button, and the letter comes back without one (PB-125)", { skip }, async () => {

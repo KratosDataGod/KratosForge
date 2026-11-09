@@ -3,7 +3,7 @@
 // no rail slot. Levels and achievements are for fun; skills show evidence coverage, never a score.
 // Loaded after features.js; everything here runs after startup.
 
-const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null, fullPath: false };
+const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null, fullPath: false, tier: null };
 const RECORDING_ON = "Recording is on: notebooks that pass Validate, Prove or Side by side are kept in a private record on this PC. Turn it off in Profile > Settings.";
 // Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
 const BADGE_GLYPHS = {
@@ -318,11 +318,10 @@ const RANK_ART = {
   "legend-of-the-forge": (on) => (on ? h("img", { src: "art/ranks/legend-of-the-forge-active.webp", alt: "" })
     : h("img", { src: "art/ranks/legend-of-the-forge-inactive.webp", alt: "" })),
 };
-// Art whose emblem fills the shield: the name goes under the shield instead of over it.
-const RANK_LABEL_BELOW = new Set(["legend-of-the-forge"]);
 
 function rankGlyph(id, size = 34) {
-  const d = RANK_GLYPHS[RANK_GLYPH[id]] || BADGE_GLYPHS[RANK_GLYPH[id]] || BADGE_GLYPHS.spark;
+  const name = id.startsWith("tier:") ? id.slice(5) : RANK_GLYPH[id] || id;
+  const d = RANK_GLYPHS[name] || BADGE_GLYPHS[name] || BADGE_GLYPHS.spark;
   const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   el.setAttribute("width", size); el.setAttribute("height", size); el.setAttribute("viewBox", "0 0 20 22");
   el.setAttribute("aria-hidden", "true");
@@ -332,50 +331,62 @@ function rankGlyph(id, size = 34) {
   return el;
 }
 
-// The shields on the progression: the ranks of the tier you're in, then the top rank if it is further on.
-function rankStrip(r) {
-  const here = r.number - 1;
-  const tier = r.ladder[here].tier;
-  const last = r.ladder.length - 1;
-  const picks = r.ladder.map((x, i) => i).filter((i) => r.ladder[i].tier === tier);
-  if (!picks.includes(last)) picks.push(last);
-  return picks;
+// Profile > Ranks, as Chris's mockup of 2026-11-09: a light hero with the wolf at the forge, the three tiers as tabs,
+// the chosen tier's shields, the next rank with its requirements and the next thing to do. RPG art stays on the
+// ranks themselves; the tabs, cards, buttons and type are the app's own (Chris's standing rule, 2026-11-09).
+// Everything shown comes from ranks.standing(); nothing is estimated.
+const RANK_TIERS = {
+  "The Forge": { blurb: "Build core skills and craftsmanship", glyph: "anvil" },
+  "The Pack": { blurb: "Work across the platform and at scale", glyph: "paw" },
+  "The Myth": { blurb: "Master multi-platform data engineering", glyph: "peak" },
+};
+RANK_GLYPHS.peak = "M1 18l6.5-11 3.5 5 3.5-6.5L19 18z";
+RANK_GLYPHS.lock = BADGE_GLYPHS.lock;
+
+// Held ranks and the one you're working toward show lit; the rest wait, locked.
+function rankLook(r, i) {
+  const x = r.ladder[i];
+  return x.held ? "held" : r.next?.id === x.id ? "next" : "locked";
 }
 
 function rankShield(r, i) {
   const x = r.ladder[i];
+  const look = rankLook(r, i);
   const here = i === r.number - 1;
-  const cls = ["rk-shield", x.held ? "held" : "locked", here ? "current" : "", i === r.ladder.length - 1 ? "top" : ""].filter(Boolean).join(" ");
-  const state = here ? "your rank" : x.held ? "held" : x.coming_soon ? "coming soon" : r.next?.id === x.id ? "next" : "not yet";
-  const label = [h("b", { class: "rk-shield-name" }, x.name), h("span", { class: "rk-shield-sub" }, `Rank ${i + 1}`)];
-  const attrs = { "aria-current": here ? "step" : null, "aria-label": `${x.name}, rank ${i + 1} of ${r.of}, ${state}` };
-  // Chris's approved shield art where it exists: the glowing one marks your rank, the plain one every other.
-  if (RANK_ART[x.id]) {
-    return h("li", { class: `${cls} has-art${RANK_LABEL_BELOW.has(x.id) ? " label-below" : ""}`, ...attrs },
-      RANK_ART[x.id](here),
-      h("div", { class: "rk-shield-label" }, ...label));
-  }
-  return h("li", { class: cls, ...attrs },
-    h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(x.id), ...label)));
+  const state = here ? "your rank" : look === "held" ? "held" : look === "next" ? (x.coming_soon ? "next, coming soon" : "next") : "locked";
+  const lit = look !== "locked";
+  const picture = RANK_ART[x.id] ? RANK_ART[x.id](lit)
+    : h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(x.id)));
+  const badge = look === "held" ? h("span", { class: "rk-badge held", "aria-hidden": "true" }, rankGlyph("check", 14))
+    : look === "locked" ? h("span", { class: "rk-badge locked", "aria-hidden": "true" }, rankGlyph("lock", 13)) : null;
+  return h("li", { class: `rk-shield ${look}${here ? " current" : ""}${RANK_ART[x.id] ? " has-art" : ""}`,
+    "aria-current": here ? "step" : null, "aria-label": `${x.name}, rank ${i + 1} of ${r.of}, ${state}` },
+    h("div", { class: "rk-shield-pic" }, picture),
+    h("span", { class: "rk-shield-name" }, x.name), badge);
 }
 
-function rankProgression(r) {
-  const picks = rankStrip(r);
+function rankTierTabs(r, tier) {
+  const tiers = [...new Set(r.ladder.map((x) => x.tier))];
+  return h("div", { class: "rk-tiers", role: "tablist", "aria-label": "Rank tiers" }, tiers.map((t) => {
+    const info = RANK_TIERS[t] || { blurb: "", glyph: "spark" };
+    const held = r.ladder.filter((x) => x.tier === t && x.held).length;
+    const all = r.ladder.filter((x) => x.tier === t).length;
+    return h("button", { class: `rk-tier${t === tier ? " active" : ""}`, role: "tab", "aria-selected": t === tier ? "true" : "false",
+      onclick: () => { profilePage.tier = t; render(); } },
+      h("span", { class: "rk-tier-icon" }, rankGlyph(`tier:${info.glyph}`, 32)),
+      h("span", { class: "rk-tier-text" }, h("b", {}, t), h("span", { class: "muted-text small" }, info.blurb)),
+      h("span", { class: "muted-text small rk-tier-count" }, `${held} of ${all}`));
+  }));
+}
+
+function rankProgression(r, tier) {
+  const picks = r.ladder.map((x, i) => i).filter((i) => r.ladder[i].tier === tier);
   const items = [];
   picks.forEach((i, k) => {
-    if (k) {
-      const skipped = i - picks[k - 1] - 1;
-      items.push(h("li", { class: `rk-link${r.ladder[i].held ? " held" : ""}${skipped ? " gap" : ""}`, "aria-hidden": "true" },
-        skipped ? h("span", {}, `+${skipped} ranks`) : null));
-    }
+    if (k) items.push(h("li", { class: `rk-link${r.ladder[i].held || rankLook(r, i) === "next" ? " lit" : ""}`, "aria-hidden": "true" }));
     items.push(rankShield(r, i));
   });
-  return h("section", { class: "card pad rk-progression" },
-    h("div", { class: "row" }, h("h2", { class: "grow" }, `The ${r.ladder[r.number - 1].tier.replace(/^The /, "")} progression`),
-      btn(profilePage.fullPath ? "Hide full rank path" : "View full rank path", null, () => {
-        profilePage.fullPath = !profilePage.fullPath; render();
-      }, "tool link small", { "aria-expanded": profilePage.fullPath ? "true" : "false" })),
-    h("ol", { class: "rk-strip", "aria-label": "Rank progression" }, items));
+  return h("ol", { class: "rk-strip", "aria-label": `${tier} ranks` }, items);
 }
 
 function rankCheckRow(c) {
@@ -385,61 +396,53 @@ function rankCheckRow(c) {
     h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
 }
 
+// The next thing to do for the next rank: its first requirement not yet met.
+function rankNextStep(nxt) {
+  const first = nxt && nxt.checks.find((c) => !c.met);
+  const openLearn = () => { learnPage.open = null; learnPage.tab = "home"; go("learn"); };
+  return h("section", { class: "card pad rk-quest" },
+    h("h2", {}, first ? `Next step: ${nxt.name}` : "Next step"),
+    h("p", {}, first ? `${first.text}.` : nxt ? "Every requirement is met." : "You hold every rank there is."),
+    first && first.coming_soon ? h("p", { class: "muted-text small" }, "Coming soon: the lessons it needs haven't shipped yet.") : null,
+    first && !first.coming_soon && /exercise|lesson|lab|path|LM-|LAB-/.test(first.text)
+      ? h("div", {}, btn(/exercise/.test(first.text) ? "Begin exercise" : "Open Learn", null, openLearn, "tool primary")) : null);
+}
+
 function profileRanks(p) {
   const r = p.ranks;
-  const pr = p.progression;
   const here = r.ladder[r.number - 1];
   const nxt = r.next;
-  const top = r.ladder[r.ladder.length - 1];
+  const tier = profilePage.tier && r.ladder.some((x) => x.tier === profilePage.tier) ? profilePage.tier : (nxt || here).tier;
   const hero = h("section", { class: "rk-hero" },
+    h("img", { class: "rk-hero-art", src: "art/ranks/ranks-hero.webp", alt: "" }),
     h("div", { class: "rk-hero-text" },
       h("h2", { class: "rk-hero-title" }, "Ranks"),
-      h("p", { class: "rk-hero-kicker" }, "Your journey through KratosForge"),
-      h("p", { class: "rk-hero-line" }, `Build skills, pass exercises and rise through the Forge from ${r.ladder[0].name} to ${top.name}.`)));
-  const into = pr.xp - pr.level_xp;
-  const span = Math.max(1, pr.next_level_xp - pr.level_xp);
-  const yours = h("section", { class: "card pad rk-yours" },
-    h("h2", {}, "Your rank"),
-    h("div", { class: "row" }, h("img", { src: "wolf-forge-emblem.png", alt: "", width: 72, height: 72 }),
-      h("div", {}, h("b", { class: "rk-name" }, here.name), h("div", { class: "muted-text" }, here.tier),
-        h("span", { class: "pill-s pass" }, "Current rank"))),
-    h("div", {}, h("b", { class: "profile-level" }, `Level ${pr.level}`),
-      h("div", { class: "muted-text" }, `${pr.xp} XP / ${pr.next_level_xp} XP`)),
-    h("div", { class: "profile-bar", role: "progressbar", "aria-label": `XP to level ${pr.level + 1}`,
-      "aria-valuemin": "0", "aria-valuemax": String(span), "aria-valuenow": String(into) },
-      h("div", { style: `width:${Math.round((100 * into) / span)}%` })),
-    h("span", { class: "muted-text small" }, `Rank ${r.number} of ${r.of}. XP levels show how far you've come; they are not a skill rating.`));
-  const first = nxt && (nxt.checks.find((c) => !c.met) || nxt.checks[0]);
+      h("p", { class: "rk-hero-line" }, "Prove your skills with hands-on work KratosForge verifies on this PC. "
+        + `Earn ranks from ${r.ladder[0].name} to ${r.ladder[r.ladder.length - 1].name}.`),
+      h("p", { class: "muted-text small" }, `Your rank: ${here.name} (${r.number} of ${r.of}).`)));
+  const met = nxt ? nxt.checks.filter((c) => c.met).length : 0;
+  const total = nxt ? nxt.checks.length : 0;
   const nextCard = h("section", { class: "card pad rk-next" },
-    h("h2", {}, "Next rank"),
-    nxt ? h("div", { class: "row" }, h("span", { class: "rk-next-icon" }, RANK_ART[nxt.id] ? RANK_ART[nxt.id](false) : rankGlyph(nxt.id, 30)),
-      h("div", {}, h("b", { class: "rk-name" }, nxt.name),
-        h("div", { class: "muted-text" }, first ? `${first.text}${first.coming_soon ? " (coming soon: its lessons haven't shipped yet)" : ""}` : "")))
-      : h("p", { class: "muted-text" }, "You hold every rank there is."),
-    first && !first.coming_soon ? h("div", { class: "row rk-next-bar" },
-      h("div", { class: "profile-bar grow", role: "progressbar", "aria-label": first.text,
-        "aria-valuemin": "0", "aria-valuemax": String(first.need), "aria-valuenow": String(first.have) },
-        h("div", { style: `width:${Math.round((100 * first.have) / first.need)}%` })),
-      h("span", { class: "muted-text small" }, `${first.have} of ${first.need}`)) : null,
-    nxt ? btn("View requirements", null, () => document.getElementById("rk-requirements")?.focus(), "tool outline") : null);
-  const reqs = h("section", { class: "card pad rk-reqs", id: "rk-requirements", tabindex: "-1" },
-    h("h2", {}, nxt ? `Rank requirements: ${nxt.name}` : "Rank requirements"),
-    nxt ? h("ul", { class: "rk-req-list" }, nxt.checks.map(rankCheckRow))
-      : h("p", { class: "muted-text" }, "Every rank is held. There's nothing left to earn here."),
-    h("p", { class: "muted-text small" }, "Only work KratosForge verified on this PC counts. Each rank needs every rank below it."));
-  const reward = (text, extra) => h("li", { class: "rk-req met" }, h("span", { class: "rk-req-mark", "aria-hidden": "true" }, rankGlyph("check", 14)),
-    h("span", { class: "grow" }, text), extra || null);
-  const rewards = h("section", { class: "card pad rk-rewards" },
-    h("h2", {}, "Rank rewards"),
-    h("ul", { class: "rk-req-list" },
-      reward(`The ${here.name} title on your profile`),
-      reward("A picture prompt for your own profile badge",
-        btn("Copy prompt", null, () => copyText(here.prompt, "Picture prompt"), "tool link small")),
-      nxt ? reward(`Opens the next rank: ${nxt.name}`) : null));
-  const full = profilePage.fullPath ? profileRankPath(r) : null;
-  return h("div", { class: "profile-col rk-page" }, hero,
-    h("div", { class: "rk-row rk-row-1" }, yours, rankProgression(r)),
-    h("div", { class: "rk-row rk-row-2" }, nextCard, reqs, rewards), full);
+    nxt ? h("div", { class: "rk-next-pic" }, RANK_ART[nxt.id] ? RANK_ART[nxt.id](true)
+      : h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(nxt.id)))) : null,
+    h("div", { class: "rk-next-body" },
+      h("div", { class: "row wrap" }, h("h2", {}, nxt ? nxt.name : here.name),
+        h("span", { class: "pill-s info" }, nxt ? (nxt.coming_soon ? "Next rank · coming soon" : "Next rank") : "Top rank held")),
+      h("p", { class: "muted-text" }, nxt ? `${nxt.tier}, rank ${r.number + 1} of ${r.of}. Each rank needs every rank below it.`
+        : "There's nothing left to earn here."),
+      nxt ? h("div", { class: "row rk-req-head" }, h("b", { class: "grow" }, "Requirements"), h("span", {}, `${met} of ${total}`)) : null,
+      nxt ? h("div", { class: "profile-bar", role: "progressbar", "aria-label": `Requirements met for ${nxt.name}`,
+        "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(met) },
+        h("div", { style: `width:${total ? Math.round((100 * met) / total) : 0}%` })) : null,
+      nxt ? h("ul", { class: "rk-req-list" }, nxt.checks.map(rankCheckRow)) : null));
+  return h("div", { class: "profile-col rk-page" }, hero, rankTierTabs(r, tier),
+    h("section", { class: "card pad rk-progression" }, rankProgression(r, tier),
+      h("div", { class: "row" }, h("span", { class: "grow" }),
+        btn(profilePage.fullPath ? "Hide all ranks" : "All ranks and picture prompts", null, () => {
+          profilePage.fullPath = !profilePage.fullPath; render();
+        }, "tool link small", { "aria-expanded": profilePage.fullPath ? "true" : "false" }))),
+    h("div", { class: "rk-row rk-row-2" }, nextCard, rankNextStep(nxt)),
+    profilePage.fullPath ? profileRankPath(r) : null);
 }
 
 // Every rank by tier, with what earns it and its picture prompt (PB-125), behind "View full rank path".

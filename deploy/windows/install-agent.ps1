@@ -27,11 +27,13 @@ $ErrorActionPreference = "Stop"
 # Anyone may create C:\ProgramData\FabricDesktop before the install and leave files in it. A link would
 # send everything below, done elevated, to its target, and re-owning a planted policy.json or
 # agent.toml would make the app and the agent trust it. So nothing is changed while anything there is
-# a link, or is owned by someone other than Administrators, SYSTEM or TrustedInstaller (in the agent's
-# home, also the agent's own account, which writes its queue and logs there).
+# a link, or is owned by someone other than Administrators, SYSTEM, TrustedInstaller or the admin running this
+# (in the agent's home, also the agent's own account, which writes its queue and logs there).
 $admins = [System.Security.Principal.SecurityIdentifier]'S-1-5-32-544'
 $system = [System.Security.Principal.SecurityIdentifier]'S-1-5-18'
 $trusted = @('S-1-5-32-544', 'S-1-5-18', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+# The admin running this install: where policy makes an admin's files their own, not Administrators'.
+$trusted += [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $agentSid = ([System.Security.Principal.NTAccount]$Account).Translate([System.Security.Principal.SecurityIdentifier]).Value
 function Get-EverythingUnder([string] $Root) {   # never into a link: that would be its target
     $todo = New-Object System.Collections.Stack

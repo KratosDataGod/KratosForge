@@ -159,7 +159,7 @@ notepad C:\ProgramData\FabricDesktop\agent.toml
 Start-ScheduledTask -TaskPath '\FabricDesktop\' -TaskName Agent
 ```
 
-[The script](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
+[The script](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. It also sets the rights on `C:\ProgramData\FabricDesktop`, which stop inheriting from `ProgramData` (where every user may create files): only Administrators and SYSTEM can change anything there, the agent's account reads `agent.toml` and writes only its home (`agent\`), and other users can read the folder (the app reads `policy.json` from it) but not the agent's home. Anything already there is given the same rights and owned by Administrators. Running the script again on an installed agent sets them again. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
 
 ## Operate
 

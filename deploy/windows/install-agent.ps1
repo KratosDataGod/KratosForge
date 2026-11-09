@@ -30,8 +30,32 @@ if (-not (Test-Path "$DataDir\agent.toml")) {
     Copy-Item "$PSScriptRoot\..\agent.example.toml" "$DataDir\agent.toml"
     Write-Host "Edit $DataDir\agent.toml, then run: $InstallDir\venv\Scripts\fabric-desktop.exe agent check"
 }
-# The agent's account may write its home (queue, logs); only admins may change the config.
-icacls "$DataDir\agent" /grant "${Account}:(OI)(CI)M" | Out-Null
+# Only administrators and SYSTEM may change anything here; the agent's account reads the settings and
+# writes only its home (queue, logs, incident ages), and other users may read the folder (the app reads
+# policy.json from it) but not its home. Inheritance from ProgramData is cut, because there every user
+# may create files, which would let anyone plant one the agent trusts. Anything already in the folders
+# gets the same rights and is owned by Administrators, so a file someone made first doesn't stay theirs.
+$admins = [System.Security.Principal.SecurityIdentifier]'S-1-5-32-544'
+$system = [System.Security.Principal.SecurityIdentifier]'S-1-5-18'
+$users = [System.Security.Principal.SecurityIdentifier]'S-1-5-32-545'
+$agent = [System.Security.Principal.NTAccount]$Account
+function Set-OnlyTheseRights([string] $Path, [object[]] $Rules) {
+    $acl = New-Object System.Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)   # nothing inherited
+    $acl.SetOwner($admins)
+    foreach ($rule in $Rules) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $rule[0], $rule[1], 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    if (Get-ChildItem -LiteralPath $Path -Force) {
+        icacls "$Path\*" /setowner "*S-1-5-32-544" /T /C /Q | Out-Null
+        icacls "$Path\*" /reset /T /C /Q | Out-Null   # children take the folder's rights only
+        if ($LASTEXITCODE) { throw "couldn't set the rights on what is already in $Path (icacls exit code $LASTEXITCODE)" }
+    }
+}
+Set-OnlyTheseRights $DataDir @(@($admins, 'FullControl'), @($system, 'FullControl'), @($users, 'ReadAndExecute'), @($agent, 'ReadAndExecute'))
+Set-OnlyTheseRights "$DataDir\agent" @(@($admins, 'FullControl'), @($system, 'FullControl'), @($agent, 'Modify'))
 
 $exe = "$InstallDir\venv\Scripts\fabric-desktop.exe"
 $action = New-ScheduledTaskAction -Execute $exe -Argument "agent run" -WorkingDirectory "$DataDir\agent"

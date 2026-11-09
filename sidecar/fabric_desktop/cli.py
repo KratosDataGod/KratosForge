@@ -344,7 +344,9 @@ def _agent(args: argparse.Namespace) -> int:
         except ControlFolderInUse as exc:
             return stopped(config.home, "start", exc)
         except Exception as exc:  # anything else that stops it, before or after its own log starts
-            logging.getLogger("fabric_desktop.agent").exception("agent stopped by an error")
+            log = logging.getLogger("fabric_desktop.agent")
+            if log.handlers:  # its own redacting handlers; with none, Python would print the raw error
+                log.exception("agent stopped by an error")
             print(f"The agent stopped: {type(exc).__name__}")
             from . import agent_start
             agent_start.record(config.home, "crash", exc, 1)

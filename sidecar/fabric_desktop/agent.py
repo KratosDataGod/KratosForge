@@ -30,7 +30,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import agent_status, policy_watch, shared_schedules, shortcut_watch
+from . import agent_status, jsonfile, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .audit import outcome as audit_outcome
@@ -53,6 +53,7 @@ from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, fail
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
 
+INCIDENT_CLOCK = "incident-ages.json"  # in the agent's home: open incidents' ages, kept across restarts
 CRASHED_NEXT = ("Its worker stopped on every attempt: look in the service log for an out-of-memory kill or a crash, "
                 "then lower agent.concurrency or run its tables in smaller jobs.")
 PIPELINE_NEXT = "Fix the cause, then submit the request again from the pipeline."
@@ -106,7 +107,7 @@ class Agent:
         # Escalation ages run on this, so a clock change while the agent runs doesn't move them. A
         # clock handed in (tests) stands in for it, so moving that clock moves both.
         self.monotonic: Callable[[], float] = time.monotonic if clock is time.time else clock
-        self._incident_seen: dict[str, dict[str, tuple[float, float]]] = {}  # env -> IncidentLog.first_seen
+        self._incident_seen = self._load_incident_clock()  # env -> IncidentLog.first_seen
         self._held: dict[str, IO[bytes]] = {}  # local control folders this running agent holds (run_forever)
         self._hold_folders = False
         self.stopping = threading.Event()
@@ -148,6 +149,31 @@ class Agent:
                 self._hold(backend)
                 self._controls[env] = backend
             return self._controls[env]
+
+    def _load_incident_clock(self) -> dict[str, dict[str, tuple[float, float]]]:
+        """How long each open incident had been open when this agent last looked, so a restart goes
+        on from there rather than from the wall clock. Saved with the monotonic time it was saved at:
+        when that is still behind now, the agent restarted without a reboot and the time between
+        counts in full; after a reboot (monotonic time went back) the time the agent was down isn't
+        known and isn't counted, so escalation can come later by that much, never earlier."""
+        saved = jsonfile.read_json(self.config.home / INCIDENT_CLOCK, {})
+        now, seen = self.monotonic(), {}
+        for env, items in (saved.items() if isinstance(saved, dict) else ()):
+            if env not in self.config.environments or not isinstance(items, dict):
+                continue
+            seen[str(env)] = {str(i): ((at if at <= now else now), max(0.0, age))
+                              for i, v in items.items() if isinstance(v, list) and len(v) == 2
+                              and all(isinstance(x, (int, float)) for x in v) for at, age in [v]}
+        return seen
+
+    def _save_incident_clock(self) -> None:
+        now = self.monotonic()
+        data = {env: {i: [now, age + (now - at)] for i, (at, age) in items.items()}
+                for env, items in self._incident_seen.items() if items}
+        try:
+            jsonfile.write_json(self.config.home / INCIDENT_CLOCK, data, indent=None)
+        except OSError as exc:  # escalation still works this run; only a restart would start the ages again
+            self.log.warning("couldn't save the incident ages", extra=fields(error=f"{type(exc).__name__}: {exc}"))
 
     def _hold(self, backend: Any) -> None:
         """While it runs, hold each local control folder it works in, so a second agent pointed at the
@@ -276,6 +302,7 @@ class Agent:
                 self.log.info(f"incident {c['change']}", extra=fields(env=env, incident=c["incident"]["id"],
                                                                      title=c["incident"]["title"]))
             changed[env] = changes
+        self._save_incident_clock()
         all_changes = [c for cs in changed.values() for c in cs]
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:

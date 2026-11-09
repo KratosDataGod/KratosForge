@@ -92,7 +92,20 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Check first.** Read every line of the message; it names the key and shows a valid value.
 
+A stop before the agent's own log starts is also kept in `<home>/logs/agent-start.log` (the default home when `agent.toml` can't be read), since Task Scheduler keeps only the exit code; see [The agent stopped as it started](#the-agent-stopped-as-it-started).
+
 **Recover.** Fix `agent.toml` and start the agent again. Until it starts, its schedules don't run. Other agents and the app report it as [offline](#agent-offline) once its last status record goes stale.
+
+### The agent stopped as it started
+
+- **Message** (`agent_start.py`, `agent-start.log`): `<time> agent run stopped: stage=<stage> exit=<code> version=<version>`
+- **Message** (`cli.py`, log): `agent stopped by an error`
+
+**Means.** `agent run` stopped before or as it started. Task Scheduler shows only "the task ended with code 2" (or 1) and restarts it every minute, so each stop adds an entry to `logs/agent-start.log` in the agent's home: when (UTC), the stage, the exit code, the version and the reason, made log-safe. `settings` is an `agent.toml` problem, `data` is a home written by a newer version, `start` is a refusal such as [another agent using the control folder](#another-agent-is-using-the-control-folder), and `crash` is an error nobody expected, with the files and lines it went through (no values). When `agent.toml` couldn't be read, the entry is in the default home (`%ProgramData%\FabricDesktop\agent`). The file stays under 256 KB and is never sent anywhere.
+
+**Check first.** Read the newest entry: its stage says which section below applies. For `crash`, `agent.log` has the same error with its stack.
+
+**Recover.** Fix what the entry names, then let Task Scheduler start it again or start the task by hand. Send `agent-start.log` with `agent.log` when you report a crash.
 
 ### Another agent is using the control folder
 

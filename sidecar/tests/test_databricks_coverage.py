@@ -644,3 +644,38 @@ def test_the_engine_session_has_the_variant_functions():
             ('{"a":2,"b":1}',)]
     finally:
         session.close()
+
+
+def test_try_parse_json_stops_on_a_repeated_key():  # Databricks refuses to build that VARIANT at all
+    with pytest.raises(duckdb.Error, match=re.escape("[VARIANT_DUPLICATE_KEY]")):
+        _one("SELECT try_parse_json('{\"a\": 1, \"a\": 2}')")
+
+
+@pytest.mark.parametrize("text", [
+    "[" * 257 + "]" * 257,  # deeper than this PC reads
+    "[" * 5000,  # deep and broken: refused before json.loads could recurse
+    "1e400",  # past DOUBLE's range
+])
+def test_hostile_json_stops_by_name_even_in_try(text):
+    from fabric_desktop import databricks_variant
+    for safe in (False, True):
+        with pytest.raises(ValueError, match="can't run on this PC the way it runs in Databricks"):
+            databricks_variant.parse_json(text, safe)
+
+
+def test_long_input_reads_and_errors_stay_short():
+    from fabric_desktop import databricks_variant
+    assert databricks_variant.parse_json("[" * 256 + "]" * 256, False) == "[" * 256 + "]" * 256
+    assert databricks_variant.parse_json('["[{"]', False) == '["[{"]'  # brackets in a string don't nest
+    digits = "1" * 5000  # past int()'s 4300 digits: a DOUBLE, not a ValueError
+    assert databricks_variant.parse_json("0." + digits[:300], False).startswith("0.111")
+    with pytest.raises(ValueError, match="past DOUBLE's range") as error:
+        databricks_variant.parse_json(digits, False)
+    assert len(str(error.value)) < 300
+    key = "k" * 1000
+    with pytest.raises(ValueError, match=re.escape("[VARIANT_DUPLICATE_KEY]")) as error:
+        databricks_variant.parse_json(f'{{"{key}": 1, "{key}": 2}}', False)
+    assert len(str(error.value)) < 300
+    with pytest.raises(ValueError, match=re.escape("[INVALID_VARIANT_CAST]")) as error:
+        databricks_variant.variant_get("[" + ",".join(["1"] * 1000) + "]", "JSON", "[]", "int", False)
+    assert len(str(error.value)) < 300

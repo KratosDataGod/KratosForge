@@ -861,7 +861,7 @@
     "hello"
    ]
   ],
-  "note": "A cast that turns on a number's exact VARIANT type (a STRING or DECIMAL to an integer, a date, a STRUCT) stops by name"
+  "note": "A cast that turns on a number's exact VARIANT type (a STRING, or a DECIMAL with a fraction, to an integer; a date; a STRUCT) stops by name"
  },
  {
   "name": "vector_avg",

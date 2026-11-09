@@ -758,7 +758,7 @@ lists more checks and the differences known in more detail.
 | `try_variant_get` | Runs | `SELECT try_variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.key', 'boolean')` |  |
 | `variant_explode` | Runs | `SELECT * FROM variant_explode(parse_json('{"foo":1,"bar":"hello"}'))` |  |
 | `variant_explode_outer` | Runs | `SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)` |  |
-| `variant_get` | Runs | `SELECT variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.data[1].a', 'string')` | A cast that turns on a number's exact VARIANT type (a STRING or DECIMAL to an integer, a date, a STRUCT) stops by name |
+| `variant_get` | Runs | `SELECT variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.data[1].a', 'string')` | A cast that turns on a number's exact VARIANT type (a STRING, or a DECIMAL with a fraction, to an integer; a date; a STRUCT) stops by name |
 
 ## Databricks only: vectors
 

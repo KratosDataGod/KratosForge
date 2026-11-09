@@ -28,6 +28,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 _LONG = 2**63
+_DEEPEST = 256  # nesting this PC reads; past it a cell stops by name, so no try_ guesses NULL
+_SHOWN = 100  # characters of a value an error message repeats
 _MAX_DIGITS = 38  # a VARIANT decimal has at most 38 digits and scale 38; anything else is a DOUBLE
 _PLAIN_DECIMAL = re.compile(r"-?[0-9.]+")  # VariantBuilder.tryParseDecimal: no exponent
 _INTEGER_BITS = {"tinyint": 8, "smallint": 16, "int": 32, "bigint": 64}
@@ -60,9 +62,19 @@ def _java_double(value: float) -> str:
     return f"{'-' if value < 0 else ''}{digits[0]}.{digits[1:] or '0'}E{exact.adjusted()}"
 
 
+def _shown(text: str) -> str:
+    """``text`` as an error message repeats it: at most _SHOWN characters."""
+    return text if len(text) <= _SHOWN else text[:_SHOWN] + "…"
+
+
+def _beyond(why: str) -> ValueError:
+    return ValueError(f"parse_json() can't run on this PC the way it runs in Databricks, so nothing ran: {why}. "
+                      "Run the cell on a Databricks SQL warehouse.")
+
+
 def _number(text: str) -> _Number:
     """A JSON number token read as Databricks' VariantBuilder reads it."""
-    if re.fullmatch(r"-?[0-9]+", text) and -_LONG <= int(text) < _LONG:
+    if len(text) <= 20 and re.fullmatch(r"-?[0-9]+", text) and -_LONG <= int(text) < _LONG:  # 19 digits and a sign
         return _Number(str(int(text)), "long")
     if _PLAIN_DECIMAL.fullmatch(text):
         exact = Decimal(text)
@@ -71,8 +83,8 @@ def _number(text: str) -> _Number:
         if scale <= _MAX_DIGITS and precision <= _MAX_DIGITS:
             return _Number(_plain(exact), "decimal")
     value = float(text)
-    if math.isinf(value):
-        raise _Bad
+    if math.isinf(value):  # Jackson reads it as Infinity; how Databricks keeps that isn't documented
+        raise _beyond(f"the number {_shown(text)} is past DOUBLE's range")
     return _Number(_java_double(value), "double")
 
 
@@ -87,7 +99,7 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in pairs:
         if key in out:
-            raise ValueError(f"[VARIANT_DUPLICATE_KEY] parse_json() found the key {key!r} twice in one object.")
+            raise ValueError(f"[VARIANT_DUPLICATE_KEY] parse_json() found the key {_shown(key)!r} twice in one object.")
         out[key] = value
     return out
 
@@ -121,11 +133,35 @@ def _write(value: Any) -> str:
     return "{" + ",".join(f"{_string(k)}:{_write(value[k])}" for k in keys) + "}"
 
 
+def _depth(text: str) -> int:
+    """How deep ``text``'s arrays and objects nest, counted outside strings, in one pass."""
+    deepest = depth = 0
+    quoted = escaped = False
+    for c in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+        elif c in "[{":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif c in "]}":
+            depth -= 1
+    return deepest
+
+
 def _load(text: str) -> Any:
+    if _depth(text) > _DEEPEST:
+        raise _beyond(f"it nests arrays and objects more than {_DEEPEST} levels deep")
     try:
         return json.loads(text, parse_int=_number, parse_float=_number, parse_constant=_constant,
                           object_pairs_hook=_pairs)
-    except (_Bad, json.JSONDecodeError, InvalidOperation, OverflowError) as exc:
+    except (_Bad, json.JSONDecodeError, InvalidOperation, OverflowError, RecursionError) as exc:
         raise _Bad from exc
 
 
@@ -159,13 +195,13 @@ def to_variant(json_text: str | None, kind: str) -> str | None:
 
 def _cast_error(safe: bool, value: str, target: str) -> None:
     if not safe:
-        raise ValueError(f"[INVALID_VARIANT_CAST] The VARIANT value {value} can't be cast to {target}; "
+        raise ValueError(f"[INVALID_VARIANT_CAST] The VARIANT value {_shown(value)} can't be cast to {target}; "
                          "try_variant_get gives NULL for it.")
 
 
 def _unknown(value: str, target: str) -> ValueError:
     return ValueError(f"variant_get() can't run on this PC the way it runs in Databricks, so nothing ran: this "
-                      f"PC can't tell how Databricks casts the VARIANT value {value} to {target}. Run the cell on "
+                      f"PC can't tell how Databricks casts the VARIANT value {_shown(value)} to {target}. Run the cell on "
                       "a Databricks SQL warehouse, or get it as STRING and cast that.")
 
 
@@ -187,7 +223,7 @@ def path(text: str) -> list[str | int]:
                      re.sub(r"\\(.)", r"\1", single if single is not None else double))
         at = match.end()
     if at != len(text):
-        raise ValueError(f"[INVALID_VARIANT_GET_PATH] {text!r} isn't a VARIANT path: write $ and then .name, "
+        raise ValueError(f"[INVALID_VARIANT_GET_PATH] {_shown(text)!r} isn't a VARIANT path: write $ and then .name, "
                          "['name'] or [index] steps.")
     return steps
 

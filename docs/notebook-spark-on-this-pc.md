@@ -76,6 +76,15 @@ of printing something else. `conv` rewrites a number between bases as Spark's do
 regex that reads Java's syntax. `toJSON` gives each row's JSON text, leaving out a row's or a struct's NULL fields
 (a map keeps them), with `collect`, `first`, `take` and `count`; Spark returns an RDD, which this PC doesn't have.
 `sampleBy` keeps each key's share of rows; a seed gives the same rows each time here, not the rows Spark picks.
+A timestamp in `toJSON` is written as UTC (`...Z`), as Spark writes it in a UTC session.
+
+`describe` and `summary` give each value as Spark writes it as text, with `stddev` to Spark's last digit (Spark's
+running update over the rows in order), and the mean and stddev of a text column taken as numbers. With no column
+named, `groupBy(...).max()`, `min()`, `sum()`, `avg()` and `mean()` take every number column, grouping ones too, and a
+column that isn't a number is an error, as in Spark; the sum of whole numbers is a `bigint`. `printSchema` uses Spark's
+type names (`long`, `integer`, `short`, `byte`) and shows a nested type one part per line, down to the level given.
+`randomSplit` checks the weights as Spark does; its parts never overlap and together hold every row, and a seed gives
+the same split each time, but not the rows Spark picks (Spark's depend on its partitions).
 
 ### DataFrame: 85 of 102
 

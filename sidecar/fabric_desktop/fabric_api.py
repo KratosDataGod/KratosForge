@@ -14,7 +14,7 @@ from urllib3.util import parse_url
 from . import http_session, redact
 from .onelake import error_code
 from .paging import Pages, PagingError
-from .retrying import PollTimedOut, poll_until, send_with_retry
+from .retrying import SAFE_METHODS, PollTimedOut, poll_until, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
@@ -48,6 +48,29 @@ class FabricError(RuntimeError):
         self.code = code
         self.status = status  # the HTTP status, when the error came from a response
         self.request_id = request_id  # Fabric's request id, for support
+
+
+class WriteOutcomeUnknown(FabricError, requests.ConnectionError):
+    """A write whose answer was lost: the connection dropped or timed out after it was sent, so Fabric
+    may or may not have done it. It is never sent again by itself (that could make it twice); the
+    message says to check first. Still a requests.ConnectionError for callers that catch one."""
+
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message, code)
+        # FabricError's __init__ doesn't reach RequestException's, so give its attributes their "no answer" values.
+        self.response = None
+        self.request = None
+
+
+_UNSURE = "Fabric may or may not have done it: check in Fabric before trying again, so it isn't done twice"
+
+
+def _unsure(method: str, url: str, exc: Exception) -> WriteOutcomeUnknown:
+    """A write whose connection dropped or timed out after it was sent."""
+    path = url.split("?", 1)[0].split("#", 1)[0]
+    path = path[len(API):] if path.startswith(API) else path
+    return WriteOutcomeUnknown(f"{method} {path}: the connection dropped before Fabric answered "
+                               f"({type(exc).__name__}). {_UNSURE}.", "WriteOutcomeUnknown")
 
 
 # What a person can do about the errors Fabric gives most often (by error code, then by status).
@@ -119,6 +142,8 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     parts += [_part(d.get("message")) for d in fields.get("details") or []
               if isinstance(d, dict) and d.get("message")][:3]
     hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else _NEXT_STEP)
+    if (status >= 500 or status == 408) and method.upper() not in SAFE_METHODS:
+        hint = _UNSURE  # a write that got a 5xx may have happened (HD-053): it isn't sent again
     parts = [p for p in parts if p] + ([hint] if hint else [])
     text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
     text += (": " + ". ".join(parts) + "." if parts else ".") + (f" Request id {request_id}." if request_id else "")
@@ -216,7 +241,12 @@ class FabricClient:
             return send_with_retry(lambda: self._http.request(method, url, headers=sent, timeout=60, **kwargs),
                                    method, sleep=self._sleep, attempts=5, default_wait=5)
 
-        resp = send(token)
+        try:
+            resp = send(token)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if method.upper() in SAFE_METHODS:
+                raise  # a read: sent again already, and its own error says what happened
+            raise _unsure(method, url, exc) from exc
         if resp.status_code == 401:
             # Fabric refused the token before reading the request, so even a write is safe to send
             # again: once, and only with a token that is actually new.
@@ -225,7 +255,12 @@ class FabricClient:
                 close = getattr(resp, "close", None)
                 if callable(close):
                     close()
-                resp = send(fresh)
+                try:
+                    resp = send(fresh)
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    if method.upper() in SAFE_METHODS:
+                        raise
+                    raise _unsure(method, url, exc) from exc
         if resp.status_code >= 400:
             raise _error(method, url, resp)
         return resp

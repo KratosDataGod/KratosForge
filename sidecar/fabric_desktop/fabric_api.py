@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import re
 import time
-from typing import Any, Callable, cast
+from typing import Any, Callable, Mapping, cast
 from urllib.parse import urljoin
 
 import requests
@@ -14,7 +14,7 @@ from urllib3.util import parse_url
 from . import http_session, redact
 from .onelake import error_code
 from .paging import Pages, PagingError
-from .retrying import SAFE_METHODS, retry_after, send_with_retry
+from .retrying import SAFE_METHODS, PollTimedOut, poll_until, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
@@ -288,19 +288,22 @@ class FabricClient:
         came_from = getattr(resp, "url", None)  # the request's own URL; Fabric's operations start at API
         location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
         operation = resp.headers.get("x-ms-operation-id") or location.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
-        deadline = time.monotonic() + self._poll_timeout
-        while True:
-            self._sleep(retry_after(resp.headers, 2))
-            resp = self._request("GET", location)
-            state = resp.json() if resp.content else {}
-            status = state.get("status")
-            if status == "Succeeded":
-                return self._operation_result(location, resp.headers.get("Location"))
-            if status in ("Failed", "Undefined"):
-                raise _operation_failed(operation, state)
-            if time.monotonic() > deadline:
-                raise FabricError(f"Fabric's operation {operation} didn't finish within {self._poll_timeout:g} seconds "
-                                  f"(last status: {status or 'none'}). It may still finish in Fabric.", "OperationTimedOut")
+        def look() -> tuple[tuple[dict[str, Any], requests.Response], Mapping[str, Any]]:
+            answer = self._request("GET", location)
+            return (answer.json() if answer.content else {}, answer), answer.headers
+
+        try:
+            state, last = poll_until(look, lambda got: got[0].get("status") in ("Succeeded", "Failed", "Undefined"),
+                                     self._poll_timeout, resp.headers, sleep=self._sleep,
+                                     clock=lambda: time.monotonic())  # looked up each time: tests set the clock
+        except PollTimedOut as exc:
+            status = exc.last[0].get("status")
+            raise FabricError(f"Fabric's operation {operation} didn't finish within {self._poll_timeout:g} seconds "
+                              f"(last status: {status or 'none'}). It may still finish in Fabric.",
+                              "OperationTimedOut") from None
+        if state.get("status") == "Succeeded":
+            return self._operation_result(location, last.headers.get("Location"))
+        raise _operation_failed(operation, state)
 
     def _operation_result(self, location: str, result_location: str | None) -> dict[str, Any]:
         if result_location:

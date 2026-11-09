@@ -759,3 +759,18 @@ def test_these_stop_by_name_before_running(code, message):
 def test_these_stop_by_name_as_they_run(code, message):
     with pytest.raises(duckdb.Error, match=re.escape(message)):
         _one(code)
+
+
+def test_counter_diff_reads_a_named_window():
+    assert _one("SELECT t, counter_diff(c) OVER w FROM VALUES (1, 10), (2, 15) AS tab(t, c) WINDOW w AS (ORDER BY t)") == [
+        [1, None], [2, 5]]
+    with pytest.raises(ValueError, match="write the window inline"):
+        _one("SELECT counter_diff(c) OVER w FROM VALUES (1, 10) AS tab(t, c) WINDOW v AS (ORDER BY t)")
+
+
+def test_unix_nanos_says_when_a_timestamp_is_past_its_range():
+    assert _one("SELECT unix_nanos(NULL), unix_nanos(c), unix_nanos(d) FROM VALUES "
+                "(TIMESTAMP '1970-01-01 00:00:02', CAST(NULL AS TIMESTAMP)) AS t(c, d)") == [
+        [None, "decimal:2000000000", None]]
+    with pytest.raises(duckdb.Error, match="past the nanoseconds"):
+        _one("SELECT unix_nanos(TIMESTAMP'2262-04-12')")

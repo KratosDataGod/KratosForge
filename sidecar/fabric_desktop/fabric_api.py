@@ -55,6 +55,12 @@ class WriteOutcomeUnknown(FabricError, requests.ConnectionError):
     may or may not have done it. It is never sent again by itself (that could make it twice); the
     message says to check first. Still a requests.ConnectionError for callers that catch one."""
 
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message, code)
+        # FabricError's __init__ doesn't reach RequestException's, so give its attributes their "no answer" values.
+        self.response = None
+        self.request = None
+
 
 _UNSURE = "Fabric may or may not have done it: check in Fabric before trying again, so it isn't done twice"
 
@@ -258,7 +264,6 @@ class FabricClient:
         if resp.status_code >= 400:
             raise _error(method, url, resp)
         return resp
-
 
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []

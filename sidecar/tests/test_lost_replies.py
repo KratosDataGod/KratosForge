@@ -71,6 +71,7 @@ def test_an_item_created_whose_reply_was_lost_is_never_made_twice(fabric):
         client.create_item(WS, "Notebook", "Load sales")
     assert "may or may not have done it" in str(err.value) and "check in Fabric" in str(err.value)
     assert isinstance(err.value, FabricError) and isinstance(err.value, requests.ConnectionError)
+    assert err.value.response is None and err.value.request is None  # as any RequestException without an answer
     assert [m for m, _ in fake.sent] == ["POST"]  # not sent again by itself
     with pytest.raises(FabricError, match="ItemDisplayNameAlreadyInUse"):  # doing it again: refused by name
         client.create_item(WS, "Notebook", "Load sales")

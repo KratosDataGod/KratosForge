@@ -21,10 +21,10 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 157 |
-| Differs | 21 |
-| Refused | 77 |
-| Fails | 13 |
+| Runs | 167 |
+| Differs | 20 |
+| Refused | 81 |
+| Fails | 0 |
 | Not checked | 227 |
 | **All** | **495** |
 
@@ -208,14 +208,14 @@ the known differences in more detail.
 | `MONTHS_BETWEEN` | Not checked |  |  |
 | `TIMEADD` | Runs |  | 1 value check |
 | `TIMEDIFF` | Not checked | `SELECT TIMEDIFF(HOUR, TO_TIMESTAMP('2024-03-05 10:20:30'), TO_TIMESTAMP('2024-03-06 10:20:30'))` |  |
-| `TIMESTAMPADD` | Fails |  | Parser Error: syntax error at or near "NULL" |
+| `TIMESTAMPADD` | Runs |  | 4 value checks |
 | `TIMESTAMPDIFF` | Runs |  | 1 value check |
 | `DATE_TRUNC` | Runs |  | 1 value check |
 | `TIME_SLICE` | Runs |  | 1 value check |
 | `TO_DATE` | Runs |  | 2 value checks |
 | `DATE` | Not checked |  |  |
 | `TO_TIME` | Runs |  | 1 value check |
-| `TIME` | Fails | `SELECT TIME('10:20:30')` | Parser Error: syntax error at or near "AS" |
+| `TIME` | Runs |  | 2 value checks |
 | `TO_TIMESTAMP` | Not checked |  |  |
 | `TO_TIMESTAMP_LTZ` | Differs |  | SFD-004 Local time zone is this PC's |
 | `TO_TIMESTAMP_NTZ` | Not checked |  |  |
@@ -232,12 +232,12 @@ the known differences in more detail.
 | `TO_VARCHAR` | Runs |  | 3 value checks |
 | `TO_BINARY` | Not checked |  |  |
 | `TRY_TO_BINARY` | Not checked |  |  |
-| `TO_DECFLOAT` | Fails |  | DuckDB has no TO_DECFLOAT, and the rules don't rewrite it |
+| `TO_DECFLOAT` | Refused |  | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
 | `TO_DECIMAL` | Not checked |  |  |
 | `TO_NUMBER` | Runs |  | 1 value check |
 | `TO_NUMERIC` | Not checked |  |  |
 | `TO_DOUBLE` | Not checked |  |  |
-| `TRY_TO_DECFLOAT` | Fails |  | DuckDB has no TRY_TO_DECFLOAT, and the rules don't rewrite it |
+| `TRY_TO_DECFLOAT` | Refused |  | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
 | `TRY_TO_DECIMAL` | Not checked |  |  |
 | `TRY_TO_NUMBER` | Runs |  | 1 value check |
 | `TRY_TO_NUMERIC` | Not checked |  |  |
@@ -399,8 +399,8 @@ the known differences in more detail.
 | `REGR_SYY` | Not checked |  |  |
 | `KURTOSIS` | Not checked |  |  |
 | `SKEW` | Not checked |  |  |
-| `GROUPING` | Fails |  | Binder Error: GROUPING statement cannot be used without groups |
-| `GROUPING_ID` | Fails |  | Parser Error: syntax error at or near ")" |
+| `GROUPING` | Runs |  | 2 value checks |
+| `GROUPING_ID` | Runs |  | 1 value check |
 
 ## Approximate and sketches
 
@@ -439,11 +439,11 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CONDITIONAL_CHANGE_EVENT` | Fails | DuckDB has no CONDITIONAL_CHANGE_EVENT, and the rules don't rewrite it |
-| `CONDITIONAL_TRUE_EVENT` | Fails | DuckDB has no CONDITIONAL_TRUE_EVENT, and the rules don't rewrite it |
-| `INTERPOLATE_BFILL` | Fails | DuckDB has no INTERPOLATE_BFILL, and the rules don't rewrite it |
-| `INTERPOLATE_FFILL` | Fails | DuckDB has no INTERPOLATE_FFILL, and the rules don't rewrite it |
-| `INTERPOLATE_LINEAR` | Fails | DuckDB has no INTERPOLATE_LINEAR, and the rules don't rewrite it |
+| `CONDITIONAL_CHANGE_EVENT` | Runs | 3 value checks |
+| `CONDITIONAL_TRUE_EVENT` | Runs | 3 value checks |
+| `INTERPOLATE_BFILL` | Runs | 1 value check |
+| `INTERPOLATE_FFILL` | Runs | 1 value check |
+| `INTERPOLATE_LINEAR` | Runs | 1 value check; labelled SFD-011 INTERPOLATE_LINEAR gives a DOUBLE |
 | `RATIO_TO_REPORT` | Runs | 5 value checks |
 | `CUME_DIST` | Not checked |  |
 | `DENSE_RANK` | Not checked |  |
@@ -551,9 +551,9 @@ the known differences in more detail.
 | `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
 | `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
 | `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |
-| `LATERAL FLATTEN` | Differs | `SELECT f.value FROM t, LATERAL FLATTEN(input => PARSE_JSON('[1, 2]')) f` | SFD-005 FLATTEN rows and keys |
+| `LATERAL FLATTEN` | Runs |  | 5 value checks |
 | `SAMPLE` | Not checked | `SELECT * FROM t SAMPLE (50)` |  |
-| `MATCH_RECOGNIZE` | Fails | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | Parser Error: syntax error at or near "ORDER" |
+| `MATCH_RECOGNIZE` | Refused | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | MATCH_RECOGNIZE. DuckDB has no row pattern matching. |
 | `GENERATOR` | Not checked | `SELECT SEQ4() FROM TABLE(GENERATOR(ROWCOUNT => 3))` |  |
 
 ## Statements
@@ -567,7 +567,7 @@ the known differences in more detail.
 | `CREATE TEMPORARY TABLE` | Differs | `CREATE TEMPORARY TABLE n (a INT)` | SFD-001 Unquoted names keep their case |
 | `CREATE TRANSIENT TABLE` | Refused | `CREATE TRANSIENT TABLE n (a INT)` | Not rewritten for DuckDB. Unsupported property transientproperty. |
 | `INSERT INTO` | Not checked | `INSERT INTO t VALUES (3, 4)` |  |
-| `INSERT OVERWRITE` | Fails | `INSERT OVERWRITE INTO t SELECT * FROM s` | Parser Error: syntax error at or near "OVERWRITE" |
+| `INSERT OVERWRITE` | Refused | `INSERT OVERWRITE INTO t SELECT * FROM s` | INSERT OVERWRITE. Snowflake empties the table and inserts in one statement inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT written here wouldn't be one statement. |
 | `UPDATE` | Not checked | `UPDATE t SET b = 0 WHERE a = 1` |  |
 | `UPDATE FROM` | Not checked | `UPDATE t SET b = s.b FROM s WHERE t.a = s.a` |  |
 | `DELETE` | Not checked | `DELETE FROM t WHERE a = 1` |  |

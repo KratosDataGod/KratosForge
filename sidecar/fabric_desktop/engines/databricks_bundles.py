@@ -184,6 +184,7 @@ def _run(args: list[str], folder: str, profile: str, run: Runner, timeout: int) 
                           "databricks auth login.")
     try:
         return run([cli, "bundle", *args, "--profile", profile], cwd=str(Path(folder)), capture_output=True, text=True,
+                   encoding="utf-8", errors="replace",  # the CLI (Go) writes UTF-8 whatever the code page
                    timeout=timeout, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise BundleError(f"The Databricks CLI didn't finish within {timeout // 60} minutes.") from None

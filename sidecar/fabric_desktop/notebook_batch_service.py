@@ -164,8 +164,9 @@ class NotebookBatchMixin:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             try:
                 done = subprocess.run([sys.executable, "-m", "fabric_desktop.cli", "run-notebook", id, str(index)],
-                                      cwd=str(self.root), creationflags=flags, env=os.environ.copy(),
-                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
+                                      cwd=str(self.root), creationflags=flags, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
+                                      errors="replace", check=False)
                 lines = [x for x in (done.stdout or "").splitlines() if x.strip().startswith("{")]
                 row = json.loads(lines[-1]) if lines else {
                     "status": "failed", "message": f"The run stopped without a result (exit code {done.returncode})"}

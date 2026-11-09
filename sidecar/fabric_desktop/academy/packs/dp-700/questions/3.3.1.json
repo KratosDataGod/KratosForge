@@ -41,29 +41,29 @@
       "options": [
         {
           "id": "a",
-          "text": "A way to sort pipeline activities"
+          "text": "A way to sort a pipeline's activities so that dependent steps always run in the right order"
         },
         {
           "id": "b",
-          "text": "A type of sensitivity label"
+          "text": "A type of sensitivity label that marks Parquet files as verified for every engine"
         },
         {
           "id": "c",
-          "text": "A write-time optimization of Parquet files that makes reads faster for Fabric engines such as Power BI, SQL and Spark"
+          "text": "A write-time optimization of Parquet files that makes reads faster across Fabric engines"
         },
         {
           "id": "d",
-          "text": "A kind of shortcut"
+          "text": "A kind of shortcut that orders files from external storage for faster reads"
         }
       ],
       "answer": [
         "c"
       ],
-      "explanation": "V-Order applies sorting, row group distribution and compression when Parquet files are written, so Fabric engines read them faster. The files stay standard Parquet.",
+      "explanation": "V-Order reorganizes the Parquet layout when files are written (row-group distribution, encoding and compression), so Fabric engines read them faster. The files stay standard Parquet.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
-      "version": 1,
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.1-q3",
@@ -76,25 +76,25 @@
         },
         {
           "id": "b",
-          "text": "It compacts small files"
+          "text": "It compacts small data files into larger ones and rewrites the table's latest version, without affecting the time travel history at all"
         },
         {
           "id": "c",
-          "text": "It deletes the table's history and data"
+          "text": "It deletes the table's whole transaction history and its data files, leaving an empty table with the same schema"
         },
         {
           "id": "d",
-          "text": "It adds statistics"
+          "text": "It collects column statistics into the transaction log so later queries can skip files, without removing any files"
         }
       ],
       "answer": [
         "a"
       ],
-      "explanation": "VACUUM frees storage by removing old, unreferenced files. Time travel to versions that needed those files stops working.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings",
-      "version": 1,
+      "explanation": "VACUUM frees storage by removing old, unreferenced files. Time travel to versions that needed those files stops working. The default retention is seven days.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-lake-vacuum",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "3.3.1-q4",
@@ -126,6 +126,195 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.1-q5",
+      "type": "order",
+      "stem": "You run `OPTIMIZE dbo.sales ZORDER BY (region, customer_id) VORDER`. Put the operations Spark applies in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "V-order"
+        },
+        {
+          "id": "b",
+          "text": "Bin compaction"
+        },
+        {
+          "id": "c",
+          "text": "Z-Order"
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "a"
+      ],
+      "explanation": "When Z-Order and V-order are combined in one command, Spark applies bin compaction, then Z-Order, then V-order.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.1-q6",
+      "type": "single",
+      "stem": "You run the lakehouse's table maintenance from the portal with VACUUM and a retention of 2 days, and the request fails. What is the reason?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Portal and API maintenance requests fail by default for retention intervals under seven days"
+        },
+        {
+          "id": "b",
+          "text": "The table must first be converted to a Hive table in Parquet format before VACUUM can run on it"
+        },
+        {
+          "id": "c",
+          "text": "VACUUM can only run on tables written with V-Order, and this table was written without it"
+        },
+        {
+          "id": "d",
+          "text": "VACUUM can only run from a pipeline's Lakehouse Maintenance activity"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The default retention threshold is seven days and shorter intervals fail unless `spark.databricks.delta.retentionDurationCheck.enabled` is set to false. A shorter retention also reduces time travel history.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-table-maintenance",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.1-q7",
+      "type": "single",
+      "stem": "An engineer can't run table maintenance on a lakehouse table that was created as a legacy Hive table in CSV format. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Table maintenance needs the table to be partitioned"
+        },
+        {
+          "id": "b",
+          "text": "Table maintenance runs only on tables smaller than 1 GB"
+        },
+        {
+          "id": "c",
+          "text": "Table maintenance needs V-Order to be enabled in the workspace"
+        },
+        {
+          "id": "d",
+          "text": "Table maintenance applies only to Delta tables"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Table maintenance applies only to Delta tables; legacy Hive tables in formats such as Parquet, ORC, AVRO or CSV aren't supported.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-table-maintenance",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.1-q8",
+      "type": "single",
+      "stem": "A streaming ingestion job appends small batches to a Delta table every minute, and the table keeps collecting small files. You want files compacted automatically after writes, without scheduling OPTIMIZE. What should you enable?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Z-Order on the timestamp column so each write is merged into sorted files"
+        },
+        {
+          "id": "b",
+          "text": "VACUUM with a one-hour retention to merge the small files after each write"
+        },
+        {
+          "id": "c",
+          "text": "Auto compaction, for example `delta.autoOptimize.autoCompact` = true"
+        },
+        {
+          "id": "d",
+          "text": "`OPTIMIZE FULL` after every write, run from the streaming job itself"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Auto compaction checks partition health after each write and runs a synchronous OPTIMIZE when there are too many small files. OPTIMIZE FULL is costly and meant to run rarely, and VACUUM only removes unreferenced files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.1-q9",
+      "type": "single",
+      "stem": "A scheduled OPTIMIZE job keeps rewriting bins of files even when merging them barely improves the layout. Which setting skips compaction of bins that aren't likely to improve performance?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`spark.sql.parquet.vorder.default` = TRUE"
+        },
+        {
+          "id": "b",
+          "text": "`spark.microsoft.delta.optimize.fast.enabled` = TRUE"
+        },
+        {
+          "id": "c",
+          "text": "`spark.databricks.delta.retentionDurationCheck.enabled` = false"
+        },
+        {
+          "id": "d",
+          "text": "`spark.sql.shuffle.partitions` = 400"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Fast optimize analyzes files and skips compaction that isn't likely to help, which lowers write amplification. The other settings control V-Order, VACUUM checks and shuffle.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.1-q10",
+      "type": "multiple",
+      "stem": "You want the files that OPTIMIZE rewrites in table `dbo.sales` to have V-Order applied. Which two approaches achieve this? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run `OPTIMIZE dbo.sales VORDER`"
+        },
+        {
+          "id": "b",
+          "text": "Run `VACUUM dbo.sales`"
+        },
+        {
+          "id": "c",
+          "text": "Set `delta.parquet.vorder.enabled` = true on the table, then run `OPTIMIZE dbo.sales`"
+        },
+        {
+          "id": "d",
+          "text": "Set `spark.sql.parquet.vorder.enable` in Fabric runtime 1.3"
+        },
+        {
+          "id": "e",
+          "text": "Run `OPTIMIZE dbo.sales ZORDER BY (region)` with V-Order off in the session and table"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "OPTIMIZE with VORDER forces V-Order, and OPTIMIZE without it inherits the table property when set. VACUUM doesn't rewrite files, the old setting is removed in runtime 1.3, and Z-Order alone doesn't apply V-Order.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

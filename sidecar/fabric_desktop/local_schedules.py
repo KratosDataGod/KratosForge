@@ -219,7 +219,7 @@ class TaskScheduler:
         try:
             # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
             # otherwise hold every page's engine calls behind it, with no Stop to reach.
-            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags,
+            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, errors="replace", creationflags=flags,
                                  timeout=SCHTASKS_SECONDS)
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "

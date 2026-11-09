@@ -288,13 +288,24 @@ def test_foreach_iterations_parallel_sequential_and_results():
     text = pipeline(act("Loop", "ForEach", items="@pipeline().parameters.xs", batchCount=3, activities=inner),
                     parameters={"xs": {"type": "array", "defaultValue": ["a", "b", "c"]}},
                     variables={"seen": {"type": "Array", "defaultValue": []}})
+    # Parallel or not is read from when each iteration ran, not from the run's total time, which a busy
+    # CI runner stretches: in parallel every iteration starts before any ends; in sequence each starts
+    # after the one before it ends.
+    def spans(r):
+        each = sorted((a for a in r.to_json()["activities"] if a["name"] == "Each"), key=lambda a: a["started"])
+        return [(a["started"], a["ended"]) for a in each]
+
     r = run(text, mocks={"Each": {"output": {"n": 1}, "seconds": 0.2}}, wait_scale=1)
     assert sorted(r.variables["seen"]) == ["a:1", "b:1", "c:1"]
-    assert r.seconds < 0.5 and next(a for a in r.to_json()["activities"] if a["name"] == "Loop")["iterations"] == 3
+    assert next(a for a in r.to_json()["activities"] if a["name"] == "Loop")["iterations"] == 3
+    runs = spans(r)
+    assert len(runs) == 3 and max(s for s, _ in runs) < min(e for _, e in runs), runs
     seq = json.loads(text)
     seq["properties"]["activities"][0]["typeProperties"]["isSequential"] = True
     r = run(json.dumps(seq), mocks={"Each": {"output": {"n": 1}, "seconds": 0.2}}, wait_scale=1)
-    assert r.variables["seen"] == ["a:1", "b:1", "c:1"] and r.seconds >= 0.55
+    assert r.variables["seen"] == ["a:1", "b:1", "c:1"]
+    runs = spans(r)
+    assert len(runs) == 3 and all(runs[i][1] <= runs[i + 1][0] for i in range(2)), runs
 
 
 def test_foreach_fails_when_an_iteration_fails_but_runs_them_all():
@@ -1005,3 +1016,22 @@ def test_nested_shared_arrays_count_every_time_they_appear():
     scope.variables["a"] = [[list(range(400))] * 400]
     with pytest.raises(ExpressionError, match=f"more than {ev.MAX_ITEMS:,} items"):
         evaluate("@createArray(variables('a'))", scope)
+
+
+def test_how_a_run_ended_gets_its_own_audit_line(tmp_path):
+    lines = []
+
+    class Audited(Svc):
+        def _audit_finished(self, action, reason, seconds, params):
+            lines.append((action, reason, params))
+
+    svc = Audited(tmp_path)
+    good = svc.pipeline_run_start(path=str(REFERENCE), mocks=MOCKS, wait_scale=0)["run_id"]
+    bad = svc.pipeline_run_start(text=pipeline(fail("F")), wait_scale=0)["run_id"]
+    for rid in (good, bad):
+        finish(svc, rid)
+    end = time.monotonic() + 10
+    while len(lines) < 2 and time.monotonic() < end:  # written just after the record is saved
+        time.sleep(0.02)
+    by_run = {p["run_id"]: (a, ok, p["state"]) for a, ok, p in lines}
+    assert by_run == {good: ("pipeline_run_finished", "", "succeeded"), bad: ("pipeline_run_finished", "failed", "failed")}

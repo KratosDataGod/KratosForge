@@ -242,10 +242,15 @@ def _unix_nanos(args: list[exp.Expression]) -> exp.Expression:
     """unix_nanos; a TIMESTAMP literal is read to the nanosecond, as Databricks reads it for TIMESTAMP(9)."""
     _arity("unix_nanos", args, 1, 1)
     value = args[0]
+    if isinstance(value, exp.Null):
+        return exp.cast(exp.null(), "DECIMAL(21, 0)")
     if isinstance(value, exp.Cast) and isinstance(value.this, exp.Literal) and value.this.is_string and \
             value.to.this in (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPNTZ):
-        value = _template("CAST(_a AS TIMESTAMP_NS)", a=value.this)
-    return _template("CAST(epoch_ns(_a) AS DECIMAL(21, 0))", a=value)
+        value = _template("TRY_CAST(_a AS TIMESTAMP_NS)", a=value.this)
+    return exp.paren(_template(
+        "CASE WHEN _a IS NULL AND _r IS NULL THEN NULL ELSE coalesce(CAST(TRY(epoch_ns(_a)) AS DECIMAL(21, 0)), "
+        f"error('unix_nanos() can''t run on this PC the way it runs in Databricks, so nothing ran: the timestamp "
+        f"is {_NANOS_PAST}.')) END", a=value, r=args[0]))
 
 
 # bitmap_and_agg ANDs the first 4096 bytes of each bitmap, as bitmap_or_agg ORs them (spark_builtins_sql)
@@ -271,6 +276,15 @@ def _counter_diff(node: exp.Anonymous) -> exp.Expression:
     window = node.parent
     if not isinstance(window, exp.Window) or window.this is not node:
         raise ValueError("[WINDOW_FUNCTION_WITHOUT_OVER_CLAUSE] counter_diff() needs OVER (... ORDER BY ...).")
+    named = window.args.get("alias")
+    if named is not None and not window.args.get("order"):  # OVER w, with WINDOW w AS (...) on its SELECT
+        select = window.find_ancestor(exp.Select)
+        specs = (select.args.get("windows") or []) if select is not None else []
+        spec = next((w for w in specs if w.name == named.name), None)
+        if spec is None:
+            raise ValueError(f"counter_diff() is over the window {named.name}, which no WINDOW clause of its SELECT "
+                             "names; write the window inline.")
+        window = spec
     if not window.args.get("order"):
         raise ValueError("[WINDOW_FUNCTION_FRAME_NOT_ORDERED] counter_diff() needs an ORDER BY in its OVER clause.")
     start = args[1] if len(args) == 2 else exp.null()

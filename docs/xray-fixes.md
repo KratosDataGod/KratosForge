@@ -111,13 +111,13 @@ The estimate leaves out Spark session start-up. Fabric's **Capacity Metrics** ap
 
 **Why it matters.** Every write leaves the files it replaced in storage. Until `VACUUM` removes them, you pay OneLake storage for every old version.
 
-**What Vacuum does.** First a dry run, which deletes nothing, says how many old files Vacuum would delete and how much storage they take. Then **Vacuum** runs Fabric's table maintenance with only `VACUUM` ticked (no compaction). It keeps the longest of:
+**What Vacuum does.** First a dry run, which deletes nothing, says how many old files Vacuum would delete and how much storage they take, with the same [risk check](finops/risk-check.md) as Optimize: blocked has no **Vacuum** button, and warnings need **I've looked at these** ticked when your settings ask for it. Then **Vacuum** runs Fabric's table maintenance with only `VACUUM` ticked (no compaction). It keeps the longest of:
 
 - 7 days, Fabric's default,
 - the table's own `delta.deletedFileRetentionDuration`,
 - **Keep history** on the metadata layer whose lakehouse it is, in a workspace your metadata project uses.
 
-So **Restore** and time travel still reach back as far as the layer promises. With the **Needs vacuum** filter on, **Vacuum all** starts one job per table, each keeping its own history. **Optimize** on a small-files finding keeps the same history when it vacuums.
+So **Restore** and time travel still reach back as far as the layer promises. With the **Needs vacuum** filter on, **Vacuum all** checks each table first and starts one job per table that passes, each keeping its own history. A table that is blocked, has warnings or couldn't be checked is named and left for its own **Vacuum**, which shows its risk check. **Optimize** on a small-files finding keeps the same history when it vacuums.
 
 **By hand.** As for small files, with only **Run VACUUM command** ticked, or `VACUUM my_table RETAIN 168 HOURS;` in a notebook (use the layer's days times 24 for metadata tables). Don't go below 7 days: a shorter retention can break queries running at the time, and you lose restore to those versions.
 

@@ -251,15 +251,22 @@ class Client:
         ``repeatable`` (left out: GETs are). Cancels are never cut short by Cancel itself."""
         if repeatable is None:
             repeatable = method == "GET"
-        headers = self._tokens.headers()  # a sign-in problem is its own error, not "couldn't reach"
-
-        def send() -> Any:
-            return self._http.request(method, self.host + path, headers=headers, timeout=60, **kwargs)
-        try:
-            resp, tries = send_remote(send, repeatable, self._sleep,
-                                      (lambda: False) if path.endswith("/cancel") else self.stopped)
-        except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
-            raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
+        token = self._tokens.token()  # a sign-in problem is its own error, not "couldn't reach"
+        resp, tries = self._send(method, path, token, repeatable, **kwargs)
+        if resp.status_code == 401:
+            # Refused unread, so even a submit is safe to send again: once, and only with a token that is
+            # actually new (the CLI's, after a new sign-in). A sign-in that can't be had says so itself.
+            self._tokens.drop(token)
+            fresh = self._tokens.token()
+            if fresh != token:
+                close = getattr(resp, "close", None)
+                if callable(close):
+                    close()
+                resp, tries = self._send(method, path, fresh, repeatable, **kwargs)
+                if resp.status_code == 401:
+                    self._tokens.drop(fresh)
+        if resp.status_code == 401 and self._tokens.sign_in_again:
+            raise DatabricksError(f"Databricks refused the sign-in (HTTP 401). {self._tokens.sign_in_again}")
         if resp.status_code >= 400:
             raise DatabricksError(self._refusal(resp, path).rstrip() + (f" Tried {tries} times." if tries > 1 else ""))
         try:
@@ -267,6 +274,17 @@ class Client:
         except ValueError:
             raise DatabricksError(f"{self.host} answered with something other than JSON (HTTP {resp.status_code}).") \
                 from None
+
+    def _send(self, method: str, path: str, token: str, repeatable: bool, **kwargs: Any) -> tuple[Any, int]:
+        headers = {"Authorization": f"Bearer {token}"}
+
+        def send() -> Any:
+            return self._http.request(method, self.host + path, headers=headers, timeout=60, **kwargs)
+        try:
+            return send_remote(send, repeatable, self._sleep,
+                               (lambda: False) if path.endswith("/cancel") else self.stopped)
+        except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
+            raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
 
     @staticmethod
     def _refusal(resp: Any, path: str = "") -> str:

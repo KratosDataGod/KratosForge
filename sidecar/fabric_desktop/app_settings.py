@@ -82,7 +82,8 @@ Keys:
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
-                     metadata framework's download cache) are deleted after this many days unused;
+                     metadata framework's download cache, replay bundle copies) are deleted after this
+                     many days unused;
                      0 keeps them (default 30)
     onelake_writes   "local_first" (default): a notebook cell's table writes are staged on this PC and
                      upload in the background while the cell goes on; the cell ends when they're in.

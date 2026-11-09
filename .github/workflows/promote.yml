@@ -18,7 +18,7 @@ on:
 
 jobs:
   approve:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Stable reaches every PC that hasn't chosen Preview, so a promote waits here until a reviewer
     # set on this environment (Settings > Environments > stable > Required reviewers) approves it.
     # This job holds no concurrency group: a job waiting for approval would hold release-assets
@@ -68,7 +68,7 @@ jobs:
 
   promote:
     needs: approve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Only after approval: waits for a Preview publish in progress, so it never copies a
     # half-replaced release, and a Preview publish waits for it the same way.
     concurrency:

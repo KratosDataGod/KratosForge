@@ -12,6 +12,10 @@ Several processes use this file at once: the app's engine (the Settings page, ap
     approval_uses  when each approval was used, so Recent activity can show an approved call
                 that left no audit line (the process was killed as it started)
 
+Both approval tables keep USES_SECONDS: a request that ended (used, denied, expired) longer ago, and
+not still in approval_uses, is deleted, so the arguments of years of requests don't pile up. The
+audit trail (integrations/audit) is the lasting record of every call.
+
 HTTP tokens are stored only as SHA-256 hashes. No Fabric or Entra token is ever stored here.
 """
 
@@ -219,6 +223,10 @@ class IntegrationStore:
         now = self.clock()
         db.execute("update approvals set state = 'expired', decided_at = ? where state in ('pending', 'approved') "
                    "and expires_at < ?", (now, now))
+        db.execute("delete from approval_uses where used_at < ?", (now - USES_SECONDS,))
+        db.execute("delete from approvals where state not in ('pending', 'approved') "
+                   "and coalesce(decided_at, created_at) < ? and id not in (select approval_id from approval_uses)",
+                   (now - USES_SECONDS,))
 
     def request_approval(self, client: dict[str, Any], capability: str, title: str, permission: str,
                          summary: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:

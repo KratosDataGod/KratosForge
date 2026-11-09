@@ -566,7 +566,9 @@ function showScorecard(r) {
       fab.assumptions ? h("ul", { class: "small" }, fab.assumptions.map((a) => h("li", {}, a))) : null),
     box("Fabric capacity of this PC's run", cost.pc?.kind, "No Fabric job", cost.pc?.text));
   const notes = (c.notes || []).map((n) => h("li", {}, n));
-  const overlay = showDialog("Scorecard", h("div", {}, body, notes.length ? h("ul", { class: "small muted" }, notes) : null),
+  // Its own scrolling pane (a wide dialog has a fixed height): in a short window the cards scroll, and the keyboard scrolls them.
+  const overlay = showDialog("Scorecard", h("div", { class: "scroll", tabindex: "0", role: "region", "aria-label": "Scorecard" },
+    body, notes.length ? h("ul", { class: "small muted" }, notes) : null),
     [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
 }

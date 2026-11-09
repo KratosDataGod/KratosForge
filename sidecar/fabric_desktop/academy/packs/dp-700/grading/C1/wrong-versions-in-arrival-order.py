@@ -19,7 +19,7 @@ if new_days:
         SELECT order_id, customer_id, product_id, qty, unit_price, order_ts, load_date FROM (
             SELECT *, row_number() OVER (PARTITION BY order_id ORDER BY load_date DESC) AS rn FROM arrived) AS a
         WHERE rn = 1""")
-    valid = "s.customer_id IS NOT NULL AND s.qty > 0"
+    valid = "s.customer_id IS NOT NULL AND coalesce(s.qty, 0) > 0"
     (DeltaTable.forName(spark, "silver.orders").alias("t")
         .merge(newest.alias("s"), "t.order_id = s.order_id")
         .whenMatchedDelete(condition=f"NOT ({valid})")
@@ -44,12 +44,13 @@ spark.sql("""
         SELECT customer_id, name, city, segment, changed_at,
                lag(city) OVER (PARTITION BY customer_id ORDER BY load_date, changed_at) AS prev_city,
                lag(segment) OVER (PARTITION BY customer_id ORDER BY load_date, changed_at) AS prev_segment,
+               row_number() OVER (PARTITION BY customer_id ORDER BY load_date, changed_at) = 1 AS first_change,
                row_number() OVER (PARTITION BY customer_id ORDER BY changed_at DESC, load_date DESC) AS newest
         FROM changes
     ),
     versions AS (
         SELECT customer_id, city, segment, changed_at AS valid_from FROM ordered
-        WHERE prev_city IS NULL OR city <> prev_city OR segment <> prev_segment
+        WHERE first_change OR city IS DISTINCT FROM prev_city OR segment IS DISTINCT FROM prev_segment
     ),
     numbered AS (
         SELECT *, row_number() OVER (PARTITION BY customer_id ORDER BY valid_from) AS version,

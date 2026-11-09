@@ -69,7 +69,7 @@ four original exam questions (ACD-013).
 | 3.1.2 | Monitor data transformation | E44, E47 | SIM | Yes | |
 | 3.1.3 | Monitor semantic model refresh | E45 | SIM | Yes | LM-09 |
 | 3.1.4 | Configure alerts | E46, C2 | SIM | Yes | |
-| 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58, C1 | LV (local runner) | No | |
+| 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58 | LV (local runner) | No | |
 | 3.2.2 | Identify and resolve dataflow errors | E50 | SIM | Yes | |
 | 3.2.3 | Identify and resolve notebook errors | E51, E52 | LV | No | |
 | 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |

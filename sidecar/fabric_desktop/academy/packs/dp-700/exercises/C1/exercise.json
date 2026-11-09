@@ -11,8 +11,7 @@
     "2.2.6",
     "2.2.7",
     "2.2.8",
-    "2.2.9",
-    "3.2.1"
+    "2.2.9"
   ],
   "objective_text": "Build a small lakehouse end to end: land new days through a parameterised notebook, MERGE them into Silver with quality checks, keep a type 2 customer dimension, and build a Gold fact table and a denormalised aggregate, so that a rerun changes nothing.",
   "scenario": "A shop drops each day's orders and customer changes into landing. Orders get sent twice, corrected days later, or sent for customers who don't exist yet; customer changes arrive out of order. Finance wants daily sales by customer segment as it was when each sale happened, and operations wants proof that no day lands twice.",
@@ -248,7 +247,7 @@
   "reset": "Reset rebuilds landing, bronze, silver.orders and ops.load_log from setup.sql, removes the tables your runs made, and puts the starter back.",
   "review_notes": [
     "LOCAL VERIFIED on DuckDB's PySpark API with delta-rs; the shop data is synthetic and the same every time.",
-    "Objectives 2.2.5 (pipelines), 3.3.1 (OPTIMIZE) and 3.3.6 (query performance) from the plan aren't claimed: this engine can't run a pipeline or OPTIMIZE, so they stay with E31, E56, E59 and E64 and the Fabric verified version.",
+    "Objectives 2.2.5 (pipelines), 3.2.1 (pipeline errors), 3.3.1 (OPTIMIZE) and 3.3.6 (query performance) from the plan aren't claimed: this engine can't run a pipeline or OPTIMIZE and C1 plants no pipeline error, so they stay with E31, E48, E49, E58, E56, E59 and E64 and the Fabric verified version.",
     "Learn facts used (2026-11-07): notebookutils.notebook.run returns the exit value as a string; type 2 dimensions keep history with validity columns and surrogate keys; an unknown member stands in for a missing dimension row."
   ]
 }

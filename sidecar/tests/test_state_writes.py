@@ -132,3 +132,8 @@ def test_a_live_test_ledger_save_cut_short_keeps_the_last_ledger(tmp_path, write
         ledger.add(type="Notebook", id="nb-1")
     assert ledger.path.read_bytes() == before.encode("utf-8")
     assert Ledger.load(ledger.path).created == [{"type": "Lakehouse", "id": "lh-1"}]
+
+
+def test_academy_packs_hold_no_importable_engine_code():
+    """The check above skips academy/packs/ as exercise content; a package there could hide engine code."""
+    assert not list((PACKAGE / "academy" / "packs").rglob("__init__.py"))

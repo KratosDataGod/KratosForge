@@ -2,16 +2,22 @@
 
     cd sidecar
     python ../examples/benchmark/startup_and_sql.py --json bench.json
-    python ../examples/benchmark/compare.py bench.json --baseline ../examples/benchmark/baseline-windows.json
-    python ../examples/benchmark/compare.py bench.json --write-baseline ../examples/benchmark/baseline-windows.json \\
+    python ../examples/benchmark/compare.py bench.json --baselines ../examples/benchmark/baselines --image windows-2025-vs2026
+    python ../examples/benchmark/compare.py bench.json --write-baseline ../examples/benchmark/baselines/windows-2025-vs2026.json \\
         --runner "GitHub Actions windows-2025-vs2026"
 
 Each measurement's median is compared with the baseline's median. A measurement counts as a
 regression only when it is more than --ratio times the baseline (1.5 by default) AND more than
 --slack-ms milliseconds slower (25 by default), so a 1 ms query that takes 2 ms on a busy runner
 isn't one. The table goes to stdout (and to --summary, such as $GITHUB_STEP_SUMMARY). On GitHub
-Actions each regression is also a warning annotation. Exit code: 1 only with --gate and a
-regression, so the check is advisory until --gate is added (see docs/performance.md).
+Actions each regression is also a warning annotation.
+
+Each runner image has its own baseline, <--baselines>/<--image>.json; an image with none recorded
+compares nothing and can't fail. With --streak FILE, the measurements past the margin are kept in
+FILE for the next run, and --gate fails only on a measurement past the margin in this run AND the
+last one on the same image (two runs in a row), so one slow runner isn't a failure. Without
+--streak, --gate fails on any regression. Exit code: 1 only with --gate (see docs/performance.md).
+A baseline is only ever written by hand (--write-baseline) and committed in a reviewed change.
 """
 
 from __future__ import annotations
@@ -93,10 +99,23 @@ def baseline_from(result: dict[str, Any], runner: str, commit: str = "") -> dict
             "machine": result.get("machine", {}), "settings": settings(result), "medians": medians(result)}
 
 
+def streak(regressed: list[str], previous: dict[str, Any], image: str) -> list[str]:
+    """The measurements past the margin in this run that were also past it in the previous run on
+    the same image: the ones the gate fails on."""
+    if not previous or previous.get("image") != image:
+        return []
+    return [name for name in regressed if name in set(previous.get("regressed", []))]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("result", type=Path, help="a --json file from startup_and_sql.py")
     parser.add_argument("--baseline", type=Path, help="the baseline to compare with")
+    parser.add_argument("--baselines", type=Path, help="the folder of baselines, one per runner image")
+    parser.add_argument("--image", default="", help="with --baselines: the runner image this ran on")
+    parser.add_argument("--streak", type=Path,
+                        help="the last run's regressions on this image, read then replaced with this run's; "
+                             "--gate then fails only on two runs in a row")
     parser.add_argument("--ratio", type=float, default=1.5, help="slower than this many times the baseline (1.5)")
     parser.add_argument("--slack-ms", type=float, default=25.0, help="and slower by more than this (25 ms)")
     parser.add_argument("--summary", type=Path, help="also append the table to this file")
@@ -113,8 +132,12 @@ def main(argv: list[str] | None = None) -> int:
         args.write_baseline.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         print(f"Wrote the baseline to {args.write_baseline}")
         return 0
+    if args.baselines:
+        if not args.image:
+            parser.error("--baselines needs --image, the runner image the run was on")
+        args.baseline = args.baselines / f"{args.image}.json"
     if not args.baseline:
-        parser.error("give --baseline to compare with, or --write-baseline to record one")
+        parser.error("give --baseline (or --baselines and --image) to compare with, or --write-baseline to record one")
     if args.ratio <= 1 or args.slack_ms < 0:
         parser.error("--ratio takes a number above 1, --slack-ms one of 0 or more")
     # No baseline recorded yet: every line says so, and nothing can regress.
@@ -126,11 +149,26 @@ def main(argv: list[str] | None = None) -> int:
         with args.summary.open("a", encoding="utf-8") as out:
             out.write(text)
     regressions = [r for r in rows if r["status"] == "regression"]
+    failing = [r["name"] for r in regressions]
+    if args.streak:
+        previous = json.loads(args.streak.read_text(encoding="utf-8")) if args.streak.exists() else {}
+        failing = streak(failing, previous, args.image)
+        args.streak.write_text(json.dumps({"image": args.image, "commit": os.environ.get("GITHUB_SHA", ""),
+                                           "regressed": [r["name"] for r in regressions]}) + "\n", encoding="utf-8")
+        note = ("\n".join(f"- {r['name']}: " + ("past the margin in the last run too, so this fails the check"
+                                                if r["name"] in failing else
+                                                "first run past the margin; the check fails if the next run is too")
+                          for r in regressions) + "\n") if regressions else ""
+        print(note, end="")
+        if args.summary and note:
+            with args.summary.open("a", encoding="utf-8") as out:
+                out.write("\n" + note)
     if os.environ.get("GITHUB_ACTIONS") == "true":
         for r in regressions:
-            print(f"::warning title=Performance regression::{r['name']}: {r['median']:,} ms against a baseline "
+            kind = "error" if args.gate and r["name"] in failing else "warning"
+            print(f"::{kind} title=Performance regression::{r['name']}: {r['median']:,} ms against a baseline "
                   f"of {r['baseline']:,} ms ({r['change']}x)")
-    return 1 if args.gate and regressions else 0
+    return 1 if args.gate and failing else 0
 
 
 if __name__ == "__main__":

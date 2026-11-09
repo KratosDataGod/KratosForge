@@ -27,7 +27,7 @@ jobs:
     # FABRIC_TSQL_CLIENT_SECRET belongs to this environment, not the repository, so only an
     # approved run can read it.
     environment: tsql-contract-live
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:

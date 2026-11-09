@@ -36,7 +36,7 @@ def _engine(root: Path, order: list[str]) -> Path:
     for i, name in enumerate(order):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(files[name], encoding="utf-8")
+        path.write_bytes(files[name].encode())
         os.utime(path, (1_600_000_000 + i * 1000, 1_600_000_000 + i * 1000))
     (root / "Lib" / "site-packages" / "empty").mkdir(parents=True)
     return root
@@ -86,7 +86,7 @@ def test_compare_names_each_entry_that_differs_and_the_lines_that_changed(tmp_pa
     monkeypatch.setenv("SOURCE_DATE_EPOCH", EPOCH)
     names = ["engine.json", "Lib/site-packages/pkg/__init__.py", "python312._pth"]
     a, b = _engine(tmp_path / "a", names), _engine(tmp_path / "b", names)
-    (b / "engine.json").write_text('{"commit": "def"}\n', encoding="utf-8")
+    (b / "engine.json").write_bytes(b'{"commit": "def"}\n')
     (b / "python312._pth").unlink()
     (b / "new.txt").write_text("x", encoding="utf-8")
     build.make_zip(a, tmp_path / "a.zip", [])

@@ -146,3 +146,38 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 | CI-only Rust tools (cargo-audit, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
 | Bundled JavaScript | The built files are committed | They can't change without a PR |
 
+
+## Reproducible builds
+
+Checked in CI on 2026-11-09 by building each part twice from the same commit and diffing the results.
+
+| Part | Reproducible? | How it's kept that way, or why not |
+| --- | --- | --- |
+| Engine zip (`fabric-desktop-engine.zip`, and the update zip) | Yes, byte for byte, unsigned | The engine job builds the engine folder twice, in two different folders, and "Check the engine zip is reproducible" fails when the two zips differ. It lists each differing entry, with the changed lines of small text files |
+| MSI | No, by design. Everything but four fields matches | Two MSIs built from the same exe differed in 70 bytes: the ProductCode, the PackageCode (summary field 9), and the created and saved times (fields 12 and 13). The exe and icon inside were byte-identical, and every other table matched once decompiled (`wix msi decompile`) |
+| Shell exe | Not checked | A second Rust release build would double the shell job. The PE header's link timestamp and the paths rustc records are the known sources |
+| Signed builds of main | No | Each Authenticode signature carries its own timestamp (RFC 3161), so signed files never match byte for byte |
+
+### What made the engine zip differ, and the fix
+
+`.github/scripts/engine_build.py` does each fix. It is stdlib only and runs with the engine's own Python.
+
+- **Compiled files:** pip's own compiled files (`.pyc`) contained the path of its random temp folder (`pip-target-xxxx`) and the install time. Packages now install with `--no-compile`. `engine_build.py finish` then compiles them in one process, in sorted order, as checked-hash pycs that name each file by its path inside the engine (for example `Lib/site-packages/polars/__init__.py`). A checked-hash pyc stays valid whatever time its source file has, so a fixed zip time never makes Python recompile on a user's PC. Python checks the source's hash when it imports the module instead of its time.
+- **`direct_url.json`:** the engine's own package recorded the runner's wheel folder here. `finish` removes it, along with its line in `RECORD`.
+- **Zip times and order:** 7z stored each file's build-time mtime, in the order the file system listed them. `engine_build.py zip` writes entries in sorted order, with the commit's time (`SOURCE_DATE_EPOCH`, from `git log -1 --format=%ct`) on every entry, MS-DOS attributes and zlib's default level.
+- **`engine.json`:** its keys are now in a fixed order.
+- **Launchers:** `SOURCE_DATE_EPOCH` also fixes the time pip writes into console-script launchers.
+- **Runtime key:** `engine_runtime.py` LAYOUT went to 2 with this change, because every package's `.pyc` changed. Installed engines download the full engine once.
+
+### What the zip still depends on
+
+- **Build Python:** the zip's bytes depend on the build Python's zlib. `setup-python` resolves `3.12` to a patch release (3.12.10 when this was checked). A later patch release with a different zlib can change the compressed bytes without changing any file. The per-entry CRCs that `compare` lists stay the same.
+- **Signing:** on main, once signing is set up, signing changes the packages' DLLs after the check runs. The check then proves the unsigned folder is reproducible, and the signatures are the only difference.
+
+### MSI
+
+- **ProductCode:** WiX generates a new one for each build, as a major upgrade needs.
+- **PackageCode:** a new one for each build, as Windows Installer requires for each distinct package.
+- **Version:** comes from the run number (`0.1.<run>`), so two runs of the same commit differ anyway.
+
+To check that an MSI holds the published exe, extract it (`wix msi decompile -x`) and compare the exe's SHA-256 with `exe_sha256` in `version.json`.

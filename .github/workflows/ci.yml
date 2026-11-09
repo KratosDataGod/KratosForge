@@ -657,26 +657,6 @@ jobs:
             -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico `
             -o target\release\kratosforge.msi
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
-      - name: TEMPORARY compare two MSIs built from the same exe
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $tools = "$env:RUNNER_TEMP\wix"
-          foreach ($n in 1, 2) {
-            & "$tools\wix.exe" build ..\installer\kratosforge.wxs -arch x64 -d Version=0.1.1 -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico -o "$env:RUNNER_TEMP\m$n.msi"
-            Start-Sleep -Seconds 3
-          }
-          foreach ($n in 1, 2) { "m$n.msi $((Get-FileHash "$env:RUNNER_TEMP\m$n.msi").Hash) $((Get-Item "$env:RUNNER_TEMP\m$n.msi").Length) bytes" }
-          python -c "import sys; a, b = (open(p, 'rb').read() for p in sys.argv[1:]); d = [i for i in range(min(len(a), len(b))) if a[i] != b[i]]; print('Differing bytes:', len(d), d[:40])" "$env:RUNNER_TEMP\m1.msi" "$env:RUNNER_TEMP\m2.msi"
-          foreach ($n in 1, 2) { & "$tools\wix.exe" msi decompile "$env:RUNNER_TEMP\m$n.msi" -o "$env:RUNNER_TEMP\m$n.wxs" -x "$env:RUNNER_TEMP\x$n" }
-          "Decompiled differences:"
-          Compare-Object (Get-Content "$env:RUNNER_TEMP\m1.wxs") (Get-Content "$env:RUNNER_TEMP\m2.wxs") | Format-List | Out-String -Width 400
-          Get-ChildItem "$env:RUNNER_TEMP\x1" -Recurse -File | ForEach-Object { $other = $_.FullName.Replace("\x1\", "\x2\"); "$($_.Name) $((Get-FileHash $_.FullName).Hash -eq (Get-FileHash $other).Hash)" }
-          $i = New-Object -ComObject WindowsInstaller.Installer
-          foreach ($n in 1, 2) {
-            $s = $i.GetType().InvokeMember("SummaryInformation", "GetProperty", $null, $i, @("$env:RUNNER_TEMP\m$n.msi", 0))
-            foreach ($p in 1..19) { "m$n summary $p = $($s.GetType().InvokeMember('Property', 'GetProperty', $null, $s, @($p)))" }
-          }
       - name: Sign the MSI
         if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0

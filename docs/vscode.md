@@ -176,3 +176,5 @@ sha256sum kratosforge.vsix
 ```
 
 `npm ci` installs exactly the versions `package-lock.json` pins and checks each one against the lock file's SHA-512. CI also runs `npm audit signatures`, which checks each package's npm registry signature. The version and the files' time come from the commit, and `scripts/modes.cjs` gives every file the same mode, so neither the build machine's clock nor its umask changes the result.
+
+**After a rollback.** The version comes from the commit's time, so an older build has a lower version. VS Code doesn't take a lower version as an update. To go back to the extension from an older build, uninstall KratosForge in VS Code's Extensions view, then install that build's `kratosforge.vsix` with **Extensions: Install from VSIX…**.

@@ -1,0 +1,99 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E14",
+  "version": 1,
+  "status": "draft",
+  "title": "A paged REST API to bronze from a notebook (recorded responses)",
+  "objectives": [
+    "2.5"
+  ],
+  "objective_text": "Land data from a paged REST API from a notebook into a bronze Delta table, ready to schedule as a Lakeflow job.",
+  "scenario": "The CRM team exposes customers through a REST API that returns three customers per page and a next_page link. The current notebook reads the first page only and appends, so bronze.customers is missing most customers and doubles them every time the scheduled job reruns. The next run also needs to know where this one stopped.",
+  "minutes": 30,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "python_lab",
+  "engine_label": "Python with delta-rs and pyarrow on this PC",
+  "lesson": "lesson.md",
+  "starter": "land_customers.py",
+  "files": [
+    "customers_page_1.json",
+    "customers_page_2.json",
+    "customers_page_3.json"
+  ],
+  "prerequisites": [],
+  "verifies": [
+    "Your script ran on this PC, followed every page of the recorded API, and left a Delta table with each customer once after a rerun, plus a watermark file with the latest update time and the pages read."
+  ],
+  "does_not_verify": [
+    "Calling a live API: on this PC the responses are recorded files, so there are no timeouts, rate limits, retries or authentication.",
+    "Reading a database over JDBC (exercise E15), writing to a Unity Catalog table, or scheduling the notebook as a Lakeflow job."
+  ],
+  "datasets": [],
+  "expected": {
+    "table": "tables/bronze_customers",
+    "rows": 8
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error; read its output."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/bronze_customers.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "row_count",
+          "equals": 8
+        },
+        {
+          "rule": "unique",
+          "column": "id"
+        },
+        {
+          "rule": "not_null",
+          "columns": [
+            "id",
+            "name",
+            "updated_at"
+          ]
+        }
+      ],
+      "pass": "All 8 customers from all three pages, each once.",
+      "fail": "Count the customers: every page should be read, and a rerun shouldn't add them again."
+    },
+    {
+      "kind": "config_matches",
+      "path": "out/_watermark.json",
+      "rules": [
+        {
+          "path": "max_updated_at",
+          "equals": "2026-03-05T16:20:00Z",
+          "why": "The next run asks the API for customers updated after this, so it must be the latest, not the first."
+        },
+        {
+          "path": "pages",
+          "equals": 3,
+          "why": "Every page up to the one whose next_page is null."
+        }
+      ],
+      "pass": "The watermark names the latest update and all three pages.",
+      "fail": "Check out/_watermark.json against the pages you read."
+    }
+  ],
+  "hints": [
+    "Loop while the page isn't None: read it, keep its data, and move to response[\"next_page\"].",
+    "The last page's next_page is null (None in Python). Stopping when the next link is missing on the page you're about to read skips the last page.",
+    "mode=\"append\" adds the same customers again on every rerun. A full extract like this one replaces the table: mode=\"overwrite\".",
+    "max(r[\"updated_at\"] for r in rows) gives the latest ISO timestamp; ISO strings in the same format sort in time order."
+  ],
+  "explanation": "A paged API returns part of the result with a link to the next part, so the loader keeps requesting pages until the link is empty and gathers every page's data before it writes. Writing the full extract with overwrite makes the scheduled rerun safe; appending would add every customer again. Saving the latest updated_at and the pages read gives the next run a watermark to ask only for newer changes, which is how this notebook becomes a job you can schedule.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/jobs/",
+    "https://docs.databricks.com/aws/en/connect/external-systems/jdbc"
+  ],
+  "reset": "Reset removes the table and the out folder and puts the starter script back."
+}

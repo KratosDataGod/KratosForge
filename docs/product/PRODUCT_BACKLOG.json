@@ -7269,12 +7269,16 @@
       "owner": "Academy",
       "category": "Developer Experience and Productivity",
       "effort": "L",
-      "prs": [],
+      "prs": [
+        2301,
+        2304
+      ],
       "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
       "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",
       "evidence": [
         "Split from PB-128 (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR). At main 2bf8ea1b, 6 of 33 objectives have built exercises and 20 rely on recorded gaps G-01 to G-10. Objectives 1.1, 2.5, 2.6, 2.7, 4.4, 5.2 and 5.4 name planned exercises (E01, E02, E14 to E17, E41, E46, E48 to E50) that aren't built and have no gap",
-        "Scores carried from PB-128 until the Academy owner sets the track's own"
+        "Scores set by the Databricks parity lead (track owner) on 2026-11-09: developer value 3 (engineers preparing for the Databricks Data Engineer Associate), CU reduction 2 (practice and grading run on this PC and start no Databricks or Fabric compute), enterprise value 3 (per-objective readiness evidence for mixed Databricks and Fabric teams, not a rollout condition), differentiation 3 (exercise-first local practice on the same engine as DP-700; the vendor has its own training), strategic alignment 3 (part of Databricks parity, beside the Fabric loop), complexity 3 (reuses PB-128's registry, graders, sandbox and exam engine; the work is content), risk 3 (content accuracy and vendor drift in a fast-renamed product, 'not the vendor's exam or score' wording)",
+        "Exercises E01, E16, E41 and E17 for objectives 1.1, 2.6, 4.4 and 2.7 (#2301), and E14, E46 and E48 for 2.5, 5.2 and 5.4 (#2304): every objective has a built exercise or a recorded gap"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -7292,18 +7296,18 @@
         "developer_value": 3,
         "cu_reduction": 2,
         "enterprise_value": 3,
-        "differentiation": 4,
+        "differentiation": 3,
         "strategic_alignment": 3,
-        "complexity": 4,
+        "complexity": 3,
         "risk": 3
       },
       "mandatory": "none",
       "confidence": "Medium",
       "external_dependencies": [],
       "computed": {
-        "benefit": 2.95,
-        "cost": 3.5,
-        "score": 1.48,
+        "benefit": 2.8,
+        "cost": 3.0,
+        "score": 1.68,
         "priority": "P3"
       }
     }

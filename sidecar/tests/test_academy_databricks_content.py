@@ -54,3 +54,26 @@ def test_the_packs_python_has_no_undefined_names_or_syntax_errors():
                         "--config", 'builtins=["spark", "notebookutils"]', "--output-format", "concise", str(packs)],
                        capture_output=True, text=True, timeout=120, check=False)
     assert p.returncode == 0, p.stdout + p.stderr
+
+
+@pytest.mark.parametrize("eid", ("E14", "E46", "E48"))
+def test_the_api_bundle_and_ci_exercises_pass_their_reference_and_fail_each_wrong_answer(eid):
+    result = exercises.self_test(PACK, eid)
+    assert result["solution"]["passed"], result["solution"]
+    assert len(result["wrong"]) >= 4
+    for name, r in result["wrong"].items():
+        assert not r["passed"], f"{eid} {name} passed"
+
+
+def test_the_ci_workflow_accepts_other_spellings_of_the_same_answer():
+    import copy
+    import json
+
+    from fabric_desktop.academy import configlab
+    grading = exercises.registry.ROOT / PACK / "grading" / "E48"
+    doc = json.loads((grading / "solution.json").read_text(encoding="utf-8"))
+    alt = copy.deepcopy(doc)
+    alt["steps"][2]["run"] = "databricks bundle deploy --target prod"
+    alt["env"]["DATABRICKS_CLIENT_SECRET"] = "${{secrets.DATABRICKS_CLIENT_SECRET}}"
+    checks = exercises.get(PACK, "E48")["validation"]
+    assert all(configlab.validators.config_matches(alt, c["rules"])["passed"] for c in checks)

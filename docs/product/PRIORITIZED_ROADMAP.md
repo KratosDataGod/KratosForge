@@ -263,6 +263,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-132](PRODUCT_BACKLOG.md#pb-132) | Choose a skin's colors and rail separately | 3 | 1 | 2 | 3 | 4 | 3 | 2 | 2.5 | 2.5 | 1.75 | none | M | Medium | none | Platform skins |
 | [PB-133](PRODUCT_BACKLOG.md#pb-133) | Import and export skins in Settings | 3 | 1 | 2 | 3 | 4 | 3 | 2 | 2.5 | 2.5 | 1.75 | none | S | Medium | none | Platform skins |
 | [PB-092](PRODUCT_BACKLOG.md#pb-092) | Shared workload ownership | 2 | 1 | 4 | 2 | 3 | 3 | 2 | 2.45 | 2.5 | 1.72 | none | M | Medium | none | Workload management |
+| [PB-135](PRODUCT_BACKLOG.md#pb-135) | KratosForge Academy: Databricks Data Engineer Associate track | 3 | 2 | 3 | 3 | 3 | 3 | 3 | 2.8 | 3.0 | 1.68 | none | L | Medium | none | Academy |
 | [PB-107](PRODUCT_BACKLOG.md#pb-107) | Data Factory program | 4 | 4 | 4 | 4 | 5 | 5 | 3 | 4.15 | 4.0 | 1.66 | none | XL | Medium | PB-037 | Build full Data Factory experience |
 | [PB-100](PRODUCT_BACKLOG.md#pb-100) | Fuller What's new dialog | 2 | 1 | 2 | 1 | 2 | 1 | 1 | 1.65 | 1.0 | 1.65 | none | S | Medium | none | Fuller What's new dialog |
 | [PB-110](PRODUCT_BACKLOG.md#pb-110) | Semantic model interchange (Apache Ossie) | 3 | 1 | 3 | 4 | 3 | 3 | 3 | 2.75 | 3.0 | 1.65 | none | M | Medium | none | TMDL and OSI semantic model conversion |
@@ -274,7 +275,6 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
 | [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: DP-700 certification preparation | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
-| [PB-135](PRODUCT_BACKLOG.md#pb-135) | KratosForge Academy: Databricks Data Engineer Associate track | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |

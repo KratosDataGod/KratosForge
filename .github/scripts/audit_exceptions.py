@@ -90,7 +90,7 @@ def npm_advisories(report: dict) -> list[dict[str, str]]:
             if not isinstance(via, dict):  # names another package that carries the advisory
                 continue
             ghsa = re.search(r"GHSA(?:-[0-9a-z]{4}){3}", str(via.get("url", "")))
-            ident = ghsa[0] if ghsa else f"npm-{via.get('source', '?')}"
+            ident = ghsa[0] if ghsa else f"NPM-{via.get('source', '0')}"  # a valid exceptions-file id too
             out[(ident, name)] = {"id": ident, "package": name, "version": str(via.get("range", "")),
                                   "severity": str(via.get("severity", "")),
                                   "fix": "a fix is available" if entry.get("fixAvailable") else "no fixed version yet"}

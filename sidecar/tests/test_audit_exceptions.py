@@ -132,3 +132,12 @@ def test_the_audit_job_covers_every_lock_that_ships():
                  "app/ui/vendor/*/package-lock.json", "vscode/package-lock.json", "app/src-tauri/Cargo.lock"):
         assert lock in job, lock
     assert "audit_exceptions.py npm" in job
+
+
+def test_an_npm_advisory_without_a_ghsa_gets_an_id_the_exceptions_file_accepts():
+    report = {"vulnerabilities": {"x": {"severity": "high", "via": [{"source": 1234, "url": "https://example.com/a", "severity": "high"}]}}}
+    [error], _ = audit_exceptions.npm_check(report, "vscode/package-lock.json", [], TODAY)
+    suggested = error.rsplit(": ", 1)[1].replace("<why it is accepted>", "not shipped")
+    ids, problems = audit_exceptions.parse(suggested + "\n", TODAY)
+    assert problems == [] and ids == ["NPM-1234"]
+    assert audit_exceptions.npm_check(report, "x", ids, TODAY) == ([], [])

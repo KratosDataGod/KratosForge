@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import audit, powerbi_embed, server
+from fabric_desktop.auth import SignInRequired
 from fabric_desktop.fabric_api import FabricClient
 from fabric_desktop.powerbi_embed import EmbedClient
 
@@ -117,7 +118,7 @@ def test_other_item_types_and_qna_are_refused():
     assert http.asked == []
 
 
-@pytest.mark.parametrize("status,error", [(404, LookupError), (403, PermissionError), (401, PermissionError)])
+@pytest.mark.parametrize("status,error", [(404, LookupError), (403, PermissionError), (401, SignInRequired)])
 def test_errors_people_see_are_plain(status, error):
     c, _ = client({f"/groups/{WS}/reports/{RID}": Resp(status, {"error": {"code": "X", "message": "m"}})})
     with pytest.raises(error):

@@ -29,7 +29,14 @@
  },
  {
   "name": "bitmap_and_agg",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "example": "SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)",
+  "value": [
+   [
+    "300000"
+   ]
+  ],
+  "note": "A plain aggregate here: FILTER and OVER, and a group with no bitmap, stop by name"
  },
  {
   "name": "charindex",
@@ -53,7 +60,22 @@
  },
  {
   "name": "counter_diff",
-  "group": "databricks:aggregate"
+  "group": "databricks:aggregate",
+  "example": "SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, 100), (2, 200), (3, 400), (4, 50) AS tab(t, c)",
+  "value": [
+   [
+    100
+   ],
+   [
+    200
+   ],
+   [
+    null
+   ],
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "cube",
@@ -424,7 +446,8 @@
  },
  {
   "name": "time_bucket",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "probe": "SELECT time_bucket(INTERVAL 1 HOUR, TIMESTAMP '2026-01-01 10:30:00')"
  },
  {
   "name": "time_diff",
@@ -518,7 +541,14 @@
  },
  {
   "name": "timestamp_nanos",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT string(timestamp_nanos(1230219000123456789))",
+  "value": [
+   [
+    "2008-12-25 15:30:00.123456789"
+   ]
+  ],
+  "note": "In UTC (Databricks' page shows 07:30 in a Los Angeles session); a TIMESTAMP_NS here holds about 1677 to 2262"
  },
  {
   "name": "timestampadd",
@@ -602,11 +632,23 @@
  },
  {
   "name": "try_make_interval",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_interval(2147483647, 0)",
+  "value": [
+   [
+    null
+   ]
+  ]
  },
  {
   "name": "try_make_timestamp",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
  },
  {
   "name": "try_make_timestamp_ltz",
@@ -813,7 +855,13 @@
  },
  {
   "name": "unix_nanos",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT unix_nanos(TIMESTAMP'1970-01-01 00:00:01.123456789Z')",
+  "value": [
+   [
+    "decimal:1123456789"
+   ]
+  ]
  },
  {
   "name": "validate_utf8",

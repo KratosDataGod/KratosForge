@@ -29,10 +29,10 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 419 |
+| Runs | 425 |
 | Differs | 0 |
-| Refused | 87 |
-| Fails | 11 |
+| Refused | 92 |
+| Fails | 0 |
 | Not checked | 72 |
 | **All** | **589** |
 
@@ -592,8 +592,8 @@ lists more checks and the differences known in more detail.
 | `approx_top_k_accumulate` | Refused |  | approx_top_k_accumulate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
 | `approx_top_k_combine` | Refused |  | approx_top_k_combine() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `approx_top_k_estimate` | Refused |  | approx_top_k_estimate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
-| `bitmap_and_agg` | Fails |  | DuckDB has no bitmap_and_agg, and the translation doesn't write it |
-| `counter_diff` | Fails |  | DuckDB has no counter_diff, and the translation doesn't write it |
+| `bitmap_and_agg` | Runs | `SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)` | A plain aggregate here: FILTER and OVER, and a group with no bitmap, stop by name |
+| `counter_diff` | Runs | `SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, 100), (2, 200), (3, 400), (4, 50) AS tab(t, c)` |  |
 | `cube` | Not checked |  |  |
 | `kll_merge_agg_bigint` | Refused |  | kll_merge_agg_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `kll_merge_agg_double` | Refused |  | kll_merge_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
@@ -619,7 +619,7 @@ lists more checks and the differences known in more detail.
 | `listagg` | Not checked |  |  |
 | `percentile_cont` | Not checked |  |  |
 | `percentile_disc` | Not checked |  |  |
-| `schema_of_json_agg` | Fails |  | DuckDB has no schema_of_json_agg, and the translation doesn't write it |
+| `schema_of_json_agg` | Refused |  | schema_of_json_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC works out schema_of_json for a literal as it reads the cell, an |
 | `schema_of_variant_agg` | Refused |  | schema_of_variant_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC keeps a VARIANT as JSON text, which doesn't keep every type  |
 | `string_agg` | Not checked |  |  |
 | `theta_difference` | Refused |  | theta_difference() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make  |
@@ -662,7 +662,7 @@ lists more checks and the differences known in more detail.
 | `nullifzero` | Runs | `SELECT nullifzero(0)` |  |
 | `try_cast` | Not checked |  |  |
 | `try_mod` | Runs | `SELECT try_mod(2, 1.8)` |  |
-| `try_reflect` | Fails |  | DuckDB has no try_reflect, and the translation doesn't write it |
+| `try_reflect` | Refused |  | try_reflect() can't run on this PC the way it runs in Databricks, so nothing ran: it calls a Java method, and this PC runs no Java. Run the cell on a Databricks |
 | `zeroifnull` | Runs | `SELECT zeroifnull(NULL)` |  |
 
 ## Databricks only: date and time
@@ -687,18 +687,18 @@ lists more checks and the differences known in more detail.
 | `time_to_seconds` | Runs | `SELECT time_to_seconds(TIME'14:30:00.5')` |  |
 | `time_trunc` | Runs | `SELECT time_trunc('HOUR', TIME'13:08:15.123')` |  |
 | `timediff` | Runs | `SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')` |  |
-| `timestamp_nanos` | Fails |  | DuckDB has no timestamp_nanos, and the translation doesn't write it |
+| `timestamp_nanos` | Runs | `SELECT string(timestamp_nanos(1230219000123456789))` | In UTC (Databricks' page shows 07:30 in a Los Angeles session); a TIMESTAMP_NS here holds about 1677 to 2262 |
 | `timestampadd` | Not checked |  |  |
 | `timestampdiff` | Not checked |  |  |
 | `to_time` | Runs | `SELECT to_time('10:30:00')` |  |
-| `try_make_interval` | Fails |  | DuckDB has no try_make_interval, and the translation doesn't write it |
-| `try_make_timestamp` | Fails |  | DuckDB has no try_make_timestamp, and the translation doesn't write it |
+| `try_make_interval` | Runs | `SELECT try_make_interval(2147483647, 0)` |  |
+| `try_make_timestamp` | Runs | `SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `try_make_timestamp_ltz` | Runs | `SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')` |  |
 | `try_make_timestamp_ntz` | Runs | `SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `try_parse_timestamp` | Refused |  | try_parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8 |
 | `try_to_date` | Runs | `SELECT try_to_date('2016-12-31')` |  |
 | `try_to_time` | Runs | `SELECT try_to_time('10:30:00')` |  |
-| `unix_nanos` | Fails |  | DuckDB has no unix_nanos, and the translation doesn't write it |
+| `unix_nanos` | Runs | `SELECT unix_nanos(TIMESTAMP'1970-01-01 00:00:01.123456789Z')` |  |
 
 ## Databricks only: IP addresses
 
@@ -776,6 +776,6 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `from_xml` | Fails |  | DuckDB has no from_xml, and the translation doesn't write it |
-| `schema_of_xml` | Fails |  | DuckDB has no schema_of_xml, and the translation doesn't write it |
-| `to_xml` | Fails |  | DuckDB has no to_xml, and the translation doesn't write it |
+| `from_xml` | Refused |  | from_xml() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no XML reader that infers and converts values the way Databricks' XML |
+| `schema_of_xml` | Refused |  | schema_of_xml() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no XML reader that infers and converts values the way Databricks |
+| `to_xml` | Refused |  | to_xml() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no XML reader that infers and converts values the way Databricks' XML s |

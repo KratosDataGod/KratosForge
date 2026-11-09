@@ -16,6 +16,7 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
+from .auth import SignInRequired
 from .fabric_api import FabricClient, FabricError
 
 POWERBI_API = "https://api.powerbi.com/v1.0/myorg"
@@ -83,7 +84,10 @@ def token_reply(token: str, now: float | None = None) -> dict[str, Any]:
 def _not_found(exc: FabricError, what: str) -> Exception:
     if exc.status == 404:
         return LookupError(f"This {what} isn't there any more, or your account can't see it.")
-    if exc.status in (401, 403):
+    if exc.status == 401:  # the token itself was refused, after one try with a new one (FabricClient)
+        return SignInRequired("Power BI didn't accept your sign-in: it has expired or was ended. Sign in again, "
+                              "then open the content again.")
+    if exc.status == 403:
         return PermissionError(f"Your account can't open this {what} in Power BI. Ask the workspace's admin for "
                                "access; viewers also need a Pro or Premium Per User licence unless the workspace is "
                                "on F64 or larger capacity.")

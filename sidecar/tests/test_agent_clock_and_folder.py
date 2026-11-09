@@ -321,3 +321,21 @@ def test_a_saved_age_is_never_taken_as_more_than_thirty_days(setup):  # noqa: F8
     setup.home.mkdir(parents=True, exist_ok=True)
     (setup.home / "incident-ages.json").write_text(json.dumps({"dev": {"a": [1.0, 1e12]}}), encoding="utf-8")
     assert Agent(setup, clock=Clock(10.0))._incident_seen["dev"]["a"] == (1.0, 30 * 86400.0)
+
+
+def test_a_log_that_cant_start_prints_no_raw_error(setup, tmp_path, monkeypatch, capsys):  # noqa: F811
+    import logging
+
+    from fabric_desktop import logs
+    monkeypatch.setattr(logging.getLogger("fabric_desktop.agent"), "handlers", [])
+    logged = []  # with no handler of its own, Python's last resort would print the raw message to stderr
+    monkeypatch.setattr(logging.getLogger("fabric_desktop.agent"), "exception", lambda *a, **k: logged.append(a))
+
+    def broken(*a, **k):
+        raise OSError("can't open logs with Bearer eyJhbGciOiJSUzI1NiJ9.e30.c2ln")
+    monkeypatch.setattr(logs, "setup", broken)
+    assert _run(["--config", str(tmp_path / "agent.toml"), "run"], monkeypatch, tmp_path / "other") == 1
+    out = capsys.readouterr()
+    assert "eyJhbGciOiJSUzI1NiJ9" not in out.out + out.err and "OSError" in out.out
+    assert logged == []
+    assert "stage=crash" in (setup.home / "logs" / START_LOG).read_text(encoding="utf-8")

@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const { spawn } = require("node:child_process");
-const { Channel, ChannelError, readPortFile } = require("../out/channel.js");
+const { Channel, ChannelError, MAX_REPLY, readPortFile } = require("../out/channel.js");
 
 const SIDECAR = path.join(__dirname, "..", "..", "sidecar");
 let engine, home, dir, file;
@@ -290,6 +290,38 @@ test("a connection the app drops mid-call is reported as lost, not as a raw sock
   });
   try {
     await assert.rejects(app.ch.status(), (err) => err.code === "connection_lost" && /Run the cell again/.test(err.message));
+  } finally {
+    await app.close();
+  }
+});
+
+test("an answer larger than the extension accepts is cut off and reported, not held", async () => {
+  const app = await fakeApp((url, req, res) => {
+    if (url.pathname === "/v1/status") {  // sent in pieces, with no length said up front
+      res.writeHead(200, { "Content-Type": "application/json" });
+      const piece = Buffer.alloc(1024 * 1024, 0x20);
+      let sent = 0;
+      const more = () => {
+        while (sent <= MAX_REPLY + piece.length && !res.destroyed) {
+          sent += piece.length;
+          if (!res.write(piece)) { res.once("drain", more); return; }
+        }
+        res.end();
+      };
+      res.on("error", () => {});
+      more();
+      return true;
+    }
+    if (url.pathname === "/v1/sessions") {  // says its length up front
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": MAX_REPLY + 1 });
+      res.write("{");
+      return true;
+    }
+    return false;
+  });
+  try {
+    await assert.rejects(app.ch.status(), (err) => err instanceof ChannelError && err.code === "too_large");
+    await assert.rejects(app.ch.request("GET", "/v1/sessions"), (err) => err instanceof ChannelError && err.code === "too_large");
   } finally {
     await app.close();
   }

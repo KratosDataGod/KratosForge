@@ -7,6 +7,7 @@
                     SHA-256 and when this PC last saw it change
     sidecar.log     the last lines of the engine's log
     sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
+    app-crash.log   the app's own crashes (a panic: when, which build, where), when there were any
     agent.log       the last lines of the headless agent's log, on a server with an agent
     CONTENTS.txt    what is in the zip and what was taken out
 
@@ -161,11 +162,15 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     previous = _tail(data_dir / "sidecar.prev.log")  # only there once the app has restarted the engine
     if previous is not None:
         files["sidecar.prev.log"] = previous
+    crashes = _tail(data_dir / "app-crash.log")  # only there once the app itself has crashed
+    if crashes is not None:
+        files["app-crash.log"] = crashes
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",
                 "onmicrosoft.com and SharePoint names, the organization's name on OneDrive folders, user names in paths, and tenant, workspace and item ids.",
                 "No table data, notebook contents or sign-in cache is included.",
+                "Nothing is uploaded: crash reports stay on this PC, and this bundle goes only where you send it.",
                 "Settings that hold a secret, such as a connection string, or an internal address show only whether they are set.",
                 "The policy file shows only the setting names it sets, never their values; other keys are counted.",
                 "about.json has the policy file's SHA-256, to compare with the file IT shipped, and when this PC last saw it change.",

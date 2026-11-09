@@ -364,7 +364,7 @@ Rows written before this existed have these columns empty.
 - records the rollback as a new release in `meta.deployments`, with a release record of its own whose `rollback` section names the release it replaced and the one it went back to
 - uploads the earlier files for Fabric runs when the environment runs in Fabric
 
-Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
+Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does, and in Test and Prod so does a restore. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
 
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 

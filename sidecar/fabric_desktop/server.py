@@ -519,6 +519,18 @@ def _log_to_stderr() -> None:
     logger.setLevel(logging.INFO)
 
 
+def _report_native_crashes(log: IO[str]) -> None:
+    """A crash in native code (DuckDB, Polars, delta-rs: an access violation, say) ends the process
+    without a Python traceback. ``faulthandler`` writes one to the engine's log first, for every thread:
+    file names, function names and line numbers only, never a value. It writes to the file itself,
+    which the redacting stream can't sit in front of; the support bundle redacts it with the rest."""
+    import faulthandler
+    try:
+        faulthandler.enable(file=log, all_threads=True)
+    except (AttributeError, OSError, ValueError) as exc:  # a stream without a real file: no report, the engine still runs
+        print(f"engine: native crashes won't be reported: {exc}", file=log)
+
+
 def main() -> None:
     # Started from a windowed app, Python can have no stderr at all (sys.stderr is
     # None). Log to a file then, rather than failing on the first write.
@@ -528,6 +540,7 @@ def main() -> None:
     # anything a notebook cell or a native library prints cannot corrupt the protocol.
     rpc_out = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", newline="\n")
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page

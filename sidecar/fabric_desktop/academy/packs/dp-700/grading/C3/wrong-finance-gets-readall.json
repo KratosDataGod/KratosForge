@@ -1,0 +1,102 @@
+{
+  "_about": "A model of one release of the SalesWH warehouse. Fill in every null and empty list. Workspace roles are Admin, Member, Contributor, Viewer or null for none. Sharing permissions are Read, ReadData and ReadAll. Deployment rules are {stage, item, rule, value} with rule \"data source\", \"parameter\" or \"default lakehouse\". column_grants maps a group to the tables it gets GRANT SELECT on and the columns it gets. masking maps a column to one of these, written exactly: \"default()\", \"email()\", \"partial(0,\\\"XXX-XXX-\\\",4)\" (keeps the last 4 digits), or null for no mask.",
+  "items": {
+    "SalesWH": "Warehouse in each workspace: Sales-Dev, Sales-Test and Sales-Prod. Tables dbo.Sales (OrderID, Region, Amount) and dbo.Customers (CustomerID, Name, Region, Email, Phone, CreditLimit).",
+    "Sales model": "Semantic model over SalesWH. In Sales-Dev it reads Sales-Dev/SalesWH."
+  },
+  "needs": [
+    "Engineers develop in Sales-Dev, which is kept in Git on the main branch in the warehouse folder. Changes reach Sales-Test and Sales-Prod only through the deployment pipeline.",
+    "In each stage, Sales model reads that stage's own SalesWH.",
+    "In Sales-Prod, only the people who build and deploy get a workspace role; everyone else gets the warehouse shared with them, with the least permissions that work.",
+    "Engineers build and deploy in Sales-Prod and debug with every row, unmasked. They never manage who has access.",
+    "RegionalManagers read dbo.Sales with T-SQL and reports, each seeing only their own region's rows, and must never see a customer's full email or phone.",
+    "Finance reads every region's sales and the full customer contact details for invoicing, with T-SQL. Finance changes nothing.",
+    "Support looks up a customer's CustomerID, Name and Region with T-SQL, and nothing else: no sales, no contact details, no credit limit.",
+    "Nobody reads the warehouse's files with Spark."
+  ],
+  "git": {
+    "Sales-Dev": {
+      "connected": true,
+      "branch": "main",
+      "folder": "warehouse"
+    },
+    "Sales-Test": {
+      "connected": false
+    },
+    "Sales-Prod": {
+      "connected": false
+    }
+  },
+  "deployment_pipeline": {
+    "stages": [
+      "Development",
+      "Test",
+      "Production"
+    ],
+    "rules": [
+      {
+        "stage": "Test",
+        "item": "Sales model",
+        "rule": "data source",
+        "value": "Sales-Test/SalesWH"
+      },
+      {
+        "stage": "Production",
+        "item": "Sales model",
+        "rule": "data source",
+        "value": "Sales-Prod/SalesWH"
+      }
+    ]
+  },
+  "workspace_roles": {
+    "Sales-Prod": {
+      "Engineers": "Contributor",
+      "RegionalManagers": null,
+      "Finance": null,
+      "Support": null
+    }
+  },
+  "warehouse_sharing": {
+    "Sales-Prod/SalesWH": {
+      "RegionalManagers": [
+        "Read",
+        "ReadData"
+      ],
+      "Finance": [
+        "Read",
+        "ReadData",
+        "ReadAll"
+      ],
+      "Support": [
+        "Read"
+      ]
+    }
+  },
+  "row_level_security": {
+    "table": "dbo.Sales",
+    "filter_column": "Region",
+    "state": "ON",
+    "all_rows_for": [
+      "Engineers",
+      "Finance"
+    ]
+  },
+  "column_grants": {
+    "Support": {
+      "Customers": [
+        "CustomerID",
+        "Name",
+        "Region"
+      ]
+    }
+  },
+  "masking": {
+    "Customers": {
+      "Email": "email()",
+      "Phone": "partial(0,\"XXX-XXX-\",4)"
+    }
+  },
+  "unmask": [
+    "Finance"
+  ]
+}

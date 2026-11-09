@@ -62,7 +62,7 @@ with more `--runs` before reading anything into it.
 ## In CI
 
 The **Performance** workflow (`.github/workflows/perf.yml`) runs this benchmark on GitHub's Windows
-runner (`windows-latest`) with the defaults above, after every merge to main, on demand, and on a pull
+runner (`windows-2025-vs2026`, Windows Server 2025 like the baseline) with the defaults above, after every merge to main, on demand, and on a pull
 request that changes the benchmark. `examples/benchmark/compare.py` then compares each median with the
 Windows baseline in `examples/benchmark/baseline-windows.json`, which records the runner, commit and
 settings it came from. The job summary shows each median next to the baseline, and the result file is

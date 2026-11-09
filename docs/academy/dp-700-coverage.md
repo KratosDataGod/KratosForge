@@ -50,7 +50,7 @@ four original exam questions (ACD-013).
 | 2.2.2 | Choose between dataflows, notebooks, and T-SQL for data transformation | E17, E28 | KO | No | |
 | 2.2.3 | Create and manage shortcuts to data | E29 | SIM | Yes | LM-24 |
 | 2.2.4 | Implement mirroring | E30 | KO | Yes | |
-| 2.2.5 | Ingest data by using pipelines | E31, C1 | SIM | Yes | |
+| 2.2.5 | Ingest data by using pipelines | E31 | SIM | Yes | |
 | 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
 | 2.2.7 | Denormalize data | E35, C1 | LV | No | LAB-07 |
 | 2.2.8 | Group and aggregate data | E36, C1 | LV | No | LM-04 |
@@ -69,18 +69,18 @@ four original exam questions (ACD-013).
 | 3.1.2 | Monitor data transformation | E44, E47 | SIM | Yes | |
 | 3.1.3 | Monitor semantic model refresh | E45 | SIM | Yes | LM-09 |
 | 3.1.4 | Configure alerts | E46, C2 | SIM | Yes | |
-| 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58, C1 | LV (local runner) | No | |
+| 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58 | LV (local runner) | No | |
 | 3.2.2 | Identify and resolve dataflow errors | E50 | SIM | Yes | |
 | 3.2.3 | Identify and resolve notebook errors | E51, E52 | LV | No | |
 | 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |
 | 3.2.5 | Identify and resolve eventstream errors | E54, C2 | SIM | Yes | |
 | 3.2.6 | Identify and resolve T-SQL errors | E55, C3 | SIM | Yes | LAB-09 |
-| 3.3.1 | Optimize a lakehouse table | E56, C1 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
+| 3.3.1 | Optimize a lakehouse table | E56 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
 | 3.3.2 | Optimize a pipeline | E60 | SIM | Yes | |
 | 3.3.3 | Optimize a data warehouse | E61, C3 | KO | Yes | |
 | 3.3.4 | Optimize eventstreams and eventhouses | E62 | KO | Yes | |
 | 3.3.5 | Optimize Spark performance | E52, E63 | LV (file layout and pruning on Delta); KO (Spark settings) | Yes | LM-27 |
-| 3.3.6 | Optimize query performance | E59, E64, C1 | LV | No | LM-18, LAB-02 |
+| 3.3.6 | Optimize query performance | E59, E64 | LV | No | LM-18, LAB-02 |
 
 ## Totals
 

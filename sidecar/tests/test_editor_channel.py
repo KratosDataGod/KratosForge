@@ -600,14 +600,27 @@ def test_a_long_folder_isnt_cut_short_into_its_parent(paired):
     assert status == 403 and "the folder this VS Code window was paired from" in res["error"]["message"]
 
 
-def test_a_path_past_windows_limit_says_why_it_cant_be_found(paired):
-    svc, window, _ = paired
+def test_a_path_past_windows_limit_says_why_it_cant_be_found(paired, monkeypatch):
+    svc, window, path = paired
     window.pair(svc)
-    far = str(svc.root / ("d" * 120) / ("e" * 120) / "x.ipynb")
+    notebooks = os.path.dirname(path)
+    far = os.path.join(notebooks, "d" * 120, "e" * 120, "x.ipynb")
     status, res = window.call("POST", "/v1/notebook", {"path": far})
     assert status == 404 and "long paths" in res["error"]["message"] and str(len(far)) in res["error"]["message"]
-    assert call(svc, "notebook_name_for_path", path=far)["why"].startswith("Windows couldn't find it")
-    assert "why" not in call(svc, "notebook_name_for_path", path=str(svc.root / "missing.ipynb"))
+    assert call(svc, "notebook_name_for_path", path=far)["why"].startswith("KratosForge couldn't open it")
+    assert "why" not in call(svc, "notebook_name_for_path", path=os.path.join(notebooks, "missing.ipynb"))
+    # Outside every known folder, a long path gets no reason and nothing looks at it on disk: a link from
+    # anywhere could name a mapped drive or a junction, which would make Windows contact another computer.
+    outside = os.path.join(os.path.dirname(str(svc.root)), "x" * 150, "y" * 150, "x.ipynb")
+    looked = []
+    for name in ("exists", "isfile", "isdir", "lexists"):
+        real = getattr(os.path, name)
+        monkeypatch.setattr(os.path, name, lambda p, real=real: looked.append(str(p)) or real(p))
+    for name in ("stat", "lstat"):
+        real = getattr(os, name)
+        monkeypatch.setattr(os, name, lambda p, *a, real=real, **k: looked.append(str(p)) or real(p, *a, **k))
+    assert call(svc, "notebook_name_for_path", path=outside) == {"name": None}
+    assert not [p for p in looked if "x" * 150 in p], looked
 
 
 @pytest.mark.parametrize("folder", ["\\\\server\\share\\repo", "//server/share/repo", "\\\\server@SSL\\dav\\repo"])

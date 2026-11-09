@@ -72,10 +72,12 @@ class NotebookFilesMixin:
         full = os.path.abspath(path)
         if not full.lower().endswith(".ipynb"):
             return {"name": None}
+        why = None
         for _place, folder in self.notebooks._folders():  # type: ignore[attr-defined]
             top = os.path.abspath(folder)
             if not os.path.normcase(full).startswith(os.path.normcase(top).rstrip("\\/") + os.sep):
                 continue
+            why = why or _long_path_problem(full)  # by its length alone: no file system call
             name = Path(os.path.relpath(full, top)).with_suffix("").as_posix()
             if not _no_link_below(top, full):
                 continue
@@ -85,7 +87,6 @@ class NotebookFilesMixin:
                     return {"name": name}
             except (OSError, ValueError):
                 pass
-        why = _long_path_problem(full)
         return {"name": None, "why": why} if why else {"name": None}
 
     def notebook_listing(self) -> list[dict[str, Any]]:
@@ -213,12 +214,14 @@ WINDOWS_LONG_PATH_LIMIT = 32_767  # with long paths turned on; nothing longer ca
 
 
 def _long_path_problem(full: str) -> str | None:
-    """Words for the person when a path past Windows' usual limit can't be found, which is what
-    happens on a PC where long paths aren't turned on."""
-    if not WINDOWS_PATH_LIMIT <= len(full) <= WINDOWS_LONG_PATH_LIMIT or os.path.exists(full):
+    """Words for the person when a notebook inside a known folder couldn't be opened and its path is
+    past Windows' usual limit, which is what happens on a PC where long paths aren't turned on. By
+    the path's length alone: it never looks at the file system."""
+    if not WINDOWS_PATH_LIMIT <= len(full) <= WINDOWS_LONG_PATH_LIMIT:
         return None
-    return (f"Windows couldn't find it. Its path is {len(full)} characters, past the {WINDOWS_PATH_LIMIT} Windows allows "
-            "unless long paths are turned on: move it to a folder with a shorter path, or ask IT to turn on long paths.")
+    return (f"KratosForge couldn't open it. Its path is {len(full)} characters, past the {WINDOWS_PATH_LIMIT} Windows "
+            "allows unless long paths are turned on: move it to a folder with a shorter path, or ask IT to turn on "
+            "long paths.")
 
 
 def _no_link_below(top: str, full: str) -> bool:

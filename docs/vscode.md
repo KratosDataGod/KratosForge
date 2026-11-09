@@ -113,7 +113,7 @@ A window pairs from its folder exactly as VS Code has it open. KratosForge keeps
 | --- | --- | --- |
 | Spaces, letters outside ASCII, emoji, `&`, `+`, `#`, `%` | Works | Works. The extension encodes every character of the path. |
 | Documents moved to OneDrive (`C:\Users\…\OneDrive - Contoso\Documents`) | Works, including files kept online only | Works |
-| A path past 260 characters | Works where long paths are turned on for the PC. Where they aren't, the cell is refused with a message to use a shorter folder or ask IT to turn long paths on. Paths are limited to 4,096 characters. | Same as pairing |
+| A path past 260 characters | Works where long paths are turned on for the PC. Where they aren't, a notebook in a known folder is refused with a message to use a shorter folder or ask IT to turn long paths on. Paths are limited to 4,096 characters. | Same as pairing |
 | A network folder (`\\server\share\…`) | Refused at pairing, with a message to clone or copy the notebooks to this PC, or use a mapped drive | Refused before anything reads it |
 | A mapped drive (`Z:\…`) | Works like any drive, for notebooks in a repository opened from that drive | Same as pairing |
 | Folders whose names differ only in case | One folder, as Windows treats them | One folder |

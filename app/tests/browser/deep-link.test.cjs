@@ -37,9 +37,9 @@ test("A link to a page goes there; one KratosForge doesn't know only says so", {
   await page().getByText(/isn't in the notebooks folder or a notebooks repository KratosForge knows/).waitFor();
   assert.strictEqual(await page().evaluate(() => state.view), view);
   // A path past Windows' 260-character limit that can't be found says so, and what to do.
-  const far = path.join(app.engineHome, "d".repeat(150), "e".repeat(150), "Daily.ipynb");
-  await link({ kind: "notebook", path: far });
-  await page().getByText(/Windows couldn't find it\. Its path is \d+ characters.*turn on long paths/).waitFor();
+  const notebooks = path.dirname(await page().evaluate(() => rpc("notebook_file_path", { name: "Sales/Daily load" }).then((w) => w.path)));
+  await link({ kind: "notebook", path: path.join(notebooks, "d".repeat(150), "e".repeat(150), "Daily.ipynb") });
+  await page().getByText(/KratosForge couldn't open it\. Its path is \d+ characters.*turn on long paths/).waitFor();
   await link({ kind: "page", page: "nope" });
   await page().getByText("KratosForge has no page called nope.").waitFor();
   await link({ kind: "refused", reason: "A notebook link names an .ipynb file." });

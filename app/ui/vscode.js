@@ -102,7 +102,7 @@ async function showLink(link) {
   }
   if (link?.kind === "page") {
     const page = railFeatures().concat(railFeatures(true)).map((f) => Object.keys(f.views || {})[0]).find((v) => v === link.page);
-    if (page) go(page); else toast(`KratosForge has no page called ${link.page}.`, true);
+    if (page) go(page); else toast(`KratosForge has no page called ${link.page}. Check the link, or open the page from the left rail.`, true);
     return;
   }
   if (link?.kind !== "notebook") return;

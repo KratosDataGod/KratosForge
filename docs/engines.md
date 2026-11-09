@@ -29,7 +29,8 @@ Which Spark SQL built-in functions a notebook can use on this PC is in
 [Spark functions on this PC](spark-functions.md): every Spark 3.5 built-in, each checked against
 Apache Spark's own value for its documented example, and kept current by CI.
 The PySpark DataFrame API (DataFrame, Column, GroupedData, reader and writer methods) is listed the
-same way in [PySpark DataFrame API on this PC](spark-dataframe-api.md).
+same way in [PySpark DataFrame API on this PC](spark-dataframe-api.md), and the options `spark.read.json`,
+`csv` and `parquet` honour or refuse in [Spark read options on this PC](spark-read-options.md).
 
 ### Compatibility matrix
 

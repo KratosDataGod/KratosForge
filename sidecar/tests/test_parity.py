@@ -77,3 +77,28 @@ def test_the_fabric_skin_raises_looks_and_only_the_workflows_its_rail_places():
     workflow = {a.id for a in areas if a.cell("workflow").status != "missing"}
     assert workflow == {"workspaces", "lakehouse", "monitoring"}  # Workspaces, OneLake and Monitor sit where Fabric puts them
     assert {a.cell("workflow").status for a in areas if a.id in workflow} == {"partial"}
+
+
+def _status_counts(page: str) -> dict[str, int]:
+    """The status table at the top of a generated function list: ``{"Runs": 440, ...}``."""
+    counts = {}
+    for line in page.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) == 2 and cells[0] in ("Runs", "Differs", "Refused", "Fails", "Not checked") and cells[1].isdigit():
+            counts.setdefault(cells[0], int(cells[1]))
+    return counts
+
+
+@pytest.mark.parametrize("platform, area, page, test", [
+    ("databricks", "sql", "databricks-functions.md", "test_databricks_coverage.py"),
+    ("snowflake", "worksheets", "snowflake-functions.md", "test_snowflake_coverage.py"),
+])
+def test_a_sql_rows_local_claim_follows_its_function_list(platform, area, page, test):
+    """WR-303: the SQL row's Local execution cell rests on the generated function list, points to it,
+    and can't claim more than partial while the list has functions that differ, are refused or fail."""
+    cell = next(a for a in parity.AREAS if (a.platform, a.id) == (platform, area)).cell("local")
+    assert test in cell.tests and f"docs/{page}" in cell.note
+    counts = _status_counts((DOC.parent / page).read_text(encoding="utf-8"))
+    assert set(counts) == {"Runs", "Differs", "Refused", "Fails", "Not checked"}
+    if counts["Differs"] or counts["Refused"] or counts["Fails"]:
+        assert cell.status in ("missing", "partial"), f"{platform} {area}: {counts} doesn't back {cell.status}"

@@ -1082,6 +1082,13 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50079: The user is required to use multi-factor authentication"), /multi-factor/);
   assert.match(say("SignInError: AADSTS50020: User account from identity provider does not exist in tenant"), /work account/);
   assert.match(say("SignInError: AADSTS53003: Access has been blocked by Conditional Access policies"), /Conditional Access/);
+  assert.match(say("SignInError: AADSTS53000: Device is not in required device state: compliant"), /manages and finds compliant/);
+  assert.match(say("SignInError: AADSTS530003: Your device is required to be managed"), /manages and finds compliant/);
+  assert.match(say("SignInError: AADSTS53001: Device is not in required device state: domainJoined"), /joined to its domain/);
+  assert.match(say("SignInError: AADSTS53002: Application used is not an approved application"), /approved apps/);
+  assert.match(say("SignInError: AADSTS53004: Proof up required"), /aka\.ms\/mfasetup/);
+  assert.match(say("SignInError: AADSTS530032: Blocked by security policy"), /location or network/);
+  assert.match(say("SignInError: AADSTS53000: Device is not compliant. Windows sign-in didn't start, so this sign-in used the browser, which can't show your organization that this PC is managed."), /Restart KratosForge/);
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
@@ -5955,4 +5962,35 @@ test("every dialog has an axe case, or is in the baseline that only shrinks", ()
   ];
   assert.deepStrictEqual(problems, []);
   assert.deepStrictEqual(baseline, [...baseline].sort(), "keep a11y-dialog-baseline.json sorted");
+});
+
+// WR-503: an error says what to do next. Every error toast whose words are written here (toast(text, true))
+// and every plain-language error in friendlyError (activity.js) must name a next step: a verb the person can
+// act on (try, check, sign in, pick, ask...), "again", who can help ("an admin can"), or where the details
+// are. A message built around friendlyError(...) or an error's own text carries that step already, so it
+// isn't judged here. error-next-step-baseline.json lists the ones not fixed yet: the list may only shrink.
+test("error toasts and plain-language errors name a next step (WR-503)", () => {
+  const NEXT = /\b(try|retry|check|sign (?:in|out)|open|pick|choose|close|ask|run|install|restart|save|select|add|turn|free|reconnect|wait|use|connect|report|refresh|set|rename|remove|delete|publish|start|fix|enter|type|go to|update|see|read|make|copy|change|stop|give|allow|attach|create|edit|reload|unlock|import|move|keep|switch|re-?run|upgrade|download|fill|clear|load|resolve|commit|push|pull|reopen|undo|tick|cancel|name)\b|\bagain\b|\b(?:admin|IT|owner)\b.*\bcan\b|details below|Activity/i;
+  const carries = /\$\{[^}]*(friendlyError|\.text\b|err\b|\.error\b|\.message|reason|why|msg)/i;  // the error's own words follow
+  const found = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js")).sort()) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const toasts = /\btoast\(\s*(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*")\s*,\s*true\b/g;
+    for (let m; (m = toasts.exec(src));) {
+      if (carries.test(m[1])) continue;
+      const text = m[1].slice(1, -1).replace(/\$\{[^}]*\}/g, "…");
+      if (!NEXT.test(text)) found.push(`${name}: ${text}`);
+    }
+  }
+  const act = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const fe = act.slice(act.indexOf("function friendlyError("));
+  const table = fe.slice(0, fe.indexOf("\n}\n"));
+  for (const m of table.matchAll(/\[\/(?:[^/\\\n]|\\.)+\/[a-z]*, "((?:[^"\\]|\\.)*)"\]/g)) {
+    if (!NEXT.test(m[1])) found.push(`activity.js friendlyError: ${m[1]}`);
+  }
+  const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "error-next-step-baseline.json"), "utf8")).without_next_step;
+  assert.deepStrictEqual(found.filter((f) => !baseline.includes(f)), [],
+    "a new error with no next step: say what the person can do (try again, check, pick, ask an admin...)");
+  assert.deepStrictEqual(baseline.filter((b) => !found.includes(b)), [],
+    "a listed error now names a next step or is gone: remove it from error-next-step-baseline.json");
 });

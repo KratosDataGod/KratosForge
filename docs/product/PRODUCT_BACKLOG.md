@@ -1448,14 +1448,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-135
 
-**KratosForge Academy: Databricks Data Engineer Associate track** · P3 (score 1.48) · L · confidence Medium · In progress
+**KratosForge Academy: Databricks Data Engineer Associate track** · P3 (score 1.68) · L · confidence Medium · In progress
 
 - **Problem:** People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.
 - **Proposed capability:** The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).
-- **Current-state evidence:** Split from PB-128 (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR). At main 2bf8ea1b, 6 of 33 objectives have built exercises and 20 rely on recorded gaps G-01 to G-10. Objectives 1.1, 2.5, 2.6, 2.7, 4.4, 5.2 and 5.4 name planned exercises (E01, E02, E14 to E17, E41, E46, E48 to E50) that aren't built and have no gap; Scores carried from PB-128 until the Academy owner sets the track's own
+- **Current-state evidence:** Split from PB-128 (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR). At main 2bf8ea1b, 6 of 33 objectives have built exercises and 20 rely on recorded gaps G-01 to G-10. Objectives 1.1, 2.5, 2.6, 2.7, 4.4, 5.2 and 5.4 name planned exercises (E01, E02, E14 to E17, E41, E46, E48 to E50) that aren't built and have no gap; Scores set by the Databricks parity lead (track owner) on 2026-11-09: developer value 3 (engineers preparing for the Databricks Data Engineer Associate), CU reduction 2 (practice and grading run on this PC and start no Databricks or Fabric compute), enterprise value 3 (per-objective readiness evidence for mixed Databricks and Fabric teams, not a rollout condition), differentiation 3 (exercise-first local practice on the same engine as DP-700; the vendor has its own training), strategic alignment 3 (part of Databricks parity, beside the Fabric loop), complexity 3 (reuses PB-128's registry, graders, sandbox and exam engine; the work is content), risk 3 (content accuracy and vendor drift in a fast-renamed product, 'not the vendor's exam or score' wording); Exercises E01, E16, E41 and E17 for objectives 1.1, 2.6, 4.4 and 2.7 (#2301), and E14, E46 and E48 for 2.5, 5.2 and 5.4 (#2304): every objective has a built exercise or a recorded gap
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Academy (DBA-001..016)
+- **Pull requests:** [#2301](https://github.com/KratosDataGod/KratosForge/pull/2301), [#2304](https://github.com/KratosDataGod/KratosForge/pull/2304)
 - **Acceptance criteria:**
     - Every objective in a certification's registry has exercises or a recorded gap
     - An exercise is graded on what the learner made, read as untrusted input, in a limited process

@@ -4,8 +4,8 @@ table writes) and ``schedule_runs.jsonl`` (scheduled runs).
 ``append`` adds one JSON line under a lock the app, scheduled runs and notebook processes share, and
 once the file passes ``trim_bytes`` keeps only its newest ``keep_rows`` lines or ``keep_bytes`` (half
 of ``trim_bytes`` unless given), whichever is smaller. Keeping half the trigger size means rows with
-long text can't leave the file over the cap and rewritten on every append. Years of runs can't grow the file, or every read of
-it, without bound.
+long text can't leave the file over the cap and rewritten on every append. Years of runs can't grow
+the file, or every read of it, without bound.
 """
 
 from __future__ import annotations

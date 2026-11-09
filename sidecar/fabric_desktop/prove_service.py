@@ -275,14 +275,19 @@ class ProveMixin:
         info = self.notebooks.extra(name, "replay")  # type: ignore[attr-defined]
         if not info:
             raise LookupError(f"{name} isn't a replay notebook.")
+        return info, replay.read(self._replay_copy(info, name))
+
+    def _replay_copy(self, info: dict[str, Any], name: str = "") -> Path:
+        """The app's copy of a replay's bundle, marked as used: the retention sweep (retention.py) keeps a
+        copy used within its days. One the sweep already removed is a LookupError saying what to do."""
         path = self.root / "replays" / f"{info['bundle']}.zip"
         try:
-            os.utime(path)  # in use: the retention sweep (retention.py) keeps a copy used within its days
+            os.utime(path)
         except FileNotFoundError:
             raise LookupError(f"The app's copy of this replay's bundle is gone: copies unused for a while are "
                               f"deleted from this PC. Open the bundle again ({info.get('notebook') or name}) "
                               f"to replay it.") from None
-        return info, replay.read(path)
+        return path
 
     def _replay_live(self) -> dict[str, Any] | None:
         """The replay holding the kernel, while its process (with the runtime bound) still runs."""
@@ -449,7 +454,7 @@ class ProveMixin:
 
         import pyarrow.parquet as pq
         from deltalake import write_deltalake
-        path = self.root / "replays" / f"{info['bundle']}.zip"
+        path = self._replay_copy(info)
         bundle = replay.read(path)
         with zipfile.ZipFile(path) as z:
             for s in bundle.get("samples") or []:

@@ -184,3 +184,30 @@ def test_the_sweep_never_goes_into_a_linked_folder(tmp_path, monkeypatch):
     monkeypatch.setattr(retention.os, "walk", lambda top, **kw: real_walk(top, followlinks=True))
     result = retention.sweep(tmp_path / "data", 30, now=NOW)
     assert result["removed"] == [] and keep.exists()
+
+
+def test_an_old_request_whose_use_is_still_kept_stays_until_the_use_goes(tmp_path):
+    from fabric_desktop.integrations.store import USES_SECONDS, IntegrationStore
+    store = IntegrationStore(tmp_path / "integrations.sqlite")
+    now = [1_000_000.0]
+    store.clock = lambda: now[0]
+    client, _ = store.add_client("Tool", "other", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    ask = lambda code: store.request_approval(client, "ext_run", "Run", "EXECUTE_LOCAL_CODE", {}, {"code": code})  # noqa: E731
+    used = store.decide(ask("used")["id"], True)
+    now[0] += 300  # used 5 minutes after it was approved
+    assert store.consume(used["id"], client["id"], used["args_hash"])
+    now[0] += USES_SECONDS - 120  # decided more than the days kept ago, used less: the use keeps it
+    ask("later")
+    assert used["id"] in {a["id"] for a in store.approvals("", limit=100)}
+    assert [u["id"] for u in store.approval_uses(0)] == [used["id"]]
+    now[0] += 180  # now the use is past the days kept too
+    ask("again")
+    assert used["id"] not in {a["id"] for a in store.approvals("", limit=100)} and store.approval_uses(0) == []
+
+
+def test_seeding_a_replay_whose_copy_was_swept_says_so(tmp_path):
+    from fabric_desktop.prove_service import ProveMixin
+    svc = ProveMixin.__new__(ProveMixin)
+    svc.root = tmp_path
+    with pytest.raises(LookupError, match="Open the bundle again"):
+        svc._replay_seed({"bundle": "0123456789abcdef", "notebook": "Sales"}, "r1", str(tmp_path), lambda: {}, ["t"])

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-30",
+  "updated": "2026-11-09",
   "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
   "rules": {
     "ready_minimum": 2,
@@ -31,13 +31,14 @@
         "Local TPC-H run slowdown"
       ],
       "active": {
-        "issue": 1664,
-        "title": "[EA-029] CI runs the start-up, notebook-start and SQL benchmark and flags a regression"
+        "story": "WR-101"
       },
       "ready": [
         {
-          "issue": 1665,
-          "title": "[EA-001 follow-up] Every append path has a test that a value-changing append stops"
+          "story": "WR-102"
+        },
+        {
+          "story": "WR-103"
         }
       ],
       "backlog": [
@@ -50,8 +51,8 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)"
       ],
-      "last_completed": "#1324 (#1314) useRootDefaultLakehouse Unknown; #1333 (#1316) Until and policy timeouts; #1305 (#1288); #1300 (#1286)",
-      "next_action": "#1664 then #1665; file the next engine hardening stories."
+      "last_completed": "#1861 every append caller stops a value-changing append; #2273 first-write race exposure; #2281 reproducible engine zip",
+      "next_action": "WR-101, then WR-102 and WR-103. The 8-hour soak and PB-015's live Prove run wait on Chris."
     },
     {
       "key": "fabric",
@@ -69,13 +70,14 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "issue": 1666,
-        "title": "[T-SQL] Every characterized T-SQL gap either runs or is refused by name"
+        "story": "WR-201"
       },
       "ready": [
         {
-          "issue": 1667,
-          "title": "[EA-028] Hand-written retry loops in Fabric paths move to retrying.py"
+          "story": "WR-202"
+        },
+        {
+          "story": "WR-203"
         }
       ],
       "backlog": [
@@ -89,8 +91,8 @@
         "PB-002, PB-003, PB-049 and PB-052 live runs wait on Chris's yes (issues closed until approved)",
         "#799 staging cleaner held"
       ],
-      "last_completed": "#1377 (#1366) Key Vault secret errors; #1378 (#1367) mailbox listing errors; #1326 (#1313); #1327 (#1315)",
-      "next_action": "#1666 by function family; #1667 one module per PR."
+      "last_completed": "#1869 T-SQL refused list matches the code; #1711, #1686 T-SQL gaps; #1936, #1965 local pipeline coverage",
+      "next_action": "WR-201 one module per PR. Warehouse run 8 and the tenant smoke tests wait on Chris's typed yes."
     },
     {
       "key": "dbx-snow",
@@ -102,13 +104,14 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1668,
-        "title": "[DBX-COVERAGE] A generated Spark function coverage list says, for every built-in, runs, refused or differs"
+        "story": "WR-301"
       },
       "ready": [
         {
-          "issue": 1669,
-          "title": "[EA-013 follow-up] spark.read.json and spark.read.parquet honour Spark's options or refuse them"
+          "story": "WR-302"
+        },
+        {
+          "story": "WR-303"
         }
       ],
       "backlog": [],
@@ -120,8 +123,8 @@
         "Databricks live runs need a workspace and Chris's yes",
         "Snowflake sign-in and engine wait on Chris's D4 decision"
       ],
-      "last_completed": "#1380 (#1369) Fabric Spark previews; #1385 (#1371) higher-order functions; #1388 (#1372) Snowflake TYPEOF; #1329 (#1325)",
-      "next_action": "#1668 and #1669 in parallel."
+      "last_completed": "Spark DataFrame coverage list complete (#2240, #2250, #2266); Databricks SQL Fails at 0 (#2276, #2278); Academy Databricks exercises (#2301, #2304)",
+      "next_action": "WR-301 and WR-302 in parallel. Databricks live runs need a workspace and Chris's yes."
     },
     {
       "key": "enterprise",
@@ -133,8 +136,17 @@
         "Metadata-driven data mesh",
         "Workload management workspace"
       ],
-      "active": null,
-      "ready": [],
+      "active": {
+        "story": "WR-401"
+      },
+      "ready": [
+        {
+          "story": "WR-402"
+        },
+        {
+          "story": "WR-403"
+        }
+      ],
       "backlog": [
         "PB-060",
         "PB-092"
@@ -147,8 +159,8 @@
         "Email notices for requests: decision card with Chris on how to send without an app registration (Power Automate flow recommended)",
         "#1679 Save support bundle: passed review, waits on Chris's Windows click test"
       ],
-      "last_completed": "#1685 (#1670) policy file changes recorded and shown; #1688 (#1671) IT deployment checklist",
-      "next_action": "Shortcut follow-ups in review (#1719 CSV export, #1724 approvals in Dev, Test and Prod); then email notices and MSI once Chris picks."
+      "last_completed": "#2262 local data retention; #2236 governance follow-ups; #2279 agent start record and incident ages; #2291 install fix-forward",
+      "next_action": "WR-401 in the retention thread. #2305 audit time limit and #2258 Group Policy wait on Chris's go."
     },
     {
       "key": "devex",
@@ -162,13 +174,14 @@
         "Run continuous product management"
       ],
       "active": {
-        "issue": 1672,
-        "title": "Keyboard-only pass over every page as an automated browser check"
+        "story": "WR-501"
       },
       "ready": [
         {
-          "issue": 1673,
-          "title": "Axe audit: a guard test fails when a page or dialog has no accessibility case"
+          "story": "WR-502"
+        },
+        {
+          "story": "WR-503"
         }
       ],
       "backlog": [
@@ -180,8 +193,8 @@
         "EA-030 Narrator pass needs a Windows PC",
         "#1136 Embed Studio screen held for Chris's live report test"
       ],
-      "last_completed": "#1390 (#1374), #1394 (#1373), #1395 (#1375), #1403 (#1398): 59 browser tests and real focus and error-text fixes",
-      "next_action": "#1672 then #1673; land the Learn PRs."
+      "last_completed": "#2286 accessibility at 200% and contrast themes; #2292 VS Code compatibility matrix; #2303, #2307 reproducible .vsix; #2309 output limits",
+      "next_action": "WR-501; WR-502 with the product check. Layout decisions in docs/ux/accessibility-zoom-contrast.md go to UX mockups."
     },
     {
       "key": "platform",
@@ -196,13 +209,14 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "issue": 1674,
-        "title": "[EA-028] SQLite stores open through one helper that handles a corrupt file"
+        "story": "WR-601"
       },
       "ready": [
         {
-          "issue": 1675,
-          "title": "[EA-027] Ruff BLE rules on (second slice), with each reviewed exception listed"
+          "story": "WR-602"
+        },
+        {
+          "story": "WR-603"
         }
       ],
       "backlog": [
@@ -213,10 +227,192 @@
         "PB-001 / EA-009 code signing waits on Microsoft identity validation (Chris)",
         "#744 HD-030 waits on Chris's fail-closed decision"
       ],
-      "last_completed": "#1359 (#1358) format_number; #1339 (#1337) axe waits; #1349, #1356, #1363 (parts of #1341)",
-      "next_action": "#1674 one store per PR; #1675."
+      "last_completed": "#2268 pinned runner images; #2281 reproducible engine zip; #2256 lock-hash and SBOM guard; mypy strict with an empty baseline (#2197, #2242)",
+      "next_action": "WR-601, WR-602 (PR open now), WR-603 with this review. Signing waits on Chris's identity check."
     }
   ],
-  "new_stories": {},
+  "new_stories": {
+    "WR-101": {
+      "title": "Every Delta metadata append retries a first-write race the way run writes do",
+      "priority": "P1",
+      "problem": "Run writes retry a concurrent first commit ('Protocol changed' / 'Metadata changed'); a few metadata appends still fail on it.",
+      "acceptance": [
+        "Each remaining metadata append goes through the after-commit retry with a bounded backoff",
+        "A concurrent first-writer test covers each one and shows no row loss"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-102": {
+      "title": "The start-up, notebook-start and SQL benchmark flags a regression against a stored baseline",
+      "priority": "P2",
+      "problem": "The Windows benchmark job (#1874) is advisory and nobody compares runs.",
+      "acceptance": [
+        "A stored baseline per runner image",
+        "Two runs in a row more than the agreed margin slower mark the job failed and name the step",
+        "Baseline updates are a reviewed file change"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-103": {
+      "title": "Out-of-memory and full-disk during a local run stop cleanly and say why",
+      "priority": "P2",
+      "problem": "A large local run that hits memory or disk limits should leave tables unchanged and give one plain message.",
+      "acceptance": [
+        "Tests force a memory limit and a full temp folder during a write",
+        "No partial commit; the message names the limit and the setting to change"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-201": {
+      "title": "Every Fabric and OneLake call honours 429 Retry-After and long-running-operation limits through retrying.py",
+      "priority": "P1",
+      "problem": "Some Fabric paths still use hand-written retry loops (carry-over of #1667); throttling must never turn into a failed run or a hammering client.",
+      "acceptance": [
+        "An inventory test lists each Fabric REST call site and fails on a hand-written retry loop",
+        "429 and 503 with Retry-After are waited out within a cap",
+        "Long-running operations poll with a deadline and say when it passed"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-202": {
+      "title": "Fabric errors shown to a user carry the request id and one next step",
+      "priority": "P2",
+      "problem": "Support needs the Fabric request id; users need to know what to do.",
+      "acceptance": [
+        "Every Fabric error surface includes the request id when Fabric sent one",
+        "A test checks each mapped error code has a next step"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-203": {
+      "title": "Warehouse T-SQL refused list and docs stay in step after this week's merges",
+      "priority": "P3",
+      "problem": "#1869 ties docs to code; new functions landed since.",
+      "acceptance": [
+        "Docs check green on main",
+        "Any new gap is refused by name"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-301": {
+      "title": "spark.read.json, parquet and csv honour Spark's options or refuse them by name",
+      "priority": "P2",
+      "problem": "Carry-over of #1669: an ignored reader option silently changes results.",
+      "acceptance": [
+        "Each documented option runs or is refused by name",
+        "Coverage list generated and checked in CI"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-302": {
+      "title": "Snowflake SQL: a generated function coverage list (runs, refused or differs) checked in CI",
+      "priority": "P2",
+      "problem": "Databricks SQL has a generated coverage list; Snowflake SQL should too.",
+      "acceptance": [
+        "Every Snowflake built-in listed with runs, refused or differs",
+        "CI fails when the list and the code disagree"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-303": {
+      "title": "Databricks SQL coverage docs can't go stale",
+      "priority": "P3",
+      "problem": "The last Databricks SQL Fails closed (#2276, #2278); keep it that way.",
+      "acceptance": [
+        "A guard test ties docs/parity.md Databricks SQL rows to the coverage list"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-401": {
+      "title": "Personal-data inventory: what KratosForge stores about people, where, for how long and how to delete it",
+      "priority": "P1",
+      "problem": "Fortune 100 privacy reviews ask for one inventory; retention.md covers part of it.",
+      "acceptance": [
+        "docs/enterprise-privacy.md lists each store with its fields, location, retention and deletion path",
+        "A test fails when a new store is added without an inventory row"
+      ],
+      "agent": "Review local data retention and deletion"
+    },
+    "WR-402": {
+      "title": "Every agent stop reason maps to a runbook section",
+      "priority": "P2",
+      "problem": "#2279 records agent start failures; IT needs a documented next step for each.",
+      "acceptance": [
+        "A test checks each start-log reason has a runbook anchor"
+      ],
+      "agent": "Workload management workspace"
+    },
+    "WR-403": {
+      "title": "Audit trail files carry a checksum IT can verify after export",
+      "priority": "P2",
+      "problem": "Exported audit files should show if they were changed.",
+      "acceptance": [
+        "Export writes a checksum or hash chain",
+        "Docs show the verify step",
+        "Tests cover a tampered file"
+      ],
+      "agent": "Finish governance follow-ups"
+    },
+    "WR-501": {
+      "title": "VS Code, pairing, kernel and kratosforge:// links handle real-world paths",
+      "priority": "P2",
+      "problem": "Unicode and spaces, OneDrive-redirected folders, long paths, UNC and case-only differences.",
+      "acceptance": [
+        "Each case works or is refused with a clear message; none misroutes",
+        "Table in docs/vscode.md"
+      ],
+      "agent": "VS Code integration"
+    },
+    "WR-502": {
+      "title": "Docs audit for the week's merges",
+      "priority": "P2",
+      "problem": "Docs are audited every 50 merges; about 690 merged this week.",
+      "acceptance": [
+        "Docs staleness check green",
+        "Each user-facing change this week has its doc updated or a follow-up"
+      ],
+      "agent": "Run continuous product management"
+    },
+    "WR-503": {
+      "title": "Every error dialog and toast names one next step (guard test)",
+      "priority": "P3",
+      "problem": "Fortune 100 support load depends on errors that say what to do.",
+      "acceptance": [
+        "A guard test lists error surfaces without a next step; baseline goes to empty in slices"
+      ],
+      "agent": "UX and simplicity oversight"
+    },
+    "WR-601": {
+      "title": "Dependency vulnerability scanning in CI for the engine, shell, UI and extension",
+      "priority": "P1",
+      "problem": "No CI job fails on a newly published high or critical advisory in our locked dependencies.",
+      "acceptance": [
+        "pip-audit, cargo audit and npm audit jobs",
+        "A reviewed allow-list with expiry dates",
+        "Current results recorded privately"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-602": {
+      "title": "VDI and shared-PC fixes: clean start on a full or read-only profile, plain disk-full errors",
+      "priority": "P1",
+      "problem": "Found in the VDI readiness review (enterprise/vdi-readiness.md).",
+      "acceptance": [
+        "Tests reproduce the fresh-profile crash and pass with the fix",
+        "Docs section for virtual desktops"
+      ],
+      "agent": "Enterprise readiness"
+    },
+    "WR-603": {
+      "title": "Weekly report counts cancelled main runs apart from failed ones",
+      "priority": "P3",
+      "problem": "Batch merging cancels superseded main runs, so '16 of 20 not green' overstates failures.",
+      "acceptance": [
+        "queues.py report shows green, failed and cancelled separately",
+        "Test covers the count"
+      ],
+      "agent": "Orchestrator"
+    }
+  },
   "side_programs": []
 }

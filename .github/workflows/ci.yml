@@ -327,7 +327,8 @@ jobs:
           FABRIC_DESKTOP_PYTHON: python
 
   audit:
-    # Known vulnerabilities in what the app ships: the engine's pinned Python packages and the
+    # Known vulnerabilities in what the app ships: the engine's pinned Python packages, the
+    # Databricks Connect locks, the npm packages behind the UI bundles and the extension, and the
     # shell's Rust crates. A new advisory turns this red on every pull request, and the release
     # job waits for it, so Preview doesn't publish a build with it until the package is moved (in
     # its own pull request, per CONTRIBUTING) or an exception with a lapse date is recorded in
@@ -340,20 +341,40 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - name: Python packages (sidecar/constraints.txt)
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      # constraints.txt is the engine's packages as tests run them; engine-requirements.txt is the set
+      # the release engine ships; dbconnect_locks are what "Install Databricks Connect" puts on a PC.
+      - name: Python packages (constraints, engine and Databricks Connect locks)
         run: |
           python -m pip install --quiet --only-binary=:all: --require-hashes -r .github/requirements/pip-audit.txt
           ignore="$(python .github/scripts/audit_exceptions.py pip)"
-          status=0
-          pip-audit -r sidecar/constraints.txt --no-deps --disable-pip --progress-spinner off $ignore \
-            --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
-          [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"
-          exit $status
+          failed=0
+          for lock in sidecar/constraints.txt sidecar/engine-requirements.txt sidecar/fabric_desktop/engines/dbconnect_locks/*.txt; do
+            echo "== $lock"
+            status=0
+            pip-audit -r "$lock" --no-deps --disable-pip --progress-spinner off $ignore \
+              --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
+            [ "$status" -eq 0 ] || { failed=1; python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"; }
+          done
+          exit $failed
       # CI's own tools (sidecar/ci-constraints.txt) never ship, so an advisory against one is
       # reported in the log but doesn't hold Preview back.
       - name: CI tools (sidecar/ci-constraints.txt, advisory only)
         continue-on-error: true
         run: pip-audit -r sidecar/ci-constraints.txt --no-deps --disable-pip --progress-spinner off
+      # The UI's vendor bundles and the VS Code extension: every package in their lock files, build
+      # tools too (they make what ships). High and critical fail; moderate and low are warnings.
+      - name: npm packages (app/ui/vendor and vscode lock files)
+        run: |
+          failed=0
+          for lock in app/ui/vendor/*/package-lock.json vscode/package-lock.json; do
+            echo "== $lock"
+            (cd "$(dirname "$lock")" && npm audit --package-lock-only --json > "$RUNNER_TEMP/npm-audit.json") || true
+            python .github/scripts/audit_exceptions.py npm "$RUNNER_TEMP/npm-audit.json" "$lock" || failed=1
+          done
+          exit $failed
       # Keeps the cargo-audit binary between runs (~/.cargo/bin); only main writes the cache.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:

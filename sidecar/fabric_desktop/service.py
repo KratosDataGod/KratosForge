@@ -415,6 +415,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
+        retry = getattr(self.auth, "retry_sign_in", None)
+        if callable(retry):  # chosen by the person: a window even after a Conditional Access refusal
+            retry()
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}

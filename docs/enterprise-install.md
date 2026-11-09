@@ -58,7 +58,7 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 
 Close the app first, and check the folder on a pilot PC.
 
-The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
+The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, keeps the audit trail even then unless you also pass `-RemoveAuditTrail`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
 
 ## Deploy
 
@@ -174,7 +174,7 @@ The list comes from the hosts named in the source code. Notebooks run on the PC,
 
 ### Proxies and HTTPS inspection
 
-The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. Delta table reads and writes (delta-rs) and the warehouse driver make their own HTTPS connections, which also check the Windows store. Databricks Connect (Spark on a Databricks cluster, Preview) uses gRPC, which reads a certificate file instead, so the app writes the roots Windows trusts for HTTPS, plus the public list gRPC would otherwise use, to `%LOCALAPPDATA%\FabricDesktop\runtimes\windows-roots.pem` and points `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` at it, unless you set that variable yourself. DuckDB's extension downloads, used only by the TPC-H benchmark notebook, use DuckDB's own list, and that notebook falls back to PyPI when they fail. The app never offers to turn certificate checks off. Confirm these on a pilot PC behind the proxy.
 
 Each outbound call, what it uses, and how long it waits:
 
@@ -186,6 +186,8 @@ Each outbound call, what it uses, and how long it waits:
 | Managed identity on an Azure VM | Windows proxy or `HTTP_PROXY` | Not HTTPS | 60 seconds |
 | Update check and the exe download (the shell's updater) | Windows proxy or `HTTPS_PROXY` | Windows store (Python's standard library loads it) | 5 to 120 seconds, by step |
 | Engine download and engine update (the shell, with Windows' own `curl.exe`) | `HTTPS_PROXY` when it's set, else the fixed proxy Windows is set to, which the app reads and passes to curl (skipping hosts on its bypass list) | Windows store (curl uses Windows' TLS) | 20 seconds to connect; stops when slower than 1 KB/s for 60 seconds. When the network stops the small engine update, the whole engine isn't tried from the same host |
+| OneLake tables (delta-rs) | Windows proxy or `HTTPS_PROXY` | Windows store | The table call's own limits (`storage_options`) |
+| Databricks Connect session (gRPC, Preview) | `HTTPS_PROXY` (gRPC doesn't read the Windows proxy; inferred, unverified) | Windows' HTTPS roots plus the public list, copied to a file for gRPC | gRPC's own |
 | Notebook packages and Databricks Connect (`pip`) | Windows proxy or `HTTPS_PROXY` | Windows store (pip uses it) | 15 seconds per try, 3 tries per address; the whole install stops after 15 or 20 minutes |
 
 Set up the network like this:
@@ -249,6 +251,7 @@ When your help desk needs logs, ask for a support bundle: **Settings > Help and 
 | `about.json` | The app and engine versions, Python and Windows versions, and where each setting comes from. The policy file's state: whether it applies, or the last copy that could be read stands in, and the names of the settings it sets, never their values. The file's SHA-256 and the last change this PC recorded (`policy_record`), to compare with `Get-FileHash` of the file you shipped. Under `paths`, facts about the app's data folder that can trip programs up, without the path itself: its length, whether its name has non-ASCII letters or a space, whether it's on a network share, and whether Windows allows long paths |
 | `sidecar.log` | The last 2,000 lines of the engine's log |
 | `sidecar.prev.log` | The last 2,000 lines of the run before, when the engine has restarted |
+| `app-crash.log` | When the app itself has crashed: the time, the build, the thread and the place in the code of each crash |
 | `agent.log` | On an agent server, with `--agent-home`: the last 2,000 lines of the agent's log |
 | `CONTENTS.txt` | What is in the zip and what was taken out |
 
@@ -259,7 +262,15 @@ Every file goes through the same redaction before it is written. It takes out:
 - user names in paths;
 - tenant, workspace and item ids.
 
-A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
+A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company.
+
+### Crashes
+
+KratosForge never uploads crash reports. A crash leaves its report on the PC, in the files the support bundle collects:
+
+- **The app.** A crash in the app is written to `app-crash.log`: the time, the build, and where in the code it happened, with the first 1 KB of its message.
+- **The engine.** When the engine stops on its own, the app adds a line to `sidecar.log` saying when, after how long, and with which exit code. A crash in native code, such as an access violation, is named in that line. The engine also writes a traceback of every thread to the log first: file and function names only, never a value.
+- **Crash loops.** The engine restarts on the next action. But if it stops 3 times in a row within a minute of starting, KratosForge stops starting it for 5 minutes. Every action then says why, instead of starting a new engine for each one. It tries once more after the pause, or when KratosForge is restarted. Your files and settings are untouched. The support bundle can't be made while the engine won't start, so collect `sidecar.log`, `sidecar.prev.log` and `app-crash.log` from `%LOCALAPPDATA%\FabricDesktop` yourself. The app takes tokens, email addresses, ids and the user name out of `app-crash.log` as it writes it, and the engine does the same for most of what goes in `sidecar.log`. But they don't get the bundle's full redaction, so read them before they leave your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
 
 ### Crash dumps
 

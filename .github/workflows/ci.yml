@@ -28,12 +28,13 @@ jobs:
     # job, because the release needs them all and every main batch publishes a Preview. A job left
     # out here ends as skipped, never failed. On main this job only prints its answers, so it can't
     # fail and leave the release without the jobs it needs.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       docs_only: ${{ steps.paths.outputs.docs_only }}
       browser: ${{ steps.paths.outputs.browser }}
       windows: ${{ steps.paths.outputs.windows }}
       ubuntu: ${{ steps.paths.outputs.ubuntu }}
+      agent_install: ${{ steps.paths.outputs.agent_install }}
       compat: ${{ steps.paths.outputs.compat }}
       draft: ${{ steps.paths.outputs.draft }}
     steps:
@@ -47,7 +48,7 @@ jobs:
           DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\ndraft=false\n' >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\ndraft=false\nagent_install=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # A draft pull request skips the slowest Windows work (its Windows engine tests, the engine
@@ -69,6 +70,8 @@ jobs:
           if [ -n "$files" ] && ! grep -qvE '^(docs/|[^/]+\.md$|zensical\.toml$)' <<< "$files"; then docs_only=true; else docs_only=false; fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
+          # The Windows agent installer's folder rights are checked on Windows only when it changes.
+          if has '^(deploy/windows/|deploy/agent\.example\.toml$|\.github/workflows/)'; then echo "agent_install=true"; else echo "agent_install=false"; fi >> "$GITHUB_OUTPUT"
           # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
           # A draft skips them until it is marked ready.
           if [ "$docs_only" = true ] || [ "$draft" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
@@ -99,11 +102,18 @@ jobs:
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
     # Both entries always exist, so each check always reports; one the pull request doesn't need
     # skips its steps and passes.
+    # os keeps the check names (sidecar (windows-latest), sidecar (ubuntu-latest)) that branch protection,
+    # docs and the steps below use; image is the runner, named so it only changes in a pull request.
+    name: sidecar (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - os: windows-latest
+            image: windows-2025-vs2026
+          - os: ubuntu-latest
+            image: ubuntu-24.04
+    runs-on: ${{ matrix.image }}
     env:
       RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:
@@ -177,7 +187,7 @@ jobs:
 
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -189,7 +199,7 @@ jobs:
     # Mistakes rather than style in the engine's Python: syntax errors, names that are unused or
     # undefined, likely bugs (bugbear) (sidecar/pyproject.toml [tool.ruff]; ruff is one of the engine's pinned packages),
     # and new type errors. The engine's packages are installed so mypy sees their types.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: sidecar
@@ -211,7 +221,7 @@ jobs:
     # real engine's editor channel (vscode/test). No VS Code is downloaded.
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -247,10 +257,12 @@ jobs:
     # pages call the real Python engine. Fakes only: no Fabric tenant, no secrets.
     needs: changes
     if: needs.changes.outputs.browser == 'true'
-    runs-on: ubuntu-latest
+    # The Ubuntu release Playwright supports: 26.04 from Playwright 1.63 (1.56.1 refused it, "does not
+    # support chromium on ubuntu26.04-x64"). Move it together with PLAYWRIGHT_VERSION.
+    runs-on: ubuntu-26.04
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
-      PLAYWRIGHT_VERSION: "1.56.1"
+      PLAYWRIGHT_VERSION: "1.65.0"
       # The accessibility audit's rules (a11y-audit.test.cjs); a new version can add rules, so change it on its own.
       AXE_CORE_VERSION: "4.10.2"
     steps:
@@ -296,7 +308,7 @@ jobs:
     # .github/audit-exceptions.txt (.github/scripts/audit_exceptions.py).
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -333,13 +345,14 @@ jobs:
           exit $status
 
   sbom-app:
-    # The shell's software bill of materials (every Rust crate in Cargo.lock), and the UI's (the npm
-    # packages bundled into app/ui/vendor, from their package-lock.json files, by
-    # .github/scripts/sbom_npm.py), attached to releases next to the engine's (built in the engine
-    # job from the engine itself).
+    # The shell's software bill of materials (every Rust crate the Windows exe compiles, from
+    # Cargo.lock), and the UI's (the npm packages bundled into app/ui/vendor, from their
+    # package-lock.json files, by .github/scripts/sbom_npm.py), attached to releases next to the
+    # engine's (built in the engine job from the engine itself). .github/scripts/sbom_check.py fails
+    # the job when a lock file pins a dependency without a hash, or an SBOM misses one or its hash.
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Keeps the cargo-cyclonedx binary between runs (~/.cargo/bin); only main writes the cache.
@@ -349,11 +362,19 @@ jobs:
           workspaces: app/src-tauri
           cache-targets: "false"
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Every lock file entry has a hash
+        run: python3 .github/scripts/sbom_check.py locks
+      # For the Windows target, which the exe is built for: the runner's own (Linux) target lists GTK
+      # crates the exe never has and leaves out the Windows ones.
       - run: |
           cargo cyclonedx --version 2>/dev/null | grep -qwF 0.5.9 || cargo install --locked cargo-cyclonedx --version 0.5.9
-          cd app/src-tauri && rustup toolchain install && cargo cyclonedx --format json --override-filename sbom-app
+          cd app/src-tauri && rustup toolchain install
+          cargo cyclonedx --format json --override-filename sbom-app --target x86_64-pc-windows-msvc
           mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
+          cargo metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc > "$RUNNER_TEMP/cargo-metadata.json"
+      - run: python3 .github/scripts/sbom_check.py app sbom-app.cdx.json "$RUNNER_TEMP/cargo-metadata.json"
       - run: python3 .github/scripts/sbom_npm.py ui sbom-ui.cdx.json
+      - run: python3 .github/scripts/sbom_check.py ui sbom-ui.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-app
@@ -362,11 +383,27 @@ jobs:
             sbom-ui.cdx.json
           if-no-files-found: error
 
+  agent-install-windows:
+    # deploy/windows/install-agent.ps1's folder rights on a real Windows machine, in a temporary
+    # folder: a fresh install, a second run, a planted file and a junction (test-install-agent-folders.ps1).
+    needs: changes
+    if: needs.changes.outputs.agent_install == 'true'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Windows PowerShell 5.1 (what most servers run it with)
+        shell: powershell
+        run: .\deploy\windows\test-install-agent-folders.ps1 -Root "$env:RUNNER_TEMP\fd-install-ps5"
+      - name: PowerShell 7
+        shell: pwsh
+        run: .\deploy\windows\test-install-agent-folders.ps1 -Root "$env:RUNNER_TEMP\fd-install-ps7"
+
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: docker build -f deploy/linux/Dockerfile -t fabric-desktop-agent .
@@ -379,7 +416,7 @@ jobs:
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
     needs: changes
     if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.draft != 'true'
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
     outputs:
       engine_sha256: ${{ steps.zip.outputs.engine_sha256 }}
@@ -412,29 +449,44 @@ jobs:
           "Embeddable Python sha256 $sha md5 $md5"
           if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the file python.org published (md5 $md5)" }
           if ($sha -ne $env:PYTHON_EMBED_SHA256) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the pinned file (sha256 $sha)" }
-          Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
-          # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
-          Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
+          # The engine zip is reproducible: the same commit gives the same bytes (engine_build.py,
+          # docs/audits/SUPPLY_CHAIN.md). Every timestamp in it is the commit's time.
+          $env:SOURCE_DATE_EPOCH = git log -1 --format=%ct
+          "SOURCE_DATE_EPOCH=$env:SOURCE_DATE_EPOCH" >> $env:GITHUB_ENV
           # The engine's own wheel is built against a hashed build backend, not one pip fetches unchecked.
           python -m pip install --only-binary=:all: --require-hashes -r .github\requirements\engine-build.txt
           if ($LASTEXITCODE) { throw "The engine's build backend did not match its pinned hash" }
-          python -m pip wheel --no-build-isolation --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
-          # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
-          # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
-          # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
-          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages"
-          if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
-          python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
-          if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
-          & "$dir\python.exe" -m pip check
-          if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
-          # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
-          # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
-          # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
-          $runtime = & "$dir\python.exe" .github\scripts\engine_runtime.py
-          if ($LASTEXITCODE -or $runtime -notmatch '^[0-9a-f]{64}$') { throw "Could not work out the engine's runtime key ($runtime)" }
-          @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; runtime = "$runtime"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
+          # Built twice, in two folders, so "Check the engine zip is reproducible" can compare them.
+          # The first is the engine CI ships; the second is only for that check.
+          function Build-Engine([string]$dir, [string]$wheels, [string]$report) {
+            Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
+            # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
+            Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
+            python -m pip wheel --no-build-isolation --no-deps -w $wheels ./sidecar
+            if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
+            # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
+            # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
+            # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
+            # The report keeps the SHA-256 of each file installed, for the SBOM (sbom_npm.py add-hashes).
+            # --no-compile: pip's .pyc files name its random temp folder, so engine_build.py finish compiles them.
+            python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --no-compile --target "$dir\Lib\site-packages" --report $report
+            if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
+            python -m pip install --no-deps --no-compile --target "$dir\Lib\site-packages" (Get-ChildItem "$wheels\*.whl").FullName
+            if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
+            & "$dir\python.exe" -m pip check
+            if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
+            # With the engine's own Python, so each .pyc is the one it would write itself.
+            & "$dir\python.exe" .github\scripts\engine_build.py finish $dir
+            if ($LASTEXITCODE) { throw "Could not compile the engine's packages" }
+            # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
+            # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
+            # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
+            $runtime = & "$dir\python.exe" .github\scripts\engine_runtime.py
+            if ($LASTEXITCODE -or $runtime -notmatch '^[0-9a-f]{64}$') { throw "Could not work out the engine's runtime key ($runtime)" }
+            [ordered]@{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; runtime = "$runtime"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
+          }
+          Build-Engine $dir "$env:RUNNER_TEMP\wheels" "$env:RUNNER_TEMP\engine-install.json"
+          Build-Engine "$env:RUNNER_TEMP\engine-again" "$env:RUNNER_TEMP\wheels-again" "$env:RUNNER_TEMP\engine-install-again.json"
           "ENGINE_DIR=$dir" >> $env:GITHUB_ENV
       - name: Check the engine starts on its own
         shell: pwsh
@@ -445,6 +497,17 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           # Format cell runs ruff's own program, which --target puts in Lib\site-packages\bin.
           & "$env:ENGINE_DIR\python.exe" -c "from fabric_desktop.code_format import format_cells; r = format_cells(['x=1']); assert r[0]['source'] == 'x = 1', r"
+          if ($LASTEXITCODE) { exit 1 }
+      # After the check above, which runs the first engine: anything a run writes into the folder
+      # would ship, and shows up here as a difference from the second build.
+      - name: Check the engine zip is reproducible
+        shell: pwsh
+        run: |
+          python .github\scripts\engine_build.py zip $env:ENGINE_DIR "$env:RUNNER_TEMP\first.zip"
+          if ($LASTEXITCODE) { exit 1 }
+          python .github\scripts\engine_build.py zip "$env:RUNNER_TEMP\engine-again" "$env:RUNNER_TEMP\second.zip"
+          if ($LASTEXITCODE) { exit 1 }
+          python .github\scripts\engine_build.py compare "$env:RUNNER_TEMP\first.zip" "$env:RUNNER_TEMP\second.zip"
           if ($LASTEXITCODE) { exit 1 }
       - name: Sign the engine's packages
         # Only builds of main are signed: pull request code never runs next to the signing secrets.
@@ -469,7 +532,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          7z a -tzip -mx=5 fabric-desktop-engine.zip "$env:ENGINE_DIR\*"
+          # The same zip as "Check the engine zip is reproducible" made, unless signing changed the folder.
+          python .github\scripts\engine_build.py zip $env:ENGINE_DIR fabric-desktop-engine.zip
           if ($LASTEXITCODE) { exit 1 }
           # The update zip: only the engine's own files, the ones engine_patch.rs's sidecar_owned names
           # (engine.json, and in Lib\site-packages fabric_desktop, its dist-info and bin\fabric-desktop*).
@@ -479,9 +543,9 @@ jobs:
           $items = @("engine.json", "Lib\site-packages\fabric_desktop") +
             @(Get-ChildItem "Lib\site-packages" -Directory -Filter "fabric_desktop-*.dist-info" | ForEach-Object { "Lib\site-packages\$($_.Name)" }) +
             @(Get-ChildItem "Lib\site-packages\bin" -Filter "fabric-desktop*" -ErrorAction SilentlyContinue | ForEach-Object { "Lib\site-packages\bin\$($_.Name)" })
-          7z a -tzip -mx=5 $out @items
-          if ($LASTEXITCODE) { exit 1 }
           Pop-Location
+          python .github\scripts\engine_build.py zip $env:ENGINE_DIR $out @items
+          if ($LASTEXITCODE) { exit 1 }
           "Engine $((Get-Item fabric-desktop-engine.zip).Length) bytes, update $((Get-Item $out).Length) bytes"
           "engine_sha256=$((Get-FileHash fabric-desktop-engine.zip -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
           "engine_update_sha256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
@@ -506,6 +570,12 @@ jobs:
           # cyclonedx-py lists the packages, not the interpreter: add the embeddable Python with its pinned hash.
           python .github\scripts\sbom_npm.py add-python sbom-engine.cdx.json $env:PYTHON_VERSION $env:PYTHON_EMBED_SHA256 "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip"
           if ($LASTEXITCODE) { exit 1 }
+          # cyclonedx-py reads the installed folder, which no longer holds each package's hash: add the
+          # hash of the file each package came from, then check every pin is listed with a hash it pins.
+          python .github\scripts\sbom_npm.py add-hashes sbom-engine.cdx.json "$env:RUNNER_TEMP\engine-install.json"
+          if ($LASTEXITCODE) { exit 1 }
+          python .github\scripts\sbom_check.py engine sbom-engine.cdx.json sidecar\engine-requirements.txt
+          if ($LASTEXITCODE) { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-engine
@@ -513,7 +583,7 @@ jobs:
           if-no-files-found: error
 
   shell:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     # After the engine, whose zips' checksums the exe carries.
     needs: engine
     outputs:
@@ -642,7 +712,7 @@ jobs:
     # People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [sidecar, ui, engine, shell, sbom-app, audit, vscode-extension]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The Preview publish runs in its own environment, as Stable's does (promote.yml), so its rules
     # live in Settings > Environments > preview: allow only the main branch to deploy, and add
     # required reviewers there if every Preview build should wait for an approval.

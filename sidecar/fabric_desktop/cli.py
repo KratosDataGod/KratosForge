@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import uuid
+from pathlib import Path
 
 from .server import main as serve
 from .service import Service
@@ -314,26 +316,41 @@ def _agent(args: argparse.Namespace) -> int:
     from . import agent_config, logs
     from .agent import Agent
 
+    run = args.agent_command == "run"
+
+    def stopped(home: Path | None, stage: str, exc: BaseException, code: int = 2) -> int:
+        """``agent run`` didn't start: say why, and keep it on this machine (agent_start.py)."""
+        print(exc)
+        if run:
+            from . import agent_start
+            agent_start.record(home, stage, exc, code)
+        return code
+
     try:
         config = agent_config.load(args.config)
     except (FileNotFoundError, agent_config.ConfigError) as exc:
-        print(exc)
-        return 2
+        return stopped(None, "settings", exc)
     if args.agent_command in ("run", "enqueue", "requeue", "prune"):
         from . import data_format
         try:
             data_format.check(config.home)
         except data_format.NewerData as exc:
-            print(exc)
-            return 2
-    if args.agent_command == "run":
+            return stopped(config.home, "data", exc)
+    if run:
         from .mailbox import ControlFolderInUse
-        log = logs.setup(config.name, config.home / "logs", config.log_level)
         try:
+            log = logs.setup(config.name, config.home / "logs", config.log_level)
             Agent(config, log=log).run_forever()
         except ControlFolderInUse as exc:
-            print(exc)
-            return 2
+            return stopped(config.home, "start", exc)
+        except Exception as exc:  # anything else that stops it, before or after its own log starts
+            log = logging.getLogger("fabric_desktop.agent")
+            if log.handlers:  # its own redacting handlers; with none, Python would print the raw error
+                log.exception("agent stopped by an error")
+            print(f"The agent stopped: {type(exc).__name__}")
+            from . import agent_start
+            agent_start.record(config.home, "crash", exc, 1)
+            return 1
         return 0
     if args.agent_command == "check":
         from .runtime import Runtime

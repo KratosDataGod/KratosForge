@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod crash;
 mod deep_link;
 mod engine_patch;
 mod exe_name;
@@ -641,6 +642,13 @@ struct Sidecar {
     pending: Arc<Mutex<replies::Pending<String>>>,
     next_id: AtomicU64,
     log: PathBuf,
+    started: std::time::Instant,
+    /// Ended on purpose (Stop, an update): not a crash, so it doesn't count toward a crash loop.
+    stopped: std::sync::atomic::AtomicBool,
+    /// Whether how it ended has been added to its log, which happens once whatever number of calls hear it.
+    noted: std::sync::atomic::AtomicBool,
+    /// Whether its end has been counted toward a crash loop: once, however many calls were waiting.
+    counted: std::sync::atomic::AtomicBool,
 }
 
 /// Reads the engine's reply lines and hands each to the call that sent its id. A reply nobody
@@ -743,7 +751,17 @@ impl Sidecar {
         let child = Arc::new(Mutex::new(child));
         let (watched, weak) = (log.clone(), Arc::downgrade(&child));
         std::thread::Builder::new().name("engine-log".into()).spawn(move || watch_sidecar_log(watched, weak))?;
-        Ok(Self { child, stdin, pending, next_id: AtomicU64::new(1), log })
+        Ok(Self {
+            child,
+            stdin,
+            pending,
+            next_id: AtomicU64::new(1),
+            log,
+            started: std::time::Instant::now(),
+            stopped: Default::default(),
+            noted: Default::default(),
+            counted: Default::default(),
+        })
     }
 
     fn forget(&self, id: u64) {
@@ -752,9 +770,37 @@ impl Sidecar {
         }
     }
 
+    /// Once the engine has ended, adds when and how to its log: a native crash prints nothing of its
+    /// own, and its exit code is then the only reason there is. Ended on purpose, it says so instead.
+    fn note_exit(&self) {
+        if self.noted.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let mut code = None;
+        for _ in 0..20 {
+            // Its output closes a moment before the process is gone.
+            match self.child.lock().map(|mut c| c.try_wait()) {
+                Ok(Ok(Some(status))) => {
+                    code = Some(status.code());
+                    break;
+                }
+                Ok(Ok(None)) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                _ => break,
+            }
+        }
+        let how = if self.stopped.load(Ordering::SeqCst) {
+            "KratosForge ended it (Stop or an update)".to_string()
+        } else {
+            code.map_or_else(|| "it was still ending".to_string(), crash::exit_reason)
+        };
+        let line = format!("{} The engine stopped after {} seconds: {how}.", crash::utc_stamp(unix_now()), self.started.elapsed().as_secs());
+        let _ = crash::append(&self.log, u64::MAX, &line);
+    }
+
     /// The exit message plus the last thing the sidecar wrote to its log, which is
     /// usually the Python error that stopped it.
     fn exited(&self) -> String {
+        self.note_exit();
         let text = std::fs::read_to_string(&self.log).unwrap_or_default();
         let tail: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
         let tail = tail[tail.len().saturating_sub(3)..].join("\n");
@@ -784,6 +830,7 @@ impl Sidecar {
             Reply::Line(line) => line,
             Reply::Closed => return Err(self.exited()),
             Reply::TimedOut => {
+                self.stopped.store(true, Ordering::SeqCst); // the watchdog ended it: not a crash
                 self.forget(id);
                 return Err(format!(
                     "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
@@ -812,12 +859,16 @@ struct SidecarState {
     /// since installing removes the old engine's folder and that engine would run on without its
     /// files (its certificates among them, so every sign-in failed).
     installing: std::sync::atomic::AtomicBool,
+    /// Engines that ended soon after starting, so a crash at start isn't followed by a start for every call.
+    crash_loop: Mutex<crash::CrashLoop>,
 }
 
 impl SidecarState {
-    /// Starts the engine into an empty slot, as the first call after startup does.
+    /// Starts the engine into an empty slot, as the first call after startup does. Not while a crash
+    /// loop is being waited out: the call gets the safe-mode message instead.
     fn start_into(&self, guard: &mut Option<Arc<Sidecar>>) -> Result<(), String> {
         if guard.is_none() {
+            self.crash_loop.lock().map_err(|e| e.to_string())?.may_start(std::time::Instant::now(), &data_dir())?;
             let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {}", python_failed(&e)))?;
             *self.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
             *guard = Some(Arc::new(sidecar));
@@ -835,6 +886,9 @@ impl SidecarState {
     fn shut_down(&self, grace: std::time::Duration) -> Result<bool, String> {
         let sidecar = self.sidecar.lock().unwrap_or_else(|p| p.into_inner()).take();
         let child = self.child.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(engine) = &sidecar {
+            engine.stopped.store(true, Ordering::SeqCst);
+        }
         let Some(child) = sidecar.as_ref().map(|s| s.child.clone()).or(child) else { return Ok(false) };
         let deadline = std::time::Instant::now() + grace;
         if let Some(mut engine) = sidecar {
@@ -948,6 +1002,20 @@ async fn rpc(
         .await
         .map_err(|e| e.to_string())?;
     let ended = matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK) || e.starts_with(SIDECAR_EXITED));
+    if let Ok(mut crash_loop) = state.crash_loop.lock() {
+        match &result {
+            // Counted once, however many calls were waiting on the engine that ended.
+            Err(e) if e.starts_with(SIDECAR_EXITED) && !sidecar.stopped.load(Ordering::SeqCst) => {
+                if !sidecar.counted.swap(true, Ordering::SeqCst) {
+                    let why: Vec<&str> = e.lines().skip(1).filter(|l| !l.starts_with("Full log: ")).collect();
+                    let why = if why.is_empty() { "nothing was written to its log".to_string() } else { why.join(" | ") };
+                    crash_loop.ended(sidecar.started.elapsed(), std::time::Instant::now(), &why);
+                }
+            }
+            _ if !ended && sidecar.started.elapsed() >= crash::SOON => crash_loop.settled(),
+            _ => {}
+        }
+    }
     if ended {
         // Ended by the time limit, Stop or a crash: the next call starts a fresh one, unless
         // another call already did.
@@ -968,6 +1036,9 @@ async fn rpc(
 /// `rpc` call then returns an error and the next call starts a fresh sidecar.
 #[tauri::command]
 fn stop_kernel(state: tauri::State<'_, SidecarState>) -> Result<(), String> {
+    if let Some(engine) = state.sidecar.lock().map_err(|e| e.to_string())?.as_ref() {
+        engine.stopped.store(true, Ordering::SeqCst); // ended on purpose, not a crash
+    }
     if let Some(child) = state.child.lock().map_err(|e| e.to_string())?.take() {
         let _ = child.lock().map_err(|e| e.to_string())?.kill();
     }
@@ -2613,6 +2684,7 @@ fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std
 }
 
 fn main() {
+    crash::log_panics(data_dir().join("app-crash.log"), BUILD_COMMIT);
     if let Some(id) = run_schedule_arg(&std::env::args().collect::<Vec<_>>()) {
         std::process::exit(run_schedule(id));
     }
@@ -2651,7 +2723,13 @@ fn main() {
             register_link_scheme();
             Ok(())
         })
-        .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
+        .manage(SidecarState {
+            sidecar: Mutex::new(None),
+            child: Mutex::new(None),
+            updating: Default::default(),
+            installing: Default::default(),
+            crash_loop: Default::default(),
+        })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .register_uri_scheme_protocol(EMBED_SCHEME, |ctx, request| embed_host(ctx.webview_label(), request.uri().path()))
         .on_window_event(on_window_event)

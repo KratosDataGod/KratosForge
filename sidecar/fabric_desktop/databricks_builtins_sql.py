@@ -192,8 +192,10 @@ def _try_make_timestamp(name: str, args: list[exp.Expression]) -> exp.Expression
     """try_make_timestamp_ntz and _ltz: NULL for a field out of range or a day the month hasn't, from
     six fields (a second of 60 is the next minute, as in Databricks and DuckDB) or a date and a time;
     _ltz reads them in its timezone argument when given, else in the session's (UTC here)."""
-    ltz = name.endswith("_ltz")
-    if len(args) in (2, 3) and (ltz or len(args) == 2):
+    ltz = not name.endswith("_ntz")  # try_make_timestamp is a session-zone TIMESTAMP, as _ltz
+    if len(args) == 1 and name == "try_make_timestamp":
+        made = _template("TRY(CAST(_d AS DATE) + TIME '00:00:00')", d=args[0])
+    elif len(args) in (2, 3) and (ltz or len(args) == 2):
         made = _template("TRY(CAST(_d AS DATE) + CAST(_t AS TIME))", d=args[0], t=args[1])
     elif len(args) in (6, 7) and (ltz or len(args) == 6):
         made = _template("CASE WHEN _y BETWEEN 1 AND 9999 THEN TRY(make_timestamp(_y, _mo, _d, _h, _mi, _s)) END",
@@ -207,7 +209,96 @@ def _try_make_timestamp(name: str, args: list[exp.Expression]) -> exp.Expression
     return _template("timezone(_z, _m)", z=zone, m=made) if zone is not None else exp.cast(made, "TIMESTAMPTZ")
 
 
-_TRY_MAKE = ("try_make_timestamp_ntz", "try_make_timestamp_ltz")
+_TRY_MAKE = ("try_make_timestamp", "try_make_timestamp_ntz", "try_make_timestamp_ltz")
+
+# try_make_interval: each part as DuckDB's interval of that unit, so one past its range (months in an
+# INT, as Databricks' are) fails and TRY gives NULL
+_INTERVAL_PARTS = ("to_years(CAST(_a AS INTEGER))", "to_months(CAST(_b AS INTEGER))", "to_days(CAST(_c * 7 AS INTEGER))",
+                   "to_days(CAST(_d AS INTEGER))", "to_hours(CAST(_e AS BIGINT))", "to_minutes(CAST(_f AS BIGINT))",
+                   "to_microseconds(CAST(round(_g * 1000000) AS BIGINT))")
+
+
+def _try_make_interval(args: list[exp.Expression]) -> exp.Expression:
+    _arity("try_make_interval", args, 1, 7)
+    names = "abcdefg"[:len(args)]
+    parts = " + ".join(_INTERVAL_PARTS[:len(args)])
+    return _template(f"TRY({parts})", **dict(zip(names, args, strict=True)))
+
+
+# Nanosecond timestamps are DuckDB's TIMESTAMP_NS, which holds the nanoseconds since 1970 in a BIGINT
+_NANOS_PAST = "past the nanoseconds a TIMESTAMP_NS holds here (about 1677 to 2262)"
+
+
+def _timestamp_nanos(args: list[exp.Expression]) -> exp.Expression:
+    _arity("timestamp_nanos", args, 1, 1)
+    return exp.paren(_template(
+        "CASE WHEN floor(TRY_CAST(_a AS DECIMAL(38, 9))) BETWEEN -9223372036854775808 AND 9223372036854775807 "
+        "THEN make_timestamp_ns(CAST(floor(TRY_CAST(_a AS DECIMAL(38, 9))) AS BIGINT)) WHEN _a IS NOT NULL THEN error('timestamp_nanos() can''t "
+        f"run on this PC the way it runs in Databricks, so nothing ran: the count is {_NANOS_PAST}.') END",
+        a=args[0]))
+
+
+def _unix_nanos(args: list[exp.Expression]) -> exp.Expression:
+    """unix_nanos; a TIMESTAMP literal is read to the nanosecond, as Databricks reads it for TIMESTAMP(9)."""
+    _arity("unix_nanos", args, 1, 1)
+    value = args[0]
+    if isinstance(value, exp.Null):
+        return exp.cast(exp.null(), "DECIMAL(21, 0)")
+    if isinstance(value, exp.Cast) and isinstance(value.this, exp.Literal) and value.this.is_string and \
+            value.to.this in (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPNTZ):
+        value = _template("TRY_CAST(_a AS TIMESTAMP_NS)", a=value.this)
+    return exp.paren(_template(
+        "CASE WHEN _a IS NULL AND _r IS NULL THEN NULL ELSE coalesce(CAST(TRY(epoch_ns(_a)) AS DECIMAL(21, 0)), "
+        f"error('unix_nanos() can''t run on this PC the way it runs in Databricks, so nothing ran: the timestamp "
+        f"is {_NANOS_PAST}.')) END", a=value, r=args[0]))
+
+
+# bitmap_and_agg ANDs the first 4096 bytes of each bitmap, as bitmap_or_agg ORs them (spark_builtins_sql)
+_BITMAP_AND_AGG = ("COALESCE(CAST(BIT_AND(CAST(LEFT(RPAD(CAST(CAST(_a || UNHEX('00') AS BIT) AS VARCHAR), "
+                   "32768, '0'), 32768) AS BIT)) AS BLOB), error('bitmap_and_agg() can''t run on this PC the way "
+                   "it runs in Databricks, so nothing ran: its value for a group with no bitmap isn''t documented.'))")
+
+
+def _bitmap_and_agg(node: exp.Anonymous) -> exp.Expression:
+    args = list(node.expressions)
+    _arity("bitmap_and_agg", args, 1, 1)
+    if isinstance(node.parent, (exp.Filter, exp.Window)):
+        raise _refusal("bitmap_and_agg", "this PC runs it as a plain aggregate only.",
+                       "filter the rows in WHERE or a subquery")
+    return _template(_BITMAP_AND_AGG, a=args[0])
+
+
+def _counter_diff(node: exp.Anonymous) -> exp.Expression:
+    """counter_diff(value [, start_time]) OVER (... ORDER BY ...): the rise from the last row with a value,
+    NULL on the first row or a reset (a smaller value, or a later start_time)."""
+    args = list(node.expressions)
+    _arity("counter_diff", args, 1, 2)
+    window = node.parent
+    if not isinstance(window, exp.Window) or window.this is not node:
+        raise ValueError("[WINDOW_FUNCTION_WITHOUT_OVER_CLAUSE] counter_diff() needs OVER (... ORDER BY ...).")
+    named = window.args.get("alias")
+    if named is not None and not window.args.get("order"):  # OVER w, with WINDOW w AS (...) on its SELECT
+        select = window.find_ancestor(exp.Select)
+        specs = (select.args.get("windows") or []) if select is not None else []
+        spec = next((w for w in specs if w.name == named.name), None)
+        if spec is None:
+            raise ValueError(f"counter_diff() is over the window {named.name}, which no WINDOW clause of its SELECT "
+                             "names; write the window inline.")
+        window = spec
+    if not window.args.get("order"):
+        raise ValueError("[WINDOW_FUNCTION_FRAME_NOT_ORDERED] counter_diff() needs an ORDER BY in its OVER clause.")
+    start = args[1] if len(args) == 2 else exp.null()
+    last = _template("lag(CASE WHEN _v IS NOT NULL THEN {'v': _v, 's': _s} END IGNORE NULLS)", v=args[0], s=start)
+    last = exp.Window(this=last, partition_by=[p.copy() for p in window.args.get("partition_by") or []],
+                      order=window.args["order"].copy())
+    return exp.paren(_template(
+        "CASE WHEN _v IS NULL THEN NULL "
+        "WHEN _v < 0 THEN error('[COUNTER_DIFF_NEGATIVE_COUNTER_VALUE] counter_diff() got a negative counter value.') "
+        "WHEN _p IS NULL THEN NULL "
+        "WHEN _s < struct_extract(_p, 's') THEN error('[COUNTER_DIFF_START_TIME_DECREASED] counter_diff() got a "
+        "start_time earlier than the previous row''s.') "
+        "WHEN struct_extract(_p, 'v') > _v OR _s > struct_extract(_p, 's') THEN NULL "
+        "ELSE _v - struct_extract(_p, 'v') END", v=args[0], s=start, p=last))
 
 # A pattern list (#extended, #iso8601, #rfc3339, #unix) and several patterns tried in turn
 _PATTERN_LISTS = ("parse_timestamp", "try_parse_timestamp")
@@ -239,6 +330,101 @@ def _ip(name: str, args: list[exp.Expression]) -> exp.Expression | None:
     call = f"__kf_ip('{name}:{out}', typeof(_a), hex(_a))"
     sql = f"unhex({call})" if binary else f"CAST({call} AS INTEGER)" if base in _IP_INTEGER else call
     return _template(sql, a=args[0])
+
+
+# Byte-level strings: a DuckDB VARCHAR is always UTF-8, so the bytes come from hex(), which gives a STRING's
+# UTF-8 bytes and a BINARY's own; databricks_bytes has the ones DuckDB has no function for
+_UTF8 = "TRY(decode(unhex(hex(_a))))"
+_STRINGS = {
+    "is_valid_utf8": f"CASE WHEN _a IS NULL THEN NULL ELSE {_UTF8} IS NOT NULL END",
+    "try_validate_utf8": _UTF8,
+    "validate_utf8": f"CASE WHEN _a IS NULL THEN NULL WHEN {_UTF8} IS NULL THEN error('[INVALID_UTF8_STRING] "
+                     "validate_utf8() got bytes that aren''t valid UTF-8; try_validate_utf8 gives NULL for them, "
+                     "and make_valid_utf8 replaces them.') ELSE decode(unhex(hex(_a))) END",
+    "make_valid_utf8": "__kf_make_valid_utf8(hex(_a))",
+    "url_decode": "__kf_url_decode(_a, false)",
+    "try_url_decode": "__kf_url_decode(_a, true)",
+}
+_ZSTD = ("zstd_compress", "zstd_decompress", "try_zstd_decompress")
+_INTEGERS = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT, exp.DataType.Type.BIGINT)
+
+
+def _hmac(args: list[exp.Expression]) -> exp.Expression:
+    _arity("hmac", args, 2, 3)
+    algorithm = args[2] if len(args) == 3 else exp.Literal.string("SHA-256")
+    return _template("unhex(__kf_hmac(hex(_a), hex(_b), _c))", a=args[0], b=args[1], c=algorithm)
+
+
+def _bit_reverse(args: list[exp.Expression]) -> exp.Expression:
+    """bit_reverse, in the argument's own type where it shows as written (64Y, CAST(x AS SMALLINT), -2),
+    and BIGINT otherwise, since a DuckDB function has one result type."""
+    _arity("bit_reverse", args, 1, 1)
+    value = args[0]
+    call = _template("__kf_bit_reverse(typeof(_a), _a)", a=value)
+    bare = value.this if isinstance(value, exp.Neg) else value
+    if isinstance(value, exp.Cast) and value.to.this in _INTEGERS:
+        return exp.cast(call, value.to.copy())
+    if isinstance(bare, exp.Literal) and not bare.is_string and bare.this.isdigit() and int(bare.this) < 2**31:
+        return exp.cast(call, "INT")
+    return call
+
+
+def _collate(node: exp.Collate) -> exp.Expression:
+    """UTF8_BINARY is how DuckDB compares already, and UTF8_LCASE (lower case, then byte by byte) is its
+    NOCASE; the ICU ones (UNICODE, a language, _CI, _AI, _RTRIM) order and match another way."""
+    name = node.expression.name.upper()
+    if name == "UTF8_BINARY":
+        return node.this
+    if name == "UTF8_LCASE":
+        return exp.Collate(this=node.this, expression=exp.var("NOCASE"))
+    raise _refusal("collate", f"it compares by the {name} collation, and this PC has UTF8_BINARY and "
+                              "UTF8_LCASE only.", "use UTF8_LCASE, or lower() on both sides")
+
+
+# VARIANT: databricks_variant's functions keep it as DuckDB JSON text in the form Databricks prints it
+_EXPLODE = ("variant_explode", "variant_explode_outer")
+_ROWS = "unnest(__kf_variant_items(_v, typeof(_v)))"
+_ROW = ("struct_extract(__kf_r, 'pos') AS pos, struct_extract(__kf_r, 'key') AS key, "
+        "CAST(struct_extract(__kf_r, 'value') AS JSON) AS value")
+_VARIANT_SCHEMAS = ("schema_of_variant", "schema_of_variant_agg")
+
+
+def _parse_json(value: exp.Expression, safe: bool) -> exp.Expression:
+    return _template(f"CAST(__kf_parse_json(_a, {'true' if safe else 'false'}) AS JSON)", a=value)
+
+
+def _literal(name: str, value: exp.Expression, what: str) -> str:
+    if not (isinstance(value, exp.Literal) and value.is_string):
+        raise ValueError(f"{name}() takes its {what} as a string literal in Databricks.")
+    return str(value.this)
+
+
+def _variant_get(name: str, args: list[exp.Expression]) -> exp.Expression:
+    from . import databricks_variant
+    _arity(name, args, 3, 3)
+    steps = json.dumps(databricks_variant.path(_literal(name, args[1], "path")))
+    kind = exp.DataType.build(_literal(name, args[2], "type"), dialect="databricks")
+    if kind.this == exp.DataType.Type.DECIMAL and not kind.expressions:
+        kind = exp.DataType.build("DECIMAL(10,0)")  # Databricks' DECIMAL
+    target = "variant" if kind.this == exp.DataType.Type.VARIANT else kind.sql(dialect="databricks").lower()
+    safe = "true" if name.startswith("try_") else "false"
+    call = f"__kf_variant_get(_v, typeof(_v), {exp.Literal.string(steps).sql()}, " \
+           f"{exp.Literal.string(target).sql()}, {safe})"
+    return exp.cast(_template(call, v=args[0]), exp.DataType.build("JSON") if target == "variant" else kind)
+
+
+def _explode(node: exp.Anonymous) -> exp.Expression:
+    """variant_explode(_outer) in FROM or LATERAL, as a subquery of pos, key and value rows."""
+    name, args = node.name.lower(), list(node.expressions)
+    _arity(name, args, 1, 1)
+    if name == "variant_explode":
+        sql = f"SELECT {_ROW} FROM (SELECT {_ROWS} AS __kf_r)"
+    else:  # one row of NULLs for NULL, a scalar, or an empty array or object
+        sql = f"SELECT {_ROW} FROM (SELECT 1) AS __kf_one LEFT JOIN LATERAL (SELECT {_ROWS} AS __kf_r) ON TRUE"
+    return _template(sql, v=args[0])
+
+
+_XML = ("from_xml", "to_xml", "schema_of_xml")
 
 
 # Element-wise aggregates over vectors: DuckDB has no aggregate that sums lists element by element.
@@ -281,6 +467,53 @@ def _function(node: exp.Anonymous) -> exp.Expression:
         raise ValueError("timediff() takes a unit first, as in timediff(HOUR, start, end).")
     if name.startswith(("ip_", "try_ip_")):
         return _ip(name, args) or node
+    if name in _STRINGS:
+        _arity(name, args, 1, 1)
+        return exp.paren(_template(_STRINGS[name], a=args[0]))
+    if name == "hmac":
+        return _hmac(args)
+    if name == "bit_reverse":
+        return _bit_reverse(args)
+    if name in _ZSTD:
+        raise _refusal(name, "this PC has no Zstandard codec.", "use base64 or hex for text that has to "
+                                                                "travel as bytes")
+    if name == "try_parse_json":
+        _arity(name, args, 1, 1)
+        return _parse_json(args[0], safe=True)
+    if name == "is_variant_null":
+        _arity(name, args, 1, 1)
+        return exp.paren(_template(
+            "CASE WHEN typeof(_a) NOT IN ('JSON', '\"NULL\"') THEN error('[DATATYPE_MISMATCH] is_variant_null() "
+            "takes a VARIANT; write parse_json(...).') ELSE coalesce(json_type(_a) = 'NULL', false) END", a=args[0]))
+    if name in ("variant_get", "try_variant_get"):
+        return _variant_get(name, args)
+    if name == "to_variant_object":
+        _arity(name, args, 1, 1)
+        return _template("CAST(__kf_to_variant(CAST(to_json(_a) AS VARCHAR), typeof(_a)) AS JSON)", a=args[0])
+    if name in _VARIANT_SCHEMAS:
+        raise _refusal(name, "this PC keeps a VARIANT as JSON text, which doesn't keep every type Databricks "
+                             "reports (a DECIMAL's scale, or a DOUBLE that prints like a DECIMAL).",
+                       "use typeof on variant_get's values")
+    if name in _EXPLODE:
+        raise ValueError(f"{name}() is a table function in Databricks: write it in FROM or after LATERAL.")
+    if name == "try_make_interval":
+        return _try_make_interval(args)
+    if name == "timestamp_nanos":
+        return _timestamp_nanos(args)
+    if name == "unix_nanos":
+        return _unix_nanos(args)
+    if name == "bitmap_and_agg":
+        return _bitmap_and_agg(node)
+    if name == "counter_diff":
+        raise ValueError("[WINDOW_FUNCTION_WITHOUT_OVER_CLAUSE] counter_diff() needs OVER (... ORDER BY ...).")
+    if name == "schema_of_json_agg":
+        raise _refusal(name, "this PC works out schema_of_json for a literal as it reads the cell, and has no "
+                             "merge of the schemas of many rows' JSON.", "use schema_of_json on one sample row")
+    if name == "try_reflect":
+        raise _refusal(name, "it calls a Java method, and this PC runs no Java.")
+    if name in _XML:
+        raise _refusal(name, "this PC has no XML reader that infers and converts values the way Databricks' "
+                             "XML source does.", "use from_json and to_json for data you can keep as JSON")
     if name in _VECTOR_AGGREGATES:
         raise _refusal(name, "DuckDB has no aggregate that adds vectors element by element.",
                        "posexplode the vectors and GROUP BY the position")
@@ -297,8 +530,20 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
             raise _refusal(name, "it builds or reads a DataSketches sketch, whose bytes this PC can't make the "
                                  "same way.", instead)
 
+    for node in list(statement.find_all(exp.Anonymous)):  # table and window functions first: they replace their parent
+        if node.name.lower() == "counter_diff" and isinstance(node.parent, exp.Window):
+            node.parent.replace(_counter_diff(node))
+        elif node.name.lower() in _EXPLODE and isinstance(node.parent, (exp.Table, exp.Lateral)):
+            rows = exp.Subquery(this=_explode(node))
+            if isinstance(node.parent, exp.Table):
+                rows.set("alias", node.parent.args.get("alias"))
+                node.parent.replace(rows)
+            else:
+                node.replace(rows)
+
     # innermost first, so a call inside another's arguments is written before the outer one copies them
-    for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, bfs=False))):
+    for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate, exp.ParseJSON,
+                                                   bfs=False))):
         written = _written(call)
         if written is not None:
             if call.parent is None:  # the statement itself
@@ -313,6 +558,10 @@ def _written(call: exp.Expr) -> exp.Expression | None:
         return _time_diff(call)
     if isinstance(call, exp.TimeTrunc):
         return _time_trunc(call)
+    if isinstance(call, exp.Collate):
+        return _collate(call)
+    if isinstance(call, exp.ParseJSON):
+        return _parse_json(call.this, safe=bool(call.args.get("safe")))
     if isinstance(call, exp.Anonymous):
         written = _function(call)
         return None if written is call else written

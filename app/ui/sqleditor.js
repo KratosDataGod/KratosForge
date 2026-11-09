@@ -470,7 +470,7 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
         CM.placeholder("Write SQL. Ctrl+Enter runs it, Ctrl+Space suggests names."),
         CM.EditorView.updateListener.of((u) => { if (u.docChanged) on.change(u.state.doc.toString()); }),
-        CM.EditorView.contentAttributes.of({ "aria-label": "SQL query" }),
+        CM.EditorView.contentAttributes.of({ "aria-label": "SQL query", tabindex: "0" }),  // as notebook.js's editors
         sqlTheme,
         check ? [CM.linter(async (v) => {
           const text = v.state.doc.toString();

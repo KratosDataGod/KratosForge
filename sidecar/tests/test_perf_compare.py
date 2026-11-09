@@ -100,5 +100,5 @@ def test_the_recorded_baseline_names_its_runner_and_settings():
 def test_the_workflow_runs_the_baseline_settings_and_stays_advisory():
     workflow = (BENCH.parents[1] / ".github" / "workflows" / "perf.yml").read_text(encoding="utf-8")
     assert "--runs 5 --warmup 1 --rows 1000000" in workflow
-    assert "windows-latest" in workflow and "baseline-windows.json" in workflow
+    assert "windows-2025-vs2026" in workflow and "baseline-windows.json" in workflow
     assert "--gate" not in workflow.split("jobs:", 1)[1]  # advisory until docs/performance.md says otherwise

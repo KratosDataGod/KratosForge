@@ -38,6 +38,9 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: platform.js:platformGlossaryTab, platform.js:requestTable, shortcuts.js:renderShortcuts
 // axe covers dialogs: whproject.js:whProjectDeploy, whproject.js:whProjectImport
 
+// "dialog: mode: finding" at 200% or in a contrast theme that needs more than a small fix (docs/ux/accessibility-zoom-contrast.md).
+const KNOWN_ZOOM_CONTRAST = new Set([]);
+
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
 const page = () => app.page;
@@ -379,6 +382,74 @@ const CASES = [
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 
+// Runs in the page after a Tab: where focus is, whether it's still in the dialog, whether it shows a ring
+// (an outline on it or a close parent: a contrast theme removes box shadows, so a ring drawn as one is gone),
+// and whether it's on screen and not under something, inside what clips it.
+function focusInDialog() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return null;
+  const dialog = el.closest("#dialog-root .dialog");
+  let ring = false;
+  for (let n = el, d = 0; n && d < 4 && !ring && n !== dialog; n = n.parentElement, d++) {
+    const cs = getComputedStyle(n);
+    ring = (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== "none";
+  }
+  const rect = el.getBoundingClientRect();
+  let [l, t, r, b] = [Math.max(rect.left, 0), Math.max(rect.top, 0), Math.min(rect.right, innerWidth), Math.min(rect.bottom, innerHeight)];
+  for (let n = el.parentElement; n; n = n.parentElement) {
+    if (getComputedStyle(n).overflow === "visible") continue;
+    const c = n.getBoundingClientRect();
+    [l, t, r, b] = [Math.max(l, c.left), Math.max(t, c.top), Math.min(r, c.right), Math.min(b, c.bottom)];
+  }
+  const top = r > l && b > t ? document.elementFromPoint((l + r) / 2, (t + b) / 2) : null;
+  const label = (el.getAttribute("aria-label") || el.textContent || el.value || "").trim().replace(/\s+/g, " ").slice(0, 30);
+  el.dataset.a11yStop ||= String(Math.random());
+  return { key: `${el.tagName.toLowerCase()}${label ? ` "${label}"` : ""}`, stop: el.dataset.a11yStop, inside: !!dialog, ring,
+    visible: !!top && (top === el || el.contains(top) || top.contains(el) || !!top.closest("label")?.contains(el) || !!top.closest("#toast")) };
+}
+
+// The open dialog at 200% (the window's 1440x940 laid out as 720x470) and in a Windows contrast theme (forced
+// colors): axe again (contrast is the theme's there, so not measured), the dialog inside the window, and a Tab
+// walk that stays in the dialog, keeps each Tab stop on screen at 200% and shows a ring in the contrast theme.
+async function zoomAndContrast(p) {
+  const found = [];
+  for (const mode of [{ id: "200%", viewport: { width: 720, height: 470 } }, { id: "contrast theme", forced: true }]) {
+    await p.setViewportSize(mode.viewport || { width: 1440, height: 940 });
+    await p.emulateMedia({ forcedColors: mode.forced ? "active" : "none" });
+    found.push(...(await axeFindings(p, "#dialog-root", { off: mode.forced ? ["color-contrast"] : [] })).map((f) => `${mode.id}: ${f}`));
+    // Never wider than the window; taller only where the backdrop scrolls to the rest. And nothing it holds
+    // runs past its own edges (a dialog's content can't be scrolled to there).
+    const spill = await p.evaluate(() => {
+      const d = document.querySelector("#dialog-root .dialog");
+      const r = d.getBoundingClientRect();
+      const scrolls = ["auto", "scroll"].includes(getComputedStyle(d.parentElement).overflowY);
+      if (r.left < -1 || r.right > innerWidth + 1 || ((r.top < -1 || r.bottom > innerHeight + 1) && !scrolls)) {
+        return `the dialog is ${Math.round(r.width)}x${Math.round(r.height)} in a ${innerWidth}x${innerHeight} window`;
+      }
+      const out = [...d.children].find((c) => c.getBoundingClientRect().bottom > r.bottom + 1 && getComputedStyle(d).overflowY === "visible");
+      return out ? `what it holds runs ${Math.round(out.getBoundingClientRect().bottom - r.bottom)}px past its bottom` : null;
+    });
+    if (spill) found.push(`${mode.id}: ${spill}`);
+    // A contrast theme drops the dialog's shadow and paints it like the page: only a border shows where it ends.
+    if (mode.forced && await p.evaluate(() => getComputedStyle(document.querySelector("#dialog-root .dialog")).borderTopStyle === "none")) {
+      found.push(`${mode.id}: the dialog has no edge`);
+    }
+    const seen = new Set();
+    for (let i = 0; i < 80; i++) {
+      await p.keyboard.press("Tab");
+      const at = await p.evaluate(focusInDialog);
+      if (!at || seen.has(at.stop)) break;
+      seen.add(at.stop);
+      if (!at.inside) { found.push(`${mode.id}: Tab left the dialog for ${at.key}`); break; }
+      if (mode.viewport && !at.visible) found.push(`${mode.id}: ${at.key} is off screen or covered when it has focus`);
+      if (mode.forced && !at.ring) found.push(`${mode.id}: ${at.key} shows no focus ring`);
+    }
+  }
+  await p.setViewportSize({ width: 1440, height: 940 });
+  await p.emulateMedia({ forcedColors: "none" });
+  return found;
+}
+
 for (const [key, title, open, ready = "#dialog-root .dialog"] of CASES) {
   test(`axe finds nothing serious in ${key}`, { skip }, async () => {
     await page().evaluate(() => closeDialog());
@@ -387,9 +458,29 @@ for (const [key, title, open, ready = "#dialog-root .dialog"] of CASES) {
     const opened = await page().locator("#dialog-root .dialog").first().getAttribute("aria-label");
     assert.ok(title instanceof RegExp ? title.test(opened) : opened === title, `${key} opened "${opened}"`);
     assert.deepStrictEqual(await axeFindings(page(), "#dialog-root"), [], key);
+    assert.deepStrictEqual((await zoomAndContrast(page())).filter((f) => !KNOWN_ZOOM_CONTRAST.has(`${key}: ${f}`)), [], `${key} at 200% and in a contrast theme`);
     await page().evaluate(() => closeDialog());
   });
 }
+
+test("the 200% and contrast theme checks catch a dialog that breaks", { skip }, async () => {
+  await page().evaluate(() => {
+    closeDialog();
+    const ringByShadow = h("button", { class: "a11y-shadow-ring", style: "outline:none" }, "Shadow ring");
+    ringByShadow.addEventListener("focus", () => { ringByShadow.style.boxShadow = "0 0 0 3px #1b3664"; });
+    ringByShadow.addEventListener("blur", () => { ringByShadow.style.boxShadow = ""; });
+    // A wide dialog (fixed height) whose content has no scrolling pane of its own.
+    const overlay = showDialog("Planted", h("div", {}, ringByShadow, h("div", { style: "height:900px" }, "Tall")), [btn("Close", null, closeDialog, "tool")]);
+    overlay.querySelector(".dialog").classList.add("wide");
+    overlay.querySelector(".dialog").style.border = "none";
+  });
+  const found = await zoomAndContrast(page());
+  await page().evaluate(() => closeDialog());
+  assert.ok(found.some((f) => /^200%: what it holds runs \d+px past its bottom$/.test(f)), found.join("; "));
+  assert.ok(found.includes('contrast theme: button "Shadow ring" shows no focus ring'), found.join("; "));
+  assert.ok(found.includes("contrast theme: the dialog has no edge"), found.join("; "));
+  assert.ok(!found.some((f) => f.startsWith("200%: button \"Shadow ring\" shows")), "only the contrast theme loses a shadow ring");
+});
 
 test("the dialogs drew without a script error", { skip }, () => {
   assert.deepStrictEqual(app.errors, []);

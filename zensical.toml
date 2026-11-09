@@ -29,6 +29,7 @@ nav = [
     { "Permissions" = "permissions.md" },
     { "Security model" = "security.md" },
     { "Security evidence pack" = "evidence-pack.md" },
+    { "Personal data inventory" = "enterprise-privacy.md" },
     { "Usage data" = "telemetry.md" },
     { "End-user terms (draft)" = "end-user-terms.md" },
   ] },

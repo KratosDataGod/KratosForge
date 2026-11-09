@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, NoReturn, cast
 
 import pyarrow as pa
 
-from . import chart_output, jsonfile, notebook_cells
+from . import chart_output, disk_full, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -1800,8 +1800,32 @@ class Kernel:
         frames = [f for f in traceback.extract_tb(exc.__traceback__)
                   if f.filename not in (__file__, _WIDGETS_FILE) and not f.filename.endswith(("notebookutils_local.py",))]
         lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
-        return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
+        return {"type": "error", "ename": type(exc).__name__, "evalue": plain_error(exc),
                 "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
+
+
+def plain_error(exc: BaseException) -> str:
+    """A cell's error as the user reads it. A full disk and running out of memory say so first, as
+    delta-rs words a full disk as a parse or copy error and a MemoryError often has no text at all;
+    the raw error stays in the traceback."""
+    raw = str(exc)
+    if disk_full.is_disk_full(exc):
+        plain = disk_full.message(None, "A Delta table write that failed changed nothing.")
+    elif any(isinstance(e, MemoryError) for e in _chain(exc)):
+        plain = ("This PC ran out of memory in this cell. Variables from earlier cells are kept. "
+                 "Close other apps, or work on less data at once, and run it again.")
+    else:
+        return raw
+    return f"{plain} ({raw})" if raw else plain
+
+
+def _chain(exc: BaseException) -> list[BaseException]:
+    seen: list[BaseException] = []
+    cur: BaseException | None = exc
+    while cur is not None and cur not in seen and len(seen) < 20:
+        seen.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    return seen
 
 
 _MISSING = object()

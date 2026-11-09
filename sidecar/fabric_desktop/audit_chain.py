@@ -220,7 +220,7 @@ def export(folder: Path, out: Path, since: str = "") -> dict[str, Any]:
                 lines.append(line)
         head = _head(folder)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    jsonfile.write_text(out, "".join(line + "\n" for line in lines), newline="\n")
     first = json.loads(lines[0]) if lines else {}
     last = json.loads(lines[-1]) if lines else {}
     manifest = {

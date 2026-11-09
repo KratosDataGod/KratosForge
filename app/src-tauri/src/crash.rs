@@ -129,8 +129,64 @@ pub fn append(log: &Path, cap: u64, entry: &str) -> std::io::Result<()> {
 }
 
 /// The entry a panic leaves: when, which build, which thread, where, and the panic's own message.
+/// The message is cut to [`MESSAGE_CAP`] and passed through [`scrub`] first: the file may be sent to IT
+/// by hand, without the support bundle's redaction.
 pub fn panic_entry(secs: i64, build: &str, thread: &str, location: &str, message: &str) -> String {
-    format!("{} KratosForge {build} panicked in thread '{thread}' at {location}: {message}\n", utc_stamp(secs))
+    format!("{} KratosForge {build} panicked in thread '{thread}' at {location}: {}\n", utc_stamp(secs), scrub(message))
+}
+
+/// How much of a panic's message is kept.
+pub const MESSAGE_CAP: usize = 1024;
+
+/// What can identify a person or open something, taken out of a panic message: email addresses, tokens
+/// (`eyJ...` and whatever follows `Bearer`), the values of secret-named settings (`password=`, `sig=`,
+/// `AccountKey=`...), ids (GUIDs) and the user name in `\Users\<name>\` paths. Then cut to [`MESSAGE_CAP`].
+pub fn scrub(message: &str) -> String {
+    const SECRET_KEYS: [&str; 9] = ["password", "pwd", "secret", "token", "sig", "key", "credential", "auth", "code"];
+    let is_cut = |c: char| c.is_whitespace() || "\"'`;&?,()[]{}<>|".contains(c);
+    let mut out = String::new();
+    let mut after_bearer = false;
+    let mut rest = message;
+    while !rest.is_empty() {
+        let end = rest.find(is_cut).unwrap_or(rest.len());
+        let (word, tail) = rest.split_at(end);
+        if !word.is_empty() {
+            let lower = word.to_ascii_lowercase();
+            let guid = word.len() >= 36 && word.split('-').map(str::len).collect::<Vec<_>>().ends_with(&[8, 4, 4, 4, 12])
+                && word.chars().all(|c| c.is_ascii_hexdigit() || c == '-' || c == ':' || c == '/');
+            let scrubbed = if after_bearer || word.starts_with("eyJ") {
+                "<token>".to_string()
+            } else if word.contains('@') && word.rsplit('@').next().is_some_and(|d| d.contains('.')) {
+                "<email>".to_string()
+            } else if guid {
+                "<id>".to_string()
+            } else if let Some((key, _)) = word.split_once('=').filter(|(k, _)| SECRET_KEYS.iter().any(|s| k.to_ascii_lowercase().contains(s))) {
+                format!("{key}=<removed>")
+            } else if let Some(at) = lower.find("users\\").or_else(|| lower.find("users/")) {
+                let (head, user) = word.split_at(at + 6);
+                let after = user.find(['\\', '/']).map_or("", |i| &user[i..]);
+                format!("{head}<user>{after}")
+            } else {
+                word.to_string()
+            };
+            after_bearer = lower == "bearer";
+            out.push_str(&scrubbed);
+        }
+        let mut chars = tail.chars();
+        if let Some(c) = chars.next() {
+            out.push(c);
+        }
+        rest = chars.as_str();
+    }
+    if out.len() > MESSAGE_CAP {
+        let mut cut = MESSAGE_CAP;
+        while !out.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.truncate(cut);
+        out.push_str(" (cut)");
+    }
+    out
 }
 
 /// From now on every panic in the app is also written to `log`. The previous hook still runs.
@@ -241,6 +297,24 @@ mod tests {
     fn a_panic_entry_names_when_what_build_and_where() {
         let entry = panic_entry(0, "6b631e29", "main", "src/main.rs:10", "boom");
         assert_eq!(entry, "1970-01-01T00:00:00Z KratosForge 6b631e29 panicked in thread 'main' at src/main.rs:10: boom\n");
+    }
+
+    #[test]
+    fn a_panic_message_loses_secrets_and_ids_and_is_cut_short() {
+        let planted = "failed for ann.lee@contoso.com with Bearer abcdefghijklmnop0123 and eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln \
+            at https://acct.blob.core.windows.net/c?sv=2024&sig=SECRETSIGNATUREVALUE123 \
+            Server=x;Password=Hunter2Secret!;AccountKey=QUJDREVG== tenant 72f988bf-86f1-41af-91ab-2d7cd011db47 \
+            path C:\\Users\\Ann.Lee\\AppData\\Local\\x.py and /home/x/Users/bob/y";
+        let out = scrub(planted);
+        for leaked in ["ann.lee@", "abcdefghijklmnop0123", "eyJ", "SECRETSIGNATUREVALUE123", "Hunter2Secret!", "QUJDREVG", "72f988bf", "Ann.Lee", "bob"] {
+            assert!(!out.contains(leaked), "{leaked} in {out}");
+        }
+        assert!(out.contains("Bearer <token>") && out.contains("sig=<removed>") && out.contains("Password=<removed>"), "{out}");
+        assert!(out.contains("Users\\<user>\\AppData") && out.contains("tenant <id>"), "{out}");
+        assert_eq!(scrub("called `Option::unwrap()` on a `None` value"), "called `Option::unwrap()` on a `None` value");
+        let long = scrub(&"é".repeat(2000));
+        assert!(long.len() <= MESSAGE_CAP + 6 && long.ends_with(" (cut)"));
+        assert!(panic_entry(0, "b", "t", "l", &"x".repeat(5000)).len() < 1200);
     }
 
     #[test]

@@ -60,7 +60,7 @@ def test_a_log_without_a_real_file_still_starts_the_engine(capsys):
 
 def test_crash_reports_are_never_sent_anywhere():
     """The shell's crash handling and the engine's only write files on this PC."""
-    crash_rs = (SIDECAR.parent / "app" / "src-tauri" / "src" / "crash.rs").read_text(encoding="utf-8")
+    crash_rs = (SIDECAR.parent / "app" / "src-tauri" / "src" / "crash.rs").read_text(encoding="utf-8").split("#[cfg(test)]")[0]
     for network in ("http", "TcpStream", "reqwest", "ureq", "UdpSocket"):
         assert network not in crash_rs, network
     source = Path(server.__file__).read_text(encoding="utf-8")

@@ -125,6 +125,21 @@ def test_in_the_app_a_refused_sign_in_opens_one_sign_in_window_never_the_refused
     assert entra.calls == ["refresh", "window"]
 
 
+MFA = {"error": "invalid_grant", "suberror": "basic_action",
+       "error_description": "AADSTS50076: Due to a configuration change, you must use multi-factor authentication."}
+
+
+def test_a_refusal_that_doesnt_end_the_sign_in_still_never_hands_back_the_refused_token(tmp_path):
+    a, entra = signed_in(tmp_path, refuse=MFA)  # Fabric refused "old"; Entra now wants MFA to refresh
+    assert a.refreshed_token(auth.FABRIC_SCOPES) == "new"
+    assert entra.calls[-1] == "window" and "refresh" in entra.calls
+
+
+def test_an_unknown_code_that_starts_with_a_known_one_gets_no_advice():
+    assert credentials.refusal("sp", {"error_description": "AADSTS70002220: something else"}) == ""
+    assert "client secret has expired" in credentials.refusal("sp", {"error_description": "AADSTS7000222: x"})
+
+
 def test_calls_waiting_on_a_sign_in_share_its_window(tmp_path):
     a, entra = signed_in(tmp_path, refuse=REVOKED, cached="")
     got: list[str] = []

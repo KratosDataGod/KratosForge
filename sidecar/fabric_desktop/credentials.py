@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -120,9 +121,9 @@ _REFUSED = {
 def refusal(name: str, result: dict[str, Any]) -> str:
     """The message for an app identity's credential that Entra refused for good; "" for any other
     failure (throttling, an outage), which is tried again as usual."""
-    description = str(result.get("error_description") or "")
+    codes = re.findall(r"\bAADSTS\d+\b", str(result.get("error_description") or ""))
     for code, what in _REFUSED.items():
-        if code in description:
+        if code in codes:
             return (f"Microsoft Entra refused the agent's sign-in as {name} ({code}): {what}. Then restart the "
                     f"agent; until then it doesn't ask Entra again for {REFUSED_WAIT // 60} minutes at a time.")
     return ""

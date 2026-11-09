@@ -516,14 +516,16 @@ class Authenticator:
         self._check_tenant(result)
         return result["access_token"]
 
-    def _sign_in(self, scopes: list[str]) -> dict:
+    def _sign_in(self, scopes: list[str], refused: str = "") -> dict:
         """The interactive sign-in. One window at a time: a call that waited for another's sign-in uses
-        the token it brought, rather than opening a second window."""
+        the token it brought, rather than opening a second window. ``refused``: a token the platform just
+        refused, which never counts as one a sign-in brought (it is still in the cache when the refusal
+        wasn't one that ends the sign-in, such as a policy now asking for MFA)."""
         with self._sign_in_lock:
             accounts = self.app.get_accounts()
             if accounts and not self._ended():
                 done = self._silent(scopes, accounts[0])
-                if done and "access_token" in done:
+                if done and "access_token" in done and done["access_token"] != refused:
                     return done
             self.cache.removed_elsewhere.clear()  # signing in here: the account may come back
             if self.broker:  # Windows sign-in returns when its window is closed
@@ -553,7 +555,9 @@ class Authenticator:
             return fresh["access_token"]
         if not self.interactive:
             raise SignInRequired(SIGNED_OUT_HEADLESS)
-        result = self._sign_in(self.scopes_for(scopes))
+        cached = self._silent(self.scopes_for(scopes), accounts[0]) if accounts else None
+        refused = (cached or {}).get("access_token") or ""  # the token the caller sent: MSAL's cached one
+        result = self._sign_in(self.scopes_for(scopes), refused)
         self._save()
         if "access_token" not in result:
             raise sign_in_error(result)

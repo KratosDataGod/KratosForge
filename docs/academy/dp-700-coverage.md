@@ -27,7 +27,7 @@ four original exam questions (ACD-013).
 | 1.1.3 | Configure OneLake workspace settings | E04 | SIM | Yes | LM-07 |
 | 1.1.4 | Configure data workflow workspace settings | E05 | KO | Yes | |
 | 1.2.1 | Configure version control | E06, E07, C3 | LV | Yes | |
-| 1.2.2 | Implement database projects | E08, C3 | LV | Yes | LM-23 |
+| 1.2.2 | Implement database projects | E08 | LV | Yes | LM-23 |
 | 1.2.3 | Create and configure deployment pipelines | E09, C3 | SIM | Yes | |
 | 1.3.1 | Implement workspace-level access controls | E10, C3 | SIM | Yes | |
 | 1.3.2 | Implement item-level access controls | E11, C3 | SIM | Yes | LM-24 |
@@ -65,7 +65,7 @@ four original exam questions (ACD-013).
 
 | Id | Objective | Exercises | Best local | Fabric | Lessons |
 | --- | --- | --- | --- | --- | --- |
-| 3.1.1 | Monitor data ingestion | E44, C3 | SIM | Yes | |
+| 3.1.1 | Monitor data ingestion | E44 | SIM | Yes | |
 | 3.1.2 | Monitor data transformation | E44, E47 | SIM | Yes | |
 | 3.1.3 | Monitor semantic model refresh | E45 | SIM | Yes | LM-09 |
 | 3.1.4 | Configure alerts | E46 | SIM | Yes | |
@@ -74,10 +74,10 @@ four original exam questions (ACD-013).
 | 3.2.3 | Identify and resolve notebook errors | E51, E52 | LV | No | |
 | 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |
 | 3.2.5 | Identify and resolve eventstream errors | E54 | SIM | Yes | |
-| 3.2.6 | Identify and resolve T-SQL errors | E55, C3 | SIM | Yes | LAB-09 |
+| 3.2.6 | Identify and resolve T-SQL errors | E55 | SIM | Yes | LAB-09 |
 | 3.3.1 | Optimize a lakehouse table | E56 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
 | 3.3.2 | Optimize a pipeline | E60 | SIM | Yes | |
-| 3.3.3 | Optimize a data warehouse | E61, C3 | KO | Yes | |
+| 3.3.3 | Optimize a data warehouse | E61 | KO | Yes | |
 | 3.3.4 | Optimize eventstreams and eventhouses | E62 | KO | Yes | |
 | 3.3.5 | Optimize Spark performance | E52, E63 | LV (file layout and pruning on Delta); KO (Spark settings) | Yes | LM-27 |
 | 3.3.6 | Optimize query performance | E59, E64 | LV | No | LM-18, LAB-02 |

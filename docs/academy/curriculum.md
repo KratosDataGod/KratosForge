@@ -120,7 +120,7 @@ validation checks both the fix and that nothing else changed.
 | --- | --- | --- | --- | --- |
 | C1 | **Retail lakehouse.** Landing to Bronze to Silver to Gold for the `shop` data: a parameterised notebook that lands only new days, incremental loads with MERGE, quality checks with rejected rows, a type 2 customer dimension, a Gold fact and a denormalised aggregate, and a run that's safe to repeat. OPTIMIZE and the pipeline stay in E56 and E31 (this engine can't run them). | 1.4.3, 2.1.1, 2.1.2, 2.2.6–2.2.9 | LV +FV | 3 |
 | C2 | **Real-time telemetry.** Chiller readings with late and repeated arrivals: a checkpointed stream with foreachBatch, dedupe against Silver, late events recomputed into their 5-minute windows, and an alert table that follows the windows. The eventstream, eventhouse, KQL and Activator parts stay in E40, E41, E34, E46 and E54 (this engine can't run them). | 2.1.3, 2.2.9, 2.3.3, 2.3.5 | LV +FV | 3 |
-| C3 | **Governed warehouse release.** A warehouse database project in Git, deployed through stages with rules, row-level security and masking for three audiences, monitoring and a fault to repair. | 1.2.1–1.2.3, 1.3.1–1.3.4, 3.1.1, 3.2.6, 3.3.3 | SIM +FV | 3 |
+| C3 | **Governed warehouse release.** One release plan for a Sales warehouse: Development in Git, a deployment pipeline with data source rules on Test and Production, the least workspace roles and sharing permissions for four groups, and the row filter, column grants and masking that give each exactly what it may see. The database project, monitoring, T-SQL errors and tuning stay in E08, E44, E55 and E61. | 1.2.1, 1.2.3, 1.3.1–1.3.4 | SIM +FV | 1.5 |
 
 ## Totals
 

@@ -70,8 +70,9 @@ def test_a_run_that_ends_its_process_mid_run_is_recorded_as_failed_by_the_next_o
     failed = [r for r in log(s) if r["run_id"] == stopped["run_id"]]
     assert len(failed) == 1 and failed[0]["status"] == "failed"
     assert failed[0]["started_at"] == stopped["started_at"] and failed[0]["delta_version"] is None
-    assert failed[0]["message"].startswith("Stopped: the engine ended during this run, so nothing was written")
-    assert "ran out of memory" in failed[0]["message"] and "batch_by" in failed[0]["message"]
+    assert failed[0]["message"].startswith("Stopped: the engine ended during this run (the app closed")
+    assert "nothing was written to the table" in failed[0]["message"]
+    assert "ran out of memory" in failed[0]["message"] and "the app closed" in failed[0]["message"]
     s.run(day=DAY2)
     assert len([r for r in log(s) if r["run_id"] == stopped["run_id"]]) == 1  # recorded once
 

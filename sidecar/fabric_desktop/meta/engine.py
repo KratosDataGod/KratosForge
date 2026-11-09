@@ -573,9 +573,9 @@ class Engine:
                 _log.warning("Couldn't remove the note for run %s: %s", path.stem, exc)
 
     def _record_stopped(self, e: Entity, res: RunResult) -> None:
-        """Record, as failed, a run of ``e`` whose process ended before it did: most likely it ran this
-        PC out of memory, which ends the engine at once (Rust aborts when an allocation fails, and the
-        OS kills a process past its memory). Called under the table's lock. A run that committed is
+        """Record, as failed, a run of ``e`` whose process ended before it did: the app closed, the
+        engine was restarted, the PC shut down, or it ran out of memory, which ends the engine at once
+        (Rust aborts when an allocation fails, and the OS kills a process past its memory). Called under the table's lock. A run that committed is
         left to _record_unlogged; one already in the run log needs nothing. Never fails the run."""
         if self.running_dir is None or not self.running_dir.is_dir():
             return
@@ -603,9 +603,9 @@ class Engine:
             if committed or logged.height:  # committed: _record_unlogged records it; logged: nothing to do
                 path.unlink(missing_ok=True)
                 continue
-            message = (f"Stopped: the engine ended during this run, so nothing was written to the table. "
-                       f"The likely reason is that this PC ran out of memory (the engine's log says). "
-                       f"{OUT_OF_MEMORY_ADVICE} Recorded by run {self.run_id}.")
+            message = ("Stopped: the engine ended during this run (the app closed, the engine was restarted, "
+                       "the PC shut down, or it ran out of memory), so nothing was written to the table. "
+                       f"Run it again. Recorded by run {self.run_id}.")
             def text(key: str, note: dict[str, Any] = note) -> str:
                 return str(note.get(key, ""))[:200]
             row = {"run_id": run, "batch_id": text("batch_id"), "entity": e.name,
@@ -621,7 +621,7 @@ class Engine:
             if self._after_commit(res, "the record of a run that stopped", (META_LAKEHOUSE, "meta", "run_log"),
                                   append):
                 res.steps.append(Step("record", 0, 0.0, f"recorded run {run}, which stopped before it "
-                                                        "wrote anything (most likely out of memory)"))
+                                                        "wrote anything"))
                 path.unlink(missing_ok=True)
 
     def _record_unlogged(self, e: Entity, res: RunResult) -> None:

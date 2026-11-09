@@ -85,6 +85,21 @@ def test_coverage_matches_the_plan(dp700):
     assert cov["gaps"] == 11
 
 
+@pytest.mark.parametrize("pack", ["dp-700", "dbx-de-associate"])
+def test_each_objective_status_matches_what_is_built(pack):
+    # covered: every exercise and capstone it lists is built; in_progress: some are; planned: none are.
+    built = {p.name for p in (registry.ROOT / pack / "exercises").iterdir() if p.is_dir()}
+    for o in registry.objectives(registry.certification(pack)):
+        listed = o["exercises"] + o["capstones"]
+        have = [e for e in listed if e in built]
+        want = "covered" if have and len(have) == len(listed) else "in_progress" if have else "planned"
+        assert o["status"] == want, f"{pack} {o['id']}: built {have} of {listed}, status {o['status']}"
+
+
+def test_dp700_status_counts(dp700):
+    assert registry.coverage(dp700)["status"] == {"planned": 1, "in_progress": 0, "covered": 48, "retired": 0}
+
+
 def test_the_version_is_honest_about_its_date(dp700):
     src = dp700["source"]
     assert dp700["version"] == src["page_updated"] == "2026-10-30"

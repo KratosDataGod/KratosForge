@@ -258,7 +258,7 @@
             "https://docs.databricks.com/aws/en/lakehouse/medallion"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "2.2",
@@ -449,7 +449,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "3.2",
@@ -473,7 +473,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "3.3",
@@ -495,7 +495,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "covered"
         },
         {
           "id": "3.4",
@@ -521,7 +521,7 @@
             "https://docs.databricks.com/aws/en/getting-started/dataframes"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "3.5",
@@ -609,7 +609,7 @@
             "https://docs.databricks.com/aws/en/ldp/expectations"
           ],
           "gaps": [],
-          "status": "planned"
+          "status": "in_progress"
         }
       ]
     },

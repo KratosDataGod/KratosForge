@@ -190,7 +190,6 @@ def admx() -> str:
            f'revision="{REVISION}" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">',
            "  <policyNamespaces>",
            f'    <target prefix="kratosforge" namespace="{NAMESPACE}" />',
-           '    <using prefix="windows" namespace="Microsoft.Policies.Windows" />',
            "  </policyNamespaces>",
            f'  <resources minRequiredRevision="{REVISION}" />',
            "  <supportedOn>", "    <definitions>",
@@ -234,9 +233,14 @@ def admx() -> str:
     return "\n".join(out)
 
 
+# No build reads registry policy yet, so every policy says so until a release adds that support.
+_NOT_READ_YET = (" No current KratosForge build reads this policy from the registry. Until the release notes say"
+                 " registry policy is supported, set it in %ProgramData%\\FabricDesktop\\policy.json instead.")
+
+
 def adml() -> str:
     """The en-US ADML: each policy's name and help, and the box it shows."""
-    strings = [("KratosForge", "KratosForge"), ("SUPPORTED_KratosForge", "KratosForge, any build that reads registry policy")]
+    strings = [("KratosForge", "KratosForge"), ("SUPPORTED_KratosForge", "Not read by any current KratosForge build")]
     strings += [(_cat(k), v) for k, v in CATEGORIES.items()]
     presentations = []
     for st in settings():
@@ -246,6 +250,7 @@ def adml() -> str:
         if st.kind == "list":
             help_text += " Add one item per line."
         help_text += f" Policy file key: {st.key}."
+        help_text += _NOT_READ_YET
         strings += [(st.key, st.key.replace("_", " ").capitalize()), (f"{st.key}_Help", help_text)]
         strings += [(f"{st.key}_{c}", c) for c in st.choices]
         if st.kind == "enum":

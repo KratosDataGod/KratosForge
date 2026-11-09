@@ -79,7 +79,7 @@ The MSI removes only what it installed. The app's scheduled tasks, its `kratosfo
 
    Save the file as UTF-8 (with or without a byte order mark). Windows PowerShell 5's `Out-File` and `>` write UTF-16 by default, which the app can't read, so the PC treats it as a broken file (the last copy it could read applies, or it fails closed); use `Set-Content -Encoding UTF8` or `Out-File -Encoding utf8`.
 
-   Settings come only from this file. KratosForge reads no registry policy (nothing under `HKLM\Software\Policies` or `HKCU\Software\Policies`) and has no ADMX template, so Group Policy deploys the file (a Files preference item) rather than setting values.
+   Settings come only from this file. KratosForge reads no registry policy (nothing under `HKLM\Software\Policies` or `HKCU\Software\Policies`) so Group Policy deploys the file (a Files preference item) rather than setting values. The ADMX templates in `deploy/policy` describe every setting, but no current build reads them: setting them has no effect until the release notes say registry policy is supported.
 
    If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
 

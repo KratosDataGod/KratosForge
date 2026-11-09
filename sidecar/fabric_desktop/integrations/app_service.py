@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .. import jsonfile
 from . import policy
 from .config import TOOLS, launcher_path, snippets, write_launcher
 from .extensions import ExtensionHost
@@ -330,7 +331,7 @@ def _roll_log(log: Path, cap: int = HTTP_LOG_CAP) -> None:
     """Keep ``log`` as ``<name>.prev.log`` (replacing the one before) once it is past ``cap``."""
     try:
         if log.stat().st_size > cap:
-            os.replace(log, log.with_name(log.stem + ".prev.log"))
+            jsonfile.replace(log, log.with_name(log.stem + ".prev.log"))
     except FileNotFoundError:  # silent-ok: no log yet
         return
     except OSError as exc:  # another process still has it open (Windows): tried again at the next start

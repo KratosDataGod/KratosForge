@@ -446,7 +446,8 @@
  },
  {
   "name": "time_bucket",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "probe": "SELECT time_bucket(INTERVAL 1 HOUR, TIMESTAMP '2026-01-01 10:30:00')"
  },
  {
   "name": "time_diff",

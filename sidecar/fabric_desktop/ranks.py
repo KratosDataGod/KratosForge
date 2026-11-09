@@ -139,7 +139,17 @@ def standing(profile: dict[str, Any], live: Iterable[dict[str, Any]]) -> dict[st
 
 
 def _check(need: dict[str, Any], f: dict[str, Any], shipped: set[str], available: dict[str, int]) -> dict[str, Any]:
+    """One requirement's row, with its ``kind`` so the page can offer the right next step, and for lessons the
+    first published one still to finish (``open``)."""
     (kind, want), = need.items()
+    row = _measure(kind, want, f, shipped, available)
+    row["kind"] = kind
+    if kind == "modules":
+        row["open"] = next((m for m in want if m not in f["finished"] and m in shipped), None)
+    return row
+
+
+def _measure(kind: str, want: Any, f: dict[str, Any], shipped: set[str], available: dict[str, int]) -> dict[str, Any]:
     if kind == "modules":
         have = sum(m in f["finished"] for m in want)
         return _row(f"Finish {_names(want)}", have, len(want), any(m not in shipped for m in want))

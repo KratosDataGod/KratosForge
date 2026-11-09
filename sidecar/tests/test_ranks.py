@@ -91,6 +91,16 @@ def test_iron_forger_needs_every_core_lesson_and_ranks_are_climbed_in_order():
     assert got["rank"] == "Forge Initiate" and not got["ladder"][2]["held"] and not got["ladder"][3]["held"]
 
 
+def test_each_requirement_says_its_kind_and_the_next_lesson_to_open():
+    s = ranks.standing(progress.empty(), LIVE)
+    assert [(c["kind"], c.get("open")) for c in s["next"]["checks"]] == [("exercises", None)]
+    p = progress.empty()
+    for mid in ("LM-01", "LM-02"):
+        finish(p, module(mid))
+    iron = ranks.standing(p, LIVE)["ladder"][2]["checks"][0]
+    assert iron["kind"] == "modules" and iron["open"] == "LM-03"
+
+
 def test_steel_forger_needs_a_clean_validate_run_too():
     p = progress.empty()
     for mid in ("LM-01", "LM-02", "LM-03", "LM-04", "LM-05", "LAB-01"):

@@ -3,7 +3,7 @@
 // no rail slot. Levels and achievements are for fun; skills show evidence coverage, never a score.
 // Loaded after features.js; everything here runs after startup.
 
-const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null };
+const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null, fullPath: false, tier: null };
 const RECORDING_ON = "Recording is on: notebooks that pass Validate, Prove or Side by side are kept in a private record on this PC. Turn it off in Profile > Settings.";
 // Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
 const BADGE_GLYPHS = {
@@ -290,10 +290,169 @@ function profileRankCheck(c) {
     h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
 }
 
+// Profile > Ranks, laid out as Chris's mockup (2026-11-07): a hero, Your rank, the Forge progression, Next
+// rank, its requirements and what the rank gives. Everything shown comes from ranks.standing() and the XP
+// in progress.progression(); nothing is estimated. The hero and shields are drawn here as placeholders
+// until the approved artwork arrives; text and controls stay real UI either way.
+const RANK_GLYPHS = {
+  hammer: "M3 2h9v4H9v12H6V6H3z",
+  gear: "M10 1l1.6 2.4 2.8-.8.4 2.8 2.6 1.4-1.4 2.6 1.4 2.4-2.6 1.4-.4 2.8-2.8-.8L10 19l-1.6-2.4-2.8.8-.4-2.8-2.6-1.4 1.4-2.4-1.4-2.6 2.6-1.4.4-2.8 2.8.8zM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  crown: "M2 15h16v2H2zM2 5l4.5 4L10 3l3.5 6L18 5l-1.6 9H3.6z",
+  paw: "M10 9c3 0 5 4 5 6.5 0 1.5-2 1.5-5 1.5s-5 0-5-1.5C5 13 7 9 10 9zM4.5 6a1.6 2.1 0 1 1 0 4.2 1.6 2.1 0 0 1 0-4.2zm11 0a1.6 2.1 0 1 1 0 4.2 1.6 2.1 0 0 1 0-4.2zM7.5 2a1.7 2.2 0 1 1 0 4.4 1.7 2.2 0 0 1 0-4.4zm5 0a1.7 2.2 0 1 1 0 4.4 1.7 2.2 0 0 1 0-4.4z",
+};
+const RANK_GLYPH = { check: "check", "apprentice": "flame", "forge-initiate": "anvil", "iron-forger": "hammer", "steel-forger": "gear",
+  "master-forger": "crown", "pack-runner": "paw", "trailfinder": "eye", "wolf-guardian": "shield", "pack-leader": "paw",
+  "argonaut": "spark", "cyclops-smith": "bolt", "forge-architect": "proof", "legend-of-the-forge": "spark" };
+
+// Ranks with approved shield art (docs/design/art/ranks, logged in docs/design/assets.md); the rest are drawn.
+// Literal paths only (HD-052): each rank's art is a fixed file in app/ui/art/ranks.
+const RANK_ART = {
+  "forge-initiate": (on) => (on ? h("img", { src: "art/ranks/forge-initiate-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/forge-initiate-inactive.webp", alt: "" })),
+  "iron-forger": (on) => (on ? h("img", { src: "art/ranks/iron-forger-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/iron-forger-inactive.webp", alt: "" })),
+  "steel-forger": (on) => (on ? h("img", { src: "art/ranks/steel-forger-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/steel-forger-inactive.webp", alt: "" })),
+  "master-forger": (on) => (on ? h("img", { src: "art/ranks/master-forger-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/master-forger-inactive.webp", alt: "" })),
+  "legend-of-the-forge": (on) => (on ? h("img", { src: "art/ranks/legend-of-the-forge-active.webp", alt: "" })
+    : h("img", { src: "art/ranks/legend-of-the-forge-inactive.webp", alt: "" })),
+};
+
+function rankGlyph(id, size = 34) {
+  const name = id.startsWith("tier:") ? id.slice(5) : RANK_GLYPH[id] || id;
+  const d = RANK_GLYPHS[name] || BADGE_GLYPHS[name] || BADGE_GLYPHS.spark;
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  el.setAttribute("width", size); el.setAttribute("height", size); el.setAttribute("viewBox", "0 0 20 22");
+  el.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", d); path.setAttribute("fill-rule", "evenodd");
+  el.append(path);
+  return el;
+}
+
+// Profile > Ranks, as Chris's mockup of 2026-11-09: a light hero with the wolf at the forge, the three tiers as tabs,
+// the chosen tier's shields, the next rank with its requirements and the next thing to do. RPG art stays on the
+// ranks themselves; the tabs, cards, buttons and type are the app's own (Chris's standing rule, 2026-11-09).
+// Everything shown comes from ranks.standing(); nothing is estimated.
+const RANK_TIERS = {
+  "The Forge": { blurb: "Build core skills and craftsmanship", glyph: "anvil" },
+  "The Pack": { blurb: "Work across the platform and at scale", glyph: "paw" },
+  "The Myth": { blurb: "Master multi-platform data engineering", glyph: "peak" },
+};
+RANK_GLYPHS.peak = "M1 18l6.5-11 3.5 5 3.5-6.5L19 18z";
+RANK_GLYPHS.lock = BADGE_GLYPHS.lock;
+
+// Held ranks and the one you're working toward show lit; the rest wait, locked.
+function rankLook(r, i) {
+  const x = r.ladder[i];
+  return x.held ? "held" : r.next?.id === x.id ? "next" : "locked";
+}
+
+function rankShield(r, i) {
+  const x = r.ladder[i];
+  const look = rankLook(r, i);
+  const here = i === r.number - 1;
+  const state = here ? "your rank" : look === "held" ? "held" : look === "next" ? (x.coming_soon ? "next, coming soon" : "next") : "locked";
+  const lit = look !== "locked";
+  const picture = RANK_ART[x.id] ? RANK_ART[x.id](lit)
+    : h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(x.id)));
+  const badge = look === "held" ? h("span", { class: "rk-badge held", "aria-hidden": "true" }, rankGlyph("check", 14))
+    : look === "locked" ? h("span", { class: "rk-badge locked", "aria-hidden": "true" }, rankGlyph("lock", 13)) : null;
+  return h("li", { class: `rk-shield ${look}${here ? " current" : ""}${RANK_ART[x.id] ? " has-art" : ""}`,
+    "aria-current": here ? "step" : null, "aria-label": `${x.name}, rank ${i + 1} of ${r.of}, ${state}` },
+    h("div", { class: "rk-shield-pic" }, picture),
+    h("span", { class: "rk-shield-name" }, x.name), badge);
+}
+
+function rankTierTabs(r, tier) {
+  const tiers = [...new Set(r.ladder.map((x) => x.tier))];
+  return h("div", { class: "rk-tiers", role: "group", "aria-label": "Show the ranks of a tier" }, tiers.map((t) => {
+    const info = RANK_TIERS[t] || { blurb: "", glyph: "spark" };
+    const held = r.ladder.filter((x) => x.tier === t && x.held).length;
+    const all = r.ladder.filter((x) => x.tier === t).length;
+    return h("button", { class: `rk-tier${t === tier ? " active" : ""}`, "aria-pressed": t === tier ? "true" : "false",
+      onclick: () => { profilePage.tier = t; render(); } },
+      h("span", { class: "rk-tier-icon" }, rankGlyph(`tier:${info.glyph}`, 32)),
+      h("span", { class: "rk-tier-text" }, h("b", {}, t), h("span", { class: "muted-text small" }, info.blurb)),
+      h("span", { class: "muted-text small rk-tier-count" }, `${held} of ${all}`));
+  }));
+}
+
+function rankProgression(r, tier) {
+  const picks = r.ladder.map((x, i) => i).filter((i) => r.ladder[i].tier === tier);
+  const items = [];
+  picks.forEach((i, k) => {
+    if (k) items.push(h("li", { class: `rk-link${r.ladder[i].held || rankLook(r, i) === "next" ? " lit" : ""}`, "aria-hidden": "true" }));
+    items.push(rankShield(r, i));
+  });
+  return h("ol", { class: "rk-strip", "aria-label": `${tier} ranks` }, items);
+}
+
+function rankCheckRow(c) {
+  return h("li", { class: `rk-req${c.met ? " met" : ""}` },
+    h("span", { class: "rk-req-mark", "aria-hidden": "true" }, c.met ? rankGlyph("check", 14) : null),
+    h("span", { class: "grow" }, c.text, c.met ? h("span", { class: "sr-only" }, " (done)") : null),
+    h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
+}
+
+// The next thing to do for the next rank: its first requirement not yet met, and where to do it. A lesson opens
+// itself; exercises, labs and paths open Learn; the rest (Validate, Compare, achievements, days) have no shortcut.
+function rankNextStep(nxt) {
+  const first = nxt && nxt.checks.find((c) => !c.met);
+  const lesson = first && first.kind === "modules" && first.open;
+  const learn = first && ["exercises", "labs", "paths", "any_path"].includes(first.kind);
+  const action = !first || first.coming_soon ? null
+    : lesson ? btn(`Open ${lesson}`, null, () => learnOpen(lesson), "tool primary")
+      : learn ? btn("Open Learn", null, () => { learnPage.open = null; learnPage.tab = "home"; go("learn"); }, "tool primary") : null;
+  return h("section", { class: "card pad rk-quest" },
+    h("h2", {}, first ? `Next step: ${nxt.name}` : "Next step"),
+    h("p", {}, first ? `${first.text}.` : nxt ? "Every requirement is met." : "You hold every rank there is."),
+    first && first.coming_soon ? h("p", { class: "muted-text small" }, "Coming soon: the lessons it needs haven't shipped yet.") : null,
+    action ? h("div", {}, action) : null);
+}
+
 function profileRanks(p) {
   const r = p.ranks;
+  const here = r.ladder[r.number - 1];
+  const nxt = r.next;
+  const tier = profilePage.tier && r.ladder.some((x) => x.tier === profilePage.tier) ? profilePage.tier : (nxt || here).tier;
+  const hero = h("section", { class: "rk-hero" },
+    h("img", { class: "rk-hero-art", src: "art/ranks/ranks-hero.webp", alt: "" }),
+    h("div", { class: "rk-hero-text" },
+      h("h2", { class: "rk-hero-title" }, "Ranks"),
+      h("p", { class: "rk-hero-line" }, "Prove your skills with hands-on work KratosForge verifies on this PC. "
+        + `Earn ranks from ${r.ladder[0].name} to ${r.ladder[r.ladder.length - 1].name}.`),
+      h("p", { class: "muted-text small" }, `Your rank: ${here.name} (${r.number} of ${r.of}).`)));
+  const met = nxt ? nxt.checks.filter((c) => c.met).length : 0;
+  const total = nxt ? nxt.checks.length : 0;
+  const nextCard = h("section", { class: "card pad rk-next" },
+    nxt ? h("div", { class: "rk-next-pic" }, RANK_ART[nxt.id] ? RANK_ART[nxt.id](true)
+      : h("div", { class: "rk-shield-edge" }, h("div", { class: "rk-shield-face" }, rankGlyph(nxt.id)))) : null,
+    h("div", { class: "rk-next-body" },
+      h("div", { class: "row wrap" }, h("h2", {}, nxt ? nxt.name : here.name),
+        h("span", { class: "pill-s info" }, nxt ? (nxt.coming_soon ? "Next rank · coming soon" : "Next rank") : "Top rank held")),
+      h("p", { class: "muted-text" }, nxt ? `${nxt.tier}, rank ${r.number + 1} of ${r.of}. Each rank needs every rank below it.`
+        : "There's nothing left to earn here."),
+      nxt ? h("div", { class: "row rk-req-head" }, h("b", { class: "grow" }, "Requirements"), h("span", {}, `${met} of ${total}`)) : null,
+      nxt ? h("div", { class: "profile-bar", role: "progressbar", "aria-label": `Requirements met for ${nxt.name}`,
+        "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(met) },
+        h("div", { style: `width:${total ? Math.round((100 * met) / total) : 0}%` })) : null,
+      nxt ? h("ul", { class: "rk-req-list" }, nxt.checks.map(rankCheckRow)) : null));
+  return h("div", { class: "profile-col rk-page" }, hero, rankTierTabs(r, tier),
+    h("section", { class: "card pad rk-progression" }, rankProgression(r, tier),
+      h("div", { class: "row" }, h("span", { class: "grow" }),
+        btn(profilePage.fullPath ? "Hide all ranks" : "All ranks and picture prompts", null, () => {
+          profilePage.fullPath = !profilePage.fullPath; render();
+        }, "tool link small", { "aria-expanded": profilePage.fullPath ? "true" : "false" }))),
+    h("div", { class: "rk-row rk-row-2" }, nextCard, rankNextStep(nxt)),
+    profilePage.fullPath ? profileRankPath(r) : null);
+}
+
+// Every rank by tier, with what earns it and its picture prompt (PB-125), behind "View full rank path".
+function profileRankPath(r) {
   const tiers = [...new Set(r.ladder.map((x) => x.tier))];
-  return h("div", { class: "profile-col" },
+  return h("div", { class: "profile-col", id: "rk-full-path" },
     h("p", { class: "muted-text" }, `Ranks come only from work KratosForge verified on this PC (ladder v${r.ladder_version}). `
       + "Each rank needs every rank below it. Copy a rank's picture prompt into your own image tool to make a profile picture; KratosForge doesn't make images."),
     tiers.map((tier) => h("section", { class: "card pad" }, h("h2", {}, tier),

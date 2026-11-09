@@ -172,14 +172,16 @@ def test_clean_local_says_what_it_deleted_or_would_delete(monkeypatch, capsys, p
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "Would delete 2 local copies (2.5 MB) unused for 7 days" and out[1] == "  lakehouses/a"
     assert out[3].startswith("Deleted 2 local copies (2.5 MB) unused for ")
-    assert calls[0] == (pc, 7, True) and calls[1][2] is False and calls[1][1] >= 0
+    assert calls == [(pc, 7, True), (pc, 30, False)]  # without --days, the local_retention_days setting (30)
+    assert out[3] == "Deleted 2 local copies (2.5 MB) unused for 30 days"
 
 
 def test_restore_refuses_a_file_that_isnt_a_backup(tmp_path, capsys):
     bad = tmp_path / "not-a-backup.zip"
     bad.write_text("hello")
     assert _exit(["restore", str(bad)]) == 1
-    assert capsys.readouterr().out.strip()
+    out = capsys.readouterr().out
+    assert out.startswith("This backup can't be restored:") and "isn't a zip file" in out
 
 
 # ---- the agent

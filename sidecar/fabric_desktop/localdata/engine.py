@@ -158,6 +158,8 @@ def _local_path(uri: str) -> str:
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
+    if not len(schema):  # DuckDB can't register a table without columns
+        return {}
     con = duckdb.connect()
     con.register("__empty", schema.empty_table())
     return {row[0]: row[1] for row in con.execute("DESCRIBE SELECT * FROM __empty").fetchall()}
@@ -348,9 +350,10 @@ class LocalEngine:
                      "paths": table.paths if table.files <= 50 else table.paths[:1], "folder": table.folder,
                      "files": table.files, "bytes": table.size, "status": "ok", "error": "", "columns": []}
             if key in others:
+                where = ("is one of this project's Delta tables" if catalog[key].get("kind") == OWN
+                         else f"already comes from another folder ({catalog[key]['source']})")
                 issues.append({"path": table.folder or table.paths[0],
-                               "problem": f"{table.schema}.{table.table} already comes from another folder "
-                                          f"({catalog[key]['source']}). Set a different name for one of them."})
+                               "problem": f"{table.schema}.{table.table} {where}. Set a different name for one of them."})
                 continue
             if key not in mine and self._exists(table.schema, table.table):
                 issues.append({"path": table.folder or table.paths[0],

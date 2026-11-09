@@ -147,6 +147,20 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 | Bundled JavaScript | The built files are committed | They can't change without a PR |
 
 
+## Known vulnerabilities
+
+The CI `audit` job checks every lock file that ships, on every pull request, and the release job waits for it:
+
+| Lock file | Tool | Fails on |
+| --- | --- | --- |
+| `sidecar/constraints.txt`, `sidecar/engine-requirements.txt`, `sidecar/fabric_desktop/engines/dbconnect_locks/*.txt` | `pip-audit` | Any advisory |
+| `app/ui/vendor/*/package-lock.json`, `vscode/package-lock.json` (build tools too) | `npm audit` | High or critical; moderate and low are warnings |
+| `app/src-tauri/Cargo.lock` | `cargo audit` | Any advisory |
+
+An advisory can be let through only by a line in `.github/audit-exceptions.txt` that names it, says why, and lapses within 90 days (`.github/scripts/audit_exceptions.py`).
+
+Gap: the packages that Vega's prebuilt files bundle aren't in a lock file (they come from `THIRD-PARTY-NOTICES.md`), so `npm audit` doesn't see them.
+
 ## Reproducible builds
 
 Checked in CI on 2026-11-09 by building each part twice from the same commit and diffing the results.

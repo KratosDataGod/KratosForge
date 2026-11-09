@@ -79,7 +79,7 @@ Every build of `main` comes with proof of where it came from and a list of what 
 
 - **Microsoft's SQL driver.** The engine includes `mssql-python` (MIT), which carries Microsoft ODBC Driver 18 for SQL Server and the Visual C++ runtime (`msvcp140.dll`) under Microsoft's own license terms. Their license files are in the engine at `Lib\site-packages\mssql_python_odbc\libs\windows\x64\`. Nothing connects to a warehouse until you run a warehouse query.
 
-- **Vulnerability scanning.** CI checks the engine's pinned Python packages (`pip-audit`) and the exe's Rust crates (`cargo audit`) on every pull request.
+- **Vulnerability scanning.** On every pull request, CI checks the engine's pinned Python packages and the Databricks Connect locks (`pip-audit`), the npm packages behind the UI bundles and the VS Code extension (`npm audit`), and the exe's Rust crates (`cargo audit`).
 
 These prove where a file came from; they don't replace code signing, which is still being set up ([If Windows blocks the engine](#if-windows-blocks-the-engine)).
 

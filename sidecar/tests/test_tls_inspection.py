@@ -98,7 +98,7 @@ def test_windows_roots_are_written_for_grpc(tmp_path, monkeypatch, untrusted_htt
     # The public list stays in: the file replaces gRPC's own, and Windows fetches public roots on demand.
     public = net_trust._pem_blocks(Path(certifi.where()).read_text())
     assert public and set(public) <= set(blocks)
-    assert len(blocks) == len(set(blocks)) and not list(tmp_path.glob("*.part"))
+    assert len(blocks) == len(set(blocks)) and not list(tmp_path.glob("*.tmp"))
     assert net_trust.windows_roots_pem(tmp_path) == path  # unchanged: not rewritten
     monkeypatch.setattr(ssl, "enum_certificates", _Store([]), raising=False)
     assert net_trust.windows_roots_pem(tmp_path / "none") is None

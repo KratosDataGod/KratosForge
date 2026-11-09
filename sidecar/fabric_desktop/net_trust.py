@@ -16,11 +16,9 @@ a server that didn't answer in time into one line that says what to do."""
 from __future__ import annotations
 
 import logging
-import os
 import socket
 import ssl
 import sys
-import tempfile
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -136,14 +134,8 @@ def windows_roots_pem(folder: Path) -> Path | None:
         text = "".join(sorted(windows | public))
         path = folder / ROOTS_FILE
         if not path.is_file() or path.read_text(encoding="ascii") != text:
-            folder.mkdir(parents=True, exist_ok=True)
-            fd, part = tempfile.mkstemp(prefix="windows-roots-", suffix=".part", dir=folder)
-            try:
-                with os.fdopen(fd, "w", encoding="ascii") as f:
-                    f.write(text)
-                os.replace(part, path)
-            finally:
-                Path(part).unlink(missing_ok=True)
+            from . import jsonfile
+            jsonfile.write_text(path, text, newline="\n")  # a unique temp file, swapped in
         return path
     except (OSError, ValueError, ImportError, IndexError) as exc:
         _log.warning("Windows' root certificates couldn't be written for gRPC: %s", exc)

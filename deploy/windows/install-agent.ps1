@@ -10,7 +10,7 @@
   Run from an elevated PowerShell in the repository root. See docs/agent.md, "Windows".
 
   Anyone may create C:\ProgramData\FabricDesktop before the install, so it changes nothing while
-  anything there is a link (junction or symbolic link) or was created by someone other than an
+  anything there is a link (junction, symbolic link, or a file with more than one name) or was created by someone other than an
   administrator; it names those, for IT to check and remove.
 
 .EXAMPLE
@@ -54,6 +54,10 @@ function Assert-PlainAndAdminOwned {
     foreach ($item in Get-EverythingUnder $DataDir) {
         if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
             throw "$($item.FullName) is a link (junction or symbolic link). Nothing was changed. Remove it, then run this again."
+        }
+        # A file with a second name elsewhere (a hard link) is refused like any other link.
+        if (-not $item.PSIsContainer -and @(fsutil hardlink list $item.FullName 2>$null).Count -gt 1) {
+            throw "$($item.FullName) has more than one name (a hard link). Nothing was changed. Remove it, then run this again."
         }
         $owner = (Get-Acl -LiteralPath $item.FullName).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
         $mine = $owner -eq $agentSid -and $item.FullName.StartsWith($agentHome, [StringComparison]::OrdinalIgnoreCase)

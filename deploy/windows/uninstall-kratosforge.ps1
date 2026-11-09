@@ -136,8 +136,8 @@ if ($RemoveData -and $RemoveAuditTrail) {
     if (Test-Path -LiteralPath $DataDir) { Remove-AllBut $DataDir "" }
 } else {
     foreach ($name in @("engine", "bin", "fabric-view", "msal_cache.bin", "msal_cache.bin.lock",
-                        "fabric-view-signin.bin", "fabric-view-signin.tmp", "link-port", "editor-port",
-                        "instance.lock", "instance.handover")) {
+                        "fabric-view-signin.bin", "fabric-view-signin.tmp", "fabric-view.forget", "link-port",
+                        "editor-port", "instance.lock", "instance.handover")) {
         Remove-IfThere (Join-Path $DataDir $name)
     }
     # A sign-in cache save cut off part way leaves its sealed copy as msal_cache.bin.<process id>.tmp.

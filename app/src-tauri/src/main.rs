@@ -1870,6 +1870,8 @@ async fn fabric_view_show(
         }
         return view.show().map_err(|e| e.to_string());
     }
+    // A sign-out whose profile delete was held up finishes before any view uses the profile.
+    signin::finish_forget()?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
     // The organization's identity provider hosts, read once for this view.
@@ -2007,10 +2009,11 @@ mod signin {
             .filter_map(|label| app.get_webview(label))
             .collect();
         if views.is_empty() {
-            // The view hasn't opened since the app started, but its profile on disk still holds the
-            // cookies that signed it in. Nothing has the profile open, so it goes whole and the next
-            // view starts signed out.
-            let _ = std::fs::remove_dir_all(super::data_dir().join("fabric-view"));
+            // No view is open, but the profile on disk still holds the cookies that signed it in, so
+            // it goes whole. The marker goes first: if WebView2's browser process still holds the
+            // profile (a view closed moments ago), the next view deletes it before it starts.
+            let _ = std::fs::write(forget_marker(), b"");
+            let _ = clear_profile();
         }
         // Both views share the profile, so either one's cookies are the sign-in.
         if let Some(view) = views.first() {
@@ -2027,6 +2030,48 @@ mod signin {
         if let Some(view) = app.get_webview(super::FABRIC_VIEW) {
             let _ = view.hide();
         }
+    }
+
+    fn profile() -> PathBuf {
+        super::data_dir().join("fabric-view")
+    }
+
+    /// Says the Fabric view's profile must be deleted before a view uses it again: a sign-out asked
+    /// for it while something still held the profile open.
+    fn forget_marker() -> PathBuf {
+        super::data_dir().join("fabric-view.forget")
+    }
+
+    /// Deletes the Fabric view's profile, trying three times over about a second (WebView2's browser
+    /// process can hold it briefly after its last view closes), then the marker. False when the
+    /// profile is still there.
+    fn clear_profile() -> bool {
+        for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            match std::fs::remove_dir_all(profile()) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => continue,
+                _ if profile().exists() => continue,
+                _ => {
+                    let _ = std::fs::remove_file(forget_marker());
+                    return true;
+                }
+            }
+        }
+        eprintln!("Fabric view: the signed-out profile is still in use; it is deleted before the view opens again");
+        false
+    }
+
+    /// Before a Fabric view starts: a sign-out that couldn't delete the profile is finished now, and
+    /// the view doesn't open on a profile that still holds the old sign-in.
+    pub fn finish_forget() -> Result<(), String> {
+        if !forget_marker().exists() || clear_profile() {
+            return Ok(());
+        }
+        Err("The Fabric view is still finishing your sign-out. Close KratosForge and open it again, then \
+             open Fabric."
+            .into())
     }
 
     pub fn load() -> Vec<Cookie<'static>> {

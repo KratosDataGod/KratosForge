@@ -4,3 +4,5 @@ node_modules/**
 tsconfig.json
 **/*.map
 scripts/**
+sbom-*.cdx.json
+*.vsix

@@ -367,11 +367,11 @@ function rankShield(r, i) {
 
 function rankTierTabs(r, tier) {
   const tiers = [...new Set(r.ladder.map((x) => x.tier))];
-  return h("div", { class: "rk-tiers", role: "tablist", "aria-label": "Rank tiers" }, tiers.map((t) => {
+  return h("div", { class: "rk-tiers", role: "group", "aria-label": "Show the ranks of a tier" }, tiers.map((t) => {
     const info = RANK_TIERS[t] || { blurb: "", glyph: "spark" };
     const held = r.ladder.filter((x) => x.tier === t && x.held).length;
     const all = r.ladder.filter((x) => x.tier === t).length;
-    return h("button", { class: `rk-tier${t === tier ? " active" : ""}`, role: "tab", "aria-selected": t === tier ? "true" : "false",
+    return h("button", { class: `rk-tier${t === tier ? " active" : ""}`, "aria-pressed": t === tier ? "true" : "false",
       onclick: () => { profilePage.tier = t; render(); } },
       h("span", { class: "rk-tier-icon" }, rankGlyph(`tier:${info.glyph}`, 32)),
       h("span", { class: "rk-tier-text" }, h("b", {}, t), h("span", { class: "muted-text small" }, info.blurb)),
@@ -396,16 +396,20 @@ function rankCheckRow(c) {
     h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
 }
 
-// The next thing to do for the next rank: its first requirement not yet met.
+// The next thing to do for the next rank: its first requirement not yet met, and where to do it. A lesson opens
+// itself; exercises, labs and paths open Learn; the rest (Validate, Compare, achievements, days) have no shortcut.
 function rankNextStep(nxt) {
   const first = nxt && nxt.checks.find((c) => !c.met);
-  const openLearn = () => { learnPage.open = null; learnPage.tab = "home"; go("learn"); };
+  const lesson = first && first.kind === "modules" && first.open;
+  const learn = first && ["exercises", "labs", "paths", "any_path"].includes(first.kind);
+  const action = !first || first.coming_soon ? null
+    : lesson ? btn(`Open ${lesson}`, null, () => learnOpen(lesson), "tool primary")
+      : learn ? btn("Open Learn", null, () => { learnPage.open = null; learnPage.tab = "home"; go("learn"); }, "tool primary") : null;
   return h("section", { class: "card pad rk-quest" },
     h("h2", {}, first ? `Next step: ${nxt.name}` : "Next step"),
     h("p", {}, first ? `${first.text}.` : nxt ? "Every requirement is met." : "You hold every rank there is."),
     first && first.coming_soon ? h("p", { class: "muted-text small" }, "Coming soon: the lessons it needs haven't shipped yet.") : null,
-    first && !first.coming_soon && /exercise|lesson|lab|path|LM-|LAB-/.test(first.text)
-      ? h("div", {}, btn(/exercise/.test(first.text) ? "Begin exercise" : "Open Learn", null, openLearn, "tool primary")) : null);
+    action ? h("div", {}, action) : null);
 }
 
 function profileRanks(p) {

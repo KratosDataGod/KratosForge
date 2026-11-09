@@ -101,8 +101,8 @@ test("Ranks shows the tiers, the tier's shields, the next rank's requirements an
   const r = data.profile.ranks;
   const nxt = r.next;
   // The three tiers as tabs; the next rank's tier is open, with its five shields.
-  for (const t of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("tab", { name: new RegExp(t) }).isVisible(), t);
-  assert.strictEqual(await page.getByRole("tab", { name: /The Forge/ }).getAttribute("aria-selected"), "true");
+  for (const t of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("button", { name: new RegExp(t) }).isVisible(), t);
+  assert.strictEqual(await page.getByRole("button", { name: /The Forge/ }).getAttribute("aria-pressed"), "true");
   assert.strictEqual(await page.locator(".rk-shield").count(), 5);
   assert.strictEqual(await page.locator('.rk-shield[aria-current="step"]').count(), 1);
   assert.strictEqual(await page.locator(".rk-shield.held").count(), r.ladder.filter((x) => x.tier === "The Forge" && x.held).length);
@@ -113,6 +113,7 @@ test("Ranks shows the tiers, the tier's shields, the next rank's requirements an
   assert.strictEqual(await page.locator(".rk-req-head").innerText(), `Requirements\n${met} of ${nxt.checks.length}`);
   assert.strictEqual(await page.locator(".rk-next .rk-req").count(), nxt.checks.length);
   assert.ok(await page.locator(".rk-quest").getByText(`${nxt.checks.find((c) => !c.met).text}.`).isVisible());
+  assert.ok(await page.locator(".rk-quest").getByRole("button", { name: "Open Learn" }).isVisible());  // an exercise: Learn has them
   // Chris's art: lit for held ranks and the one you're working toward, plain for the rest; the hero is his wolf at the forge.
   assert.deepStrictEqual(await page.locator(".rk-strip img").evaluateAll((l) => l.map((i) => i.getAttribute("src"))),
     ["forge-initiate-active", "iron-forger-inactive", "steel-forger-inactive", "master-forger-inactive"].map((f) => `art/ranks/${f}.webp`));
@@ -123,7 +124,7 @@ test("Ranks shows the tiers, the tier's shields, the next rank's requirements an
     await page.screenshot({ path: path.join(SHOTS, "profile-ranks-next.png"), fullPage: true });
   }
   // Another tier's shields, then every rank with its picture prompt.
-  await page.getByRole("tab", { name: /The Myth/ }).click();
+  await page.getByRole("button", { name: /The Myth/ }).click();
   await page.locator('.rk-strip[aria-label="The Myth ranks"]').waitFor();
   assert.strictEqual(await page.locator(".rk-strip img").last().getAttribute("src"), "art/ranks/legend-of-the-forge-inactive.webp");
   await page.getByRole("button", { name: "All ranks and picture prompts" }).click();

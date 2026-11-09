@@ -34,6 +34,7 @@ jobs:
       browser: ${{ steps.paths.outputs.browser }}
       windows: ${{ steps.paths.outputs.windows }}
       ubuntu: ${{ steps.paths.outputs.ubuntu }}
+      agent_install: ${{ steps.paths.outputs.agent_install }}
       compat: ${{ steps.paths.outputs.compat }}
       draft: ${{ steps.paths.outputs.draft }}
     steps:
@@ -47,7 +48,7 @@ jobs:
           DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\ndraft=false\n' >> "$GITHUB_OUTPUT"
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\ncompat=true\ndraft=false\nagent_install=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # A draft pull request skips the slowest Windows work (its Windows engine tests, the engine
@@ -69,6 +70,8 @@ jobs:
           if [ -n "$files" ] && ! grep -qvE '^(docs/|[^/]+\.md$|zensical\.toml$)' <<< "$files"; then docs_only=true; else docs_only=false; fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
+          # The Windows agent installer's folder rights are checked on Windows only when it changes.
+          if has '^(deploy/windows/|deploy/agent\.example\.toml$|\.github/workflows/)'; then echo "agent_install=true"; else echo "agent_install=false"; fi >> "$GITHUB_OUTPUT"
           # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
           # A draft skips them until it is marked ready.
           if [ "$docs_only" = true ] || [ "$draft" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
@@ -379,6 +382,22 @@ jobs:
             sbom-app.cdx.json
             sbom-ui.cdx.json
           if-no-files-found: error
+
+  agent-install-windows:
+    # deploy/windows/install-agent.ps1's folder rights on a real Windows machine, in a temporary
+    # folder: a fresh install, a second run, a planted file and a junction (test-install-agent-folders.ps1).
+    needs: changes
+    if: needs.changes.outputs.agent_install == 'true'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Windows PowerShell 5.1 (what most servers run it with)
+        shell: powershell
+        run: .\deploy\windows\test-install-agent-folders.ps1 -Root "$env:RUNNER_TEMP\fd-install-ps5"
+      - name: PowerShell 7
+        shell: pwsh
+        run: .\deploy\windows\test-install-agent-folders.ps1 -Root "$env:RUNNER_TEMP\fd-install-ps7"
 
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.

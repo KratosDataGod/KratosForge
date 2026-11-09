@@ -20,7 +20,8 @@ param(
     [Parameter(Mandatory = $true)] [string] $Account,
     [string] $Python = "py -3.12",
     [string] $InstallDir = "$env:ProgramFiles\FabricDesktopAgent",
-    [string] $DataDir = "$env:ProgramData\FabricDesktop"
+    [string] $DataDir = "$env:ProgramData\FabricDesktop",
+    [switch] $FoldersOnly   # only the folders, agent.toml and their rights: no install, no task (CI tests this)
 )
 $ErrorActionPreference = "Stop"
 
@@ -68,14 +69,17 @@ function Assert-PlainAndAdminOwned {
     }
 }
 Assert-PlainAndAdminOwned   # before creating anything inside them
-New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir | Out-Null
+New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 Assert-PlainAndAdminOwned
 New-Item -ItemType Directory -Force -Path "$DataDir\agent" | Out-Null
 Assert-PlainAndAdminOwned
-Invoke-Expression "$Python -m venv `"$InstallDir\venv`""
-# The exact versions CI tested (SH-9): without them pip takes whatever is newest on PyPI.
-& "$InstallDir\venv\Scripts\python.exe" -m pip install "$PSScriptRoot\..\..\sidecar" -c "$PSScriptRoot\..\..\sidecar\constraints.txt"
-if ($LASTEXITCODE) { throw "pip couldn't install the agent (exit code $LASTEXITCODE)" }
+if (-not $FoldersOnly) {
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    Invoke-Expression "$Python -m venv `"$InstallDir\venv`""
+    # The exact versions CI tested (SH-9): without them pip takes whatever is newest on PyPI.
+    & "$InstallDir\venv\Scripts\python.exe" -m pip install "$PSScriptRoot\..\..\sidecar" -c "$PSScriptRoot\..\..\sidecar\constraints.txt"
+    if ($LASTEXITCODE) { throw "pip couldn't install the agent (exit code $LASTEXITCODE)" }
+}
 
 if (-not (Test-Path "$DataDir\agent.toml")) {
     Copy-Item "$PSScriptRoot\..\agent.example.toml" "$DataDir\agent.toml"
@@ -109,6 +113,8 @@ function Set-OnlyTheseRights([string] $Path, [object[]] $Rules) {
 }
 Set-OnlyTheseRights $DataDir @(@($admins, 'FullControl'), @($system, 'FullControl'), @($users, 'ReadAndExecute'), @($agent, 'ReadAndExecute'))
 Set-OnlyTheseRights "$DataDir\agent" @(@($admins, 'FullControl'), @($system, 'FullControl'), @($agent, 'Modify'))
+
+if ($FoldersOnly) { return }
 
 $exe = "$InstallDir\venv\Scripts\fabric-desktop.exe"
 $action = New-ScheduledTaskAction -Execute $exe -Argument "agent run" -WorkingDirectory "$DataDir\agent"

@@ -161,6 +161,10 @@ test("a wide rail puts each label beside its icon, and gives its room back in a 
   await page().setViewportSize({ width: 900, height: 900 });
   await railAt(72);
   assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
+  // A short window (200% zoom on a laptop): like the app's own rail, it shows icons only.
+  await page().setViewportSize({ width: 1280, height: 600 });
+  await railAt(52);
+  assert.deepStrictEqual(await rail(), { width: 52, direction: "column" });
   await page().setViewportSize({ width: 1440, height: 900 });
   await page().evaluate(() => { state.settings.ui_skin.value = "fabric"; applySkin(); });
   await railAt(72);

@@ -10,7 +10,9 @@ import threading
 
 import pytest
 
+from fabric_desktop import agent_start
 from fabric_desktop.agent import Agent
+from fabric_desktop.agent_start import START_LOG
 from fabric_desktop.leases import LocalBackend
 from fabric_desktop.mailbox import CONTROL_LOCK, ControlFolderInUse, hold_control_folder
 from fabric_desktop.workloads import evaluate
@@ -206,3 +208,116 @@ def test_agents_used_without_running_hold_nothing(setup):  # noqa: F811
     agent._control("dev")  # the app's checks and the CLI build agents without running them
     assert agent._held == {}
     assert not (setup.project / ".local" / "dev" / "_control" / CONTROL_LOCK).exists()
+
+
+# ---- incident ages across an agent restart
+
+def _seen_and_saved(setup, wall, mono):  # noqa: F811
+    agent = Agent(setup, clock=wall)
+    agent.monotonic = mono
+    log = IncidentLog(agent._control("dev"), "dev", wall, monotonic=mono,
+                      first_seen=agent._incident_seen.setdefault("dev", {}))
+    log.sync(failed(), evaluated=True, by="agent etl-01")
+    log.escalate(3600, "on-call", "agent etl-01")
+    mono.t += 40 * MIN  # forty minutes open, then the agent stops
+    agent._save_incident_clock()
+
+
+def _restarted(setup, wall, mono):  # noqa: F811
+    agent = Agent(setup, clock=wall)
+    agent.monotonic = mono
+    agent._incident_seen = agent._load_incident_clock()
+    return agent, IncidentLog(agent._control("dev"), "dev", wall, monotonic=mono,
+                              first_seen=agent._incident_seen.setdefault("dev", {}))
+
+
+def test_a_restart_keeps_an_incidents_age_and_a_clock_jump_while_down_doesnt_count(setup):  # noqa: F811
+    wall, mono = Clock(), Clock(5000.0)
+    _seen_and_saved(setup, wall, mono)
+    wall.t += 5 * 3600  # the clock jumps five hours while the agent is down for five minutes
+    mono.t += 5 * MIN
+    agent, log = _restarted(setup, wall, mono)
+    assert log.escalate(3600, "on-call", "agent etl-01") == []  # 45 minutes, not five hours
+    mono.t += 15 * MIN
+    assert len(log.escalate(3600, "on-call", "agent etl-01")) == 1
+    agent._save_incident_clock()
+    assert _restarted(setup, wall, mono)[0]._incident_seen == {"dev": {}}  # escalated: nothing kept
+
+
+def test_after_a_reboot_the_time_down_isnt_counted_so_it_never_escalates_early(setup):  # noqa: F811
+    wall, mono = Clock(), Clock(5000.0)
+    _seen_and_saved(setup, wall, mono)
+    wall.t += 3 * 3600
+    mono.t = 30.0  # rebooted: monotonic time starts again
+    _, log = _restarted(setup, wall, mono)
+    mono.t += 19 * MIN
+    assert log.escalate(3600, "on-call", "agent etl-01") == []  # 40 + 19 minutes known
+    mono.t += 1 * MIN
+    assert len(log.escalate(3600, "on-call", "agent etl-01")) == 1
+
+
+def test_a_damaged_ages_file_is_set_aside_and_odd_entries_are_skipped(setup):  # noqa: F811
+    setup.home.mkdir(parents=True, exist_ok=True)
+    (setup.home / "incident-ages.json").write_text("{not json", encoding="utf-8")
+    assert Agent(setup)._incident_seen == {}
+    (setup.home / "incident-ages.json").write_text(json.dumps(
+        {"dev": {"a": [1.0, 60.0], "b": "x", "c": [1, 2, 3]}, "prod": {"d": [1.0, 5.0]}, "x": []}), encoding="utf-8")
+    assert set(Agent(setup, clock=Clock(10.0))._incident_seen) == {"dev"}
+    assert set(Agent(setup, clock=Clock(10.0))._incident_seen["dev"]) == {"a"}
+
+
+# ---- a stop before or as the agent starts leaves a record on this machine
+
+def _run(args, monkeypatch, home):
+    from fabric_desktop.cli import main
+    monkeypatch.setenv("FABRIC_DESKTOP_HOME", str(home))
+    with pytest.raises(SystemExit) as stop:
+        main(["agent", *args])
+    return stop.value.code
+
+
+def test_settings_that_cant_be_read_leave_a_start_record_in_the_default_home(tmp_path, monkeypatch, capsys):
+    bad = tmp_path / "agent.toml"
+    bad.write_text("[agent\n", encoding="utf-8")
+    assert _run(["--config", str(bad), "run"], monkeypatch, tmp_path / "home") == 2
+    text = (tmp_path / "home" / "logs" / START_LOG).read_text(encoding="utf-8")
+    assert "stage=settings exit=2" in text and text.count("agent run stopped") == 1
+    assert _run(["--config", str(bad), "check"], monkeypatch, tmp_path / "home") == 2  # only run records
+    assert (tmp_path / "home" / "logs" / START_LOG).read_text(encoding="utf-8") == text
+
+
+def test_a_crash_as_it_starts_leaves_where_and_never_a_secret(setup, tmp_path, monkeypatch, capsys):  # noqa: F811
+    def boom(self, install_signals=True):
+        raise RuntimeError("couldn't reach the store with Bearer eyJhbGciOiJSUzI1NiJ9.e30.c2ln")
+    monkeypatch.setattr(Agent, "run_forever", boom)
+    assert _run(["--config", str(tmp_path / "agent.toml"), "run"], monkeypatch, tmp_path / "other") == 1
+    text = (setup.home / "logs" / START_LOG).read_text(encoding="utf-8")
+    assert "stage=crash exit=1" in text and "RuntimeError" in text and "in boom" in text
+    assert "eyJhbGciOiJSUzI1NiJ9" not in text and "eyJhbGciOiJSUzI1NiJ9" not in capsys.readouterr().out
+
+
+def test_the_start_record_stays_small_and_starts_on_a_whole_line(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / START_LOG).write_bytes(b"x" * 100 + b"\n" + (b"y" * 99 + b"\n") * 2700)
+    path = agent_start.record(tmp_path, "start", "in use", 2)
+    data = path.read_bytes()
+    assert len(data) <= agent_start.MAX_BYTES and data[:1] == b"y" and data.endswith(b"  in use\n")
+
+
+def test_a_home_that_cant_be_written_doesnt_stop_the_refusal(tmp_path):
+    (tmp_path / "logs").write_text("a file where the folder would be", encoding="utf-8")
+    assert agent_start.record(tmp_path, "settings", "bad", 2) is None
+
+
+def test_a_crash_record_names_engine_files_inside_the_engine_only(setup, tmp_path, monkeypatch, capsys):  # noqa: F811
+    monkeypatch.setattr(Agent, "run_forever", lambda self, install_signals=True: 1 / 0)
+    _run(["--config", str(tmp_path / "agent.toml"), "run"], monkeypatch, tmp_path / "other")
+    text = (setup.home / "logs" / START_LOG).read_text(encoding="utf-8")
+    assert "at fabric_desktop/cli.py:" in text.replace("\\", "/") and str(tmp_path) not in text
+
+
+def test_a_saved_age_is_never_taken_as_more_than_thirty_days(setup):  # noqa: F811
+    setup.home.mkdir(parents=True, exist_ok=True)
+    (setup.home / "incident-ages.json").write_text(json.dumps({"dev": {"a": [1.0, 1e12]}}), encoding="utf-8")
+    assert Agent(setup, clock=Clock(10.0))._incident_seen["dev"]["a"] == (1.0, 30 * 86400.0)

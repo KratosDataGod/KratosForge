@@ -20,6 +20,7 @@ import os
 import socket
 import ssl
 import sys
+import tempfile
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -100,29 +101,51 @@ _SERVER_AUTH = "1.3.6.1.5.5.7.3.1"
 ROOTS_FILE = "windows-roots.pem"
 
 
+def _pem_blocks(text: str) -> list[str]:
+    """Each certificate in a PEM text, as one normalised block."""
+    blocks, block = [], []
+    for line in text.splitlines():
+        line = line.strip()
+        if line == "-----BEGIN CERTIFICATE-----":
+            block = [line]
+        elif block:
+            block.append(line)
+            if line == "-----END CERTIFICATE-----":
+                blocks.append("\n".join(block) + "\n")
+                block = []
+    return blocks
+
+
 def windows_roots_pem(folder: Path) -> Path | None:
-    """The root certificates Windows trusts for HTTPS, written to ``folder``/windows-roots.pem, for
-    a client that reads a certificate file instead of asking Windows: gRPC, which Databricks
-    Connect uses, otherwise trusts only the list it ships, so a network that inspects HTTPS
-    refuses it. None off Windows or when Windows' store can't be read. Public certificates only:
-    nothing secret is written."""
+    """The root certificates Windows trusts for HTTPS plus the public list Python ships (certifi),
+    written to ``folder``/windows-roots.pem, for a client that reads a certificate file instead of
+    asking Windows: gRPC, which Databricks Connect uses, otherwise trusts only the list it ships, so
+    a network that inspects HTTPS refuses it. The public list stays in because the file replaces
+    gRPC's own, and Windows adds a public root to its store only when it first needs it. None off
+    Windows or when Windows' store can't be read. Public certificates only: nothing secret is written."""
     if sys.platform != "win32":
         return None
     try:
-        pems = sorted({ssl.DER_cert_to_PEM_cert(der)
-                       for der, encoding, trust in ssl.enum_certificates("ROOT")
-                       if encoding == "x509_asn" and (trust is True or _SERVER_AUTH in trust)})
-        if not pems:
+        windows = {_pem_blocks(ssl.DER_cert_to_PEM_cert(der))[0]
+                   for der, encoding, trust in ssl.enum_certificates("ROOT")
+                   if encoding == "x509_asn" and (trust is True or _SERVER_AUTH in trust)}
+        if not windows:
             return None
-        text = "".join(pems)
+        import certifi
+        public = set(_pem_blocks(Path(certifi.where()).read_text(encoding="ascii")))
+        text = "".join(sorted(windows | public))
         path = folder / ROOTS_FILE
         if not path.is_file() or path.read_text(encoding="ascii") != text:
             folder.mkdir(parents=True, exist_ok=True)
-            part = path.with_suffix(".part")
-            part.write_text(text, encoding="ascii")
-            os.replace(part, path)
+            fd, part = tempfile.mkstemp(prefix="windows-roots-", suffix=".part", dir=folder)
+            try:
+                with os.fdopen(fd, "w", encoding="ascii") as f:
+                    f.write(text)
+                os.replace(part, path)
+            finally:
+                Path(part).unlink(missing_ok=True)
         return path
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, ImportError, IndexError) as exc:
         _log.warning("Windows' root certificates couldn't be written for gRPC: %s", exc)
         return None
 

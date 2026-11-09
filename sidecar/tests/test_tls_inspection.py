@@ -9,7 +9,9 @@ import subprocess
 import sys
 import threading
 import types
+from pathlib import Path
 
+import certifi
 import pytest
 
 from fabric_desktop import net_trust
@@ -91,7 +93,13 @@ def test_windows_roots_are_written_for_grpc(tmp_path, monkeypatch, untrusted_htt
     path = net_trust.windows_roots_pem(tmp_path)
     assert path == tmp_path / "windows-roots.pem"
     text = path.read_text()
-    assert text.count("BEGIN CERTIFICATE") == 1 and ssl.DER_cert_to_PEM_cert(cert) in text
+    blocks = net_trust._pem_blocks(text)
+    assert net_trust._pem_blocks(ssl.DER_cert_to_PEM_cert(cert))[0] in blocks
+    # The public list stays in: the file replaces gRPC's own, and Windows fetches public roots on demand.
+    public = net_trust._pem_blocks(Path(certifi.where()).read_text())
+    assert public and set(public) <= set(blocks)
+    assert len(blocks) == len(set(blocks)) and not list(tmp_path.glob("*.part"))
+    assert net_trust.windows_roots_pem(tmp_path) == path  # unchanged: not rewritten
     monkeypatch.setattr(ssl, "enum_certificates", _Store([]), raising=False)
     assert net_trust.windows_roots_pem(tmp_path / "none") is None
     monkeypatch.setattr(net_trust.sys, "platform", "linux")

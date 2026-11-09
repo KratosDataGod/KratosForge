@@ -198,7 +198,7 @@ class FabricClient:
         self._poll_timeout = poll_timeout
 
     def _request(self, method: str, url: str, headers: dict[str, str] | None = None,
-                 **kwargs) -> requests.Response:
+                 **kwargs: Any) -> requests.Response:
         if not url.startswith("http"):
             url = f"{API}{url}"
         token = self._token()

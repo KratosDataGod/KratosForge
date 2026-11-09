@@ -31,7 +31,8 @@ def _only(rule_ids: list[str], settings: dict[str, Any]) -> dict[str, dict[str, 
 
 
 def _adapter(kind: str, rule_ids: Callable[[], list[str]],
-             run: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[dict[str, Any]]]):
+             run: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[dict[str, Any]]]
+             ) -> Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]] | None]:
     def check(item: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]] | None:
         ids = rule_ids()
         if item.get("kind") != kind or not any(rid in settings for rid in ids):

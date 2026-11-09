@@ -324,40 +324,92 @@
  {
   "name": "time_diff",
   "group": "databricks:datetime",
-  "probe": "SELECT time_diff(HOUR, TIME'10:00:00', TIME'12:00:00')"
+  "example": "SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')",
+  "value": [
+   [
+    13
+   ]
+  ]
  },
  {
   "name": "time_from_micros",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_micros(52200500000)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
  },
  {
   "name": "time_from_millis",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_millis(52200500)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
  },
  {
   "name": "time_from_seconds",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_from_seconds(52200.5)",
+  "value": [
+   [
+    "time:14:30:00.500000"
+   ]
+  ]
  },
  {
   "name": "time_to_micros",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_micros(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500000
+   ]
+  ]
  },
  {
   "name": "time_to_millis",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_millis(TIME'14:30:00.5')",
+  "value": [
+   [
+    52200500
+   ]
+  ]
  },
  {
   "name": "time_to_seconds",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT time_to_seconds(TIME'14:30:00.5')",
+  "value": [
+   [
+    "decimal:52200.500000"
+   ]
+  ]
  },
  {
   "name": "time_trunc",
   "group": "databricks:datetime",
-  "probe": "SELECT time_trunc(HOUR, TIME'12:34:56')"
+  "example": "SELECT time_trunc('HOUR', TIME'13:08:15.123')",
+  "value": [
+   [
+    "time:13:00:00"
+   ]
+  ]
  },
  {
   "name": "timediff",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')",
+  "value": [
+   [
+    0
+   ]
+  ]
  },
  {
   "name": "timestamp_nanos",
@@ -375,7 +427,13 @@
  },
  {
   "name": "to_time",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
  },
  {
   "name": "to_variant_object",
@@ -416,11 +474,23 @@
  },
  {
   "name": "try_make_timestamp_ltz",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
  },
  {
   "name": "try_make_timestamp_ntz",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
  },
  {
   "name": "try_mod",
@@ -446,11 +516,23 @@
  },
  {
   "name": "try_to_date",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_date('2016-12-31')",
+  "value": [
+   [
+    "date:2016-12-31"
+   ]
+  ]
  },
  {
   "name": "try_to_time",
-  "group": "databricks:datetime"
+  "group": "databricks:datetime",
+  "example": "SELECT try_to_time('10:30:00')",
+  "value": [
+   [
+    "time:10:30:00"
+   ]
+  ]
  },
  {
   "name": "try_url_decode",

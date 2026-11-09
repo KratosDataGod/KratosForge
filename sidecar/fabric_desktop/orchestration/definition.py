@@ -20,6 +20,7 @@ notebook or script is executed, and nothing calls Fabric.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 import base64
 import binascii
 import copy
@@ -95,7 +96,7 @@ class Activity:
     def inactive(self) -> bool:
         return self.raw.get("state") == "Inactive"
 
-    def walk(self):
+    def walk(self) -> Iterator[Activity]:
         yield self
         for kids in self.children.values():
             for kid in kids:
@@ -223,7 +224,7 @@ def _unrecognized(p: Pipeline, limit: int = 200) -> list[dict[str, str]]:
 
 # ---- reading
 
-def _object_pairs(duplicates: list[str]):
+def _object_pairs(duplicates: list[str]) -> Callable[[list[tuple[str, Any]]], dict[str, Any]]:
     def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for k, v in pairs:

@@ -49,7 +49,7 @@ class TableRef:
     # A lakehouse created without schemas keeps its tables directly under Tables/.
     flat: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         check_name("schema", self.schema)
         check_name("table", self.table)
 
@@ -131,7 +131,7 @@ class TableCatalog:
         self._http = session or http_session.session()
         self._sleep = sleep
 
-    def _get(self, url: str, what: str, **params) -> dict[str, Any]:
+    def _get(self, url: str, what: str, **params: Any) -> dict[str, Any]:
         resp = send_with_retry(lambda: self._http.get(url, params=params, timeout=60,
                                                       headers={"Authorization": f"Bearer {self._token()}"}),
                                "GET", sleep=self._sleep)

@@ -82,7 +82,8 @@ _STATES = {"untracked": "new", "modified": "changed", "type changed": "changed",
            "deleted": "deleted", "renamed": "renamed", "copied": "copied"}
 
 
-def _summary(branch, commit, upstream, ahead, behind, changed) -> str:
+def _summary(branch: str | None, commit: str | None, upstream: str | None, ahead: int | None,
+             behind: int | None, changed: int) -> str:
     if not commit:
         return "Nothing is committed yet."
     where = f"{branch} at {commit[:7]}" if branch else f"{commit[:7]} (no branch)"

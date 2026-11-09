@@ -45,11 +45,14 @@ def test_the_msi_and_registry_are_as_the_page_says():
     deep_link = (ROOT / "app" / "src-tauri" / "src" / "deep_link.rs").read_text(encoding="utf-8")
     assert r'"HKCU\\Software\\Classes\\{SCHEME}"' in deep_link
     assert r"`HKCU\Software\Classes\kratosforge`" in INSTALL
-    # No registry policy: nothing reads HKLM or HKCU\Software\Policies. policy_schema only writes the path
-    # into the ADMX templates it generates; it reads nothing.
-    code = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in CODE if p.name != "policy_schema.py")
-    assert "Software\\\\Policies" not in code and r"Software\Policies" not in code
-    assert r"nothing under `HKLM\Software\Policies`" in INSTALL
+    # Group Policy is read from HKLM only, never HKCU (which the person can change), by the engine and the shell.
+    engine = (ROOT / "sidecar" / "fabric_desktop" / "registry_policy.py").read_text(encoding="utf-8")
+    shell = (ROOT / "app" / "src-tauri" / "src" / "policy_registry.rs").read_text(encoding="utf-8")
+    code = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in CODE)
+    assert "HKEY_LOCAL_MACHINE" in engine and "HKEY_LOCAL_MACHINE" in shell
+    assert "HKEY_CURRENT_USER" not in engine and "HKEY_CURRENT_USER" not in shell
+    assert r"HKCU\Software\Policies" not in code and r"HKCU\\Software\\Policies" not in code
+    assert r"from `HKLM\Software\Policies\KratosBI\KratosForge` only, never from HKCU" in INSTALL
 
 
 def test_the_engine_download_uses_the_windows_proxy_as_the_page_says():

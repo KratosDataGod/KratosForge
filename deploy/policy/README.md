@@ -1,7 +1,5 @@
 # Group Policy templates
 
-> **Not read by any current build.** KratosForge reads policy only from `%ProgramData%\FabricDesktop\policy.json` today ([Enterprise install](../../docs/enterprise-install.md)). Setting these templates through Group Policy or Intune has no effect until a release's notes say registry policy is supported. Until then, set the same keys in `policy.json`.
-
 `KratosForge.admx` and `en-US/KratosForge.adml` describe the KratosForge policy settings for Group Policy and Intune. They're generated from `sidecar/fabric_desktop/policy_schema.py`, which describes every key in `app_settings.POLICY_KEYS`, so don't edit them by hand. To regenerate them after a setting changes:
 
 ```
@@ -23,6 +21,8 @@ Every policy is a **Computer** policy. It writes `HKLM\Software\Policies\KratosB
 - **Lists:** a subkey named after the setting, with one string value per item.
 
 Two settings hold structured values, `platform` and `incident_sla`. A template can't express them, so they stay in `policy.json` ([Enterprise install](../../docs/enterprise-install.md)).
+
+KratosForge reads only the HKLM key, never HKCU. A value set here wins over the same key in `policy.json`. A value of the wrong type is ignored and listed under **Settings > Help and about**. When the account using the PC can change the key, the app warns, and the shell doesn't take `engine_download_url` from it. List items are numbered values (`1`, `2`, ...), which is what the templates write.
 
 ## Import
 

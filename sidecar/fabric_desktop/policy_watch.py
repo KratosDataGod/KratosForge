@@ -60,14 +60,18 @@ def _check(root: Path, audit: AuditLog) -> dict[str, Any]:
     now = app_settings.policy_fingerprint()
     path = root / SEEN
     seen = _seen(path)
-    if seen is not None and seen.get("sha256") == now["sha256"] and seen.get("state") == now["state"]:
+    registry = now.get("registry_sha256")
+    if (seen is not None and seen.get("sha256") == now["sha256"] and seen.get("state") == now["state"]
+            and seen.get("registry_sha256") == registry):
         return seen
     record = {"sha256": now["sha256"], "state": now["state"], "managed": not now["user_can_change"],
               "changed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-              "previous": seen.get("sha256") if seen else None, "first": seen is None}
+              "previous": seen.get("sha256") if seen else None, "first": seen is None,
+              "registry_sha256": registry, "registry_previous": seen.get("registry_sha256") if seen else None}
     audit.record("policy_file_seen" if seen is None else "policy_file_changed", "ok", 0.0,
                  {"sha256": now["sha256"], "previous": record["previous"], "state": now["state"],
-                  "managed": record["managed"], "file": str(app_settings.policy_path())})
+                  "managed": record["managed"], "file": str(app_settings.policy_path()),
+                  "registry_sha256": registry, "registry_previous": record["registry_previous"]})
     try:
         jsonfile.write_text(path, json.dumps(record, indent=2))
     except OSError as exc:  # recorded in the audit trail already; the next look records it again

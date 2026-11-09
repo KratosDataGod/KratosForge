@@ -96,7 +96,7 @@
       <parentCategory ref="cat_signin" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="allowed_tenants" key="Software\Policies\KratosBI\KratosForge\allowed_tenants" />
+        <list id="allowed_tenants" key="Software\Policies\KratosBI\KratosForge\allowed_tenants" valuePrefix="" />
       </elements>
     </policy>
     <policy name="local_retention_days" class="Machine" displayName="$(string.local_retention_days)" explainText="$(string.local_retention_days_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.local_retention_days)">
@@ -229,7 +229,7 @@
       <parentCategory ref="cat_sql" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="wh_monitoring_auto" key="Software\Policies\KratosBI\KratosForge\wh_monitoring_auto" />
+        <list id="wh_monitoring_auto" key="Software\Policies\KratosBI\KratosForge\wh_monitoring_auto" valuePrefix="" />
       </elements>
     </policy>
     <policy name="motion_level" class="Machine" displayName="$(string.motion_level)" explainText="$(string.motion_level_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.motion_level)">
@@ -442,7 +442,7 @@
       <parentCategory ref="cat_integrations" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="integrations_max_permissions" key="Software\Policies\KratosBI\KratosForge\integrations_max_permissions" />
+        <list id="integrations_max_permissions" key="Software\Policies\KratosBI\KratosForge\integrations_max_permissions" valuePrefix="" />
       </elements>
     </policy>
     <policy name="integrations_http" class="Machine" displayName="$(string.integrations_http)" explainText="$(string.integrations_http_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="integrations_http">
@@ -455,7 +455,7 @@
       <parentCategory ref="cat_integrations" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="integrations_extensions" key="Software\Policies\KratosBI\KratosForge\integrations_extensions" />
+        <list id="integrations_extensions" key="Software\Policies\KratosBI\KratosForge\integrations_extensions" valuePrefix="" />
       </elements>
     </policy>
     <policy name="integrations_editors" class="Machine" displayName="$(string.integrations_editors)" explainText="$(string.integrations_editors_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="integrations_editors">
@@ -468,7 +468,7 @@
       <parentCategory ref="cat_integrations" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="receipt_redactions" key="Software\Policies\KratosBI\KratosForge\receipt_redactions" />
+        <list id="receipt_redactions" key="Software\Policies\KratosBI\KratosForge\receipt_redactions" valuePrefix="" />
       </elements>
     </policy>
     <policy name="appstudio_models" class="Machine" displayName="$(string.appstudio_models)" explainText="$(string.appstudio_models_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="appstudio_models">
@@ -481,14 +481,14 @@
       <parentCategory ref="cat_appstudio" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="appstudio_providers" key="Software\Policies\KratosBI\KratosForge\appstudio_providers" />
+        <list id="appstudio_providers" key="Software\Policies\KratosBI\KratosForge\appstudio_providers" valuePrefix="" />
       </elements>
     </policy>
     <policy name="appstudio_hosts" class="Machine" displayName="$(string.appstudio_hosts)" explainText="$(string.appstudio_hosts_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.appstudio_hosts)">
       <parentCategory ref="cat_appstudio" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="appstudio_hosts" key="Software\Policies\KratosBI\KratosForge\appstudio_hosts" />
+        <list id="appstudio_hosts" key="Software\Policies\KratosBI\KratosForge\appstudio_hosts" valuePrefix="" />
       </elements>
     </policy>
     <policy name="appstudio_sample_rows" class="Machine" displayName="$(string.appstudio_sample_rows)" explainText="$(string.appstudio_sample_rows_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="appstudio_sample_rows">
@@ -501,7 +501,7 @@
       <parentCategory ref="cat_signin" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <list id="fabric_view_sign_in_hosts" key="Software\Policies\KratosBI\KratosForge\fabric_view_sign_in_hosts" />
+        <list id="fabric_view_sign_in_hosts" key="Software\Policies\KratosBI\KratosForge\fabric_view_sign_in_hosts" valuePrefix="" />
       </elements>
     </policy>
     <policy name="register_link_scheme" class="Machine" displayName="$(string.register_link_scheme)" explainText="$(string.register_link_scheme_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="register_link_scheme">

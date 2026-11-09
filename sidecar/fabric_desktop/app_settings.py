@@ -319,8 +319,20 @@ def saved_policy_path() -> Path:
 
 
 def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
-    """(settings, why the file can't be used, whether the saved copy stands in for it). With ``digest``,
-    also the SHA-256 of the very bytes it read, as digest["sha256"] (None when it couldn't read any)."""
+    """(settings, why the file can't be used, whether the saved copy stands in for it): the policy file's
+    settings with Group Policy's (registry_policy.py) laid over them, since a value Group Policy sets wins.
+    With ``digest``, also the SHA-256 of the very bytes the file read, as digest["sha256"] (None when it
+    couldn't read any), and of Group Policy's settings, as digest["registry_sha256"] (None for none)."""
+    from . import registry_policy
+    data, reason, from_copy = _file_policy(digest)
+    registry, _ = registry_policy.read()
+    if digest is not None:
+        digest["registry_sha256"] = registry_policy.fingerprint(registry)
+    return ({**data, **registry} if registry else data), reason, from_copy
+
+
+def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
+    """The policy file alone, as _policy_file says."""
     path = policy_path()
     saved = saved_policy_path()
     if digest is not None:
@@ -385,12 +397,17 @@ def policy_fingerprint() -> dict[str, Any]:
     which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
     "fail_closed" when nothing can, "none" with no file); and whether the account running the app
     could change or replace it."""
+    from . import registry_policy
     path = policy_path()
     digest: dict[str, str | None] = {}
     _, reason, from_copy = _policy_file(digest)  # one read: the hash is of the bytes whose settings apply
     exists = digest["sha256"] is not None or reason is not None
-    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
-    return {"sha256": digest["sha256"], "state": state, "user_can_change": exists and user_can_change(path)}
+    registry = digest.get("registry_sha256")
+    state = ("last_good" if from_copy else "fail_closed" if reason else "applied" if exists or registry
+             else "none")
+    return {"sha256": digest["sha256"], "state": state,
+            "user_can_change": (exists and user_can_change(path)) or bool(registry and registry_policy.user_can_change()),
+            "registry_sha256": registry}
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
@@ -433,13 +450,20 @@ def package_folder_problem(folder: str) -> str | None:
 
 def policy_problems() -> list[str]:
     """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
+    from . import registry_policy
     data, reason, from_copy = _policy_file()
+    registry, left_out = registry_policy.read()
     if reason and not from_copy:
-        return [reason]
+        return [reason, *left_out]
     problems = [reason] if reason else []
+    problems += left_out
     if not from_copy and user_can_change(policy_path()):
         problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
+    if registry and registry_policy.user_can_change():
+        problems.append("The Group Policy settings (HKLM\\Software\\Policies\\KratosBI\\KratosForge) can be changed by "
+                        "the account you're signed in to this PC with, so anyone using it can change what they allow. "
+                        "Ask IT to reset that key's permissions so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")

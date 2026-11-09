@@ -226,21 +226,20 @@ def admx() -> str:
             elif st.kind == "text":
                 out.append(f'        <text id="{st.key}" valueName="{st.key}" required="true" maxLength="2048" />')
             elif st.kind == "list":
-                out.append(f'        <list id="{st.key}" key="{REGISTRY_KEY}\\{st.key}" />')
+                out.append(f'        <list id="{st.key}" key="{REGISTRY_KEY}\\{st.key}" valuePrefix="" />')
             out.append("      </elements>")
         out.append("    </policy>")
     out += ["  </policies>", "</policyDefinitions>", ""]
     return "\n".join(out)
 
 
-# No build reads registry policy yet, so every policy says so until a release adds that support.
-_NOT_READ_YET = (" No current KratosForge build reads this policy from the registry. Until the release notes say"
-                 " registry policy is supported, set it in %ProgramData%\\FabricDesktop\\policy.json instead.")
+# Said on every policy: where else the setting can be set, and which wins.
+_PRECEDENCE = " Set here, it wins over the same key in %ProgramData%\\FabricDesktop\\policy.json."
 
 
 def adml() -> str:
     """The en-US ADML: each policy's name and help, and the box it shows."""
-    strings = [("KratosForge", "KratosForge"), ("SUPPORTED_KratosForge", "Not read by any current KratosForge build")]
+    strings = [("KratosForge", "KratosForge"), ("SUPPORTED_KratosForge", "KratosForge builds that read Group Policy (see its release notes)")]
     strings += [(_cat(k), v) for k, v in CATEGORIES.items()]
     presentations = []
     for st in settings():
@@ -250,7 +249,7 @@ def adml() -> str:
         if st.kind == "list":
             help_text += " Add one item per line."
         help_text += f" Policy file key: {st.key}."
-        help_text += _NOT_READ_YET
+        help_text += _PRECEDENCE
         strings += [(st.key, st.key.replace("_", " ").capitalize()), (f"{st.key}_Help", help_text)]
         strings += [(f"{st.key}_{c}", c) for c in st.choices]
         if st.kind == "enum":

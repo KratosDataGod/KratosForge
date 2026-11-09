@@ -19,6 +19,7 @@ mod engine_patch;
 mod exe_name;
 mod folder_pick;
 mod policy_file;
+mod policy_registry;
 mod policy_trust;
 mod replies;
 mod signature;
@@ -53,14 +54,19 @@ fn setting(text: &str, key: &str) -> Option<String> {
 }
 
 /// The organization's policy file (%ProgramData%\FabricDesktop\policy.json), or when it can't be
-/// read, the last copy the sidecar could read (policy_file.rs); empty for no policy.
+/// read, the last copy the sidecar could read (policy_file.rs), with Group Policy's values laid over
+/// it (policy_registry.rs); empty for no policy.
 fn policy_text() -> String {
-    let Some(dir) = std::env::var_os("ProgramData") else { return String::new() };
-    policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"), &data_dir().join("policy-last-good.json"))
+    let file = match std::env::var_os("ProgramData") {
+        Some(dir) => policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"),
+                                       &data_dir().join("policy-last-good.json")),
+        None => String::new(),
+    };
+    policy_registry::overlay(&file, &policy_registry::read())
 }
 
 /// Whether the app may update itself. An organization that rolls out builds itself sets
-/// `"auto_update": false` in its policy file; only that file can turn updates off.
+/// `"auto_update": false` in its policy file or Group Policy; only those can turn updates off.
 fn auto_update_allowed() -> bool {
     policy_allows_updates(&policy_text())
 }
@@ -93,11 +99,15 @@ fn engine_mirror() -> Option<String> {
 
 /// The engine folder to use, or why a valid one in a managed policy file is ignored. The file's
 /// permissions are checked before it is read, so what is read is what only administrators wrote.
+/// Group Policy's `engine_download_url` is trusted the same way: only when the account running the
+/// app couldn't change its key (policy_registry::admin_only).
 fn engine_mirror_state() -> Result<Option<String>, String> {
-    let Some(dir) = std::env::var_os("ProgramData") else { return Ok(None) };
-    let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
-    let trusted = policy_trust::admin_only(&file);
-    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let file = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
+    let file_trusted = file.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only);
+    let registry_trusted = policy_registry::admin_only();
+    let found = policy_registry::read();
+    let text = policy_registry::overlay(&file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default(), &found);
+    let trusted = if policy_registry::sets(&found, "engine_download_url") { registry_trusted } else { file_trusted };
     if policy_allows_updates(&text) {
         return Ok(None);
     }
@@ -122,11 +132,13 @@ fn policy_engine_url(text: &str) -> Option<String> {
 }
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
-/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
-/// file can set it; a missing or unreadable file means none (its last good copy isn't used).
+/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file or Group Policy.
+/// Only those can set it; a missing or unreadable file means none (its last good copy isn't used).
 fn fabric_view_sign_in_hosts() -> Vec<String> {
-    let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
-    policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+    let file = std::env::var_os("ProgramData")
+        .and_then(|dir| std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).ok())
+        .unwrap_or_default();
+    policy_sign_in_hosts(&policy_registry::overlay(&file, &policy_registry::read()))
 }
 
 /// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.

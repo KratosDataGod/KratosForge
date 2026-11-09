@@ -167,3 +167,20 @@ def test_ended_ai_tool_requests_are_deleted_after_the_days_their_uses_are_kept(t
     ids = {a["id"] for a in store.approvals("", limit=100)}
     assert denied["id"] not in ids and used["id"] not in ids
     assert {waiting["id"], later["id"]} <= ids  # waiting ended (expired) only minutes ago
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link to a folder needs rights on Windows")
+def test_the_sweep_never_goes_into_a_linked_folder(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    keep = outside / "keep.csv"
+    keep.write_text("not a cache")
+    os.utime(keep, (OLD, OLD))
+    (tmp_path / "data" / "files").mkdir(parents=True)
+    (tmp_path / "data" / "files" / "linked").symlink_to(outside, target_is_directory=True)
+    (tmp_path / "data" / "replays").symlink_to(outside, target_is_directory=True)
+    # As os.walk sees a junction on Windows: a plain folder, so the check has to be the sweep's own.
+    real_walk = os.walk
+    monkeypatch.setattr(retention.os, "walk", lambda top, **kw: real_walk(top, followlinks=True))
+    result = retention.sweep(tmp_path / "data", 30, now=NOW)
+    assert result["removed"] == [] and keep.exists()

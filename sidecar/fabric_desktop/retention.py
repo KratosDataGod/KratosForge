@@ -27,6 +27,12 @@ CACHE_FOLDERS = ("files", "staging", "onelake-cache", "replays")
 DAY = 86400
 
 
+def _linked(path: Path) -> bool:
+    """A symbolic link or (Windows) junction: the sweep never goes into one, whatever it points to.
+    os.walk without followlinks still enters a junction on Windows."""
+    return path.is_symlink() or path.is_junction()
+
+
 def _newest(folder: Path) -> float:
     return max((p.stat().st_mtime for p in folder.rglob("*") if p.is_file()), default=folder.stat().st_mtime)
 
@@ -84,10 +90,11 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
     cutoff = now - days * DAY
     for name in CACHE_FOLDERS:
         base = root / name
-        if not base.is_dir():
+        if not base.is_dir() or _linked(base):
             continue
         for dirpath, dirnames, filenames in os.walk(base):
             here = Path(dirpath)
+            dirnames[:] = [d for d in dirnames if not _linked(here / d)]  # never into a link or junction
             if "_delta_log" in dirnames:
                 dirnames.clear()  # judged as one table, below
                 if _newest(here) < cutoff:

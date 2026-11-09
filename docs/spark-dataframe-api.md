@@ -20,8 +20,8 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 103 |
-| Differs | 4 |
+| Runs | 104 |
+| Differs | 3 |
 | Refused | 15 |
 | Fails | 41 |
 | Not checked | 24 |
@@ -159,7 +159,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `dropFields` | Fails | `df.withColumn('a', df['a'].dropFields('b')).show()`: TypeError: 'Column' object is not callable |
 | `endswith` | Runs |  |
 | `eqNullSafe` | Runs |  |
-| `getField` | Differs | `df.select(df.r.a).show()`: {"printed": "+----+\n\|r[a]\|\n+----+\n\|   1\|\n+----+"} here, {"printed": "+---+\n\|r.a\|\n+---+\n\|  1\|\n+---+"} in Spark |
+| `getField` | Runs |  |
 | `getItem` | Runs |  |
 | `ilike` | Runs |  |
 | `isNotNull` | Runs |  |

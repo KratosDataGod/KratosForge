@@ -1,8 +1,8 @@
 """spark.createDataFrame(rows) with no types given, in a notebook cell on this PC, inferring the schema
 as PySpark does: a tuple, Row or namedtuple inside a row as a struct (_1, _2, ... without names), a dict
 inside a row as a map, a dict row's keys sorted, unnamed columns _1, _2, ..., every row's types merged,
-and PySpark's errors when they can't merge or a column has nothing to infer from. Also getField's
-name (r.b). Each expected output was printed by Apache Spark 3.5.3 for the same cell."""
+and PySpark's errors when they can't merge or a column has nothing to infer from. Also a struct
+field's name (r.b, from getField, r.b or r['b']; a map's key stays m[k]). Each expected output was printed by Apache Spark 3.5.3 for the same cell."""
 
 from __future__ import annotations
 
@@ -99,6 +99,27 @@ df.r.getField("b").alias("x") ['x'] [Row(x='b')]
 '''
 
 
+ITEM_CELL = r'''from pyspark.sql import Row, functions as F
+df = spark.createDataFrame([Row(r=Row(a=1, b="b"), m={"k": 2}, l=[5, 6])])
+for e in ['df.r.a', 'df.r["b"]', 'df["r"]["b"]', 'df.m["k"]', 'df.m.k', 'df.l[1]', 'F.col("r")["a"]', 'df.r.a.alias("z")', 'df.r.getField("a")']:
+    print(e, df.select(eval(e)).columns, df.select(eval(e)).collect())
+print(df.select(df.r.a, df.m["k"]).columns, df.selectExpr("r.a", "m['k']").columns)
+'''
+
+# Apache Spark 3.5.3's output for ITEM_CELL.
+ITEM_SPARK = r'''df.r.a ['r.a'] [Row(r.a=1)]
+df.r["b"] ['r.b'] [Row(r.b='b')]
+df["r"]["b"] ['r.b'] [Row(r.b='b')]
+df.m["k"] ['m[k]'] [Row(m[k]=2)]
+df.m.k ['m[k]'] [Row(m[k]=2)]
+df.l[1] ['l[1]'] [Row(l[1]=6)]
+F.col("r")["a"] ['r.a'] [Row(r.a=1)]
+df.r.a.alias("z") ['z'] [Row(z=1)]
+df.r.getField("a") ['r.a'] [Row(r.a=1)]
+['r.a', 'm[k]'] ['a', 'm[k]']
+'''
+
+
 @pytest.fixture(scope="module")
 def kernel():
     return Kernel()
@@ -116,3 +137,7 @@ def test_create_dataframe_infers_the_schema_as_pyspark_does(kernel):
 
 def test_get_field_is_named_as_spark_names_it(kernel):
     assert _printed(kernel, FIELD_CELL).splitlines() == FIELD_SPARK.splitlines()
+
+
+def test_a_struct_field_by_attribute_or_key_is_named_as_spark_names_it(kernel):
+    assert _printed(kernel, ITEM_CELL).splitlines() == ITEM_SPARK.splitlines()

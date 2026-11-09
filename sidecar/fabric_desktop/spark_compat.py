@@ -732,12 +732,30 @@ def _spark_named_cols(cols: Any) -> Any:
             else c for c in cols]
 
 
+def _field_names(frame: Any, cols: Any) -> Any:
+    """``col[key]`` and ``col.key`` are named col.key when col is a struct (its field) and col[key] when
+    it's a map, as in Spark; which one is known only from the frame's types, here."""
+    relation = getattr(frame, "relation", None) or getattr(getattr(frame, "_df", None), "relation", None)
+    for c in cols:
+        field = vars(c).get("_fd_field") if isinstance(c, Column) else None
+        if field is None or relation is None or "_fd_top" in vars(c):
+            continue
+        base, key = field
+        try:
+            kind = str(relation.project(_col_sql(base)).types[0])
+        except duckdb.Error:  # the frame can't read it; the select itself says why
+            continue
+        if kind.upper().startswith("STRUCT"):
+            c._fd_name = f"{_spark_text(base)}.{key}"
+    return cols
+
+
 def _naming(fn: Any) -> Any:
     """DataFrame.select, DataFrame.agg and GroupedData.agg, giving their columns Spark's names."""
     def call(self: Any, *cols: Any) -> Any:
         if len(cols) == 1 and isinstance(cols[0], list):
-            return fn(self, _spark_named_cols(cols[0]))
-        return fn(self, *_spark_named_cols(cols))
+            return fn(self, _spark_named_cols(_field_names(self, cols[0])))
+        return fn(self, *_spark_named_cols(_field_names(self, list(cols))))
     call.__name__ = getattr(fn, "__name__", "call")
     call.__doc__ = fn.__doc__
     return call
@@ -819,7 +837,9 @@ def _get_item(self: Column, key: Any) -> Column:
         raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
     if isinstance(key, int):
         return _named(_sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]"), f"{_spark_text(self)}[{key}]")
-    return _named(_sql(f"({_col_sql(self)})[{_lit(key)}]"), f"{_spark_text(self)}[{key}]")
+    out = _named(_sql(f"({_col_sql(self)})[{_lit(key)}]"), f"{_spark_text(self)}[{key}]")
+    out._fd_field = (self, key)  # type: ignore[attr-defined]  # a struct's field is named col.key; see _field_names
+    return out
 
 
 def _getitem(original: Any) -> Any:

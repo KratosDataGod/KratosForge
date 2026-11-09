@@ -128,7 +128,7 @@ class CloudMixin:
                 continue
             try:
                 job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
-            except Exception as exc:  # offline or gone: keep the last known status
+            except Exception as exc:  # noqa: BLE001 - offline or gone: keep the last known status
                 r["message"] = r.get("message") or f"Status not available: {one_line(exc)}"
                 status = retrying.status_of(exc)
                 unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
@@ -149,7 +149,7 @@ class CloudMixin:
         """A Fabric client only if the user is already signed in: Monitor must never pop a sign-in."""
         try:
             token = self.auth.silent_token(FABRIC_SCOPES)  # type: ignore[attr-defined]
-        except Exception as exc:  # no client ID configured
+        except Exception as exc:  # noqa: BLE001 - no client ID configured
             _log.info("No silent Fabric token for Monitor: %s", describe(exc))
             return None
         return FabricClient(lambda: token) if token else None
@@ -164,7 +164,7 @@ class CloudMixin:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:  # no metadata project yet
             return {"runs": [], "unavailable": {}}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a broken project is shown as the reason, not an empty list
             _log.warning("Couldn't read the metadata project for its runs: %s", describe(exc))
             return {"runs": [], "unavailable": {}, "project_error": describe(exc)}
         signed_in = None
@@ -179,14 +179,14 @@ class CloudMixin:
                 if signed_in is None:
                     try:
                         signed_in = bool(self.auth.silent_token(STORAGE_SCOPES)) and self._quiet_fabric() is not None  # type: ignore[attr-defined]
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - any sign-in failure means not signed in
                         signed_in = False
                 if not signed_in:
                     unavailable[env] = "Sign in to see its runs"
                     continue
             try:
                 rows = self.meta_runs(env, limit)  # type: ignore[attr-defined]
-            except Exception as exc:  # offline, or a lakehouse is gone
+            except Exception as exc:  # noqa: BLE001 - offline, or a lakehouse is gone
                 unavailable[env] = str(exc)
                 continue
             for r in rows:
@@ -415,7 +415,7 @@ class CloudMixin:
             data = FileStore(lambda: token).read_bytes(run["workspace_id"], run["lakehouse_id"],
                                                         fabric_step.result_path(request_id))
             out["output"] = json.loads(data) if data else None
-        except Exception as exc:  # the run's status still shows; the output is in Fabric
+        except Exception as exc:  # noqa: BLE001 - the run's status still shows; the output is in Fabric
             _log.warning("Couldn't read the Fabric step's output: %s", describe(exc))
         if run["status"] == "Completed" and run.get("tables"):
             flat = not self._schemas_enabled(run["workspace_id"], run["lakehouse_id"])  # type: ignore[attr-defined]
@@ -431,7 +431,7 @@ class CloudMixin:
                         entry |= {"v_ordered": f["files"] > 0 and f["v_ordered"] == f["checked"],
                                   "files": f["files"], "checked": f["checked"], "v_ordered_files": f["v_ordered"]}
                     out["tables"].append(entry)
-                except Exception as exc:  # one table not readable doesn't hide the others
+                except Exception as exc:  # noqa: BLE001 - one table not readable doesn't hide the others
                     out["tables"].append({"table": table, "v_ordered": None, "message": describe(exc)})
         return out
 
@@ -571,7 +571,7 @@ class CloudMixin:
                 out.append(self._log_fabric_run({
                     "kind": "Table maintenance", "name": f"{t['lakehouse']} {label}", "env": env, "table": label,
                     "workspace_id": ws, "item_id": lh_id, "job_id": job_id}))
-            except Exception as exc:  # one table failing doesn't stop the rest
+            except Exception as exc:  # noqa: BLE001 - one table failing doesn't stop the rest
                 out.append({"table": label, "status": "Failed", "message": f"{type(exc).__name__}: {exc}"})
         return out
 
@@ -839,7 +839,7 @@ class CloudMixin:
                 fields = table_schema(store, lakehouse, t.schema, t.table)
             except TableNotFoundError:  # not written in this environment yet
                 fields = None
-            except Exception as exc:  # it may exist: leaving it out would drop it from the model
+            except Exception as exc:  # noqa: BLE001 - it may exist: leaving it out would drop it from the model
                 unreadable.append(f"{t.entity} ({type(exc).__name__}: {exc})")
                 continue
             if not fields:

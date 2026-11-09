@@ -207,5 +207,5 @@ def _optimize(project: Any, config: dict[str, Any], results: list[dict[str, Any]
             fabric.run_table_maintenance(ws, lakehouse_id, e.table, e.schema,
                                          vacuum_retention=fabric_retention(layer.retention_days))
             r["maintenance"] = "queued"
-        except Exception as exc:  # the run itself succeeded; say why the optimize didn't start
+        except Exception as exc:  # noqa: BLE001 - the run itself succeeded; say why the optimize didn't start
             r["maintenance"], r["maintenance_message"] = "Failed", str(exc)

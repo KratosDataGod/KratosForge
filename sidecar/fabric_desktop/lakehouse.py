@@ -304,7 +304,7 @@ def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaT
     if point is not None:
         try:
             opened.load_as_version(point)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any read failure at a version becomes the same plain message
             what = f"version {point}" if isinstance(point, int) else f"{point.isoformat()}"
             raise ValueError(f"{table} has no {what} to read: {exc}. DESCRIBE HISTORY {table} lists its versions; "
                              "versions removed by VACUUM can't be read.") from None
@@ -638,7 +638,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
             return DeltaTable(uri, storage_options=opts)
         try:
             p.read_location(ref.schema, ref.table)  # a table the proof can't read can't be changed in it
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the reader's own error types vary; all mean the table isn't there
             raise TableNotFoundError(str(exc)) from None
         uri = p.write_location(ref.schema, ref.table, "append", seed)  # "append": the pinned version comes first
     else:

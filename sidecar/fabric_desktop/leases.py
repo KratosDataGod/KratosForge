@@ -441,7 +441,7 @@ class Held:
             started = self.leases.clock()
             try:
                 etag = self.leases.backend.replace(self.key, self.leases._body(started), self.etag)
-            except Exception:  # a network blip: try again at the next beat while the lease has time
+            except Exception:  # noqa: BLE001 - a network blip: try again at the next beat while the lease has time
                 if self.leases.clock() - self._renewed >= self.leases.ttl:
                     # Unrenewed past its length: another writer may have taken it over by now.
                     self.lost = True
@@ -458,7 +458,7 @@ class Held:
         if not self.lost:
             try:
                 self.leases.backend.delete(self.key, self.etag)
-            except Exception as exc:  # it expires on its own
+            except Exception as exc:  # noqa: BLE001 - it expires on its own
                 _log.warning("Couldn't release the lease; it expires on its own: %s", describe(exc))
 
 

@@ -300,7 +300,7 @@ def handle(service: Service, line: str) -> dict:
         if audit.audited(method) and audit.fails_closed(method, params):
             _audit_started(service, method, params)  # raises when the line can't be written: nothing runs
         reply = {"id": req_id, "result": call(**params)}
-    except Exception as exc:  # report every failure to the UI rather than dying
+    except Exception as exc:  # noqa: BLE001 - report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
@@ -592,7 +592,7 @@ def _start_integration_http(service: Service) -> None:
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
     try:
         service.editor_sync()  # the editor channel, if VS Code may run notebooks
-    except Exception as exc:  # noqa: BLE001 - likewise
+    except Exception as exc:  # noqa: BLE001 - the app works without the editor channel; Settings shows why
         print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 

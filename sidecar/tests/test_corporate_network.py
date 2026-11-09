@@ -167,7 +167,7 @@ class Proxy:
     def _one(self, conn: socket.socket):
         try:
             self._answer(conn)
-        except Exception as e:  # say what went wrong instead of dropping the caller with no answer
+        except Exception as e:  # noqa: BLE001 - say what went wrong instead of dropping the caller with no answer
             self.errors.append(repr(e))
             try:
                 reason = repr(e).encode(errors="replace")[:200]

@@ -142,7 +142,7 @@ class PlatformTest:
             check.status = "passed"
         except Skip as why:
             check.detail = str(why)
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             check.status = "failed"
             check.detail = livetest.scrub(f"{type(exc).__name__}: {exc}")
         self.checks.append(check)

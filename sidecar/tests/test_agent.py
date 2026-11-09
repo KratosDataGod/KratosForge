@@ -814,17 +814,23 @@ def test_agent_sweeps_old_local_copies_in_its_home_at_start_and_then_daily(setup
     clock = Clock()
     agent = Agent(setup, queue=JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0), clock=clock)
     old = time.time() - 40 * 86400
-    copy = setup.home / "onelake-cache" / "test" / "LH_Landing" / "Files" / "x.json"
-    spill = setup.home / "staging" / "_writes" / "left-over.parquet"
-    kept = [setup.home / "audit" / "audit-2020-01.jsonl", setup.home / "logs" / "agent.log.3"]
-    for path in (copy, spill, *kept):
+    data = agent.runtime.root  # <home>/data: where the agent's runs keep the download cache and staging
+    assert data == setup.home / "data"
+    copy = data / "onelake-cache" / "test" / "LH_Landing" / "Files" / "x.json"
+    staged = data / "staging" / "orders" / "part-0.parquet"
+    spill = data / "staging" / "_writes" / "left-over.parquet"
+    kept = [setup.home / "audit" / "audit-2020-01.jsonl", setup.home / "logs" / "agent.log.3",
+            # This PC data of a project kept under the data folder: a LocalStore's tables, never a cache
+            data / "project" / ".local" / "dev" / "silver" / "orders" / "part-0.parquet",
+            data / "local-data" / "p1" / "data.duckdb"]
+    for path in (copy, staged, spill, *kept):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("x")
         os.utime(path, (old, old))
     agent.step()
-    assert not copy.exists() and not spill.exists()  # local_retention_days (30) and the day for spills
-    assert all(p.exists() for p in kept)  # the audit trail, logs and queue are never the sweep's
-    again = setup.home / "files" / "lh" / "a.csv"
+    assert not copy.exists() and not staged.exists() and not spill.exists()  # local_retention_days (30); a day for spills
+    assert all(p.exists() for p in kept)  # the audit trail, logs, queue and This PC data are never the sweep's
+    again = data / "files" / "lh" / "a.csv"
     again.parent.mkdir(parents=True, exist_ok=True)
     again.write_text("x")
     os.utime(again, (old, old))

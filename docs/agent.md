@@ -192,7 +192,7 @@ For what each alert, log warning and incident means and how to recover, see the 
 
 **Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
-**Local copies.** Right after pruning, the agent deletes local copies of lakehouse data in its home that haven't been used for the policy's `local_retention_days` (default 30; `0` keeps them), by the same rules as the app ([Configure Azure and Fabric](azure-setup.md)): files read, staged tables, the download cache and replay bundle copies. A write's left-over spill file goes after a day whatever the setting. The queue, audit trail, logs and settings are never touched. A cleanup that fails is logged and tried again the next day.
+**Local copies.** Right after pruning, the agent deletes local copies of lakehouse data in its data folder (`<home>\data`, where its runs keep them) that haven't been used for the policy's `local_retention_days` (default 30; `0` keeps them), by the same rules as the app ([Configure Azure and Fabric](azure-setup.md)): files read, staged tables, the download cache and replay bundle copies. A write's left-over spill file goes after a day whatever the setting. The queue, audit trail, logs, settings and a project's This PC data are never touched. A cleanup that fails is logged and tried again the next day.
 
 ### Status records
 

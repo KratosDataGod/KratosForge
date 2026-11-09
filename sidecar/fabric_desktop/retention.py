@@ -50,7 +50,7 @@ SPILL_HOURS = 24
 
 def _stale_spills(root: Path, now: float) -> list[Path]:
     folder = root / SPILLS
-    if not folder.is_dir():
+    if not folder.is_dir() or _linked(root / "staging") or _linked(folder):
         return []
     return [p for p in folder.iterdir() if p.is_file() and p.stat().st_mtime < now - SPILL_HOURS * 3600]
 
@@ -65,7 +65,7 @@ PREVIEW_HOURS = 1
 
 def _stale_previews(root: Path, now: float) -> list[Path]:
     folder = root / PREVIEWS
-    if not folder.is_dir():
+    if not folder.is_dir() or _linked(folder):
         return []
     return [p for p in folder.iterdir() if p.is_dir() and p.stat().st_mtime < now - PREVIEW_HOURS * 3600]
 

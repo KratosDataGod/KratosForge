@@ -328,6 +328,8 @@ class Store:
                     if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 \
                             or not ("protocol changed" in text or "metadata changed" in text):
                         raise
+                    time.sleep(0.05 * (attempt + 1))  # let the other writer's commit settle
+                    check_held()  # still our table's lease, with time to commit, before writing again
                     current = open_table(uri, self.options())
                     if current is None:
                         raise

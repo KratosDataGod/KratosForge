@@ -430,30 +430,44 @@ jobs:
           "Embeddable Python sha256 $sha md5 $md5"
           if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the file python.org published (md5 $md5)" }
           if ($sha -ne $env:PYTHON_EMBED_SHA256) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the pinned file (sha256 $sha)" }
-          Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
-          # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
-          Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
+          # The engine zip is reproducible: the same commit gives the same bytes (engine_build.py,
+          # docs/audits/SUPPLY_CHAIN.md). Every timestamp in it is the commit's time.
+          $env:SOURCE_DATE_EPOCH = git log -1 --format=%ct
+          "SOURCE_DATE_EPOCH=$env:SOURCE_DATE_EPOCH" >> $env:GITHUB_ENV
           # The engine's own wheel is built against a hashed build backend, not one pip fetches unchecked.
           python -m pip install --only-binary=:all: --require-hashes -r .github\requirements\engine-build.txt
           if ($LASTEXITCODE) { throw "The engine's build backend did not match its pinned hash" }
-          python -m pip wheel --no-build-isolation --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
-          # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
-          # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
-          # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
-          # The report keeps the SHA-256 of each file installed, for the SBOM (sbom_npm.py add-hashes).
-          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages" --report "$env:RUNNER_TEMP\engine-install.json"
-          if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
-          python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
-          if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
-          & "$dir\python.exe" -m pip check
-          if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
-          # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
-          # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
-          # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
-          $runtime = & "$dir\python.exe" .github\scripts\engine_runtime.py
-          if ($LASTEXITCODE -or $runtime -notmatch '^[0-9a-f]{64}$') { throw "Could not work out the engine's runtime key ($runtime)" }
-          @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; runtime = "$runtime"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
+          # Built twice, in two folders, so "Check the engine zip is reproducible" can compare them.
+          # The first is the engine CI ships; the second is only for that check.
+          function Build-Engine([string]$dir, [string]$wheels, [string]$report) {
+            Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
+            # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
+            Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
+            python -m pip wheel --no-build-isolation --no-deps -w $wheels ./sidecar
+            if ($LASTEXITCODE) { throw "Could not build the engine's own package" }
+            # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
+            # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
+            # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
+            # The report keeps the SHA-256 of each file installed, for the SBOM (sbom_npm.py add-hashes).
+            # --no-compile: pip's .pyc files name its random temp folder, so engine_build.py finish compiles them.
+            python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --no-compile --target "$dir\Lib\site-packages" --report $report
+            if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
+            python -m pip install --no-deps --no-compile --target "$dir\Lib\site-packages" (Get-ChildItem "$wheels\*.whl").FullName
+            if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
+            & "$dir\python.exe" -m pip check
+            if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
+            # With the engine's own Python, so each .pyc is the one it would write itself.
+            & "$dir\python.exe" .github\scripts\engine_build.py finish $dir
+            if ($LASTEXITCODE) { throw "Could not compile the engine's packages" }
+            # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
+            # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
+            # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
+            $runtime = & "$dir\python.exe" .github\scripts\engine_runtime.py
+            if ($LASTEXITCODE -or $runtime -notmatch '^[0-9a-f]{64}$') { throw "Could not work out the engine's runtime key ($runtime)" }
+            [ordered]@{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; runtime = "$runtime"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
+          }
+          Build-Engine $dir "$env:RUNNER_TEMP\wheels" "$env:RUNNER_TEMP\engine-install.json"
+          Build-Engine "$env:RUNNER_TEMP\engine-again" "$env:RUNNER_TEMP\wheels-again" "$env:RUNNER_TEMP\engine-install-again.json"
           "ENGINE_DIR=$dir" >> $env:GITHUB_ENV
       - name: Check the engine starts on its own
         shell: pwsh
@@ -464,6 +478,17 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           # Format cell runs ruff's own program, which --target puts in Lib\site-packages\bin.
           & "$env:ENGINE_DIR\python.exe" -c "from fabric_desktop.code_format import format_cells; r = format_cells(['x=1']); assert r[0]['source'] == 'x = 1', r"
+          if ($LASTEXITCODE) { exit 1 }
+      # After the check above, which runs the first engine: anything a run writes into the folder
+      # would ship, and shows up here as a difference from the second build.
+      - name: Check the engine zip is reproducible
+        shell: pwsh
+        run: |
+          python .github\scripts\engine_build.py zip $env:ENGINE_DIR "$env:RUNNER_TEMP\first.zip"
+          if ($LASTEXITCODE) { exit 1 }
+          python .github\scripts\engine_build.py zip "$env:RUNNER_TEMP\engine-again" "$env:RUNNER_TEMP\second.zip"
+          if ($LASTEXITCODE) { exit 1 }
+          python .github\scripts\engine_build.py compare "$env:RUNNER_TEMP\first.zip" "$env:RUNNER_TEMP\second.zip"
           if ($LASTEXITCODE) { exit 1 }
       - name: Sign the engine's packages
         # Only builds of main are signed: pull request code never runs next to the signing secrets.
@@ -488,7 +513,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          7z a -tzip -mx=5 fabric-desktop-engine.zip "$env:ENGINE_DIR\*"
+          # The same zip as "Check the engine zip is reproducible" made, unless signing changed the folder.
+          python .github\scripts\engine_build.py zip $env:ENGINE_DIR fabric-desktop-engine.zip
           if ($LASTEXITCODE) { exit 1 }
           # The update zip: only the engine's own files, the ones engine_patch.rs's sidecar_owned names
           # (engine.json, and in Lib\site-packages fabric_desktop, its dist-info and bin\fabric-desktop*).
@@ -498,9 +524,9 @@ jobs:
           $items = @("engine.json", "Lib\site-packages\fabric_desktop") +
             @(Get-ChildItem "Lib\site-packages" -Directory -Filter "fabric_desktop-*.dist-info" | ForEach-Object { "Lib\site-packages\$($_.Name)" }) +
             @(Get-ChildItem "Lib\site-packages\bin" -Filter "fabric-desktop*" -ErrorAction SilentlyContinue | ForEach-Object { "Lib\site-packages\bin\$($_.Name)" })
-          7z a -tzip -mx=5 $out @items
-          if ($LASTEXITCODE) { exit 1 }
           Pop-Location
+          python .github\scripts\engine_build.py zip $env:ENGINE_DIR $out @items
+          if ($LASTEXITCODE) { exit 1 }
           "Engine $((Get-Item fabric-desktop-engine.zip).Length) bytes, update $((Get-Item $out).Length) bytes"
           "engine_sha256=$((Get-FileHash fabric-desktop-engine.zip -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
           "engine_update_sha256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT

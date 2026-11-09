@@ -1,0 +1,62 @@
+{
+  "_about": "A model of a bundle's databricks.yml as JSON. variables holds custom variables (default, description); a target's variables override them for that target. ${var.name} reads a variable. A target's mode is development or production; one target may be default. run_as names user_name or service_principal_name. git.branch is the branch a production deploy must come from.",
+  "needs": {
+    "dev": "Each engineer deploys to the dev workspace by default, with no -t, and dev schedules stay paused. Tables go to the dev catalog.",
+    "test": "CI deploys to the test workspace. Tables go to the test catalog.",
+    "prod": "Deployed only from the main branch, running as the service principal kf-deployer, in the prod workspace. Tables go to the prod catalog."
+  },
+  "bundle": {
+    "name": "orders_pipeline"
+  },
+  "variables": {
+    "catalog": {
+      "description": "The catalog the job writes to",
+      "default": "dev"
+    }
+  },
+  "resources": {
+    "jobs": {
+      "nightly_orders": {
+        "name": "nightly_orders",
+        "parameters": [
+          {
+            "name": "catalog",
+            "default": "prod"
+          }
+        ]
+      }
+    }
+  },
+  "targets": {
+    "dev": {
+      "default": true,
+      "mode": "development",
+      "workspace": {
+        "host": "https://dev-ws.cloud.databricks.com"
+      }
+    },
+    "test": {
+      "workspace": {
+        "host": "https://test-ws.cloud.databricks.com"
+      },
+      "variables": {
+        "catalog": "test"
+      }
+    },
+    "prod": {
+      "mode": "production",
+      "git": {
+        "branch": "main"
+      },
+      "workspace": {
+        "host": "https://prod-ws.cloud.databricks.com"
+      },
+      "run_as": {
+        "service_principal_name": "kf-deployer"
+      },
+      "variables": {
+        "catalog": "prod"
+      }
+    }
+  }
+}

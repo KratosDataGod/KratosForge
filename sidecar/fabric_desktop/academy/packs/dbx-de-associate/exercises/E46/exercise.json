@@ -1,0 +1,124 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "bundle.json",
+  "reset": "Reset puts the original bundle.json back.",
+  "id": "E46",
+  "title": "Bundle variables, targets and overrides for dev, test and prod",
+  "objectives": [
+    "5.2"
+  ],
+  "mode": "guided",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Use bundle variables, targets and overrides to promote one codebase across dev, test and prod.",
+  "scenario": "The orders pipeline's bundle deploys the same job to three workspaces. Last week a deploy with no -t went to prod, test wrote into the dev catalog, and the prod job ran as an engineer who has since left. Fix the bundle so one codebase promotes cleanly.",
+  "engine_label": "A model of a bundle's databricks.yml, checked on this PC",
+  "verifies": [
+    "Your bundle settings send each target to its own catalog through one variable, make dev the default in development mode, and protect prod with production mode, a Git branch and a service principal, as the bundle docs describe, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the bundle validates or deploys: the Databricks CLI doesn't run here, and the file is JSON, not YAML.",
+    "Variable precedence from --var, BUNDLE_VAR_ environment variables or variable-overrides.json, or lookups."
+  ],
+  "expected": {
+    "description": "The job's catalog is ${var.catalog}; test and prod override it; dev is the only default and runs in development mode; prod is production mode, branch main, run as kf-deployer."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "pass": "One codebase, one variable: each target says which catalog it writes to.",
+      "fail": "A target writes to the wrong catalog.",
+      "rules": [
+        {
+          "path": "resources.jobs.nightly_orders.parameters.0.default",
+          "equals": "${var.catalog}",
+          "why": "A catalog written into the job deploys the same value to every target; ${var.catalog} takes each target's value."
+        },
+        {
+          "path": "variables.catalog.default",
+          "equals": "dev"
+        },
+        {
+          "path": "targets.test.variables.catalog",
+          "equals": "test",
+          "why": "Without a test value, test gets the default, dev."
+        },
+        {
+          "path": "targets.prod.variables.catalog",
+          "equals": "prod"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "dev is the default target, in development mode.",
+      "fail": "A deploy with no -t doesn't go where it should.",
+      "rules": [
+        {
+          "path": "targets.dev.default",
+          "equals": true,
+          "why": "With dev as the default, databricks bundle deploy with no -t goes to dev."
+        },
+        {
+          "path": "targets.dev.mode",
+          "equals": "development",
+          "why": "Development mode prefixes resource names and pauses schedules and triggers."
+        },
+        {
+          "path": "targets.test.default",
+          "absent": true,
+          "why": "Only one target can be the default."
+        },
+        {
+          "path": "targets.prod.default",
+          "absent": true,
+          "why": "Only one target can be the default, and prod should need -t prod."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "prod deploys only from main, in production mode, as the service principal.",
+      "fail": "prod isn't protected the way production needs.",
+      "rules": [
+        {
+          "path": "targets.prod.mode",
+          "equals": "production"
+        },
+        {
+          "path": "targets.prod.git.branch",
+          "equals": "main",
+          "why": "In production mode the CLI checks that the current Git branch is the target's branch."
+        },
+        {
+          "path": "targets.prod.run_as.service_principal_name",
+          "equals": "kf-deployer",
+          "why": "Databricks recommends service principals for production deployments."
+        },
+        {
+          "path": "targets.prod.run_as.user_name",
+          "absent": true
+        }
+      ]
+    }
+  ],
+  "explanation": "Write the setting that changes between environments once, as a variable, and read it with ${var.catalog}; each target then overrides the value in its own variables mapping, and the top-level default covers dev. Only one target may be the default, and it should be dev, so a deploy without -t can't reach prod. Development mode prefixes names and pauses schedules; production mode checks the Git branch, and running as a service principal keeps the prod job from depending on one person's account.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/variables",
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/settings",
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/deployment-modes"
+  ],
+  "hints": [
+    "A literal \"prod\" in the job's parameter is the same in every target. Replace it with ${var.catalog}.",
+    "A target's variables mapping overrides the variable for that target: targets.test.variables.catalog.",
+    "One and only one target can be default: true.",
+    "Production mode with git.branch main refuses a deploy from another branch; run_as.service_principal_name runs the job as the service principal."
+  ]
+}

@@ -37,13 +37,15 @@ def test_a_save_the_gate_refuses_leaves_the_file_as_it_was(svc):
     assert [s.code for s in svc._project().source_systems] == ["CRM", "SHOP"]
 
 
-def test_a_password_typed_into_a_connection_is_never_written(svc):
+def test_a_password_typed_into_a_connection_is_never_written(svc, tmp_path):
     erp = {"id": 9, "code": "ERP", "name": "Finance ERP",
            "connections": {"dev": {"server_host": "sql-dev.local", "password": "hunter2-SECRET"}}}
     saved = svc.meta_save_source_system(erp)["source_systems"]
     assert [s["code"] for s in saved] == ["CRM", "SHOP", "ERP"]
-    assert "hunter2-SECRET" not in _file(svc).read_text()
     assert saved[2]["connections"]["dev"]["server_host"] == "sql-dev.local"
+    assert "hunter2-SECRET" not in repr(saved)
+    written = [f for f in tmp_path.rglob("*") if f.is_file() and b"hunter2-SECRET" in f.read_bytes()]
+    assert written == []  # not in the source systems file, nor any other file the save touched
 
 
 def test_a_key_notebook_needs_an_entity_with_keys(svc):

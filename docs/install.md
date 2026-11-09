@@ -95,6 +95,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Past 20 MB its older half is dropped. Attach it to a problem report if asked. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.prev.log` | The engine's log from the run before, kept when the app restarts the engine, so a crash's log survives. The support bundle includes both. |
+| `%LOCALAPPDATA%\FabricDesktop\app-crash.log` | Only after the app itself has crashed: when, which build and where. Nothing is uploaded; the support bundle includes it. |
 | `%LOCALAPPDATA%\FabricDesktop\local-data\` | Local data projects (Preview): each project's settings, registered folders and database. See [Local data projects](local-data.md). |
 | `%LOCALAPPDATA%\FabricDesktop\usage_imports\` | Measured usage you imported from Capacity Metrics app and Azure Cost Management exports (Preview), one file per import. See [Measured usage](finops/usage-import.md). |
 | `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` | The audit trail: one line for each thing you ran or changed. See [Audit trail](user-guide.md#audit-trail). |

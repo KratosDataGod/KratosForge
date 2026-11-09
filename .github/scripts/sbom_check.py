@@ -16,10 +16,14 @@ added to a lock file without both fails CI. Standard library only.
                         each with the hash of the file pip installed, which must be one the
                         requirements file pins. The engine's own package (built in CI) and the
                         embeddable Python (its pinned hash) are the only other entries.
+    vscode SBOM VSIX    the VS Code extension's SBOM (sbom_npm.py vscode) against the .vsix: it names the
+                        file by its SHA-256, lists every file inside it with its SHA-256 and no other,
+                        the .vsix holds no node_modules, and each build tool carries its lock file hash.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import re
@@ -221,6 +225,36 @@ def check_engine(sbom: dict, requirements: Path) -> list[str]:
     return problems
 
 
+def check_vscode(sbom: dict, vsix: Path) -> list[str]:
+    npm = _sbom_npm()
+    problems = []
+    sha = hashlib.sha256(vsix.read_bytes()).hexdigest()
+    head = sbom.get("metadata", {}).get("component", {})
+    if head.get("hashes") != [{"alg": "SHA-256", "content": sha}]:
+        problems.append(f"the VS Code extension's SBOM doesn't name {vsix.name} by its SHA-256 ({sha})")
+    inside = dict(npm.vsix_files(vsix))
+    listed = {c["name"]: c for c in sbom.get("components", []) if c.get("type") == "file"}
+    for path, digest in inside.items():
+        if "node_modules/" in path:
+            problems.append(f"{vsix.name} holds {path}: it is packaged with --no-dependencies, so it should hold no npm package")
+        got = listed.get(path)
+        if got is None:
+            problems.append(f"the VS Code extension's SBOM doesn't list {path}")
+        elif got.get("hashes") != [{"alg": "SHA-256", "content": digest}]:
+            problems.append(f"the VS Code extension's SBOM hash for {path} isn't the file's")
+    for path in sorted(set(listed) - set(inside)):
+        problems.append(f"the VS Code extension's SBOM lists {path}, which isn't in {vsix.name}")
+    refs = {c["bom-ref"]: c for c in sbom.get("components", [])}
+    for name, entry in npm.vscode_build_tools():
+        want = npm.component(name, entry, "vscode")
+        got = refs.get(want["bom-ref"])
+        if got is None:
+            problems.append(f"the VS Code extension's SBOM doesn't list its build tool {name} {entry.get('version')}")
+        elif not want.get("hashes") or got.get("hashes") != want["hashes"] or got.get("scope") != "excluded":
+            problems.append(f"the VS Code extension's SBOM entry for {name} {entry.get('version')} isn't its lock file hash, scope excluded")
+    return problems
+
+
 def _load(path: str) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -232,6 +266,8 @@ def main(argv: list[str]) -> int:
         problems = check_app(_load(argv[1]), _load(argv[2]))
     elif argv[:1] == ["ui"] and len(argv) == 2:
         problems = check_ui(_load(argv[1]))
+    elif argv[:1] == ["vscode"] and len(argv) == 3:
+        problems = check_vscode(_load(argv[1]), Path(argv[2]))
     elif argv[:1] == ["engine"] and len(argv) == 3:
         problems = check_engine(_load(argv[1]), Path(argv[2]))
     else:

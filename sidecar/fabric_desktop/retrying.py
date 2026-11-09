@@ -208,6 +208,14 @@ def data_upload_dropped(exc: BaseException) -> bool:
             and any(d in low for d in _DROPPED))
 
 
+def log_commit_dropped(exc: BaseException) -> bool:
+    """A table write that failed writing its Delta log entry on a dropped connection, a timeout or a
+    5xx: the commit may have gone in. It is never written again by itself (an append would be in the
+    table twice); the error says to check the table's history first."""
+    text = str(exc)
+    return "Error performing PUT" in text and "_delta_log" in text and any(d in text.lower() for d in _DROPPED)
+
+
 T = TypeVar("T")
 
 

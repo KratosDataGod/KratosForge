@@ -619,6 +619,8 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "INLINE_OUTER": _template(_INLINE_OUTER, 1),
     "ISNOTNULL": _template("(fj_arg0 IS NOT NULL)", 1),
     "ISNULL": _template("(fj_arg0 IS NULL)", 1),
+    # regexp(str, regex) is rlike and regexp_like under another name: a match anywhere in str
+    "REGEXP": lambda n, a: exp.RegexpLike(this=a[0].copy(), expression=a[1].copy()) if len(a) == 2 else None,
     "JSON_TUPLE": _json_tuple,
     "LOG1P": _template(_LOG1P, 1),
     "LUHN_CHECK": _template(_LUHN, 1),

@@ -557,3 +557,43 @@ def test_extract_and_date_part_give_sparks_value_and_type(query, want, kind):
 ])
 def test_to_unix_timestamp_reads_its_format_as_unix_timestamp_does(query, want):
     assert one(query) == want
+
+
+# Spark's cast functions, regexp and make_interval, against Apache Spark 3.5.5 (tools/capture_spark_builtins.py's
+# own examples, plus edge cases run in the same Spark): int('1.9') is Spark's CAST with ANSI off, so 1, not an error.
+CAST_FUNCTIONS = [
+    ("SELECT bigint(' 12 ')", 12),
+    ("SELECT bigint('1.9')", 1),
+    ("SELECT bigint('x')", None),
+    ("SELECT int('1.9')", 1),
+    ("SELECT smallint(-3.9)", -3),
+    ("SELECT tinyint('7')", 7),
+    ("SELECT decimal('12.5')", Decimal("13")),
+    ("SELECT decimal(-2.5)", Decimal("-3")),
+    ("SELECT binary('é')", b"\xc3\xa9"),
+    ("SELECT binary(NULL)", None),
+    ("SELECT regexp('Steven', 'Ste(v|ph)en')", True),
+    ("SELECT regexp('abc', '^b')", False),
+    ("SELECT regexp(NULL, 'a')", None),
+    ("SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)",
+     dt.datetime(2027, 4, 3, 4, 5, 6, 500000, tzinfo=dt.timezone.utc)),  # Spark's TIMESTAMP is the session's (UTC)
+]
+
+
+@pytest.mark.parametrize("query, expected", CAST_FUNCTIONS)
+def test_cast_functions_regexp_and_make_interval_give_sparks_value(query, expected):
+    assert one(query) == expected
+
+
+def test_databricks_sql_cast_functions_stay_ansi():
+    """Databricks SQL runs with ANSI on, so bigint('1.9') stops there as CAST('1.9' AS BIGINT) does."""
+    con = duckdb.connect()
+    statement = _databricks("SELECT bigint('1.9')")[0]
+    with pytest.raises(duckdb.Error, match="CAST_INVALID_INPUT"):
+        con.execute(sql.duckdb_sql(statement)).fetchall()
+
+
+def test_binary_of_a_number_is_refused_not_guessed():
+    """Spark writes a number's bytes (binary(12) is 0000000C); this PC stops and says so."""
+    with pytest.raises(duckdb.Error, match="binary\\(\\) of type INTEGER can't run on this PC"):
+        sql.run("SELECT binary(12)")

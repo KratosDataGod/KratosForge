@@ -4936,7 +4936,9 @@
         2370,
         2371,
         2380,
-        2385
+        2385,
+        2406,
+        2409
       ],
       "issues": [
         910,
@@ -5044,7 +5046,8 @@
         2222,
         2225,
         2226,
-        2290
+        2290,
+        2410
       ],
       "issues": [
         928,
@@ -5234,7 +5237,8 @@
         2379,
         2383,
         2388,
-        2389
+        2389,
+        2416
       ]
     },
     {
@@ -5725,7 +5729,8 @@
       "evidence": [
         "Proposal 2026-10-24",
         "#650 merged: the app never saves over a file another program changed",
-        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7"
+        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7",
+        "VS Code: a cell over 1 MB says so before anything is sent, a dropped check is asked again, and the editor channel bounds a refused request's body (#2402, #2404, #2412, #2421) on main at 17e7ea06"
       ],
       "features": [
         "FEAT-EXT-01",
@@ -5778,7 +5783,11 @@
         2303,
         2307,
         2309,
-        2377
+        2377,
+        2402,
+        2404,
+        2412,
+        2421
       ],
       "mandatory": "none",
       "computed": {
@@ -6533,7 +6542,8 @@
         "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45",
         "Prod and confirmed actions write their audit line first and don't run without it (#2205); an authorization matrix lists every state-changing call and its check (#2045); refused changes and returned failures leave audit rows (#2196, #2231); SBOMs cover npm and Python with checksums (#2191) on main at e5e6bec4",
         "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0",
-        "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045"
+        "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045",
+        "Secret scan in CI: commit ids aren't findings, and a pull request's reviewers are warned about filter changes and values added then removed (#2398, #2399, #2400); the agent's crash log tells a crash from a handled fault (#2405, #2407, #2418); expired local copies swept daily (#2401, #2403); a full disk tested on a real Windows volume (#2413) on main at 17e7ea06"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6690,7 +6700,17 @@
         2387,
         2391,
         2392,
-        2394
+        2394,
+        2398,
+        2399,
+        2400,
+        2401,
+        2403,
+        2405,
+        2407,
+        2413,
+        2415,
+        2418
       ],
       "issues": [],
       "computed": {

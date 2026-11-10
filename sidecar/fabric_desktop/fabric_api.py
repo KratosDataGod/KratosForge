@@ -6,7 +6,7 @@ import base64
 import re
 import time
 from typing import Any, Callable, Mapping, cast
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
 from urllib3.util import parse_url
@@ -176,6 +176,25 @@ FOLLOW_DOMAINS = ("fabric.microsoft.com", "powerbi.com", "analysis.windows.net")
 UNTRUSTED_URL = "UntrustedUrl"
 
 
+def _given(value: Any) -> str:
+    """A continuation from a page body, or "" for none (some APIs send the text "null")."""
+    return value if isinstance(value, str) and value and value != "null" else ""
+
+
+def next_page(body: Mapping[str, Any], url: str, first: str) -> str:
+    """The next page's URL from a Fabric list page, or "" on the last page. ``continuationUri`` is
+    followed when it's given (checked by followable_url); a page with only ``continuationToken`` is
+    read by sending the token with the first page's URL, so no list ends early on its first page."""
+    uri, token = _given(body.get("continuationUri")), _given(body.get("continuationToken"))
+    if uri:
+        return followable_url(uri, url)
+    if not token:
+        return ""
+    parts = urlsplit(first)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "continuationToken"]
+    return urlunsplit(parts._replace(query=urlencode([*query, ("continuationToken", token)])))
+
+
 def _sent_to(url: str) -> Any:
     """The URL as requests will send it, parsed the way urllib3 will connect to it. Checking the
     standard library's reading instead lets "https://evil.example\\.fabric.microsoft.com/" pass as a
@@ -266,18 +285,27 @@ class FabricClient:
         return resp
 
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
+        return self._pages(url, key)[0]
+
+    def _pages(self, url: str, key: str = "value", what: str = "") -> tuple[list[dict[str, Any]], str | None]:
+        """Every page of a Fabric list, and the first page's ETag. Each page is read once: a retried
+        request (throttling, 5xx) is retried inside _request, so its items are added only from the
+        answer that succeeded, never twice."""
         items: list[dict[str, Any]] = []
-        url = url if url.startswith("http") else f"{API}{url}"
-        pages = Pages(url.split("?", 1)[0][len(API):] or "Fabric", start=url)
+        first = url = url if url.startswith("http") else f"{API}{url}"
+        etag = None
+        pages = Pages(what or url.split("?", 1)[0][len(API):] or "Fabric", start=url)
         while url:
-            body = self._request("GET", url).json()
-            items.extend(body.get(key, []))
-            nxt = body.get("continuationUri")
+            resp = self._request("GET", url)
+            etag = etag or resp.headers.get("ETag")
+            body = resp.json()
+            items.extend(body.get(key) or [])
             try:
-                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""  # some APIs send the text "null"
+                url = next_page(body, url, first)
+                url = pages.follow(url) if url else ""
             except PagingError as exc:  # a FabricError, so callers that report Fabric errors report this one
                 raise FabricError(str(exc), "PagingStopped") from None
-        return items
+        return items, etag
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:
         """Follow a 202 long-running operation to its result. Once it has succeeded, the state's
@@ -539,9 +567,21 @@ class FabricClient:
         it reads run history and uses no capacity. Fabric needs the time window."""
         body = {"filters": [], "orderBy": [{"orderBy": "ActivityRunStart", "order": "DESC"}],
                 "lastUpdatedAfter": updated_after, "lastUpdatedBefore": updated_before}
-        data = self._request("POST", f"/workspaces/{workspace_id}/datapipelines/pipelineruns/{job_id}/queryactivityruns",
-                             json=body).json()
-        return data if isinstance(data, list) else (data or {}).get("value", [])
+        url = f"/workspaces/{workspace_id}/datapipelines/pipelineruns/{job_id}/queryactivityruns"
+        runs: list[dict[str, Any]] = []
+        pages = Pages(f"the activity runs of pipeline run {job_id}")
+        while True:
+            data = self._request("POST", url, json=body).json()
+            if isinstance(data, list):
+                return runs + data
+            runs += (data or {}).get("value") or []
+            token = _given((data or {}).get("continuationToken"))
+            if not token:
+                return runs
+            try:  # a query pages by sending its continuation back in the body
+                body = {**body, "continuationToken": pages.follow(token)}
+            except PagingError as exc:
+                raise FabricError(str(exc), "PagingStopped") from None
 
     def delete_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str) -> None:
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules/{schedule_id}")
@@ -755,21 +795,8 @@ class FabricClient:
     def list_data_access_roles_tagged(self, workspace_id: str, item_id: str) -> tuple[list[dict[str, Any]], str | None]:
         """The roles and the ETag Fabric gave the list, for put_data_access_roles(etag=) to refuse
         the write if someone changed the roles in between."""
-        url = f"{API}/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
-        items: list[dict[str, Any]] = []
-        etag = None
-        pages = Pages(f"the data access roles of item {item_id}", start=url)
-        while url:
-            resp = self._request("GET", url)
-            etag = etag or resp.headers.get("ETag")
-            body = resp.json()
-            items.extend(body.get("value", []))
-            nxt = body.get("continuationUri")
-            try:  # HD-058, as _paged; some APIs send the text "null"
-                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""
-            except PagingError as exc:
-                raise FabricError(str(exc), "PagingStopped") from None
-        return items, etag
+        return self._pages(f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles",
+                           what=f"the data access roles of item {item_id}")
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],
                               etag: str | None = None) -> None:

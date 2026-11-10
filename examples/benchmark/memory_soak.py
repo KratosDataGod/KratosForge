@@ -240,7 +240,8 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
         store.write("LH_Bronze", "dbo", table(), frame, mode="overwrite")
 
     def merge() -> None:
-        if loops == 0 or (os.environ.get("KF_SOAK_FRESH") and loops % int(os.environ["KF_SOAK_FRESH"]) == 0):
+        fresh = int(os.environ.get("KF_SOAK_FRESH") or 0)
+        if loops == 0 or (fresh and loops % fresh == 0):
             store.write("LH_Bronze", "dbo", table(), frame, mode="overwrite")
         store.upsert("LH_Bronze", "dbo", table(), frame.with_columns(pl.col("amount") + loops), on=["id"])
 

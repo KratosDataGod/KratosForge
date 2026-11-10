@@ -13,12 +13,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - {steps: overwrite, fresh: "100"}
+          - {steps: merge, fresh: "100"}
           - {steps: overwrite, fresh: "0"}
-          - {steps: merge, fresh: "0"}
-          - {steps: meta, fresh: "0"}
-          - {steps: writes, fresh: "100"}
     runs-on: windows-2025-vs2026
-    timeout-minutes: 40
+    timeout-minutes: 55
     defaults:
       run:
         working-directory: sidecar
@@ -36,4 +35,4 @@ jobs:
       - name: Soak
         env:
           KF_SOAK_FRESH: ${{ matrix.fresh }}
-        run: python ../examples/benchmark/memory_soak.py --minutes 20 --warmup 3 --steps "${{ matrix.steps }}" --json "$RUNNER_TEMP/soak.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: python ../examples/benchmark/memory_soak.py --minutes 35 --warmup 3 --steps "${{ matrix.steps }}" --json "$RUNNER_TEMP/soak.json" --summary "$GITHUB_STEP_SUMMARY"

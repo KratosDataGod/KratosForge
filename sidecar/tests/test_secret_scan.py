@@ -120,6 +120,17 @@ def test_an_added_line_that_looks_like_a_header_cant_hide_a_pragma():
     assert [line.split("::")[1] for line in out] == ["warning file=n.txt,line=4", "warning file=m.py,line=2"]
 
 
+def test_a_pull_request_that_changes_the_scans_filters_or_plugins_says_so():
+    before = {"results": {}, "filters_used": [{"path": "f.a"}], "plugins_used": [{"name": "AWSKeyDetector"}]}
+    after = {"results": {}, "filters_used": [{"path": "f.a"}, {"path": "f.regex", "pattern": ["x%y"]}], "plugins_used": []}
+    assert scan.newly_allowed(before, before) == []
+    assert scan.newly_allowed(after, before) == [
+        '::warning file=.secrets.baseline::This pull request adds to the secret scan\'s filters_used: '
+        '{"path": "f.regex", "pattern": ["x%25y"]}. Check it doesn\'t hide a real secret.',
+        '::warning file=.secrets.baseline::This pull request removes from the secret scan\'s plugins_used: '
+        '{"name": "AWSKeyDetector"}. Check it doesn\'t hide a real secret.']
+
+
 def test_a_commit_id_on_its_own_line_is_never_a_finding_but_anything_else_on_it_is():
     """Product checks and benchmarks record the commit they ran on, a new 40-hex value each time."""
     doc = json.loads((ROOT / ".secrets.baseline").read_text(encoding="utf-8"))

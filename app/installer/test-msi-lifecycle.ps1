@@ -18,8 +18,10 @@
      apps entry are gone.
   After every step the user data is unchanged, since the MSI never installs or removes it.
 
-  A rerun of an older CI run can be lower than the current Preview. Then steps 3 and 4 are skipped
-  with a warning, and this build is installed fresh before step 5.
+  Steps 3 and 4 need the Preview, so trouble with the Preview alone (no release, a hash that doesn't
+  match, an MSI that won't install) skips them with a warning, as does a Preview that isn't older
+  than this build (a rerun of an older CI run). This build is then installed fresh before step 5.
+  The step gates publishing, so a broken Preview never stops the build that fixes it.
 #>
 [CmdletBinding()]
 param(
@@ -132,40 +134,69 @@ $thisVersion = Get-MsiVersion $Msi
 $thisExe = (Get-FileHash -LiteralPath $Exe -Algorithm SHA256).Hash
 "This build: MSI $thisVersion, exe $thisExe"
 
-# The current Preview, from this repository's own release only.
-$prevDir = Join-Path $Work "preview"
-New-Item -ItemType Directory -Force -Path $prevDir | Out-Null
-$prevMsi = Join-Path $prevDir "kratosforge.msi"
-# A publish of main replaces the MSI before version.json, so a download in between can see the two
-# disagree for a moment: try again then, three times in all.
-foreach ($try in 1..3) {
-    gh release download latest --repo $Repo --pattern kratosforge.msi --pattern version.json --dir $prevDir --clobber
-    if ($LASTEXITCODE -ne 0) { throw "Couldn't download the Preview MSI from $Repo's latest release" }
-    $release = Get-Content -LiteralPath (Join-Path $prevDir "version.json") -Raw | ConvertFrom-Json
-    $expected = $release.msi_sha256
-    $actual = (Get-FileHash -LiteralPath $prevMsi -Algorithm SHA256).Hash.ToLower()
-    if ($expected -and $actual -eq $expected) { break }
-    if ($try -eq 3) { throw "The Preview MSI's SHA-256 ($actual) isn't the one its release lists ($expected)" }
-    Write-Warning "The Preview MSI doesn't match its version.json yet; trying again in 30 seconds."
-    Start-Sleep -Seconds 30
+# The current Preview, from this repository's own release only. Trouble with the Preview itself (no
+# release, a hash that doesn't match, an MSI that won't install) is a warning, not a failure: this
+# step gates publishing, so a broken Preview must not stop the build that fixes it. This build's own
+# install, upgrade, downgrade refusal and uninstall always fail the step.
+function Get-Preview {
+    $prevDir = Join-Path $Work "preview"
+    New-Item -ItemType Directory -Force -Path $prevDir | Out-Null
+    $path = Join-Path $prevDir "kratosforge.msi"
+    # A publish of main replaces the MSI before version.json, so a download in between can see the two
+    # disagree for a moment: try again then, three times in all.
+    foreach ($try in 1..3) {
+        gh release download latest --repo $Repo --pattern kratosforge.msi --pattern version.json --dir $prevDir --clobber | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "couldn't download it from $Repo's latest release" }
+        $release = Get-Content -LiteralPath (Join-Path $prevDir "version.json") -Raw | ConvertFrom-Json
+        $expected = $release.msi_sha256
+        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLower()
+        if ($expected -and $actual -eq $expected) {
+            $version = Get-MsiVersion $path
+            "Preview: MSI $version, sha256 $actual" | Write-Host
+            return @{ Msi = $path; Version = $version; Exe = $release.exe_sha256.ToUpper() }
+        }
+        if ($try -eq 3) { throw "its SHA-256 ($actual) isn't the one its release lists ($expected)" }
+        Write-Warning "The Preview MSI doesn't match its version.json yet; trying again in 30 seconds."
+        Start-Sleep -Seconds 30
+    }
 }
-$prevVersion = Get-MsiVersion $prevMsi
-"Preview: MSI $prevVersion, sha256 $actual"
 
-if ($prevVersion -lt $thisVersion) {
-    $r = Invoke-Msi "1-install-preview" "/i" $prevMsi
-    if ($r.Code -ne 0) { Show-Log $r; throw "The Preview MSI didn't install silently (exit $($r.Code))" }
-    # The MSI carries the same exe the release publishes, so version.json names it too.
-    $prevExe = $release.exe_sha256.ToUpper()
-    Assert-Installed $prevVersion $prevExe "1-install-preview"
-    Assert-UserData "1-install-preview"
+function Skip-Preview([string] $Why) {
+    Write-Host "::warning::The upgrade and downgrade checks were skipped: $Why"
+}
 
+$preview = $null
+try { $preview = Get-Preview } catch { Skip-Preview "the Preview MSI $($_.Exception.Message)." }
+if ($preview -and $preview.Version -ge $thisVersion) {
+    Skip-Preview "the Preview MSI ($($preview.Version)) isn't older than this build ($thisVersion), as on a rerun of an older CI run."
+    $preview = $null
+}
+
+if ($preview) {
+    $r = Invoke-Msi "1-install-preview" "/i" $preview.Msi
+    try {
+        if ($r.Code -ne 0) { throw "exit $($r.Code)" }
+        # The MSI carries the same exe the release publishes, so version.json names it too.
+        Assert-Installed $preview.Version $preview.Exe "1-install-preview"
+        Assert-UserData "1-install-preview"
+    } catch {
+        Show-Log $r
+        Skip-Preview "the Preview MSI didn't install cleanly ($($_.Exception.Message))."
+        Invoke-Msi "1-remove-preview" "/x" $preview.Msi | Out-Null
+        if (@(Get-Entries).Count -or (Test-Path -LiteralPath $InstallDir)) {
+            throw "The Preview MSI couldn't be removed after its failed install, so this build can't be checked from a clean start"
+        }
+        $preview = $null
+    }
+}
+
+if ($preview) {
     $r = Invoke-Msi "2-upgrade" "/i" $Msi
     if ($r.Code -ne 0) { Show-Log $r; throw "This build's MSI didn't upgrade the Preview (exit $($r.Code))" }
     Assert-Installed $thisVersion $thisExe "2-upgrade"
     Assert-UserData "2-upgrade"
 
-    $r = Invoke-Msi "3-downgrade" "/i" $prevMsi
+    $r = Invoke-Msi "3-downgrade" "/i" $preview.Msi
     if ($r.Code -eq 0) { Show-Log $r; throw "The older Preview MSI installed over this build; it should be refused" }
     $log = Get-Content -LiteralPath $r.Log -Raw
     if (-not $log.Contains($Downgrade)) { Show-Log $r; throw "The downgrade was refused, but not with the message: $Downgrade" }
@@ -173,7 +204,6 @@ if ($prevVersion -lt $thisVersion) {
     Assert-Installed $thisVersion $thisExe "3-downgrade"
     Assert-UserData "3-downgrade"
 } else {
-    Write-Warning "The Preview MSI ($prevVersion) isn't older than this build ($thisVersion), as on a rerun of an older CI run, so the upgrade and downgrade are skipped."
     $r = Invoke-Msi "2-install" "/i" $Msi
     if ($r.Code -ne 0) { Show-Log $r; throw "This build's MSI didn't install silently (exit $($r.Code))" }
     Assert-Installed $thisVersion $thisExe "2-install"

@@ -22,7 +22,7 @@ import sys
 import tempfile
 import threading
 import weakref
-from typing import Any
+from typing import Any, Callable
 
 import duckdb
 import pyarrow as pa
@@ -399,6 +399,8 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
+    "_catalog_call_in_fabric": "spark.catalog.listTables, listDatabases, listCatalogs, listFunctions or currentDatabase "
+                               "(REFUSED_CODE)",
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -412,6 +414,8 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
     (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
+    (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions|currentDatabase)\("),
+     _IN_FABRIC_TEXT.format("lists the catalog with spark.catalog (_catalog_calls)")),
 ]
 # DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
 DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
@@ -510,6 +514,12 @@ def _use(statement: Any) -> None:
     kind = str(statement.args.get("kind") or "").upper()
     target = statement.this
     parts = [p for p in (target.catalog, target.db, target.name) if p] if hasattr(target, "catalog") else [target.name]
+    _use_parts(kind, parts)
+
+
+def _use_parts(kind: str, parts: list[str], call: str = "") -> None:
+    """_use for ``parts`` (catalog and schema names); ``call`` names the call in the message when it isn't
+    USE itself (spark.catalog.setCurrentCatalog('main'))."""
     lh = lakehouse._attached
     home = lh.name.lower() if lh is not None else None
     catalogs = {"spark_catalog", *([home] if home else [])}
@@ -523,13 +533,56 @@ def _use(statement: Any) -> None:
         return
     named = ".".join(parts)
     where = f"the attached lakehouse ({lh.name})" if lh is not None else "the attached lakehouse"
+    said = call or f"USE {kind + ' ' if kind else ''}{named}"
     if kind == "CATALOG" or len(parts) == 2 and parts[0].lower() not in catalogs:
-        raise ValueError(f"USE {kind + ' ' if kind else ''}{named}: the catalog {parts[0]} (such as a Unity Catalog "
+        raise ValueError(f"{said}: the catalog {parts[0]} (such as a Unity Catalog "
                          f"catalog) isn't on this PC, so nothing changed. Tables here are in {where}. "
                          "Run the cell where that catalog is, or name tables as table or schema.table.")
-    raise ValueError(f"USE {kind + ' ' if kind else ''}{named}: on this PC an unqualified table name always resolves "
+    raise ValueError(f"{said}: on this PC an unqualified table name always resolves "
                      f"in {where}, schema dbo, so USE can't point it at {parts[-1]} and nothing changed. "
                      f"Name the schema in each table instead ({parts[-1]}.table).")
+
+
+def _catalog_call_in_fabric(call: str, why: str) -> None:
+    raise NotImplementedError(f"spark.catalog.{call} runs in Fabric. {why}")
+
+
+def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
+    """spark.catalog on this PC. DuckDB's Catalog answers about its own connection (its databases memory,
+    system and temp; its own tables), which isn't what a notebook asks, so each call answers about the
+    attached lakehouse and this session's temp views, or is refused by name."""
+    from duckdb.experimental.spark.sql.catalog import Column
+
+    def refuse(call: str, why: str) -> Callable[..., Any]:
+        return lambda *_a, **_kw: _catalog_call_in_fabric(call, why)
+
+    def list_columns(tableName: str, dbName: str | None = None) -> list[Column]:  # noqa: N803
+        frame = session.table(f"{dbName}.{tableName}" if dbName else tableName)
+        return [Column(name=f.name, description=None, dataType=f.dataType.simpleString(), nullable=f.nullable,
+                       isPartition=False, isBucket=False) for f in frame.schema.fields]
+
+    def set_catalog(catalogName: str) -> None:  # noqa: N803
+        _use_parts("CATALOG", [catalogName], f"spark.catalog.setCurrentCatalog({catalogName!r})")
+
+    def set_database(dbName: str) -> None:  # noqa: N803
+        _use_parts("SCHEMA", lakehouse.name_parts(dbName), f"spark.catalog.setCurrentDatabase({dbName!r})")
+
+    lists = ("On this PC it would list DuckDB's own objects, not the lakehouse's. The Explorer lists the attached "
+             "lakehouse's tables, and notebookutils.lakehouse.listTables() reads them.")
+    return {
+        "tableExists": lambda tableName, dbName=None: spark_api.table_exists(session, tableName, dbName),  # noqa: N803
+        "listColumns": list_columns,
+        "currentCatalog": lambda: "spark_catalog",
+        "setCurrentCatalog": set_catalog,
+        "setCurrentDatabase": set_database,
+        "listTables": refuse("listTables", lists),
+        "listDatabases": refuse("listDatabases", lists),
+        "listCatalogs": refuse("listCatalogs", "On this PC a notebook has one catalog: the attached lakehouse."),
+        "listFunctions": refuse("listFunctions", "docs/spark-functions.md lists every Spark function and how it "
+                                                 "runs on this PC."),
+        "currentDatabase": refuse("currentDatabase", "On this PC unqualified table names resolve in the attached "
+                                                     "lakehouse, schema dbo."),
+    }
 
 
 def _refuse_auto_merge(session: Any) -> None:
@@ -888,8 +941,7 @@ class LocalSparkSession(SparkSession):
         self._conf = spark_api.LocalRuntimeConfig(self)  # type: ignore[assignment]  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
-        vars(catalog).update(  # DuckDB's Catalog has no tableExists
-            tableExists=lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName))  # noqa: N803
+        vars(catalog).update(_catalog_calls(self))
 
     @property
     def sparkContext(self) -> spark_api.LocalSparkContext:  # type: ignore[override]  # noqa: N802

@@ -169,7 +169,8 @@ AREAS: tuple[Area, ...] = (
        local=Cell("partial", ("test_spark_catalog_names.py",),
                   note="No Unity Catalog on this PC: a notebook's tables are the attached lakehouse's. catalog.schema.table, "
                        "USE CATALOG, USE SCHEMA and backticked names read or write the table they name there, or are "
-                       "refused by name (another catalog or schema); none resolves to another table.")),
+                       "refused by name (another catalog or schema); none resolves to another table. spark.catalog's calls answer "
+                       "about the lakehouse and temp views, or are refused by name.")),
     _skinned("databricks", "jobs", "Jobs and Lakeflow pipelines",
        workflow=Cell("partial", ("test_skins.py", "test_databricks_runs_service.py"),
                      note="The skin names Monitor \"Jobs and pipelines\" and puts it where Databricks does; "

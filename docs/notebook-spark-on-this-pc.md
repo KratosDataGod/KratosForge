@@ -100,6 +100,12 @@ two hex digits is Spark's `CANNOT_DECODE_URL` error, and encoding keeps only `A-
 Decoding to bytes that aren't UTF-8 is refused by name, since Spark puts U+FFFD in their place. A quote or backslash in
 a map key, a struct field name or an unpivoted column's name is read as written.
 
+`withField` and `dropFields` edit a struct column as Spark's do: a field added, replaced or dropped, also in a nested
+struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, and the column named
+`update_fields(a, ...)`. The fields a struct has are read from the frame, so an edited struct works as a whole column of
+`select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
+name: select it first and use it from there.
+
 ### DataFrame: 85 of 102
 
 | Method | On this PC |

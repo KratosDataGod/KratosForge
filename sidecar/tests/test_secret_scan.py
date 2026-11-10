@@ -76,7 +76,8 @@ def test_ci_scans_a_pull_requests_changed_files_and_main_in_full_before_preview_
     job = CI.split("\n  secrets:\n", 1)[1].split("\n\n  ", 1)[0]
     assert "--require-hashes -r .github/requirements/secret-scan.txt" in job
     assert 'secret_scan.py added "$RUNNER_TEMP/base-baseline"' in job and "HEAD^1 HEAD | python .github/scripts/secret_scan.py pragmas" in job
-    assert "git diff -z --name-only --diff-filter=d HEAD^1 HEAD" in job and "fetch-depth: 2" in job
+    assert "git diff -z --name-only --diff-filter=d HEAD^1 HEAD" in job and "fetch-depth: 0" in job
+    assert "secret_scan.py commits HEAD^1 HEAD^2" in job, "each of a pull request's own commits"
     assert "xargs -0 python .github/scripts/secret_scan.py check" in job
     assert "            python .github/scripts/secret_scan.py check\n" in job, "a push to main scans every tracked file"
     assert "needs:" not in job, "docs-only changes are scanned too"
@@ -140,3 +141,16 @@ def test_a_commit_id_on_its_own_line_is_never_a_finding_but_anything_else_on_it_
     assert not skipped(f'    "commit": "{sha}", "token": "x"')
     assert not skipped(f'    "key": "{sha}",')
     assert not skipped(f'    "commit": "{sha.upper()}",')
+
+
+def test_a_value_a_pull_request_adds_and_later_takes_out_warns_once_naming_its_commit():
+    doc = _doc(**{"t.py": [{"type": "Secret Keyword", "hash": "aaa", "is_secret": False}]})
+    found = [("c1" * 20, "x.py", _secret("AWS Access Key", "bbb", 3)),  # added, then taken out
+             ("c2" * 20, "x.py", _secret("AWS Access Key", "bbb", 5)),  # the same value again: one warning
+             ("c2" * 20, "t.py", _secret("Secret Keyword", "aaa", 1)),  # reviewed
+             ("c3" * 20, "y.py", _secret("Secret Keyword", "ccc", 2)),  # still at HEAD: check reports it
+             ("c3" * 20, "z.py", _secret("Secret Keyword", "ccc", 9))]  # moved to y.py: HEAD still has it
+    out = scan.removed_later(doc, found, {("Secret Keyword", "ccc")})
+    assert len(out) == 1 and out[0].startswith("::warning file=x.py,line=3::Looks like a secret (AWS Access Key) "
+                                               "in commit c1c1c1c1c1c1. ")
+    assert "bbb" not in out[0]

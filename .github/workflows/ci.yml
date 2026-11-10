@@ -219,12 +219,13 @@ jobs:
   secrets:
     # Something that looks like a secret (a token, a key, a password in a connection string) fails the
     # build unless .secrets.baseline lists it as reviewed (.github/scripts/secret_scan.py, detect-secrets).
-    # A pull request scans the files it changes; a push to main scans every tracked file.
+    # A pull request scans the files it changes, and each of its commits for a value added and later taken
+    # out (still in its history); a push to main scans every tracked file.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 2  # a pull request's merge commit and its first parent, the base it merges into
+          fetch-depth: 0  # all history: a pull request's commits are those its head has and the base doesn't
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -240,6 +241,7 @@ jobs:
             git show HEAD^1:.secrets.baseline > "$RUNNER_TEMP/base-baseline" || true
             python .github/scripts/secret_scan.py added "$RUNNER_TEMP/base-baseline"
             git diff -U0 --no-color --no-ext-diff HEAD^1 HEAD | python .github/scripts/secret_scan.py pragmas
+            python .github/scripts/secret_scan.py commits HEAD^1 HEAD^2
             if [ -s "$RUNNER_TEMP/changed" ]; then
               xargs -0 python .github/scripts/secret_scan.py check < "$RUNNER_TEMP/changed"
             else

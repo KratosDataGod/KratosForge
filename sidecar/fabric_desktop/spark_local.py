@@ -22,7 +22,7 @@ import sys
 import tempfile
 import threading
 import weakref
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 import duckdb
 import pyarrow as pa
@@ -399,8 +399,9 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
-    "_catalog_call_in_fabric": "spark.catalog.listTables, listDatabases, listCatalogs, listFunctions or currentDatabase "
-                               "(REFUSED_CODE)",
+    "_catalog_call_in_fabric": ("spark.catalog.listTables, listDatabases, listCatalogs or listFunctions (REFUSED_CODE). "
+                                "currentDatabase is refused only with no lakehouse or one with schemas, which the "
+                                "check doesn't know, so it isn't flagged"),
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -414,7 +415,7 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
     (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
-    (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions|currentDatabase)\("),
+    (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions)\("),
      _IN_FABRIC_TEXT.format("lists the catalog with spark.catalog (_catalog_calls)")),
 ]
 # DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
@@ -543,7 +544,7 @@ def _use_parts(kind: str, parts: list[str], call: str = "") -> None:
                      f"Name the schema in each table instead ({parts[-1]}.table).")
 
 
-def _catalog_call_in_fabric(call: str, why: str) -> None:
+def _catalog_call_in_fabric(call: str, why: str) -> NoReturn:
     raise NotImplementedError(f"spark.catalog.{call} runs in Fabric. {why}")
 
 
@@ -557,9 +558,21 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
         return lambda *_a, **_kw: _catalog_call_in_fabric(call, why)
 
     def list_columns(tableName: str, dbName: str | None = None) -> list[Column]:  # noqa: N803
-        frame = session.table(f"{dbName}.{tableName}" if dbName else tableName)
+        name = f"{dbName}.{tableName}" if dbName else tableName
+        frame = session.table(name)
+        # A lakehouse table's partition columns are in its Delta log (a table Fabric wrote partitioned); a
+        # temp view has none.
+        local = "." not in name and session._is_local(name)
+        parts = set() if local else {c.lower() for c in lakehouse.open_table(name).metadata().partition_columns}
         return [Column(name=f.name, description=None, dataType=f.dataType.simpleString(), nullable=f.nullable,
-                       isPartition=False, isBucket=False) for f in frame.schema.fields]
+                       isPartition=f.name.lower() in parts, isBucket=False) for f in frame.schema.fields]
+
+    def current_database() -> str:
+        lh = lakehouse._attached
+        if lh is None or lh.schemas_enabled():
+            _catalog_call_in_fabric("currentDatabase", "On this PC unqualified table names resolve in the attached "
+                                                       "lakehouse, schema dbo.")
+        return lh.name  # Fabric's database is the default lakehouse
 
     def set_catalog(catalogName: str) -> None:  # noqa: N803
         _use_parts("CATALOG", [catalogName], f"spark.catalog.setCurrentCatalog({catalogName!r})")
@@ -580,8 +593,7 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
         "listCatalogs": refuse("listCatalogs", "On this PC a notebook has one catalog: the attached lakehouse."),
         "listFunctions": refuse("listFunctions", "docs/spark-functions.md lists every Spark function and how it "
                                                  "runs on this PC."),
-        "currentDatabase": refuse("currentDatabase", "On this PC unqualified table names resolve in the attached "
-                                                     "lakehouse, schema dbo."),
+        "currentDatabase": current_database,
     }
 
 

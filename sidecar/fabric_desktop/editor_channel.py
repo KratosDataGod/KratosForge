@@ -38,6 +38,7 @@ import json
 import math
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ from .integrations import peer
 from .redact import secrets as redact_secrets
 
 DISCARD_BYTES = 64 << 10  # a refused request's body read and dropped, so Windows doesn't reset the answer
+DISCARD_SECONDS = 2.0  # at most this long, however slowly the body comes
 MAX_BODY_BYTES = 1024 * 1024
 MAX_CONNECTIONS = 16  # open at once; each holds an engine thread until it ends
 MAX_WAIT_SECONDS = 25.0
@@ -314,11 +316,20 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._body_read = True
         try:
-            length = int(self.headers.get("Content-Length") or 0)
-            if 0 < length <= DISCARD_BYTES:
-                self.rfile.read(length)  # the connection's timeout bounds the wait
+            left = int(self.headers.get("Content-Length") or 0)
+            if not 0 < left <= DISCARD_BYTES:
+                return
+            deadline = time.monotonic() + DISCARD_SECONDS  # one byte every few seconds can't hold the thread
+            while left > 0 and (wait := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(wait)
+                chunk = self.rfile.read1(left)
+                if not chunk:
+                    break
+                left -= len(chunk)
         except (ValueError, OSError):
             pass  # silent-ok: the answer is sent either way; only its delivery on Windows is at stake
+        finally:
+            self.connection.settimeout(self.timeout)  # the answer is written with the usual timeout
 
     def _reply(self, status: int, payload: dict[str, Any]) -> None:
         self._discard_body()

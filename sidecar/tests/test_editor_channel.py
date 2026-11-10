@@ -251,6 +251,25 @@ def test_a_refused_requests_small_body_is_read_before_the_answer(paired):
     assert answer.startswith(b"HTTP/1.0 401 ") and b"not_paired" in answer
 
 
+def test_a_refused_requests_body_sent_slowly_doesnt_hold_the_answer(paired, monkeypatch):
+    """A body that comes a byte at a time is read for DISCARD_SECONDS at most, then answered."""
+    import socket
+
+    from fabric_desktop import editor_channel
+
+    monkeypatch.setattr(editor_channel, "DISCARD_SECONDS", 0.5)
+    svc, window, path = paired
+    with socket.create_connection(("127.0.0.1", window.port), timeout=10) as sock:
+        sock.sendall(f"POST /v1/run HTTP/1.1\r\nHost: 127.0.0.1:{window.port}\r\nContent-Type: application/json\r\n"
+                     "Content-Length: 1000\r\n\r\n".encode())
+        start = time.monotonic()
+        for _ in range(2):  # a byte at a time, then nothing: stop before the 0.5 s so nothing is left unread
+            sock.sendall(b" ")
+            time.sleep(0.15)
+        answer = sock.recv(65536)  # without the deadline it comes only after the 5 s idle timeout
+        assert answer.startswith(b"HTTP/1.0 401 ") and time.monotonic() - start < 3
+
+
 WRITE = "from fabric_desktop import lakehouse\nprint(lakehouse.write_refusal('LH_Gold', 'dbo', 'daily'))"
 
 

@@ -36,6 +36,13 @@ from .redact import describe
 _log = logging.getLogger(__name__)
 
 AUTHORITY = "https://login.microsoftonline.com/organizations"
+
+
+def authority_for(tenant: str = "") -> str:
+    """Where sign-in goes: any organization's work account (the account's own), or one organization's
+    tenant, named by its tenant id or domain (a guest signing in to the company that invited them;
+    organizations.py checks it first)."""
+    return f"https://login.microsoftonline.com/{tenant}" if tenant else AUTHORITY
 # Seconds MSAL waits for each sign-in call to Entra (MSAL's own default is to wait forever, so a
 # proxy that swallows the call hung sign-in with no message). The browser or Windows prompt itself
 # isn't bounded by this: only the calls MSAL makes.
@@ -415,8 +422,21 @@ def ended(result: dict | None) -> str:
 
 
 class Authenticator:
-    def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
+    tenant = ""  # the organization sign-in goes to; "" for the account's own (see __init__)
+    tenant_id: str | None = None
+    def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True,
+                 tenant: str = ""):
         self.client_id = client_id or MICROSOFT_CLIENT_ID
+        # The organization sign-in goes to (setting sign_in_tenant): "" for the account's own; else a
+        # tenant id or domain, for a guest working in the company that invited them. Same account,
+        # same saved sign-in: MSAL keeps one refresh token and a token per tenant.
+        self.tenant = ""
+        self.tenant_id = None
+        if (tenant or "").strip():
+            from .organizations import normalize, tenant_id_of
+            self.tenant = normalize(tenant)  # ValueError: never anything else in the sign-in address
+            self.tenant_id = tenant_id_of(self.tenant)
+        authority = authority_for(self.tenant)
         self.microsoft = self.client_id == MICROSOFT_CLIENT_ID  # no app registration
         self.cache_path = cache_path or default_cache_path()
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
@@ -440,13 +460,13 @@ class Authenticator:
         self.broker = False
         if self.microsoft and _broker_available():
             try:
-                self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
+                self.app = msal.PublicClientApplication(self.client_id, authority=authority, token_cache=self.cache,
                                                         enable_broker_on_windows=True, timeout=SIGN_IN_TIMEOUT)
                 self.broker = True
             except Exception as exc:  # noqa: BLE001 - the broker's runtime failed to load: sign in with the browser
                 _log.warning("Windows sign-in broker didn't start; using the browser: %s", describe(exc))
         if not self.broker:
-            self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
+            self.app = msal.PublicClientApplication(self.client_id, authority=authority, token_cache=self.cache,
                                                     timeout=SIGN_IN_TIMEOUT)
 
     def scopes_for(self, scopes: list[str]) -> list[str]:
@@ -638,6 +658,8 @@ class Authenticator:
         tenant's account is signed out again before its token is used."""
         from . import app_settings
         tenant = (result.get("id_token_claims") or {}).get("tid") or self.signed_in_tenant()
+        if getattr(self, "tenant", "") and not getattr(self, "tenant_id", None) and isinstance(tenant, str) and tenant:
+            self.tenant_id = tenant.lower()  # a domain that couldn't be looked up: the token says which tenant
         if app_settings.tenant_allowed(tenant):
             return
         self.sign_out()
@@ -695,7 +717,21 @@ class Authenticator:
         return home.split(".", 1)[0] if "." in home else None
 
     def signed_in_tenant(self) -> str | None:
-        """Directory (tenant) ID of the signed-in account; MSAL keeps it as "<object id>.<tenant id>"."""
+        """The directory (tenant) ID the app works in: the organization chosen for sign-in (a guest's host),
+        else the account's own. Fabric's workspaces, the Fabric view and data access roles all use this one."""
+        home = self.home_tenant()
+        if self.tenant and home:
+            return self.tenant_id
+        return home
+
+    def home_tenant(self) -> str | None:
+        """Directory (tenant) ID of the signed-in account's own organization; MSAL keeps it as
+        "<object id>.<tenant id>"."""
         accounts = self.app.get_accounts()
         home = accounts[0].get("home_account_id", "") if accounts else ""
         return home.split(".", 1)[1] if "." in home else None
+
+    def is_guest(self) -> bool:
+        """Signed in to an organization other than the account's own (a B2B guest there)."""
+        home, tenant = self.home_tenant(), self.signed_in_tenant()
+        return bool(home and tenant and home.lower() != tenant.lower())

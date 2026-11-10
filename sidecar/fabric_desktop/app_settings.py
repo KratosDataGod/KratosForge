@@ -81,6 +81,10 @@ Keys:
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
+    sign_in_tenant   the organization sign-in goes to, as a tenant id or a domain like northwind.com:
+                     a guest (B2B) account working in the company that invited it. Empty (default):
+                     the account's own organization. Set in the policy file, it is fixed and Settings
+                     hides Switch organization
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache, replay bundle copies) are deleted after this
                      many days unused;
@@ -206,6 +210,12 @@ MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motio
 DEFAULTS.update({"motion_level": 2} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
+
+# The organization sign-in goes to (auth.Authenticator, organizations.py): empty for the account's own.
+# People change it with Switch organization; IT can fix it in the policy file.
+DEFAULTS["sign_in_tenant"] = ""
+TYPES["sign_in_tenant"] = str
+USER_KEYS += ("sign_in_tenant",)
 
 # Schedules on this PC that also run while signed out of Windows (local_schedules, signed_out_tasks).
 # Policy only: the person ticks it per schedule; IT can turn the choice off.
@@ -481,6 +491,12 @@ def policy_problems() -> list[str]:
         elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
+        elif key == "sign_in_tenant" and value and not policy_sets_sign_in():
+            problems.append("sign_in_tenant is ignored, because the account signed in to this PC can change the "
+                            "policy file. Ask IT to push it so only administrators can change it")
+        elif key == "sign_in_tenant" and value and not _sign_in_tenant(value):
+            problems.append("sign_in_tenant must be a tenant id like 11111111-2222-3333-4444-555555555555 or a "
+                            "domain like northwind.com, so sign-in goes to the account's own organization")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 11111111-2222-3333-4444-555555555555"
                             + ("; with other values in it, no account can sign in"
@@ -609,7 +625,17 @@ def _in_range(key: str, value: Any) -> bool:
         return value in CHOICES[key]
     if key == "ui_skin":
         return _skin_id(value)
+    if key == "sign_in_tenant":
+        return _sign_in_tenant(value)
     return True
+
+
+def _sign_in_tenant(value: Any) -> bool:
+    from .organizations import normalize
+    try:
+        return isinstance(value, str) and bool(normalize(value))
+    except ValueError:
+        return False
 
 
 def _skin_id(value: Any) -> bool:
@@ -620,6 +646,13 @@ def _skin_id(value: Any) -> bool:
 def _telemetry_target(text: str) -> bool:
     from .telemetry import valid_connection_string
     return valid_connection_string(text)
+
+
+def policy_sets_sign_in() -> bool:
+    """Whether the policy file may choose the organization sign-in goes to (sign_in_tenant). That widens
+    where sign-in goes rather than narrowing it, so a file the signed-in account could change or have
+    planted (a shared PC) doesn't count: only one that only administrators can change."""
+    return not user_can_change(policy_path())
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -643,6 +676,8 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
+        if key == "sign_in_tenant" and policy.get(key) and not policy_sets_sign_in():
+            candidates = []  # a policy file this account could have written can't steer everyone's sign-in
         if key in ENV_VARS:
             candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:
@@ -689,6 +724,9 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in CHOICES and new not in (None, "", *CHOICES[key]):
             raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
+        if key == "sign_in_tenant" and new not in (None, ""):
+            from .organizations import normalize
+            new = normalize(new)
         if key == "ui_skin" and new not in (None, "") and not _skin_id(new):
             raise ValueError("ui_skin must be a skin id: lower-case letters, digits or hyphens")
         if key in SQL_RANGES:

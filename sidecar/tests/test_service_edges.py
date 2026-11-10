@@ -91,7 +91,7 @@ class Fabric:
 
 
 def test_sign_in_asks_for_both_tokens_and_sign_out_forgets_the_table_list(svc):
-    assert svc.sign_in() == {"user": "chris@contoso.com", "tenant": "tenant-1"}
+    assert svc.sign_in() == {"user": "chris@contoso.com", "tenant": "tenant-1", "guest": False, "organization": ""}
     assert svc.test_auth.asked == ["fabric", "storage"]
     svc._tables = {"pending": False, "items": {"lh": ["dbo.t"]}}
     assert svc.sign_out() == {"user": None}

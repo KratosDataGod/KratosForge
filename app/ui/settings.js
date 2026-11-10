@@ -69,10 +69,130 @@ async function signOut() {
   // A refused sign-out keeps the sign-in: saying "Signed out" over the error would leave it on this PC (#1437).
   if (!(await attempt(() => rpc("sign_out"), "Sign-out failed"))) return;
   await invoke("fabric_view_sign_out").catch(() => {});
-  Object.assign(state, { user: null, tenant: null, workspaces: null, openWorkspace: null });
+  Object.assign(state, { user: null, tenant: null, guest: false, organization: "", workspaces: null, openWorkspace: null });
   try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }
   toast("Signed out");
   go("home");
+}
+
+// ---------- organization: a guest signing in to the company that invited them ----------
+// Settings > Account > Switch organization, and "Guest of another company?" on the sign-in prompt
+// (app.js signInCallout). The engine checks a domain or tenant id before sign-in, then Microsoft signs
+// the same account in to that organization (organizations_service.py). Preview: untried on a live tenant.
+
+function orgName(org) {
+  return org ? (org.name || org.domain || org.tenant_id || "") : "";
+}
+
+// After a sign-in or a switch: who, which organization, and whether the account is a guest there.
+function setSignedIn(result) {
+  state.user = result.user;
+  state.tenant = result.tenant;
+  state.guest = !!result.guest;
+  state.organization = result.organization || "";
+}
+
+async function switchOrganizationDialog() {
+  const s = await attempt(() => rpc("organization_status"), "Couldn't read the organization");
+  if (!s) return;
+  if (s.fixed) {
+    toast("IT chose the organization KratosForge signs in to. To change it, ask IT.");
+    return;
+  }
+  // choice: "own", a recent organization's tenant id, or "new" (typed below and checked).
+  let choice = s.current?.tenant_id && s.recent.some((r) => r.tenant_id === s.current.tenant_id) ? s.current.tenant_id
+    : s.current ? "new" : "own";
+  let found = s.current && choice === "new" ? s.current : null;
+  const field = h("input", { type: "text", id: "org-domain", value: found ? (found.domain || found.tenant_id) : "",
+    placeholder: "northwind.com", autocomplete: "off", spellcheck: "false", "aria-describedby": "org-msg org-hint",
+    oninput: () => { found = null; mark(""); draw(); },
+    onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); check(); } } });
+  const msg = h("div", { id: "org-msg", class: "small", role: "status" });
+  const mark = (text, bad = false) => {
+    msg.textContent = text;
+    msg.className = `small ${bad ? "fail-text" : "ok-text"}`;
+    msg.setAttribute("role", bad ? "alert" : "status");
+    field.classList.toggle("bad", bad);
+    if (bad) field.setAttribute("aria-invalid", "true"); else field.removeAttribute("aria-invalid");
+  };
+  const checkBtn = btn("Check", null, () => check(), "tool outline");
+  async function check() {
+    const text = field.value.trim();
+    if (!text) { mark("Type the organization's domain, like northwind.com, or its tenant id.", true); return; }
+    checkBtn.disabled = true;
+    try {
+      found = await rpc("organization_check", { text });
+      mark(`Found ${orgName(found)}. Microsoft asks you to sign in next.`);
+    } catch (e) {
+      found = null;
+      mark(friendlyError(e).text, true);
+    } finally {
+      checkBtn.disabled = false;
+      draw();
+    }
+  }
+  const fieldBox = h("div", { class: "org-field" },
+    h("label", { for: "org-domain" }, h("b", {}, "Its domain or tenant id")),
+    h("div", { class: "row wrap" }, field, checkBtn), msg,
+    h("div", { id: "org-hint", class: "muted-text small" },
+      "Ask the company that invited you if you're not sure. A domain looks like northwind.com."));
+  const option = (value, title, sub) => h("label", { class: `choice-row${choice === value ? " selected" : ""}` },
+    h("input", { type: "radio", name: "org", value, checked: choice === value ? true : null,
+      onchange: () => { choice = value; draw(); if (value === "new") field.focus(); } }),
+    h("span", {}, h("b", {}, title), sub ? h("span", { class: "muted-text small" }, sub) : null));
+  const list = h("div", { class: "choices", role: "radiogroup", "aria-label": "Organizations" });
+  const go = h("button", { class: "tool primary", onclick: () => submit() }, "Sign in");
+  function target() {
+    if (choice === "own") return { tenant: "", name: s.home_domain ? `your own organization (${s.home_domain})` : "your own organization" };
+    if (choice === "new") return found ? { tenant: found.tenant_id, domain: found.domain, name: orgName(found) } : null;
+    const r = s.recent.find((x) => x.tenant_id === choice);
+    return r ? { tenant: r.tenant_id, domain: r.domain, name: orgName(r) } : null;
+  }
+  function draw() {
+    list.replaceChildren(
+      option("own", "Your own organization", s.home_domain || (s.user ? "" : "The one your work account belongs to")),
+      ...s.recent.map((r) => option(r.tenant_id, orgName(r), r.used ? `Used ${relTime(r.used * 1000)}` : "")),
+      option("new", "Another organization", "The company that invited you as a guest"));
+    fieldBox.hidden = choice !== "new";
+    const t = target();
+    go.disabled = !t;
+    go.textContent = t ? `Sign in to ${t.name}` : "Sign in";
+  }
+  async function submit() {
+    const t = target();
+    if (!t) return;
+    closeDialog();
+    const result = await attempt(() => rpc("organization_switch", { tenant: t.tenant, domain: t.domain || "" }),
+      "Couldn't sign in to that organization");
+    if (!result) return;  // the engine kept the organization it had
+    setSignedIn({ user: result.user, tenant: result.tenant, guest: result.guest, organization: result.guest ? orgName(result.current) : "" });
+    Object.assign(state, { workspaces: null, openWorkspace: null });
+    try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }
+    toast(result.guest ? `Signed in to ${orgName(result.current)} as a guest` : "Signed in to your own organization");
+    render();
+    loadWorkspaces();
+  }
+  draw();
+  showDialog("Switch organization", h("div", { class: "org-dialog" },
+    h("p", { class: "muted-text" }, "If another company invited you as a guest, sign in to its organization to see its Fabric workspaces. Your account stays the same."),
+    list, fieldBox), [btn("Cancel", null, closeDialog, "tool"), go]);
+  (choice === "new" ? field : list.querySelector("input:checked"))?.focus();
+}
+
+// Settings > Account: which organization sign-in goes to. Shown with preview features, and always
+// when the account is a guest or IT fixed the organization, so nobody is left in one without knowing.
+function organizationRow(org) {
+  if (!org || !(previewShown() || org.guest || org.fixed)) return null;
+  const name = org.current ? orgName(org.current) : "";
+  const own = org.home_domain ? `Your own (${org.home_domain})` : "Your own";
+  const title = h("span", {}, "Organization", " ", previewTag());
+  if (org.fixed) {
+    return settingRow(title, `${name || own}. IT chose this organization for sign-in. To change it, ask IT.`, null, "policy");
+  }
+  const help = org.current
+    ? `${name}${org.current.domain && org.current.domain !== name ? ` (${org.current.domain})` : ""}. Workspaces, lakehouses and runs in Fabric now come from ${name}.`
+    : `${own}. Guest of another company? Switch to its organization to see its workspaces.`;
+  return settingRow(title, help, btn("Switch organization", null, switchOrganizationDialog, "tool outline"));
 }
 
 // ---------- account menu ----------
@@ -810,7 +930,8 @@ function mailServerOnly() {
 
 async function renderSettings() {
   setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
-  const s = await loadSettings();
+  // The organization sign-in goes to is read alongside (reads only: no sign-in, no network).
+  const [s, org] = await Promise.all([loadSettings(), rpc("organization_status").catch(() => null)]);
   if (state.view !== "settings") return;
   if (!s) {
     setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"),
@@ -823,9 +944,11 @@ async function renderSettings() {
   // Account
   const account = h("section", { class: "card pad" }, h("h2", {}, "Account"),
     settingRow(state.user ? `Signed in as ${state.user}` : "Not signed in",
-      state.user ? (state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
+      state.user ? (org?.guest ? `Guest in ${orgName(org.current)}. Your home organization is ${org.home_domain || "another one"}.`
+        : state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
+    organizationRow(org),
     s.client_id.source !== "default" ? settingRow("Admin approval",
       "If sign-in says your organization needs to approve KratosForge, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {

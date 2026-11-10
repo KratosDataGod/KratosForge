@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:296` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:476` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (409)
+## 3. Engine methods that change something (412)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -406,6 +406,9 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `optimize_set_recommendation` | `sidecar/fabric_desktop/optimize_service.py:469` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
 | `optimize_share_local_runs` | `sidecar/fabric_desktop/optimize_service.py:378` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `optimize_switch` | `sidecar/fabric_desktop/optimize_service.py:164` | this PC | the signed-in Windows user's own files |
+| `organization_check` | `sidecar/fabric_desktop/organizations_service.py:49` | this PC | PermissionError |
+| `organization_status` | `sidecar/fabric_desktop/organizations_service.py:30` | this PC | organization policy |
+| `organization_switch` | `sidecar/fabric_desktop/organizations_service.py:58` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
 | `pbi_embed_token` | `sidecar/fabric_desktop/powerbi_embed_service.py:29` | this PC | the signed-in Windows user's own files |
 | `pipeline_run_cancel` | `sidecar/fabric_desktop/pipeline_service.py:308` | this PC | the signed-in Windows user's own files |
 | `pipeline_run_start` | `sidecar/fabric_desktop/pipeline_service.py:225` | Fabric or OneLake | Fabric's own rights |

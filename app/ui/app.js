@@ -395,8 +395,7 @@ document.addEventListener("keydown", (e) => {
 async function signIn() {
   const result = await attempt(() => rpc("sign_in"), "Sign-in failed");
   if (!result) return false;
-  state.user = result.user;
-  state.tenant = result.tenant;
+  setSignedIn(result);  // settings.js
   renderChrome();
   await loadWorkspaces();
   return true;
@@ -641,8 +640,16 @@ function renderChrome() {
   if (picture) account.replaceChildren(picture);
   else account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
-  account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
+  const guestIn = state.user && state.guest ? state.organization || "another organization" : "";
+  account.title = state.user ? `Signed in as ${state.user}${guestIn ? `, guest in ${guestIn}` : ""}` : "Sign in";
   account.setAttribute("aria-label", account.title);
+  // A guest's tag beside the account button: Fabric's workspaces now come from the host organization.
+  let tag = document.getElementById("account-guest");
+  if (guestIn && !tag) {
+    tag = h("span", { id: "account-guest", class: "guest-tag", "aria-hidden": "true" }, "Guest");
+    account.before(tag);
+  } else if (!guestIn) tag?.remove();
+  if (tag?.isConnected) tag.title = `Guest in ${guestIn}`;
 
   const railMain = railFeatures();  // skins.js adds the "KratosForge" label in a platform skin
   document.getElementById("rail-main").replaceChildren(...(typeof skinRailChildren === "function" ? skinRailChildren(railMain, railItem) : railMain.map(railItem)));
@@ -754,7 +761,10 @@ function signInCallout() {
   if (state.user) return null;
   return h("div", { class: "callout" }, icon("person", 20),
     h("span", {}, "Sign in to see your Fabric workspaces and lakehouses. Notebooks run on this PC either way."),
-    h("span", { class: "spacer" }), btn("Sign in", null, async () => { if (await signIn()) render(); }, "tool primary"));
+    h("span", { class: "spacer" }),
+    // A guest (B2B) account signs in to the company that invited it (settings.js), Preview.
+    previewShown() ? btn("Guest of another company?", null, switchOrganizationDialog, "tool link") : null,
+    btn("Sign in", null, async () => { if (await signIn()) render(); }, "tool primary"));
 }
 
 // ---------- Home, Create, Monitor ----------
@@ -3235,8 +3245,7 @@ function startMain() {
       // The engine answered, so this build works: after an update, the previous one can go (EA-024).
       invoke("confirm_started").catch(() => {});
       state.python = env.python;
-      state.user = env.user;
-      state.tenant = env.tenant;
+      setSignedIn(env);  // settings.js
       await loadSettings();
       if (typeof profileLoadAvatar === "function") profileLoadAvatar();  // profile.js; the account button's picture
       if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden

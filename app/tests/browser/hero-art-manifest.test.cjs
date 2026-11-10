@@ -70,7 +70,7 @@ test("every picture is in the asset log, and every page that shows art has a poo
   const log = fs.readFileSync(path.join(ROOT, "docs", "design", "assets.md"), "utf8");
   for (const e of heroArt()) assert.ok(log.includes(e.original), `${e.id}: add it to docs/design/assets.md`);
   const pages = new Set(heroArt().map((e) => e.page));
-  for (const page of ["home", "create", "workspace", "platform", "datamesh", "optimize", "monitor", "academy", "source", "settings", "profile"]) {
+  for (const page of ["home", "academy", "profile"]) {
     assert.ok(pages.has(page), `${page} has no header art`);
   }
 });
@@ -86,15 +86,15 @@ function picker(art) {
 
 test("the pick: a page's own pool only, the same all day, published and retired dates kept", () => {
   const pool = (page, n) => Array.from({ length: n }, (_, i) => ({ page, id: `${page}-hero-v${i + 1}` }));
-  const p = picker([...pool("create", 7), ...pool("home", 5),
+  const p = picker([...pool("academy", 7), ...pool("home", 5),
     { page: "solo", id: "solo-1" }, { page: "dated", id: "old", retire: "2026-12-01" }, { page: "dated", id: "new", published: "2026-12-01" },
     { page: "later", id: "later-1", published: "2027-01-01" }, { page: "later", id: "later-2", published: "2027-02-01" }]);
   const seen = new Set();
   for (let d = 1; d <= 28; d++) {
     const day = `2026-11-${String(d).padStart(2, "0")}`;
-    const pick = p.pick("create", day);
-    assert.strictEqual(pick.page, "create");
-    assert.strictEqual(p.pick("create", day), pick, "the same picture all day");
+    const pick = p.pick("academy", day);
+    assert.strictEqual(pick.page, "academy");
+    assert.strictEqual(p.pick("academy", day), pick, "the same picture all day");
     seen.add(pick.id);
     assert.strictEqual(p.pick("home", day).page, "home");
   }
@@ -104,8 +104,8 @@ test("the pick: a page's own pool only, the same all day, published and retired 
   assert.strictEqual(p.pick("dated", "2026-12-01").id, "new", "retired the day the new one is published");
   assert.strictEqual(p.pick("later", "2026-11-07").id, "later-1", "nothing published yet: the pool's first");
   assert.strictEqual(p.pick("nothing", "2026-11-07"), null, "no pool: the page keeps its plain heading");
-  p.pin.create = "create-hero-v3";
-  assert.strictEqual(p.pick("create", "2026-11-07").id, "create-hero-v3");
+  p.pin.academy = "academy-hero-v3";
+  assert.strictEqual(p.pick("academy", "2026-11-07").id, "academy-hero-v3");
 });
 
 test("the manifest is plain JSON inside a script the app loads", () => {

@@ -24,66 +24,6 @@ const HERO_ART = [
     "published": "2026-11-07"
   },
   {
-    "page": "create",
-    "id": "create-hero-v1",
-    "file": "create/create-hero-v1",
-    "original": "docs/design/art/create/create-hero-v1.png",
-    "sky": 0.3,
-    "alt": "",
-    "description": "Kratos and the wolf over the blueprint",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "workspace",
-    "id": "workspace-hero-v1",
-    "file": "workspace/workspace-hero-v1",
-    "original": "docs/design/art/workspace/workspace-hero-v1.png",
-    "sky": 0.4,
-    "alt": "",
-    "description": "The wolf on the rock in a blue cape",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "platform",
-    "id": "platform-hero-v1",
-    "file": "platform/platform-hero-v1",
-    "original": "docs/design/art/platform/platform-hero-v1.png",
-    "sky": 0.4,
-    "alt": "",
-    "description": "Kratos and the wolf beside the floating island network",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "datamesh",
-    "id": "datamesh-hero-v1",
-    "file": "datamesh/datamesh-hero-v1",
-    "original": "docs/design/art/datamesh/datamesh-hero-v1.png",
-    "sky": 0.4,
-    "alt": "",
-    "description": "Kratos forging armour on the wolf-crest anvil, the wolf beside him",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "optimize",
-    "id": "optimize-hero-v1",
-    "file": "optimize/optimize-hero-v1",
-    "original": "docs/design/art/optimize/optimize-hero-v1.png",
-    "sky": 0.4,
-    "alt": "",
-    "description": "Kratos sharpening a blade on the wolf-crest grindstone, the wolf beside him",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "monitor",
-    "id": "monitor-hero-v1",
-    "file": "monitor/monitor-hero-v1",
-    "original": "docs/design/art/monitor/monitor-hero-v1.png",
-    "sky": 0.33,
-    "alt": "",
-    "description": "The caped wolf on a rock above a sunrise valley",
-    "published": "2026-11-07"
-  },
-  {
     "page": "academy",
     "id": "academy-hero-v1",
     "file": "academy/academy-hero-v1",
@@ -91,26 +31,6 @@ const HERO_ART = [
     "sky": 0.3,
     "alt": "",
     "description": "Kratos reading a glowing wolf codex by the forge",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "source",
-    "id": "source-hero-v1",
-    "file": "source/source-hero-v1",
-    "original": "docs/design/art/source/source-hero-v1.png",
-    "sky": 0.3,
-    "alt": "",
-    "description": "Kratos and the wolf at a war-room table with a glowing branch graph",
-    "published": "2026-11-07"
-  },
-  {
-    "page": "settings",
-    "id": "settings-hero-v1",
-    "file": "settings/settings-hero-v1",
-    "original": "docs/design/art/settings/settings-hero-v1.png",
-    "sky": 0.33,
-    "alt": "",
-    "description": "Kratos raising a glowing wolf gear above a row of gears, the wolf beside him",
     "published": "2026-11-07"
   },
   {

@@ -145,12 +145,8 @@ const MESH_CONTEXT = {
 function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
   const slots = meshSlotsFor(state.meta.tab, context);
   if (actions) slots.actions.replaceChildren(...actions.filter(Boolean));
-  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
-  // tab's line and its buttons (up to three, and they change by tab) stay under it, buttons at the right.
-  const hero = typeof pageHero === "function" ? pageHero("datamesh", "Data mesh") : null;
-  return h("div", { class: hero ? "page mesh-page living-head" : "page mesh-page" },
-    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, slots.context, intro), slots.actions)]
-      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
+  return h("div", { class: "page mesh-page" },
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
     ...tabs,
     ...banners, slots.banners,
     h("div", { class: "row mesh-view-row" }, groupSeg, slots.views, h("span", { class: "spacer" }), slots.tools,
@@ -161,8 +157,7 @@ function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
 // ---------- main page ----------
 
 async function renderMetadata() {
-  const hero = typeof pageHero === "function" ? pageHero("datamesh", "Data mesh") : null;
-  setView(h("div", { class: hero ? "page living-head" : "page" }, hero || h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
+  setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
   if (state.view !== "metadata") return;
   // The mesh's own tabs need no project, so they show even when the project couldn't be read.

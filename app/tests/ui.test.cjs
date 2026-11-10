@@ -3062,8 +3062,8 @@ test("every page links to its section of the user guide", () => {
   for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
   assert.ok(views.size > 15, `only ${views.size} pages found`);
   // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state,
-  // Monitor's is in monitorAbout beside its tabs, and Source control's in gitTitle beside its repository.
-  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout", source: "gitTitle" };
+  // and Monitor's is in monitorAbout beside its tabs.
+  const elsewhere = { notebook: null, agent: "agAdvice", monitor: "monitorAbout" };
   const missing = [...views].filter(([view, fn]) => {
     if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
     return !/learnMore\(|howItWorks\(/.test(body(fn));

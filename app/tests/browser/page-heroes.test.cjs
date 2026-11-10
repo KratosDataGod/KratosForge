@@ -1,6 +1,6 @@
-// The tab headers (home-hero.js pageHero, Preview): Chris's approved artwork on Create, Workspaces,
-// Platform, Data mesh, Optimize, Monitor, Academy, Source control, Settings and Profile, with the tab's name and
-// its actions as real UI in the navy sky at left. Run it as harness.cjs says; SCREENSHOT_DIR saves a picture of each page at each width.
+// The tab headers (home-hero.js pageHero, Preview): Chris's approved artwork on Academy and Profile, the
+// progression pages, with the tab's name and its actions as real UI in the navy sky at left. Working pages
+// keep a plain heading: RPG art is for ranks, progression and achievements only. Run it as harness.cjs says; SCREENSHOT_DIR saves a picture of each page at each width.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -13,17 +13,19 @@ const RATIO = 2172 / 724;
 // Each page with header art: its view and its h1. Every picture in the page's pool (art/experience/heroes.js)
 // is checked against the sky line its manifest entry gives.
 const PAGES = [
-  { view: "create", name: "create", title: "Create", actions: ["New notebook", "New lakehouse"] },
-  { view: "workspaces", name: "workspace", title: "Workspaces" },
-  { view: "platform", name: "platform", title: "Platform" },
-  { view: "metadata", name: "datamesh", title: "Data mesh" },
-  { view: "optimize", name: "optimize", title: "Optimize" },
   { view: "academy", name: "academy", title: "Academy", prep: () => { academyPage.open = null; } },
-  { view: "source", name: "source", title: "Source control" },
-  { view: "settings", name: "settings", title: "Settings" },
   { view: "profile", name: "profile", title: "Profile", prep: () => { profilePage.tab = "overview"; } },
-  // With the Forge view off: its band carries #2226's own Monitor art, and the header steps aside for it.
-  { view: "monitor", name: "monitor", title: "Monitor", prep: () => { forgeActivity.on = false; monitorPage.panel = "runs"; } },
+];
+// Working pages: never header art, whatever the motion level or Preview.
+const PLAIN = [
+  { view: "create", title: "Create" },
+  { view: "workspaces", title: "Workspaces" },
+  { view: "platform", title: "Platform" },
+  { view: "metadata", title: "Data mesh" },
+  { view: "optimize", title: "Optimize" },
+  { view: "source", title: "Source control" },
+  { view: "settings", title: "Settings" },
+  { view: "monitor", title: "Monitor" },
 ];
 const WIDTHS = [1920, 1440, 1330, 1251, 1200, 1181, 1101, 1041, 1000, 961, 850, 700];
 
@@ -102,14 +104,13 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
   });
 }
 
-test("Monitor shows one picture: no header above the Forge Activity band", { skip }, async () => {
+test("Working pages keep a plain heading, with no header art", { skip }, async () => {
   await mode(2, true);
-  await page().evaluate(() => { forgeActivity.on = true; monitorPage.panel = "runs"; });
-  await open("monitor");
-  await page().locator("#view h1").getByText("Monitor", { exact: true }).waitFor();
-  assert.strictEqual(await page().locator(".monitor-hero").count(), 0);
-  if (await page().evaluate(() => forgeViewShown() && forgeViewOn())) assert.strictEqual(await page().locator(".forge-slot").count(), 1);
-  await page().evaluate(() => { forgeActivity.on = null; });
+  for (const p of PLAIN) {
+    await open(p.view);
+    await page().locator("#view h1").first().waitFor();
+    assert.strictEqual(await page().locator(".home-hero").count(), 0, p.title);
+  }
 });
 
 test("Profile > Ranks shows no page header: the tab has its own banner", { skip }, async () => {
@@ -123,7 +124,7 @@ test("Profile > Ranks shows no page header: the tab has its own banner", { skip 
 test("Professional and preview off keep each page's plain heading", { skip }, async () => {
   for (const [motion, preview] of [[0, true], [2, false]]) {
     await mode(motion, preview);
-    for (const p of PAGES.filter((x) => preview || !["platform", "optimize", "academy"].includes(x.view))) {
+    for (const p of PAGES.filter((x) => preview || x.view !== "academy")) {
       await open(p.view);
       await page().locator("#view h1").first().waitFor();
       assert.strictEqual(await page().locator(".home-hero").count(), 0, `${p.title} motion ${motion} preview ${preview}`);

@@ -80,13 +80,11 @@ part the skin leaves out keeps KratosForge's own look (the first choice listed).
 | Part | Choices |
 | --- | --- |
 | `font` | `segoe-variable`, `segoe`, `dm-sans`, `inter` |
-| `header` | `light`, `brand`, `dark`, `none`, `hero` (KratosForge skin only) |
+| `header` | `light`, `brand`, `none` |
 | `rail` | `stacked` (icon above label), `inline` (icon beside label) |
 | `corners` | `soft`, `square`, `round` |
 | `tabs` | `underline`, `boxed`, `pill` |
 | `cells` | `bordered`, `card`, `flat`, `rounded` |
-| `buttons` | `accent`, `forge` |
-| `tiles` | `plain`, `duotone` |
 | `icons` | `regular`, `light`, `bold` |
 
 The app marks the page with one attribute per part, such as `data-skin-rail="inline"`. The built-in
@@ -110,15 +108,19 @@ What each choice draws so far:
 
 - **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
   its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
-  its room. It uses the rail's own colors, so it works on a light or a dark rail.
+  its room, and in a window shorter than 640 px it shows icons only, like the app's own rail.
 - **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
   text, buttons and lettering turn to `--on-accent`, and the search box sits on `--accent-dark`. `none`
   blends the bar into the canvas, without its line. The bar keeps search, the breadcrumb, Activity and
-  the account in every skin. `dark` and `hero` belong to the KratosForge skin's redraw and draw as
-  `light` until it lands.
+  the account in every skin.
 
-The other parts (tabs, cells, buttons, tiles) are marked on the page but not drawn yet. They come in the
-next Preview changes.
+The other parts (tabs, cells) are marked on the page but not drawn yet. They come in the next Preview
+changes.
+
+The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look.
+
+The choices are plain platform looks. None adds art or game styling to controls, the rail, the app bar,
+type or data panels; the KratosForge skin keeps its light shell.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See

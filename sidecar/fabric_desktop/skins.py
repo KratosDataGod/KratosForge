@@ -42,20 +42,17 @@ COLOR_MODES = ("light", "dark")
 DENSITIES = ("comfortable", "compact")
 # appearance.style: how the app is drawn, as fixed choices only (mockup "skin look and feel"). The app
 # maps each choice to its own CSS and bundled fonts, so a skin never carries CSS, fonts or images. The
-# first choice of each is the KratosForge look today, used when a skin doesn't say.
+# first choice of each is the KratosForge look today, used when a skin doesn't say. The choices are plain
+# platform looks: no art or game styling on controls, the rail, the app bar or type.
 STYLE: dict[str, tuple[str, ...]] = {
     "font": ("segoe-variable", "segoe", "dm-sans", "inter"),
-    "header": ("light", "brand", "dark", "none", "hero"),
+    "header": ("light", "brand", "none"),
     "rail": ("stacked", "inline"),
     "corners": ("soft", "square", "round"),
     "tabs": ("underline", "boxed", "pill"),
     "cells": ("bordered", "card", "flat", "rounded"),
-    "buttons": ("accent", "forge"),
-    "tiles": ("plain", "duotone"),
     "icons": ("regular", "light", "bold"),
 }
-# The hero header carries KratosForge's own art, so only the KratosForge skin may use it.
-NATIVE_ONLY = {("header", "hero")}
 
 # The tokens on styles.css's :root a skin may set (test_skins.py keeps this list inside that file's).
 TOKENS = (
@@ -234,7 +231,7 @@ def _commands(commands: Any, problems: list[str]) -> None:
             taken.setdefault(key, cmd)
 
 
-def _style(style: Any, skin_id: Any, problems: list[str]) -> None:
+def _style(style: Any, problems: list[str]) -> None:
     """appearance.style: each key from STYLE, each value one of its fixed choices."""
     if not isinstance(style, dict):
         problems.append("appearance style must be an object of part: choice")
@@ -246,8 +243,6 @@ def _style(style: Any, skin_id: Any, problems: list[str]) -> None:
         value = style[part]
         if value not in choices:
             problems.append(f"appearance style {part} must be one of {', '.join(choices)}")
-        elif (part, value) in NATIVE_ONLY and skin_id != "kratosforge":
-            problems.append(f"appearance style {part} {value} is for the KratosForge skin only")
 
 
 def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
@@ -296,7 +291,7 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
     if appearance.get("density", "comfortable") not in DENSITIES:
         problems.append(f"appearance density must be one of {', '.join(DENSITIES)}")
     if "style" in appearance:
-        _style(appearance["style"], manifest.get("id"), problems)
+        _style(appearance["style"], problems)
     tokens = appearance.get("tokens", {})
     if not isinstance(tokens, dict):
         problems.append("appearance tokens must be an object with light and dark")

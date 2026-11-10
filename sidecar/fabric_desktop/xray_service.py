@@ -24,6 +24,7 @@ from .meta.templates import _columns_toml, _dtype_name
 from .optimize.outbox import ANALYSIS
 from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
+from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -530,9 +531,11 @@ class XRayMixin:
         """Every dataflow Power BI lists in the workspace: Gen1 and Dataflow Gen2 without CI/CD, which
         Fabric's items API leaves out ({"objectId", "name"}). Raises when it can't be read."""
         token = self.auth._token(POWERBI_DATAFLOW_SCOPES)  # type: ignore[attr-defined]
-        r = http_session.session().get(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/dataflows",
-                                       headers={"Authorization": f"Bearer {token}"}, timeout=30)
-        r.raise_for_status()
+        http = http_session.session()
+        r = send_with_retry(lambda: http.get(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/dataflows",
+                                             headers={"Authorization": f"Bearer {token}"}, timeout=30), "GET")
+        if r.status_code >= 400:  # the status only: Power BI's body isn't shown
+            raise RuntimeError(f"Power BI answered {r.status_code}")
         return list(r.json().get("value") or [])
 
     def xray_staging_preview(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:

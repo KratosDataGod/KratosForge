@@ -993,8 +993,8 @@ class LocalSparkSession(SparkSession):
         if isinstance(statement, exp.TruncateTable) or (
                 isinstance(statement, exp.Drop) and str(statement.args.get("kind", "")).upper() == "TABLE"):
             tables = statement.expressions if isinstance(statement, exp.TruncateTable) else statement.args.get("tables") or []
-            names = [".".join(p for p in (t.db, t.name) if p) for t in tables
-                     if t.db or not self._is_local(t.name)]
+            names = [_sql.table_name(t) for t in tables  # with its catalog: DROP TABLE IF EXISTS main.dbo.t is refused
+                     if t.db or t.catalog or not self._is_local(t.name)]
             if names:
                 if isinstance(statement, exp.Drop) and statement.args.get("exists") \
                         and not any(lakehouse.table_exists(n) for n in names):

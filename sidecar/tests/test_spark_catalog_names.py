@@ -98,3 +98,17 @@ def test_name_parts_reads_backticks_as_spark_does(name, parts):
 def test_an_unclosed_backtick_is_refused():
     with pytest.raises(ValueError, match="backtick isn't closed"):
         lakehouse.name_parts("`dbo.sales")
+
+
+@pytest.mark.parametrize("code, says", [
+    ("spark.sql('DESCRIBE HISTORY `dbo.sales`').collect()", "one name with a dot in it"),
+    ("spark.sql('DESCRIBE HISTORY main.dbo.sales').collect()", f"main {CATALOG}"),
+    ("spark.sql('DROP TABLE IF EXISTS main.dbo.gone')", f"main {CATALOG}"),
+])
+def test_history_and_drop_name_the_same_table_or_refuse(lake, code, says):  # noqa: F811
+    status, text = run(code)
+    assert status == "error" and says in text
+
+
+def test_history_of_the_lakehouses_own_table_still_reads(lake):  # noqa: F811
+    assert run("spark.sql('DESCRIBE HISTORY `Sales`.`dbo`.`sales`').count()") == ("ok", "1")

@@ -1394,7 +1394,7 @@ def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
     if not (isinstance(statement, exp.Describe) and str(statement.args.get("style") or "").upper() == "HISTORY"):
         return statement
     table = statement.this
-    name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+    name = table_name(table)  # `dbo.sales` stays one name, so it's refused rather than read as dbo.sales
     view = f"__lakehouse_history_{len(views)}"
     views[f"history:{name.lower()}:{len(views)}"] = view
     con.register(view, _lakehouse().table_history(name).to_arrow())

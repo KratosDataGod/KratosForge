@@ -788,6 +788,21 @@ jobs:
             app/src-tauri/target/release/kratosforge.exe
             app/src-tauri/target/release/kratosforge.msi
           if-no-files-found: error
+      # The MSI on a real Windows machine: the current Preview MSI installed silently, this build's MSI
+      # over it, the Preview again (refused as a downgrade), then a silent uninstall, with the user's
+      # settings, notebook and sign-in cache untouched throughout (docs/enterprise-install.md).
+      - name: Install, upgrade, downgrade and uninstall the MSI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ..\installer\test-msi-lifecycle.ps1 -Msi target\release\kratosforge.msi -Exe target\release\kratosforge.exe -Work "$env:RUNNER_TEMP\msi-lifecycle"
+      - name: Keep the MSI logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: msi-lifecycle-logs
+          path: ${{ runner.temp }}/msi-lifecycle/*.log
+          if-no-files-found: ignore
 
   release:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new

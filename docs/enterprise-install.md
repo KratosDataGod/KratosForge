@@ -52,6 +52,8 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 | The exe's own switches | None for installing: `kratosforge.exe` isn't an installer, and starting it is the whole install. The only arguments it takes are a `kratosforge://` link, the ones Windows Task Scheduler passes for a schedule, and the one it passes itself after an update |
 | Repair | None runs on its own. The shortcut isn't advertised, so starting the app never triggers a repair that would undo a self-update |
 
+CI checks the MSI on a Windows runner for every build ([`app/installer/test-msi-lifecycle.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/app/installer/test-msi-lifecycle.ps1)). It installs the current Preview MSI silently and puts this build's MSI over it, which leaves one entry in Installed apps. It then tries the Preview MSI again and checks that it's refused with the message above. Last, it uninstalls silently and checks that the program folder, the shortcut and the two values are gone. A settings file, a notebook and a sign-in cache in `%LOCALAPPDATA%\FabricDesktop` stay unchanged through every step. The app isn't started.
+
 **UNVERIFIED on Windows:**
 - an uninstall while the app is open;
 - an uninstall after the app has updated itself in that folder (a leftover `kratosforge.exe.old` would keep the folder from being removed).

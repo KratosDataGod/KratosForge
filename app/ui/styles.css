@@ -1092,7 +1092,7 @@ body.pop-out .page.monitor { padding: 12px; }
 .home-latest-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .home-latest-name { font-size: 16px; }
 .home-latest-xp { font-size: 17px; font-weight: 700; color: var(--lx-7); }
-/* Forge stats: label, value and the week's change in three columns. */
+/* Your activity: label, value and the week's change in three columns. */
 .home-stats-head { display: flex; align-items: center; gap: 6px; }
 .home-stats-icon { fill: var(--text); flex: none; }
 .home-stat { display: grid; grid-template-columns: 1fr auto 64px; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--border-soft); }

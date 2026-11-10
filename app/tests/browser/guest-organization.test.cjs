@@ -84,11 +84,19 @@ test("Guest of another company? checks the domain first, then signs in to it as 
   assert.doesNotMatch(await dialog.innerText(), /ValueError|Error:/);
   assert.strictEqual(await field.getAttribute("aria-invalid"), "true");
   assert.ok(await go.isDisabled());
+  // and it looks off, not like a button that works (UX review)
+  const look = await go.evaluate((b) => getComputedStyle(b).cursor);
+  assert.strictEqual(look, "not-allowed");
 
   await field.fill("northwind.com");
   await field.press("Enter");
   await dialog.getByText("Found northwind.com. Microsoft asks you to sign in next.").waitFor();
   assert.strictEqual(await go.innerText(), "Sign in to northwind.com");
+  await field.fill("northwind.comx");
+  assert.ok(await go.isDisabled(), "editing the field needs a new check");
+  await field.fill("northwind.com");
+  await field.press("Enter");
+  await dialog.getByText("Found northwind.com. Microsoft asks you to sign in next.").waitFor();
   assert.deepStrictEqual(calls(from, "organization_switch"), [], "checking signs nobody in");
   await go.click();
   await dialog.waitFor({ state: "detached" });

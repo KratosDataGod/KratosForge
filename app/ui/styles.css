@@ -184,6 +184,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .org-field { display: flex; flex-direction: column; gap: 6px; }
 .org-field input[type=text] { flex: 1 1 200px; min-width: 0; }
 .org-field input.bad { border-color: var(--danger); }
+.tool.primary.org-go:disabled { background: var(--border); border-color: var(--border); color: var(--muted); cursor: not-allowed; }
 .ok-text { color: var(--ok); }
 
 /* Layout */

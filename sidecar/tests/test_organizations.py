@@ -123,7 +123,8 @@ def test_sign_in_tenant_is_a_setting_people_change_and_it_is_kept_tidy():
     assert app_settings.load()["sign_in_tenant"]["source"] == "default"
 
 
-def test_policy_can_fix_the_organization_and_a_bad_value_is_ignored_and_reported(tmp_path):
+def test_policy_can_fix_the_organization_and_a_bad_value_is_ignored_and_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_settings, "POLICY_SETS_SIGN_IN", True)
     _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
     assert app_settings.load()["sign_in_tenant"] == {"value": "northwind.com", "source": "policy"}
     with pytest.raises(ValueError, match="Your organization sets sign_in_tenant"):
@@ -131,6 +132,14 @@ def test_policy_can_fix_the_organization_and_a_bad_value_is_ignored_and_reported
     _policy(tmp_path, {"sign_in_tenant": "not a tenant"})
     assert app_settings.load()["sign_in_tenant"]["value"] == ""
     assert any("sign_in_tenant must be" in p for p in app_settings.policy_problems())
+
+
+def test_this_build_never_takes_the_organization_from_a_policy_file_and_the_persons_choice_stands(tmp_path):
+    _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
+    assert app_settings.load()["sign_in_tenant"] == {"value": "", "source": "default"}
+    assert any("sign_in_tenant isn't applied from the policy file" in p for p in app_settings.policy_problems())
+    app_settings.save({"sign_in_tenant": HOST})
+    assert app_settings.load()["sign_in_tenant"] == {"value": HOST, "source": "user"}
 
 
 # ---------- sign-in goes to that tenant ----------
@@ -248,7 +257,8 @@ def test_an_unknown_organization_never_reaches_sign_in(tmp_path, metadata):
     assert svc.signed_in_to == [] and app_settings.value("sign_in_tenant") == ""
 
 
-def test_it_fixed_organization_cant_be_switched_and_says_it_chose_it(tmp_path, metadata):
+def test_it_fixed_organization_cant_be_switched_and_says_it_chose_it(tmp_path, metadata, monkeypatch):
+    monkeypatch.setattr(app_settings, "POLICY_SETS_SIGN_IN", True)
     _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
     svc = _Svc(tmp_path)
     status = svc.organization_status()
@@ -286,11 +296,3 @@ def test_status_reads_only(tmp_path, monkeypatch):
     status = _Svc(tmp_path).organization_status()
     assert status["current"] == {"tenant_id": HOST, "domain": "", "name": HOST} and status["guest"]
 
-
-def test_a_policy_file_this_account_could_change_cant_choose_the_organization(tmp_path, monkeypatch):
-    _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
-    monkeypatch.setattr(app_settings, "user_can_change", lambda path: True)
-    assert app_settings.load()["sign_in_tenant"] == {"value": "", "source": "default"}
-    assert any("sign_in_tenant is ignored" in p for p in app_settings.policy_problems())
-    app_settings.save({"sign_in_tenant": HOST})  # the person's own choice still works
-    assert app_settings.load()["sign_in_tenant"] == {"value": HOST, "source": "user"}

@@ -214,6 +214,10 @@ USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 # The organization sign-in goes to (auth.Authenticator, organizations.py): empty for the account's own.
 # People change it with Switch organization; IT can fix it in the policy file.
 DEFAULTS["sign_in_tenant"] = ""
+# The policy file can't set it yet. It widens where sign-in goes, so a file that only administrators
+# can have written must be told apart from one any account on the PC could have put there first,
+# and that check isn't in this build. Until it is, the key is reported and ignored.
+POLICY_SETS_SIGN_IN = False
 TYPES["sign_in_tenant"] = str
 USER_KEYS += ("sign_in_tenant",)
 
@@ -491,9 +495,9 @@ def policy_problems() -> list[str]:
         elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
-        elif key == "sign_in_tenant" and value and not policy_sets_sign_in():
-            problems.append("sign_in_tenant is ignored, because the account signed in to this PC can change the "
-                            "policy file. Ask IT to push it so only administrators can change it")
+        elif key == "sign_in_tenant" and value and not POLICY_SETS_SIGN_IN:
+            problems.append("sign_in_tenant isn't applied from the policy file in this build, so each person "
+                            "chooses the organization in Settings")
         elif key == "sign_in_tenant" and value and not _sign_in_tenant(value):
             problems.append("sign_in_tenant must be a tenant id like 11111111-2222-3333-4444-555555555555 or a "
                             "domain like northwind.com, so sign-in goes to the account's own organization")
@@ -648,13 +652,6 @@ def _telemetry_target(text: str) -> bool:
     return valid_connection_string(text)
 
 
-def policy_sets_sign_in() -> bool:
-    """Whether the policy file may choose the organization sign-in goes to (sign_in_tenant). That widens
-    where sign-in goes rather than narrowing it, so a file the signed-in account could change or have
-    planted (a shared PC) doesn't count: only one that only administrators can change."""
-    return not user_can_change(policy_path())
-
-
 def tenant_allowed(tenant_id: str | None) -> bool:
     """Whether the organization lets people sign in to this tenant (any, unless policy lists some)."""
     allowed = [t.lower() for t in value("allowed_tenants") or []]
@@ -676,8 +673,8 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
-        if key == "sign_in_tenant" and policy.get(key) and not policy_sets_sign_in():
-            candidates = []  # a policy file this account could have written can't steer everyone's sign-in
+        if key == "sign_in_tenant" and not POLICY_SETS_SIGN_IN:
+            candidates = []  # not from a policy file yet: see POLICY_SETS_SIGN_IN
         if key in ENV_VARS:
             candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:

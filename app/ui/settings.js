@@ -141,7 +141,7 @@ async function switchOrganizationDialog() {
       onchange: () => { choice = value; draw(); if (value === "new") field.focus(); } }),
     h("span", {}, h("b", {}, title), sub ? h("span", { class: "muted-text small" }, sub) : null));
   const list = h("div", { class: "choices", role: "radiogroup", "aria-label": "Organizations" });
-  const go = h("button", { class: "tool primary", onclick: () => submit() }, "Sign in");
+  const go = h("button", { class: "tool primary org-go", onclick: () => submit() }, "Sign in");
   function target() {
     if (choice === "own") return { tenant: "", name: s.home_domain ? `your own organization (${s.home_domain})` : "your own organization" };
     if (choice === "new") return found ? { tenant: found.tenant_id, domain: found.domain, name: orgName(found) } : null;
@@ -945,7 +945,7 @@ async function renderSettings() {
   const account = h("section", { class: "card pad" }, h("h2", {}, "Account"),
     settingRow(state.user ? `Signed in as ${state.user}` : "Not signed in",
       state.user ? (org?.guest ? `Guest in ${orgName(org.current)}. Your home organization is ${org.home_domain || "another one"}.`
-        : state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
+        : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
     organizationRow(org),

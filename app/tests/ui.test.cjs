@@ -2304,6 +2304,8 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
+// Effects on everyday work play from Heroic (level 2), so the harness runs there unless told otherwise;
+// the default for a new install (Subtle) is checked with settings of its own.
 function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
@@ -2326,7 +2328,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   };
   const live = node();
   const ctx = {
-    state: { settings: settings || { forge_animations: { value: setting } } },
+    state: { settings: settings || { forge_animations: { value: setting }, ...(setting ? { motion_level: { value: 2 } } : {}) } },
     document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null),
       addEventListener() {}, hasFocus: () => true },
     addEventListener() {},
@@ -2399,8 +2401,9 @@ test("Forge animations: nothing is made with the setting off, reduced motion or 
   const on = motionHarness();
   on.applyMotion();
   assert.strictEqual(on.document.documentElement.dataset.motion, "on");
-  on.state.settings = null;  // settings not loaded yet: on, as for a new install
-  assert.strictEqual(on.motionOn(), true);
+  on.state.settings = null;  // settings not loaded yet: Subtle, as for a new install
+  assert.strictEqual(on.motionOn(), false, "everyday effects play on a new install");
+  assert.strictEqual(on.motionOn("achievements"), true, "achievements don't celebrate on a new install");
 });
 
 test("Forge animations: the wolf track waits 600 ms, follows real progress and goes when the run ends", () => {
@@ -2518,7 +2521,9 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /const from = key === "motion_achievements" \? 1 : 2;/, "achievements don't play from Subtle");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < from\)/, "family switches don't grey out below where they play");
+  assert.match(card, /\$\{n === 1 \? " \(default\)" : ""\}/, "Subtle isn't marked as the default");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
@@ -2532,7 +2537,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
   assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
+  assert.match(css, /html\[data-motion="off"\] \.fx:not\(\.fx-achieve\), html\[data-motion-level="0"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
   assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
@@ -2759,11 +2764,13 @@ test("a replay notebook offers to delete what its replays wrote, with a danger c
 });
 
 // Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
-test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
+test("Motion levels: Subtle (the default) plays only the Achievement Reveal, Heroic and Legendary play everything, and <html> says which", () => {
   const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });
   const minimal = at(1);
   assert.strictEqual(minimal.fx(minimal.node(), "spark"), null);
   assert.strictEqual(minimal.motionDiagnostics().skipped.level, 1);
+  assert.ok(minimal.fx(minimal.node(), "achieve"), "Subtle played no Achievement Reveal");
+  assert.strictEqual(at(0).fx(minimal.node(), "achieve"), null, "Professional played an Achievement Reveal");
   minimal.applyMotion();
   assert.strictEqual(minimal.document.documentElement.dataset.motionLevel, "1");
   assert.strictEqual(minimal.document.documentElement.dataset.motion, "off");
@@ -2776,7 +2783,7 @@ test("Motion levels: Minimal plays no branded effects, Refined and Expressive do
   const off = at(0);
   assert.strictEqual(off.motionLevel(), 0);
   assert.strictEqual(motionHarness({ setting: false }).motionLevel(), 0, "the first switch turned off no longer means Off");
-  assert.strictEqual(motionHarness({ setting: true }).motionLevel(), 2, "Refined is not the default");
+  assert.strictEqual(motionHarness({ settings: { forge_animations: { value: true } } }).motionLevel(), 1, "Subtle is not the default");
 });
 
 test("Motion families: each switch silences only its own effects", () => {
@@ -2870,7 +2877,7 @@ test("Forge events: every event names a real effect, unknown ones play nothing, 
   for (const [kind, m] of Object.entries(kinds)) {
     assert.ok(m.ms > 0 && m.ms <= 900, `${kind} is longer than a signature moment`);
     assert.ok(["wolf", "sparks", "achievements", "ambient"].includes(m.family), `${kind} has no family switch`);
-    assert.ok(m.level >= 2, `${kind} plays at Minimal`);
+    assert.ok(m.level >= (kind === "achieve" ? 1 : 2), `${kind} plays at Subtle`);
   }
   assert.ok(ctx.forgeEvent("deploy.succeeded", ctx.node()), "a deployment struck no anvil");
   assert.strictEqual(ctx.forgeEvent("cell.typed", ctx.node()), null);

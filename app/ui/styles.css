@@ -2197,7 +2197,7 @@ html[data-motion-paused="on"] .splash-ember { animation-play-state: paused; }
   background: radial-gradient(circle, rgba(248,153,28,.85) 0, rgba(248,153,28,0) 70%); animation: fx-glow .5s ease-out both; }
 @keyframes fx-glow { 0% { opacity: 0; transform: scale(.4); } 40% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.25); } }
 @keyframes fx-fade { to { opacity: 0; } }
-html[data-motion="off"] .fx, html[data-motion="off"] .wolf { display: none; }
+html[data-motion="off"] .fx:not(.fx-achieve), html[data-motion-level="0"] .fx, html[data-motion="off"] .wolf { display: none; }
 @media (prefers-reduced-motion: reduce) { html:not([data-motion-override]) :is(.fx, .wolf) { display: none; } .wolf-fill { transition: none; } }
 
 /* A run in Fabric with no measurable progress (KF-MO-009): the wolf trots in place in navy on an empty

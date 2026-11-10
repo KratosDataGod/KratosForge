@@ -22,10 +22,10 @@ Keys:
     show_preview     true to show features still in preview (default true)
     forge_animations  the first motion switch, kept so older settings and policy files still work:
                      false means motion_level 0 unless motion_level itself is set
-    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
-                     transitions only), 2 Refined (default), 3 Expressive
+    motion_level     experience mode (docs/forge-animations.md): 0 Professional, 1 Subtle (functional
+                     transitions and the achievement reveal; default), 2 Heroic, 3 Legendary
     motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
-                     levels 2 and 3; motion_achievements the same
+                     levels 2 and 3; motion_achievements the same at levels 1 to 3
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
     ui_explanations  "on_request" (default): each page's How this works panel and its one-line
@@ -201,9 +201,10 @@ USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
 MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
-# Every switch starts on, Achievement celebrations included (Chris, 2026-11-07). A choice someone
-# already saved stays: only people who never changed it get the new default.
-DEFAULTS.update({"motion_level": 2} | {key: True for key in MOTION_SWITCHES})
+# Subtle by default: everyday work stays plain and only achievements celebrate (Chris, 2026-11-09).
+# Every switch starts on (Chris, 2026-11-07). A choice someone already saved stays: only people who
+# never changed it get the new default.
+DEFAULTS.update({"motion_level": 1} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 

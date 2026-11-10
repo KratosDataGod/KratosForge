@@ -17,7 +17,7 @@ In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to th
 
 ## DataFrame methods
 
-Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog.tableExists` checks temp views and the attached lakehouse. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
+Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog` answers about temp views and the attached lakehouse: `tableExists`, `listColumns` (which marks a lakehouse table's partition columns, from its Delta log), `currentDatabase` (the lakehouse's name; refused for a lakehouse with schemas or no lakehouse) and `setCurrentDatabase`. `listTables`, `listDatabases`, `listCatalogs` and `listFunctions` are refused by name, since on this PC they would list DuckDB's own objects; the Explorer and `notebookutils.lakehouse.listTables()` list the lakehouse's tables. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
 `spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string such as
 `"id int NOT NULL, name string, tags array<int>, address struct<city:string, zip:string>"`. A `NOT NULL` field

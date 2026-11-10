@@ -124,7 +124,7 @@ mod win {
                         return Err(format!("{}'s permissions can't be read", shown));
                     }
                     let header = &*(ace as *const ACE_HEADER);
-                    if header.AceType == ACCESS_DENIED || header.AceType > 17 || header.AceFlags & INHERIT_ONLY != 0 {
+                    if header.AceType == ACCESS_DENIED || header.AceFlags & INHERIT_ONLY != 0 {
                         continue;
                     }
                     // Deny entries (6, 10, 12), audit and alarm entries (2, 3, 7, 8, 13, 14, 15, 16)
@@ -152,6 +152,13 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::admin_only;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_registry_view_is_the_64_bit_one_the_engine_names() {
+        // The engine's policy_trust.py passes 13 for the same object type.
+        assert_eq!(windows::Win32::Security::Authorization::SE_REGISTRY_WOW64_64KEY.0, 13);
+    }
 
     #[test]
     fn a_file_anyone_could_have_written_is_not_trusted() {

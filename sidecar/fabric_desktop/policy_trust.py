@@ -30,7 +30,7 @@ FOLDER_RIGHTS = FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_A
 KEY_SET_VALUE, KEY_CREATE_SUB_KEY = 0x2, 0x4
 KEY_RIGHTS = KEY_SET_VALUE | KEY_CREATE_SUB_KEY | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL
 PARENT_KEY_RIGHTS = KEY_CREATE_SUB_KEY | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL
-SE_FILE_OBJECT, SE_REGISTRY_WOW64_64KEY = 1, 12  # the 64-bit view, which Group Policy writes
+SE_FILE_OBJECT, SE_REGISTRY_WOW64_64KEY = 1, 13  # SE_OBJECT_TYPE; 13 is the 64-bit view, which Group Policy writes (12 is the 32-bit one)
 ACCESS_ALLOWED, ACCESS_DENIED, INHERIT_ONLY = 0, 1, 0x08
 GRANTS_NOTHING = {2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 16, 17}  # deny, audit and alarm entries, the mandatory label
 
@@ -81,7 +81,7 @@ def judge(path: str, owner_is_admin: bool, dacl: Iterable[tuple[int, int, int, b
     if dacl is None:
         return f"{path} has no permissions set, so anyone can change it"
     for kind, flags, mask, admin in dacl:
-        if kind == ACCESS_DENIED or kind > 17 or flags & INHERIT_ONLY or kind in GRANTS_NOTHING:
+        if kind == ACCESS_DENIED or flags & INHERIT_ONLY or kind in GRANTS_NOTHING:
             continue
         if kind != ACCESS_ALLOWED:
             return f"{path} has a permission entry the app can't check"

@@ -25,6 +25,7 @@ def test_an_admin_owned_path_granting_write_only_to_admins_passes():
     (True, [(ALLOWED, 0, pt.WRITE_DAC, False)], "someone other than"),
     (True, [(ALLOWED, 0, pt.GENERIC_WRITE, False)], "someone other than"),
     (True, [(5, 0, pt.GENERIC_ALL, False)], "can't check"),                     # an object ACE: not trusted
+    (True, [(19, 0, 0, False)], "can't check"),                                 # a type newer than the rule
 ])
 def test_anything_else_fails(owner, dacl, why):
     assert why in pt.judge("p", owner, dacl, pt.FILE_RIGHTS)
@@ -89,3 +90,10 @@ def test_group_policys_key_its_parent_and_its_list_subkeys_are_checked(monkeypat
 def test_off_windows_there_is_no_key_to_trust(monkeypatch):
     monkeypatch.setattr(pt.sys, "platform", "linux")
     assert pt.key_admin_only(r"Software\Policies\KratosBI\KratosForge")
+
+
+def test_the_object_types_are_windows_values():
+    # SE_OBJECT_TYPE (accctrl.h): 0 unknown, 1 file, 2 service, 3 printer, 4 registry key, 5 share,
+    # 6 kernel object, 7 window, 8 DS object, 9 DS object all, 10 provider defined, 11 WMI GUID,
+    # 12 registry WOW64 32-bit view, 13 registry WOW64 64-bit view. Group Policy writes the 64-bit view.
+    assert (pt.SE_FILE_OBJECT, pt.SE_REGISTRY_WOW64_64KEY) == (1, 13)

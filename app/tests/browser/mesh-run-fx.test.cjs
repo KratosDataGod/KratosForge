@@ -29,7 +29,7 @@ const ok = (entity) => ({ entity, status: "ok", rows_written: 10, quarantined: 0
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ mocks });
+  app = await openApp({ mocks: { app_settings: () => ({ motion_level: { value: 2 } }), ...mocks } });  // Heroic: everyday effects play
   await page().emulateMedia({ reducedMotion: "no-preference" });
   await page().evaluate(() => { state.meta.tab = "entities"; go("metadata"); });
   await page().waitForSelector(".page-head .head-actions button:has-text('Run all')");

@@ -29,7 +29,7 @@ function steps(list) {
 
 const apps = [];
 async function open(walk) {
-  const app = await openApp({ viewport: { width: 1440, height: 900 }, mocks: { pipeline_run_status: () => walk.status(), pipeline_runs: () => [] } });
+  const app = await openApp({ viewport: { width: 1440, height: 900 }, mocks: { app_settings: () => ({ motion_level: { value: 2 } }), pipeline_run_status: () => walk.status(), pipeline_runs: () => [] } });  // Heroic: everyday effects play
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion: "no-preference" });
   await app.page.waitForFunction(() => typeof openPipelineRun === "function" && !!document.querySelector(".rail-item"));

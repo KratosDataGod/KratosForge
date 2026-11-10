@@ -165,7 +165,11 @@ AREAS: tuple[Area, ...] = (
                               "test_databricks_notebook_helpers.py"),
                   note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed. "
                        "Each dbutils call and % magic: docs/databricks-notebook-helpers.md.")),
-    _skinned("databricks", "unity", "Unity Catalog"),
+    _skinned("databricks", "unity", "Unity Catalog",
+       local=Cell("partial", ("test_spark_catalog_names.py",),
+                  note="No Unity Catalog on this PC: a notebook's tables are the attached lakehouse's. catalog.schema.table, "
+                       "USE CATALOG, USE SCHEMA and backticked names read or write the table they name there, or are "
+                       "refused by name (another catalog or schema); none resolves to another table.")),
     _skinned("databricks", "jobs", "Jobs and Lakeflow pipelines",
        workflow=Cell("partial", ("test_skins.py", "test_databricks_runs_service.py"),
                      note="The skin names Monitor \"Jobs and pipelines\" and puts it where Databricks does; "

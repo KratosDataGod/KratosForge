@@ -1310,7 +1310,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         if not table.db and (table.name.lower() in ctes or is_local(table.name) or table.name in views.values()):
             continue
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
-        name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+        name = table_name(table)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
         opened, at = None, {}
         if point is None:
@@ -1328,6 +1328,14 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def table_name(table: exp.Table) -> str:
+    """``table``'s name as lakehouse.table_ref reads it: catalog, schema and name, each in backticks when
+    it holds a dot or a backtick (`` `dbo.sales` `` stays one name), so no part is dropped or split."""
+    def part(p: str) -> str:
+        return "`" + p.replace("`", "``") + "`" if "." in p or "`" in p else p
+    return ".".join(part(p) for p in (table.catalog, table.db, table.name) if p)
 
 
 def is_local(con: duckdb.DuckDBPyConnection, name: str) -> bool:
@@ -1386,7 +1394,7 @@ def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
     if not (isinstance(statement, exp.Describe) and str(statement.args.get("style") or "").upper() == "HISTORY"):
         return statement
     table = statement.this
-    name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+    name = table_name(table)  # `dbo.sales` stays one name, so it's refused rather than read as dbo.sales
     view = f"__lakehouse_history_{len(views)}"
     views[f"history:{name.lower()}:{len(views)}"] = view
     con.register(view, _lakehouse().table_history(name).to_arrow())

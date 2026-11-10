@@ -150,13 +150,14 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     @property
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
-        client_id = self._client_id or app_settings.value("client_id")
+        settings = app_settings.load()  # one read of the policy and settings files for both
+        client_id = self._client_id or settings["client_id"]["value"]
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
             # Continuous Access Evaluation is a Preview feature (claims.py): it follows show_preview, and
             # turning it on or off builds the sign-in again, since MSAL takes it when it starts.
-            cae = bool(app_settings.value("show_preview"))
+            cae = bool(settings["show_preview"]["value"])
             if (self._auth is None or getattr(self._auth, "client_id", client_id) != client_id
                     or getattr(self._auth, "continuous_access", cae) != cae):
                 self._auth = Authenticator(client_id, interactive=not self.headless, continuous_access=cae)

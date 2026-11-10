@@ -25,7 +25,7 @@ _CLAIMS = re.compile(r'\bclaims="([A-Za-z0-9+/_=-]{1,8192})"')
 def challenge(headers: Mapping[str, str] | None) -> str:
     """The claims JSON a 401's WWW-Authenticate asks for, decoded; "" when it asks for none, or for
     something that isn't one JSON object."""
-    header = str((headers or {}).get("WWW-Authenticate") or "")
+    header = str(next((v for k, v in (headers or {}).items() if str(k).lower() == "www-authenticate"), "") or "")
     if "insufficient_claims" not in header:
         return ""
     found = _CLAIMS.search(header)

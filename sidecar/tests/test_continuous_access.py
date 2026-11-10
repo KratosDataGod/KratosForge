@@ -43,6 +43,10 @@ def test_a_claims_challenge_is_decoded():
         assert claims.challenge({"WWW-Authenticate": f'Bearer error="insufficient_claims", claims="{raw}"'}) == text
 
 
+def test_the_header_name_is_matched_whatever_its_case():
+    assert claims.challenge({"www-authenticate": header()["WWW-Authenticate"]}) == ASKED
+
+
 @pytest.mark.parametrize("headers", [
     None, {}, {"WWW-Authenticate": "Bearer"},
     header(error="invalid_token"),               # not a claims challenge
@@ -204,8 +208,8 @@ def test_the_service_turns_it_on_and_off_with_preview(tmp_path, monkeypatch):
     monkeypatch.setattr(auth.Authenticator, "__init__", lambda self, client_id="", cache_path=None, interactive=True,
                         continuous_access=False: self.__dict__.update(client_id=client_id, continuous_access=continuous_access))
     preview = {"on": True}
-    real = app_settings.value
-    monkeypatch.setattr(app_settings, "value", lambda key: preview["on"] if key == "show_preview" else real(key))
+    real = app_settings.load
+    monkeypatch.setattr(app_settings, "load", lambda: {**real(), "show_preview": {"value": preview["on"], "source": "user"}})
     svc = Service.__new__(Service)
     svc._client_id, svc._auth, svc.headless = OWN_APP, None, False
     svc._auth_lock = __import__("threading").Lock()

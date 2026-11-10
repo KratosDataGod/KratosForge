@@ -9,7 +9,10 @@ was opened from (Downloads, usually). Replaying a bundle touches its copy, so on
 ``local_retention_days``, default 30; 0 keeps everything).
 
 A Delta table (a folder with ``_delta_log``) goes as a whole, judged by its newest file, so a table
-is never left half deleted. Notebooks, settings, history and receipts are never touched.
+is never left half deleted: a folder is first renamed aside (``.<name>.deleting-<pid>``) and only then
+deleted. On Windows that rename fails while a file inside is open, as when a notebook is reading the
+table during a sweep, so the folder stays whole and is tried again at the next sweep. A renamed folder
+a sweep didn't finish goes at the next one. Notebooks, settings, history and receipts are never touched.
 """
 
 from __future__ import annotations
@@ -35,6 +38,30 @@ def _linked(path: Path) -> bool:
 
 def _newest(folder: Path) -> float:
     return max((p.stat().st_mtime for p in folder.rglob("*") if p.is_file()), default=folder.stat().st_mtime)
+
+
+FRESH_FOLDER_HOURS = 1  # an empty folder younger than this stays: a download may be about to fill it
+TRASH = ".deleting-"  # a folder renamed aside for deleting: ".<name>.deleting-<pid>"
+
+
+def _is_trash(path: Path) -> bool:
+    return path.name.startswith(".") and TRASH in path.name
+
+
+def _remove(path: Path) -> bool:
+    """Delete a file, or a folder as a whole; False (and logged) when it is in use and was kept."""
+    try:
+        if not path.is_dir():
+            path.unlink(missing_ok=True)
+            return True
+        aside = path if _is_trash(path) else path.with_name(f".{path.name}{TRASH}{os.getpid()}")
+        if aside != path:
+            path.rename(aside)  # fails on Windows while a file inside is open: nothing is deleted then
+    except OSError as exc:  # in use (a table being read, a spill still uploading): tried again next sweep
+        _log.info("Couldn't remove %s now: %s", path.name, exc)
+        return False
+    shutil.rmtree(aside, ignore_errors=True)
+    return True
 
 
 def _size(path: Path) -> int:
@@ -76,17 +103,7 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
     now = now if now is not None else time.time()
     old: list[Path] = _stale_spills(root, now) + _stale_previews(root, now)
     if days <= 0:  # copies are kept, left-over spills and previews still go
-        total = sum(_size(p) for p in old)
-        if not dry_run:
-            for p in old:
-                if p.is_dir():
-                    shutil.rmtree(p, ignore_errors=True)
-                    continue
-                try:
-                    p.unlink(missing_ok=True)
-                except OSError as exc:  # still open: a very long upload (Windows) keeps it until the next start
-                    _log.info("Couldn't remove a left-over spill file %s: %s", p.name, exc)
-        return {"days": days, "removed": [p.relative_to(root).as_posix() for p in old], "bytes": total, "dry_run": dry_run}
+        return _result(root, old, days, dry_run)
     cutoff = now - days * DAY
     for name in CACHE_FOLDERS:
         base = root / name
@@ -95,28 +112,36 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
         for dirpath, dirnames, filenames in os.walk(base):
             here = Path(dirpath)
             dirnames[:] = [d for d in dirnames if not _linked(here / d)]  # never into a link or junction
+            old += [here / d for d in dirnames if _is_trash(here / d)]  # a deletion a sweep didn't finish
+            dirnames[:] = [d for d in dirnames if not _is_trash(here / d)]
             if "_delta_log" in dirnames:
                 dirnames.clear()  # judged as one table, below
                 if _newest(here) < cutoff:
                     old.append(here)
                 continue
             old += [here / f for f in filenames if (here / f).stat().st_mtime < cutoff and here / f not in old]
-    total = sum(_size(p) for p in old)
+    # Folders the sweep may leave empty: those it deleted something from, and others older than an hour
+    # before it started. A newer empty one, or one made during the sweep, may be a download's that is
+    # about to write its file.
+    settled = [] if dry_run else [d for name in CACHE_FOLDERS if (root / name).is_dir()
+                                  for d in (root / name).rglob("*")
+                                  if d.is_dir() and d.stat().st_mtime < now - FRESH_FOLDER_HOURS * 3600]
+    result = _result(root, old, days, dry_run)
     if not dry_run:
-        for p in old:
-            if p.is_dir():
-                shutil.rmtree(p, ignore_errors=True)
-                continue
+        bases = [root / name for name in CACHE_FOLDERS]
+        emptied = {parent for p in result["removed"] for parent in (root / p).parents
+                   if parent not in bases and any(parent.is_relative_to(base) for base in bases)}
+        for d in sorted({*settled, *emptied}, key=lambda d: len(d.parts), reverse=True):  # deepest first
             try:
-                p.unlink(missing_ok=True)
-            except OSError as exc:  # in use (a spill still uploading on Windows): tried again next start
-                _log.info("Couldn't remove %s: %s", p.name, exc)
-        for name in CACHE_FOLDERS:  # folders the sweep emptied, deepest first
-            base = root / name
-            if base.is_dir():
-                for d in sorted((d for d in base.rglob("*") if d.is_dir()), key=lambda d: len(d.parts), reverse=True):
-                    try:
-                        d.rmdir()
-                    except OSError:
-                        pass  # not empty
-    return {"days": days, "removed": [p.relative_to(root).as_posix() for p in old], "bytes": total, "dry_run": dry_run}
+                d.rmdir()
+            except OSError:
+                pass  # not empty, or already gone
+    return result
+
+
+def _result(root: Path, old: list[Path], days: int, dry_run: bool) -> dict[str, Any]:
+    """Delete ``old`` (unless ``dry_run``); what was removed, and how many bytes. Kept items aren't listed."""
+    sizes = {p: _size(p) for p in old}
+    removed = old if dry_run else [p for p in old if _remove(p)]
+    return {"days": days, "removed": [p.relative_to(root).as_posix() for p in removed],
+            "bytes": sum(sizes[p] for p in removed), "dry_run": dry_run}

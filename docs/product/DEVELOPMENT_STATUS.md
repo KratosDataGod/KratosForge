@@ -7,6 +7,10 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
+- Acceptance, 2026-11-10: the product owner accepted PB-120 (platform support levels and one engine contract) with
+  documented limitations. Only Fabric is proven live, to level 2; Databricks and Snowflake are verified at level 0.
+  The SQL portability report and the two-engine comparison have no screen yet, and function checks use one
+  documented example per function on this PC.
 - Morning check, 2026-11-10: 17 PRs merged after d5a867c0. 1 was a product data PR, and the other 16 were linked.
   Every outbound request now retries throttling or says why it is sent once, Fabric lists follow both kinds of
   continuation, CI scans for secrets, and a short memory soak runs in CI on Linux and Windows (PB-124). Notebooks on
@@ -202,7 +206,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-120), a tenant run of
+two release gates. Also waiting: acceptance of the 2 In review items (PB-024, PB-045), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

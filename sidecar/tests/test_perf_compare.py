@@ -88,17 +88,75 @@ def test_writing_a_baseline_needs_the_runner(tmp_path):
     assert written["medians"]["SQL count"] == 1.4
 
 
-def test_the_recorded_baseline_names_its_runner_and_settings():
-    path = BENCH / "baseline-windows.json"
-    if not path.exists():
-        pytest.skip("no Windows baseline recorded yet")
-    base = json.loads(path.read_text(encoding="utf-8"))
-    assert base["runner"] and base["commit"] and base["settings"] == {"runs": 5, "warmup": 1, "rows": 1_000_000}
-    assert set(base["medians"]) >= {"startup", "notebook first cell", "notebook first spark cell", "SQL count"}
+def test_each_recorded_baseline_names_its_runner_and_settings():
+    paths = sorted((BENCH / "baselines").glob("*.json"))
+    assert paths, "no baseline recorded"
+    for path in paths:
+        base = json.loads(path.read_text(encoding="utf-8"))
+        assert base["runner"] and base["commit"] and base["settings"] == {"runs": 5, "warmup": 1, "rows": 1_000_000}
+        assert set(base["medians"]) >= {"startup", "notebook first cell", "notebook first spark cell", "SQL count"}
 
 
-def test_the_workflow_runs_the_baseline_settings_and_stays_advisory():
+def test_the_workflow_gates_each_image_on_two_runs_in_a_row_and_never_writes_a_baseline():
     workflow = (BENCH.parents[1] / ".github" / "workflows" / "perf.yml").read_text(encoding="utf-8")
-    assert "--runs 5 --warmup 1 --rows 1000000" in workflow
-    assert "windows-latest" in workflow and "baseline-windows.json" in workflow
-    assert "--gate" not in workflow.split("jobs:", 1)[1]  # advisory until docs/performance.md says otherwise
+    jobs = workflow.split("jobs:", 1)[1]
+    assert "--runs 5 --warmup 1 --rows 1000000" in jobs
+    assert "image: [windows-2025-vs2026]" in jobs and "runs-on: ${{ matrix.image }}" in jobs
+    for image in ["windows-2025-vs2026"]:
+        assert (BENCH / "baselines" / f"{image}.json").exists()
+    assert "--gate" in jobs and "--streak" in jobs and "--baselines ../examples/benchmark/baselines" in jobs
+    assert "--write-baseline" not in workflow  # a baseline changes only in a reviewed commit
+
+
+def test_the_gate_fails_only_on_two_runs_in_a_row_on_the_same_image(tmp_path):
+    cmp = load()
+    (tmp_path / "baselines").mkdir()
+    (tmp_path / "baselines" / "img.json").write_text(json.dumps(cmp.baseline_from(run(), "img")))
+    (tmp_path / "slow.json").write_text(json.dumps(run(startup=2000.0)))
+    (tmp_path / "ok.json").write_text(json.dumps(run()))
+    streak = tmp_path / "streak.json"
+
+    def check(result, image="img"):
+        return cmp.main([str(tmp_path / result), "--baselines", str(tmp_path / "baselines"), "--image", image,
+                         "--streak", str(streak), "--gate"])
+
+    assert check("slow.json") == 0  # first run past the margin: a warning
+    assert json.loads(streak.read_text())["regressed"] == ["startup"]
+    assert check("slow.json") == 1  # second in a row: fails
+    assert check("ok.json") == 0 and json.loads(streak.read_text())["regressed"] == []
+    assert check("slow.json") == 0  # the streak starts again
+    (tmp_path / "baselines" / "other.json").write_text(json.dumps(cmp.baseline_from(run(), "other")))
+    assert check("slow.json", "other") == 0  # the last run was on another image: not a streak
+
+
+@pytest.mark.parametrize("damaged", ["{not json", "[1, 2]", '{"image": "img", "regressed": "startup"}', "\xff\xfe"])
+def test_a_damaged_streak_file_counts_as_no_previous_run_and_is_replaced(tmp_path, damaged):
+    cmp = load()
+    (tmp_path / "baselines").mkdir()
+    (tmp_path / "baselines" / "img.json").write_text(json.dumps(cmp.baseline_from(run(), "img")))
+    (tmp_path / "ok.json").write_text(json.dumps(run()))
+    (tmp_path / "slow.json").write_text(json.dumps(run(startup=2000.0)))
+    streak = tmp_path / "streak.json"
+    args = ["--baselines", str(tmp_path / "baselines"), "--image", "img", "--streak", str(streak), "--gate"]
+    for result in ("ok.json", "slow.json"):
+        streak.write_bytes(damaged.encode("latin-1"))
+        assert cmp.main([str(tmp_path / result), *args]) == 0
+        assert json.loads(streak.read_text())["image"] == "img"
+
+
+def test_an_image_with_no_baseline_compares_nothing_and_never_fails(tmp_path, capsys):
+    cmp = load()
+    (tmp_path / "baselines").mkdir()
+    (tmp_path / "slow.json").write_text(json.dumps(run(startup=9000.0)))
+    streak = tmp_path / "streak.json"
+    for _ in range(2):
+        assert cmp.main([str(tmp_path / "slow.json"), "--baselines", str(tmp_path / "baselines"),
+                         "--image", "new-image", "--streak", str(streak), "--gate"]) == 0
+    assert "no baseline" in capsys.readouterr().out
+
+
+def test_baselines_needs_the_image(tmp_path):
+    cmp = load()
+    (tmp_path / "r.json").write_text(json.dumps(run()))
+    with pytest.raises(SystemExit):
+        cmp.main([str(tmp_path / "r.json"), "--baselines", str(tmp_path)])

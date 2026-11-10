@@ -20,18 +20,20 @@ function is fixed or breaks.
 - **Not checked**: no example whose value can be compared (random values, the clock or the session, or no example), or DuckDB accepts it but no check compares its value yet.
 
 AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions
-aren't listed: they need Databricks' own services.
+aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,
+`make_valid_utf8`, `hmac`, `bit_reverse` and the VARIANT ones (`parse_json`, `variant_get`, ...) run in
+Python, one row at a time, so a query that calls them on millions of rows takes seconds longer here.
 
 One example per function is a first check, not proof: [Engines](engines.md#databricks-sql-functions-on-this-pc)
 lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 389 |
+| Runs | 462 |
 | Differs | 0 |
-| Refused | 82 |
-| Fails | 45 |
-| Not checked | 73 |
+| Refused | 92 |
+| Fails | 0 |
+| Not checked | 35 |
 | **All** | **589** |
 
 ## Aggregate
@@ -171,19 +173,19 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bigint` | Not checked |  |  |
-| `binary` | Not checked |  |  |
-| `boolean` | Not checked |  |  |
+| `bigint` | Runs | `SELECT bigint('12'), bigint(3.9), bigint(-3.9)` |  |
+| `binary` | Runs | `SELECT binary('Spark')` |  |
+| `boolean` | Runs | `SELECT boolean('true'), boolean(0), boolean('no')` |  |
 | `cast` | Runs | `SELECT cast('10' as int)` |  |
-| `date` | Not checked |  |  |
-| `decimal` | Not checked |  |  |
-| `double` | Not checked |  |  |
-| `float` | Not checked |  |  |
-| `int` | Not checked |  |  |
-| `smallint` | Not checked |  |  |
-| `string` | Not checked |  |  |
-| `timestamp` | Not checked |  |  |
-| `tinyint` | Not checked |  |  |
+| `date` | Runs | `SELECT date('2026-01-31'), date(TIMESTAMP '2026-01-31 23:59:59')` |  |
+| `decimal` | Runs | `SELECT decimal('12.345'), decimal(7)` |  |
+| `double` | Runs | `SELECT double('1.5'), double(2)` |  |
+| `float` | Runs | `SELECT float('1.5'), float(2)` |  |
+| `int` | Runs | `SELECT int('12'), int(3.9), int(-3.9)` |  |
+| `smallint` | Runs | `SELECT smallint('12'), smallint(3.9)` |  |
+| `string` | Runs | `SELECT string(12), string(1.50), string(true), string(DATE '2026-01-31')` |  |
+| `timestamp` | Runs | `SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')` |  |
+| `tinyint` | Runs | `SELECT tinyint('12'), tinyint(3.9)` |  |
 
 ## CSV
 
@@ -225,7 +227,7 @@ lists more checks and the differences known in more detail.
 | `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
 | `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
-| `make_interval` | Not checked | `SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)` |  |
+| `make_interval` | Runs | `SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)` |  |
 | `make_timestamp` | Runs | `SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ltz` | Runs | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ntz` | Runs | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
@@ -436,13 +438,13 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `!=` | Not checked |  |  |
-| `<>` | Not checked |  |  |
-| `between` | Not checked |  |  |
-| `case` | Not checked |  |  |
-| `range` | Not checked |  |  |
+| `!=` | Runs | `SELECT 1 != 2, 'a' != 'a', NULL != 1` |  |
+| `<>` | Runs | `SELECT 1 <> 2, 'a' <> 'a', NULL <> 1` |  |
+| `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
+| `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
+| `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
 | `sql_keywords` | Not checked |  |  |
-| `\|\|` | Not checked |  |  |
+| `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate
 
@@ -465,9 +467,9 @@ lists more checks and the differences known in more detail.
 | `like` | Runs | `SELECT like('Spark', '_park')` |  |
 | `not` | Runs | `SELECT not true` |  |
 | `or` | Runs | `SELECT true or false` |  |
-| `regexp` | Not checked | `SELECT regexp('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `regexp_like` | Not checked | `SELECT regexp_like('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `rlike` | Not checked | `SELECT rlike('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
+| `regexp` | Runs | `SELECT regexp('Steven', 'Ste(v\|ph)en'), regexp('Stefan', 'Ste(v\|ph)en')` |  |
+| `regexp_like` | Runs | `SELECT regexp_like('Steven', 'Ste(v\|ph)en'), regexp_like('Stefan', 'Ste(v\|ph)en')` |  |
+| `rlike` | Runs | `SELECT rlike('Steven', 'Ste(v\|ph)en'), rlike('Stefan', 'Ste(v\|ph)en')` |  |
 
 ## String
 
@@ -590,8 +592,8 @@ lists more checks and the differences known in more detail.
 | `approx_top_k_accumulate` | Refused |  | approx_top_k_accumulate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
 | `approx_top_k_combine` | Refused |  | approx_top_k_combine() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `approx_top_k_estimate` | Refused |  | approx_top_k_estimate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
-| `bitmap_and_agg` | Fails |  | DuckDB has no bitmap_and_agg, and the translation doesn't write it |
-| `counter_diff` | Fails |  | DuckDB has no counter_diff, and the translation doesn't write it |
+| `bitmap_and_agg` | Runs | `SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)` | A plain aggregate here: FILTER and OVER, and a group with no bitmap, stop by name |
+| `counter_diff` | Runs | `SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, 100), (2, 200), (3, 400), (4, 50) AS tab(t, c)` |  |
 | `cube` | Not checked |  |  |
 | `kll_merge_agg_bigint` | Refused |  | kll_merge_agg_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `kll_merge_agg_double` | Refused |  | kll_merge_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
@@ -614,12 +616,12 @@ lists more checks and the differences known in more detail.
 | `kll_sketch_to_string_bigint` | Refused |  | kll_sketch_to_string_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
 | `kll_sketch_to_string_double` | Refused |  | kll_sketch_to_string_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
 | `kll_sketch_to_string_float` | Refused |  | kll_sketch_to_string_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
-| `listagg` | Not checked |  |  |
-| `percentile_cont` | Not checked |  |  |
-| `percentile_disc` | Not checked |  |  |
-| `schema_of_json_agg` | Fails |  | DuckDB has no schema_of_json_agg, and the translation doesn't write it |
-| `schema_of_variant_agg` | Fails |  | DuckDB has no schema_of_variant_agg, and the translation doesn't write it |
-| `string_agg` | Not checked |  |  |
+| `listagg` | Runs | `SELECT listagg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)` | Joins with no delimiter unless one is given, as in Databricks |
+| `percentile_cont` | Runs | `SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)` |  |
+| `percentile_disc` | Runs | `SELECT percentile_disc(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)` |  |
+| `schema_of_json_agg` | Refused |  | schema_of_json_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC works out schema_of_json for a literal as it reads the cell, an |
+| `schema_of_variant_agg` | Refused |  | schema_of_variant_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC keeps a VARIANT as JSON text, which doesn't keep every type  |
+| `string_agg` | Runs | `SELECT string_agg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)` | Joins with no delimiter unless one is given, as in Databricks |
 | `theta_difference` | Refused |  | theta_difference() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make  |
 | `theta_intersection` | Refused |  | theta_intersection() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't mak |
 | `theta_intersection_agg` | Refused |  | theta_intersection_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't |
@@ -656,11 +658,11 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `iff` | Not checked |  |  |
+| `iff` | Runs | `SELECT iff(1 < 2, 'a', 'b')` |  |
 | `nullifzero` | Runs | `SELECT nullifzero(0)` |  |
-| `try_cast` | Not checked |  |  |
+| `try_cast` | Runs | `SELECT try_cast('a' AS INT)` |  |
 | `try_mod` | Runs | `SELECT try_mod(2, 1.8)` |  |
-| `try_reflect` | Fails |  | DuckDB has no try_reflect, and the translation doesn't write it |
+| `try_reflect` | Refused |  | try_reflect() can't run on this PC the way it runs in Databricks, so nothing ran: it calls a Java method, and this PC runs no Java. Run the cell on a Databricks |
 | `zeroifnull` | Runs | `SELECT zeroifnull(NULL)` |  |
 
 ## Databricks only: date and time
@@ -668,14 +670,14 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `current_time` | Not checked |  |  |
-| `dayname` | Not checked |  |  |
+| `dayname` | Runs | `SELECT dayname(DATE'2024-11-01')` |  |
 | `getdate` | Not checked |  |  |
 | `localtime` | Not checked |  |  |
-| `make_time` | Not checked |  |  |
-| `monthname` | Not checked |  |  |
+| `make_time` | Runs | `SELECT make_time(6, 30, 45.887)` |  |
+| `monthname` | Runs | `SELECT monthname(TIMESTAMP'2024-04-08 13:08:15')` |  |
 | `parse_timestamp` | Refused |  | parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8601, |
-| `time` | Not checked |  |  |
-| `time_bucket` | Not checked |  |  |
+| `time` | Runs | `SELECT time(TIMESTAMP'2026-10-29 16:45:30')` | A timestamp gives its time of day in UTC, this PC's session time zone |
+| `time_bucket` | Runs | `SELECT time_bucket(INTERVAL '1' HOUR, TIMESTAMP '2024-01-01 11:27:00', TIMESTAMP '1970-01-01 00:05:00')` |  |
 | `time_diff` | Runs | `SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')` |  |
 | `time_from_micros` | Runs | `SELECT time_from_micros(52200500000)` |  |
 | `time_from_millis` | Runs | `SELECT time_from_millis(52200500)` |  |
@@ -685,37 +687,37 @@ lists more checks and the differences known in more detail.
 | `time_to_seconds` | Runs | `SELECT time_to_seconds(TIME'14:30:00.5')` |  |
 | `time_trunc` | Runs | `SELECT time_trunc('HOUR', TIME'13:08:15.123')` |  |
 | `timediff` | Runs | `SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')` |  |
-| `timestamp_nanos` | Fails |  | DuckDB has no timestamp_nanos, and the translation doesn't write it |
-| `timestampadd` | Not checked |  |  |
-| `timestampdiff` | Not checked |  |  |
+| `timestamp_nanos` | Runs | `SELECT string(timestamp_nanos(1230219000123456789))` | In UTC (Databricks' page shows 07:30 in a Los Angeles session); a TIMESTAMP_NS here holds about 1677 to 2262 |
+| `timestampadd` | Runs | `SELECT timestampadd(MONTH, -1, TIMESTAMP'2022-03-31 00:00:00')` |  |
+| `timestampdiff` | Runs | `SELECT timestampdiff(YEAR, DATE'2021-01-01', DATE'1900-03-28')` |  |
 | `to_time` | Runs | `SELECT to_time('10:30:00')` |  |
-| `try_make_interval` | Fails |  | DuckDB has no try_make_interval, and the translation doesn't write it |
-| `try_make_timestamp` | Fails |  | DuckDB has no try_make_timestamp, and the translation doesn't write it |
+| `try_make_interval` | Runs | `SELECT try_make_interval(2147483647, 0)` |  |
+| `try_make_timestamp` | Runs | `SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `try_make_timestamp_ltz` | Runs | `SELECT try_make_timestamp_ltz(DATE'2014-12-28', TIME'06:30:45.887')` |  |
 | `try_make_timestamp_ntz` | Runs | `SELECT try_make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `try_parse_timestamp` | Refused |  | try_parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8 |
 | `try_to_date` | Runs | `SELECT try_to_date('2016-12-31')` |  |
 | `try_to_time` | Runs | `SELECT try_to_time('10:30:00')` |  |
-| `unix_nanos` | Fails |  | DuckDB has no unix_nanos, and the translation doesn't write it |
+| `unix_nanos` | Runs | `SELECT unix_nanos(TIMESTAMP'1970-01-01 00:00:01.123456789Z')` |  |
 
 ## Databricks only: IP addresses
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `ip_as_binary` | Fails |  | DuckDB has no ip_as_binary, and the translation doesn't write it |
-| `ip_as_string` | Fails |  | DuckDB has no ip_as_string, and the translation doesn't write it |
-| `ip_cidr` | Fails |  | DuckDB has no ip_cidr, and the translation doesn't write it |
-| `ip_cidr_contains` | Fails |  | DuckDB has no ip_cidr_contains, and the translation doesn't write it |
-| `ip_host` | Fails |  | DuckDB has no ip_host, and the translation doesn't write it |
-| `ip_network` | Fails |  | DuckDB has no ip_network, and the translation doesn't write it |
-| `ip_network_first` | Fails |  | DuckDB has no ip_network_first, and the translation doesn't write it |
-| `ip_network_last` | Fails |  | DuckDB has no ip_network_last, and the translation doesn't write it |
-| `ip_prefix_length` | Fails |  | DuckDB has no ip_prefix_length, and the translation doesn't write it |
-| `ip_version` | Fails |  | DuckDB has no ip_version, and the translation doesn't write it |
-| `try_ip_as_binary` | Fails |  | DuckDB has no try_ip_as_binary, and the translation doesn't write it |
-| `try_ip_as_string` | Fails |  | DuckDB has no try_ip_as_string, and the translation doesn't write it |
-| `try_ip_cidr` | Fails |  | DuckDB has no try_ip_cidr, and the translation doesn't write it |
-| `try_ip_host` | Fails |  | DuckDB has no try_ip_host, and the translation doesn't write it |
+| `ip_as_binary` | Runs | `SELECT hex(ip_as_binary('192.168.1.1'))` |  |
+| `ip_as_string` | Runs | `SELECT ip_as_string('192.168.1.1')` |  |
+| `ip_cidr` | Runs | `SELECT ip_cidr('192.168.1.100/24')` |  |
+| `ip_cidr_contains` | Runs | `SELECT ip_cidr_contains('192.168.1.0/24', '192.168.2.1')` |  |
+| `ip_host` | Runs | `SELECT ip_host('192.168.1.5')` |  |
+| `ip_network` | Runs | `SELECT ip_network('192.168.1.100/24')` |  |
+| `ip_network_first` | Runs | `SELECT ip_network_first('192.168.1.100/24')` |  |
+| `ip_network_last` | Runs | `SELECT ip_network_last('192.168.1.0/24')` |  |
+| `ip_prefix_length` | Runs | `SELECT ip_prefix_length('192.168.1.1/24')` |  |
+| `ip_version` | Runs | `SELECT ip_version('192.168.1.5')` |  |
+| `try_ip_as_binary` | Runs | `SELECT hex(try_ip_as_binary('192.168.1.1'))` |  |
+| `try_ip_as_string` | Runs | `SELECT try_ip_as_string('192.168.1.1')` |  |
+| `try_ip_cidr` | Runs | `SELECT try_ip_cidr('192.168.1.100/24')` |  |
+| `try_ip_host` | Runs | `SELECT try_ip_host('192.168.1.5')` |  |
 
 ## Databricks only: miscellaneous
 
@@ -729,34 +731,34 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bit_reverse` | Fails |  | DuckDB has no bit_reverse, and the translation doesn't write it |
-| `charindex` | Not checked |  |  |
-| `collate` | Fails |  | Catalog Error: Collation with name utf8_lcase does not exist! |
+| `bit_reverse` | Runs | `SELECT bit_reverse(-2)` | BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type |
+| `charindex` | Runs | `SELECT charindex('bar', 'abcbarbar', 5)` |  |
+| `collate` | Runs | `SELECT 'Café' = 'café' COLLATE UTF8_LCASE` | UTF8_BINARY and UTF8_LCASE run (UTF8_LCASE as DuckDB's NOCASE, which may lower a few letters such as U+0130 differently from Java); the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name |
 | `collation` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: COLLATION function is not supported by DuckDB Run it in Fabric, or rewrite th |
-| `hmac` | Fails |  | DuckDB has no hmac, and the translation doesn't write it |
-| `is_valid_utf8` | Fails |  | DuckDB has no is_valid_utf8, and the translation doesn't write it |
-| `jaro_winkler_similarity` | Not checked |  |  |
-| `make_valid_utf8` | Fails |  | DuckDB has no make_valid_utf8, and the translation doesn't write it |
-| `try_url_decode` | Fails |  | DuckDB has no try_url_decode, and the translation doesn't write it |
-| `try_validate_utf8` | Fails |  | DuckDB has no try_validate_utf8, and the translation doesn't write it |
-| `try_zstd_decompress` | Fails |  | DuckDB has no try_zstd_decompress, and the translation doesn't write it |
-| `validate_utf8` | Fails |  | DuckDB has no validate_utf8, and the translation doesn't write it |
-| `zstd_compress` | Fails |  | DuckDB has no zstd_compress, and the translation doesn't write it |
-| `zstd_decompress` | Fails |  | DuckDB has no zstd_decompress, and the translation doesn't write it |
+| `hmac` | Runs | `SELECT hex(hmac('key', 'message'))` | A key written in the SQL is kept in the cell and its query history, as in Databricks: read it from a secret |
+| `is_valid_utf8` | Runs | `SELECT is_valid_utf8(x'61C262')` |  |
+| `jaro_winkler_similarity` | Runs | `SELECT jaro_winkler_similarity('MARTHA', 'MARHTA')` |  |
+| `make_valid_utf8` | Runs | `SELECT make_valid_utf8(x'61C262')` |  |
+| `try_url_decode` | Runs | `SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')` | url_decode and try_url_decode follow java.net.URLDecoder: a bad % escape stops url_decode |
+| `try_validate_utf8` | Runs | `SELECT try_validate_utf8(x'61C262')` |  |
+| `try_zstd_decompress` | Refused |  | try_zstd_decompress() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no Zstandard codec. Run the cell on a Databricks SQL wareh |
+| `validate_utf8` | Runs | `SELECT validate_utf8(x'61')` |  |
+| `zstd_compress` | Refused |  | zstd_compress() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no Zstandard codec. Run the cell on a Databricks SQL warehouse,  |
+| `zstd_decompress` | Refused |  | zstd_decompress() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no Zstandard codec. Run the cell on a Databricks SQL warehouse |
 
 ## Databricks only: VARIANT and JSON
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `is_variant_null` | Fails |  | DuckDB has no is_variant_null, and the translation doesn't write it |
-| `parse_json` | Not checked |  |  |
-| `schema_of_variant` | Fails |  | DuckDB has no schema_of_variant, and the translation doesn't write it |
-| `to_variant_object` | Fails |  | DuckDB has no to_variant_object, and the translation doesn't write it |
-| `try_parse_json` | Fails |  | DuckDB has no try_parse_json, and the translation doesn't write it |
-| `try_variant_get` | Fails |  | DuckDB has no try_variant_get, and the translation doesn't write it |
-| `variant_explode` | Fails |  | DuckDB has no variant_explode, and the translation doesn't write it |
-| `variant_explode_outer` | Fails |  | DuckDB has no variant_explode_outer, and the translation doesn't write it |
-| `variant_get` | Fails |  | DuckDB has no variant_get, and the translation doesn't write it |
+| `is_variant_null` | Runs | `SELECT is_variant_null(v:key) FROM VALUES(parse_json('{"key": null, "a": 1}')) AS T(v)` |  |
+| `parse_json` | Runs | `SELECT parse_json('{"key": 123, "data": [4, 5, "str"]}')` | A VARIANT is JSON text here, written as Databricks prints it; v:key reads it with DuckDB's JSON functions, which keep a number to DOUBLE's 17 digits |
+| `schema_of_variant` | Refused |  | schema_of_variant() can't run on this PC the way it runs in Databricks, so nothing ran: this PC keeps a VARIANT as JSON text, which doesn't keep every type Data |
+| `to_variant_object` | Runs | `SELECT to_variant_object(named_struct('a', 1, 'b', 2))` | A STRUCT, MAP or ARRAY of integers, strings and booleans; a DOUBLE, DECIMAL, date or timestamp inside stops by name |
+| `try_parse_json` | Runs | `SELECT try_parse_json('{ bad }')` |  |
+| `try_variant_get` | Runs | `SELECT try_variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.key', 'boolean')` |  |
+| `variant_explode` | Runs | `SELECT * FROM variant_explode(parse_json('{"foo":1,"bar":"hello"}'))` |  |
+| `variant_explode_outer` | Runs | `SELECT value FROM variant_explode_outer(parse_json('123')) AS t(pos, key, value)` |  |
+| `variant_get` | Runs | `SELECT variant_get(parse_json('{"key": 123, "data": [4, {"a": "hello"}, "str"]}'), '$.data[1].a', 'string')` | A cast that turns on a number's exact VARIANT type (a STRING, or a DECIMAL with a fraction, to an integer; a date; a STRUCT) stops by name |
 
 ## Databricks only: vectors
 
@@ -774,6 +776,6 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `from_xml` | Fails |  | DuckDB has no from_xml, and the translation doesn't write it |
-| `schema_of_xml` | Fails |  | DuckDB has no schema_of_xml, and the translation doesn't write it |
-| `to_xml` | Fails |  | DuckDB has no to_xml, and the translation doesn't write it |
+| `from_xml` | Refused |  | from_xml() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no XML reader that infers and converts values the way Databricks' XML |
+| `schema_of_xml` | Refused |  | schema_of_xml() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no XML reader that infers and converts values the way Databricks |
+| `to_xml` | Refused |  | to_xml() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no XML reader that infers and converts values the way Databricks' XML s |

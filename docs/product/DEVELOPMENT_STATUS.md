@@ -3,10 +3,38 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-07 11:42 UTC, main 56e3826b.** Covers the PRs merged from #135 to #2171.
+**Product check of 2026-11-10 11:42 UTC, main 5d2fc045.** Covers the PRs merged from #135 to #2395.
 
 ## Summary
 
+- Morning check, 2026-11-10: 17 PRs merged after d5a867c0. 1 was a product data PR, and the other 16 were linked.
+  Every outbound request now retries throttling or says why it is sent once, Fabric lists follow both kinds of
+  continuation, CI scans for secrets, and a short memory soak runs in CI on Linux and Windows (PB-124). Notebooks on
+  this PC answer spark.catalog about the lakehouse and read or write Unity Catalog style names, or refuse by name
+  (PB-103). No item changed state.
+- Evening check, 2026-11-09: 54 PRs merged after 2bf8ea1b. 5 were product data, docs audit and operations PRs, and
+  the other 49 were linked. The weekly review's hardening stories landed: retries go through one module, Fabric
+  errors and the app's errors name a next step, a write whose reply was lost is never made twice, IT can check audit
+  exports, and every shipped lock file is scanned (PB-124). A seeded kill test for local Delta writes runs in CI on
+  Linux and Windows (PB-099). The Databricks Associate track gained seven exercises (PB-135). PB-120 moved to In
+  review with its implementation review, which recommends Accept with documented limitations; the decision card waits
+  on the product owner. Docs audit 16 marked the 28 features whose only verification gap is a live tenant run.
+- Acceptance, 2026-11-09: the product owner accepted PB-128 (Academy) for the DP-700 track with documented
+  limitations. 48 of 49 objectives have built exercises, eventstream errors has a recorded gap, and objectives that
+  need Fabric complete only with Fabric runs. The Databricks track moves to PB-135 (In progress), because 7 of its 33
+  objectives have neither an exercise nor a gap.
+- Morning check, 2026-11-09: 41 PRs merged after e5e6bec4 (nothing merged on 2026-11-08). 2 were product data and
+  docs audit PRs, and the other 39 were linked. Academy DP-700 gained three capstones (PB-128), and the last failing
+  Databricks SQL functions now run or are refused by name (PB-120). Local Delta's first-append race, slowdown from run
+  count and stores without limits are fixed (PB-099). Expired sign-ins, HTTPS inspection and the agent's install folder
+  are hardened (PB-124). The app works at 200% zoom and in Windows contrast themes (PB-063). No item changed state.
+- Evening check, 2026-11-07: 74 PRs merged after 56e3826b. 4 were product data PRs, and the other 70 were linked.
+  Audit lines for Prod and confirmed actions are now written first, and the action doesn't run without one. An
+  authorization matrix lists every state-changing call (PB-124). The Living Experience Home hero, Forge Activity view,
+  empty-state art and motion modes landed in Preview (PB-102). Databricks and Snowflake SQL answer as their docs show
+  in more places (PB-120), and Academy's question bank is re-checked and grows to 498 (PB-128). The Data mesh owner's
+  own scores moved PB-130 from P2 to P3 (#2182) before it was accepted. PB-134's owner is now the mastery thread, and
+  its scores stay provisional until that owner sends its own.
 - New item, 2026-11-07: PB-134 Developer classes and mastery (In progress), from the product owner's brief of 14:17 UTC.
   Classes and talent trees build on the profile's verified evidence, and mastery levels never come from time spent.
   The first PR is engine-only (#2206, draft). Screens wait for the owner's reaction to the mockup.
@@ -174,7 +202,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 2 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-120), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

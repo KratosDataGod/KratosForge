@@ -1,0 +1,180 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "C2",
+  "version": 1,
+  "status": "draft",
+  "title": "Capstone: real-time chiller telemetry with late and repeated events",
+  "objectives": [
+    "2.1.3",
+    "2.2.9",
+    "2.3.3",
+    "2.3.5"
+  ],
+  "objective_text": "Stream new device readings from Bronze with a checkpoint, keep every event once, put late events into the windows they belong to, keep 5-minute window aggregates and an alert table right, and make a rerun change nothing.",
+  "scenario": "Chillers in a warehouse send a temperature reading every few minutes, and an eventstream appends them to a Bronze table. Readings arrive twice when a device retries, and some arrive minutes late after a network drop. Operations watches 5-minute averages and wants an alert for every window over 8.0 degrees, including the ones a late reading pushes over, and none for a window a late reading brings back down.",
+  "prerequisites": [
+    "E26",
+    "E42",
+    "E43"
+  ],
+  "minutes": 180,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "datasets": [
+    {
+      "name": "bronze.device_events",
+      "rows": 8,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "silver.readings",
+      "rows": 4,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "parity": null,
+  "starting_environment": "bronze.device_events with the readings sent since the last run, and silver.readings, gold.device_5min and gold.alerts as the last run left them, and a starter answer.py that starts the stream.",
+  "required": [
+    "silver.readings has one row per event_id: everything it held before plus each new event once, however many times it arrived.",
+    "gold.device_5min has one row per device_id and window_start (a multiple of 5 minutes) with readings (the count), avg_temp (rounded to 2 places, DECIMAL(6,2)) and max_temp over all the window's readings in silver.readings, including late ones.",
+    "gold.alerts has device_id, window_start and avg_temp for every window in gold.device_5min whose avg_temp is over 8.0."
+  ],
+  "expected": {
+    "description": "Three tables as listed under required, on the practice data and on other data where a late reading clears an alert."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.readings",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "silver.readings has every event once.",
+      "fail": "silver.readings isn't right: an event can arrive twice, in one batch or after an earlier run stored it."
+    },
+    {
+      "kind": "result_matches",
+      "table": "silver.readings",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "silver.readings is right on data you haven't seen.",
+      "fail": "On other data silver.readings is wrong."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.device_5min",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "Every window counts all its readings, late ones included.",
+      "fail": "gold.device_5min isn't right: a late event belongs with the readings already in its window."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.device_5min",
+      "weight": 2,
+      "required": true,
+      "data": "hidden",
+      "pass": "The windows are right on other data too.",
+      "fail": "On other data gold.device_5min is wrong."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.alerts",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "The alerts match the windows over the limit.",
+      "fail": "gold.alerts isn't right: it should list every window whose avg_temp is over 8.0, not only this run's."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.alerts",
+      "weight": 1,
+      "required": true,
+      "data": "hidden",
+      "pass": "The alerts are right on other data too, including one a late event cleared.",
+      "fail": "On other data gold.alerts is wrong: a late event can pull a window back under the limit."
+    },
+    {
+      "kind": "table_shape",
+      "table": "gold.device_5min",
+      "weight": 1,
+      "required": true,
+      "columns": {
+        "window_start": "TIMESTAMP",
+        "avg_temp": "DECIMAL"
+      },
+      "unique": [
+        "device_id",
+        "window_start"
+      ],
+      "not_null": [
+        "device_id",
+        "window_start",
+        "readings",
+        "avg_temp"
+      ],
+      "pass": "One row per device and window.",
+      "fail": "gold.device_5min has a repeated window or a wrong type: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "gold.device_5min",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it again leaves the windows as they were.",
+      "fail": "A second run changed gold.device_5min."
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.readings",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it again adds no events.",
+      "fail": "A second run changed silver.readings."
+    }
+  ],
+  "verifies": [
+    "After your code runs, silver.readings, gold.device_5min and gold.alerts hold the right rows on the exercise data and on data you haven't seen, starting from what a previous run left, on this PC.",
+    "Each window appears once, and running your code again changes nothing."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in Fabric. The stream here reads the table's new rows in one availableNow batch; Spark's withWatermark and window() aren't part of this engine, so windows are computed from the timestamp and late events are handled by recomputing windows.",
+    "The eventstream, the eventhouse and KQL: choosing an engine is E40, an eventstream design is E41, KQL is E34.",
+    "Fabric alerts: an Activator rule on these windows is E46."
+  ],
+  "hints": [
+    "foreachBatch gives you each batch as an ordinary DataFrame, so you can dedupe and MERGE it.",
+    "dropDuplicates removes repeats inside a batch; a MERGE that only inserts when the event_id isn't matched keeps out events an earlier run stored.",
+    "A late event changes a window that already exists. Work out which windows the batch touched, then recompute those windows from silver.readings, not from the batch.",
+    "Window start: floor the epoch seconds to a multiple of 300 and turn it back into a timestamp.",
+    "MERGE the recomputed windows into gold.device_5min on device_id and window_start; an append would repeat them.",
+    "Rebuild gold.alerts from gold.device_5min after the stream finishes, so a window a late event cleared drops out."
+  ],
+  "explanation": "A stream that retries delivers some events more than once, so Silver needs a key: drop repeats in the batch and insert only unmatched event_ids, and a resend of something already stored changes nothing. A late event isn't wrong data; it belongs to a window that may already be in Gold, so the batch's own rows aren't enough to aggregate. Recomputing the windows the batch touched from all of Silver and MERGEing them puts the late event with its neighbours, and the windows the batch didn't touch stay as they were. A watermark would bound how late an event can be and drop the rest; here the requirement is to keep them, which is why the windows are recomputed rather than finalised. The alerts are derived from the windows after each run, so an alert appears when a late reading pushes a window over the limit and disappears when one brings it back. The checkpoint means a rerun reads nothing new, and the keys mean even a full reprocess wouldn't change the tables.",
+  "troubleshooting": [
+    "An event appears twice in silver.readings: dedupe inside the batch, and MERGE so a resend of a stored event isn't inserted.",
+    "A window has fewer readings than it should: it was aggregated from the batch alone. Recompute it from silver.readings.",
+    "A window appears twice in gold.device_5min: MERGE the windows instead of appending them.",
+    "A late reading is missing: nothing in the requirement drops late events, so don't filter them out.",
+    "An old alert vanished or a cleared one stayed: rebuild gold.alerts from all of gold.device_5min."
+  ],
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-streaming-data",
+    "https://learn.microsoft.com/azure/databricks/structured-streaming/foreach"
+  ],
+  "reset": "Reset rebuilds the four tables from setup.sql, removes the checkpoint and any tables your runs made, and puts the starter back.",
+  "review_notes": [
+    "LOCAL VERIFIED on DuckDB's PySpark API with delta-rs; the readings are synthetic and the same every time.",
+    "Planned objectives not claimed: 2.3.1 (choose an engine), 2.3.2 (eventstream), 2.3.4 (KQL), 3.1.4 (alerts) and 3.2.5 (eventstream errors). This engine runs none of them, so they stay with E40, E41, E34, E46 and E54 and the Fabric verified version. 2.2.9 (duplicate and late data) is added: it's what C2 grades."
+  ]
+}

@@ -29,8 +29,10 @@ function railFeatures(bottom = false) {
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
-  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
-    icon(f.rail.icon, 22), typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label);
+  const label = typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label;
+  // The name stays the button's text, so it is the accessible name even when a short window shows icons only.
+  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, title: label, onclick: () => go(view) },
+    icon(f.rail.icon, 22), h("span", { class: "rail-label" }, label));
 }
 
 // ---------- preview ----------
@@ -353,6 +355,20 @@ function isShortcut(e, id) {
   if (!s?.match || (s.mod && !(e.ctrlKey || e.metaKey)) || (s.alt && !e.altKey)) return false;
   const key = String(e.key || "");
   return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
+}
+
+// The SQL a text box's Run should use, as in SSMS: the selected text when there is some, otherwise all of it.
+function boxChosenText(box) {
+  const { value, selectionStart: from, selectionEnd: to } = box;
+  return to > from && value.slice(from, to).trim() ? value.slice(from, to) : value;
+}
+
+const RUN_BOX_TIP = { title: "Run the selected text, or all of it when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" };
+
+// Run keys for a SQL text box: F5 or Ctrl+Enter call run().
+function isRunKey(e) {
+  return (e.key === "F5" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    || (e.key === "Enter" && (e.ctrlKey || e.metaKey));
 }
 
 // Whether focus is in a box someone types in, where a plain "?" must stay a character.

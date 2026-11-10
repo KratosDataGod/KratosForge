@@ -273,7 +273,7 @@ class SideBySideMixin:
             f = record["fabric"]
             try:
                 self.fabric_jobs.cancel_job(f["workspace_id"], f["item_id"], f["job_id"])  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a cancel that fails is recorded on the run
                 record["message"] = f"Couldn't cancel the Fabric run: {exc}"
         return {"cancelled": True}
 

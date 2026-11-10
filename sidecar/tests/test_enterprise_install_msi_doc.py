@@ -37,8 +37,8 @@ def test_the_msi_section_matches_the_wix_file_and_the_ci_build():
 
 def test_the_support_bundle_section_lists_what_the_bundle_holds():
     page = section("## What the support bundle collects".lstrip("#"))
-    listed = set(re.findall(r"^\| `([\w.]+)` \|", page, re.M))
-    assert listed == {"about.json", "sidecar.log", "sidecar.prev.log", "agent.log", "CONTENTS.txt"}
+    listed = set(re.findall(r"^\| `([\w.-]+)` \|", page, re.M))
+    assert listed == {"about.json", "sidecar.log", "sidecar.prev.log", "app-crash.log", "agent.log", "CONTENTS.txt"}
     source = Path(support_bundle.__file__).read_text(encoding="utf-8")
     for name in listed:
         assert f'"{name}"' in source, name

@@ -32,7 +32,7 @@ _log = logging.getLogger(__name__)
 def files(project: Project) -> dict[str, bytes]:
     """Every file in the metadata version, by project-relative path (the set ``Project.version`` reads)."""
     out = {}
-    for p in sorted(project.root.rglob("*")):
+    for p in sorted(project.versioned_files()):
         rel = p.relative_to(project.root)
         if p.is_file() and not (set(rel.parts) & _IGNORED) and p.suffix != ".pyc" \
                 and rel.as_posix() not in _UNVERSIONED:

@@ -203,7 +203,7 @@ class ProofRuntime:
         packages = {}
         try:
             owners = md.packages_distributions()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - owners are optional; none are shown
             owners = {}
         names: set[str] = set()
         if modules is None:

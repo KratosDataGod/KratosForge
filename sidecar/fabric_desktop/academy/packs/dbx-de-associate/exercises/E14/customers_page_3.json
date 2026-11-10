@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "id": 7,
+      "name": "Gus",
+      "country": "ES",
+      "updated_at": "2026-03-04T12:00:00Z"
+    },
+    {
+      "id": 8,
+      "name": "Hal",
+      "country": "US",
+      "updated_at": "2026-03-05T16:20:00Z"
+    }
+  ],
+  "page": 3,
+  "next_page": null
+}

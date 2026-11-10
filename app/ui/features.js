@@ -357,6 +357,20 @@ function isShortcut(e, id) {
   return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
 }
 
+// The SQL a text box's Run should use, as in SSMS: the selected text when there is some, otherwise all of it.
+function boxChosenText(box) {
+  const { value, selectionStart: from, selectionEnd: to } = box;
+  return to > from && value.slice(from, to).trim() ? value.slice(from, to) : value;
+}
+
+const RUN_BOX_TIP = { title: "Run the selected text, or all of it when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" };
+
+// Run keys for a SQL text box: F5 or Ctrl+Enter call run().
+function isRunKey(e) {
+  return (e.key === "F5" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    || (e.key === "Enter" && (e.ctrlKey || e.metaKey));
+}
+
 // Whether focus is in a box someone types in, where a plain "?" must stay a character.
 function typingIn(el) {
   return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || !!el.isContentEditable

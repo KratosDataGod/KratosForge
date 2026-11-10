@@ -502,6 +502,36 @@ def _in_attached(tree: Any, name: str | None = None) -> None:
         target.set("db", None)
 
 
+def _use(statement: Any) -> None:
+    """USE CATALOG, USE SCHEMA, USE DATABASE and USE name. On this PC a table name resolves in the attached
+    lakehouse (its dbo schema when it has schemas), and that can't be changed. So USE runs only when it
+    names where names already resolve, and changes nothing; any other catalog or schema is refused by
+    name, so an unqualified table is never read from or written to a place the cell didn't mean."""
+    kind = str(statement.args.get("kind") or "").upper()
+    target = statement.this
+    parts = [p for p in (target.catalog, target.db, target.name) if p] if hasattr(target, "catalog") else [target.name]
+    lh = lakehouse._attached
+    home = lh.name.lower() if lh is not None else None
+    catalogs = {"spark_catalog", *([home] if home else [])}
+    schemas = {"dbo", *([home] if home else [])}  # USE Sales: Fabric's database is the lakehouse
+    if kind == "CATALOG":
+        ok = len(parts) == 1 and parts[0].lower() in catalogs
+    else:
+        *catalog, schema = parts
+        ok = len(parts) <= 2 and schema.lower() in schemas and all(c.lower() in catalogs for c in catalog)
+    if ok:
+        return
+    named = ".".join(parts)
+    where = f"the attached lakehouse ({lh.name})" if lh is not None else "the attached lakehouse"
+    if kind == "CATALOG" or len(parts) == 2 and parts[0].lower() not in catalogs:
+        raise ValueError(f"USE {kind + ' ' if kind else ''}{named}: the catalog {parts[0]} (such as a Unity Catalog "
+                         f"catalog) isn't on this PC, so nothing changed. Tables here are in {where}. "
+                         "Run the cell where that catalog is, or name tables as table or schema.table.")
+    raise ValueError(f"USE {kind + ' ' if kind else ''}{named}: on this PC an unqualified table name always resolves "
+                     f"in {where}, schema dbo, so USE can't point it at {parts[-1]} and nothing changed. "
+                     f"Name the schema in each table instead ({parts[-1]}.table).")
+
+
 def _refuse_auto_merge(session: Any) -> None:
     """With autoMerge on, Fabric's MERGE adds a source's new columns to the table. This PC's MERGE
     keeps the table's schema, so it would drop them without saying so: refuse it, as
@@ -951,6 +981,9 @@ class LocalSparkSession(SparkSession):
 
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
+        if isinstance(statement, exp.Use):
+            _use(statement)
+            return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         if isinstance(statement, exp.Merge):
             return self._merge(statement)
@@ -982,7 +1015,7 @@ class LocalSparkSession(SparkSession):
             is_view = isinstance(statement, exp.Create) and str(statement.args.get("kind", "")).upper() == "VIEW"
             temporary = statement.args.get("properties") and "TEMPORARY" in statement.args["properties"].sql().upper()
             if isinstance(target, exp.Table) and not is_view and not temporary:
-                name = f"{target.db}.{target.name}" if target.db else target.name
+                name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
                 data = self.conn.sql(_sql.duckdb_sql(spark_decimal_types(query, self.conn)))

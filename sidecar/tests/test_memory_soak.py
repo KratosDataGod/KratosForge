@@ -111,6 +111,8 @@ def test_the_workflow_runs_linux_and_windows_and_is_advisory():
     assert "os: ubuntu-24.04" in jobs and "os: windows-2025-vs2026" in jobs
     assert "--minutes ${{ matrix.minutes }}" in jobs and "minutes: 20" in jobs and "minutes: 10" in jobs
     assert "--gate" not in jobs  # advisory until its limits have held on main for a while
+    on = workflow.split("jobs:", 1)[0]
+    assert "schedule:" in on and "workflow_dispatch:" in on and "push:" not in on  # nightly, not per merge
 
 
 def test_a_few_loops_of_the_real_soak_fail_no_step_and_clean_up(tmp_path, restored):

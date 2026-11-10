@@ -123,9 +123,12 @@ So one jump, or a notebook process that grows and is restarted, does not count. 
 | child processes | 12 | 3 |
 | temp and SQL result files | 40 | 10 |
 
+The notebook process's memory is recorded but not judged: the kernel restarts every 25 cells, so it
+rises and falls by design. A kernel that outlives its restart fails the step instead.
+
 The **Memory soak** workflow (`.github/workflows/soak.yml`) runs it for 20 minutes on Ubuntu 24.04 and
-for 10 minutes (3-minute warm-up) on Windows Server 2025. It runs after each merge to main, on demand,
-and on a pull request that changes the soak. **It is advisory:** a growing measurement is a warning in
+for 10 minutes (3-minute warm-up) on Windows Server 2025. It runs nightly on main (about 30 runner
+minutes, so not after every merge), on demand, and on a pull request that changes the soak. **It is advisory:** a growing measurement is a warning in
 the job summary, and the job stays green. A step that fails does fail the job, because the soak then
 measured nothing. The result, with every sample, is kept as an artifact. `--gate` makes growth fail the
 job (exit code 1); the workflow will use it once the limits have held on main for a while.

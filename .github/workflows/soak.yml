@@ -4,11 +4,13 @@ name: Memory soak
 # Delta writes in a loop, 20 minutes on Linux and 10 on Windows, checking that memory, handles,
 # threads, child processes and temp files level off. It is advisory: a measurement that keeps
 # growing is a warning in the job summary, not a failure (see docs/performance.md#memory-soak). A
-# step that fails does fail the job, since then the soak measured nothing. It runs after each merge
-# to main, on demand, and on a pull request that changes the soak or this workflow.
+# step that fails does fail the job, since then the soak measured nothing. It runs nightly on main
+# (about 30 runner minutes, so not per merge), on demand, and on a pull request that changes the
+# soak or this workflow.
 on:
-  push:
-    branches: [main]
+  schedule:
+    # Off the hour: GitHub delays or drops scheduled runs when load is high, most of all at :00.
+    - cron: "17 2 * * *"
   pull_request:
     paths:
       - examples/benchmark/memory_soak.py
@@ -18,8 +20,8 @@ on:
 permissions:
   contents: read
 
-# Its own group, so it never holds up CI. A newer run of the same branch replaces a waiting one;
-# a running one finishes, so main still gets a whole soak when merges come close together.
+# Its own group, so it never holds up CI. A newer push to a pull request replaces its running soak;
+# a nightly or by-hand run on main finishes.
 concurrency:
   group: soak-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -1,7 +1,7 @@
 # Page header art: adding next month's pictures
 
-Header art is for progression only: Home, Academy and Profile each have their own pool of pictures.
-Working pages (Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Source control, Settings)
+Header art is for progression only: Academy and Profile each have their own pool of pictures.
+Home and the working pages (Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Source control, Settings)
 keep a plain heading and get no art; a new page with art needs Chris's explicit go (his rule of
 2026-11-09: RPG art only for ranks, progression and achievements). A page only ever shows a picture
 from its own pool. Each pool is meant to grow to 5 to 13 pictures, with new ones added monthly.
@@ -24,7 +24,7 @@ name choose the picture (`heroArtPick` in `app/ui/home-hero.js`).
 These are Chris's approved-artwork rules. The tests check the parts marked *(test)*.
 
 - Chris approves it first. Never crop from a composite mockup or a reference sheet.
-- It is 3:1, at least 2172 × 724 *(test)*, with the characters on the right and empty navy sky on
+- It is exactly 3:1 (width = 3 × height), at least 2172 × 724 *(test)*, with the characters on the right and empty navy sky on
   the left.
 - The original is kept unchanged under `docs/design/art/<page>/<id>.png` *(test)*.
 - The app uses two WebP files made from the original, `<id>.webp` at 2172 px and `<id>-1086.webp`
@@ -41,8 +41,7 @@ These are Chris's approved-artwork rules. The tests check the parts marked *(tes
 
 ## Steps
 
-1. Put Chris's PNG at `docs/design/art/<page>/<page>-hero-v<N>.png`, unchanged. `<page>` is one of
-   `home`, `academy` or `profile`.
+1. Put Chris's PNG at `docs/design/art/<page>/<page>-hero-v<N>.png`, unchanged. `<page>` is `academy` or `profile`.
 2. Measure the sky. Open the PNG and find the first column, from the left, where the characters or
    props start (cape, sparks, table, rock). Divide that x by the width, then subtract about 0.01.
    Background mountains and clouds may sit under the text.
@@ -73,5 +72,4 @@ These are Chris's approved-artwork rules. The tests check the parts marked *(tes
    ```
 
    `page-heroes` checks every picture in every pool at 12 widths and saves `shots/<id>-<width>.png`.
-   Home's own checks are in `home-living.test.cjs`.
 7. Open one pull request for the month's pictures. UX signs off on the screenshots before it merges.

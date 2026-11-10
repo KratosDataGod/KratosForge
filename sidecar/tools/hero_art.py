@@ -6,7 +6,7 @@ Run by hand when new art is added, never in CI. Needs Pillow (pip install pillow
     python sidecar/tools/hero_art.py --force    # make them all again
     python sidecar/tools/hero_art.py --check    # only report what is missing or wrong
 
-For each manifest entry it reads Chris's original PNG (left unchanged), checks it is 3:1 and at least
+For each manifest entry it reads Chris's original PNG (left unchanged), checks it is exactly 3:1 and at least
 2172 px wide, and writes <file>.webp at 2172 x 724 and <file>-1086.webp at 1086 x 362, quality 82,
 the two widths the app's srcset names. Nothing is cropped or stretched. docs/design/art/README.md has the whole how-to.
 """
@@ -50,14 +50,15 @@ def main() -> int:
             continue
         with Image.open(original) as im:
             width, height = im.size
-            if abs(width / height - 3) >= 0.02 or width < 2172:
-                print(f"{e['id']}: {width} x {height} is not 3:1 at 2172 px wide or more")
+            # Exactly 3:1, so scaling to 2172 x 724 and 1086 x 362 never stretches it.
+            if width != 3 * height or width < 2172:
+                print(f"{e['id']}: {width} x {height} is not exactly 3:1 at 2172 px wide or more")
                 problems += 1
                 continue
             rgb = im.convert("RGB")
             for suffix, size in SIZES:
                 out = ART / f"{e['file']}{suffix}.webp"
-                if out.is_file() and not args.force:
+                if out.is_file() and (args.check or not args.force):
                     continue
                 if args.check:
                     print(f"{e['id']}: {out.relative_to(ROOT)} is missing")

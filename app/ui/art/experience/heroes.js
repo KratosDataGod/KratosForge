@@ -14,16 +14,6 @@
 // Keep the list after "const HERO_ART = " plain JSON, ending with "];": the tests and sidecar/tools/hero_art.py read it.
 const HERO_ART = [
   {
-    "page": "home",
-    "id": "home-hero-v1",
-    "file": "home/home-hero-v1",
-    "original": "docs/design/art/home/home-hero-v1.png",
-    "sky": 0.27,
-    "alt": "",
-    "description": "Kratos and the wolf at dawn",
-    "published": "2026-11-07"
-  },
-  {
     "page": "academy",
     "id": "academy-hero-v1",
     "file": "academy/academy-hero-v1",

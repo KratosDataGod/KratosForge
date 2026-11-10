@@ -54,7 +54,7 @@ test("every picture is Chris's original at 3:1 with both WebP sizes made from it
     const png = path.join(ROOT, e.original);
     assert.ok(fs.existsSync(png), `${e.id}: original ${e.original} is missing`);
     const o = pngSize(png);
-    assert.ok(Math.abs(o.width / o.height - 3) < 0.02 && o.width >= 2172, `${e.id}: the original is ${o.width} x ${o.height}, not 3:1 at 2172 px or wider`);
+    assert.ok(o.width === 3 * o.height && o.width >= 2172, `${e.id}: the original is ${o.width} x ${o.height}, not exactly 3:1 at 2172 px or wider`);
     // The two widths the app's srcset names.
     for (const [suffix, width] of [["", 2172], ["-1086", 1086]]) {
       const file = path.join(ART, `${e.file}${suffix}.webp`);
@@ -70,7 +70,7 @@ test("every picture is in the asset log, and every page that shows art has a poo
   const log = fs.readFileSync(path.join(ROOT, "docs", "design", "assets.md"), "utf8");
   for (const e of heroArt()) assert.ok(log.includes(e.original), `${e.id}: add it to docs/design/assets.md`);
   const pages = new Set(heroArt().map((e) => e.page));
-  for (const page of ["home", "academy", "profile"]) {
+  for (const page of ["academy", "profile"]) {
     assert.ok(pages.has(page), `${page} has no header art`);
   }
 });

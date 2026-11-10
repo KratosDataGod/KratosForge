@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("audit_exceptions", ROOT / ".github" / "scripts" / "audit_exceptions.py")
 audit_exceptions = importlib.util.module_from_spec(spec)
@@ -141,3 +143,17 @@ def test_an_npm_advisory_without_a_ghsa_gets_an_id_the_exceptions_file_accepts()
     ids, problems = audit_exceptions.parse(suggested + "\n", TODAY)
     assert problems == [] and ids == ["NPM-1234"]
     assert audit_exceptions.npm_check(report, "x", ids, TODAY) == ([], [])
+
+
+@pytest.mark.parametrize("via", [{"url": "https://example.com/a", "severity": "low"},
+                                 {"source": "abc", "url": "", "severity": "high"}, {"source": True, "severity": "high"}])
+def test_an_npm_advisory_with_no_id_fails_and_no_exceptions_line_lets_it_through(via):
+    report = {"vulnerabilities": {"x": {"severity": via["severity"], "via": [via]}}}
+    errors, warnings = audit_exceptions.npm_check(report, "vscode/package-lock.json", ["NPM-0", "NPM-1234", ""], TODAY)
+    assert warnings == [] and len(errors) == 1 and errors[0].startswith("An advisory with no id")
+
+
+def test_the_npm_step_clears_the_last_report_before_each_lock():
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    step = ci.split("- name: npm packages", 1)[1].split("\n      - ", 1)[0]
+    assert step.index('rm -f "$RUNNER_TEMP/npm-audit.json"') < step.index("npm audit --package-lock-only")

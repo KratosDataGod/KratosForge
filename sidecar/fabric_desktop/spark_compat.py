@@ -380,7 +380,7 @@ def expr(text: str) -> Column:
     otherwise it is named as Spark names the expression, not after its DuckDB SQL."""
     read = _parse(text)
     # as spark.sql reads it, in a SELECT (a rewrite replaces a node in its parent)
-    select = spark_sql.spark_legacy_times(spark_sql.spark_fixes(exp.select(read.copy())))
+    select = spark_sql.spark_legacy_times(spark_sql.spark_fixes(spark_sql.spark_legacy_casts(exp.select(read.copy()))))
     item = cast(exp.Select, select).expressions[0]
     body = item.this if isinstance(item, exp.Alias) else item
     if isinstance(read, exp.Alias):

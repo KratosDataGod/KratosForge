@@ -371,6 +371,7 @@ jobs:
           failed=0
           for lock in app/ui/vendor/*/package-lock.json vscode/package-lock.json; do
             echo "== $lock"
+            rm -f "$RUNNER_TEMP/npm-audit.json"  # a failed audit must not leave the previous lock's report to read
             (cd "$(dirname "$lock")" && npm audit --package-lock-only --json > "$RUNNER_TEMP/npm-audit.json") || true
             python .github/scripts/audit_exceptions.py npm "$RUNNER_TEMP/npm-audit.json" "$lock" || failed=1
           done

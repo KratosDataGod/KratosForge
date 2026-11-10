@@ -168,7 +168,11 @@ True
 
 @pytest.fixture(scope="module")
 def kernel():
-    return Kernel()
+    # Each test may be the first to run in its kernel (tests spread one by one across workers), so the
+    # kernel imports F up front rather than relying on an earlier test's cell.
+    k = Kernel()
+    assert k.run("from pyspark.sql import functions as F")["status"] == "ok"
+    return k
 
 
 def _printed(kernel, cell):

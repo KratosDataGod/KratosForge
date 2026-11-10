@@ -83,7 +83,7 @@ def test_capacity_not_active_gets_a_plain_message():
     c, _ = client([Resp(404, {"errorCode": "CapacityNotActive", "message": "Capacity X is not active"})])
     try:
         c.list_lakehouses("ws1")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - checks the raised error's attributes below
         assert exc.code == "CapacityNotActive"
         assert "capacity is paused" in str(exc)
     else:

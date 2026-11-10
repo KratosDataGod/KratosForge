@@ -361,7 +361,7 @@ def _agent(args: argparse.Namespace) -> int:
         from .runtime import Runtime
         try:
             print(json.dumps(Runtime(config).check(), indent=2, default=str))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the CLI reports any failure as its exit code
             print(f"Check failed: {type(exc).__name__}: {exc}")
             return 1
         return 0

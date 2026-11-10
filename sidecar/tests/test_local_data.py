@@ -258,7 +258,7 @@ def test_requests_from_several_threads_take_turns(local, data):
             for _ in range(20):
                 e.execute("INSERT INTO counter VALUES (1)")
                 e.tables()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - collected and checked by the test below
             errors.append(exc)
     threads = [threading.Thread(target=work) for _ in range(4)]
     [t.start() for t in threads]

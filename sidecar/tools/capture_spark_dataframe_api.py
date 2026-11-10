@@ -65,7 +65,7 @@ def run_once() -> list[dict[str, Any]]:
                             exec(compile(source, "<example>", "exec"), namespace)  # noqa: S102
                             value = None
                         record["outcome"] = api.outcome(value, printed.getvalue())
-                except Exception as exc:  # noqa: BLE001  # Spark stopping is recorded, as documented or not
+                except Exception as exc:  # noqa: BLE001 - Spark stopping is recorded, as documented or not
                     if example.exc_msg is None:
                         entry["spark_error"] = f"{type(exc).__name__}: {exc}".splitlines()[0][:160]
                         break

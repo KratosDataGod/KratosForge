@@ -106,7 +106,7 @@ class FabricConnectionsMixin:
                 # Both tokens here: MSAL isn't thread-safe. Connection.Read.All is asked for once.
                 token = self.auth.fabric_token()  # type: ignore[attr-defined]
                 conn_token = self.auth._token(CONNECTION_SCOPES)  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - the list shows the error instead of connections
                 self._fabric_connections = {"pending": False, "connections": [], "missing": [], "error": describe(exc)}
             else:
                 # Gateway names are extra: without Gateway.Read.All (declined, or not allowed) the tab
@@ -116,7 +116,7 @@ class FabricConnectionsMixin:
                 if not gw_error:
                     try:
                         gw_token = self.auth._token(GATEWAY_SCOPES)  # type: ignore[attr-defined]
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001 - any gateway failure is shown; a decline is remembered
                         gw_error = describe(exc)
                         if declined(exc):  # a network blip asks again on the next Refresh
                             self._gateway_declined = gw_error
@@ -130,7 +130,7 @@ class FabricConnectionsMixin:
         listed = {w["id"]: w["displayName"] for w in FabricClient(lambda: token).list_workspaces()}
         try:
             envs = dict(self._project().environments)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no metadata project only narrows where connections are checked; logged
             _log.info("No metadata project; connections are checked in the Schedules workspaces: %s", describe(exc))
             envs = {}
         order = sorted(envs, key=lambda e: (ENV_ORDER.index(e) if e in ENV_ORDER else len(ENV_ORDER), e))
@@ -145,13 +145,13 @@ class FabricConnectionsMixin:
         try:
             rows = {r["id"]: r for r in map(connection_row, FabricClient(lambda: conn_token).list_connections())}
             workspaces = self._connection_workspaces(token)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - the list shows the error instead of connections
             self._set_connections({"pending": False, "connections": [], "missing": [], "error": describe(exc)})
             return
         if gw_token:
             try:
                 gateways = {str(g.get("id") or "").lower(): g for g in FabricClient(lambda: gw_token).list_gateways()}
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - the gateway list shows its error
                 gateways, gw_error = {}, describe(exc)
             for r in rows.values():
                 g = gateways.get(r["gateway_id"])
@@ -165,7 +165,7 @@ class FabricConnectionsMixin:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], "env": ws["env"], "item_id": it.get("id") or "",
                          "item_name": it.get("displayName") or "", "item_type": ITEM_TYPES[it["type"]]}
                         for it in client.list_items(ws["id"]) if it.get("type") in ITEM_TYPES]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a workspace that can't be listed is named in what was missed
                 missed.append(f"items in workspace {one_line(ws['id'], 100)}: {describe(exc)}")
                 return []
 
@@ -177,7 +177,7 @@ class FabricConnectionsMixin:
                 if it["item_type"] == "dataflow":
                     return it, dataflow_connection_ids(result)
                 return it, connection_ids(definition_parts(result))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - an item whose definition can't be read is named in what was missed
                 missed.append(f"definition of {one_line(it['item_id'], 100)}: {describe(exc)}")
                 return it, set()
 

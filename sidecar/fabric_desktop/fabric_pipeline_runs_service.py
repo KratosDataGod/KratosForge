@@ -135,7 +135,7 @@ class FabricPipelineRunsMixin:
                     return dict(cached)  # a scan for this scope is already going
                 try:
                     token = self.auth.fabric_token()  # type: ignore[attr-defined]  # here: MSAL isn't thread-safe
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 - the list shows the error instead of runs
                     self._fabric_pipeline_runs = {"pending": False, "runs": [], "scope": scope, "error": describe(exc)}
                 else:
                     self._fabric_pipeline_runs = {"pending": True, "runs": [], "scope": scope}
@@ -153,7 +153,7 @@ class FabricPipelineRunsMixin:
         client = FabricClient(lambda: token)
         try:
             workspaces = self._pipeline_run_workspaces(token, scope)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - the list shows the error instead of runs
             self._set_pipeline_runs({"pending": False, "runs": [], "scope": scope, "error": describe(exc)})
             return
         missed: list[str] = []  # one log line per scan, not one per pipeline
@@ -162,7 +162,7 @@ class FabricPipelineRunsMixin:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
                         for it in client.list_items(ws["id"]) if it.get("type") in RUN_KINDS]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a workspace that can't be listed is named in what was missed
                 missed.append(f"items in workspace {one_line(ws['id'], 100)}: {describe(exc)}")
                 return []
 
@@ -172,7 +172,7 @@ class FabricPipelineRunsMixin:
                 # Rows are built here too: an item whose history this version can't read is one
                 # missed read, never a scan that stops and leaves Monitor "Reading..." for good.
                 return [{**run_row(j, p), "kind": RUN_KINDS[p["type"]]} for j in jobs[:RUNS_PER_PIPELINE]]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - runs that can't be read are named in what was missed
                 missed.append(f"runs of {RUN_KINDS[p['type']]} {one_line(p['id'], 100)}: {describe(exc)}")
                 return []
 

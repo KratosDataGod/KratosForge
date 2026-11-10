@@ -431,3 +431,57 @@ test("any other connection failure is a channel error that names it, not a raw s
     await new Promise((r) => server.close(r));
   }
 });
+
+test("an answer cut off after it began is reported as lost, not left waiting", async () => {
+  const app = await fakeApp((url, req, res) => {
+    if (url.pathname === "/v1/status") {
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": "100" });
+      res.write('{"ok": true, "res');
+      setTimeout(() => req.socket.destroy(), 50);
+      return true;
+    }
+    return false;
+  });
+  try {
+    await assert.rejects(app.ch.status(), (err) => err instanceof ChannelError && err.code === "connection_lost");
+  } finally {
+    await app.close();
+  }
+});
+
+test("an answer that stalls after it began times out, not left waiting", async () => {
+  const app = await fakeApp((url, req, res) => {
+    if (url.pathname === "/v1/status") {
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": "100" });
+      res.write('{"ok": true, "res'); // and nothing more
+      return true;
+    }
+    return false;
+  });
+  app.ch.timeout = 200;
+  try {
+    await assert.rejects(app.ch.status(), (err) => err instanceof ChannelError && err.code === "timed_out");
+  } finally {
+    app.close();
+  }
+});
+
+test("a poll with no answer at all is asked again only once", async () => {
+  let polls = 0;
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      reply(200, { ok: true, result: { status: "running", version: 1, outputs: [] } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") { polls++; return true; } // never answers
+    return false;
+  });
+  app.ch.timeout = 200;
+  app.ch.pollPause = 10;
+  try {
+    await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined), (err) => err.code === "timed_out");
+    assert.strictEqual(polls, 2);
+  } finally {
+    app.close();
+  }
+});

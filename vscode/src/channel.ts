@@ -55,6 +55,8 @@ export function unreachable(code: string): string {
 // How often a dropped or slow poll of a running cell is tried again before the cell is reported as
 // failed. Polling only reads, so asking again can't run anything twice; starting a cell is never retried.
 const POLL_RETRIES = 3;
+// A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
+const POLL_TIMEOUT_RETRIES = 1;
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
 const BUSY_RETRIES = 3;
@@ -83,6 +85,9 @@ interface Reply { status: number; payload: { ok?: boolean; result?: unknown; err
 function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer,
   timeout = 60_000): Promise<Reply> {
   return new Promise((resolve, reject) => {
+    let timedOut = false;
+    // A connection that drops or stalls after the answer has begun is reported on the response, not the request.
+    const cut = () => reject(timedOut ? new ChannelError(0, "timed_out", TIMED_OUT) : new ChannelError(0, "connection_lost", CONNECTION_LOST));
     const req = http.request({ host: "127.0.0.1", port, method, path: url, headers: { Host: `127.0.0.1:${port}`, ...headers },
       timeout }, (res) => {
       if (Number(res.headers["content-length"]) > MAX_REPLY) {
@@ -90,6 +95,9 @@ function send(port: number, method: string, url: string, headers: Record<string,
         reject(new ChannelError(0, "too_large", TOO_LARGE));
         return;
       }
+      res.on("aborted", cut);
+      res.on("error", cut);
+      res.on("close", () => { if (!res.complete) cut(); });
       const chunks: Buffer[] = [];
       let size = 0;
       res.on("data", (c: Buffer) => {
@@ -109,7 +117,6 @@ function send(port: number, method: string, url: string, headers: Record<string,
         }
       });
     });
-    let timedOut = false;
     req.on("timeout", () => {
       timedOut = true;
       req.destroy();
@@ -250,8 +257,9 @@ export class Channel {
       try {
         return await this.poll(file, version);
       } catch (err) {
-        const passing = err instanceof ChannelError && (err.code === "connection_lost" || err.code === "timed_out");
-        if (!passing || attempt >= POLL_RETRIES) throw err;
+        const code = err instanceof ChannelError ? err.code : "";
+        const limit = code === "connection_lost" ? POLL_RETRIES : code === "timed_out" ? POLL_TIMEOUT_RETRIES : -1;
+        if (attempt >= limit) throw err;
         await new Promise((r) => setTimeout(r, this.pollPause * 2 ** attempt));
       }
     }

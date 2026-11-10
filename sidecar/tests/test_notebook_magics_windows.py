@@ -47,7 +47,7 @@ def test_words_follow_the_windows_command_line_for_quotes_inside_quotes():
 def test_fs_put_writes_escaped_quotes(tmp_path):
     k = Kernel()
     target = tmp_path / "x.txt"
-    _text(k.run(f'%fs put -f "{target}" "say \\"hi\\""'))
+    _text(k.run(f'%fs put -f "file:{target.as_posix()}" "say \\"hi\\""'))
     assert target.read_text() == 'say "hi"'
 
 

@@ -57,7 +57,7 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
         # Microsoft for its endpoints. A tool calls this first, often several times at once.
         if getattr(svc, "_auth", None) is not None or default_cache_path().exists():
             user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
-    except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
+    except Exception as exc:  # noqa: BLE001 - no sign-in yet, or no client ID: reported as not signed in
         _log.info("Not signed in: %s", describe(exc))
     return {"product": "KratosForge", "version": __version__, "python": platform.python_version(),
             "signed_in": bool(user), "user": user, "tenant": tenant, "compute": "this PC",
@@ -192,7 +192,7 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
            "proof": {"ok": proof["ok"], "blockers": proof["blockers"], "warnings": proof["warnings"]}}
     try:
         out["dependencies"] = svc.notebook_dependencies(cells)
-    except Exception as exc:  # the dependency view is extra; the checks above still stand
+    except Exception as exc:  # noqa: BLE001 - the dependency view is extra; the checks above still stand
         out["dependencies"] = {"error": redact_secrets(str(exc))}
     # Validate notebook's code checks (validate.py): every finding with its severity, cell and fix.
     checked = svc.notebook_validate_check(name, cells, lakehouse, nb.get("compute"))

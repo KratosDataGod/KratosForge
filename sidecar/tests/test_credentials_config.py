@@ -222,7 +222,9 @@ def test_a_failed_request_is_recorded_without_the_token_and_cleared_by_the_next(
     with pytest.raises(RuntimeError, match="AADSTS7000215"):
         sp.fabric_token()
     assert "AADSTS7000215" in sp.last_token_error[1]
-    clock = [credentials.time.monotonic() + credentials.REFUSED_WAIT]  # a refused secret is asked again later
+    # A second past the wait: on Windows (15.6 ms ticks) the refusal can share this reading, and
+    # (t0 + REFUSED_WAIT) - t0 can round to just under REFUSED_WAIT.
+    clock = [credentials.time.monotonic() + credentials.REFUSED_WAIT + 1]  # a refused secret is asked again later
     monkeypatch.setattr(credentials.time, "monotonic", lambda: clock[0])
     assert sp.fabric_token() == "tok"
     assert sp.last_token_error is None and sp.last_token_at is not None

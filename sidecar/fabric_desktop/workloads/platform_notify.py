@@ -281,7 +281,7 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                     sent += 1
                     outbox.route_ok(r.name)
                     continue
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 - a route that can't be sent to is kept in the outbox and marked down
                     down[r.name] = failed[r.name] = failure(exc)
                     outbox.route_failed(r.name, r.url, down[r.name])
             outbox.add(title, lines, down[r.name], route=r.name)

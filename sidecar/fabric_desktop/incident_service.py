@@ -51,7 +51,7 @@ class IncidentMixin:
             raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}")
         try:
             items = self._incident_log(env).list(None if include_resolved else ("open", "acknowledged"))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any read failure is classified and shown as an observation
             state, message = model.classify_error(exc)
             return {"env": env, "incidents": [], "observation": model.observation("Incidents", state, detail=message)}
         for i in items:
@@ -64,7 +64,7 @@ class IncidentMixin:
         status records. ``readable`` is false when the records couldn't be listed."""
         try:
             records = read_status(self._incident_log(env).backend)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any read failure means the agents list isn't readable
             return {"readable": False, "detail": model.classify_error(exc)[1], "agents": []}
         now = dt.datetime.now(dt.timezone.utc)
         out = []
@@ -82,7 +82,7 @@ class IncidentMixin:
         for env in ENVIRONMENTS:
             try:
                 by_env[env] = read_status(self._incident_log(env).backend)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - one environment's failure is classified and shown; the rest go on
                 state, message = model.classify_error(exc)
                 envs.append({"env": env, "count": None, "observation": model.observation("Agents", state, detail=message)})
                 continue
@@ -96,7 +96,7 @@ class IncidentMixin:
         envs, by_env = self._agent_records()
         try:
             pc, pc_readable = self.pc_schedules.listing(), True  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001  # compare agents with each other, and say this PC wasn't read
+        except Exception:  # noqa: BLE001 - compare agents with each other, and say this PC wasn't read
             pc, pc_readable = [], False
         return {"envs": envs, "agents": fleet(by_env, now, __version__), "app_version": __version__,
                 **overlaps(by_env, pc, now), "pc_schedules_read": pc_readable}
@@ -112,13 +112,13 @@ class IncidentMixin:
         try:
             pc = self.pc_schedules.listing()  # type: ignore[attr-defined]
             sources["pc"] = model.observation("This PC", "live", model.now())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - this PC's incidents failing is shown as its observation
             pc = []
             state, message = model.classify_error(exc)
             sources["pc"] = model.observation("This PC", state, detail=message)
         try:
             runs = self.fabric_runs(limit=100, refresh=False)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001  # an unreadable local log of this app's Fabric jobs: none to show
+        except Exception:  # noqa: BLE001 - an unreadable local log of this app's Fabric jobs: none to show
             runs = []
         cached = dict(getattr(self, "_fabric_schedules", None) or {})
         sources["fabric_schedules"] = self._schedules_source(cached)
@@ -142,7 +142,7 @@ class IncidentMixin:
             for env, cfg in self._project().environments.items():  # type: ignore[attr-defined]
                 if cfg.get("workspace_id"):
                     env_of[str(cfg["workspace_id"])] = env
-        except Exception as exc:  # noqa: BLE001  # no project open: Fabric rows show no environment
+        except Exception as exc:  # noqa: BLE001 - no project open: Fabric rows show no environment
             _log.info("No metadata project; Fabric rows show no environment: %s", describe(exc))
         return env_of
 
@@ -159,7 +159,7 @@ class IncidentMixin:
         for env in ENVIRONMENTS:
             try:
                 items = self._incident_log(env).active()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - one environment's failure is classified and shown; the rest go on
                 state, message = model.classify_error(exc)
                 envs.append({"env": env, "count": None, "incidents": [],
                              "observation": model.observation("Incidents", state, detail=message)})
@@ -278,7 +278,7 @@ class IncidentMixin:
         for env in ENVIRONMENTS:
             try:
                 log = self._incident_log(env)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - one environment's failure is classified and shown as unreadable
                 state, message = model.classify_error(exc)
                 envs.append({"env": env, "mode": "unreadable", "state": state, "detail": message, "incidents": []})
                 continue
@@ -296,7 +296,7 @@ class IncidentMixin:
                 row["incidents"] = items
                 if checking:  # an agent evaluated it: tell readers what it found (the app's own check already did)
                     self._report_product_status(env, items)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - any read failure is classified and shown as unreadable
                 state, message = model.classify_error(exc)
                 row.update(mode="unreadable", state=state, detail=message, incidents=[])
             envs.append(row)

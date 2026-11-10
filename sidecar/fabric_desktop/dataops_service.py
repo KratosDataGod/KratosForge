@@ -100,7 +100,7 @@ class DataOpsMixin:
         project = self._project()  # type: ignore[attr-defined]
         try:
             log = self._store(project, target).meta("run_log")  # type: ignore[attr-defined]
-        except Exception as exc:  # the target isn't set up or can't be read: say so, don't block
+        except Exception as exc:  # noqa: BLE001 - the target isn't set up or can't be read: say so, don't block
             return {"source": source, "target": target, "tables": [], "problem": str(exc)}
         ok = log.filter(pl.col("status") == "ok")
         last = {r["entity"]: r for r in ok.iter_rows(named=True)}  # sorted by time, so the last one wins
@@ -188,13 +188,13 @@ class DataOpsMixin:
                 source = Engine(project, store, source_options=self._source_options).read_source_table(src["table"])  # type: ignore[attr-defined]
                 if source is None:
                     problem = f"the source table {src.get('from') or src['table']} doesn't exist"
-        except Exception as exc:  # the config side is still useful
+        except Exception as exc:  # noqa: BLE001 - the config side is still useful
             problem = str(exc)
         history = []
         try:
             h = store.meta_where("schema_history", pl.col("entity") == name).reverse()
             history = _rows(h, 10)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - schema history is optional; logged
             _log.info("No schema history for this entity: %s", describe(exc))
         return drift_mod.detect(project, e, source) | {"env": env, "problem": problem, "history": history}
 
@@ -314,7 +314,7 @@ class DataOpsMixin:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:
             return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable}
-        except Exception as exc:  # a broken project is not "nothing late": say why nothing was checked
+        except Exception as exc:  # noqa: BLE001 - a broken project is not "nothing late": say why nothing was checked
             _log.warning("Couldn't read the metadata project to check freshness: %s", describe(exc))
             return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable,
                     "project_error": describe(exc)}

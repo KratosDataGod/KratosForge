@@ -29,11 +29,11 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 425 |
+| Runs | 462 |
 | Differs | 0 |
 | Refused | 92 |
 | Fails | 0 |
-| Not checked | 72 |
+| Not checked | 35 |
 | **All** | **589** |
 
 ## Aggregate
@@ -173,19 +173,19 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bigint` | Not checked |  |  |
-| `binary` | Not checked |  |  |
-| `boolean` | Not checked |  |  |
+| `bigint` | Runs | `SELECT bigint('12'), bigint(3.9), bigint(-3.9)` |  |
+| `binary` | Runs | `SELECT binary('Spark')` |  |
+| `boolean` | Runs | `SELECT boolean('true'), boolean(0), boolean('no')` |  |
 | `cast` | Runs | `SELECT cast('10' as int)` |  |
-| `date` | Not checked |  |  |
-| `decimal` | Not checked |  |  |
-| `double` | Not checked |  |  |
-| `float` | Not checked |  |  |
-| `int` | Not checked |  |  |
-| `smallint` | Not checked |  |  |
-| `string` | Not checked |  |  |
-| `timestamp` | Not checked |  |  |
-| `tinyint` | Not checked |  |  |
+| `date` | Runs | `SELECT date('2026-01-31'), date(TIMESTAMP '2026-01-31 23:59:59')` |  |
+| `decimal` | Runs | `SELECT decimal('12.345'), decimal(7)` |  |
+| `double` | Runs | `SELECT double('1.5'), double(2)` |  |
+| `float` | Runs | `SELECT float('1.5'), float(2)` |  |
+| `int` | Runs | `SELECT int('12'), int(3.9), int(-3.9)` |  |
+| `smallint` | Runs | `SELECT smallint('12'), smallint(3.9)` |  |
+| `string` | Runs | `SELECT string(12), string(1.50), string(true), string(DATE '2026-01-31')` |  |
+| `timestamp` | Runs | `SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')` |  |
+| `tinyint` | Runs | `SELECT tinyint('12'), tinyint(3.9)` |  |
 
 ## CSV
 
@@ -227,7 +227,7 @@ lists more checks and the differences known in more detail.
 | `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
 | `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
-| `make_interval` | Not checked | `SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)` |  |
+| `make_interval` | Runs | `SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)` |  |
 | `make_timestamp` | Runs | `SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ltz` | Runs | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ntz` | Runs | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
@@ -438,13 +438,13 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `!=` | Not checked |  |  |
-| `<>` | Not checked |  |  |
-| `between` | Not checked |  |  |
-| `case` | Not checked |  |  |
-| `range` | Not checked |  |  |
+| `!=` | Runs | `SELECT 1 != 2, 'a' != 'a', NULL != 1` |  |
+| `<>` | Runs | `SELECT 1 <> 2, 'a' <> 'a', NULL <> 1` |  |
+| `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
+| `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
+| `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
 | `sql_keywords` | Not checked |  |  |
-| `\|\|` | Not checked |  |  |
+| `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate
 
@@ -467,9 +467,9 @@ lists more checks and the differences known in more detail.
 | `like` | Runs | `SELECT like('Spark', '_park')` |  |
 | `not` | Runs | `SELECT not true` |  |
 | `or` | Runs | `SELECT true or false` |  |
-| `regexp` | Not checked | `SELECT regexp('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `regexp_like` | Not checked | `SELECT regexp_like('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `rlike` | Not checked | `SELECT rlike('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
+| `regexp` | Runs | `SELECT regexp('Steven', 'Ste(v\|ph)en'), regexp('Stefan', 'Ste(v\|ph)en')` |  |
+| `regexp_like` | Runs | `SELECT regexp_like('Steven', 'Ste(v\|ph)en'), regexp_like('Stefan', 'Ste(v\|ph)en')` |  |
+| `rlike` | Runs | `SELECT rlike('Steven', 'Ste(v\|ph)en'), rlike('Stefan', 'Ste(v\|ph)en')` |  |
 
 ## String
 
@@ -616,12 +616,12 @@ lists more checks and the differences known in more detail.
 | `kll_sketch_to_string_bigint` | Refused |  | kll_sketch_to_string_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
 | `kll_sketch_to_string_double` | Refused |  | kll_sketch_to_string_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC  |
 | `kll_sketch_to_string_float` | Refused |  | kll_sketch_to_string_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC c |
-| `listagg` | Not checked |  |  |
-| `percentile_cont` | Not checked |  |  |
-| `percentile_disc` | Not checked |  |  |
+| `listagg` | Runs | `SELECT listagg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)` | Joins with no delimiter unless one is given, as in Databricks |
+| `percentile_cont` | Runs | `SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)` |  |
+| `percentile_disc` | Runs | `SELECT percentile_disc(0.50) WITHIN GROUP (ORDER BY col) FROM VALUES (0), (6), (6), (7), (9), (10) AS tab(col)` |  |
 | `schema_of_json_agg` | Refused |  | schema_of_json_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC works out schema_of_json for a literal as it reads the cell, an |
 | `schema_of_variant_agg` | Refused |  | schema_of_variant_agg() can't run on this PC the way it runs in Databricks, so nothing ran: this PC keeps a VARIANT as JSON text, which doesn't keep every type  |
-| `string_agg` | Not checked |  |  |
+| `string_agg` | Runs | `SELECT string_agg(col) WITHIN GROUP (ORDER BY col DESC) FROM VALUES ('a'), ('b'), ('c') AS tab(col)` | Joins with no delimiter unless one is given, as in Databricks |
 | `theta_difference` | Refused |  | theta_difference() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't make  |
 | `theta_intersection` | Refused |  | theta_intersection() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't mak |
 | `theta_intersection_agg` | Refused |  | theta_intersection_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't |
@@ -658,9 +658,9 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `iff` | Not checked |  |  |
+| `iff` | Runs | `SELECT iff(1 < 2, 'a', 'b')` |  |
 | `nullifzero` | Runs | `SELECT nullifzero(0)` |  |
-| `try_cast` | Not checked |  |  |
+| `try_cast` | Runs | `SELECT try_cast('a' AS INT)` |  |
 | `try_mod` | Runs | `SELECT try_mod(2, 1.8)` |  |
 | `try_reflect` | Refused |  | try_reflect() can't run on this PC the way it runs in Databricks, so nothing ran: it calls a Java method, and this PC runs no Java. Run the cell on a Databricks |
 | `zeroifnull` | Runs | `SELECT zeroifnull(NULL)` |  |
@@ -670,14 +670,14 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `current_time` | Not checked |  |  |
-| `dayname` | Not checked |  |  |
+| `dayname` | Runs | `SELECT dayname(DATE'2024-11-01')` |  |
 | `getdate` | Not checked |  |  |
 | `localtime` | Not checked |  |  |
-| `make_time` | Not checked |  |  |
-| `monthname` | Not checked |  |  |
+| `make_time` | Runs | `SELECT make_time(6, 30, 45.887)` |  |
+| `monthname` | Runs | `SELECT monthname(TIMESTAMP'2024-04-08 13:08:15')` |  |
 | `parse_timestamp` | Refused |  | parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8601, |
-| `time` | Not checked |  |  |
-| `time_bucket` | Not checked |  |  |
+| `time` | Runs | `SELECT time(TIMESTAMP'2026-10-29 16:45:30')` | A timestamp gives its time of day in UTC, this PC's session time zone |
+| `time_bucket` | Runs | `SELECT time_bucket(INTERVAL '1' HOUR, TIMESTAMP '2024-01-01 11:27:00', TIMESTAMP '1970-01-01 00:05:00')` |  |
 | `time_diff` | Runs | `SELECT time_diff(HOUR, TIME'08:00:00', TIME'21:30:00')` |  |
 | `time_from_micros` | Runs | `SELECT time_from_micros(52200500000)` |  |
 | `time_from_millis` | Runs | `SELECT time_from_millis(52200500)` |  |
@@ -688,8 +688,8 @@ lists more checks and the differences known in more detail.
 | `time_trunc` | Runs | `SELECT time_trunc('HOUR', TIME'13:08:15.123')` |  |
 | `timediff` | Runs | `SELECT timediff(MONTH, TIMESTAMP'2021-02-28 12:00:00', TIMESTAMP'2021-03-28 11:59:59')` |  |
 | `timestamp_nanos` | Runs | `SELECT string(timestamp_nanos(1230219000123456789))` | In UTC (Databricks' page shows 07:30 in a Los Angeles session); a TIMESTAMP_NS here holds about 1677 to 2262 |
-| `timestampadd` | Not checked |  |  |
-| `timestampdiff` | Not checked |  |  |
+| `timestampadd` | Runs | `SELECT timestampadd(MONTH, -1, TIMESTAMP'2022-03-31 00:00:00')` |  |
+| `timestampdiff` | Runs | `SELECT timestampdiff(YEAR, DATE'2021-01-01', DATE'1900-03-28')` |  |
 | `to_time` | Runs | `SELECT to_time('10:30:00')` |  |
 | `try_make_interval` | Runs | `SELECT try_make_interval(2147483647, 0)` |  |
 | `try_make_timestamp` | Runs | `SELECT try_make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
@@ -732,12 +732,12 @@ lists more checks and the differences known in more detail.
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `bit_reverse` | Runs | `SELECT bit_reverse(-2)` | BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type |
-| `charindex` | Not checked |  |  |
+| `charindex` | Runs | `SELECT charindex('bar', 'abcbarbar', 5)` |  |
 | `collate` | Runs | `SELECT 'Café' = 'café' COLLATE UTF8_LCASE` | UTF8_BINARY and UTF8_LCASE run (UTF8_LCASE as DuckDB's NOCASE, which may lower a few letters such as U+0130 differently from Java); the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name |
 | `collation` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: COLLATION function is not supported by DuckDB Run it in Fabric, or rewrite th |
 | `hmac` | Runs | `SELECT hex(hmac('key', 'message'))` | A key written in the SQL is kept in the cell and its query history, as in Databricks: read it from a secret |
 | `is_valid_utf8` | Runs | `SELECT is_valid_utf8(x'61C262')` |  |
-| `jaro_winkler_similarity` | Not checked |  |  |
+| `jaro_winkler_similarity` | Runs | `SELECT jaro_winkler_similarity('MARTHA', 'MARHTA')` |  |
 | `make_valid_utf8` | Runs | `SELECT make_valid_utf8(x'61C262')` |  |
 | `try_url_decode` | Runs | `SELECT try_url_decode('http%3A%2F%2Fspark.apache.org%2Fpath%3Fquery%3D1')` | url_decode and try_url_decode follow java.net.URLDecoder: a bad % escape stops url_decode |
 | `try_validate_utf8` | Runs | `SELECT try_validate_utf8(x'61C262')` |  |

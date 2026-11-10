@@ -166,7 +166,7 @@ def test_runs_at_once_never_give_two_business_keys_one_key(tmp_path):
         start.wait()
         try:
             K.merge_keys(store, kt, pl.Series([f"r{i}-{n}" for n in range(5)]))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - collected and checked by the test below
             errors.append(e)
 
     threads = [threading.Thread(target=run, args=(i,)) for i in range(6)]

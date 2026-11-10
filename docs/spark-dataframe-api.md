@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 104 |
+| Runs | 106 |
 | Differs | 3 |
 | Refused | 15 |
-| Fails | 41 |
+| Fails | 39 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -156,7 +156,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `desc` | Runs |  |
 | `desc_nulls_first` | Runs |  |
 | `desc_nulls_last` | Runs |  |
-| `dropFields` | Fails | `df.withColumn('a', df['a'].dropFields('b')).show()`: TypeError: 'Column' object is not callable |
+| `dropFields` | Runs |  |
 | `endswith` | Runs |  |
 | `eqNullSafe` | Runs |  |
 | `getField` | Runs |  |
@@ -173,7 +173,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `startswith` | Runs |  |
 | `substr` | Runs |  |
 | `when` | Runs |  |
-| `withField` | Fails | `df.withColumn('a', df['a'].withField('b', lit(3))).select...`: TypeError: 'Column' object is not callable |
+| `withField` | Runs |  |
 
 ## GroupedData
 

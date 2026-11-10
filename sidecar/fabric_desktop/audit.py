@@ -215,7 +215,7 @@ class AuditLog:
         self.host = socket.gethostname()
         try:
             self.os_user = getpass.getuser()
-        except Exception:  # no user name on this system
+        except Exception:  # noqa: BLE001 - no user name on this system
             self.os_user = ""
 
     def _files(self) -> list[Path]:

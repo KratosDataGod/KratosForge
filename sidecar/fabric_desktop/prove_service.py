@@ -698,7 +698,7 @@ class ProveMixin:
             f = record["fabric"]
             try:
                 self.fabric_jobs.cancel_job(f["workspace_id"], f["item_id"], f["job_id"])  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a cancel that fails is recorded on the run
                 record["message"] = f"Couldn't cancel the Fabric run: {exc}"
         return {"cancelled": True}
 
@@ -888,7 +888,7 @@ class ProveMixin:
         data = None
         try:
             data = self._proof_read_file(lakehouse_ref, f"{PROOF_ROOT}/{record['id']}/fabric/log.json")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a log that can't be read is recorded on the finding
             f["log_problem"] = f"The Fabric run's log couldn't be read: {exc}"
         if not data:
             f.setdefault("log_problem", "The Fabric run didn't save its log (it stops at a failing cell).")

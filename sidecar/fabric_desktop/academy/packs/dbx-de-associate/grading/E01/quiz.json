@@ -1,0 +1,172 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A security reviewer asks where the Databricks control plane runs for a workspace on classic compute, and where its clusters run. Which answer is right?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Both run in the customer's AWS account"
+        },
+        {
+          "id": "b",
+          "text": "The control plane runs in the Databricks account; classic compute runs in the customer's AWS account"
+        },
+        {
+          "id": "c",
+          "text": "The control plane runs in the customer's AWS account; classic compute runs in the Databricks account"
+        },
+        {
+          "id": "d",
+          "text": "Both run in the Databricks account"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The control plane is located in the Databricks account, not your cloud account. For classic Databricks compute, the compute resources are in your AWS account, in the classic compute plane.",
+      "source": "https://docs.databricks.com/aws/en/getting-started/high-level-architecture"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "A team moves its jobs from classic clusters to serverless compute. Where do the serverless compute resources run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the customer's virtual network, in a subnet Databricks creates for serverless"
+        },
+        {
+          "id": "b",
+          "text": "On the control plane's own servers, alongside the web application"
+        },
+        {
+          "id": "c",
+          "text": "In whichever AWS region has spare capacity when the job starts"
+        },
+        {
+          "id": "d",
+          "text": "In a compute layer within the Databricks account, in the same region as the workspace's classic compute plane"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "In the serverless compute plane, Databricks compute resources run in a compute layer within your Databricks account, and Databricks creates it in the same AWS region as the workspace's classic compute plane.",
+      "source": "https://docs.databricks.com/aws/en/getting-started/high-level-architecture"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "An analyst creates a table with CREATE TABLE sales.orders (id INT) and names no format. What format is the table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delta Lake, the default format for tables on Databricks"
+        },
+        {
+          "id": "b",
+          "text": "Parquet, because Delta must be named with USING DELTA"
+        },
+        {
+          "id": "c",
+          "text": "CSV, the default for tables without a format"
+        },
+        {
+          "id": "d",
+          "text": "Apache Iceberg, the default since Unity Catalog"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Delta Lake is the default format for all operations on Databricks: unless otherwise specified, all tables on Databricks are Delta Lake tables.",
+      "source": "https://docs.databricks.com/aws/en/delta/"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "What gives a Delta Lake table its ACID transactions and table versions on top of Parquet data files?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A row in the workspace's Hive metastore that locks the table"
+        },
+        {
+          "id": "b",
+          "text": "A copy of each Parquet file kept in workspace storage"
+        },
+        {
+          "id": "c",
+          "text": "A file-based transaction log stored with the data"
+        },
+        {
+          "id": "d",
+          "text": "The cluster's local disk cache"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Delta Lake extends Parquet data files with a file-based transaction log, and each write to a Delta Lake table creates a new table version.",
+      "source": "https://docs.databricks.com/aws/en/delta/"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "In Unity Catalog, how does a query name a table so that it is found regardless of the current catalog and schema?",
+      "options": [
+        {
+          "id": "a",
+          "text": "schema.table"
+        },
+        {
+          "id": "b",
+          "text": "catalog.schema.table"
+        },
+        {
+          "id": "c",
+          "text": "metastore.catalog.schema.table"
+        },
+        {
+          "id": "d",
+          "text": "workspace.schema.table"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Securable objects in Unity Catalog follow a three-level namespace, catalog.schema.object.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "stem": "A team drops a managed table and an external table in Unity Catalog. Which statement describes what Unity Catalog is responsible for?",
+      "options": [
+        {
+          "id": "a",
+          "text": "For both, governance only; files are always left in place"
+        },
+        {
+          "id": "b",
+          "text": "For an external table, governance and file storage; for a managed table, governance only"
+        },
+        {
+          "id": "c",
+          "text": "For both, governance and the file storage lifecycle"
+        },
+        {
+          "id": "d",
+          "text": "For a managed table, governance and the underlying file storage lifecycle; for an external table, governance only"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Tables and volumes can be managed, where Unity Catalog handles both governance and the underlying file storage lifecycle, or external, where Unity Catalog handles governance only.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/"
+    }
+  ]
+}

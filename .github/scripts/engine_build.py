@@ -69,7 +69,7 @@ def _entries(folder: Path, paths: list[str]) -> list[tuple[str, Path]]:
         if not root.exists():
             raise SystemExit(f"{root} doesn't exist")
         for path in [root, *root.rglob("*")] if root.is_dir() else [root]:
-            if path.is_symlink():
+            if path.is_symlink() or path.is_junction():  # a junction is Windows' folder link
                 raise SystemExit(f"{path} is a link; the engine zip holds only files and folders")
             if path == folder:
                 continue

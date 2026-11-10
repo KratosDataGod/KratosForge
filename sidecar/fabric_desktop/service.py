@@ -104,6 +104,7 @@ from . import known_folders
 
 _log = logging.getLogger(__name__)
 MAX_ITEM_PINS = 50  # items pinned to Home
+SWEEP_EVERY = 86400.0  # seconds between local-copy sweeps while the engine runs (retention.py)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -244,30 +245,36 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+        except Exception as exc:  # noqa: BLE001 - no client ID yet, or offline: the UI offers sign-in
             _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:
-        """Once per engine start, in the background: delete local copies of lakehouse data unused for
-        longer than the organization allows (retention.py)."""
+        """From the engine's first call, in the background and then once a day while it runs: delete local
+        copies of lakehouse data unused for longer than the organization allows (retention.py). An app
+        left open for weeks is swept too, each time under the policy as it is then."""
         if getattr(self, "_swept", False):
             return
         self._swept = True
+        stop = self._sweep_stop = threading.Event()
 
         def run() -> None:
             import logging
 
             from . import retention
-            try:
-                result = retention.sweep(self.root, app_settings.value("local_retention_days"))
-                if result["removed"]:
-                    logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
-                                                     len(result["removed"]), result["bytes"], result["days"])
-            except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
-                logging.getLogger(__name__).exception("Local copy cleanup failed")
+            while True:
+                try:
+                    result = retention.sweep(self.root, app_settings.value("local_retention_days"))
+                    if result["removed"]:
+                        logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
+                                                         len(result["removed"]), result["bytes"], result["days"])
+                except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
+                    logging.getLogger(__name__).exception("Local copy cleanup failed")
+                if stop.wait(SWEEP_EVERY):
+                    return
 
-        threading.Thread(target=run, name="retention-sweep", daemon=True).start()
+        self._sweeper = threading.Thread(target=run, name="retention-sweep", daemon=True)
+        self._sweeper.start()
 
     def _start_usage_send(self) -> None:
         """Once per engine start, in the background: send finished days of usage data, if it's on."""
@@ -415,6 +422,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
+        retry = getattr(self.auth, "retry_sign_in", None)
+        if callable(retry):  # chosen by the person: a window even after a Conditional Access refusal
+            retry()
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
@@ -479,7 +489,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 if all_types:
                     return ws, client.list_items(ws["id"])
                 return ws, [lh | {"type": "Lakehouse"} for lh in client.list_lakehouses(ws["id"])]
-            except Exception:  # e.g. a paused capacity; list the rest
+            except Exception:  # noqa: BLE001 - e.g. a paused capacity; list the rest
                 return ws, None
 
         items, skipped = [], []

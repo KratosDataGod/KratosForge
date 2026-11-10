@@ -619,6 +619,8 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "INLINE_OUTER": _template(_INLINE_OUTER, 1),
     "ISNOTNULL": _template("(fj_arg0 IS NOT NULL)", 1),
     "ISNULL": _template("(fj_arg0 IS NULL)", 1),
+    # regexp(str, regex) is rlike and regexp_like under another name: a match anywhere in str
+    "REGEXP": lambda n, a: exp.RegexpLike(this=a[0].copy(), expression=a[1].copy()) if len(a) == 2 else None,
     "JSON_TUPLE": _json_tuple,
     "LOG1P": _template(_LOG1P, 1),
     "LUHN_CHECK": _template(_LUHN, 1),
@@ -664,6 +666,17 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "WINDOW_TIME": _template("CAST(STRUCT_EXTRACT(fj_arg0, 'end') - INTERVAL 1 MICROSECOND AS TIMESTAMP)", 1),
     "SESSION_WINDOW": _refuse("session_window", "session windows run in Fabric only."),
     "PRINTF": _format_string,
+    # Java's URLDecoder, as Spark's: + is a space, and a % that doesn't start two hex digits is an error.
+    # Bytes that aren't UTF-8 are refused: Java puts U+FFFD in their place, by rules this PC doesn't follow.
+    "URL_DECODE": _template(
+        "CASE WHEN fj_arg0 IS NULL THEN NULL "
+        "WHEN NOT REGEXP_FULL_MATCH(fj_arg0, '([^%]|%[0-9A-Fa-f]{2})*') THEN ERROR('[CANNOT_DECODE_URL] The provided "
+        "URL cannot be decoded: ' || fj_arg0 || '. Please ensure that the URL is properly formatted and try again.') "
+        "ELSE COALESCE(TRY(URL_DECODE(REPLACE(fj_arg0, '+', ' '))), ERROR('url_decode() can''t run on this PC the way "
+        "it runs in Fabric, so nothing ran: ' || fj_arg0 || ' decodes to bytes that aren''t UTF-8, which Spark "
+        "replaces with U+FFFD. Run the cell in Fabric.')) END", 1),
+    # Java's URLEncoder, as Spark's: a space is +, and only A-Z a-z 0-9 . - * _ stay as they are.
+    "URL_ENCODE": _template("REPLACE(REPLACE(REPLACE(URL_ENCODE(fj_arg0), '%20', '+'), '~', '%7E'), '%2A', '*')", 1),
     "XXHASH64": _hash("xxhash64"),
 }
 

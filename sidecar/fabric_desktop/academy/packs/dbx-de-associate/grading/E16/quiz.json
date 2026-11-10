@@ -1,0 +1,172 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "stem": "A team needs to ingest Salesforce objects into Unity Catalog tables and wants the most automation, with no code to maintain. Which approach does Databricks recommend starting with?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An Auto Loader stream reading CSV exports from cloud storage"
+        },
+        {
+          "id": "b",
+          "text": "A notebook calling the Salesforce REST API on a schedule"
+        },
+        {
+          "id": "c",
+          "text": "A Lakeflow Connect managed connector for Salesforce"
+        },
+        {
+          "id": "d",
+          "text": "COPY INTO from a nightly export"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Databricks recommends starting with the most managed layer; Lakeflow Connect's SaaS connectors ingest from applications including Salesforce, and managed connectors produce ingestion pipelines governed by Unity Catalog.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "stem": "JSON files land in cloud object storage throughout the day, up to millions of files per hour, and must be processed once each as they arrive. Which method fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Auto Loader (the cloudFiles source)"
+        },
+        {
+          "id": "b",
+          "text": "A manual file upload in the workspace UI"
+        },
+        {
+          "id": "c",
+          "text": "A managed database connector using change data capture"
+        },
+        {
+          "id": "d",
+          "text": "A one-off CREATE TABLE AS SELECT each hour over the whole folder"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Auto Loader provides a Structured Streaming source called cloudFiles that processes new files as they arrive, scales to millions of files per hour, and processes data exactly once.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/"
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "stem": "A source system is a SQL Server database, and the team wants ongoing incremental ingestion of changes into governed tables. Which choice fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Auto Loader pointed at the database's data files"
+        },
+        {
+          "id": "b",
+          "text": "A file connector for SharePoint"
+        },
+        {
+          "id": "c",
+          "text": "A REST client in a notebook that reads the whole table each run"
+        },
+        {
+          "id": "d",
+          "text": "A Lakeflow Connect database connector, which ingests using change data capture"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Lakeflow Connect database connectors ingest data from relational databases including MySQL, PostgreSQL and SQL Server using change data capture.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "stem": "A SQL-only team wants scalable incremental ingestion from cloud object storage. Which does Databricks recommend over COPY INTO?",
+      "options": [
+        {
+          "id": "a",
+          "text": "INSERT OVERWRITE from a view"
+        },
+        {
+          "id": "b",
+          "text": "CREATE STREAMING TABLE"
+        },
+        {
+          "id": "c",
+          "text": "A scheduled CREATE OR REPLACE TABLE AS SELECT"
+        },
+        {
+          "id": "d",
+          "text": "CONVERT TO DELTA"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "SQL examples for incremental ingestion from cloud object storage use CREATE STREAMING TABLE syntax, which Databricks names the recommended alternative to COPY INTO.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/"
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "stem": "No managed connector exists for a team's source system. What does Databricks suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Wait for a managed connector, because other methods aren't governed by Unity Catalog"
+        },
+        {
+          "id": "b",
+          "text": "Copy the data by hand into a workspace file"
+        },
+        {
+          "id": "c",
+          "text": "Drop down to the next layer, such as SQL and Spark APIs, which trade some automation for broader source support"
+        },
+        {
+          "id": "d",
+          "text": "Use a Lakeflow Connect file connector for any source"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Start with the most managed layer; if it doesn't satisfy your requirements, for example if it doesn't support your source, drop down to the next layer. SQL and Spark APIs trade some automation for broader source support and customization.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/"
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "stem": "An Auto Loader stream lists a very large input folder on every run, and the team wants to cut those listing costs. What does Databricks recommend for most workloads?",
+      "options": [
+        {
+          "id": "a",
+          "text": "File notification mode using file events"
+        },
+        {
+          "id": "b",
+          "text": "Directory listing mode with a shorter trigger interval"
+        },
+        {
+          "id": "c",
+          "text": "Reading the folder with spark.read in a batch job"
+        },
+        {
+          "id": "d",
+          "text": "Turning off schema inference"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "By default Auto Loader uses directory listing mode, but Databricks recommends file notification mode using file events for most workloads; it can reduce cloud costs by avoiding directory listing altogether.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/"
+    }
+  ]
+}

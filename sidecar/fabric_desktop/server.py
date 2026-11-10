@@ -21,9 +21,9 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, net_trust, rpc_params
+from . import audit, disk_full, net_trust, rpc_params
 from .redact import secrets
-from .service import Service
+from .service import Service, data_dir
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
@@ -300,13 +300,14 @@ def handle(service: Service, line: str) -> dict:
         if audit.audited(method) and audit.fails_closed(method, params):
             _audit_started(service, method, params)  # raises when the line can't be written: nothing runs
         reply = {"id": req_id, "result": call(**params)}
-    except Exception as exc:  # report every failure to the UI rather than dying
+    except Exception as exc:  # noqa: BLE001 - report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            hint = net_trust.explain(exc)  # a certificate, proxy or timeout: one line that says what to do
+            # A certificate, proxy or timeout, or a full or read-only profile disk: one line that says what to do.
+            hint = net_trust.explain(exc) or disk_full.data_folder_message(data_dir(), exc)
             if hint:
                 text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}
@@ -546,13 +547,21 @@ def main() -> None:
     sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
     from . import data_format
-    from .service import data_dir
     try:
         data_format.check(data_dir())
     except data_format.NewerData as exc:
         # Every call gets the reason, so the app says it, and nothing opens a store.
         print(f"engine: {exc}", file=sys.stderr)
         serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        return
+    except OSError as exc:
+        # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
+        # engine can't save anything, so every call says why rather than the engine ending unexplained.
+        reason = OSError(disk_full.data_folder_message(data_dir(), exc, "so KratosForge can't open its data",
+                                                    "restart KratosForge")
+                         or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
+        print(f"engine: {reason}", file=sys.stderr)
+        serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
         return
     _refresh_integration_launcher()
     from . import notebook
@@ -592,7 +601,7 @@ def _start_integration_http(service: Service) -> None:
         print(f"integrations: local API not started: {exc}", file=sys.stderr)
     try:
         service.editor_sync()  # the editor channel, if VS Code may run notebooks
-    except Exception as exc:  # noqa: BLE001 - likewise
+    except Exception as exc:  # noqa: BLE001 - the app works without the editor channel; Settings shows why
         print(f"integrations: editor channel not started: {exc}", file=sys.stderr)
 
 
@@ -600,7 +609,6 @@ def _refresh_integration_launcher() -> None:
     """After an update the engine is in a new folder: point the AI tools' and the CLI's launchers at it."""
     try:
         from .integrations.config import launcher_path, write_cli_launcher, write_launcher
-        from .service import data_dir
         if launcher_path(data_dir()).exists():
             write_launcher(data_dir())
         write_cli_launcher(data_dir())  # VS Code's Validate task runs it on every developer's PC

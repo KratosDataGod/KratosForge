@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, NoReturn, cast
 
 import pyarrow as pa
 
-from . import chart_output, jsonfile, notebook_cells
+from . import chart_output, disk_full, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -65,6 +65,9 @@ PREVIEW_ROWS = 1000
 # and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
 STREAM_CHARS = 1_000_000
 RICH_CHARS = 16_000_000
+# An error always shows, past RICH_CHARS too, so its message and traceback are each kept to this:
+# the start of the message, and the end of the traceback, where the error itself is.
+ERROR_CHARS = 200_000
 _CELL_FILE = "<cell>"
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
@@ -154,7 +157,7 @@ def as_table(value: Any) -> pa.Table | None:
         if hasattr(value, "collect"):
             value = value.head(PREVIEW_ROWS + 1).collect()
         return value.to_arrow() if hasattr(value, "to_arrow") else None
-    if module.startswith("duckdb") and hasattr(value, "limit"):
+    if module.startswith(("duckdb", "_duckdb")) and hasattr(value, "limit"):  # DuckDBPyRelation is in _duckdb
         rel = value.limit(PREVIEW_ROWS + 1)
         return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
     if module.startswith("pandas") and hasattr(value, "columns"):
@@ -164,7 +167,7 @@ def as_table(value: Any) -> pa.Table | None:
 
 def _total_rows(value: Any, table: pa.Table) -> int | None:
     """All rows, when that is cheap to know; None means "more than the preview"."""
-    if type(value).__module__.startswith("duckdb.experimental.spark"):
+    if type(value).__module__.startswith(("duckdb", "_duckdb")):  # counting would run the whole query again
         return table.num_rows if table.num_rows <= PREVIEW_ROWS else None
     total = getattr(value, "height", None)
     if total is None and not hasattr(value, "collect"):
@@ -255,7 +258,7 @@ def _mime_bundle(value: Any) -> dict[str, Any]:
             continue
         try:
             rendered = fn()
-        except Exception as exc:  # noqa: BLE001 - as above
+        except Exception as exc:  # noqa: BLE001 - a broken view falls back to the other views
             _log.info("%s failed: %s", method, describe(exc))
             continue
         if isinstance(rendered, tuple):
@@ -427,6 +430,8 @@ class _Run:
             self.spill_file = None
 
     def add(self, output: dict[str, Any]) -> None:
+        if output.get("type") == "error":
+            output = capped_error(output)
         size = len(json.dumps(output, default=str))
         with self.lock:
             if self.clear_pending:
@@ -516,6 +521,19 @@ class _OutputSink:
 
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)
+
+
+def capped_error(output: dict[str, Any]) -> dict[str, Any]:
+    """An error output with its message and traceback each kept to ERROR_CHARS, saying so where cut."""
+    evalue, tb = output.get("evalue"), output.get("traceback")
+    if isinstance(tb, list):
+        tb = "".join(str(t) for t in tb)
+    cut = dict(output)
+    if isinstance(evalue, str) and len(evalue) > ERROR_CHARS:
+        cut["evalue"] = evalue[:ERROR_CHARS] + f"\n[KratosForge kept the first {ERROR_CHARS:,} of this message's {len(evalue):,} characters.]"
+    if isinstance(tb, str) and len(tb) > ERROR_CHARS:
+        cut["traceback"] = f"[KratosForge kept the last {ERROR_CHARS:,} of this traceback's {len(tb):,} characters.]\n" + tb[-ERROR_CHARS:]
+    return cut
 
 
 def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],
@@ -1211,7 +1229,7 @@ class Kernel:
                 print(f"Notebook exited with value: {done.value}")
                 namespace["__fd_exit__"] = done.value
             raise
-        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
@@ -1219,7 +1237,7 @@ class Kernel:
     def _guarded(self, run: _Run | None, fn: Callable[[], Any]) -> str:
         try:
             fn()
-        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
@@ -1397,7 +1415,7 @@ class Kernel:
                     namespace["_sqldf"] = result
                 self._emit(run, self._show(result))
             return "ok"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a cell must never take the kernel down
             self._emit(run, self._error(exc))
             return "error"
 
@@ -1800,8 +1818,32 @@ class Kernel:
         frames = [f for f in traceback.extract_tb(exc.__traceback__)
                   if f.filename not in (__file__, _WIDGETS_FILE) and not f.filename.endswith(("notebookutils_local.py",))]
         lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
-        return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
+        return {"type": "error", "ename": type(exc).__name__, "evalue": plain_error(exc),
                 "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
+
+
+def plain_error(exc: BaseException) -> str:
+    """A cell's error as the user reads it. A full disk and running out of memory say so first, as
+    delta-rs words a full disk as a parse or copy error and a MemoryError often has no text at all;
+    the raw error stays in the traceback."""
+    raw = str(exc)
+    if disk_full.is_disk_full(exc):
+        plain = disk_full.message(None, "A Delta table write that failed changed nothing.")
+    elif any(isinstance(e, MemoryError) for e in _chain(exc)):
+        plain = ("This PC ran out of memory in this cell. Variables from earlier cells are kept. "
+                 "Close other apps, or work on less data at once, and run it again.")
+    else:
+        return raw
+    return f"{plain} ({raw})" if raw else plain
+
+
+def _chain(exc: BaseException) -> list[BaseException]:
+    seen: list[BaseException] = []
+    cur: BaseException | None = exc
+    while cur is not None and cur not in seen and len(seen) < 20:
+        seen.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    return seen
 
 
 _MISSING = object()
@@ -2091,6 +2133,9 @@ def _fs_magic(fs: Any, line: str) -> Any:
         raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
     command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}
     args = [w for w in words[1:] if w not in ("-r", "-f")]
+    from .dbutils_local import fs_magic_path
+    for path in args[:1] if command in ("put", "head") else args:
+        fs_magic_path(path)  # /mnt/..., /tmp/... and dbfs:/ are Databricks storage, as in dbutils.fs
     usage = {"ls": 1, "head": 1, "cp": 2, "mv": 2, "rm": 1, "mkdirs": 1, "put": 2}
     if command not in usage:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")

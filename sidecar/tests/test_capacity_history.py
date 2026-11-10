@@ -172,6 +172,8 @@ def test_overrides_come_from_the_documented_value_list(monkeypatch):
     from fabric_desktop.fabric_api import FabricClient
 
     class Resp:
+        headers: dict = {}
+
         def json(self):
             return OVERRIDES_SAMPLE
 

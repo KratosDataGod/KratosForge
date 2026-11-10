@@ -67,6 +67,7 @@ from .risk_service import RiskMixin
 from .model_bpa_service import ModelBpaMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .organizations_service import OrganizationsMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
@@ -130,7 +131,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin, OrganizationsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -149,12 +150,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     @property
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
+        # So can the organization sign-in goes to (Switch organization, organizations_service.py).
         client_id = self._client_id or app_settings.value("client_id")
+        tenant = str(app_settings.value("sign_in_tenant") or "").strip().lower()
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
-            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-                self._auth = Authenticator(client_id, interactive=not self.headless)
+            if (self._auth is None or getattr(self._auth, "client_id", client_id) != client_id
+                    or getattr(self._auth, "tenant", tenant) != tenant):
+                more: dict[str, Any] = {"tenant": tenant} if tenant else {}
+                self._auth = Authenticator(client_id, interactive=not self.headless, **more)
             return self._auth
 
     @property
@@ -242,12 +247,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self._start_retention_sweep()
         self._start_usage_send()
         user = tenant = None
+        guest = False
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
+            guest = bool(getattr(self.auth, "is_guest", lambda: False)())
         except Exception as exc:  # noqa: BLE001 - no client ID yet, or offline: the UI offers sign-in
             _log.info("Not signed in: %s", describe(exc))
-        return {"python": platform.python_version(), "user": user, "tenant": tenant}
+        return {"python": platform.python_version(), "user": user, "tenant": tenant, "guest": guest,
+                "organization": self._guest_label() if guest else ""}
 
     def _start_retention_sweep(self) -> None:
         """From the engine's first call, in the background and then once a day while it runs: delete local
@@ -427,7 +435,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             retry()
         self.auth.fabric_token()
         self.auth.storage_token()
-        return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
+        return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant(), "guest": bool(getattr(self.auth, "is_guest", lambda: False)()), "organization": self._guest_label()}
 
     def readiness_check(self) -> list[dict[str, Any]]:
         """Home's Ready to work list. Reads only, and never opens a sign-in window."""

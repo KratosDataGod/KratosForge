@@ -30,7 +30,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
-| **Account circle** | Top right | Your initial, or **?** when signed out. Opens the account menu. |
+| **Account circle** | Top right | Your initial, or **?** when signed out. Opens the account menu. A **Guest** tag beside it means you're signed in to another company's organization as a guest. |
 | **Browse…** | Beside every box that asks for a folder on this PC | Opens the Windows folder dialog and puts the folder you pick in the box. **Cancel** leaves the box as it was, and you can still type or paste a path. A folder your organization sets has no **Browse…**. |
 | **Info button** | Title bar, beside the page's title | Opens the page's one-line explanation and its **How this works** panel (what the page reads, what it changes, where results go) as a drawer. With **Settings > Appearance > Layout > Explanations** set to **Beside the page**, they show on the page instead ([Layout](#layout)). |
 
@@ -658,7 +658,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 
 | Section | What's there |
 | --- | --- |
-| **Account** | Who you're signed in as and **Sign out**. When sign-in uses your organization's own app, **Admin approval** copies the link a Microsoft Entra admin opens once to approve it. |
+| **Account** | Who you're signed in as and **Sign out**. **Organization** (Preview) says which organization's workspaces you see. If another company invited you as a guest, **Switch organization** signs the same account in to it: pick one you used before, or type its domain (like `northwind.com`) or tenant id, which is checked before Microsoft asks you to sign in. If that sign-in doesn't finish, you stay where you were. The sign-in prompt's **Guest of another company?** opens the same choice. When sign-in uses your organization's own app, **Admin approval** copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |

@@ -85,7 +85,7 @@ async function startPopOut() {
   nav.stack = [navEntry("monitor")];
   nav.index = 0;  // nav.restored stays false, so navSave never runs here
   const env = await rpc("environment").catch(() => null);
-  if (env) Object.assign(state, { python: env.python, user: env.user, tenant: env.tenant });
+  if (env) Object.assign(state, { python: env.python, user: env.user, tenant: env.tenant, guest: !!env.guest, organization: env.organization || "" });
   await loadSettings();
   render();
   if (POP_OUT === "runs") setInterval(popOutRefresh, POP_OUT_REFRESH_MS);

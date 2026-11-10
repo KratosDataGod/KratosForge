@@ -177,6 +177,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .avatar.signed-out { background: var(--muted); }  /* white text at 6.2:1; the old grey was 3.5:1 */
+/* A guest (B2B) account in another organization: the tag beside the account button (settings.js). */
+.guest-tag { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 600; white-space: nowrap; }
+/* Switch organization (settings.js switchOrganizationDialog) */
+.org-dialog { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.org-field { display: flex; flex-direction: column; gap: 6px; }
+.org-field input[type=text] { flex: 1 1 200px; min-width: 0; }
+.org-field input.bad { border-color: var(--danger); }
+.tool.primary.org-go:disabled { background: var(--border); border-color: var(--border); color: var(--muted); cursor: not-allowed; }
+.ok-text { color: var(--ok); }
 
 /* Layout */
 .body { flex: 1; display: flex; min-height: 0; }

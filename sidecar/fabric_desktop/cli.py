@@ -446,7 +446,8 @@ def _smoke_test(args: argparse.Namespace) -> int:
         print("Dry run: nothing was signed in to, created or written.")
         return 0
     client_id = app_settings.value("client_id")
-    credential = Authenticator(client_id)
+    tenant = app_settings.value("sign_in_tenant")
+    credential = Authenticator(client_id, **({"tenant": tenant} if tenant else {}))
     fabric = FabricClient(credential.fabric_token)
 
     def live(out: Path) -> livetest.LiveTest:
@@ -534,7 +535,8 @@ def _live_test(args: argparse.Namespace) -> int:
     else:
         from . import app_settings
         from .auth import Authenticator
-        credential = Authenticator(app_settings.value("client_id"))
+        tenant = app_settings.value("sign_in_tenant")
+        credential = Authenticator(app_settings.value("client_id"), **({"tenant": tenant} if tenant else {}))
     fabric = FabricClient(credential.fabric_token)
     if args.cleanup:
         result = livetest.cleanup_from_ledger(Path(args.cleanup), fabric, credential)

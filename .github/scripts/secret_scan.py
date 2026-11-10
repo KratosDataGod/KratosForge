@@ -13,6 +13,11 @@ matched by file, kind and the hash of the value, not by line, so moving a line d
                       fails until then: set "is_secret": false when it isn't a secret; when it is,
                       remove it from the file and revoke it.
 
+    added BASE_FILE   a warning for each entry .secrets.baseline gains over BASE_FILE (the base
+                      branch's copy), so a pull request's reviewers see what it lets through.
+
+    pragmas           read a `git diff -U0` on stdin and warn for each added line carrying the pragma below.
+
 A line can also carry `pragma: allowlist secret` in a comment, which detect-secrets skips.
 """
 
@@ -56,6 +61,16 @@ def _entries(doc: dict) -> list[tuple[Key, dict]]:
             for name, rows in sorted((doc.get("results") or {}).items()) for entry in rows]
 
 
+def _prop(value: object) -> str:
+    """A workflow command's property value (a file name can hold any of these)."""
+    return (str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            .replace(":", "%3A").replace(",", "%2C"))
+
+
+def _at(name: str, line: object) -> str:
+    return f"file={_prop(name)},line={_prop(line)}"
+
+
 def problems(doc: dict, found: Iterable[tuple[str, Any]]) -> list[str]:
     """What check reports: unreviewed baseline entries, then findings the baseline doesn't list."""
     out = []
@@ -64,11 +79,40 @@ def problems(doc: dict, found: Iterable[tuple[str, Any]]) -> list[str]:
         if entry.get("is_secret") is False:
             reviewed.add(key)
         else:
-            out.append(f"::error file={key[0]},line={entry.get('line_number', 1)}::{BASELINE} lists a {key[1]} here "
+            out.append(f"::error {_at(key[0], entry.get('line_number', 1))}::{BASELINE} lists a {key[1]} here "
                        'that nobody has reviewed: set "is_secret": false if it isn\'t a secret.')
     for name, secret in sorted(found, key=lambda pair: (pair[0], pair[1].line_number or 0)):
         if (name, secret.type, secret.secret_hash) not in reviewed:
-            out.append(f"::error file={name},line={secret.line_number}::Looks like a secret ({secret.type}). {HOW}")
+            out.append(f"::error {_at(name, secret.line_number)}::Looks like a secret ({secret.type}). {HOW}")
+    return out
+
+
+def newly_allowed(doc: dict, before: dict) -> list[str]:
+    """A warning for each entry ``doc`` lists that ``before`` (the base branch's baseline) didn't, so the
+    pull request that lets a value through shows it to its reviewers."""
+    known = {key for key, _ in _entries(before)}
+    return [f"::warning {_at(key[0], entry.get('line_number', 1))}::This pull request adds a {key[1]} here to "
+            f"{BASELINE}, so the secret scan lets it through. Check it isn't a real secret."
+            for key, entry in _entries(doc) if key not in known]
+
+
+PRAGMA = "pragma: allowlist secret"
+
+
+def pragmas(diff: str) -> list[str]:
+    """A warning for each line a ``git diff -U0`` adds that carries the pragma, which hides it from the scan."""
+    out, name, line = [], "", 0
+    for text in diff.splitlines():
+        if text.startswith("+++ "):
+            # git quotes a name with unusual characters ("b/..."); the warning names it as quoted
+            name = text[6:] if text.startswith("+++ b/") else text[7:-1] if text.startswith('+++ "b/') else ""
+        elif text.startswith("@@ "):
+            line = int(text.split("+", 1)[1].split(" ", 1)[0].split(",", 1)[0])
+        elif text.startswith("+"):
+            if name and PRAGMA in text:
+                out.append(f"::warning {_at(name, line)}::This pull request adds a line the secret scan skips "
+                           f"(`{PRAGMA}`). Check it isn't a real secret.")
+            line += 1
     return out
 
 
@@ -115,6 +159,18 @@ def main(argv: list[str]) -> int:
     os.chdir(ROOT)  # detect-secrets names files relative to the working folder
     if argv[:1] == ["check"]:
         return check(argv[1:])
+    if argv[:1] == ["added"] and len(argv) == 2:
+        try:
+            before = json.loads(Path(argv[1]).read_text(encoding="utf-8") or "{}")
+        except (OSError, ValueError):
+            before = {}  # no baseline on the base branch: every entry is new
+        for line in newly_allowed(json.loads((ROOT / BASELINE).read_text(encoding="utf-8")), before):
+            print(line)
+        return 0
+    if argv == ["pragmas"]:
+        for line in pragmas(sys.stdin.read()):
+            print(line)
+        return 0
     if argv == ["baseline"]:
         return rebuild()
     print(__doc__, file=sys.stderr)

@@ -22,13 +22,34 @@ pub fn admin_only(_file: &Path) -> Result<(), String> {
     Err("it is only trusted on Windows".into())
 }
 
+/// None when only SYSTEM and Administrators could have written HKLM\`key` (its owner and
+/// permissions, not whether this process could open it for writing, so an elevated run is judged like
+/// any other), its parent, and the list `subkeys` (which must exist); otherwise why not. The engine's
+/// policy_trust.key_admin_only applies the same rule.
+#[cfg(windows)]
+pub fn key_admin_only(key: &str, subkeys: &[&str]) -> Result<(), String> {
+    use windows::Win32::Security::Authorization::SE_REGISTRY_WOW64_64KEY;
+    let parent = key.rsplit_once('\\').map(|(p, _)| p).unwrap_or(key);
+    win::check_named(&format!("MACHINE\\{parent}"), SE_REGISTRY_WOW64_64KEY, win::PARENT_KEY_RIGHTS)?;
+    win::check_named(&format!("MACHINE\\{key}"), SE_REGISTRY_WOW64_64KEY, win::KEY_RIGHTS)?;
+    for sub in subkeys {
+        win::check_named(&format!("MACHINE\\{key}\\{sub}"), SE_REGISTRY_WOW64_64KEY, win::KEY_RIGHTS)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn key_admin_only(_key: &str, _subkeys: &[&str]) -> Result<(), String> {
+    Err("it is only trusted on Windows".into())
+}
+
 #[cfg(windows)]
 mod win {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
-    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT, SE_OBJECT_TYPE};
     use windows::Win32::Security::{
         GetAce, IsWellKnownSid, WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
         DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
@@ -47,6 +68,13 @@ mod win {
     /// Rights on the folder that let someone delete or replace a file in it, or the folder.
     /// Creating new files isn't one: %ProgramData% lets everyone do that in folders under it.
     pub const FOLDER_RIGHTS: u32 = FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL;
+    const KEY_SET_VALUE: u32 = 0x2;
+    const KEY_CREATE_SUB_KEY: u32 = 0x4;
+    /// Rights that let someone change Group Policy's key: set or add values, add subkeys, delete it,
+    /// or take over its permissions.
+    pub const KEY_RIGHTS: u32 = KEY_SET_VALUE | KEY_CREATE_SUB_KEY | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL;
+    /// On its parent: add the key, or take the parent over.
+    pub const PARENT_KEY_RIGHTS: u32 = KEY_CREATE_SUB_KEY | WRITE_DAC | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL;
     const ACCESS_ALLOWED: u8 = 0;
     const ACCESS_DENIED: u8 = 1;
     const INHERIT_ONLY: u8 = 0x08;
@@ -61,13 +89,23 @@ mod win {
     /// to what is created inside a folder; any other kind of grant counts against it.
     pub fn check(path: &Path, rights: u32) -> Result<(), String> {
         let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        check_wide(&name, &path.display().to_string(), SE_FILE_OBJECT, rights)
+    }
+
+    /// `check` for a named object of another kind, such as a registry key ("MACHINE\\...").
+    pub fn check_named(name: &str, kind: SE_OBJECT_TYPE, rights: u32) -> Result<(), String> {
+        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        check_wide(&wide, name, kind, rights)
+    }
+
+    fn check_wide(name: &[u16], shown: &str, kind: SE_OBJECT_TYPE, rights: u32) -> Result<(), String> {
         let mut owner = PSID::default();
         let mut dacl: *mut ACL = std::ptr::null_mut();
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         // SAFETY: name is NUL-terminated and outlives the call. owner and dacl point into
         // descriptor, which is only read before it is freed with LocalFree as the API requires.
         unsafe {
-            let status = GetNamedSecurityInfoW(PCWSTR(name.as_ptr()), SE_FILE_OBJECT,
+            let status = GetNamedSecurityInfoW(PCWSTR(name.as_ptr()), kind,
                                                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
                                                Some(&mut owner), None, Some(&mut dacl), None, &mut descriptor);
             if status != ERROR_SUCCESS {
@@ -75,15 +113,15 @@ mod win {
             }
             let result = (|| {
                 if !admin_sid(owner) {
-                    return Err(format!("{} isn't owned by SYSTEM or Administrators", path.display()));
+                    return Err(format!("{} isn't owned by SYSTEM or Administrators", shown));
                 }
                 if dacl.is_null() {
-                    return Err(format!("{} has no permissions set, so anyone can change it", path.display()));
+                    return Err(format!("{} has no permissions set, so anyone can change it", shown));
                 }
                 for index in 0..u32::from((*dacl).AceCount) {
                     let mut ace: *mut core::ffi::c_void = std::ptr::null_mut();
                     if GetAce(dacl, index, &mut ace).is_err() {
-                        return Err(format!("{}'s permissions can't be read", path.display()));
+                        return Err(format!("{}'s permissions can't be read", shown));
                     }
                     let header = &*(ace as *const ACE_HEADER);
                     if header.AceType == ACCESS_DENIED || header.AceType > 17 || header.AceFlags & INHERIT_ONLY != 0 {
@@ -95,12 +133,12 @@ mod win {
                         continue;
                     }
                     if header.AceType != ACCESS_ALLOWED {
-                        return Err(format!("{} has a permission entry the app can't check", path.display()));
+                        return Err(format!("{} has a permission entry the app can't check", shown));
                     }
                     let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
                     let sid = PSID(&allowed.SidStart as *const u32 as *mut _);
                     if allowed.Mask & rights != 0 && !admin_sid(sid) {
-                        return Err(format!("someone other than SYSTEM and Administrators can change {}", path.display()));
+                        return Err(format!("someone other than SYSTEM and Administrators can change {}", shown));
                     }
                 }
                 Ok(())

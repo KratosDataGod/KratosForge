@@ -22,7 +22,7 @@ Every policy is a **Computer** policy. It writes `HKLM\Software\Policies\KratosB
 
 Two settings hold structured values, `platform` and `incident_sla`. A template can't express them, so they stay in `policy.json` ([Enterprise install](../../docs/enterprise-install.md)).
 
-KratosForge reads only the HKLM key, never HKCU. A value set here wins over the same key in `policy.json`. A value of the wrong type is ignored and listed under **Settings > Help and about**. When the account using the PC can change the key, the app warns, and ignores the settings that widen what it trusts (`fabric_view_sign_in_hosts`, `dbconnect_index_url`, `notebook_package_folder`, `client_id`, `telemetry_connection_string`, `appstudio_hosts`, `integrations_http` and `support_url`, and the shell's `engine_download_url`); the key's restrictions still apply. List items are numbered values (`1`, `2`, ...), which is what the templates write.
+KratosForge reads only the HKLM key, never HKCU. A value set here wins over the same key in `policy.json`. A value of the wrong type is ignored and listed under **Settings > Help and about**. When the account using the PC can change the key, the app warns. Unless only SYSTEM and Administrators could have written the key (its owner and permissions, as Group Policy leaves them), the app ignores the settings that widen what it trusts (`fabric_view_sign_in_hosts`, `dbconnect_index_url`, `notebook_package_folder`, `client_id`, `telemetry_connection_string`, `appstudio_hosts`, `integrations_http` and `support_url`, and the shell's `engine_download_url`); the key's restrictions still apply. List items are numbered values (`1`, `2`, ...), which is what the templates write.
 
 ## Import
 

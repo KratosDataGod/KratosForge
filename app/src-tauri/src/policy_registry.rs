@@ -109,7 +109,7 @@ pub fn read() -> Vec<(String, Raw)> {
 }
 
 #[cfg(not(windows))]
-pub fn admin_only() -> Result<(), String> {
+pub fn admin_only(_subkeys: &[&str]) -> Result<(), String> {
     Err("it is only trusted on Windows".into())
 }
 
@@ -119,14 +119,11 @@ mod win {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Foundation::ERROR_SUCCESS;
     use windows::Win32::System::Registry::{
-        RegCloseKey, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_CREATE_SUB_KEY, KEY_READ,
-        KEY_SET_VALUE, KEY_WOW64_64KEY, REG_SAM_FLAGS, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
+        RegCloseKey, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY,
+        REG_SAM_FLAGS, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
     };
 
     const MAX_ITEMS: u32 = 1000;
-    const DELETE: u32 = 0x1_0000;
-    const WRITE_DAC: u32 = 0x4_0000;
-    const WRITE_OWNER: u32 = 0x8_0000;
 
     /// The key opened with `access` in the 64-bit view, which Group Policy writes; None when it can't be.
     fn open(path: &str, access: REG_SAM_FLAGS) -> Option<HKEY> {
@@ -190,23 +187,13 @@ mod win {
         found
     }
 
-    /// None when the account running the app couldn't change Group Policy's key or replace it, as
-    /// only administrators and SYSTEM should; otherwise why not. Each right is only asked for: nothing
-    /// is written. Run as an administrator, the key always reads as changeable, so the shell then
-    /// doesn't take engine_download_url from it.
-    pub fn admin_only() -> Result<(), String> {
-        let parent = KEY.rsplit_once('\\').map(|(p, _)| p).unwrap_or(KEY);
-        let rights = [KEY_SET_VALUE.0, KEY_CREATE_SUB_KEY.0, DELETE, WRITE_DAC, WRITE_OWNER];
-        let parent_rights = [KEY_CREATE_SUB_KEY.0, WRITE_DAC, WRITE_OWNER];
-        let changeable = |path: &str, right: u32| {
-            open(path, REG_SAM_FLAGS(right)).map(|key| unsafe {
-                let _ = RegCloseKey(key);
-            })
-        };
-        if rights.iter().any(|&r| changeable(KEY, r).is_some()) || parent_rights.iter().any(|&r| changeable(parent, r).is_some()) {
-            return Err(format!("HKLM\\{KEY} can be changed by the account running KratosForge"));
-        }
-        Ok(())
+    /// None when only SYSTEM and Administrators could have written Group Policy's key, its parent and
+    /// the list `subkeys` named (which must exist); otherwise why not. By owner and permissions
+    /// (policy_trust::key_admin_only), as the engine's LOOSENING check, so an elevated run is judged
+    /// like any other. Nothing is written.
+    pub fn admin_only(subkeys: &[&str]) -> Result<(), String> {
+        crate::policy_trust::key_admin_only(KEY, subkeys)
+            .map_err(|why| format!("HKLM\\{KEY} isn't one only administrators could have written: {why}"))
     }
 }
 

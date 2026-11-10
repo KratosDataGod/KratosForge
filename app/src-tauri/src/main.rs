@@ -104,7 +104,7 @@ fn engine_mirror() -> Option<String> {
 fn engine_mirror_state() -> Result<Option<String>, String> {
     let file = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
     let file_trusted = file.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only);
-    let registry_trusted = policy_registry::admin_only();
+    let registry_trusted = policy_registry::admin_only(&[]);
     let found = policy_registry::read();
     let text = policy_registry::overlay(&file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default(), &found);
     let trusted = if policy_registry::sets(&found, "engine_download_url") { registry_trusted } else { file_trusted };
@@ -148,7 +148,7 @@ fn sign_in_hosts_state() -> (Vec<String>, String) {
     let found = policy_registry::read();
     let registry = policy_registry::sets(&found, "fabric_view_sign_in_hosts")
         .then(|| policy_sign_in_hosts(&policy_registry::overlay("", &found)));
-    let registry_ok = if registry.is_some() { policy_registry::admin_only() } else { Ok(()) };
+    let registry_ok = if registry.is_some() { policy_registry::admin_only(&["fabric_view_sign_in_hosts"]) } else { Ok(()) };
     policy_registry::trusted_hosts(file_hosts, file_ok, registry, registry_ok)
 }
 

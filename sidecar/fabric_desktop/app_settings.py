@@ -334,23 +334,45 @@ def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
     return ({**data, **registry} if registry else data), reason, from_copy
 
 
+def policy_file_untrusted() -> str | None:
+    """Why the policy file can't set LOOSENING settings, or None when only SYSTEM and Administrators
+    could have written it (policy_trust.py, the shell's test). Whether the current account can write it
+    isn't enough: another account may have created it."""
+    from . import policy_trust
+    return policy_trust.admin_only(policy_path())
+
+
+def registry_key_untrusted(lists: list[str]) -> str | None:
+    """Why Group Policy's key can't set LOOSENING settings, or None when only SYSTEM and Administrators
+    could have written it, its parent and the ``lists`` subkeys it sets them in (policy_trust.py)."""
+    from . import policy_trust
+    from .policy_schema import REGISTRY_KEY
+    why = policy_trust.key_admin_only(REGISTRY_KEY, lists)
+    return f"Group Policy's key isn't one only administrators could have written: {why}" if why else None
+
+
 def _policy_sources(digest: dict[str, str | None] | None = None
-                    ) -> tuple[dict[str, Any], str | None, bool, dict[str, Any], dict[str, list[str]]]:
+                    ) -> tuple[dict[str, Any], str | None, bool, dict[str, Any], dict[str, tuple[list[str], str]]]:
     """The policy file's settings (as _file_policy reads them) and Group Policy's, each without the
-    LOOSENING settings when the person using the PC could change that source, and which were left out
-    ({"file" or "registry": [keys]}). The Group Policy fingerprint is of all it sets."""
+    LOOSENING settings unless only administrators could have written that source, and which were left
+    out and why ({"file" or "registry": ([keys], why)}). The Group Policy fingerprint is of all it sets."""
     from . import registry_policy
     data, reason, from_copy = _file_policy(digest)
     registry, _ = registry_policy.read()
     if digest is not None:
         digest["registry_sha256"] = registry_policy.fingerprint(registry)
-    ignored: dict[str, list[str]] = {}
-    if any(k in data for k in LOOSENING) and (from_copy or user_can_change(policy_path())):
-        ignored["file"] = sorted(k for k in data if k in LOOSENING)
-        data = {k: v for k, v in data.items() if k not in LOOSENING}
-    if any(k in registry for k in LOOSENING) and registry_policy.user_can_change():
-        ignored["registry"] = sorted(k for k in registry if k in LOOSENING)
-        registry = {k: v for k, v in registry.items() if k not in LOOSENING}
+    ignored: dict[str, tuple[list[str], str]] = {}
+    if any(k in data for k in LOOSENING):
+        why = ("the last copy of the policy file kept in your profile applies, which you can change" if from_copy
+               else policy_file_untrusted())
+        if why:
+            ignored["file"] = (sorted(k for k in data if k in LOOSENING), why)
+            data = {k: v for k, v in data.items() if k not in LOOSENING}
+    if any(k in registry for k in LOOSENING):
+        why = registry_key_untrusted([k for k in registry if k in LOOSENING and isinstance(registry[k], list)])
+        if why:
+            ignored["registry"] = (sorted(k for k in registry if k in LOOSENING), why)
+            registry = {k: v for k, v in registry.items() if k not in LOOSENING}
     return data, reason, from_copy, registry, ignored
 
 
@@ -481,12 +503,10 @@ def policy_problems() -> list[str]:
         return [reason, *left_out]
     problems = [reason] if reason else []
     problems += left_out
-    for source, keys in ignored.items():
-        where = ("Group Policy (HKLM\\Software\\Policies\\KratosBI\\KratosForge)" if source == "registry"
-                 else "the last copy of the policy file kept in your profile" if from_copy else str(policy_path()))
-        problems.append(f"{', '.join(keys)} {'is' if len(keys) == 1 else 'are'} ignored, because {where} can be changed "
-                        "by the account you're signed in to this PC with, and only IT may widen what KratosForge "
-                        "trusts. Its restrictions still apply")
+    for keys, cause in ignored.values():
+        problems.append(f"{', '.join(keys)} {'is' if len(keys) == 1 else 'are'} ignored, because only a source only "
+                        f"administrators could have written may widen what KratosForge trusts, and {cause}. Push "
+                        "policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt. Its restrictions still apply")
     if not from_copy and user_can_change(policy_path()):
         problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")

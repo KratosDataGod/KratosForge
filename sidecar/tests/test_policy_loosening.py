@@ -13,6 +13,7 @@ from fabric_desktop import app_settings, registry_policy
 from fabric_desktop.integrations import policy as integrations_policy
 
 DWORD, SZ = registry_policy.REG_DWORD, registry_policy.REG_SZ
+REAL_CHECK = app_settings.policy_file_untrusted  # conftest stands it in for every test; captured before that
 TENANT = "11111111-1111-1111-1111-111111111111"
 WIDE = {"fabric_view_sign_in_hosts": ["adfs.contoso.com"], "dbconnect_index_url": "https://pypi.contoso.com/simple",
         "notebook_package_folder": "D:\\wheels", "client_id": "22222222-3333-4444-5555-666666666666",
@@ -42,11 +43,15 @@ def gp(monkeypatch):
 @pytest.fixture
 def file_changeable(monkeypatch):
     monkeypatch.setattr(app_settings, "user_can_change", lambda path: True)
+    monkeypatch.setattr(app_settings, "policy_file_untrusted", lambda: "policy.json isn't owned by SYSTEM or Administrators")
 
 
 @pytest.fixture
 def key_changeable(monkeypatch):
-    monkeypatch.setattr(registry_policy, "user_can_change", lambda opener=None: True)
+    asked = []
+    monkeypatch.setattr(app_settings, "registry_key_untrusted",
+                        lambda lists: asked.append(lists) or "Group Policy's key isn't one only administrators could have written: x")
+    return asked
 
 
 def test_every_loosening_setting_is_a_policy_setting():
@@ -72,7 +77,7 @@ def test_a_file_the_user_could_change_sets_no_loosening_but_its_restrictions_sta
     problems = app_settings.policy_problems()
     ignored = [p for p in problems if "ignored, because" in p]
     assert len(ignored) == 1 and "client_id, dbconnect_index_url, fabric_view_sign_in_hosts, integrations_http" in ignored[0]
-    assert str(app_settings.policy_path()) in ignored[0] and ignored[0].endswith("Its restrictions still apply")
+    assert "isn't owned by SYSTEM or Administrators" in ignored[0] and ignored[0].endswith("Its restrictions still apply")
     assert any("can be changed by the account" in p and "Ask IT" in p for p in problems)  # the warning stays
 
 
@@ -83,7 +88,7 @@ def test_integrations_read_the_same_filtered_settings(policy, gp, file_changeabl
 
 def test_a_changeable_file_without_loosening_settings_isnt_checked(policy, gp, monkeypatch):
     asked = []
-    monkeypatch.setattr(app_settings, "user_can_change", lambda path: asked.append(path) or True)
+    monkeypatch.setattr(app_settings, "policy_file_untrusted", lambda: asked.append(1) or "untrusted")
     policy({"telemetry": False})
     app_settings.read_policy()
     assert asked == []  # only a source that sets one is checked, so most loads ask nothing
@@ -96,7 +101,9 @@ def test_a_group_policy_key_the_user_could_change_sets_no_loosening(policy, gp, 
     data, _ = app_settings.read_policy()
     assert data == {"support_url": "https://help.contoso.com", "telemetry": False}
     problems = app_settings.policy_problems()
-    assert any(p.startswith("client_id, fabric_view_sign_in_hosts are ignored, because Group Policy") for p in problems)
+    assert any(p.startswith("client_id, fabric_view_sign_in_hosts are ignored") and "Group Policy's key isn't one" in p
+               for p in problems)
+    assert key_changeable[0] == ["fabric_view_sign_in_hosts"]  # its list subkey is checked too
 
 
 def test_group_policy_ignored_leaves_the_files_value_in_force(policy, gp, key_changeable):
@@ -112,7 +119,7 @@ def test_the_last_good_copy_in_the_profile_sets_no_loosening(policy, gp):
     data, reason = app_settings.read_policy()
     assert reason is None and data == {"telemetry": False}  # the copy's restrictions stand in, nothing loosening
     problems = app_settings.policy_problems()
-    assert any("the last copy of the policy file kept in your profile" in p for p in problems)
+    assert any("the last copy of the policy file kept in your profile applies" in p for p in problems)
 
 
 def test_the_fingerprint_still_covers_everything_group_policy_sets(policy, gp, key_changeable):
@@ -124,3 +131,20 @@ def test_the_shells_sign_in_host_refusal_is_reported(policy, gp, monkeypatch):
     policy({"fabric_view_sign_in_hosts": ["adfs.contoso.com"]})
     monkeypatch.setenv("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", "the policy file's are ignored: its folder isn't owned by administrators")
     assert any(p.startswith("fabric_view_sign_in_hosts: the policy file's are ignored") for p in app_settings.policy_problems())
+
+
+def test_a_file_another_account_created_sets_no_loosening(policy, gp, monkeypatch):
+    # Another standard user created policy.json; this account may only read it, so it "can't change" it,
+    # but it isn't administrators' file either.
+    monkeypatch.setattr(app_settings, "user_can_change", lambda path: False)
+    monkeypatch.setattr(app_settings, "policy_file_untrusted", lambda: "policy.json isn't owned by SYSTEM or Administrators")
+    policy({"notebook_package_folder": "D:\\wheels", "allow_pypi_packages": False})
+    data, _ = app_settings.read_policy()
+    assert data == {"allow_pypi_packages": False}
+
+
+def test_the_real_check_runs_and_fails_closed(policy, gp, monkeypatch):
+    monkeypatch.setattr(app_settings, "policy_file_untrusted", REAL_CHECK)
+    policy({"support_url": "https://help.contoso.com"})  # the test account's own file: not administrators'
+    app_settings.policy_path().chmod(0o666)  # and writable by others, even when the tests run as root
+    assert "support_url" not in app_settings.read_policy()[0]

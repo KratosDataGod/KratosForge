@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const { spawn } = require("node:child_process");
-const { Channel, ChannelError, MAX_REPLY, readPortFile } = require("../out/channel.js");
+const { Channel, ChannelError, MAX_REPLY, MAX_REQUEST, readPortFile } = require("../out/channel.js");
 
 const SIDECAR = path.join(__dirname, "..", "..", "sidecar");
 let engine, home, dir, file;
@@ -325,4 +325,20 @@ test("an answer larger than the extension accepts is cut off and reported, not h
   } finally {
     await app.close();
   }
+});
+
+test("a cell larger than the app takes is refused before anything is sent, in words about the cell", async () => {
+  const seen = [];
+  const app = await fakeApp((url) => { seen.push(url.pathname); return false; });
+  try {
+    const big = "x = '" + "é".repeat(MAX_REQUEST / 2) + "'";  // under 1 Mi characters, over 1 MiB as UTF-8
+    await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", big, () => {}),
+      (err) => err instanceof ChannelError && err.code === "cell_too_large" && /This cell is 1\.0 MB.*up to 1 MB.*Split it/.test(err.message));
+    assert.deepStrictEqual(seen, [], "the hello or the cell went out");
+  } finally {
+    await app.close();
+  }
+  // The limit is the app's own.
+  const src = fs.readFileSync(path.join(SIDECAR, "fabric_desktop", "editor_channel.py"), "utf8");
+  assert.strictEqual(eval(src.match(/^MAX_BODY_BYTES = (.+)$/m)[1]), MAX_REQUEST);
 });

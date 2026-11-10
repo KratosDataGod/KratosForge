@@ -6219,7 +6219,7 @@
     {
       "id": "PB-120",
       "title": "Platform support levels and one engine contract",
-      "state": "In review",
+      "state": "Accepted",
       "owner": "Fabric and Databricks unified development",
       "category": "Extensibility, APIs, CLI, and MCP",
       "effort": "L",
@@ -6323,7 +6323,8 @@
         "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016",
         "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b",
         "Implementation review docs/product/reviews/PB-120-kudp.md recommends Accept with documented limitations: only Fabric has live evidence (level 2), Databricks and Snowflake are verified at level 0, and the portability report and two-engine comparison have no screen. Databricks functions at 013281be: 440 run, 0 differ, 0 fail, 92 refused by name, 57 not checked. 1,404 engine tests and 4 browser tests pass on main at bddb5b27",
-        "Databricks SQL value checks for 15 more functions (#2293); the parity page's Databricks and Snowflake SQL rows rest on the generated function lists, with a guard (#2332); generated Databricks notebook helpers list (#2338); implementation review PB-120-kudp.md (#2306) on main at d5a867c0"
+        "Databricks SQL value checks for 15 more functions (#2293); the parity page's Databricks and Snowflake SQL rows rest on the generated function lists, with a guard (#2332); generated Databricks notebook helpers list (#2338); implementation review PB-120-kudp.md (#2306) on main at d5a867c0",
+        "Implementation review docs/product/reviews/PB-120-kudp.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64); limitations: only Fabric is proven live, to level 2, with Databricks and Snowflake verified at level 0; the portability report and two-engine comparison have no screen; function checks use one documented example per function on this PC"
       ],
       "features": [
         "FEAT-EXT-05",

@@ -127,7 +127,7 @@ on quality.
 | [FEAT-SQL-02](#feat-sql-02) | %%sql cells | Partially Implemented | Partially Verified | Notebook cells | Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013). |
 | [FEAT-EXT-04](#feat-ext-04) | Debugger for notebooks | Partially Implemented | Partially Verified | Notebook line numbers, Variables pane, View tab (Preview) | Implementation review of PR #387; decide whether pipeline runs need step-through. |
 | [FEAT-SQL-03](#feat-sql-03) | Fabric SQL dialect compatibility analyzer | Implemented | Partially Verified | SQL page | Blocked only by a live tenant run (WR-502, 2026-11-09): its verdicts compared with a Fabric Warehouse run on a tenant (HD-054). |
-| [FEAT-NB-12](#feat-nb-12) | Notebook import and export formats | Implemented | Partially Verified | Home > Import; a notebook's Home tab > Export (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350's review was done with PB-118 (Accepted). |
+| [FEAT-NB-12](#feat-nb-12) | Notebook import and export formats | Implemented | Partially Verified | Home > Import; a notebook's Home tab > Export (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350 claimed no backlog item; the feature's review was done with PB-118 (Accepted). |
 | [FEAT-NB-13](#feat-nb-13) | Notebook folders | Implemented | Partially Verified | All notebooks | Implementation review of PR #444. |
 | [FEAT-NB-14](#feat-nb-14) | Notebook version history | Implemented | Partially Verified | Notebook ribbon > Versions | Implementation review of PR #346, #461. |
 | [FEAT-NB-15](#feat-nb-15) | Notebook comments | Implemented | Partially Verified | Notebook cells and the Comments panel | Implementation review of PR #388. |
@@ -2082,7 +2082,7 @@ on quality.
 - **Docs:** [docs/notebook-import-export.md](../notebook-import-export.md)
 - **Pull requests and issues:** [#350](https://github.com/KratosDataGod/KratosForge/pull/350), [#1053](https://github.com/KratosDataGod/KratosForge/pull/1053), [#1146](https://github.com/KratosDataGod/KratosForge/pull/1146), [#1242](https://github.com/KratosDataGod/KratosForge/pull/1242), [#1289](https://github.com/KratosDataGod/KratosForge/pull/1289)
 - **Owning workstream:** Notebook development program
-- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350's review was done with PB-118 (Accepted).
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350 claimed no backlog item; the feature's review was done with PB-118 (Accepted).
 
 ### FEAT-NB-13
 

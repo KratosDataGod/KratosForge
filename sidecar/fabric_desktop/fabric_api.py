@@ -125,7 +125,7 @@ def _error_body(resp: requests.Response) -> dict[str, Any]:
             "request_id": body.get("requestId") or inner.get("requestId")}
 
 
-def _error(method: str, url: str, resp: requests.Response) -> FabricError:
+def _error(method: str, url: str, resp: requests.Response, safe: bool | None = None) -> FabricError:
     """A Fabric error a person can read: what was asked (the path, without its query), the status and
     Fabric's code, Fabric's own message, what to do, and the request id. Never the raw body."""
     fields = _error_body(resp)
@@ -142,7 +142,8 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     parts += [_part(d.get("message")) for d in fields.get("details") or []
               if isinstance(d, dict) and d.get("message")][:3]
     hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else _NEXT_STEP)
-    if (status >= 500 or status == 408) and method.upper() not in SAFE_METHODS:
+    read = method.upper() in SAFE_METHODS if safe is None else safe
+    if (status >= 500 or status == 408) and not read:
         hint = _UNSURE  # a write that got a 5xx may have happened (HD-053): it isn't sent again
     parts = [p for p in parts if p] + ([hint] if hint else [])
     text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
@@ -249,21 +250,24 @@ class FabricClient:
         self._sleep = sleep
         self._poll_timeout = poll_timeout
 
-    def _request(self, method: str, url: str, headers: dict[str, str] | None = None,
+    def _request(self, method: str, url: str, headers: dict[str, str] | None = None, safe: bool | None = None,
                  **kwargs: Any) -> requests.Response:
+        """``safe=True`` marks a read sent as POST (a query, getDefinition): it is sent again after a
+        5xx or a lost reply, like a GET, and a lost reply is an error, not "may or may not have"."""
         if not url.startswith("http"):
             url = f"{API}{url}"
         token = self._token()
+        read = method.upper() in SAFE_METHODS if safe is None else safe
 
         def send(token: str) -> requests.Response:
             sent = {**(headers or {}), "Authorization": f"Bearer {token}"}
             return send_with_retry(lambda: self._http.request(method, url, headers=sent, timeout=60, **kwargs),
-                                   method, sleep=self._sleep, attempts=5, default_wait=5)
+                                   method, sleep=self._sleep, attempts=5, default_wait=5, safe=read)
 
         try:
             resp = send(token)
         except (requests.ConnectionError, requests.Timeout) as exc:
-            if method.upper() in SAFE_METHODS:
+            if read:
                 raise  # a read: sent again already, and its own error says what happened
             raise _unsure(method, url, exc) from exc
         if resp.status_code == 401:
@@ -277,11 +281,11 @@ class FabricClient:
                 try:
                     resp = send(fresh)
                 except (requests.ConnectionError, requests.Timeout) as exc:
-                    if method.upper() in SAFE_METHODS:
+                    if read:
                         raise
                     raise _unsure(method, url, exc) from exc
         if resp.status_code >= 400:
-            raise _error(method, url, resp)
+            raise _error(method, url, resp, read)
         return resp
 
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
@@ -469,7 +473,7 @@ class FabricClient:
     def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
         """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
         query = f"?format={fmt}" if fmt else ""
-        got = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        got = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}", safe=True))
         if not isinstance(got.get("definition"), dict):
             raise FabricError("Fabric didn't send the item's definition. Try again; if it keeps happening, "
                               "open the item in Fabric to check it still loads.", "NoDefinition")
@@ -571,7 +575,7 @@ class FabricClient:
         runs: list[dict[str, Any]] = []
         pages = Pages(f"the activity runs of pipeline run {job_id}")
         while True:
-            data = self._request("POST", url, json=body).json()
+            data = self._request("POST", url, json=body, safe=True).json()
             if isinstance(data, list):
                 return runs + data
             runs += (data or {}).get("value") or []

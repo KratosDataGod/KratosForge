@@ -12,12 +12,21 @@ This process stands in for the engine. Over and over it:
 - runs a query on the SQL page (SqlExecutions, which starts a worker process per query) over a
   local Delta table, then reads a page of its result;
 - writes through LocalStore as metadata runs do: an overwrite, a MERGE of the same ids, and a
-  metadata-table append.
+  metadata-table append. Every --fresh-every loops these go to a new store folder.
 
-Every table stays the same size, so what it holds should level off. Every --sample seconds it
-records this process's memory (resident on Linux, private bytes on Windows), open handles, OS and
+Every table stays the same size, so what it holds should level off. A Delta table's log does not:
+each overwrite or MERGE leaves the old file in the log as removed until VACUUM, and every later write
+loads that bigger log. On Windows this showed as engine memory climbing about 390 MB per hour on one
+table overwritten 6,400 times in 35 minutes, and not at all with a fresh table every 100 loops
+(local-performance/soak/mini-soak.md). That is how Delta works, and Optimize on the Maintain page
+clears it, so the soak starts a fresh store every --fresh-every loops rather than measure it.
+
+Every --sample seconds it records this process's memory (resident on Linux, private bytes on Windows), open handles, OS and
 Python threads, the kernel's memory, its child processes (Linux) and the files in its temp and SQL
-results folders. After the first --warmup minutes, a measurement is "growing" when all three hold:
+results folders. Engine memory is judged on its lowest value over the last minute (LOW_OF): a Delta
+write's short-lived buffers swing private bytes on Windows by about 300 MB between samples, and a
+leak raises the low as well as the highs. After the first --warmup minutes, a measurement is
+"growing" when all three hold:
 
 - its least-squares slope is past the limit per hour in LIMITS;
 - that slope over the measured time adds up to at least the limit's minimum rise;
@@ -61,6 +70,9 @@ LIMITS: dict[str, tuple[float, float, str]] = {
     "children": (12.0, 3.0, "processes"),
     "files": (40.0, 10.0, "files"),
 }
+
+# Judged on the lowest value over this many seconds before each sample (see the module doc).
+LOW_OF: dict[str, float] = {"engine_mb": 60.0}
 
 CELL = """
 import polars as pl
@@ -143,10 +155,17 @@ def growth(points: list[tuple[float, float]], per_hour: float, min_rise: float, 
             "samples": len(kept)}
 
 
+def lows(points: list[tuple[float, float]], seconds: float) -> list[tuple[float, float]]:
+    """Each sample replaced by the lowest value in the ``seconds`` up to and including it."""
+    return [(t, min(v for u, v in points if t - seconds <= u <= t)) for t, _ in points]
+
+
 def judge(samples: list[dict[str, Any]], warmup: float) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for name, (per_hour, min_rise, unit) in LIMITS.items():
         points = [(s["t"], float(s[name])) for s in samples if s.get(name) is not None]
+        if name in LOW_OF:
+            points = lows(points, LOW_OF[name])
         if not points:
             out[name] = {"status": "not measured here", "unit": unit}
             continue
@@ -172,7 +191,7 @@ def summary(result: dict[str, Any]) -> str:
 
 # ---- the soak
 
-def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any) -> dict[str, Any]:
+def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any, fresh_every: int = 100) -> dict[str, Any]:
     import pyarrow as pa
     import polars as pl
     from deltalake import write_deltalake
@@ -189,7 +208,7 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
                                                  "sql_memory_limit_percent": 30, "sql_max_concurrent": 2,
                                                  "sql_result_retention_hours": 24, "sql_temp_dir": ""})
     ref = {"workspace_id": "ws", "lakehouse_id": "lh", "name": "LH_Test", "local_root": str(lake), "test_lake": str(lake)}
-    store = LocalStore(work / "store", "dev")
+    store = LocalStore(work / "store" / "0", "dev")
     frame = pl.DataFrame({"id": list(range(2000)), "amount": [float(i) for i in range(2000)]})
     cell = CELL.format(path=str(work / "nb" / "events"))
     kernel = ProcessKernel()
@@ -232,6 +251,10 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
         counts["sql"] += 1
 
     def writes() -> None:
+        nonlocal store
+        if fresh_every and loops and loops % fresh_every == 0:  # a fresh store, as Optimize on the Maintain page would (module doc)
+            old, store = store.root, LocalStore(work / "store" / str(loops), "dev")
+            shutil.rmtree(old, ignore_errors=True)  # best effort: main removes the whole folder at the end
         store.write("LH_Bronze", "dbo", "soak", frame, mode="overwrite")
         store.upsert("LH_Bronze", "dbo", "soak", frame.with_columns(pl.col("amount") + loops), on=["id"])
         store.meta_append("watermarks", [{"entity": "soak", "value": str(loops), "run_id": f"soak-{loops}"}])
@@ -266,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--warmup", type=float, default=5, help="minutes left out of the growth check")
     ap.add_argument("--sample", type=float, default=15, help="seconds between samples")
     ap.add_argument("--restart-every", type=int, default=25, help="notebook cells between kernel restarts")
+    ap.add_argument("--fresh-every", type=int, default=100, help="loops between fresh store folders, 0 for never (module doc)")
     ap.add_argument("--json", type=Path, help="also write the result and every sample here")
     ap.add_argument("--summary", type=Path, help="append a Markdown summary here (CI's job summary)")
     ap.add_argument("--gate", action="store_true", help="exit 1 when a measurement grows (without it, only report)")
@@ -281,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     tempfile.tempdir = str(work / "tmp")
     sys.path.insert(0, str(SIDECAR))
     try:
-        run = soak(work, args.minutes, args.sample, args.restart_every, sys.stdout)
+        run = soak(work, args.minutes, args.sample, args.restart_every, sys.stdout, args.fresh_every)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     result = {"minutes": args.minutes, "warmup_minutes": args.warmup,

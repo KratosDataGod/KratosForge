@@ -95,7 +95,8 @@ everyday work. Every table stays the same size, so what the process holds should
 - **Notebook:** a cell in the notebook process overwrites a small local Delta table and reads it
   back. The kernel restarts every 25 cells, and the old process must have ended.
 - **SQL page:** a query over a local Delta table, then a page of its result.
-- **Writes:** an overwrite, a MERGE and a metadata-table append through the local store.
+- **Writes:** an overwrite, a MERGE and a metadata-table append through the local store. Every 100
+  loops these go to a fresh store folder (see below).
 
 ```
 cd sidecar
@@ -122,6 +123,17 @@ So one jump, or a notebook process that grows and is restarted, does not count. 
 | Python threads | 12 | 3 |
 | child processes | 12 | 3 |
 | temp and SQL result files | 40 | 10 |
+
+Engine memory is judged on its lowest value over the last minute. On Windows a Delta write's
+short-lived buffers swing private bytes by about 300 MB from one sample to the next; a leak raises
+that low as well as the highs, and the buffers don't.
+
+A Delta table's log is the one thing that grows by design. Each overwrite or MERGE keeps the old file
+in the log, marked removed, until VACUUM, and every later write loads the bigger log. On a Windows CI
+machine one table overwritten 6,400 times in 35 minutes took engine memory from 540 to 820 MB (the
+lows from 467 to 606 MB) and slowed writes threefold; with a fresh table every 100 loops, memory
+stayed level. In the app, Optimize on the Maintain page clears it. The soak looks for leaks, so it
+starts a fresh store every 100 loops (`--fresh-every`) rather than measure that.
 
 The notebook process's memory is recorded but not judged: the kernel restarts every 25 cells, so it
 rises and falls by design. A kernel that outlives its restart fails the step instead.

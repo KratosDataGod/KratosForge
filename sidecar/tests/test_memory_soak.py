@@ -78,6 +78,23 @@ def test_judge_skips_what_this_platform_cannot_measure():
     assert out["engine_mb"]["status"] == "flat" and out["engine_mb"]["unit"] == "MB"
 
 
+def test_engine_memory_is_judged_on_its_low_so_big_write_buffers_are_not_growth():
+    soak = load()
+    noise = random.Random(7)
+    # Windows private bytes with a Delta write's short-lived buffers: a level floor, highs up to 350 MB above it,
+    # and more of them late in the run. Raw samples climb; the lows over a minute don't.
+    swings = [(t, 420 + noise.uniform(0, 20) if t % 60 == 0 else 420 + noise.uniform(0, 1) ** (2 if t < 600 else 0.5) * 350)
+              for t, _ in points(lambda t: 0)]
+    raw = soak.growth(swings, 60, 25, 180)
+    assert raw["status"] == "growing", raw
+    samples = [{"t": t, **dict.fromkeys(soak.LIMITS, 5), "engine_mb": v} for t, v in swings]
+    assert soak.judge(samples, 180)["engine_mb"]["status"] == "flat"
+    # A leak raises the floor too: 120 MB an hour under the same swings.
+    leak = [{"t": t, **dict.fromkeys(soak.LIMITS, 5), "engine_mb": v + t / 30} for t, v in swings]
+    assert soak.judge(leak, 180)["engine_mb"]["status"] == "growing"
+    assert soak.lows([(0, 5.0), (15, 3.0), (30, 9.0), (90, 8.0)], 60) == [(0, 5.0), (15, 3.0), (30, 3.0), (90, 8.0)]
+
+
 def fake_run(errors=0, leak=False):
     samples = [{"t": t, **dict.fromkeys(soak_limits(), 5), "engine_mb": 300 + (t / 10 if leak else 0)}
                for t in range(0, 1200, 15)]
@@ -118,7 +135,7 @@ def test_the_workflow_runs_linux_and_windows_and_is_advisory():
 def test_a_few_loops_of_the_real_soak_fail_no_step_and_clean_up(tmp_path, restored):
     soak = load()
     before = set(Path(restored).glob("kf-soak-*"))
-    assert soak.main(["--minutes", "0.2", "--warmup", "0", "--sample", "2", "--restart-every", "3",
+    assert soak.main(["--minutes", "0.2", "--warmup", "0", "--sample", "2", "--restart-every", "3", "--fresh-every", "2",
                       "--json", str(tmp_path / "r.json")]) == 0
     result = json.loads((tmp_path / "r.json").read_text())
     assert result["errors"] == 0 and result["loops"] >= 3, result["last_error"]

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-09",
+  "updated": "2026-11-10",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4934,7 +4934,9 @@
         2347,
         2351,
         2370,
-        2371
+        2371,
+        2380,
+        2385
       ],
       "issues": [
         910,
@@ -5066,7 +5068,8 @@
         "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
         "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb",
         "Spark SQL on this PC: extract, date_part, to_unix_timestamp, parse_url, binary literals, bitmap functions, tumbling window(), number formats and hash()/xxhash64() give Spark's values (#1845, #1851, #1853, #1860, #1866, #1880); type-checked compatibility layer (#1568) on main at a7631920",
-        "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016"
+        "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016",
+        "spark.catalog answers about the lakehouse or refuses by name (#2389); Unity Catalog style names read or write the table they name, or refuse (#2379); Column.withField and dropFields (#2383) on main at 5d2fc045"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5227,7 +5230,11 @@
         2328,
         2340,
         2372,
-        2373
+        2373,
+        2379,
+        2383,
+        2388,
+        2389
       ]
     },
     {
@@ -5770,7 +5777,8 @@
         2292,
         2303,
         2307,
-        2309
+        2309,
+        2377
       ],
       "mandatory": "none",
       "computed": {
@@ -6523,7 +6531,8 @@
         "Enterprise install: MSI silent install, uninstall and detection, and what the support bundle collects (#1908) on main at de881016",
         "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45",
         "Prod and confirmed actions write their audit line first and don't run without it (#2205); an authorization matrix lists every state-changing call and its check (#2045); refused changes and returned failures leave audit rows (#2196, #2231); SBOMs cover npm and Python with checksums (#2191) on main at e5e6bec4",
-        "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0"
+        "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0",
+        "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6672,7 +6681,15 @@
         2345,
         2350,
         2369,
-        2374
+        2374,
+        2381,
+        2382,
+        2384,
+        2386,
+        2387,
+        2391,
+        2392,
+        2394
       ],
       "issues": [],
       "computed": {
@@ -7321,7 +7338,8 @@
         2299,
         2301,
         2304,
-        2318
+        2318,
+        2395
       ],
       "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
       "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",

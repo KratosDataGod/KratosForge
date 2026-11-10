@@ -128,3 +128,15 @@ def test_a_pull_request_that_changes_the_scans_filters_or_plugins_says_so():
         '{"path": "f.regex", "pattern": ["x%25y"]}. Check it doesn\'t hide a real secret.',
         '::warning file=.secrets.baseline::This pull request removes from the secret scan\'s plugins_used: '
         '{"name": "AWSKeyDetector"}. Check it doesn\'t hide a real secret.']
+
+
+def test_a_commit_id_on_its_own_line_is_never_a_finding_but_anything_else_on_it_is():
+    """Product checks and benchmarks record the commit they ran on, a new 40-hex value each time."""
+    doc = json.loads((ROOT / ".secrets.baseline").read_text(encoding="utf-8"))
+    [patterns] = [f["pattern"] for f in doc["filters_used"] if f["path"].endswith("regex.should_exclude_line")]
+    skipped = lambda line: any(re.search(p, line) for p in patterns)  # noqa: E731
+    sha = "5d2fc045" * 5  # a commit id's shape (a random-looking literal here would trip the scan itself)
+    assert skipped(f'    "commit": "{sha}",') and skipped(f'  "sha": "{sha}"')
+    assert not skipped(f'    "commit": "{sha}", "token": "x"')
+    assert not skipped(f'    "key": "{sha}",')
+    assert not skipped(f'    "commit": "{sha.upper()}",')

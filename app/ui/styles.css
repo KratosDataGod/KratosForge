@@ -3391,6 +3391,7 @@ body[data-skin-rail="inline"] .rail-item svg { width: 18px; height: 18px; }
 body[data-skin-rail="inline"] .rail-divider { width: auto; margin: 6px 4px; }
 body[data-skin-rail="inline"] .rail-group-label { width: auto; padding-left: 10px; text-align: left; text-transform: uppercase; letter-spacing: .04em; }
 body[data-skin-rail="inline"] .rail-close { top: 8px; right: 6px; }
+body[data-skin-rail="inline"] .rail-open-item { display: flex; flex-direction: column; }  /* an open item's row fills the rail too */
 /* Zoomed in or in a narrow window, the wide rail gives its room back and draws as stacked. */
 @media (max-width: 1000px) {
   body[data-skin-rail="inline"] .rail { width: 72px; align-items: center; padding: 8px 0; }

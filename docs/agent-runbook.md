@@ -107,6 +107,16 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 
 **Recover.** Fix what the entry names, then let Task Scheduler start it again or start the task by hand. Send `agent-start.log` with `agent.log` when you report a crash.
 
+### The agent ended with no log line
+
+- **Message** (`logs.py`, log): `native crashes won't be reported: <reason>`
+
+**Means.** A crash in native code (DuckDB, Polars or delta-rs, say) ends the agent at once, with no `agent.log` line and no `agent-start.log` entry; Task Scheduler shows only an exit code such as `0xC0000005`. So the agent first has Python write where such a crash happened to `<home>/logs/agent-crash.log`, for every thread: file names, function names and line numbers, never a value. The file is opened at each start and written only by a crash; past 1 MB at a start it becomes `agent-crash.prev.log`. It is never sent anywhere. The message above means the file couldn't be opened, so a crash would leave nothing; the agent runs anyway. When `PYTHONFAULTHANDLER` is set, Python already writes crashes to the agent's stdout, and the agent leaves that as it is.
+
+**Check first.** Open `agent-crash.log` and read its newest block, which starts `Windows fatal exception` (or `Fatal Python error`): the thread marked `Current thread` shows the function that crashed. For the message above, check that the agent's account can write to `<home>/logs`.
+
+**Recover.** Task Scheduler starts the agent again. When you report the crash, run `fabric-desktop support-bundle --agent-home <home>`: the bundle includes `agent-crash.log`, redacted.
+
 ### Another agent is using the control folder
 
 - **Message** (`mailbox.py`, at start): `The control folder <folder> is already in use by <agent>. Only one agent can work in a local control folder: two would take each other's requests. Stop that agent first, or give this one a different environment.`

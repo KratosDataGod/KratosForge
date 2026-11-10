@@ -9,6 +9,7 @@
     sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
     app-crash.log   the app's own crashes (a panic: when, which build, where), when there were any
     agent.log       the last lines of the headless agent's log, on a server with an agent
+    agent-crash.log the agent's native crashes (where each happened, by file and function), when there were any
     CONTENTS.txt    what is in the zip and what was taken out
 
 Every file passes through :func:`redact.for_support` (no tokens, keys, passwords, email
@@ -165,6 +166,9 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     crashes = _tail(data_dir / "app-crash.log")  # only there once the app itself has crashed
     if crashes is not None:
         files["app-crash.log"] = crashes
+    agent_crashes = _tail(agent_home / "logs" / "agent-crash.log") if agent_home else None
+    if agent_crashes:  # only there, and not empty, once the agent has crashed in native code
+        files["agent-crash.log"] = agent_crashes
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",

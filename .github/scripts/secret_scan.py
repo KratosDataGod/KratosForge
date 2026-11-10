@@ -18,6 +18,10 @@ matched by file, kind and the hash of the value, not by line, so moving a line d
 
     pragmas           read a `git diff -U0` on stdin and warn for each added line carrying the pragma below.
 
+    commits BASE HEAD scan each file every commit in BASE..HEAD (merges left out) adds or changes, as that
+                      commit has it, and warn for a finding the baseline doesn't list that HEAD no longer
+                      has: a value a pull request adds and later takes out is still in its history.
+
 A line can also carry `pragma: allowlist secret` in a comment, which detect-secrets skips.
 """
 
@@ -28,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -131,6 +136,67 @@ def pragmas(diff: str) -> list[str]:
     return out
 
 
+def removed_later(doc: dict, found: Iterable[tuple[str, str, Any]], final: set[Key]) -> list[str]:
+    """A warning for each finding (commit, file, secret) the baseline doesn't list and HEAD no longer has
+    (``final``: what HEAD's versions of the same files hold), once per value, at the first commit adding it."""
+    reviewed = {key for key, entry in _entries(doc) if entry.get("is_secret") is False}
+    out, seen = [], set()
+    for commit, name, secret in found:
+        key = (name, secret.type, secret.secret_hash)
+        if key in reviewed or key in final or key in seen:
+            continue
+        seen.add(key)
+        out.append(f"::warning {_at(name, secret.line_number)}::Looks like a secret ({secret.type}) in commit "
+                   f"{_prop(commit[:12])}. A later commit took it out, but it stays in this pull request's history, "
+                   "which anyone who can read the repository can see. If it is a secret, revoke it.")
+    return out
+
+
+def _git(*args: str) -> bytes:
+    return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True).stdout
+
+
+def commits(base: str, head: str) -> int:
+    from detect_secrets.core import baseline as baselines
+    from detect_secrets.settings import configure_settings_from_baseline
+
+    doc = baselines.load_from_file(str(ROOT / BASELINE))
+    configure_settings_from_baseline(doc, filename=BASELINE)
+    shas = _git("rev-list", "--no-merges", "--reverse", head, "--not", base).decode().split()
+    found, names = [], set()
+    for sha in shas:
+        out = _git("diff-tree", "--root", "--no-commit-id", "-r", "-z", "--diff-filter=AM", sha)
+        raw = [part for part in out.split(b"\0") if part]  # ":old new old-blob new-blob status", name, ...
+        blobs = {}  # name -> the blob this commit gives it; a submodule (mode 160000) has no file to scan
+        for meta, name in zip(raw[0::2], raw[1::2], strict=True):
+            _, mode, _, blob, _ = meta.decode().split(" ")
+            if mode != "160000" and name.decode("utf-8") != BASELINE:
+                blobs[name.decode("utf-8")] = blob
+        changed = sorted(blobs)
+        with tempfile.TemporaryDirectory() as tmp:  # each file as this commit has it, under its own name
+            for name in changed:
+                (Path(tmp) / name).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / name).write_bytes(_git("cat-file", "blob", blobs[name]))
+            os.chdir(tmp)  # detect-secrets names files relative to the working folder
+            try:
+                from detect_secrets import SecretsCollection
+
+                scan = SecretsCollection()
+                scan.scan_files(*changed, num_processors=os.cpu_count())
+            finally:
+                os.chdir(ROOT)
+        found += sorted(((sha, name, secret) for name, secret in scan), key=lambda f: (f[1], f[2].line_number or 0))
+        names.update(changed)
+    final = {(name, secret.type, secret.secret_hash) for name, secret in _scan(sorted(names))}
+    lines = removed_later(doc, found, final)
+    for line in lines:
+        print(line)
+    if not lines:
+        print(f"Nothing that looks like a secret was added and later taken out in {len(shas)} commit(s).")
+    return 0  # a warning, not a failure: failing can't take it out of the history, and a false positive
+    # there could never be marked reviewed (the baseline lists only what the tree holds now)
+
+
 def check(files: list[str]) -> int:
     from detect_secrets.core import baseline as baselines
     from detect_secrets.settings import configure_settings_from_baseline
@@ -182,6 +248,8 @@ def main(argv: list[str]) -> int:
         for line in newly_allowed(json.loads((ROOT / BASELINE).read_text(encoding="utf-8")), before):
             print(line)
         return 0
+    if argv[:1] == ["commits"] and len(argv) == 3:
+        return commits(argv[1], argv[2])
     if argv == ["pragmas"]:
         for line in pragmas(sys.stdin.read()):
             print(line)

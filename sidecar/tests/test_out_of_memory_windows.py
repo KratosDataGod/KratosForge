@@ -12,6 +12,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+import warnings
 
 import pytest
 
@@ -73,7 +74,10 @@ def capped(allocate: str) -> str:
 
 def run(allocate: str) -> subprocess.CompletedProcess[str]:
     r = subprocess.run([sys.executable, "-c", capped(allocate)], capture_output=True, text=True, timeout=300)
-    print(f"exit code 0x{r.returncode & 0xFFFFFFFF:08X}\nstdout: {r.stdout[-400:]}\nstderr: {r.stderr[-800:]}")
+    # A warning, so the measured code shows in the job's warnings summary (pytest -q captures prints).
+    last = (r.stderr.strip().splitlines() or [""])[-1][:200]
+    warnings.warn(f"Out of memory on Windows: {allocate.splitlines()[-1]!r} ended with exit code "
+                  f"0x{r.returncode & 0xFFFFFFFF:08X}; last stderr line: {last!r}", stacklevel=1)
     assert "capped" in r.stdout, r.stderr  # the cap took, so what follows is the allocation's doing
     return r
 
@@ -96,7 +100,8 @@ def test_a_notebook_cell_that_runs_out_of_memory_in_polars_says_so_and_the_next_
     try:
         assert k.run("print(1)")["status"] == "ok"
         r = k.run(capped(ALLOCATE["polars"]))
-        print(r["outputs"][-1])
+        warnings.warn(f"Out of memory on Windows, notebook cell: {r['outputs'][-1].get('evalue', '')[:300]!r}",
+                      stacklevel=1)
         assert r["status"] == "error" and r["outputs"][-1]["ename"] == "KernelStopped"
         assert "most likely ran out of memory" in r["outputs"][-1]["evalue"]
         assert k.run("print(1 + 1)")["outputs"][0]["text"].strip() == "2"  # a fresh process, without the cap

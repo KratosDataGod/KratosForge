@@ -381,7 +381,22 @@ def test_a_run_that_dies_without_a_message_reports_its_exit_code(tmp_path):
     run = pyspark_lab.run_reference(tmp_path, "import os\nos._exit(3)\n")
     assert run["status"] == "error" and run["exit_code"] == 3
     assert pyspark_lab._error(run) == "Your code stopped without an error message (exit code 3)."
-    crash = {"status": "error", "exit_code": -1073741819, "stderr": ""}   # 0xC0000005 as Windows reports it
-    assert pyspark_lab._error(crash) == "Your code stopped without an error message (exit code 0xC0000005)."
+    windows = {"status": "error", "exit_code": 0xC0000005, "stderr": ""}   # an access violation as Windows reports it
+    assert pyspark_lab._error(windows) == "Your code stopped without an error message (exit code 0xC0000005)."
+    posix = {"status": "error", "exit_code": -11, "stderr": ""}
+    assert pyspark_lab._error(posix) == "Your code stopped without an error message (signal 11)."
     assert pyspark_lab._error({"status": "error", "stderr": "Traceback\nValueError: bad"}) == \
         "Your code stopped with an error: ValueError: bad"
+    assert pyspark_lab._lower_first("Your code crashed: x (exit code 0xC0000005).") == \
+        "your code crashed: x (exit code 0xC0000005)."
+
+
+def test_a_real_native_crash_reports_the_fatal_error_line_and_exit_code(tmp_path):
+    # A genuine crash in native code: faulthandler's dump must not hide the cause behind its last frame.
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pyspark_lab.run_reference(tmp_path, "import ctypes\nctypes.string_at(0)\n")
+    assert run["status"] == "error" and run["exit_code"]
+    msg = pyspark_lab._error(run)
+    assert msg.startswith("Your code crashed: "), msg
+    assert "Fatal Python error:" in msg or "Windows fatal exception:" in msg, msg
+    assert "signal" in msg or "exit code" in msg, msg

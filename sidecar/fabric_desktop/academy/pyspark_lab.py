@@ -269,16 +269,34 @@ def _error(run: dict[str, Any]) -> str:
         return "Your code used more memory than the exercise allows and was stopped."
     if run["status"] == "refused":
         return "Your code wasn't run: the app couldn't start it inside its limits."
-    last = [ln for ln in (run.get("stderr") or "").strip().splitlines() if ln.strip()]
-    if last:
-        return f"Your code stopped with an error: {last[-1]}"
+    lines = [ln.strip() for ln in (run.get("stderr") or "").splitlines() if ln.strip()]
     code = run.get("exit_code")
-    if isinstance(code, int) and code:
-        # A process killed by a native crash leaves no Python message; its exit code is the only clue
-        # (on Windows an NTSTATUS such as 0xC0000005, an access violation).
-        shown = f"0x{code & 0xFFFFFFFF:08X}" if code < 0 or code > 255 else str(code)
-        return f"Your code stopped without an error message (exit code {shown})."
+    shown = _exit_code(code)
+    # faulthandler writes a native crash's stack to stderr; its last line is a frame or module list,
+    # so the useful line is the header ("Fatal Python error: ..." / "Windows fatal exception: ...").
+    fatal = next((ln for ln in lines if ln.startswith(("Fatal Python error:", "Windows fatal exception:"))), None)
+    if fatal:
+        return f"Your code crashed: {fatal}" + (f" ({shown})." if shown else ".")
+    if lines:
+        return f"Your code stopped with an error: {lines[-1]}"
+    if shown:
+        # A process killed by a native crash may leave no message at all; its exit code is the only clue.
+        return f"Your code stopped without an error message ({shown})."
     return "Your code stopped with an error: no message"
+
+
+def _lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:]
+
+
+def _exit_code(code: Any) -> str:
+    """How a non-zero exit code reads: POSIX reports a signal as a negative code, Windows an NTSTATUS
+    such as 0xC0000005 (an access violation) as a large unsigned one."""
+    if not isinstance(code, int) or code == 0:
+        return ""
+    if code < 0:
+        return f"signal {-code}"
+    return f"exit code 0x{code:08X}" if code > 255 else f"exit code {code}"
 
 
 def _n(count: int, one: str, many: str) -> str:
@@ -377,7 +395,7 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                     after = _rows(practice, table)
                     outputs[table] = after
                     if again["status"] != "ok":
-                        results.append(_check_result(kind, False, "Run a second time, " + _error(again).lower()))
+                        results.append(_check_result(kind, False, "Run a second time, " + _lower_first(_error(again))))
                     elif before != after:
                         n0, n1 = len(before[1]) if before else 0, len(after[1]) if after else 0
                         results.append(_check_result(kind, False, f"Running your code again changed {table} ({n0:,} rows, then {n1:,}). "

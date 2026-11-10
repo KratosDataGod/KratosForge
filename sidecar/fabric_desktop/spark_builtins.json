@@ -11,7 +11,15 @@
  },
  {
   "name": "!=",
-  "group": "other"
+  "group": "other",
+  "example": "SELECT 1 != 2, 'a' != 'a', NULL != 1",
+  "value": [
+   [
+    true,
+    false,
+    null
+   ]
+  ]
  },
  {
   "name": "%",
@@ -105,7 +113,15 @@
  },
  {
   "name": "<>",
-  "group": "other"
+  "group": "other",
+  "example": "SELECT 1 <> 2, 'a' <> 'a', NULL <> 1",
+  "value": [
+   [
+    true,
+    false,
+    null
+   ]
+  ]
  },
  {
   "name": "=",
@@ -676,11 +692,27 @@
  },
  {
   "name": "between",
-  "group": "other"
+  "group": "other",
+  "example": "SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'",
+  "value": [
+   [
+    true,
+    false,
+    true
+   ]
+  ]
  },
  {
   "name": "bigint",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT bigint('12'), bigint(3.9), bigint(-3.9)",
+  "value": [
+   [
+    12,
+    3,
+    -3
+   ]
+  ]
  },
  {
   "name": "bin",
@@ -694,7 +726,13 @@
  },
  {
   "name": "binary",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT binary('Spark')",
+  "value": [
+   [
+    "binary:537061726b"
+   ]
+  ]
  },
  {
   "name": "bit_and",
@@ -828,7 +866,15 @@
  },
  {
   "name": "boolean",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT boolean('true'), boolean(0), boolean('no')",
+  "value": [
+   [
+    true,
+    false,
+    false
+   ]
+  ]
  },
  {
   "name": "bround",
@@ -862,7 +908,14 @@
  },
  {
   "name": "case",
-  "group": "other"
+  "group": "other",
+  "example": "SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END",
+  "value": [
+   [
+    "a",
+    null
+   ]
+  ]
  },
  {
   "name": "cast",
@@ -1250,7 +1303,14 @@
  },
  {
   "name": "date",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT date('2026-01-31'), date(TIMESTAMP '2026-01-31 23:59:59')",
+  "value": [
+   [
+    "date:2026-01-31",
+    "date:2026-01-31"
+   ]
+  ]
  },
  {
   "name": "date_add",
@@ -1394,7 +1454,14 @@
  },
  {
   "name": "decimal",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT decimal('12.345'), decimal(7)",
+  "value": [
+   [
+    "decimal:12",
+    "decimal:7"
+   ]
+  ]
  },
  {
   "name": "decode",
@@ -1455,7 +1522,14 @@
  },
  {
   "name": "double",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT double('1.5'), double(2)",
+  "value": [
+   [
+    "float:1.5",
+    "float:2"
+   ]
+  ]
  },
  {
   "name": "e",
@@ -1663,7 +1737,14 @@
  },
  {
   "name": "float",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT float('1.5'), float(2)",
+  "value": [
+   [
+    "float:1.5",
+    "float:2"
+   ]
+  ]
  },
  {
   "name": "floor",
@@ -2141,7 +2222,15 @@
  },
  {
   "name": "int",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT int('12'), int(3.9), int(-3.9)",
+  "value": [
+   [
+    12,
+    3,
+    -3
+   ]
+  ]
  },
  {
   "name": "isnan",
@@ -2511,8 +2600,12 @@
  {
   "name": "make_interval",
   "group": "datetime_funcs",
-  "example": "SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)",
-  "spark_error": "Undefined error message parameter for error class: CANNOT_PARSE_DATATYPE. Parameters: {'error': 'interval'}"
+  "example": "SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)",
+  "value": [
+   [
+    "timestamp:2027-04-03T04:05:06.500000"
+   ]
+  ]
  },
  {
   "name": "make_timestamp",
@@ -3305,7 +3398,19 @@
  },
  {
   "name": "range",
-  "group": "other"
+  "group": "other",
+  "example": "SELECT * FROM range(1, 7, 2)",
+  "value": [
+   [
+    1
+   ],
+   [
+    3
+   ],
+   [
+    5
+   ]
+  ]
  },
  {
   "name": "rank",
@@ -3357,8 +3462,13 @@
  {
   "name": "regexp",
   "group": "predicate_funcs",
-  "example": "SELECT regexp('%SystemDrive%\\Users\\John', '%SystemDrive%\\\\Users.*')",
-  "spark_error": "[INVALID_PARAMETER_VALUE.PATTERN] The value of parameter(s) `regexp` in `regexp` is invalid: '%SystemDrive%\\\\Users.*'."
+  "example": "SELECT regexp('Steven', 'Ste(v|ph)en'), regexp('Stefan', 'Ste(v|ph)en')",
+  "value": [
+   [
+    true,
+    false
+   ]
+  ]
  },
  {
   "name": "regexp_count",
@@ -3406,8 +3516,13 @@
  {
   "name": "regexp_like",
   "group": "predicate_funcs",
-  "example": "SELECT regexp_like('%SystemDrive%\\Users\\John', '%SystemDrive%\\\\Users.*')",
-  "spark_error": "[INVALID_PARAMETER_VALUE.PATTERN] The value of parameter(s) `regexp` in `regexp_like` is invalid: '%SystemDrive%\\\\Users.*'."
+  "example": "SELECT regexp_like('Steven', 'Ste(v|ph)en'), regexp_like('Stefan', 'Ste(v|ph)en')",
+  "value": [
+   [
+    true,
+    false
+   ]
+  ]
  },
  {
   "name": "regexp_replace",
@@ -3572,8 +3687,13 @@
  {
   "name": "rlike",
   "group": "predicate_funcs",
-  "example": "SELECT rlike('%SystemDrive%\\Users\\John', '%SystemDrive%\\\\Users.*')",
-  "spark_error": "[INVALID_PARAMETER_VALUE.PATTERN] The value of parameter(s) `regexp` in `rlike` is invalid: '%SystemDrive%\\\\Users.*'."
+  "example": "SELECT rlike('Steven', 'Ste(v|ph)en'), rlike('Stefan', 'Ste(v|ph)en')",
+  "value": [
+   [
+    true,
+    false
+   ]
+  ]
  },
  {
   "name": "round",
@@ -3882,7 +4002,14 @@
  },
  {
   "name": "smallint",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT smallint('12'), smallint(3.9)",
+  "value": [
+   [
+    12,
+    3
+   ]
+  ]
  },
  {
   "name": "some",
@@ -4071,7 +4198,16 @@
  },
  {
   "name": "string",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT string(12), string(1.50), string(true), string(DATE '2026-01-31')",
+  "value": [
+   [
+    "12",
+    "1.50",
+    "true",
+    "2026-01-31"
+   ]
+  ]
  },
  {
   "name": "struct",
@@ -4160,7 +4296,14 @@
  },
  {
   "name": "timestamp",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')",
+  "value": [
+   [
+    "timestamp:2026-01-31T10:30:00",
+    "timestamp:2026-01-31T00:00:00"
+   ]
+  ]
  },
  {
   "name": "timestamp_micros",
@@ -4194,7 +4337,14 @@
  },
  {
   "name": "tinyint",
-  "group": "conversion_funcs"
+  "group": "conversion_funcs",
+  "example": "SELECT tinyint('12'), tinyint(3.9)",
+  "value": [
+   [
+    12,
+    3
+   ]
+  ]
  },
  {
   "name": "to_binary",
@@ -4966,7 +5116,14 @@
  },
  {
   "name": "||",
-  "group": "other"
+  "group": "other",
+  "example": "SELECT 'Spark' || 'SQL', 'a' || NULL",
+  "value": [
+   [
+    "SparkSQL",
+    null
+   ]
+  ]
  },
  {
   "name": "~",

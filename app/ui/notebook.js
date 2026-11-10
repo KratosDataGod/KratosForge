@@ -876,7 +876,9 @@ function editorFor(cell) {
       doc: cell.source,
       extensions: [
         gutterComp.of(gutters(cell)), cmStyleNonce(),
-        CM.EditorView.contentAttributes.of({ "aria-label": cell.type === "markdown" ? "Markdown cell" : "Code cell" }),
+        // tabindex: a Tab stop already (contenteditable), said outright so a checker counts the editor's scroller as
+        // reachable from the keyboard when a long line makes it scroll sideways (axe scrollable-region-focusable).
+        CM.EditorView.contentAttributes.of({ "aria-label": cell.type === "markdown" ? "Markdown cell" : "Code cell", tabindex: "0" }),
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),

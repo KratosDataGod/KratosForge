@@ -5,7 +5,9 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { Channel, ChannelError, Snapshot } from "./channel";
+import { notebookLink } from "./links";
 import { convert, failed, Output } from "./outputs";
+import { remoteKind, remoteMessage } from "./remote";
 
 const SECRET = "kratosforge.pairing";
 
@@ -13,6 +15,19 @@ const SECRET = "kratosforge.pairing";
 const channels = new Map<string, Channel>();
 const pairings = new Map<string, Promise<boolean>>();
 let status: vscode.StatusBarItem;
+let remoteSaid = false;
+
+/** In a remote window: says why nothing happens (a notice the first time) and returns true. Nothing in
+ * such a window reaches KratosForge: each entry point checks this before it touches a channel. */
+function refuseRemote(): boolean {
+  const kind = remoteKind(vscode.env.remoteName);
+  if (!kind) return false;
+  if (!remoteSaid) {
+    remoteSaid = true;
+    vscode.window.showWarningMessage(remoteMessage(kind));
+  }
+  return true;
+}
 
 /** The folder a notebook pairs from: its workspace folder, else the folder holding the file. */
 function folderFor(notebook: vscode.NotebookDocument | undefined): string {
@@ -79,6 +94,17 @@ async function pair(context: vscode.ExtensionContext, folder: string, channel: C
 
 async function execute(context: vscode.ExtensionContext, controller: vscode.NotebookController,
   cells: vscode.NotebookCell[], notebook: vscode.NotebookDocument): Promise<void> {
+  const kind = remoteKind(vscode.env.remoteName);
+  if (kind) {
+    refuseRemote();
+    const first = cells.find((c) => c.kind === vscode.NotebookCellKind.Code);
+    if (!first) return;
+    const run = controller.createNotebookCellExecution(first);
+    run.start(Date.now());
+    run.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error({ name: "KratosForge", message: remoteMessage(kind) })]));
+    run.end(false, Date.now());
+    return;
+  }
   if (notebook.uri.scheme !== "file" || notebook.isUntitled) {
     vscode.window.showWarningMessage("Save the notebook in KratosForge's notebooks folder or a notebooks repository first.");
     return;
@@ -124,23 +150,32 @@ export function activate(context: vscode.ExtensionContext): void {
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.command = "kratosforge.unpair";
   showStatus(false);
+  const remote = remoteKind(vscode.env.remoteName);
+  if (remote) {
+    status.text = "$(debug-disconnect) KratosForge: local windows only";
+    status.tooltip = remoteMessage(remote);
+  }
   const controller = vscode.notebooks.createNotebookController("kratosforge-this-pc", "jupyter-notebook", "KratosForge · This PC");
   controller.description = "Runs in the notebook's session in KratosForge";
-  controller.detail = "On this PC, with the notebook's lakehouse. Writes to OneLake ask in KratosForge.";
+  controller.detail = remote ? "Runs cells only in a local VS Code window, not this one."
+    : "On this PC, with the notebook's lakehouse. Writes to OneLake ask in KratosForge.";
   controller.supportedLanguages = ["python"];
   controller.supportsExecutionOrder = true;
   controller.executeHandler = (cells, notebook, ctl) => execute(context, ctl, cells, notebook);
   controller.interruptHandler = async (notebook) => {
+    if (remoteKind(vscode.env.remoteName)) return;
     await channelFor(folderFor(notebook)).interrupt(notebook.uri.fsPath).catch(() => undefined);
   };
   context.subscriptions.push(controller, status,
     vscode.commands.registerCommand("kratosforge.pair", () => {
+      if (refuseRemote()) return;
       const folder = folderFor(vscode.window.activeNotebookEditor?.notebook);
       if (!folder) return vscode.window.showInformationMessage("Open a saved notebook to pair its folder with KratosForge.");
       return ensurePaired(context, folder).catch((err) =>
         vscode.window.showWarningMessage(err instanceof Error ? err.message : String(err)));
     }),
     vscode.commands.registerCommand("kratosforge.unpair", async () => {
+      if (refuseRemote()) return;
       const folder = folderFor(vscode.window.activeNotebookEditor?.notebook);
       const channel = channelFor(folder);
       if (folder && !channel.token) channel.token = (await context.secrets.get(`${SECRET}:${folder}`)) || "";
@@ -156,9 +191,13 @@ export function activate(context: vscode.ExtensionContext): void {
       showStatus(false);
     }),
     vscode.commands.registerCommand("kratosforge.openInApp", () => {
+      if (refuseRemote()) return;
       const nb = vscode.window.activeNotebookEditor?.notebook;
-      const link = nb && nb.uri.scheme === "file" ? `kratosforge://notebook?path=${encodeURIComponent(nb.uri.fsPath)}` : "kratosforge://";
-      vscode.env.openExternal(vscode.Uri.parse(link));
+      const link = nb && nb.uri.scheme === "file" ? notebookLink(nb.uri.fsPath) : "kratosforge://";
+      // Given as text, VS Code opens the link exactly as written. Given as a Uri, it writes the link out again
+      // and a `#` in a path comes out encoded twice, so the text goes first; the app reads either form.
+      const open = (target: string | vscode.Uri) => vscode.env.openExternal(target as vscode.Uri);
+      Promise.resolve(open(link)).catch(() => open(vscode.Uri.parse(link)));
     }));
 }
 

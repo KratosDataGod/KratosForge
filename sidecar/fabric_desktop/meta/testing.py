@@ -101,7 +101,7 @@ def run(project: Project) -> dict[str, Any]:
                         fn(**kwargs)
                 except AssertionError as exc:
                     status, message = "failed", _failure(exc)
-                except BaseException as exc:  # noqa: BLE001
+                except BaseException as exc:  # noqa: BLE001 - a test's own error is its result
                     status, message = "error", _failure(exc)
             tests.append({"id": test_id, "file": rel, "name": name, "status": status, "message": message,
                           "seconds": round(time.monotonic() - t0, 3), "used_by": used_by})

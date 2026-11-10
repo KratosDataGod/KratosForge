@@ -1,0 +1,119 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "workflow.json",
+  "reset": "Reset puts the original workflow.json back.",
+  "id": "E48",
+  "title": "A CI workflow that validates, tests and deploys a bundle",
+  "objectives": [
+    "5.4"
+  ],
+  "mode": "guided",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Use the Databricks CLI in a CI workflow to validate and deploy bundles, with tests before deploy.",
+  "scenario": "The team's CI workflow deploys the bundle before the tests run, signs in with an engineer's personal token pasted into the file, and runs on feature branches too. A broken change reached prod twice this month.",
+  "engine_label": "A model of a CI workflow file, checked on this PC",
+  "verifies": [
+    "Your workflow validates the bundle, runs the tests and only then deploys to the prod target, on pushes to main, signed in as a service principal with its secrets kept in the repository's secret store, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the workflow runs: no CI system, CLI or workspace is used here, and the file is JSON, not a real workflow file.",
+    "Workload identity federation, which avoids a client secret altogether."
+  ],
+  "expected": {
+    "description": "Push to main only; DATABRICKS_HOST, DATABRICKS_CLIENT_ID and DATABRICKS_CLIENT_SECRET from secrets, no DATABRICKS_TOKEN; steps validate -t prod, pytest, deploy -t prod."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "pass": "Validate, then tests, then deploy to prod.",
+      "fail": "The steps don't stop a bad change before it deploys.",
+      "rules": [
+        {
+          "path": "steps",
+          "count": 3
+        },
+        {
+          "path": "steps.0.run",
+          "contains": "databricks bundle validate",
+          "why": "Validate catches a broken bundle before anything else runs."
+        },
+        {
+          "path": "steps.1.run",
+          "contains": "pytest",
+          "why": "Tests run before deploy, so a failing test stops the deploy."
+        },
+        {
+          "path": "steps.2.run",
+          "why": "With no -t the CLI uses the bundle's default target, which is dev.",
+          "one_of": [
+            "databricks bundle deploy -t prod",
+            "databricks bundle deploy --target prod",
+            "databricks bundle deploy --target=prod"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Signed in as the service principal, with its secret kept out of the file.",
+      "fail": "The workflow signs in the wrong way.",
+      "rules": [
+        {
+          "path": "env.DATABRICKS_CLIENT_ID",
+          "one_of": [
+            "${{ secrets.DATABRICKS_CLIENT_ID }}",
+            "${{secrets.DATABRICKS_CLIENT_ID}}"
+          ]
+        },
+        {
+          "path": "env.DATABRICKS_CLIENT_SECRET",
+          "why": "A secret written in the workflow file is in every clone of the repository.",
+          "one_of": [
+            "${{ secrets.DATABRICKS_CLIENT_SECRET }}",
+            "${{secrets.DATABRICKS_CLIENT_SECRET}}"
+          ]
+        },
+        {
+          "path": "env.DATABRICKS_TOKEN",
+          "absent": true,
+          "why": "Use a service principal, not a person's token, for CI/CD."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "pass": "Only a push to main deploys to prod.",
+      "fail": "Another branch can deploy to prod.",
+      "rules": [
+        {
+          "path": "on.push.branches",
+          "count": 1
+        },
+        {
+          "path": "on.push.branches",
+          "contains": "main"
+        }
+      ]
+    }
+  ],
+  "explanation": "Put the checks before the deploy: databricks bundle validate catches a broken bundle, the unit tests catch a broken transformation, and only then does databricks bundle deploy run, with -t prod because a deploy with no target goes to the bundle's default, dev. CI should sign in as a service principal, with DATABRICKS_CLIENT_ID and DATABRICKS_CLIENT_SECRET read from the repository's secrets, not as a person with a token pasted into the file, and only a push to main should deploy to prod.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/dev-tools/ci-cd/",
+    "https://docs.databricks.com/aws/en/dev-tools/cli/bundle-commands",
+    "https://docs.databricks.com/aws/en/dev-tools/auth/"
+  ],
+  "hints": [
+    "Steps run in order. Which ones must pass before anything is deployed?",
+    "databricks bundle deploy with no -t deploys to the default target.",
+    "${{ secrets.NAME }} reads a repository secret, so the value never appears in the file.",
+    "A service principal signs in with DATABRICKS_CLIENT_ID and DATABRICKS_CLIENT_SECRET; DATABRICKS_TOKEN is a personal access token."
+  ]
+}

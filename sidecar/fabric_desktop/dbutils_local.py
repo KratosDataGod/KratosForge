@@ -58,6 +58,12 @@ def _local_path(path: str) -> str:
     return p
 
 
+def fs_magic_path(path: str) -> str:
+    """A ``%fs`` path, checked as ``dbutils.fs`` checks it, except that a drive path (``C:\\data``)
+    is this PC's disk: Databricks has no drive letters, so it can't mean DBFS there."""
+    return str(path) if _DRIVE.match(str(path)) else _local_path(path)
+
+
 def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
     def wrap(fn: Callable[..., Any], paths: int = 1) -> Callable[..., Any]:
         def call(*args: Any, **kwargs: Any) -> Any:

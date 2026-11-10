@@ -137,7 +137,7 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
         out = [r.to_dict() for r in results]
         try:
             self._after_run(project, env, store, out)
-        except Exception as exc:  # maintenance is a follow-up; the tables are written
+        except Exception as exc:  # noqa: BLE001 - maintenance is a follow-up; the tables are written
             for r in out:
                 r.setdefault("maintenance_message", f"{type(exc).__name__}: {exc}")
         return out

@@ -33,4 +33,7 @@ class PowerBiEmbedMixin:
     def pbi_embed_content(self, workspace_id: str = "", item_id: str = "", item_type: str = "Report") -> dict[str, Any]:
         """What the embed frame needs for a report, paginated report or dashboard: its embed URL, semantic
         model, pages or tiles, and what the SDK supports for it. Reads only."""
-        return EmbedClient(FabricClient(self._embed_token)).content(workspace_id, item_id, item_type)
+        # A 401 is sent once more with a new token, never the refused one again (auth.refreshed_token).
+        refreshed = getattr(self, "_refreshed", None)  # Service's
+        refresh = refreshed(POWERBI_EMBED_SCOPES) if callable(refreshed) else None
+        return EmbedClient(FabricClient(self._embed_token, refresh=refresh)).content(workspace_id, item_id, item_type)

@@ -58,7 +58,7 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 
 Close the app first, and check the folder on a pilot PC.
 
-The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
+The MSI removes only what it installed. The app's scheduled tasks, its `kratosforge://` link handler, its engine and every saved sign-in and token are removed by [`deploy/windows/uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as the user after the MSI's uninstall. It keeps the person's notebooks, settings and stores unless you pass `-RemoveData`, keeps the audit trail even then unless you also pass `-RemoveAuditTrail`, and never touches `%ProgramData%\FabricDesktop`. [Uninstall](install.md#uninstall) lists what it removes and keeps.
 
 ## Deploy
 
@@ -174,7 +174,7 @@ The list comes from the hosts named in the source code. Notebooks run on the PC,
 
 ### Proxies and HTTPS inspection
 
-The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. Delta table reads and writes (delta-rs), DuckDB extensions, the warehouse driver and Databricks Connect (Spark on a Databricks cluster) make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store as well as Python's own list, and so does a notebook's own HTTPS (its kernel does the same), so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and the Databricks REST API work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. Delta table reads and writes (delta-rs) and the warehouse driver make their own HTTPS connections, which also check the Windows store. Databricks Connect (Spark on a Databricks cluster, Preview) uses gRPC, which reads a certificate file instead, so the app writes the roots Windows trusts for HTTPS, plus the public list gRPC would otherwise use, to `%LOCALAPPDATA%\FabricDesktop\runtimes\windows-roots.pem` and points `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` at it, unless you set that variable yourself. DuckDB's extension downloads, used only by the TPC-H benchmark notebook, use DuckDB's own list, and that notebook falls back to PyPI when they fail. The app never offers to turn certificate checks off. Confirm these on a pilot PC behind the proxy.
 
 Each outbound call, what it uses, and how long it waits:
 
@@ -186,6 +186,8 @@ Each outbound call, what it uses, and how long it waits:
 | Managed identity on an Azure VM | Windows proxy or `HTTP_PROXY` | Not HTTPS | 60 seconds |
 | Update check and the exe download (the shell's updater) | Windows proxy or `HTTPS_PROXY` | Windows store (Python's standard library loads it) | 5 to 120 seconds, by step |
 | Engine download and engine update (the shell, with Windows' own `curl.exe`) | `HTTPS_PROXY` when it's set, else the fixed proxy Windows is set to, which the app reads and passes to curl (skipping hosts on its bypass list) | Windows store (curl uses Windows' TLS) | 20 seconds to connect; stops when slower than 1 KB/s for 60 seconds. When the network stops the small engine update, the whole engine isn't tried from the same host |
+| OneLake tables (delta-rs) | Windows proxy or `HTTPS_PROXY` | Windows store | The table call's own limits (`storage_options`) |
+| Databricks Connect session (gRPC, Preview) | `HTTPS_PROXY` (gRPC doesn't read the Windows proxy; inferred, unverified) | Windows' HTTPS roots plus the public list, copied to a file for gRPC | gRPC's own |
 | Notebook packages and Databricks Connect (`pip`) | Windows proxy or `HTTPS_PROXY` | Windows store (pip uses it) | 15 seconds per try, 3 tries per address; the whole install stops after 15 or 20 minutes |
 
 Set up the network like this:
@@ -249,6 +251,7 @@ When your help desk needs logs, ask for a support bundle: **Settings > Help and 
 | `about.json` | The app and engine versions, Python and Windows versions, and where each setting comes from. The policy file's state: whether it applies, or the last copy that could be read stands in, and the names of the settings it sets, never their values. The file's SHA-256 and the last change this PC recorded (`policy_record`), to compare with `Get-FileHash` of the file you shipped. Under `paths`, facts about the app's data folder that can trip programs up, without the path itself: its length, whether its name has non-ASCII letters or a space, whether it's on a network share, and whether Windows allows long paths |
 | `sidecar.log` | The last 2,000 lines of the engine's log |
 | `sidecar.prev.log` | The last 2,000 lines of the run before, when the engine has restarted |
+| `app-crash.log` | When the app itself has crashed: the time, the build, the thread and the place in the code of each crash |
 | `agent.log` | On an agent server, with `--agent-home`: the last 2,000 lines of the agent's log |
 | `CONTENTS.txt` | What is in the zip and what was taken out |
 
@@ -259,7 +262,15 @@ Every file goes through the same redaction before it is written. It takes out:
 - user names in paths;
 - tenant, workspace and item ids.
 
-A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
+A setting that holds a secret, or an internal address such as your help desk link or package mirror, shows only whether it's set. No table data, notebook contents or sign-in cache is read. Your organization's own domain isn't recognized as personal data, so read the zip before it leaves your company.
+
+### Crashes
+
+KratosForge never uploads crash reports. A crash leaves its report on the PC, in the files the support bundle collects:
+
+- **The app.** A crash in the app is written to `app-crash.log`: the time, the build, and where in the code it happened, with the first 1 KB of its message.
+- **The engine.** When the engine stops on its own, the app adds a line to `sidecar.log` saying when, after how long, and with which exit code. A crash in native code, such as an access violation, is named in that line. The engine also writes a traceback of every thread to the log first: file and function names only, never a value.
+- **Crash loops.** The engine restarts on the next action. But if it stops 3 times in a row within a minute of starting, KratosForge stops starting it for 5 minutes. Every action then says why, instead of starting a new engine for each one. It tries once more after the pause, or when KratosForge is restarted. Your files and settings are untouched. The support bundle can't be made while the engine won't start, so collect `sidecar.log`, `sidecar.prev.log` and `app-crash.log` from `%LOCALAPPDATA%\FabricDesktop` yourself. The app takes tokens, email addresses, ids and the user name out of `app-crash.log` as it writes it, and the engine does the same for most of what goes in `sidecar.log`. But they don't get the bundle's full redaction, so read them before they leave your company. The tests behind this plant each kind of secret in the logs, the settings and the policy file, and check that none of them reaches the zip (`sidecar/tests/test_support_bundle.py`).
 
 ### Crash dumps
 
@@ -267,11 +278,24 @@ KratosForge writes no crash dumps of its own. If the engine crashes, Windows Err
 
 ## User profiles
 
-KratosForge keeps its data in `%LOCALAPPDATA%\FabricDesktop`, which a roaming profile doesn't copy between PCs, so the engine and caches stay on each PC. Backups, notebooks and local Delta tables are tested under a profile path with spaces and non-ASCII letters, but not yet on a Windows PC with such a user name.
+KratosForge keeps everything in `%LOCALAPPDATA%\FabricDesktop`: the engine, notebooks, settings, the sign-in cache, local tables and caches. A classic roaming profile doesn't copy that folder between PCs, so on a PC that keeps the profile everything stays there, and on one that doesn't (below) the person starts again each time. Backups, notebooks and local Delta tables are tested under a profile path with spaces and non-ASCII letters, but not yet on a Windows PC with such a user name.
 
 - **Exports and support bundles** go to the Downloads folder Windows reports. The default metadata folder is under the Documents folder Windows reports. Both follow OneDrive's known folder move and folder redirection.
 - **Long paths.** The engine's tables and caches sit a few folders deep under `%LOCALAPPDATA%`, and a long table name with partition folders can pass 260 characters. Turn on **Enable Win32 long paths** (Computer Configuration > Administrative Templates > System > Filesystem), which sets `LongPathsEnabled`. The support bundle's `about.json` says whether it's on.
 - **Profiles on a network share.** `kratosforge://` links and **Open in VS Code** open notebooks only on a drive letter. A `\\server\share` path is refused, so a link can't make Windows contact another host with the person's sign-in. Where Documents is redirected to a share, map it to a drive letter.
+
+### Virtual desktops and shared PCs
+
+On Azure Virtual Desktop, Citrix and other multi-session hosts, and on non-persistent desktops:
+
+- **Keep the whole profile.** Use an FSLogix profile container (or anything that keeps `%LOCALAPPDATA%`). With only a classic roaming profile on a non-persistent desktop, notebooks saved in KratosForge's own folder, settings and the sign-in are gone at sign-out. Notebooks in a folder of their own (a Git repository, OneDrive) are kept wherever that folder is.
+- **Size the profile disk for the engine.** The engine is about 950 MB and 25,000 files per person (a 315 MB download), plus the browser data of the app's window. A new build usually updates it with a few MB, but a new Python or package set downloads it whole. To save the download on each host, [host the engine yourself](#host-the-engine-yourself) on the same network. Excluding `FabricDesktop\engine` from the container means each new session downloads it again.
+- **A full or read-only profile disk** (FSLogix can attach one read-only, for example to a second session of the same person) stops saving: the app says the disk is full, or that Windows won't let it write its data folder, and changes nothing. It doesn't fall back to another folder. When this happens as the app starts, restart it once there is room.
+- **Ports.** The app and its engine talk over pipes, and the `kratosforge://` link listener and the VS Code channel take a free port each, so any number of people can run the app on one host. The optional local API uses one fixed port (47615): on a shared host only the first person to turn it on gets it. The others are told so and can add their tools as MCP tools, which need no port.
+- **Memory and CPU.** Each person runs the app's window, the engine and, with `kernel_process`, one process per open notebook (about 0.8 GB each before any data). A local query can use most of the host's free memory and every core. On a shared host, set `kernel_process`, `kernel_memory_limit_gb`, `kernel_max_sessions`, `kernel_idle_minutes` and `sql_memory_limit_percent` in the [policy file](azure-setup.md#4-push-settings-to-everyone), and leave CPU sharing to the host (fair-share CPU scheduling on multi-session Windows).
+- **Schedules** live in the person's Windows Task Scheduler on that host and run only there, so on a non-persistent or pooled desktop they may not run at all. Use Fabric's own schedules there.
+
+**UNVERIFIED:** none of this has run on an Azure Virtual Desktop, Citrix or FSLogix host yet.
 
 ## Uninstall
 

@@ -652,7 +652,7 @@ function renderChrome() {
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
     h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
-      onclick: onOpen }, icon(iconName, 22), label),
+      title: label, onclick: onOpen }, icon(iconName, 22), h("span", { class: "rail-label" }, label)),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();
@@ -2991,6 +2991,16 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keydown", navKey);
+// F5 never reloads the window (that loses open work); on the SQL query page it runs the query, as in
+// SSMS, wherever focus is. The editor and the lesson boxes handle it themselves first (defaultPrevented).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F5") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (state.view === "query" && !document.getElementById("dialog-root")?.childElementCount
+      && !document.getElementById("palette")) sqlPage.runQuery?.();
+});
 document.getElementById("nav-back").addEventListener("click", navBack);
 document.getElementById("nav-forward").addEventListener("click", navForward);
 // Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).

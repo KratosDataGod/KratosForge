@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-07",
+  "updated": "2026-11-10",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -2708,7 +2708,8 @@
         "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7",
         "Axe cases for the dialogs people open most and a guard that fails when a new dialog has none (#1673, #1854, #1855, #1856, #1858, #1876); every rail page reflows at 320 px and stays whole at 200% (#1681) on main at a7631920",
         "Axe runs on every dialog and the baseline is empty (#1878, #1884, #1886, #1888, #1890); a 20-minute Narrator checklist for the Windows pass (EA-030, #1930) on main at de881016",
-        "Screen readers: dialogs read their lead sentence, the command bar announces the chosen result, OneLake has a level 1 heading, and a page change moves focus to its heading (#1931, #1932, #1935, #1937); Narrator check on Windows still pending on main at c750da45"
+        "Screen readers: dialogs read their lead sentence, the command bar announces the chosen result, OneLake has a level 1 heading, and a page change moves focus to its heading (#1931, #1932, #1935, #1937); Narrator check on Windows still pending on main at c750da45",
+        "Accessibility at 200% zoom and in a Windows contrast theme (#2286) on main at 2bf8ea1b"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2772,7 +2773,8 @@
         1931,
         1932,
         1935,
-        1937
+        1937,
+        2286
       ],
       "issues": [
         880,
@@ -4377,7 +4379,8 @@
         "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
         "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949",
         "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f",
-        "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb"
+        "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb",
+        "A seeded kill test for local Delta writes runs in CI on Linux and Windows (#2375) on main at d5a867c0"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4494,7 +4497,13 @@
         1686,
         1711,
         1712,
-        1755
+        1755,
+        2194,
+        2212,
+        2248,
+        2273,
+        2277,
+        2375
       ]
     },
     {
@@ -4878,7 +4887,56 @@
         2164,
         2166,
         2168,
-        2171
+        2169,
+        2171,
+        2172,
+        2175,
+        2176,
+        2177,
+        2179,
+        2180,
+        2186,
+        2187,
+        2190,
+        2192,
+        2195,
+        2197,
+        2204,
+        2210,
+        2235,
+        2237,
+        2239,
+        2241,
+        2242,
+        2251,
+        2254,
+        2259,
+        2260,
+        2261,
+        2267,
+        2268,
+        2270,
+        2274,
+        2275,
+        2279,
+        2283,
+        2284,
+        2288,
+        2289,
+        2296,
+        2308,
+        2310,
+        2311,
+        2312,
+        2313,
+        2314,
+        2346,
+        2347,
+        2351,
+        2370,
+        2371,
+        2380,
+        2385
       ],
       "issues": [
         910,
@@ -4901,7 +4959,8 @@
       "problem": "Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.",
       "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.",
       "evidence": [
-        "UX audit by the oversight thread, 2026-10-18 (PR #166)"
+        "UX audit by the oversight thread, 2026-10-18 (PR #166)",
+        "Living Experience, all Preview: the Home hero and progression panel (#2213, #2222), the Forge Activity view on Runs (#2215, #2226), spot illustrations for empty states (#2216), motion modes Professional to Legendary (#2211), and celebrations that are on by default and hold off while you type (#2201, #2225) on main at e5e6bec4"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -4974,7 +5033,18 @@
         991,
         998,
         1088,
-        1131
+        1131,
+        2056,
+        2201,
+        2211,
+        2213,
+        2215,
+        2216,
+        2218,
+        2222,
+        2225,
+        2226,
+        2290
       ],
       "issues": [
         928,
@@ -4998,7 +5068,8 @@
         "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
         "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb",
         "Spark SQL on this PC: extract, date_part, to_unix_timestamp, parse_url, binary literals, bitmap functions, tumbling window(), number formats and hash()/xxhash64() give Spark's values (#1845, #1851, #1853, #1860, #1866, #1880); type-checked compatibility layer (#1568) on main at a7631920",
-        "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016"
+        "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016",
+        "spark.catalog answers about the lakehouse or refuses by name (#2389); Unity Catalog style names read or write the table they name, or refuse (#2379); Column.withField and dropFields (#2383) on main at 5d2fc045"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5148,7 +5219,22 @@
         1941,
         1971,
         2008,
-        2154
+        2154,
+        2178,
+        2240,
+        2250,
+        2266,
+        2271,
+        2272,
+        2302,
+        2328,
+        2340,
+        2372,
+        2373,
+        2379,
+        2383,
+        2388,
+        2389
       ]
     },
     {
@@ -5209,8 +5295,10 @@
         1833,
         1834,
         2040,
+        2061,
         2147,
-        2163
+        2163,
+        2165
       ]
     },
     {
@@ -5455,7 +5543,9 @@
         1965,
         2041,
         2042,
-        2043
+        2043,
+        2183,
+        2214
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5681,7 +5771,14 @@
         1832,
         2074,
         2077,
-        2156
+        2156,
+        2167,
+        2199,
+        2292,
+        2303,
+        2307,
+        2309,
+        2377
       ],
       "mandatory": "none",
       "computed": {
@@ -6122,7 +6219,7 @@
     {
       "id": "PB-120",
       "title": "Platform support levels and one engine contract",
-      "state": "In progress",
+      "state": "In review",
       "owner": "Fabric and Databricks unified development",
       "category": "Extensibility, APIs, CLI, and MCP",
       "effort": "L",
@@ -6198,7 +6295,23 @@
         1934,
         1938,
         2011,
-        2150
+        2150,
+        2174,
+        2189,
+        2193,
+        2221,
+        2224,
+        2227,
+        2232,
+        2234,
+        2243,
+        2255,
+        2263,
+        2276,
+        2278,
+        2293,
+        2332,
+        2338
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6207,17 +6320,26 @@
         "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb",
         "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a",
         "Snowflake on this PC: divide by zero stops as in Snowflake and a generated, CI-checked function coverage list (#1863, #1864) on main at a7631920",
-        "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016"
+        "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016",
+        "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b",
+        "Implementation review docs/product/reviews/PB-120-kudp.md recommends Accept with documented limitations: only Fabric has live evidence (level 2), Databricks and Snowflake are verified at level 0, and the portability report and two-engine comparison have no screen. Databricks functions at 013281be: 440 run, 0 differ, 0 fail, 92 refused by name, 57 not checked. 1,404 engine tests and 4 browser tests pass on main at bddb5b27",
+        "Databricks SQL value checks for 15 more functions (#2293); the parity page's Databricks and Snowflake SQL rows rest on the generated function lists, with a guard (#2332); generated Databricks notebook helpers list (#2338); implementation review PB-120-kudp.md (#2306) on main at d5a867c0"
       ],
       "features": [
         "FEAT-EXT-05",
         "FEAT-SQL-03"
       ],
       "source_refs": [
-        "KUDP-01..06"
+        "KUDP-01",
+        "KUDP-02",
+        "KUDP-05",
+        "KUDP-06"
       ],
       "acceptance": [
-        "Owned and specified by the unified platform program (KUDP)"
+        "KUDP-01: one contract check every engine adapter passes; an adapter that overclaims fails it, and a new adapter without a check run fails the coverage test",
+        "KUDP-02: a platform's support level can't exceed its evidence, the docs table equals the code, and Fabric verified shows level 2",
+        "KUDP-05: a static SQL portability report per statement, with reasons, that never rewrites the user's SQL",
+        "KUDP-06: one query compared on two engines finds a planted difference, and a remote side runs only after its copy confirm"
       ],
       "scores": {
         "developer_value": 4,
@@ -6351,7 +6473,8 @@
       "category": "Developer Experience and Productivity",
       "effort": "L",
       "prs": [
-        1722
+        1722,
+        2247
       ],
       "problem": "Learn v1 covers the first rule catalog and paths only.",
       "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",
@@ -6406,7 +6529,10 @@
         "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a",
         "Audit re-scored to 64 after the P1 data-integrity fixes (#1846); one transaction helper for the workloads file, outbox, ledger and local platform file (EA-028, #1839, #1872); pages get only the Tauri permissions they use and commands answer only the app's own page (#1768, #1769); the previous build is kept until the new engine answers (#1596); updates remove partial downloads (#1836); redaction covers more key shapes and the five redactors are characterized (#1887, #1892) on main at a7631920",
         "Enterprise install: MSI silent install, uninstall and detection, and what the support bundle collects (#1908) on main at de881016",
-        "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45"
+        "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45",
+        "Prod and confirmed actions write their audit line first and don't run without it (#2205); an authorization matrix lists every state-changing call and its check (#2045); refused changes and returned failures leave audit rows (#2196, #2231); SBOMs cover npm and Python with checksums (#2191) on main at e5e6bec4",
+        "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0",
+        "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6507,6 +6633,7 @@
         1958,
         1993,
         2021,
+        2045,
         2050,
         2055,
         2058,
@@ -6514,7 +6641,55 @@
         2078,
         2143,
         2148,
-        2161
+        2161,
+        2185,
+        2188,
+        2191,
+        2196,
+        2205,
+        2207,
+        2220,
+        2223,
+        2228,
+        2230,
+        2231,
+        2233,
+        2236,
+        2256,
+        2262,
+        2280,
+        2281,
+        2282,
+        2285,
+        2287,
+        2291,
+        2294,
+        2300,
+        2315,
+        2316,
+        2317,
+        2319,
+        2325,
+        2329,
+        2330,
+        2335,
+        2336,
+        2339,
+        2341,
+        2342,
+        2343,
+        2345,
+        2350,
+        2369,
+        2374,
+        2381,
+        2382,
+        2384,
+        2386,
+        2387,
+        2391,
+        2392,
+        2394
       ],
       "issues": [],
       "computed": {
@@ -6694,8 +6869,8 @@
     },
     {
       "id": "PB-128",
-      "title": "KratosForge Academy: certification preparation",
-      "state": "In progress",
+      "title": "KratosForge Academy: DP-700 certification preparation",
+      "state": "Accepted",
       "owner": "Academy",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -6763,7 +6938,17 @@
         2059,
         2152,
         2153,
-        2159
+        2159,
+        2170,
+        2173,
+        2200,
+        2219,
+        2229,
+        2238,
+        2244,
+        2257,
+        2265,
+        2269
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6779,14 +6964,17 @@
         "Exercise scripts run in the AppContainer by default on Windows (#1827); DP-700 exercises on DuckDB, pipelines, Delta and broken environments (#1840, #1844, #1848, #1850, #1877) and checks that nothing else changed (#1843) on main at a7631920",
         "Question and settings-model exercise adapters (#1915, #1916), a quiz pass after changing a checked answer isn't independent (#1918), more DP-700 exercises and broken environments (#1910, #1917, #1926) on main at de881016",
         "Git, database project, access control and choose-the-tool exercises with git_lab and sqlproj_lab grading (#1951, #1957, #1968, #1973), git commands in a Job Object with limits (#2010), PySpark lab notebookutils, Structured Streaming and DeltaTable merge (#1955), built exercises pinned one file per id (#2039) on main at c750da45",
-        "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b"
+        "DP-700 exercises E01-E05, E09, E14, E16, E18, E20, E26, E29-E31, E34, E41, E42, E46, E07 and E55 merged (#1981, #1984, #1985, #1988, #2047, #2059, #2153); the exercise runtime grant runs in process and only where missing (#2159) on main at 56e3826b",
+        "Question bank re-checked against Learn and grown to 498 (#2219); retakes draw unseen questions first (#2200); distractors as specific as the answer (#2229); exercises E45, E47, E52 and E60 (#2173, #2238) on main at e5e6bec4",
+        "DP-700 capstones C1 (retail lakehouse to a Gold star), C2 (real-time telemetry) and C3 (governed warehouse release) (#2257, #2265, #2269) on main at 2bf8ea1b",
+        "Implementation review docs/product/reviews/PB-128-academy.md recommends accepting the DP-700 track with documented limitations: 48 of 49 objectives have built exercises and 3.2.5 has gap G-02. The Databricks track meets criterion 1 for 26 of 33 objectives, so it would move to an item of its own. 779 Academy tests pass",
+        "Implementation review docs/product/reviews/PB-128-academy.md: Accepted with Documented Limitations for the DP-700 track (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); limitations: objective 3.2.5 (eventstream errors) has gap G-02 until E54 can be written; objectives that need Fabric complete only with Fabric runs. The Databricks Data Engineer Associate track moves to PB-135"
       ],
       "features": [
         "FEAT-DEV-04"
       ],
       "source_refs": [
-        "ACD-001..020",
-        "DBA-001..016"
+        "ACD-001..020"
       ],
       "acceptance": [
         "Every objective in a certification's registry has exercises or a recorded gap",
@@ -7093,7 +7281,7 @@
       "id": "PB-134",
       "title": "Developer classes and mastery",
       "state": "In progress",
-      "owner": "Developer classes and mastery",
+      "owner": "Build developer class and mastery system",
       "category": "Developer Experience and Productivity",
       "effort": "L",
       "prs": [],
@@ -7102,7 +7290,8 @@
       "evidence": [
         "Go: Chris's Developer Class and Mastery System brief, typed 2026-11-07 14:17 UTC (thread cmsg_018T4o2pQdpbLBNhHpgVNNGpAQRcfqrWxrjQm7BZbDcnct). The plan, mockup and 27-story backlog (CM-01..27) are in that thread. New screens wait for his reaction to the mockup",
         "First PR: draft #2206 (CM-02, CM-03) adds an engine-only class catalog with talent graph checks and evidence-based mastery levels, plus Lakehouse Warden as the first class (3 specializations x 10 talents). It has no UI and stores no data",
-        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)"
+        "Scores are the product manager's provisional estimate until the owner sets them: developer value 3, CU reduction 1, enterprise value 3, differentiation 4, strategic alignment 3, complexity 5 (14 classes, art, a tree UI and a report), risk 3 (anti-farming rules and the line between levels and certifications)",
+        "Owner's notes (2026-11-07): Phase 1 is S to M and engine-only. The main risks are the art source (decision pending with the product owner) and reviewer verification for Grandmaster (an architecture call later). It depends on progress.py, ranks.py, Academy and Learn content and the effects API. The owner asked for P2. Priority follows the seven scores, which stay provisional until the owner sends its own"
       ],
       "features": [
         "FEAT-DEV-01",
@@ -7135,6 +7324,59 @@
         "benefit": 2.75,
         "cost": 4.0,
         "score": 1.1,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-135",
+      "title": "KratosForge Academy: Databricks Data Engineer Associate track",
+      "state": "In progress",
+      "owner": "Academy",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        2299,
+        2301,
+        2304,
+        2318,
+        2395
+      ],
+      "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
+      "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",
+      "evidence": [
+        "Split from PB-128 (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR). At main 2bf8ea1b, 6 of 33 objectives have built exercises and 20 rely on recorded gaps G-01 to G-10. Objectives 1.1, 2.5, 2.6, 2.7, 4.4, 5.2 and 5.4 name planned exercises (E01, E02, E14 to E17, E41, E46, E48 to E50) that aren't built and have no gap",
+        "Scores set by the Databricks parity lead (track owner) on 2026-11-09: developer value 3 (engineers preparing for the Databricks Data Engineer Associate), CU reduction 2 (practice and grading run on this PC and start no Databricks or Fabric compute), enterprise value 3 (per-objective readiness evidence for mixed Databricks and Fabric teams, not a rollout condition), differentiation 3 (exercise-first local practice on the same engine as DP-700; the vendor has its own training), strategic alignment 3 (part of Databricks parity, beside the Fabric loop), complexity 3 (reuses PB-128's registry, graders, sandbox and exam engine; the work is content), risk 3 (content accuracy and vendor drift in a fast-renamed product, 'not the vendor's exam or score' wording)",
+        "Exercises E01, E16, E41 and E17 for objectives 1.1, 2.6, 4.4 and 2.7 (#2301), and E14, E46 and E48 for 2.5, 5.2 and 5.4 (#2304): every objective has a built exercise or a recorded gap",
+        "Databricks Associate exercises E01, E14, E16, E17, E41, E46 and E48 (#2301, #2304); objective statuses tied to built exercises (#2299); E14 runs as delta_lab (#2318) on main at d5a867c0"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "DBA-001..016"
+      ],
+      "acceptance": [
+        "Every objective in a certification's registry has exercises or a recorded gap",
+        "An exercise is graded on what the learner made, read as untrusted input, in a limited process",
+        "Practice exams, diagnostics and drills run on one exam engine with original questions",
+        "Nothing in Academy writes to Fabric or spends capacity"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.8,
+        "cost": 3.0,
+        "score": 1.68,
         "priority": "P3"
       }
     }

@@ -140,7 +140,7 @@ def _load(folder: str, version: int | None, timestamp: str | None, name: str) ->
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): its first is from {start}.")
     try:
         table.load_as_version(when)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - any read failure at that time becomes the same plain message
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): {_short(exc)}") from None
     return table
 
@@ -158,6 +158,8 @@ def _local_path(uri: str) -> str:
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
+    if not len(schema):  # DuckDB can't register a table without columns
+        return {}
     con = duckdb.connect()
     con.register("__empty", schema.empty_table())
     return {row[0]: row[1] for row in con.execute("DESCRIBE SELECT * FROM __empty").fetchall()}
@@ -348,9 +350,10 @@ class LocalEngine:
                      "paths": table.paths if table.files <= 50 else table.paths[:1], "folder": table.folder,
                      "files": table.files, "bytes": table.size, "status": "ok", "error": "", "columns": []}
             if key in others:
+                where = ("is one of this project's Delta tables" if catalog[key].get("kind") == OWN
+                         else f"already comes from another folder ({catalog[key]['source']})")
                 issues.append({"path": table.folder or table.paths[0],
-                               "problem": f"{table.schema}.{table.table} already comes from another folder "
-                                          f"({catalog[key]['source']}). Set a different name for one of them."})
+                               "problem": f"{table.schema}.{table.table} {where}. Set a different name for one of them."})
                 continue
             if key not in mine and self._exists(table.schema, table.table):
                 issues.append({"path": table.folder or table.paths[0],
@@ -369,7 +372,7 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
-            except Exception as exc:  # one unreadable file never stops the others
+            except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
             catalog[key] = entry
@@ -1438,7 +1441,7 @@ def _split_script(sql: str) -> list[str]:
 
     try:
         tokens = Dialect.get_or_raise("duckdb").tokenize(sql)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the splitter's own errors vary; all become one plain message
         raise ValueError(f"Could not split the script into statements: {exc}") from None
     out, begin = [], 0
     for token in tokens:

@@ -12,7 +12,7 @@ import importlib.metadata
 import os
 import sys
 
-LAYOUT = "1"
+LAYOUT = "2"  # 2: checked-hash .pyc files compiled by engine_build.py finish
 
 
 def main() -> None:

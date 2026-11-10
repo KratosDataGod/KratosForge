@@ -74,6 +74,6 @@ def sync_commits(uri: str, first: int, last: int) -> bool:
             _sync(log)
         _sync(Path(uri) / "_delta_log", folder=True)
         return True
-    except Exception as exc:  # noqa: BLE001  the commit stands; only its flush to disk is uncertain
+    except Exception as exc:  # noqa: BLE001 - the commit stands; only its flush to disk is uncertain
         _log.warning("Couldn't flush commits %s-%s of %s to disk: %s", first, last, uri, exc)
         return False

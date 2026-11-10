@@ -14,7 +14,8 @@ matched by file, kind and the hash of the value, not by line, so moving a line d
                       remove it from the file and revoke it.
 
     added BASE_FILE   a warning for each entry .secrets.baseline gains over BASE_FILE (the base
-                      branch's copy), so a pull request's reviewers see what it lets through.
+                      branch's copy), and for each filter or plugin it adds or removes, so a pull
+                      request's reviewers see what it lets through.
 
     pragmas           read a `git diff -U0` on stdin and warn for each added line carrying the pragma below.
 
@@ -92,9 +93,25 @@ def newly_allowed(doc: dict, before: dict) -> list[str]:
     """A warning for each entry ``doc`` lists that ``before`` (the base branch's baseline) didn't, so the
     pull request that lets a value through shows it to its reviewers."""
     known = {key for key, _ in _entries(before)}
-    return [f"::warning {_at(key[0], entry.get('line_number', 1))}::This pull request adds a {key[1]} here to "
-            f"{BASELINE}, so the secret scan lets it through. Check it isn't a real secret."
-            for key, entry in _entries(doc) if key not in known]
+    out = [f"::warning {_at(key[0], entry.get('line_number', 1))}::This pull request adds a {key[1]} here to "
+           f"{BASELINE}, so the secret scan lets it through. Check it isn't a real secret."
+           for key, entry in _entries(doc) if key not in known]
+    if before:  # the scan's own settings: a filter added or a plugin dropped can let values through unseen
+        for field in ("filters_used", "plugins_used"):
+            was, now = _settings(before, field), _settings(doc, field)
+            out += [f"::warning file={_prop(BASELINE)}::This pull request {verb} the secret scan's {field}: "
+                    f"{annotation(item)}. Check it doesn't hide a real secret."
+                    for verb, items in (("adds to", now - was), ("removes from", was - now)) for item in sorted(items)]
+    return out
+
+
+def _settings(doc: dict, field: str) -> set[str]:
+    return {json.dumps(item, sort_keys=True) for item in doc.get(field) or []}
+
+
+def annotation(text: str) -> str:
+    """``text`` as a workflow command's message."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 PRAGMA = "pragma: allowlist secret"

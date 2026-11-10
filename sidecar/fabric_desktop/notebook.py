@@ -65,6 +65,9 @@ PREVIEW_ROWS = 1000
 # and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
 STREAM_CHARS = 1_000_000
 RICH_CHARS = 16_000_000
+# An error always shows, past RICH_CHARS too, so its message and traceback are each kept to this:
+# the start of the message, and the end of the traceback, where the error itself is.
+ERROR_CHARS = 200_000
 _CELL_FILE = "<cell>"
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
@@ -427,6 +430,8 @@ class _Run:
             self.spill_file = None
 
     def add(self, output: dict[str, Any]) -> None:
+        if output.get("type") == "error":
+            output = capped_error(output)
         size = len(json.dumps(output, default=str))
         with self.lock:
             if self.clear_pending:
@@ -516,6 +521,19 @@ class _OutputSink:
 
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)
+
+
+def capped_error(output: dict[str, Any]) -> dict[str, Any]:
+    """An error output with its message and traceback each kept to ERROR_CHARS, saying so where cut."""
+    evalue, tb = output.get("evalue"), output.get("traceback")
+    if isinstance(tb, list):
+        tb = "".join(str(t) for t in tb)
+    cut = dict(output)
+    if isinstance(evalue, str) and len(evalue) > ERROR_CHARS:
+        cut["evalue"] = evalue[:ERROR_CHARS] + f"\n[KratosForge kept the first {ERROR_CHARS:,} of this message's {len(evalue):,} characters.]"
+    if isinstance(tb, str) and len(tb) > ERROR_CHARS:
+        cut["traceback"] = f"[KratosForge kept the last {ERROR_CHARS:,} of this traceback's {len(tb):,} characters.]\n" + tb[-ERROR_CHARS:]
+    return cut
 
 
 def _replace_capped(outputs: list[dict[str, Any]], hits: list[int], output: dict[str, Any],

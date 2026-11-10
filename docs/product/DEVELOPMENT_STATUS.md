@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-09 23:42 UTC, main d5a867c0.** Covers the PRs merged from #135 to #2375.
+**Product check of 2026-11-10 11:42 UTC, main 5d2fc045.** Covers the PRs merged from #135 to #2395.
 
 ## Summary
 
+- Morning check, 2026-11-10: 17 PRs merged after d5a867c0. 1 was a product data PR, and the other 16 were linked.
+  Every outbound request now retries throttling or says why it is sent once, Fabric lists follow both kinds of
+  continuation, CI scans for secrets, and a short memory soak runs in CI on Linux and Windows (PB-124). Notebooks on
+  this PC answer spark.catalog about the lakehouse and read or write Unity Catalog style names, or refuse by name
+  (PB-103). No item changed state.
 - Evening check, 2026-11-09: 54 PRs merged after 2bf8ea1b. 5 were product data, docs audit and operations PRs, and
   the other 49 were linked. The weekly review's hardening stories landed: retries go through one module, Fabric
   errors and the app's errors name a next step, a write whose reply was lost is never made twice, IT can check audit

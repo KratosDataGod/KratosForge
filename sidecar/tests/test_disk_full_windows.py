@@ -10,6 +10,7 @@ and then let a metadata run's table write and a SQL page query's temp files run 
 from __future__ import annotations
 
 import ctypes
+import errno
 import shutil
 import subprocess
 import sys
@@ -125,11 +126,13 @@ def test_a_query_whose_temp_files_fill_a_windows_volume_says_the_drive_is_full(r
     con.execute("SELECT 1").fetchall()  # the connection still works
 
 
-def test_a_plain_file_write_on_a_full_windows_volume_is_os_error_112(room):
+def test_a_plain_file_write_on_a_full_windows_volume_is_enospc_without_a_winerror(room):
     folder, fill = room
     fill()
     with pytest.raises(OSError) as caught, open(folder / "more.bin", "wb", buffering=0) as f:
         for _ in range(FREE_MB + 2):
             f.write(b"x" * 2**20)
     report("file write", f"{caught.value!r} winerror={getattr(caught.value, 'winerror', None)}")
-    assert getattr(caught.value, "winerror", None) == 112 and disk_full.is_disk_full(caught.value)
+    # Measured: Python's own file writes go through the C runtime, which turns Windows' ERROR_DISK_FULL (112)
+    # into errno ENOSPC with no winerror; delta-rs says "os error 112". disk_full matches both.
+    assert caught.value.errno == errno.ENOSPC and disk_full.is_disk_full(caught.value)

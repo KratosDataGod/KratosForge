@@ -69,7 +69,8 @@ function Show-Log($result) {
     if (Test-Path -LiteralPath $result.Log) { Get-Content -LiteralPath $result.Log -Tail 60 | Write-Host }
 }
 
-# Installed apps entries, looked for in HKLM too, so an entry in the wrong place is counted, not missed.
+# Installed apps entries in HKCU and HKLM. Windows Installer keeps a per-user product's entry in HKLM
+# on the CI runner (an administrator), so both hives are searched and the place is only reported.
 # A function's empty array comes back as $null, so every caller wraps it in @() before .Count (strict mode).
 function Get-Entries {
     $roots = @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -93,7 +94,7 @@ function Assert-Installed([version] $Version, [string] $ExeHash, [string] $Step)
     if (-not (Get-Value "InstallFolder")) { throw "$Step`: HKCU InstallFolder (the detection rule) is missing" }
     $entries = @(Get-Entries)
     if ($entries.Count -ne 1) { throw "$Step`: $($entries.Count) KratosForge entries in Installed apps, not 1" }
-    if ($entries[0].PSPath -notlike "*HKEY_CURRENT_USER*") { throw "$Step`: the Installed apps entry isn't per user ($($entries[0].PSPath))" }
+    Write-Host "$Step`: Installed apps entry at $($entries[0].PSPath -replace '^.*::', '')"
     if ([version] $entries[0].DisplayVersion -ne $Version) {
         throw "$Step`: Installed apps shows $($entries[0].DisplayVersion), expected $Version"
     }

@@ -845,6 +845,9 @@ def _get_item(self: Column, key: Any) -> Column:
         raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
     if isinstance(key, int):
         return _named(_sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]"), f"{_spark_text(self)}[{key}]")
+    if "_fd_struct" in vars(self):  # a field of a withField/dropFields struct, worked out with it
+        from .spark_struct_fields import field_of
+        return field_of(self, key)
     out = _named(_sql(f"({_col_sql(self)})[{_duck_lit(key)}]"), f"{_spark_text(self)}[{key}]")
     out._fd_field = (self, key)  # type: ignore[attr-defined]  # a struct's field is named col.key; see _field_names
     return out
@@ -860,6 +863,9 @@ def _get_field(self: Column, name: str) -> Column:
     """``col.getField(name)``: a struct's field, named ``col.name`` as in Spark."""
     if not isinstance(name, str):
         raise TypeError(f"getField takes a field name, not {type(name).__name__}")
+    if "_fd_struct" in vars(self):
+        from .spark_struct_fields import field_of
+        return field_of(self, name)
     return _named(_sql(f"({_col_sql(self)})[{_duck_lit(name)}]"), f"{_spark_text(self)}.{name}")
 
 
@@ -1034,6 +1040,11 @@ def _alias_marked(fn: Any) -> Any:
     def alias(self: Column, *names: Any, **kwargs: Any) -> Column:
         out = fn(self, *names, **kwargs)
         out._fd_alias = True
+        if "_fd_struct" in vars(self):  # a withField/dropFields column, worked out at select (spark_struct_fields)
+            out._fd_struct = vars(self)["_fd_struct"]
+            out._fd_struct_alias = names[0] if names else None
+            out._fd_struct_named = vars(self).get("_fd_name")
+        out._fd_alias_of = _spark_text(self)  # Spark writes it "x AS name" inside another name
         return cast(Column, out)
     alias.__doc__ = fn.__doc__
     return alias
@@ -1097,7 +1108,8 @@ def _spark_decimals(df: DataFrame, cols: Any) -> list[Any]:
     ``sum`` and ``avg`` of decimals (EA-004, #1682), by the rules Spark SQL on this PC follows
     (spark_decimals). Each column keeps the name it had; one whose types can't be worked out, a name
     and a star are left as they were."""
-    cols = list(cols)
+    from .spark_struct_fields import resolved
+    cols = resolved(df.relation, list(cols))
     at = [i for i, c in enumerate(cols) if isinstance(c, Column)]
     texts = [str(cols[i].expr) for i in at]
     if not at or any(t.strip() == "*" or t.endswith(".*") for t in texts):
@@ -1524,6 +1536,8 @@ def _row_filter(fn: Any) -> Any:
     """DataFrame.filter and where, also on a row's place (a seeded rand, monotonically_increasing_id),
     which this PC numbers with a window: DuckDB refuses one in WHERE, so it's worked out first."""
     def filter(self: DataFrame, condition: Any) -> DataFrame:  # noqa: A001 - PySpark's name
+        from .spark_struct_fields import refuse_unresolved
+        refuse_unresolved([condition])
         if isinstance(condition, Column) and "row_number() OVER ()" in str(condition.expr):
             cols = ", ".join(_col_sql(c) for c in self.columns)
             numbered = self.relation.project(f"*, ({condition.expr}) AS {_KEEP_ROW}")
@@ -2015,6 +2029,9 @@ def install() -> None:
     Column.name = lambda self, *names, **kw: self.alias(*names, **kw)  # type: ignore[attr-defined]
     Column.astype = lambda self, dataType: self.cast(dataType)  # type: ignore[attr-defined]
     Column.getField = _get_field  # type: ignore[attr-defined]
+    from .spark_struct_fields import drop_fields, with_field
+    Column.withField = with_field  # type: ignore[attr-defined]
+    Column.dropFields = drop_fields  # type: ignore[attr-defined]
     Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
     Column.__truediv__ = Column.__div__ = _spark_divide(False)
     Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)

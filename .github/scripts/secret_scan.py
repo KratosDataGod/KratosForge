@@ -49,7 +49,7 @@ Key = tuple[str, str, str]  # file, kind, hash of the value
 
 def tracked() -> list[str]:
     out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True).stdout
-    return [name for name in out.decode("utf-8").split("\0") if name and name != BASELINE]
+    return [name for name in os.fsdecode(out).split("\0") if name and name != BASELINE]
 
 
 # detect-secrets is imported where it's used, so the engine's tests can check this file's logic without it.
@@ -153,14 +153,15 @@ def pragmas(diff: str) -> list[str]:
     return out
 
 
-def removed_later(doc: dict, found: Iterable[tuple[str, str, Any]], final: set[Key]) -> list[str]:
+def removed_later(doc: dict, found: Iterable[tuple[str, str, Any]], final: set[tuple[str, str]]) -> list[str]:
     """A warning for each finding (commit, file, secret) the baseline doesn't list and HEAD no longer has
-    (``final``: what HEAD's versions of the same files hold), once per value, at the first commit adding it."""
+    (``final``: the kind and hash of each value HEAD's versions of the same files hold, in any of them, since
+    ``check`` reports those), once per value, at the first commit adding it."""
     reviewed = {key for key, entry in _entries(doc) if entry.get("is_secret") is False}
     out, seen = [], set()
     for commit, name, secret in found:
         key = (name, secret.type, secret.secret_hash)
-        if key in reviewed or key in final or key in seen:
+        if key in reviewed or key[1:] in final or key in seen:
             continue
         seen.add(key)
         out.append(f"::warning {_at(name, secret.line_number)}::Looks like a secret ({secret.type}) in commit "
@@ -187,13 +188,16 @@ def commits(base: str, head: str) -> int:
         blobs = {}  # name -> the blob this commit gives it; a submodule (mode 160000) has no file to scan
         for meta, name in zip(raw[0::2], raw[1::2], strict=True):
             _, mode, _, blob, _ = meta.decode().split(" ")
-            if mode != "160000" and name.decode("utf-8") != BASELINE:
-                blobs[name.decode("utf-8")] = blob
+            if mode != "160000" and os.fsdecode(name) != BASELINE:
+                blobs[os.fsdecode(name)] = blob
         changed = sorted(blobs)
         with tempfile.TemporaryDirectory() as tmp:  # each file as this commit has it, under its own name
             for name in changed:
-                (Path(tmp) / name).parent.mkdir(parents=True, exist_ok=True)
-                (Path(tmp) / name).write_bytes(_git("cat-file", "blob", blobs[name]))
+                path = Path(tmp) / name
+                if not path.resolve().is_relative_to(Path(tmp).resolve()):  # git refuses such a name; never write one
+                    raise SystemExit(f"::error::A commit names a file outside its tree: {annotation(name)}")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(_git("cat-file", "blob", blobs[name]))
             os.chdir(tmp)  # detect-secrets names files relative to the working folder
             try:
                 from detect_secrets import SecretsCollection
@@ -204,7 +208,7 @@ def commits(base: str, head: str) -> int:
                 os.chdir(ROOT)
         found += sorted(((sha, name, secret) for name, secret in scan), key=lambda f: (f[1], f[2].line_number or 0))
         names.update(changed)
-    final = {(name, secret.type, secret.secret_hash) for name, secret in _scan(sorted(names))}
+    final = {(secret.type, secret.secret_hash) for _, secret in _scan(sorted(names))}
     lines = removed_later(doc, found, final)
     for line in lines:
         print(line)

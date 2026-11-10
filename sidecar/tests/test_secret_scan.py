@@ -148,8 +148,9 @@ def test_a_value_a_pull_request_adds_and_later_takes_out_warns_once_naming_its_c
     found = [("c1" * 20, "x.py", _secret("AWS Access Key", "bbb", 3)),  # added, then taken out
              ("c2" * 20, "x.py", _secret("AWS Access Key", "bbb", 5)),  # the same value again: one warning
              ("c2" * 20, "t.py", _secret("Secret Keyword", "aaa", 1)),  # reviewed
-             ("c3" * 20, "y.py", _secret("Secret Keyword", "ccc", 2))]  # still there at HEAD: check reports it
-    out = scan.removed_later(doc, found, {("y.py", "Secret Keyword", "ccc")})
+             ("c3" * 20, "y.py", _secret("Secret Keyword", "ccc", 2)),  # still at HEAD: check reports it
+             ("c3" * 20, "z.py", _secret("Secret Keyword", "ccc", 9))]  # moved to y.py: HEAD still has it
+    out = scan.removed_later(doc, found, {("Secret Keyword", "ccc")})
     assert len(out) == 1 and out[0].startswith("::warning file=x.py,line=3::Looks like a secret (AWS Access Key) "
                                                "in commit c1c1c1c1c1c1. ")
     assert "bbb" not in out[0]

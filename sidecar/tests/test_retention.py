@@ -111,6 +111,13 @@ def test_a_folder_a_sweep_renamed_aside_but_didnt_finish_goes_at_the_next(tmp_pa
     assert done["removed"] == [f"staging/.orders{retention.TRASH}123"] and not aside.exists()
 
 
+def test_a_new_folder_whose_name_only_looks_renamed_aside_stays(tmp_path):
+    for name in (f".orders{retention.TRASH}copy", f"orders{retention.TRASH}123", f".{retention.TRASH}123"):
+        touch(tmp_path / "staging" / name / "part-0.parquet", NEW)
+    done = retention.sweep(tmp_path, 30, now=NOW)
+    assert done["removed"] == [] and len(list((tmp_path / "staging").iterdir())) == 3
+
+
 def test_an_empty_folder_made_in_the_last_hour_stays_for_the_download_about_to_fill_it(tmp_path):
     fresh = tmp_path / "onelake-cache" / "test" / "LH" / "Files" / "incoming"
     fresh.mkdir(parents=True)

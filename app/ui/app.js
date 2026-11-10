@@ -835,11 +835,11 @@ async function renderHome() {
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   // Continue opens the notebook changed last; it appears once the list is read and there is one.
   const resume = h("span", { class: "home-continue" });
-  // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
-  // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
-  const living = typeof homeHero === "function" && homeLivingOn();
-  const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
-  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
+  // The progress panel (home-hero.js, Preview): your rank, journey, latest achievement and activity
+  // beside the page. Home itself keeps its plain header (Chris's art rule, 2026-11-10).
+  const withPanel = typeof homePanelOn === "function" && homePanelOn();
+  const newNb = btn("New notebook", "notebook", newNotebook, "tool outline");
+  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), resume, newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
     btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
     btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
@@ -847,13 +847,10 @@ async function renderHome() {
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
   const started = gettingStarted();
-  // The hero band and the progression panel beside the page.
-  const welcome = name ? `Welcome back, ${name}` : "Welcome to KratosForge";
-  const hero = living ? homeHero({ welcome, actions: [resume, newNb] }) : null;
   const main = h("div", { class: "home-main" },
     h("div", { class: "row home-head" },
-      hero ? h("span", { class: "grow" }) : h("h1", { class: "grow" }, welcome),
-      living ? homeShowPanelLink() : null,
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      withPanel ? homeShowPanelLink() : null,
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
@@ -873,10 +870,10 @@ async function renderHome() {
     meshMapCard(),
     envSection,
     xray);
-  // Without the hero, Home is the same flat page it always was.
-  const panel = hero ? homeProgressPanel() : null;
-  if (!hero) main.className = "page home";
-  const page = hero ? h("div", { class: "page home living" }, hero, h("div", { class: "home-body with-aside" }, main, panel.el)) : main;
+  // Without the panel, Home is the same flat page it always was.
+  const panel = withPanel ? homeProgressPanel() : null;
+  if (!panel) main.className = "page home";
+  const page = panel ? h("div", { class: "page home living" }, h("div", { class: "home-body with-aside" }, main, panel.el)) : main;
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
   const onHome = () => state.view === "home" && homeCache.page === page;
@@ -898,11 +895,8 @@ async function renderHome() {
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
     const recentList = shown.length ? homeRecentList(shown) : null;
-    // With Preview off, Home keeps its one plain line (Start something already has New notebook).
-    list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query && previewShown()
-      ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet",
-        text: "Create your first notebook and run it on this PC. Nothing goes to Fabric until you publish.",
-        action: btn("New notebook", "notebook", newNotebook, "tool primary") })
+    // Home keeps one plain line (Start something already has New notebook); no illustration on a working panel.
+    list.replaceWith(recentList ? recentList.el
       : h("p", { class: "muted-text" }, notebooks === null ? "Couldn't list notebooks."
         : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
     return recentList?.done;

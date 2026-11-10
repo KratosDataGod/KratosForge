@@ -39,4 +39,4 @@ UX chose these layout changes after the checks above. `app/tests/browser/short-w
 
 ## Pictures in a contrast theme
 
-A contrast theme keeps pictures in their own colors. The Home hero art (`.home-hero-img`) and the Monitor page's header art (`.forge-art`) are hidden in a contrast theme (under `forced-colors: active` in `styles.css`), so no page shows them there. The header wordmark keeps its colors, which is right: it is the product's mark, and its name is real text beside it.
+A contrast theme keeps pictures in their own colors. The Monitor page's header art (`.forge-art`) is hidden in a contrast theme (under `forced-colors: active` in `styles.css`), so no page shows it there. The header wordmark keeps its colors, which is right: it is the product's mark, and its name is real text beside it.

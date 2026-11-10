@@ -1,14 +1,6 @@
 :root {
-  /* Living Experience on Home (home-hero.js): the hero sky behind the art, the navy identity card, the warm achievement card */
-  --lx-hero-sky: #01203d;
-  --lx-hero-sky-low: #062e57;
+  /* Progress on Home (home-hero.js): the navy rank card and the warm achievement card; --lx-mask fades Monitor's banner art */
   --lx-mask: #000;
- 
-  --lx-hero-text-w: 560px;
-  --lx-hero-line: #e6ecf5;
-  --lx-hero-title: #ffffff;
-  --lx-hero-ink: #0b1420;
-  --lx-hero-shadow: rgba(11, 20, 32, .6);
   --lx-1: #fdf6ec;
   --lx-2: #fbefe0;
   --lx-3: #f6e6d2;
@@ -271,7 +263,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .empty .title { font-size: 14px; font-weight: 600; }
 .empty .text { font-size: 13px; color: var(--muted); }
 .living-empty .empty-spot { color: var(--text-2); }
-.living-empty .living-empty-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; font-size: 20px; text-transform: uppercase; }
 @media (forced-colors: active) {
   .empty-spot [fill]:not([fill="none"]) { fill: CanvasText; }
   .empty-spot [fill="var(--accent-soft)"]:not([fill="none"]) { fill: Canvas; }
@@ -1054,25 +1045,11 @@ body.pop-out .page.monitor { padding: 12px; }
 .home-start { align-items: center; gap: 8px; }
 .home-start h2 { margin: 0 8px 0 0; }
 
-/* ---------- home-hero.js: Living Experience on Home (LX-06, Preview) ---------- */
-.page.home.living > .home-hero, .page.home.living > .home-body { max-width: 1460px; }
+/* ---------- home-hero.js: the progress panel on Home (LX-06, Preview) ---------- */
+.page.home.living > .home-body { max-width: 1460px; }
 .home-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .home-main > * { max-width: 1136px; }
 .home-body.with-aside { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
-.home-hero { position: relative; flex: none; height: 250px; overflow: hidden; background: linear-gradient(180deg, var(--lx-hero-sky) 0%, var(--lx-hero-sky-low) 100%); margin: -28px -32px 0; }
-.page.home.living > .home-hero { max-width: none; }
-/* The whole picture, never cropped, stretched or shrunk: full hero height at its own 3:1 ratio, against the right edge. */
-/* Its left quarter is empty sky (the cape starts near 27%), faded into the matching navy, so the text column may run over that part only. */
-.home-hero-img { position: absolute; top: 0; right: 0; height: 100%; width: auto; aspect-ratio: 2172 / 724;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); mask-image: linear-gradient(90deg, transparent 0, var(--lx-mask) 25%); }
-.home-hero-text { position: relative; height: 100%; width: var(--lx-hero-text-w); box-sizing: border-box; padding: 26px 0 0 36px; display: flex; flex-direction: column; gap: 6px; }
-.home-hero-kicker, .home-hero-title { font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800; text-transform: uppercase; }
-.home-hero-kicker { font-size: 18px; color: var(--brand-orange); letter-spacing: 1px; }
-.home-hero-title { font-size: 46px; white-space: nowrap; line-height: .95; color: var(--lx-hero-title); text-shadow: 0 2px 10px var(--lx-hero-shadow); }
-.page .home-hero-welcome { margin: 6px 0 0; font-size: 20px; font-weight: 600; color: var(--lx-hero-line); }
-.home-hero-actions { gap: 8px; margin-top: 10px; }
-.home-hero-actions .tool.primary { background: var(--brand-orange); color: var(--lx-hero-ink); border-color: var(--brand-orange); }
-.home-hero-actions .tool.hero-outline { background: transparent; color: var(--lx-hero-title); border: 1px solid var(--lx-hero-line); }
 .home-aside { display: flex; flex-direction: column; gap: 12px; }
 .home-aside h2 { margin: 0 0 6px; font-size: 15px; }
 /* The rank card: navy, the rank's shield at left, the rank, level, XP bar and next milestone at right. */
@@ -1126,22 +1103,8 @@ body.pop-out .page.monitor { padding: 12px; }
 .home-stat-delta.down { color: var(--lx-7); }
 @media (max-width: 1100px) {
   .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
-  .home-hero { height: 230px; }
-}
-/* Between the wide layout and the 960 px hide, the title steps down so its ink stays on the art's empty sky, left of the cape. */
-@media (max-width: 1250px) { .home-hero-title { font-size: 42px; } }
-@media (max-width: 1180px) { .home-hero-title { font-size: 32px; } }
-@media (max-width: 1040px) { .home-hero-title { font-size: 28px; } .page .home-hero-welcome { font-size: 18px; } }
-@media (max-width: 960px) { .home-hero-img { display: none; } }
-@media (max-width: 720px) {
-  .home-hero { height: auto; min-height: 120px; margin: 0; }
-  .home-hero-img { display: none; }
-  .home-hero-text { width: auto; padding: 18px 20px; }
-  .home-hero-title { font-size: 28px; }
 }
 @media (forced-colors: active) {
-  .home-hero, .home-id, .home-latest { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
-  .home-hero-img { display: none; }
   .home-id-bar > span, .home-id-pill { background: Highlight; color: HighlightText; }
 }
 
@@ -3375,7 +3338,7 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
 @media (forced-colors: active) { .forge-band { background: Canvas; border-color: CanvasText; } .forge-art, .forge-glow, .forge-sparks { display: none; } }
 /* A short window (under 640 px tall, such as 1280x940 at 200% zoom): the rail shows icons only, closer together,
    so every item fits without scrolling. Each name stays the button's text (its accessible name) and its tooltip;
-   the active stripe and the focus ring are unchanged. Home's hero becomes one strip: the welcome and its actions. */
+   the active stripe and the focus ring are unchanged. */
 @media (max-height: 640px) {
   .rail { width: 52px; gap: 2px; padding: 4px 0; }
   .rail-item { position: relative; width: 44px; min-height: 0; padding: 3px 0; }
@@ -3384,9 +3347,4 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .rail-group-label { width: 36px; height: 0; margin-top: 2px; padding-top: 0; overflow: hidden; }
   #rail-open { gap: 2px; }
   .rail-close { top: 0; right: 0; width: 14px; height: 14px; }
-  .home-hero { height: auto; min-height: 0; }
-  .home-hero-img, .home-hero-kicker, .home-hero-title { display: none; }
-  .home-hero-text { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 20px; }
-  .page .home-hero-welcome { margin: 0; }
-  .home-hero-actions { margin-top: 0; }
 }

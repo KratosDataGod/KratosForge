@@ -1,8 +1,8 @@
-// Living Experience on Home (LX-06, Preview): the hero band across the top and the progression panel
-// beside the page. "Quiet while you work": nothing here moves, and nothing here holds a control the
-// work needs. The hero is decoration only, so Professional (motion level 0) drops it. The panel reads
-// only what Profile already returns (profile_get); it stores nothing new and estimates nothing.
-// Loaded after profile.js and before app.js draws Home.
+// The progress panel on Home (LX-06, Preview): your rank, journey, latest achievement and the last 7 days'
+// activity beside the page. Home keeps its plain header: RPG art is for ranks, progression and achievements
+// only (Chris, 2026-11-10), so it appears on the rank and achievement cards and nowhere else. Nothing here
+// moves. The panel reads what Profile already returns (profile_get) and this PC's run logs; it stores
+// nothing new and estimates nothing. Loaded after profile.js and before app.js draws Home.
 
 const HOME_PANEL_HIDDEN = "fd.home.progress.hidden";
 
@@ -14,32 +14,10 @@ function setHomePanelHidden(hidden) {
   try { localStorage.setItem(HOME_PANEL_HIDDEN, hidden ? "1" : "0"); } catch { /* kept until the next start */ }
 }
 
-// Whether Home shows the Living Experience parts at all: Preview features on, and not Professional.
-function homeLivingOn() {
-  return previewShown() && chosenMotionLevel() > 0;
-}
-
-// Chris's approved title artwork (docs/design/assets.md): Kratos and the wolf at dawn, characters on the
-// right and a text-safe navy sky on the left. Static: nothing in it moves. The half-size file serves
-// ordinary windows and the full one high-density screens; object-position keeps the characters in view.
-function homeHeroArt() {
-  return h("img", { class: "home-hero-img", alt: "", "aria-hidden": "true", decoding: "async",
-    src: "art/experience/home/home-hero-1086.webp",
-    srcset: "art/experience/home/home-hero-1086.webp 1086w, art/experience/home/home-hero.webp 2172w",
-    sizes: "(max-width: 720px) 0px, calc(100vw - 72px)" });
-}
-
-// The hero: full width under the top bar. The welcome and the primary actions are real UI in the navy
-// sky at left (Chris, 2026-11-07); the characters stay at right and nothing is drawn over them.
-function homeHero({ welcome, actions = [] } = {}) {
-  if (!homeLivingOn()) return null;
-  return h("section", { class: "home-hero", "aria-label": "KratosForge" },
-    homeHeroArt(),
-    h("div", { class: "home-hero-text" },
-      h("span", { class: "home-hero-kicker" }, "KratosForge"),
-      h("span", { class: "home-hero-title" }, "Build. Test. Optimize."),
-      h("h1", { class: "home-hero-welcome" }, welcome || "Welcome to KratosForge"),
-      h("div", { class: "row wrap home-hero-actions" }, actions)));
+// Whether Home shows the progress panel: Preview features on. It is progression, not decoration, so it
+// stays at every motion level, Professional included; Profile's progression switch and Hide still turn it off.
+function homePanelOn() {
+  return previewShown();
 }
 
 // The side column: the rank card, Your journey, Recent achievement and Your activity. The first three read
@@ -50,7 +28,7 @@ function homeProgressPanel() {
   const el = h("aside", { class: "home-aside", "aria-label": "Your progress" });
   const close = () => { el.parentElement?.classList.remove("with-aside"); el.remove(); };
   const load = async () => {
-    if (!homeLivingOn() || homePanelHidden()) { close(); return; }
+    if (!homePanelOn() || homePanelHidden()) { close(); return; }
     const p = await rpc("profile_get", {}).catch(() => null);
     if (!el.isConnected) return;
     if (!p || !p.settings?.progression || !p.progression) { close(); return; }
@@ -203,6 +181,6 @@ function homeProgressCards(p) {
 
 // When the panel is hidden, one quiet link at the top of Home brings it back.
 function homeShowPanelLink() {
-  if (!homeLivingOn() || !homePanelHidden()) return null;
+  if (!homePanelOn() || !homePanelHidden()) return null;
   return btn("Show your progress", null, () => { setHomePanelHidden(false); homeCache.done = false; render(); }, "tool link small");
 }

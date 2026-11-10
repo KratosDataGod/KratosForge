@@ -86,6 +86,58 @@ again.
 A baseline changes only in a reviewed pull request that changes its file; the workflow never writes one.
 How to record one: [examples/benchmark/README.md](https://github.com/KratosDataGod/KratosForge/blob/main/examples/benchmark/README.md#in-ci-and-refreshing-the-baseline).
 
+## Memory soak
+
+A short soak checks that the engine gives back what it uses: memory, open handles, threads, child
+processes and temp files. `examples/benchmark/memory_soak.py` stands in for the engine and loops its
+everyday work. Every table stays the same size, so what the process holds should level off.
+
+- **Notebook:** a cell in the notebook process overwrites a small local Delta table and reads it
+  back. The kernel restarts every 25 cells, and the old process must have ended.
+- **SQL page:** a query over a local Delta table, then a page of its result.
+- **Writes:** an overwrite, a MERGE and a metadata-table append through the local store.
+
+```
+cd sidecar
+python ../examples/benchmark/memory_soak.py --minutes 20
+```
+
+Every 15 seconds it records the process's memory (resident on Linux, private bytes on Windows), open
+handles, OS threads (Linux only), Python threads, child processes (Linux only), the notebook process's
+memory and the files in its temp and SQL results folders. After a warm-up (5 minutes by default), a
+measurement counts as **growing** only when all three of these hold:
+
+- its least-squares slope is past the limit per hour below;
+- that slope adds up to at least the minimum rise over the run;
+- the median of the last third of the samples is above the first third's by at least half that rise
+  (a straight climb gives two thirds of it).
+
+So one jump, or a notebook process that grows and is restarted, does not count. Only a steady climb does.
+
+| Measurement | Growth per hour that counts | Minimum rise |
+| --- | ---: | ---: |
+| engine memory | 60 MB | 25 MB |
+| open handles | 40 | 10 |
+| OS threads | 40 | 10 |
+| Python threads | 12 | 3 |
+| child processes | 12 | 3 |
+| temp and SQL result files | 40 | 10 |
+
+The notebook process's memory is recorded but not judged: the kernel restarts every 25 cells, so it
+rises and falls by design. A kernel that outlives its restart fails the step instead.
+
+The **Memory soak** workflow (`.github/workflows/soak.yml`) runs it for 20 minutes on Ubuntu 24.04 and
+for 10 minutes (3-minute warm-up) on Windows Server 2025. It runs nightly on main (about 30 runner
+minutes, so not after every merge), on demand, and on a pull request that changes the soak. **It is advisory:** a growing measurement is a warning in
+the job summary, and the job stays green. A step that fails does fail the job, because the soak then
+measured nothing. The result, with every sample, is kept as an artifact. `--gate` makes growth fail the
+job (exit code 1); the workflow will use it once the limits have held on main for a while.
+
+On a Linux cloud machine (4 CPUs), 20 minutes ran 1,439 loops with no failed step. After the warm-up,
+memory went from 307 to 314 MB (14.6 MB per hour, under the 60 MB limit). Handles stayed at 19, OS
+threads at 107, Python threads at 4, child processes at 1 and files at 20. A planted leak of 64 KB per
+loop was reported as growing.
+
 ## The app window
 
 `app/tests/browser/ui-benchmark.cjs` times the window itself in headless Chromium, with every engine call

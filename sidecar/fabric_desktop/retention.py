@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -44,8 +45,13 @@ FRESH_FOLDER_HOURS = 1  # an empty folder younger than this stays: a download ma
 TRASH = ".deleting-"  # a folder renamed aside for deleting: ".<name>.deleting-<pid>"
 
 
+_TRASH_NAME = re.compile(r"\..+" + re.escape(TRASH) + r"\d+")
+
+
 def _is_trash(path: Path) -> bool:
-    return path.name.startswith(".") and TRASH in path.name
+    """Only the exact name a sweep gives a folder it renames aside: a cached folder that merely has
+    ".deleting-" in its name is judged by its age like any other."""
+    return _TRASH_NAME.fullmatch(path.name) is not None
 
 
 def _remove(path: Path) -> bool:

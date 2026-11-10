@@ -71,6 +71,19 @@ def test_a_folder_that_cant_be_written_still_starts_the_agent(tmp_path, monkeypa
     assert logs.report_native_crashes(tmp_path / "logs") is False
 
 
+def test_a_crash_file_faulthandler_refused_is_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(faulthandler, "is_enabled", lambda: False)
+    opened = []
+
+    def refuse(file, all_threads):
+        opened.append(file)
+        raise ValueError("no usable file descriptor")
+    monkeypatch.setattr(faulthandler, "enable", refuse)
+    monkeypatch.setattr(logs, "_crash_file", None)
+    assert logs.report_native_crashes(tmp_path / "logs") is False
+    assert opened[0].closed and logs._crash_file is None
+
+
 def test_faulthandler_already_on_is_left_as_it_is(tmp_path, monkeypatch):
     monkeypatch.setattr(faulthandler, "is_enabled", lambda: True)  # PYTHONFAULTHANDLER, or pytest itself
     assert logs.report_native_crashes(tmp_path / "logs") is False

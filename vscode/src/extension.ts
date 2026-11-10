@@ -117,17 +117,19 @@ async function execute(context: vscode.ExtensionContext, controller: vscode.Note
     run.start(Date.now());
     run.clearOutput();
     let stopped = false;
+    let started = false; // the app has said the cell started, so Stop interrupts it there
     run.token.onCancellationRequested(() => {
       stopped = true;
-      channel.interrupt(notebook.uri.fsPath).catch(() => undefined);
+      if (started) channel.interrupt(notebook.uri.fsPath).catch(() => undefined);
     });
     try {
       await ensurePaired(context, folder);
       const show = (snap: Snapshot) => {
+        started = true;
         if (snap.execution_count) run.executionOrder = snap.execution_count;
         if (Array.isArray(snap.outputs)) run.replaceOutput(snap.outputs.map((o) => toOutput(convert(o))));
       };
-      const last = await channel.run(notebook.uri.fsPath, cell.document.getText(), show);
+      const last = await channel.run(notebook.uri.fsPath, cell.document.getText(), show, () => stopped);
       run.end(!failed(last.status, last.outputs ?? []) && last.status !== "cancelled", Date.now());
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -485,3 +485,71 @@ test("a poll with no answer at all is asked again only once", async () => {
     app.close();
   }
 });
+
+test("Stop pressed while a cell's start is on its way interrupts it once the app says it started", async () => {
+  const seen = [];
+  let stop = false;
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      seen.push("start");
+      stop = true; // the person presses Stop before this answer arrives
+      reply(200, { ok: true, result: { status: "running", version: 1, outputs: [] } });
+      return true;
+    }
+    if (url.pathname === "/v1/interrupt") {
+      seen.push("interrupt");
+      reply(200, { ok: true, result: { interrupted: true } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") {
+      seen.push("poll");
+      reply(200, { ok: true, result: { status: "error", version: 2, outputs: [{ type: "error", ename: "KeyboardInterrupt", evalue: "" }] } });
+      return true;
+    }
+    return false;
+  });
+  try {
+    const last = await app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined, () => stop);
+    assert.strictEqual(last.status, "error");
+    assert.deepStrictEqual(seen, ["start", "interrupt", "poll"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("Stop pressed before a cell is sent (while pairing, say) means it isn't sent at all", async () => {
+  const seen = [];
+  const app = await fakeApp((url) => { if (url.pathname !== "/v1/hello") seen.push(url.pathname); return false; });
+  try {
+    const shown = [];
+    const last = await app.ch.run("C:\\nb\\a.ipynb", "x = 1", (s) => shown.push(s), () => true);
+    assert.strictEqual(last.status, "cancelled");
+    assert.deepStrictEqual(seen, []);
+    assert.deepStrictEqual(shown, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a cell nobody stopped is never interrupted by the run itself", async () => {
+  const seen = [];
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/hello") return false;
+    seen.push(url.pathname);
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      reply(200, { ok: true, result: { status: "running", version: 1, outputs: [] } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") {
+      reply(200, { ok: true, result: { status: "ok", version: 2, outputs: [] } });
+      return true;
+    }
+    return false;
+  });
+  try {
+    await app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined, () => false);
+    assert.ok(!seen.includes("/v1/interrupt"));
+  } finally {
+    await app.close();
+  }
+});

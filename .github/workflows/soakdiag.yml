@@ -12,7 +12,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        steps: [notebook, sql, writes, "notebook,sql,writes"]
+        include:
+          - {steps: overwrite, fresh: "0"}
+          - {steps: merge, fresh: "0"}
+          - {steps: meta, fresh: "0"}
+          - {steps: writes, fresh: "100"}
     runs-on: windows-2025-vs2026
     timeout-minutes: 40
     defaults:
@@ -30,4 +34,6 @@ jobs:
             sidecar/pyproject.toml
       - run: python -m pip install -e ".[dev]" -c constraints.txt
       - name: Soak
+        env:
+          KF_SOAK_FRESH: ${{ matrix.fresh }}
         run: python ../examples/benchmark/memory_soak.py --minutes 20 --warmup 3 --steps "${{ matrix.steps }}" --json "$RUNNER_TEMP/soak.json" --summary "$GITHUB_STEP_SUMMARY"

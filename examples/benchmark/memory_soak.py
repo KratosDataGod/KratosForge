@@ -232,15 +232,31 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
             raise RuntimeError("the SQL page did not have the 4 countries")
         counts["sql"] += 1
 
-    def writes() -> None:
-        store.write("LH_Bronze", "dbo", "soak", frame, mode="overwrite")
-        store.upsert("LH_Bronze", "dbo", "soak", frame.with_columns(pl.col("amount") + loops), on=["id"])
+    def table() -> str:  # DIAG: a fresh table every FRESH loops, so its log never grows past that
+        fresh = int(os.environ.get("KF_SOAK_FRESH", "0"))
+        return f"soak{loops // fresh}" if fresh else "soak"
+
+    def overwrite() -> None:
+        store.write("LH_Bronze", "dbo", table(), frame, mode="overwrite")
+
+    def merge() -> None:
+        if loops == 0 or (os.environ.get("KF_SOAK_FRESH") and loops % int(os.environ["KF_SOAK_FRESH"]) == 0):
+            store.write("LH_Bronze", "dbo", table(), frame, mode="overwrite")
+        store.upsert("LH_Bronze", "dbo", table(), frame.with_columns(pl.col("amount") + loops), on=["id"])
+
+    def meta() -> None:
         store.meta_append("watermarks", [{"entity": "soak", "value": str(loops), "run_id": f"soak-{loops}"}])
+
+    def writes() -> None:
+        overwrite()
+        merge()
+        meta()
         counts["writes"] += 1
 
     try:
         while time.monotonic() - start < minutes * 60:
-            for name, fn in (("notebook", notebook), ("sql", query), ("writes", writes)):
+            for name, fn in (("notebook", notebook), ("sql", query), ("writes", writes), ("overwrite", overwrite),
+                             ("merge", merge), ("meta", meta)):
                 if name in steps:
                     step(name, fn)
             loops += 1
@@ -251,6 +267,9 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
                      "engine_mb": round((memory_used(os.getpid()) or 0) / 2**20, 1), "handles": handles(),
                      "os_threads": os_threads(), "py_threads": threading.active_count(), "children": children(),
                      "kernel_mb": round((memory_used(kernel_pid) or 0) / 2**20, 1) if kernel_pid else None,
+                     "log": files(Path(store.uri("LH_Bronze", "dbo", table())) / "_delta_log"),
+                     "log_kb": sum(f.stat().st_size for f in (Path(store.uri("LH_Bronze", "dbo", table())) / "_delta_log").glob("*.checkpoint.parquet")) // 1024
+                     if (Path(store.uri("LH_Bronze", "dbo", table())) / "_delta_log").exists() else 0,
                      "py_blocks": sys.getallocatedblocks(), "gc_objects": len(gc.get_objects()),
                      "files": files(Path(tempfile.gettempdir()), sql.base(), kernel.output_dir)}
                 samples.append(s)

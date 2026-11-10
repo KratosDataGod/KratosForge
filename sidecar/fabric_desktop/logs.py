@@ -12,6 +12,7 @@ import faulthandler
 import json
 import logging
 import logging.handlers
+import os
 import socket
 import sys
 from pathlib import Path
@@ -66,6 +67,7 @@ def fields(**values: Any) -> dict[str, Any]:
 
 
 CRASH_LOG = "agent-crash.log"
+START_LINE = "agent started,"
 CRASH_LOG_BYTES = 1 << 20  # past this at a start, the file becomes agent-crash.prev.log
 _crash_file: IO[str] | None = None  # kept open for as long as the agent runs
 
@@ -85,6 +87,10 @@ def report_native_crashes(log_dir: Path) -> bool:
         if path.is_file() and path.stat().st_size > CRASH_LOG_BYTES:
             path.replace(path.with_name("agent-crash.prev.log"))
         crash_file = path.open("a", encoding="utf-8")
+        # A trace a start line follows was a crash; one the agent ran on after was a fault native code
+        # handled itself (faulthandler also sees those on Windows).
+        crash_file.write(f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ} {START_LINE} pid {os.getpid()}\n")
+        crash_file.flush()
         faulthandler.enable(file=crash_file, all_threads=True)
     except (AttributeError, OSError, ValueError) as exc:  # no report then; the agent still runs
         logging.getLogger("fabric_desktop.agent").warning("native crashes won't be reported: %s", exc)

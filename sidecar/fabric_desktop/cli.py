@@ -345,6 +345,7 @@ def _agent(args: argparse.Namespace) -> int:
         from .mailbox import ControlFolderInUse
         try:
             log = logs.setup(config.name, config.home / "logs", config.log_level)
+            logs.report_native_crashes(config.home / "logs")
             Agent(config, log=log).run_forever()
         except ControlFolderInUse as exc:
             return stopped(config.home, "start", exc)

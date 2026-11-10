@@ -93,7 +93,7 @@ function forgeSubtitle(m) {
   if (m.state === "idle") return "Nothing is running. Start a notebook or pipeline and it shows here.";
   if (m.state === "done") return `${one.name} finished.`;
   if (m.state === "failed") return `${one.name} failed. Open it in the table below to see why.`;
-  if (m.more > 0) return `${m.running} runs. The ${FORGE_LANES} most recent have lanes.`;
+  if (m.more > 0) return `${m.running} running. The ${FORGE_LANES} most recent are shown here.`;
   const by = new Map();
   for (const l of m.lanes) { const k = l.mode === "fabric" ? "waiting on Fabric" : `on ${l.where === "This PC" ? "this PC" : l.where}`; by.set(k, (by.get(k) || 0) + 1); }
   const parts = [...by].map(([k, n]) => `${n} ${k}`);

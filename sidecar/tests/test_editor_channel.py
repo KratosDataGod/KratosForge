@@ -230,6 +230,27 @@ def test_a_negative_length_is_refused_and_an_unpaired_body_is_never_read(paired)
     con.close()
 
 
+def test_a_refused_requests_small_body_is_read_before_the_answer(paired):
+    """Windows resets a connection closed with bytes still unread, which can drop the 401 before the
+    window reads it: the channel takes a small body first. A large claimed one is still never read."""
+    import socket
+
+    svc, window, path = paired
+    body = json.dumps({"path": path, "code": "1"}).encode()
+    with socket.create_connection(("127.0.0.1", window.port), timeout=10) as sock:
+        sock.sendall(f"POST /v1/run HTTP/1.1\r\nHost: 127.0.0.1:{window.port}\r\nContent-Type: application/json\r\n"
+                     f"Content-Length: {len(body)}\r\n\r\n".encode())
+        sock.settimeout(0.5)
+        with pytest.raises(TimeoutError):
+            sock.recv(1)  # no answer while the body it was told of hasn't come
+        sock.settimeout(10)
+        sock.sendall(body)
+        answer = b""
+        while chunk := sock.recv(65536):
+            answer += chunk
+    assert answer.startswith(b"HTTP/1.0 401 ") and b"not_paired" in answer
+
+
 WRITE = "from fabric_desktop import lakehouse\nprint(lakehouse.write_refusal('LH_Gold', 'dbo', 'daily'))"
 
 

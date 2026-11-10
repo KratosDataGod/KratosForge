@@ -112,8 +112,8 @@ on quality.
 | [FEAT-META-02](#feat-meta-02) | Metadata runs on this PC | Implemented | Partially Verified | Data mesh > Entities > Run | Keep; add late-arriving rows and source deletes (FD-117). |
 | [FEAT-META-14](#feat-meta-14) | Environments: Tables in and Runs on | Implemented | Partially Verified | Data mesh > Deploy > Environments | Blocked only by a live tenant run (WR-502, 2026-11-09): the runner notebook on a tenant (PB-002). |
 | [FEAT-LDE-01](#feat-lde-01) | Local data projects | Implemented but Not Exposed | Partially Verified | None yet (engine calls only) (Preview) | local_query, local_explain, Delta writes and transformation steps are checked like a managed local run; screens still wait on the mockup. |
-| [FEAT-NB-21](#feat-nb-21) | Notebook environments | Implemented | Partially Verified | Notebook status bar > Environment (Preview) | Implementation review of PR #421, #539; run on a tenant before the Preview tag comes off. |
-| [FEAT-NB-22](#feat-nb-22) | Notebook sessions | Implemented | Partially Verified | Notebook status bar > Sessions (Preview) | Implementation review of PR #561; run on a tenant before the Preview tag comes off. |
+| [FEAT-NB-21](#feat-nb-21) | Notebook environments | Implemented | Partially Verified | Notebook status bar > Environment (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #421 and #539 claimed no backlog item, so no implementation review is owed. |
+| [FEAT-NB-22](#feat-nb-22) | Notebook sessions | Implemented | Partially Verified | Notebook status bar > Sessions (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #561 claimed no backlog item, so no implementation review is owed. |
 | [FEAT-NB-26](#feat-nb-26) | Databricks notebooks on this PC | Implemented | Partially Verified | Notebook cells | Implementation review of PR #371. |
 
 ### SQL, Python, and Notebook Development
@@ -127,13 +127,13 @@ on quality.
 | [FEAT-SQL-02](#feat-sql-02) | %%sql cells | Partially Implemented | Partially Verified | Notebook cells | Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013). |
 | [FEAT-EXT-04](#feat-ext-04) | Debugger for notebooks | Partially Implemented | Partially Verified | Notebook line numbers, Variables pane, View tab (Preview) | Implementation review of PR #387; decide whether pipeline runs need step-through. |
 | [FEAT-SQL-03](#feat-sql-03) | Fabric SQL dialect compatibility analyzer | Implemented | Partially Verified | SQL page | Blocked only by a live tenant run (WR-502, 2026-11-09): its verdicts compared with a Fabric Warehouse run on a tenant (HD-054). |
-| [FEAT-NB-12](#feat-nb-12) | Notebook import and export formats | Implemented | Partially Verified | Home > Import; a notebook's Home tab > Export (Preview) | Implementation review of PR #350; run on a tenant before the Preview tag comes off. |
+| [FEAT-NB-12](#feat-nb-12) | Notebook import and export formats | Implemented | Partially Verified | Home > Import; a notebook's Home tab > Export (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350's review was done with PB-118 (Accepted). |
 | [FEAT-NB-13](#feat-nb-13) | Notebook folders | Implemented | Partially Verified | All notebooks | Implementation review of PR #444. |
 | [FEAT-NB-14](#feat-nb-14) | Notebook version history | Implemented | Partially Verified | Notebook ribbon > Versions | Implementation review of PR #346, #461. |
 | [FEAT-NB-15](#feat-nb-15) | Notebook comments | Implemented | Partially Verified | Notebook cells and the Comments panel | Implementation review of PR #388. |
 | [FEAT-NB-16](#feat-nb-16) | Notebook resources | Implemented | Partially Verified | Notebook > Resources | Implementation review of PR #376. |
-| [FEAT-NB-17](#feat-nb-17) | Notebook files and editing Fabric notebooks on this PC | Implemented | Partially Verified | All notebooks; Workspaces item preview > Edit on this PC (Preview) | Implementation review of PR #320; run on a tenant before the Preview tag comes off. |
-| [FEAT-NB-25](#feat-nb-25) | Rich notebook outputs and charts | Implemented | Partially Verified | Notebook cell output (Preview) | Implementation review of PR #385, #386, #427, #430, #448, #472, #479, #490, #546, #552; run on a tenant before the Preview tag comes off. |
+| [FEAT-NB-17](#feat-nb-17) | Notebook files and editing Fabric notebooks on this PC | Implemented | Partially Verified | All notebooks; Workspaces item preview > Edit on this PC (Preview) | Run on a tenant before the Preview tag comes off, and the PB-109 implementation review when that item moves to In review. #320 claimed notebook program ids, not a backlog item. |
+| [FEAT-NB-25](#feat-nb-25) | Rich notebook outputs and charts | Implemented | Partially Verified | Notebook cell output (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #385 to #552 claimed no backlog item, so no implementation review is owed. |
 
 ### Data Engineering and Transformation
 
@@ -158,7 +158,7 @@ on quality.
 | [FEAT-ORC-07](#feat-orc-07) | Fabric pipeline definitions on this PC | Implemented | Partially Verified | fabric-desktop pipeline (CLI) and the external-tool capabilities; no screen | ORCH-002 activity registry, after Chris approves |
 | [FEAT-ORC-08](#feat-orc-08) | Running pipelines on this PC | Implemented | Partially Verified | Create > Pipeline, Pipelines page, Monitor > Runs (Preview) | P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go. |
 | [FEAT-ORC-09](#feat-orc-09) | Pipeline activity compatibility registry | Implemented | Partially Verified | fabric-desktop pipeline (CLI); no screen | Registry v7 on main; review with ORC-08. |
-| [FEAT-ORC-10](#feat-orc-10) | Fabric pipeline runs and activity runs | Implemented | Partially Verified | Monitor > Runs (pipeline, copy job and dataflow runs in Fabric) (Preview) | Implementation review of #640, #653; run on a tenant before Preview comes off. |
+| [FEAT-ORC-10](#feat-orc-10) | Fabric pipeline runs and activity runs | Implemented | Partially Verified | Monitor > Runs (pipeline, copy job and dataflow runs in Fabric) (Preview) | Run on a tenant before Preview comes off, and #640 and #653 reviewed with PB-107 when that item moves to In review. |
 
 ### Fabric Integration and Deployment
 
@@ -232,7 +232,7 @@ on quality.
 | [FEAT-NB-20](#feat-nb-20) | Format code in notebooks | Implemented | Partially Verified | Notebook Edit tab > Format cell, Format notebook | Implementation review of PR #470, #486, #491. |
 | [FEAT-DEV-01](#feat-dev-01) | Profile | Implemented | Partially Verified | Account menu > Profile (Preview) | Proof Forged from Prove, Journey and Achievements tabs (KF-DX-002); implementation review of #598. |
 | [FEAT-DEV-02](#feat-dev-02) | Motion and effects | Implemented | Partially Verified | Settings > Motion and effects | Draft #449 style guide waits on Chris; keep effects subordinate to work (brief section 8). |
-| [FEAT-DEV-03](#feat-dev-03) | Pop-out windows | Implemented | Partially Verified | Monitor > Pop out (Preview) | Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off. |
+| [FEAT-DEV-03](#feat-dev-03) | Pop-out windows | Implemented | Partially Verified | Monitor > Pop out (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #557 and #558 claimed no backlog item, so no implementation review is owed. |
 | [FEAT-DEV-04](#feat-dev-04) | Learn | Implemented | Partially Verified | Learn (bottom of the left rail) (Preview) | Quality reads PB-119 (Learn v1) for the next acceptance card; GD-07 and GD-09 are not built (PB-122). |
 
 ### Enterprise Administration and FinOps
@@ -252,8 +252,8 @@ on quality.
 | [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Implemented | Partially Verified | None (Preview) | Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists |
 | [FEAT-ADM-07](#feat-adm-07) | Capacity of each environment | Implemented | Partially Verified | Optimize > Cost and savings; Data mesh > Environments (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-09): a check against a live tenant's capacities (PB-002). |
 | [FEAT-ADM-08](#feat-adm-08) | Risk check before a run | Implemented | Partially Verified | Run in Fabric and Data mesh deploy confirms; Settings (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-09): the risk check on a tenant before the Preview tag comes off. |
-| [FEAT-ADM-09](#feat-adm-09) | Where to run a notebook (placement advice) | Implemented | Partially Verified | MCP and local API tool fabric_desktop_placement_advice (read only); no screen yet (Preview) | Implementation review of PR #276; run on a tenant before the Preview tag comes off. |
-| [FEAT-ADM-10](#feat-adm-10) | Measured usage import | Implemented | Partially Verified | Optimize > Cost and savings (Preview) | Implementation review of PR #153; run on a tenant before the Preview tag comes off. |
+| [FEAT-ADM-09](#feat-adm-09) | Where to run a notebook (placement advice) | Implemented | Partially Verified | MCP and local API tool fabric_desktop_placement_advice (read only); no screen yet (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #276's review was done with PB-017 (Accepted). |
+| [FEAT-ADM-10](#feat-adm-10) | Measured usage import | Implemented | Partially Verified | Optimize > Cost and savings (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #153's review was done with PB-089 (Accepted). |
 | [FEAT-ADM-11](#feat-adm-11) | Optimize and the central lakehouse | Implemented | Partially Verified | Optimize (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-09): Optimize's central lakehouse set up on a tenant. |
 
 ### Extensibility, APIs, CLI, and MCP
@@ -301,7 +301,7 @@ on quality.
 | [FEAT-OPS-04](#feat-ops-04) | Live test harness | Implemented | Partially Verified | CLI only | Blocked only by a live tenant run (WR-502, 2026-11-09): Chris runs it on a non-production workspace (PB-002). |
 | [FEAT-ADM-03](#feat-adm-03) | Backup and restore of local state | Implemented | Partially Verified | None | Implementation review of PR #91; HD-005 (restore removes the stale WAL and verifies) is a P0 fix |
 | [FEAT-REL-01](#feat-rel-01) | Continuous release channels | Implemented | Unverified | Settings > Updates | Per-build release assets for pinning and rollback (PB-064). |
-| [FEAT-NB-24](#feat-nb-24) | Validate a notebook | Implemented | Partially Verified | Notebook ribbon > Validate (Preview) | Implementation review of PR #282; run on a tenant before the Preview tag comes off. |
+| [FEAT-NB-24](#feat-nb-24) | Validate a notebook | Implemented | Partially Verified | Notebook ribbon > Validate (Preview) | Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #282 claimed no backlog item, so no implementation review is owed. |
 <!-- END GENERATED: index -->
 
 ## Feature details
@@ -2082,7 +2082,7 @@ on quality.
 - **Docs:** [docs/notebook-import-export.md](../notebook-import-export.md)
 - **Pull requests and issues:** [#350](https://github.com/KratosDataGod/KratosForge/pull/350), [#1053](https://github.com/KratosDataGod/KratosForge/pull/1053), [#1146](https://github.com/KratosDataGod/KratosForge/pull/1146), [#1242](https://github.com/KratosDataGod/KratosForge/pull/1242), [#1289](https://github.com/KratosDataGod/KratosForge/pull/1289)
 - **Owning workstream:** Notebook development program
-- **Recommended next action:** Implementation review of PR #350; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350's review was done with PB-118 (Accepted).
 
 ### FEAT-NB-13
 
@@ -2158,7 +2158,7 @@ on quality.
 - **Known limitations:** Edits made in another program while the notebook is open are kept: the app never saves over them (#650); VS Code integration builds on this.
 - **Pull requests and issues:** [#320](https://github.com/KratosDataGod/KratosForge/pull/320), [#650](https://github.com/KratosDataGod/KratosForge/pull/650)
 - **Owning workstream:** Notebook development program
-- **Recommended next action:** Implementation review of PR #320; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Run on a tenant before the Preview tag comes off, and the PB-109 implementation review when that item moves to In review. #320 claimed notebook program ids, not a backlog item.
 
 ### FEAT-NB-18
 
@@ -2219,7 +2219,7 @@ on quality.
 - **Known limitations:** Not published with the notebook: in Fabric, attach a Fabric Environment with the same packages.
 - **Pull requests and issues:** [#421](https://github.com/KratosDataGod/KratosForge/pull/421), [#539](https://github.com/KratosDataGod/KratosForge/pull/539), [#1481](https://github.com/KratosDataGod/KratosForge/pull/1481), [#1765](https://github.com/KratosDataGod/KratosForge/pull/1765)
 - **Owning workstream:** Notebook runtime
-- **Recommended next action:** Implementation review of PR #421, #539; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #421 and #539 claimed no backlog item, so no implementation review is owed.
 
 ### FEAT-NB-22
 
@@ -2234,7 +2234,7 @@ on quality.
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Pull requests and issues:** [#379](https://github.com/KratosDataGod/KratosForge/pull/379), [#464](https://github.com/KratosDataGod/KratosForge/pull/464), [#490](https://github.com/KratosDataGod/KratosForge/pull/490), [#561](https://github.com/KratosDataGod/KratosForge/pull/561)
 - **Owning workstream:** Notebook runtime
-- **Recommended next action:** Implementation review of PR #561; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #561 claimed no backlog item, so no implementation review is owed.
 
 ### FEAT-NB-23
 
@@ -2265,7 +2265,7 @@ on quality.
 - **Docs:** [docs/validate-notebook.md](../validate-notebook.md)
 - **Pull requests and issues:** [#282](https://github.com/KratosDataGod/KratosForge/pull/282), [#762](https://github.com/KratosDataGod/KratosForge/pull/762)
 - **Owning workstream:** Prove
-- **Recommended next action:** Implementation review of PR #282; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #282 claimed no backlog item, so no implementation review is owed.
 
 ### FEAT-NB-25
 
@@ -2281,7 +2281,7 @@ on quality.
 - **Known limitations:** Altair, ipywidgets, Data Wrangler, the chart builder, result downloads and several charts per result carry Preview tags.
 - **Pull requests and issues:** [#385](https://github.com/KratosDataGod/KratosForge/pull/385), [#386](https://github.com/KratosDataGod/KratosForge/pull/386), [#427](https://github.com/KratosDataGod/KratosForge/pull/427), [#430](https://github.com/KratosDataGod/KratosForge/pull/430), [#448](https://github.com/KratosDataGod/KratosForge/pull/448), [#472](https://github.com/KratosDataGod/KratosForge/pull/472), [#479](https://github.com/KratosDataGod/KratosForge/pull/479), [#490](https://github.com/KratosDataGod/KratosForge/pull/490), [#546](https://github.com/KratosDataGod/KratosForge/pull/546), [#552](https://github.com/KratosDataGod/KratosForge/pull/552), [#632](https://github.com/KratosDataGod/KratosForge/pull/632)
 - **Owning workstream:** Notebook outputs
-- **Recommended next action:** Implementation review of PR #385, #386, #427, #430, #448, #472, #479, #490, #546, #552; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #385 to #552 claimed no backlog item, so no implementation review is owed.
 
 ### FEAT-NB-26
 
@@ -2362,7 +2362,7 @@ on quality.
 - **Pull requests and issues:** [#276](https://github.com/KratosDataGod/KratosForge/pull/276)
 - **Owning workstream:** Administration and FinOps (FINOPS-005)
 - **Backlog:** [PB-017](PRODUCT_BACKLOG.md#pb-017)
-- **Recommended next action:** Implementation review of PR #276; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #276's review was done with PB-017 (Accepted).
 
 ### FEAT-ADM-10
 
@@ -2378,7 +2378,7 @@ on quality.
 - **Pull requests and issues:** [#153](https://github.com/KratosDataGod/KratosForge/pull/153), [#1421](https://github.com/KratosDataGod/KratosForge/pull/1421), [#1461](https://github.com/KratosDataGod/KratosForge/pull/1461), [#1501](https://github.com/KratosDataGod/KratosForge/pull/1501), [#1504](https://github.com/KratosDataGod/KratosForge/pull/1504), [#1560](https://github.com/KratosDataGod/KratosForge/pull/1560)
 - **Owning workstream:** Administration and FinOps (FINOPS-003)
 - **Backlog:** [PB-089](PRODUCT_BACKLOG.md#pb-089)
-- **Recommended next action:** Implementation review of PR #153; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #153's review was done with PB-089 (Accepted).
 
 ### FEAT-ADM-11
 
@@ -2441,7 +2441,7 @@ on quality.
 - **Known limitations:** Needs a check in the Windows shell: the browser test runs in Chromium.
 - **Pull requests and issues:** [#557](https://github.com/KratosDataGod/KratosForge/pull/557), [#558](https://github.com/KratosDataGod/KratosForge/pull/558), [#827](https://github.com/KratosDataGod/KratosForge/pull/827), [#831](https://github.com/KratosDataGod/KratosForge/pull/831)
 - **Owning workstream:** UX and simplicity oversight
-- **Recommended next action:** Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off.
+- **Recommended next action:** Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #557 and #558 claimed no backlog item, so no implementation review is owed.
 
 ### FEAT-EXT-05
 
@@ -2473,7 +2473,7 @@ on quality.
 - **Known limitations:** Fabric API faked in tests; not run on a tenant.
 - **Pull requests and issues:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640), [#653](https://github.com/KratosDataGod/KratosForge/pull/653), [#734](https://github.com/KratosDataGod/KratosForge/pull/734), [#735](https://github.com/KratosDataGod/KratosForge/pull/735), [#746](https://github.com/KratosDataGod/KratosForge/pull/746)
 - **Owning workstream:** Build full Data Factory experience (DF-1..10)
-- **Recommended next action:** Implementation review of #640, #653; run on a tenant before Preview comes off.
+- **Recommended next action:** Run on a tenant before Preview comes off, and #640 and #653 reviewed with PB-107 when that item moves to In review.
 
 ### FEAT-GOV-08
 

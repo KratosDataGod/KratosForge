@@ -112,3 +112,33 @@ def test_history_and_drop_name_the_same_table_or_refuse(lake, code, says):  # no
 
 def test_history_of_the_lakehouses_own_table_still_reads(lake):  # noqa: F811
     assert run("spark.sql('DESCRIBE HISTORY `Sales`.`dbo`.`sales`').count()") == ("ok", "1")
+
+
+# ---- spark.catalog: answers about the attached lakehouse and temp views, or refuses by name
+
+def test_catalog_list_columns_reads_a_lakehouse_table_and_a_temp_view(lake):  # noqa: F811
+    status, text = run("[(c.name, c.dataType) for c in spark.catalog.listColumns('sales', 'dbo')]")
+    assert status == "ok" and "('id', 'bigint'), ('region', 'string')" in text
+    status, text = run("df.createOrReplaceTempView('v')\n[c.name for c in spark.catalog.listColumns('v')]")
+    assert (status, text) == ("ok", "['id', 'region']")
+
+
+def test_catalog_list_columns_of_a_missing_table_stops(lake):  # noqa: F811
+    """DuckDB's listColumns gave [] for any name; Spark raises for a table that isn't there."""
+    assert run("spark.catalog.listColumns('nope')")[0] == "error"
+
+
+@pytest.mark.parametrize("call", ["listTables()", "listDatabases()", "listCatalogs()", "listFunctions()",
+                                  "currentDatabase()"])
+def test_catalog_calls_that_would_answer_about_duckdb_are_refused(lake, call):  # noqa: F811
+    status, text = run(f"spark.catalog.{call}")
+    assert status == "error" and f"spark.catalog.{call.split('(')[0]} runs in Fabric" in text
+
+
+def test_catalog_current_and_set_follow_use(lake):  # noqa: F811
+    assert run("spark.catalog.currentCatalog()") == ("ok", "'spark_catalog'")
+    assert run("spark.catalog.setCurrentCatalog('Sales')\nspark.catalog.setCurrentDatabase('dbo')")[0] == "ok"
+    status, text = run("spark.catalog.setCurrentCatalog('main')")
+    assert status == "error" and "setCurrentCatalog('main'): the catalog main" in text
+    status, text = run("spark.catalog.setCurrentDatabase('crm')")
+    assert status == "error" and "can't point it at crm" in text

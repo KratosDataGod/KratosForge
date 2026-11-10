@@ -237,6 +237,9 @@ jobs:
         run: |
           if [ "$EVENT" = pull_request ]; then
             git diff -z --name-only --diff-filter=d HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+            git show HEAD^1:.secrets.baseline > "$RUNNER_TEMP/base-baseline" || true
+            python .github/scripts/secret_scan.py added "$RUNNER_TEMP/base-baseline"
+            git diff -U0 --no-color --no-ext-diff HEAD^1 HEAD | python .github/scripts/secret_scan.py pragmas
             if [ -s "$RUNNER_TEMP/changed" ]; then
               xargs -0 python .github/scripts/secret_scan.py check < "$RUNNER_TEMP/changed"
             else

@@ -75,9 +75,45 @@ def test_the_scanner_is_installed_pinned_by_hash():
 def test_ci_scans_a_pull_requests_changed_files_and_main_in_full_before_preview_publishes():
     job = CI.split("\n  secrets:\n", 1)[1].split("\n\n  ", 1)[0]
     assert "--require-hashes -r .github/requirements/secret-scan.txt" in job
+    assert 'secret_scan.py added "$RUNNER_TEMP/base-baseline"' in job and "HEAD^1 HEAD | python .github/scripts/secret_scan.py pragmas" in job
     assert "git diff -z --name-only --diff-filter=d HEAD^1 HEAD" in job and "fetch-depth: 2" in job
     assert "xargs -0 python .github/scripts/secret_scan.py check" in job
     assert "            python .github/scripts/secret_scan.py check\n" in job, "a push to main scans every tracked file"
     assert "needs:" not in job, "docs-only changes are scanned too"
     release = CI.split("\n  release:\n", 1)[1]
     assert re.search(r"needs: \[[^\]]*\bsecrets\b", release)
+
+
+def test_a_file_name_cant_break_out_of_its_error_line():
+    out = scan.problems({"results": {}}, [("a,b:c\n::error::x%.py", _secret("Secret Keyword", "aaa", 1))])
+    assert out[0].startswith("::error file=a%2Cb%3Ac%0A%3A%3Aerror%3A%3Ax%25.py,line=1::Looks like a secret")
+
+
+def test_a_pull_request_that_adds_to_the_allow_list_says_so():
+    before = _doc(**{"a.py": [{"type": "Secret Keyword", "hash": "aaa", "is_secret": False}]})
+    after = _doc(**{"a.py": [{"type": "Secret Keyword", "hash": "aaa", "line": 9, "is_secret": False}],
+                    "b.py": [{"type": "AWS Access Key", "hash": "bbb", "line": 4, "is_secret": False}]})
+    assert scan.newly_allowed(before, before) == []
+    assert scan.newly_allowed(after, before) == [
+        "::warning file=b.py,line=4::This pull request adds a AWS Access Key here to .secrets.baseline, so the "
+        "secret scan lets it through. Check it isn't a real secret."]
+    assert len(scan.newly_allowed(after, {})) == 2, "no baseline on the base branch: every entry is new"
+
+
+def test_a_pull_request_that_adds_the_skip_pragma_says_so():
+    diff = ("diff --git a/t.py b/t.py\n--- a/t.py\n+++ b/t.py\n@@ -3,0 +4,2 @@ def f():\n"
+            "+x = 1\n+key = 'v'  # pragma: allowlist secret\n"
+            "--- a/u.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-old = 1  # pragma: allowlist secret\n"
+            '--- a/w y.py\n+++ "b/w\\ty.py"\n@@ -0,0 +1 @@\n+k = 2  # pragma: allowlist secret\n')
+    out = scan.pragmas(diff)
+    assert [line.split("::")[1] for line in out] == ["warning file=t.py,line=5", "warning file=w\\ty.py,line=1"]
+    assert scan.pragmas("--- a/t.py\n+++ b/t.py\n@@ -1 +1 @@\n-a\n+b\n") == []
+
+
+def test_an_added_line_that_looks_like_a_header_cant_hide_a_pragma():
+    diff = ("diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,4 @@\n"
+            "+++ hidden\n+++ b/decoy.txt\n+@@ -1 +1 @@\n+token = 'abc'  # pragma: allowlist secret\n"
+            "diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -2 +2 @@\n-a = 1\n\\ No newline at end of file\n"
+            "+a = 2  # pragma: allowlist secret\n")
+    out = scan.pragmas(diff)
+    assert [line.split("::")[1] for line in out] == ["warning file=n.txt,line=4", "warning file=m.py,line=2"]

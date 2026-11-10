@@ -172,7 +172,8 @@ def summary(result: dict[str, Any]) -> str:
 
 # ---- the soak
 
-def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any) -> dict[str, Any]:
+def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any,
+         steps: tuple[str, ...] = ("notebook", "sql", "writes")) -> dict[str, Any]:
     import pyarrow as pa
     import polars as pl
     from deltalake import write_deltalake
@@ -239,9 +240,9 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
 
     try:
         while time.monotonic() - start < minutes * 60:
-            step("notebook", notebook)
-            step("sql", query)
-            step("writes", writes)
+            for name, fn in (("notebook", notebook), ("sql", query), ("writes", writes)):
+                if name in steps:
+                    step(name, fn)
             loops += 1
             if time.monotonic() >= next_sample:
                 gc.collect()
@@ -250,6 +251,7 @@ def soak(work: Path, minutes: float, sample: float, restart_every: int, log: Any
                      "engine_mb": round((memory_used(os.getpid()) or 0) / 2**20, 1), "handles": handles(),
                      "os_threads": os_threads(), "py_threads": threading.active_count(), "children": children(),
                      "kernel_mb": round((memory_used(kernel_pid) or 0) / 2**20, 1) if kernel_pid else None,
+                     "py_blocks": sys.getallocatedblocks(), "gc_objects": len(gc.get_objects()),
                      "files": files(Path(tempfile.gettempdir()), sql.base(), kernel.output_dir)}
                 samples.append(s)
                 print(json.dumps(s), file=log, flush=True)
@@ -268,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--restart-every", type=int, default=25, help="notebook cells between kernel restarts")
     ap.add_argument("--json", type=Path, help="also write the result and every sample here")
     ap.add_argument("--summary", type=Path, help="append a Markdown summary here (CI's job summary)")
+    ap.add_argument("--steps", default="notebook,sql,writes", help="which steps to loop, comma-separated")
     ap.add_argument("--gate", action="store_true", help="exit 1 when a measurement grows (without it, only report)")
     args = ap.parse_args(argv)
 
@@ -281,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
     tempfile.tempdir = str(work / "tmp")
     sys.path.insert(0, str(SIDECAR))
     try:
-        run = soak(work, args.minutes, args.sample, args.restart_every, sys.stdout)
+        run = soak(work, args.minutes, args.sample, args.restart_every, sys.stdout, tuple(args.steps.split(",")))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     result = {"minutes": args.minutes, "warmup_minutes": args.warmup,

@@ -104,6 +104,7 @@ from . import known_folders
 
 _log = logging.getLogger(__name__)
 MAX_ITEM_PINS = 50  # items pinned to Home
+SWEEP_EVERY = 86400.0  # seconds between local-copy sweeps while the engine runs (retention.py)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -249,25 +250,31 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:
-        """Once per engine start, in the background: delete local copies of lakehouse data unused for
-        longer than the organization allows (retention.py)."""
+        """From the engine's first call, in the background and then once a day while it runs: delete local
+        copies of lakehouse data unused for longer than the organization allows (retention.py). An app
+        left open for weeks is swept too, each time under the policy as it is then."""
         if getattr(self, "_swept", False):
             return
         self._swept = True
+        stop = self._sweep_stop = threading.Event()
 
         def run() -> None:
             import logging
 
             from . import retention
-            try:
-                result = retention.sweep(self.root, app_settings.value("local_retention_days"))
-                if result["removed"]:
-                    logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
-                                                     len(result["removed"]), result["bytes"], result["days"])
-            except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
-                logging.getLogger(__name__).exception("Local copy cleanup failed")
+            while True:
+                try:
+                    result = retention.sweep(self.root, app_settings.value("local_retention_days"))
+                    if result["removed"]:
+                        logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
+                                                         len(result["removed"]), result["bytes"], result["days"])
+                except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
+                    logging.getLogger(__name__).exception("Local copy cleanup failed")
+                if stop.wait(SWEEP_EVERY):
+                    return
 
-        threading.Thread(target=run, name="retention-sweep", daemon=True).start()
+        self._sweeper = threading.Thread(target=run, name="retention-sweep", daemon=True)
+        self._sweeper.start()
 
     def _start_usage_send(self) -> None:
         """Once per engine start, in the background: send finished days of usage data, if it's on."""

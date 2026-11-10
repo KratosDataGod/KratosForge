@@ -80,6 +80,46 @@ def test_a_file_in_use_doesnt_stop_the_sweep(tmp_path, monkeypatch):
     assert busy.exists() and not old.exists()
 
 
+def test_a_table_in_use_stays_whole_and_goes_at_a_later_sweep(tmp_path, monkeypatch):
+    """On Windows a folder can't be renamed while a file in it is open (a notebook reading the table
+    mid-session): the table is kept whole, not emptied around the open file."""
+    table = tmp_path / "onelake-cache" / "test" / "LH" / "Tables" / "orders"
+    log = touch(table / "_delta_log" / "00000000000000000000.json", OLD)
+    part = touch(table / "part-0.parquet", OLD, b"123")
+    real = type(table).rename
+
+    def rename(self, target):
+        if self == table:
+            raise PermissionError(32, "The process cannot access the file because it is being used")
+        return real(self, target)
+    monkeypatch.setattr(type(table), "rename", rename)
+    kept = retention.sweep(tmp_path, 30, now=NOW)
+    assert kept["removed"] == [] and kept["bytes"] == 0
+    assert log.exists() and part.exists() and not list(table.parent.glob(".*"))
+
+    monkeypatch.setattr(type(table), "rename", real)  # no longer open
+    done = retention.sweep(tmp_path, 30, now=NOW)
+    assert done["removed"] == ["onelake-cache/test/LH/Tables/orders"] and done["bytes"] == 4
+    assert not table.exists() and not (tmp_path / "onelake-cache" / "test").exists()
+
+
+def test_a_folder_a_sweep_renamed_aside_but_didnt_finish_goes_at_the_next(tmp_path):
+    aside = tmp_path / "staging" / f".orders{retention.TRASH}123"
+    touch(aside / "part-0.parquet", NEW)  # new or not: it was already being deleted
+    touch(aside / "_delta_log" / "00000000000000000000.json", NEW)
+    done = retention.sweep(tmp_path, 30, now=NOW)
+    assert done["removed"] == [f"staging/.orders{retention.TRASH}123"] and not aside.exists()
+
+
+def test_an_empty_folder_made_in_the_last_hour_stays_for_the_download_about_to_fill_it(tmp_path):
+    fresh = tmp_path / "onelake-cache" / "test" / "LH" / "Files" / "incoming"
+    fresh.mkdir(parents=True)
+    emptied = touch(tmp_path / "files" / "lh1" / "old.csv", OLD).parent
+    os.utime(emptied, (OLD, OLD))
+    retention.sweep(tmp_path, 30, now=NOW)
+    assert fresh.is_dir() and not emptied.exists()
+
+
 def test_policy_sets_the_period(monkeypatch, tmp_path):
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "la"))

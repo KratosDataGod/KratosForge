@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import requests
 from urllib3.util import parse_url
 
-from . import http_session, redact
+from . import claims, http_session, redact
 from .onelake import error_code
 from .paging import Pages, PagingError
 from .retrying import SAFE_METHODS, PollTimedOut, poll_until, send_with_retry
@@ -272,8 +272,9 @@ class FabricClient:
             raise _unsure(method, url, exc) from exc
         if resp.status_code == 401:
             # Fabric refused the token before reading the request, so even a write is safe to send
-            # again: once, and only with a token that is actually new.
-            fresh = self._refresh()
+            # again: once, and only with a token that is actually new (asked for with Fabric's claims
+            # challenge, when it sent one: claims.py).
+            fresh = claims.renew(self._refresh, resp)
             if fresh != token:
                 close = getattr(resp, "close", None)
                 if callable(close):

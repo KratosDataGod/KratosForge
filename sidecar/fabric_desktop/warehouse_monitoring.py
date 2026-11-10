@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import claims
 from .redact import one_line
 from .retrying import TRANSIENT_STATUS, send_with_retry
 
@@ -215,7 +216,7 @@ def query(post: Callable[..., Any], cluster_uri: str, database: str, kql: str, t
 
     resp = read(token)
     if resp.status_code == 401 and refresh is not None:
-        fresh = refresh()
+        fresh = claims.renew(refresh, resp)  # with Kusto's claims challenge, when it sent one
         if fresh and fresh != token:  # once, and only with a token that is actually new
             close = getattr(resp, "close", None)
             if callable(close):

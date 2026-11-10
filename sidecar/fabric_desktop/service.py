@@ -21,6 +21,7 @@ from .audit import AuditLog
 from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
+from .claims import Refresh
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .learn import evidence
@@ -153,8 +154,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
-            if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
-                self._auth = Authenticator(client_id, interactive=not self.headless)
+            # Continuous Access Evaluation is a Preview feature (claims.py): it follows show_preview, and
+            # turning it on or off builds the sign-in again, since MSAL takes it when it starts.
+            cae = bool(app_settings.value("show_preview"))
+            if (self._auth is None or getattr(self._auth, "client_id", client_id) != client_id
+                    or getattr(self._auth, "continuous_access", cae) != cae):
+                self._auth = Authenticator(client_id, interactive=not self.headless, continuous_access=cae)
             return self._auth
 
     @property
@@ -230,7 +235,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def _refreshed(self, scopes: list[str]) -> Any:
         """How to get a new token after a 401, when the signed-in identity can; None to ask again."""
         refreshed = getattr(self.auth, "refreshed_token", None)
-        return (lambda: refreshed(scopes)) if callable(refreshed) else None
+        return Refresh(refreshed, scopes) if callable(refreshed) else None
 
     @property
     def history_file(self) -> Path:

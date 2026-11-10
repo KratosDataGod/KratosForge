@@ -258,7 +258,7 @@ def test_calls_arriving_together_build_one_sign_in_client(tmp_path, monkeypatch)
     class Slow:
         client_id = ""
 
-        def __init__(self, client_id, interactive=True):
+        def __init__(self, client_id, interactive=True, continuous_access=False):
             self.client_id = client_id
             built.append(self)
             time.sleep(0.2)  # the endpoint lookup

@@ -83,10 +83,11 @@ extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its author
 # unused loop variable. The engine's Format cell runs ruff with --isolated, so nothing here changes how
 # cells are formatted.
 [tool.ruff.lint]
-select = ["E9", "F", "B"]
+select = ["E9", "F", "B", "BLE"]
 # Every bugbear rule is on. A closure using a loop variable (B023) that is only called within that
-# iteration is marked `noqa: B023` with the reason. Blind excepts (BLE) stay off:
-# tests/test_silent_except.py already requires every broad handler to log, narrow or say why it is silent.
+# iteration is marked `noqa: B023` with the reason. Blind excepts (BLE) are on: each reviewed broad
+# handler is marked `# noqa: BLE001 - <reason>` on its except line, and tests/test_blind_except.py
+# fails on a mark without a reason, so `grep -rn "BLE001"` is the list of reviewed exceptions.
 
 [tool.ruff.lint.per-file-ignores]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.

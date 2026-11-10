@@ -46,7 +46,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         statements = _statements(sqlglot.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
                                                read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
@@ -181,7 +181,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     return _spark_timestampdiff(spark_builtins_sql.rewrite(
-        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement))))))))
+        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_cast_functions(_spark_names(statement)))))))))
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -740,6 +740,49 @@ def _whole_number(node: exp.Expression) -> bool:
     if isinstance(node, exp.Literal):
         return node.is_int
     return isinstance(node, (exp.Cast, exp.TryCast)) and node.to.this in _INT_CASTS
+
+
+# Spark's cast functions (int(x), bigint(x), double(x), ...) are CAST(x AS type) in Spark. sqlglot reads
+# int(), double() and most others as a Cast, and bigint, smallint, tinyint, decimal and binary as plain calls,
+# which spark_fixes makes casts so the casts below give Spark's value. binary(text) is its UTF-8 bytes
+# (DuckDB's cast reads escapes and refuses non-ASCII). decimal(x) is DECIMAL(10, 0).
+_CAST_FUNCTIONS = {"BIGINT": "BIGINT", "SMALLINT": "SMALLINT", "TINYINT": "TINYINT", "DECIMAL": "DECIMAL(10, 0)"}
+_BINARY_FUNCTION = ("CASE WHEN typeof(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
+                    "WHEN typeof(fj_arg0) IN ('BLOB', '\"NULL\"') THEN TRY_CAST(fj_arg0 AS BLOB) "
+                    "ELSE ERROR('binary() of type ' || typeof(fj_arg0) || ' can''t run on this PC the way it runs in "
+                    "Fabric, so nothing ran: Spark writes its bytes. Run the cell in Fabric, or pass text.') END")
+
+
+def _spark_cast_functions(statement: exp.Expression, legacy: bool = False) -> exp.Expression:
+    """The cast functions as casts: Databricks SQL's CAST (ANSI, a Cast), or with ``legacy`` Spark's CAST
+    with ANSI off (a TryCast, as sqlglot reads Spark's CAST), as spark_legacy_casts uses it. binary() is
+    written inside spark_fixes only, after spark_builtins_sql.mark(), so its typeof stays DuckDB's."""
+    kind = exp.TryCast if legacy else exp.Cast
+    for call in list(statement.find_all(exp.Anonymous)):
+        name = call.name.upper()
+        if name == "BINARY" and len(call.expressions) == 1 and not legacy:  # inside spark_fixes, after mark()
+            call.replace(exp.paren(_with_args(_BINARY_FUNCTION, [call.expressions[0]])))
+        elif name in _CAST_FUNCTIONS and len(call.expressions) == 1:
+            call.replace(kind(this=call.expressions[0].copy(),
+                              to=exp.DataType.build(_CAST_FUNCTIONS[name], dialect="spark")))
+    return statement
+
+
+def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
+    """Spark SQL and the DataFrame API only (ANSI off, as Fabric runs): int('1.9') is Spark's CAST, which
+    gives 1. sqlglot reads Spark's CAST and :: as a TryCast, so a plain Cast came from a cast function
+    (int(x), double(x), ...) or is a typed literal; a cast function's becomes a TryCast before spark_fixes. Databricks SQL is ANSI and
+    doesn't use this. Casts to a timestamp are left to spark_legacy_times."""
+    for node in list(statement.find_all(exp.Cast)):
+        # A typed literal (DATE '2026-13-01') is a Cast too, but Spark refuses a bad one even with ANSI off,
+        # so it stays a Cast. sqlglot tells them apart only by position: a cast function's Cast carries
+        # its name's place in the query (tests/test_spark_builtins_sql.py pins it).
+        if type(node) is exp.Cast and node.to.this not in _TIMESTAMPS and "start" in node.meta:
+            replacement = exp.TryCast(this=node.this, to=node.to)
+            if node is statement:
+                return replacement
+            node.replace(replacement)
+    return _spark_cast_functions(statement, legacy=True)
 
 
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:

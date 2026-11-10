@@ -19,11 +19,11 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 367 |
+| Runs | 389 |
 | Differs | 0 |
 | Refused | 21 |
 | Fails | 0 |
-| Not checked | 50 |
+| Not checked | 28 |
 | **All** | **438** |
 
 ## Aggregate
@@ -163,19 +163,19 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bigint` | Not checked |  |  |
-| `binary` | Not checked |  |  |
-| `boolean` | Not checked |  |  |
+| `bigint` | Runs | `SELECT bigint('12'), bigint(3.9), bigint(-3.9)` |  |
+| `binary` | Runs | `SELECT binary('Spark')` |  |
+| `boolean` | Runs | `SELECT boolean('true'), boolean(0), boolean('no')` |  |
 | `cast` | Runs | `SELECT cast('10' as int)` |  |
-| `date` | Not checked |  |  |
-| `decimal` | Not checked |  |  |
-| `double` | Not checked |  |  |
-| `float` | Not checked |  |  |
-| `int` | Not checked |  |  |
-| `smallint` | Not checked |  |  |
-| `string` | Not checked |  |  |
-| `timestamp` | Not checked |  |  |
-| `tinyint` | Not checked |  |  |
+| `date` | Runs | `SELECT date('2026-01-31'), date(TIMESTAMP '2026-01-31 23:59:59')` |  |
+| `decimal` | Runs | `SELECT decimal('12.345'), decimal(7)` |  |
+| `double` | Runs | `SELECT double('1.5'), double(2)` |  |
+| `float` | Runs | `SELECT float('1.5'), float(2)` |  |
+| `int` | Runs | `SELECT int('12'), int(3.9), int(-3.9)` |  |
+| `smallint` | Runs | `SELECT smallint('12'), smallint(3.9)` |  |
+| `string` | Runs | `SELECT string(12), string(1.50), string(true), string(DATE '2026-01-31')` |  |
+| `timestamp` | Runs | `SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')` |  |
+| `tinyint` | Runs | `SELECT tinyint('12'), tinyint(3.9)` |  |
 
 ## CSV
 
@@ -217,7 +217,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
 | `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
-| `make_interval` | Not checked | `SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)` |  |
+| `make_interval` | Runs | `SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)` |  |
 | `make_timestamp` | Runs | `SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ltz` | Runs | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ntz` | Runs | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
@@ -428,13 +428,13 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `!=` | Not checked |  |  |
-| `<>` | Not checked |  |  |
-| `between` | Not checked |  |  |
-| `case` | Not checked |  |  |
-| `range` | Not checked |  |  |
+| `!=` | Runs | `SELECT 1 != 2, 'a' != 'a', NULL != 1` |  |
+| `<>` | Runs | `SELECT 1 <> 2, 'a' <> 'a', NULL <> 1` |  |
+| `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
+| `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
+| `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
 | `sql_keywords` | Not checked |  |  |
-| `\|\|` | Not checked |  |  |
+| `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate
 
@@ -457,9 +457,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `like` | Runs | `SELECT like('Spark', '_park')` |  |
 | `not` | Runs | `SELECT not true` |  |
 | `or` | Runs | `SELECT true or false` |  |
-| `regexp` | Not checked | `SELECT regexp('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `regexp_like` | Not checked | `SELECT regexp_like('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `rlike` | Not checked | `SELECT rlike('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
+| `regexp` | Runs | `SELECT regexp('Steven', 'Ste(v\|ph)en'), regexp('Stefan', 'Ste(v\|ph)en')` |  |
+| `regexp_like` | Runs | `SELECT regexp_like('Steven', 'Ste(v\|ph)en'), regexp_like('Stefan', 'Ste(v\|ph)en')` |  |
+| `rlike` | Runs | `SELECT rlike('Steven', 'Ste(v\|ph)en'), rlike('Stefan', 'Ste(v\|ph)en')` |  |
 
 ## String
 

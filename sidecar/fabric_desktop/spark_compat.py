@@ -79,7 +79,13 @@ def _name_of(c: Any) -> str:
 
 
 def _lit(value: Any) -> str:
+    """A literal in Spark SQL, for _call (Spark escapes a quote as \\')."""
     return exp.convert(value).sql("spark")
+
+
+def _duck_lit(value: Any) -> str:
+    """A literal in DuckDB SQL (a quote doubled; a backslash is just a backslash)."""
+    return exp.convert(value).sql("duckdb")
 
 
 # ---- functions
@@ -374,7 +380,7 @@ def expr(text: str) -> Column:
     otherwise it is named as Spark names the expression, not after its DuckDB SQL."""
     read = _parse(text)
     # as spark.sql reads it, in a SELECT (a rewrite replaces a node in its parent)
-    select = spark_sql.spark_legacy_times(spark_sql.spark_fixes(exp.select(read.copy())))
+    select = spark_sql.spark_legacy_times(spark_sql.spark_fixes(spark_sql.spark_legacy_casts(exp.select(read.copy()))))
     item = cast(exp.Select, select).expressions[0]
     body = item.this if isinstance(item, exp.Alias) else item
     if isinstance(read, exp.Alias):
@@ -839,7 +845,7 @@ def _get_item(self: Column, key: Any) -> Column:
         raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
     if isinstance(key, int):
         return _named(_sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]"), f"{_spark_text(self)}[{key}]")
-    out = _named(_sql(f"({_col_sql(self)})[{_lit(key)}]"), f"{_spark_text(self)}[{key}]")
+    out = _named(_sql(f"({_col_sql(self)})[{_duck_lit(key)}]"), f"{_spark_text(self)}[{key}]")
     out._fd_field = (self, key)  # type: ignore[attr-defined]  # a struct's field is named col.key; see _field_names
     return out
 
@@ -854,7 +860,7 @@ def _get_field(self: Column, name: str) -> Column:
     """``col.getField(name)``: a struct's field, named ``col.name`` as in Spark."""
     if not isinstance(name, str):
         raise TypeError(f"getField takes a field name, not {type(name).__name__}")
-    return _named(_sql(f"({_col_sql(self)})[{_lit(name)}]"), f"{_spark_text(self)}.{name}")
+    return _named(_sql(f"({_col_sql(self)})[{_duck_lit(name)}]"), f"{_spark_text(self)}.{name}")
 
 
 def _ordered(name: str, fn: Any) -> Any:
@@ -1543,7 +1549,7 @@ def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, va
     # as Spark's DataFrame.unpivot returns them. Unlike SQL's UNPIVOT, it keeps a null value.
     id_cols = ", ".join(_col_sql(c) for c in ids)
     numbered = self.relation.project(f"*, row_number() OVER () AS {_SAMPLE_ROW}")
-    parts = [numbered.project(f"{id_cols + ', ' if ids else ''}{_lit(_name_of(v))} AS {_col_sql(variableColumnName)}, "
+    parts = [numbered.project(f"{id_cols + ', ' if ids else ''}{_duck_lit(_name_of(v))} AS {_col_sql(variableColumnName)}, "
                               f"{_col_sql(v)} AS {_col_sql(valueColumnName)}, {_SAMPLE_ROW}, {i} AS {_SAMPLE_ROW}_col")
              for i, v in enumerate(values)]
     out = parts[0]

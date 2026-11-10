@@ -423,7 +423,7 @@ def _tpch_available() -> bool:
         con.execute("INSTALL tpch")
         con.execute("LOAD tpch")
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - any import failure means the extension isn't there
         try:
             import duckdb_extension_tpch  # noqa: F401
             return True

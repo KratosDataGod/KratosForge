@@ -507,7 +507,7 @@ class Engine:
             return res
         except CheckStop as ex:
             res.status, res.message = "failed", str(ex)
-        except Exception as ex:  # custom code and source errors are reported, not raised
+        except Exception as ex:  # noqa: BLE001 - custom code and source errors are reported, not raised
             from ..retrying import is_retryable
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
             if isinstance(ex, LeaseBusy):  # another run or notebook is writing the table: its own words say so
@@ -597,7 +597,7 @@ class Engine:
                     if self.store.exists(self.lakehouse(e), e.schema, e.table) else []
                 committed = any(c.get("fabric_desktop_run_id") == run for c in history)
                 logged = self.store.meta_where("run_log", (pl.col("entity") == e.name) & (pl.col("run_id") == run))
-            except Exception as exc:  # noqa: BLE001  only the earlier run's record is missed; this run goes on
+            except Exception as exc:  # noqa: BLE001 - only the earlier run's record is missed; this run goes on
                 _log.warning("Couldn't check %s for a run that stopped: %s", path.name, exc)
                 continue
             if committed or logged.height:  # committed: _record_unlogged records it; logged: nothing to do
@@ -659,7 +659,7 @@ class Engine:
                    "started_at": first.isoformat(timespec="microseconds"), "seconds": None,
                    "rows_read": None, "rows_written": rows.height if rows is not None else None, "quarantined": None,
                    "delta_version": version, "backfill": "", "message": note, "steps": "[]"}
-        except Exception as exc:  # noqa: BLE001  only the earlier run's record is missed; this run goes on
+        except Exception as exc:  # noqa: BLE001 - only the earlier run's record is missed; this run goes on
             _log.warning("Couldn't check %s for a run that stopped before it was recorded: %s", e.name, exc)
             return
         if self._after_commit(res, "the record of a run that stopped", (META_LAKEHOUSE, "meta", "run_log"),
@@ -679,7 +679,7 @@ class Engine:
         token = f"{self.run_id}:{uuid.uuid4().hex[:8]}"
         try:
             since = self.store.version(*where)
-        except Exception:  # noqa: BLE001  unknown: the check below then reads the whole history
+        except Exception:  # noqa: BLE001 - unknown: the check below then reads the whole history
             since = None
         tried = [0]
 
@@ -692,7 +692,7 @@ class Engine:
         try:
             retrying.retry_call(once, lambda exc: True, AFTER_COMMIT_ATTEMPTS, lambda n: 0.2 * n, time.sleep)
             return True
-        except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
+        except Exception as exc:  # noqa: BLE001 - the table is committed whatever happens here
             if disk_full.is_disk_full(exc):
                 free = disk_full.free_space(self._local_path(where))
                 note = (f"couldn't save {what}, as the disk is full{f' ({free})' if free else ''}. The table's "
@@ -757,7 +757,7 @@ class Engine:
             return saved
         try:
             history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
-        except Exception:  # noqa: BLE001  no history to go by: the saved watermark is all there is
+        except Exception:  # noqa: BLE001 - no history to go by: the saved watermark is all there is
             return saved
         for commit in history:  # newest first
             value, run = commit.get("fabric_desktop_watermark"), commit.get("fabric_desktop_run_id")
@@ -1089,7 +1089,7 @@ class Engine:
                     if not asked():
                         return
                 put(done)
-            except BaseException as ex:  # a check that stops, an error in a hook: the commit never happens
+            except BaseException as ex:  # noqa: BLE001 - a check that stops, an error in a hook: the commit never happens
                 put(ex)
 
         def take() -> Any:
@@ -1192,7 +1192,7 @@ class Engine:
         # the last 20 commits are looked at, as for the watermark.
         try:
             history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
-        except Exception as exc:  # noqa: BLE001  no history to go by: the saved list is all there is
+        except Exception as exc:  # noqa: BLE001 - no history to go by: the saved list is all there is
             res.steps.append(Step("files", 0, 0.0, f"couldn't read the table's history ({type(exc).__name__}: {exc}), "
                                                    "so only the saved list of loaded files is used"))
             return done

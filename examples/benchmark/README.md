@@ -40,4 +40,8 @@ workflow never writes one). For a new image, add it to the workflow's matrix wit
 3. From `sidecar/`: `python ../examples/benchmark/compare.py bench.json --write-baseline ../examples/benchmark/baselines/<image>.json --runner "GitHub Actions <image>" --commit <commit>`
 4. Commit the new file in a pull request that says why the numbers moved.
 
+## Memory soak
+
+[memory_soak.py](memory_soak.py) loops notebook cells, kernel restarts, local SQL and Delta writes, and checks that memory, handles, threads, child processes and temp files level off. Run it from `sidecar/`: `python ../examples/benchmark/memory_soak.py --minutes 20`. The **Memory soak** workflow runs it on Linux and Windows and only warns for now. What counts as growth: [Memory soak](../../docs/performance.md#memory-soak).
+
 These runs follow TPC-H's data and queries but are not audited TPC-H results. TPC-H is a trademark of the Transaction Processing Performance Council.

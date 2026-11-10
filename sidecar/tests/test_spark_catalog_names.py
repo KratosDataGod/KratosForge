@@ -128,8 +128,7 @@ def test_catalog_list_columns_of_a_missing_table_stops(lake):  # noqa: F811
     assert run("spark.catalog.listColumns('nope')")[0] == "error"
 
 
-@pytest.mark.parametrize("call", ["listTables()", "listDatabases()", "listCatalogs()", "listFunctions()",
-                                  "currentDatabase()"])
+@pytest.mark.parametrize("call", ["listTables()", "listDatabases()", "listCatalogs()", "listFunctions()"])
 def test_catalog_calls_that_would_answer_about_duckdb_are_refused(lake, call):  # noqa: F811
     status, text = run(f"spark.catalog.{call}")
     assert status == "error" and f"spark.catalog.{call.split('(')[0]} runs in Fabric" in text
@@ -142,3 +141,20 @@ def test_catalog_current_and_set_follow_use(lake):  # noqa: F811
     assert status == "error" and "setCurrentCatalog('main'): the catalog main" in text
     status, text = run("spark.catalog.setCurrentDatabase('crm')")
     assert status == "error" and "can't point it at crm" in text
+
+
+def test_catalog_current_database_is_the_lakehouse_without_schemas(lake, monkeypatch):  # noqa: F811
+    """In Fabric the current database is the default lakehouse. With schemas, which one this PC can't say: refused."""
+    assert run("spark.catalog.currentDatabase()")[0] == "error"  # the fixture's lakehouse has schemas
+    import dataclasses
+    monkeypatch.setattr(lakehouse, "_attached", dataclasses.replace(lakehouse._attached, schemas_enabled=lambda: False))
+    assert run("spark.catalog.currentDatabase()") == ("ok", "'Sales'")
+
+
+def test_catalog_list_columns_marks_a_lakehouse_tables_partition_columns(lake):  # noqa: F811
+    """A table Fabric wrote partitioned by region: listColumns says so, as Spark does."""
+    import pyarrow as pa
+    from deltalake import write_deltalake
+    write_deltalake(str(lake / "dbo" / "parts"), pa.table({"id": [1], "region": ["EU"]}), partition_by=["region"])
+    status, text = run("[(c.name, c.isPartition) for c in spark.catalog.listColumns('dbo.parts')]")
+    assert status == "ok" and "('region', True)" in text and "('id', False)" in text

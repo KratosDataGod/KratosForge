@@ -1,21 +1,11 @@
 // Living Experience empty states (LX-07, Preview): one original spot illustration, one sentence and
-// one primary action for Recent notebooks, Data items and Pipelines. Each spot is a small inline SVG
+// one primary action for Data items and Pipelines. Each spot is a small inline SVG
 // drawn here (under 4 KB, no image files), coloured with currentColor and the accent token, so it
 // follows high contrast. Other skins (Fabric, Databricks, Snowflake) keep the same text and action
-// with their own neutral icon, so a theme is never mixed. Nothing here moves.
+// with their own neutral icon, so a theme is never mixed. Nothing here moves, and the title is set in the
+// app's own type (Chris's art rule, 2026-11-10: no fantasy styling on working pages).
 
 const EMPTY_SPOTS = {
-  // A cold forge: the anvil, an unlit hearth and one ember waiting.
-  forge: {
-    alt: "An anvil beside a cold forge with one ember",
-    paths: [
-      ["path", { d: "M18 92 H102", stroke: "currentColor", "stroke-width": "3", "stroke-linecap": "round" }],
-      ["path", { d: "M30 58 H82 L94 64 H76 V72 L86 88 H34 L44 72 V64 H30 Z", fill: "var(--accent)" }],
-      ["path", { d: "M8 92 V50 Q8 40 18 40 H24 V92", fill: "none", stroke: "currentColor", "stroke-width": "3" }],
-      ["path", { d: "M10 84 Q16 76 22 84", fill: "none", stroke: "currentColor", "stroke-width": "2", opacity: ".5" }],
-      ["circle", { cx: "16", cy: "86", r: "3", fill: "var(--brand-orange)" }],
-    ],
-  },
   // Uncharted land: hills, a far peak and a flag not yet planted.
   land: {
     alt: "Uncharted hills with a flag waiting to be planted",
@@ -62,5 +52,5 @@ function livingEmpty({ spot, fallbackIcon, title, plainTitle, text, action }) {
   const skin = state.settings?.ui_skin?.value || "kratosforge";
   if (!previewShown() || skin !== "kratosforge" || !EMPTY_SPOTS[spot]) return emptyState({ icon: fallbackIcon, title: plainTitle || title, text, action });
   return h("div", { class: "empty living-empty" }, emptySpotSvg(spot),
-    h("span", { class: "title living-empty-title" }, title), h("span", { class: "text" }, text), action);
+    h("span", { class: "title" }, title), h("span", { class: "text" }, text), action);
 }

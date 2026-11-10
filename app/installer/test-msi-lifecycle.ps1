@@ -70,6 +70,7 @@ function Show-Log($result) {
 }
 
 # Installed apps entries, looked for in HKLM too, so an entry in the wrong place is counted, not missed.
+# A function's empty array comes back as $null, so every caller wraps it in @() before .Count (strict mode).
 function Get-Entries {
     $roots = @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
                "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*")
@@ -90,7 +91,7 @@ function Assert-Installed([version] $Version, [string] $ExeHash, [string] $Step)
     if ($hash -ne $ExeHash) { throw "$Step`: the installed exe isn't the expected build ($hash, expected $ExeHash)" }
     if (-not (Test-Path -LiteralPath $Shortcut)) { throw "$Step`: the Start menu shortcut is missing" }
     if (-not (Get-Value "InstallFolder")) { throw "$Step`: HKCU InstallFolder (the detection rule) is missing" }
-    $entries = Get-Entries
+    $entries = @(Get-Entries)
     if ($entries.Count -ne 1) { throw "$Step`: $($entries.Count) KratosForge entries in Installed apps, not 1" }
     if ($entries[0].PSPath -notlike "*HKEY_CURRENT_USER*") { throw "$Step`: the Installed apps entry isn't per user ($($entries[0].PSPath))" }
     if ([version] $entries[0].DisplayVersion -ne $Version) {
@@ -122,7 +123,7 @@ function Assert-UserData([string] $Step) {
     "$Step`: settings, notebook and sign-in cache unchanged"
 }
 
-if ((Get-Entries).Count -or (Test-Path -LiteralPath $InstallDir)) {
+if (@(Get-Entries).Count -or (Test-Path -LiteralPath $InstallDir)) {
     throw "KratosForge is already installed for this user, so the check can't start clean"
 }
 
@@ -185,7 +186,7 @@ if (Test-Path -LiteralPath $Shortcut) { throw "4-uninstall: the Start menu short
 foreach ($name in "InstallFolder", "StartMenuShortcut") {
     if ($null -ne (Get-Value $name)) { throw "4-uninstall: HKCU $name is still there" }
 }
-if ((Get-Entries).Count) { throw "4-uninstall: KratosForge is still in Installed apps" }
+if (@(Get-Entries).Count) { throw "4-uninstall: KratosForge is still in Installed apps" }
 "4-uninstall: program folder, shortcut, HKCU values and Installed apps entry removed"
 Assert-UserData "4-uninstall"
 "The MSI install lifecycle checks passed."

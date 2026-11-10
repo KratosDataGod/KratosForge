@@ -48,6 +48,15 @@ export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on
 export const API_VERSION = 1;
 export const CONNECTION_LOST = "KratosForge closed the connection, so it may have restarted or stopped. Run the cell again.";
 export const RESTARTED = "The notebook's session in KratosForge ended while this cell ran (KratosForge may have restarted). Run the cell again.";
+export const TIMED_OUT = "KratosForge didn't answer in time. It may be busy with a long task; try again in a moment, or restart KratosForge.";
+export function unreachable(code: string): string {
+  return `This window couldn't reach KratosForge on this PC (${code}). Try again; if it keeps happening, restart KratosForge.`;
+}
+// How often a dropped or slow poll of a running cell is tried again before the cell is reported as
+// failed. Polling only reads, so asking again can't run anything twice; starting a cell is never retried.
+const POLL_RETRIES = 3;
+// A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
+const POLL_TIMEOUT_RETRIES = 1;
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
 const BUSY_RETRIES = 3;
@@ -73,15 +82,22 @@ export function cellTooLarge(size: number): string {
 
 interface Reply { status: number; payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } } | null }
 
-function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer): Promise<Reply> {
+function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer,
+  timeout = 60_000): Promise<Reply> {
   return new Promise((resolve, reject) => {
+    let timedOut = false;
+    // A connection that drops or stalls after the answer has begun is reported on the response, not the request.
+    const cut = () => reject(timedOut ? new ChannelError(0, "timed_out", TIMED_OUT) : new ChannelError(0, "connection_lost", CONNECTION_LOST));
     const req = http.request({ host: "127.0.0.1", port, method, path: url, headers: { Host: `127.0.0.1:${port}`, ...headers },
-      timeout: 60_000 }, (res) => {
+      timeout }, (res) => {
       if (Number(res.headers["content-length"]) > MAX_REPLY) {
         req.destroy();
         reject(new ChannelError(0, "too_large", TOO_LARGE));
         return;
       }
+      res.on("aborted", cut);
+      res.on("error", cut);
+      res.on("close", () => { if (!res.complete) cut(); });
       const chunks: Buffer[] = [];
       let size = 0;
       res.on("data", (c: Buffer) => {
@@ -101,11 +117,16 @@ function send(port: number, method: string, url: string, headers: Record<string,
         }
       });
     });
-    req.on("timeout", () => req.destroy(new Error("KratosForge didn't answer in time.")));
+    req.on("timeout", () => {
+      timedOut = true;
+      req.destroy();
+    });
+    // Every way the connection can fail ends as a ChannelError in plain words, never a raw socket error.
     req.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") reject(new ChannelError(0, "not_listening", NOT_LISTENING));
+      if (timedOut) reject(new ChannelError(0, "timed_out", TIMED_OUT));
+      else if (err.code === "ECONNREFUSED") reject(new ChannelError(0, "not_listening", NOT_LISTENING));
       else if (err.code === "ECONNRESET" || err.code === "EPIPE") reject(new ChannelError(0, "connection_lost", CONNECTION_LOST));
-      else reject(err);
+      else reject(new ChannelError(0, "unreachable", unreachable(err.code || "no answer")));
     });
     if (data) req.write(data);
     req.end();
@@ -114,6 +135,10 @@ function send(port: number, method: string, url: string, headers: Record<string,
 
 export class Channel {
   token = "";
+  /** How long one call may wait for the app's answer, in ms. A poll's own wait is 20 seconds. */
+  timeout = 60_000;
+  /** The first pause before a dropped poll is tried again, in ms; it doubles each time. */
+  pollPause = 500;
 
   constructor(private readonly dir: string = dataDir()) {}
 
@@ -122,7 +147,7 @@ export class Channel {
    * user on this PC could take the same port, and a remembered proof would still match. */
   private async prove(where: { port: number; hello: string }): Promise<void> {
     const nonce = crypto.randomBytes(24).toString("hex");
-    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}&api=${API_VERSION}`, {});
+    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}&api=${API_VERSION}`, {}, undefined, this.timeout);
     const result = (reply.payload?.ok ? reply.payload.result : null) as { proof?: unknown; api?: unknown } | null;
     const proof = result ? String(result.proof ?? "") : "";
     const want = crypto.createHmac("sha256", where.hello).update(nonce).digest();
@@ -164,7 +189,7 @@ export class Channel {
     }
     if (hello) headers["X-KratosForge-Hello"] = where.hello;
     else if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    const { status, payload } = await send(where.port, method, url, headers, data);
+    const { status, payload } = await send(where.port, method, url, headers, data, this.timeout);
     if (!payload) throw new ChannelError(status, "bad_reply", "KratosForge sent a reply this extension can't read.");
     if (payload.ok) return payload.result;
     if (status === 503 && payload.error?.code === "busy") throw new ChannelError(503, "busy", BUSY);
@@ -225,13 +250,28 @@ export class Channel {
     return this.request("POST", "/v1/interrupt", { path: file });
   }
 
+  /** A poll of a running cell, asked again a few times if the connection drops or the app is slow to
+   * answer: the cell is still running in the app, so one lost answer doesn't fail it here. */
+  private async pollAgain(file: string, version: number): Promise<Snapshot> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.poll(file, version);
+      } catch (err) {
+        const code = err instanceof ChannelError ? err.code : "";
+        const limit = code === "connection_lost" ? POLL_RETRIES : code === "timed_out" ? POLL_TIMEOUT_RETRIES : -1;
+        if (attempt >= limit) throw err;
+        await new Promise((r) => setTimeout(r, this.pollPause * 2 ** attempt));
+      }
+    }
+  }
+
   /** Runs ``code`` in the notebook's session; ``progress`` gets each new snapshot while it runs. */
   async run(file: string, code: string, progress: (snap: Snapshot) => void): Promise<Snapshot> {
     let snap = await this.start(file, code);
     progress(snap);
     let version = snap.version ?? -1;
     while (snap.status === "running" || snap.status === "paused") {
-      const next = await this.poll(file, version);
+      const next = await this.pollAgain(file, version);
       // The session this cell ran in is gone (no session, or a new one counting from the start):
       // the app restarted. Its last output isn't the cell's result, so say so rather than end "ok".
       if (next.status === "idle" || (next.version ?? version) < version) throw new ChannelError(0, "restarted", RESTARTED);

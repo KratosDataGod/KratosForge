@@ -342,3 +342,146 @@ test("a cell larger than the app takes is refused before anything is sent, in wo
   const src = fs.readFileSync(path.join(SIDECAR, "fabric_desktop", "editor_channel.py"), "utf8");
   assert.strictEqual(eval(src.match(/^MAX_BODY_BYTES = (.+)$/m)[1]), MAX_REQUEST);
 });
+
+test("a running cell's poll that drops is asked again, and the cell isn't started twice", async () => {
+  let posts = 0;
+  let polls = 0;
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      posts++;
+      reply(200, { ok: true, result: { status: "running", version: 1, outputs: [] } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") {
+      polls++;
+      if (polls <= 2) { req.socket.destroy(); return true; } // two answers lost on the way back
+      reply(200, { ok: true, result: { status: "ok", version: 2, outputs: [{ type: "stream", text: "done" }] } });
+      return true;
+    }
+    return false;
+  });
+  app.ch.pollPause = 10;
+  try {
+    const last = await app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined);
+    assert.strictEqual(last.status, "ok");
+    assert.strictEqual(posts, 1);
+    assert.strictEqual(polls, 3);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a poll that keeps dropping gives up after a few tries and says the connection was lost", async () => {
+  let polls = 0;
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      reply(200, { ok: true, result: { status: "running", version: 1, outputs: [] } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") { polls++; req.socket.destroy(); return true; }
+    return false;
+  });
+  app.ch.pollPause = 10;
+  try {
+    await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined), (err) => err.code === "connection_lost");
+    assert.strictEqual(polls, 4);
+  } finally {
+    await app.close();
+  }
+});
+
+test("starting a cell is never sent twice, even when its answer is lost", async () => {
+  let posts = 0;
+  const app = await fakeApp((url, req) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") { posts++; req.socket.destroy(); return true; }
+    return false;
+  });
+  try {
+    await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined), (err) => err.code === "connection_lost");
+    assert.strictEqual(posts, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("an app that doesn't answer in time is reported in plain words, as a channel error", async () => {
+  const app = await fakeApp((url) => url.pathname === "/v1/status"); // never answers
+  app.ch.timeout = 200;
+  try {
+    await assert.rejects(app.ch.status(), (err) => err instanceof ChannelError && err.code === "timed_out"
+      && /didn't answer in time/.test(err.message));
+  } finally {
+    app.close();
+  }
+});
+
+test("any other connection failure is a channel error that names it, not a raw socket error", async () => {
+  // Something on the port that answers with bytes that aren't HTTP at all.
+  const net = require("node:net");
+  const socks = new Set();
+  const server = net.createServer((sock) => { socks.add(sock); sock.end("not http\r\n\r\n"); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kf-bad-"));
+  fs.writeFileSync(path.join(dir, "editor-port"), `${server.address().port} hello`);
+  try {
+    await assert.rejects(new Channel(dir).status(), (err) => err instanceof ChannelError && err.code === "unreachable"
+      && /couldn't reach KratosForge on this PC \(HPE_/.test(err.message) && /restart KratosForge/.test(err.message));
+  } finally {
+    for (const sock of socks) sock.destroy();
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("an answer cut off after it began is reported as lost, not left waiting", async () => {
+  const app = await fakeApp((url, req, res) => {
+    if (url.pathname === "/v1/status") {
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": "100" });
+      res.write('{"ok": true, "res');
+      setTimeout(() => req.socket.destroy(), 50);
+      return true;
+    }
+    return false;
+  });
+  try {
+    await assert.rejects(app.ch.status(), (err) => err instanceof ChannelError && err.code === "connection_lost");
+  } finally {
+    await app.close();
+  }
+});
+
+test("an answer that stalls after it began times out, not left waiting", async () => {
+  const app = await fakeApp((url, req, res) => {
+    if (url.pathname === "/v1/status") {
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Length": "100" });
+      res.write('{"ok": true, "res'); // and nothing more
+      return true;
+    }
+    return false;
+  });
+  app.ch.timeout = 200;
+  try {
+    await assert.rejects(app.ch.status(), (err) => err instanceof ChannelError && err.code === "timed_out");
+  } finally {
+    app.close();
+  }
+});
+
+test("a poll with no answer at all is asked again only once", async () => {
+  let polls = 0;
+  const app = await fakeApp((url, req, res, reply) => {
+    if (url.pathname === "/v1/run" && req.method === "POST") {
+      reply(200, { ok: true, result: { status: "running", version: 1, outputs: [] } });
+      return true;
+    }
+    if (url.pathname === "/v1/run") { polls++; return true; } // never answers
+    return false;
+  });
+  app.ch.timeout = 200;
+  app.ch.pollPause = 10;
+  try {
+    await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", "x = 1", () => undefined), (err) => err.code === "timed_out");
+    assert.strictEqual(polls, 2);
+  } finally {
+    app.close();
+  }
+});

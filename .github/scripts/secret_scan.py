@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Iterable
@@ -100,19 +101,33 @@ PRAGMA = "pragma: allowlist secret"
 
 
 def pragmas(diff: str) -> list[str]:
-    """A warning for each line a ``git diff -U0`` adds that carries the pragma, which hides it from the scan."""
-    out, name, line = [], "", 0
+    """A warning for each line a ``git diff -U0`` adds that carries the pragma, which hides it from the scan.
+
+    Each hunk header says how many lines it removes and adds, so its body is read by count: an added line
+    that itself starts with "++ " or "@@ " is content, never taken for a file or hunk header."""
+    out, name, line, old, new = [], "", 0, 0, 0
     for text in diff.splitlines():
-        if text.startswith("+++ "):
+        if old or new:  # inside a hunk's body
+            if text.startswith("-") and old:
+                old -= 1
+            elif text.startswith("+") and new:
+                if name and PRAGMA in text:
+                    out.append(f"::warning {_at(name, line)}::This pull request adds a line the secret scan skips "
+                               f"(`{PRAGMA}`). Check it isn't a real secret.")
+                line += 1
+                new -= 1
+            elif not text.startswith("\\"):  # "\ No newline at end of file" belongs to the line before
+                old = new = 0  # a malformed hunk: back to reading headers
+            continue
+        if text.startswith("diff --git "):
+            name = ""
+        elif text.startswith("+++ "):
             # git quotes a name with unusual characters ("b/..."); the warning names it as quoted
             name = text[6:] if text.startswith("+++ b/") else text[7:-1] if text.startswith('+++ "b/') else ""
-        elif text.startswith("@@ "):
-            line = int(text.split("+", 1)[1].split(" ", 1)[0].split(",", 1)[0])
-        elif text.startswith("+"):
-            if name and PRAGMA in text:
-                out.append(f"::warning {_at(name, line)}::This pull request adds a line the secret scan skips "
-                           f"(`{PRAGMA}`). Check it isn't a real secret.")
-            line += 1
+        elif hunk := re.match(r"@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", text):
+            old = int(hunk[1]) if hunk[1] is not None else 1
+            line = int(hunk[2])
+            new = int(hunk[3]) if hunk[3] is not None else 1
     return out
 
 

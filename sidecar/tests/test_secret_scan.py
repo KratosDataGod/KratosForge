@@ -108,3 +108,12 @@ def test_a_pull_request_that_adds_the_skip_pragma_says_so():
     out = scan.pragmas(diff)
     assert [line.split("::")[1] for line in out] == ["warning file=t.py,line=5", "warning file=w\\ty.py,line=1"]
     assert scan.pragmas("--- a/t.py\n+++ b/t.py\n@@ -1 +1 @@\n-a\n+b\n") == []
+
+
+def test_an_added_line_that_looks_like_a_header_cant_hide_a_pragma():
+    diff = ("diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,4 @@\n"
+            "+++ hidden\n+++ b/decoy.txt\n+@@ -1 +1 @@\n+token = 'abc'  # pragma: allowlist secret\n"
+            "diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -2 +2 @@\n-a = 1\n\\ No newline at end of file\n"
+            "+a = 2  # pragma: allowlist secret\n")
+    out = scan.pragmas(diff)
+    assert [line.split("::")[1] for line in out] == ["warning file=n.txt,line=4", "warning file=m.py,line=2"]

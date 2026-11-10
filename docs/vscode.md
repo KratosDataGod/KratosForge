@@ -118,6 +118,7 @@ A window pairs from its folder exactly as VS Code has it open. KratosForge keeps
 | A mapped drive (`Z:\…`) | Works like any drive, for notebooks in a repository opened from that drive | Same as pairing |
 | Folders whose names differ only in case | One folder, as Windows treats them | One folder |
 | A control or text-direction character in the folder's path | Refused at pairing, because the folder would show as a different one | A control character is refused |
+| A Remote-SSH, WSL, Dev Container, Codespaces or tunnel window | Not served. The first time you run a cell, pair or open in KratosForge, the window says once that KratosForge runs cells only in a local window; each cell run there ends with the same message. It never contacts KratosForge. | Same as pairing |
 
 ### Versions
 
@@ -154,7 +155,7 @@ To update, install the newer `kratosforge.vsix` (each Preview and Stable release
 What the KratosForge extension for VS Code does and doesn't do, for teams that review extensions before allowing them:
 
 - **Workspace Trust.** It doesn't support untrusted workspaces, so in Restricted Mode VS Code doesn't start it: it runs nothing and doesn't contact KratosForge until the workspace is trusted. It also doesn't run in virtual workspaces.
-- **Runs on this PC only.** It's a UI extension, so in a Remote, WSL or dev container window it runs on the PC, not the remote host, and only notebooks saved on this PC can be run with it.
+- **Runs on this PC only.** It's a UI extension. In a Remote-SSH, WSL, Dev Container, Codespaces or tunnel window it runs no cells and never contacts KratosForge: it says once that cells run only in a local window ([Paths](#paths)).
 - **Secrets.** A pairing kept for 8 hours or 7 days is stored only in VS Code's SecretStorage, which VS Code encrypts with the operating system's protection (DPAPI on Windows). A pairing kept until KratosForge closes is held in memory only. Nothing goes into settings, global or workspace state, or files.
 - **Network.** It connects only to KratosForge's editor channel on `127.0.0.1`. It makes no other requests and has no telemetry, so `telemetry.telemetryLevel` has nothing to turn off. VS Code sends loopback requests directly, so `http.proxy` and `http.proxySupport` don't affect it and need no exception.
 - **Allow lists.** It's published as `kratosbi.kratosforge`. Where `extensions.allowed` is set, allow that id (or the `kratosbi` publisher). It isn't on the VS Code Marketplace yet: install `kratosforge.vsix` from the release, check it with `gh attestation verify`, or host it in your private extension gallery. It has no runtime dependencies.

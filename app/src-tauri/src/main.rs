@@ -133,12 +133,23 @@ fn policy_engine_url(text: &str) -> Option<String> {
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
 /// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file or Group Policy.
-/// Only those can set it; a missing or unreadable file means none (its last good copy isn't used).
+/// Only those can set it, and only when the account running the app couldn't change them
+/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used).
 fn fabric_view_sign_in_hosts() -> Vec<String> {
-    let file = std::env::var_os("ProgramData")
-        .and_then(|dir| std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).ok())
-        .unwrap_or_default();
-    policy_sign_in_hosts(&policy_registry::overlay(&file, &policy_registry::read()))
+    sign_in_hosts_state().0
+}
+
+/// The sign-in hosts, and why a source's were ignored ("" for none).
+fn sign_in_hosts_state() -> (Vec<String>, String) {
+    let path = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
+    let file = path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let file_hosts = policy_sign_in_hosts(&file);
+    let file_ok = if file_hosts.is_empty() { Ok(()) } else { path.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only) };
+    let found = policy_registry::read();
+    let registry = policy_registry::sets(&found, "fabric_view_sign_in_hosts")
+        .then(|| policy_sign_in_hosts(&policy_registry::overlay("", &found)));
+    let registry_ok = if registry.is_some() { policy_registry::admin_only() } else { Ok(()) };
+    policy_registry::trusted_hosts(file_hosts, file_ok, registry, registry_ok)
 }
 
 /// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.
@@ -749,6 +760,8 @@ impl Sidecar {
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
+            // And why the organization's Fabric view sign-in hosts aren't used.
+            .env("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", sign_in_hosts_state().1)
             .current_dir(data_dir())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -77,6 +77,28 @@ pub fn sets(found: &[(String, Raw)], key: &str) -> bool {
     })
 }
 
+/// The Fabric view's extra sign-in hosts, and why any were ignored ("" for none). Hosts widen what the
+/// view trusts, so only a source the person using the PC couldn't change may set them (as the engine's
+/// app_settings.LOOSENING): Group Policy's (`registry`, when it sets them) when `registry_ok`, else the
+/// policy file's when `file_ok`. An ignored source leaves the other in force.
+pub fn trusted_hosts(file: Vec<String>, file_ok: Result<(), String>, registry: Option<Vec<String>>,
+                     registry_ok: Result<(), String>) -> (Vec<String>, String) {
+    let mut ignored = Vec::new();
+    if let Some(hosts) = registry {
+        match registry_ok {
+            Ok(()) => return (hosts, String::new()),
+            Err(why) => ignored.push(format!("Group Policy's are ignored: {why}")),
+        }
+    }
+    if !file.is_empty() {
+        match file_ok {
+            Ok(()) => return (file, ignored.join("; ")),
+            Err(why) => ignored.push(format!("the policy file's are ignored: {why}")),
+        }
+    }
+    (Vec::new(), ignored.join("; "))
+}
+
 #[cfg(windows)]
 pub use win::{admin_only, read};
 
@@ -225,6 +247,21 @@ mod tests {
             assert_eq!(out, serde_json::json!({"register_link_scheme": false}), "{file:?}");
         }
         assert_eq!(overlay("", &[]), "");
+    }
+
+    #[test]
+    fn sign_in_hosts_come_only_from_a_source_the_user_couldnt_change() {
+        let h = |x: &str| vec![x.to_string()];
+        let no = || Err::<(), String>("changeable".into());
+        assert_eq!(trusted_hosts(h("f.example.com"), Ok(()), Some(h("g.example.com")), Ok(())), (h("g.example.com"), String::new()));
+        let (hosts, why) = trusted_hosts(h("f.example.com"), Ok(()), Some(h("g.example.com")), no());
+        assert_eq!(hosts, h("f.example.com"));
+        assert!(why.starts_with("Group Policy's are ignored"));
+        let (hosts, why) = trusted_hosts(h("f.example.com"), no(), None, Ok(()));
+        assert!(hosts.is_empty() && why.starts_with("the policy file's are ignored"));
+        let (hosts, why) = trusted_hosts(h("f.example.com"), no(), Some(h("g.example.com")), no());
+        assert!(hosts.is_empty() && why.contains("Group Policy's") && why.contains("policy file's"));
+        assert_eq!(trusted_hosts(Vec::new(), no(), None, no()), (Vec::new(), String::new()));
     }
 
     #[test]

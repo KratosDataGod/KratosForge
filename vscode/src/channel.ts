@@ -67,7 +67,7 @@ export const TOO_LARGE = "KratosForge's answer was larger than this extension ac
 export const MAX_REQUEST = 1024 * 1024;
 
 export function cellTooLarge(size: number): string {
-  return `This cell is ${(size / 1024 / 1024).toFixed(1)} MB, and KratosForge takes cells of up to 1 MB from VS Code. `
+  return `This cell is ${(Math.ceil(size / 1024 / 1024 * 10) / 10).toFixed(1)} MB, and KratosForge takes cells of up to 1 MB from VS Code. `
     + "Split it into smaller cells, or run it in KratosForge.";
 }
 

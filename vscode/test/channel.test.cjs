@@ -333,7 +333,7 @@ test("a cell larger than the app takes is refused before anything is sent, in wo
   try {
     const big = "x = '" + "é".repeat(MAX_REQUEST / 2) + "'";  // under 1 Mi characters, over 1 MiB as UTF-8
     await assert.rejects(app.ch.run("C:\\nb\\a.ipynb", big, () => {}),
-      (err) => err instanceof ChannelError && err.code === "cell_too_large" && /This cell is 1\.0 MB.*up to 1 MB.*Split it/.test(err.message));
+      (err) => err instanceof ChannelError && err.code === "cell_too_large" && /This cell is 1\.1 MB.*up to 1 MB.*Split it/.test(err.message));
     assert.deepStrictEqual(seen, [], "the hello or the cell went out");
   } finally {
     await app.close();

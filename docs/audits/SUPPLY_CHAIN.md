@@ -161,6 +161,12 @@ An advisory can be let through only by a line in `.github/audit-exceptions.txt` 
 
 Gap: the packages that Vega's prebuilt files bundle aren't in a lock file (they come from `THIRD-PARTY-NOTICES.md`), so `npm audit` doesn't see them.
 
+## Secret scanning
+
+The CI `secrets` job runs detect-secrets (pinned with hashes in `.github/requirements/secret-scan.txt`) through `.github/scripts/secret_scan.py`. A pull request's changed files are scanned, and a push to main scans every tracked file. The release job waits for it. Anything that looks like a token, a key or a password fails the job unless `.secrets.baseline` lists it as reviewed (`"is_secret": false`). Entries are matched by file, kind and a hash of the value, so moving a line doesn't need a new review, and the job never prints the value.
+
+The baseline started with 235 entries, each checked by hand. All are test fixtures (redaction and credential-handling cases), example strings in docs, or hashes and commit ids. The repository's history was scanned once too, and the result was reviewed. `tests/test_secret_scan.py` checks that every entry is reviewed and that the job is wired as described.
+
 ## Reproducible builds
 
 Checked in CI on 2026-11-09 by building each part twice from the same commit and diffing the results.

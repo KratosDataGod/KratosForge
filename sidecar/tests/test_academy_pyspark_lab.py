@@ -373,3 +373,15 @@ def test_a_pyspark_run_never_asks_for_the_appcontainer(tmp_path, monkeypatch):
     (tmp_path / "w").mkdir()
     pyspark_lab.run_learner(tmp_path / "w", "print('hi')", data_root=tmp_path / "data")
     assert asked == [False]
+
+
+def test_a_run_that_dies_without_a_message_reports_its_exit_code(tmp_path):
+    # A native crash (seen once on Windows CI) leaves no Python traceback: the exit code is the clue.
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pyspark_lab.run_reference(tmp_path, "import os\nos._exit(3)\n")
+    assert run["status"] == "error" and run["exit_code"] == 3
+    assert pyspark_lab._error(run) == "Your code stopped without an error message (exit code 3)."
+    crash = {"status": "error", "exit_code": -1073741819, "stderr": ""}   # 0xC0000005 as Windows reports it
+    assert pyspark_lab._error(crash) == "Your code stopped without an error message (exit code 0xC0000005)."
+    assert pyspark_lab._error({"status": "error", "stderr": "Traceback\nValueError: bad"}) == \
+        "Your code stopped with an error: ValueError: bad"

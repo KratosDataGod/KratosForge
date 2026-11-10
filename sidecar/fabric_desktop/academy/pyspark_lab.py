@@ -60,7 +60,8 @@ Runner = Callable[[Path, str], dict[str, Any]]
 # The process's first code: put kf_learner first on the path, make spark, run answer.py, exit at once
 # (os._exit, so no interpreter shutdown can hang on a worker thread after the answer finished).
 BOOTSTRAP = """
-import os, sys, traceback
+import faulthandler, os, sys, traceback
+faulthandler.enable()   # a crash in native code (DuckDB, delta-rs) still leaves a trace on stderr
 sys.path.insert(0, sys.argv[1])
 from kf_learner import pyspark_shim
 spark = pyspark_shim.session(sys.argv[2])
@@ -150,7 +151,8 @@ def run_reference(work: Path, code: str) -> dict[str, Any]:
                            timeout=RUN_SECONDS, check=False)
     except subprocess.TimeoutExpired:
         return {"status": "time_limit", "stdout": "", "stderr": ""}
-    return {"status": "ok" if p.returncode == 0 else "error", "stdout": p.stdout[-4000:], "stderr": p.stderr[-4000:]}
+    return {"status": "ok" if p.returncode == 0 else "error", "exit_code": p.returncode, "stdout": p.stdout[-4000:],
+            "stderr": p.stderr[-4000:]}
 
 
 # The learner's own first code, run by the Academy learner process (academy/sandbox.py), which puts
@@ -199,7 +201,7 @@ def run_learner(work: Path, code: str, data_root: Path | None = None) -> dict[st
     # 2026-11-04: Delta exercises run the v1 way), so PySpark exercises never ask for one.
     r = sandbox.run(work, LEARNER_FILE, root, time_limit=RUN_SECONDS, lib_roots=[_package_dir().resolve()],
                     appcontainer_ok=False)
-    return {"status": r["status"], "stdout": r["stdout"], "stderr": r["stderr"]}
+    return {"status": r["status"], "exit_code": r.get("exit_code"), "stdout": r["stdout"], "stderr": r["stderr"]}
 
 
 def _table(work: Path, name: str) -> Any:
@@ -268,7 +270,15 @@ def _error(run: dict[str, Any]) -> str:
     if run["status"] == "refused":
         return "Your code wasn't run: the app couldn't start it inside its limits."
     last = [ln for ln in (run.get("stderr") or "").strip().splitlines() if ln.strip()]
-    return f"Your code stopped with an error: {last[-1] if last else 'no message'}"
+    if last:
+        return f"Your code stopped with an error: {last[-1]}"
+    code = run.get("exit_code")
+    if isinstance(code, int) and code:
+        # A process killed by a native crash leaves no Python message; its exit code is the only clue
+        # (on Windows an NTSTATUS such as 0xC0000005, an access violation).
+        shown = f"0x{code & 0xFFFFFFFF:08X}" if code < 0 or code > 255 else str(code)
+        return f"Your code stopped without an error message (exit code {shown})."
+    return "Your code stopped with an error: no message"
 
 
 def _n(count: int, one: str, many: str) -> str:

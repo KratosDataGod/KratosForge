@@ -6748,7 +6748,7 @@
         1289
       ],
       "workstream": "Notebook development program",
-      "next_action": "Implementation review of PR #350; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350's review was done with PB-118 (Accepted)."
     },
     {
       "id": "FEAT-NB-13",
@@ -6971,7 +6971,7 @@
         650
       ],
       "workstream": "Notebook development program",
-      "next_action": "Implementation review of PR #320; run on a tenant before the Preview tag comes off.",
+      "next_action": "Run on a tenant before the Preview tag comes off, and the PB-109 implementation review when that item moves to In review. #320 claimed notebook program ids, not a backlog item.",
       "limitations": [
         "Edits made in another program while the notebook is open are kept: the app never saves over them (#650); VS Code integration builds on this"
       ]
@@ -7182,7 +7182,7 @@
         1765
       ],
       "workstream": "Notebook runtime",
-      "next_action": "Implementation review of PR #421, #539; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #421 and #539 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-22",
@@ -7232,7 +7232,7 @@
         561
       ],
       "workstream": "Notebook runtime",
-      "next_action": "Implementation review of PR #561; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #561 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-23",
@@ -7334,7 +7334,7 @@
         762
       ],
       "workstream": "Prove",
-      "next_action": "Implementation review of PR #282; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #282 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-25",
@@ -7453,7 +7453,7 @@
         632
       ],
       "workstream": "Notebook outputs",
-      "next_action": "Implementation review of PR #385, #386, #427, #430, #448, #472, #479, #490, #546, #552; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #385 to #552 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-NB-26",
@@ -7743,7 +7743,7 @@
         276
       ],
       "workstream": "Administration and FinOps (FINOPS-005)",
-      "next_action": "Implementation review of PR #276; run on a tenant before the Preview tag comes off.",
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #276's review was done with PB-017 (Accepted).",
       "backlog": [
         "PB-017"
       ]
@@ -7786,7 +7786,7 @@
         1560
       ],
       "workstream": "Administration and FinOps (FINOPS-003)",
-      "next_action": "Implementation review of PR #153; run on a tenant before the Preview tag comes off.",
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #153's review was done with PB-089 (Accepted).",
       "backlog": [
         "PB-089"
       ]
@@ -8045,7 +8045,7 @@
         831
       ],
       "workstream": "UX and simplicity oversight",
-      "next_action": "Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #557 and #558 claimed no backlog item, so no implementation review is owed."
     },
     {
       "id": "FEAT-EXT-05",
@@ -8225,7 +8225,7 @@
       "limitations": [
         "Fabric API faked in tests; not run on a tenant"
       ],
-      "next_action": "Implementation review of #640, #653; run on a tenant before Preview comes off.",
+      "next_action": "Run on a tenant before Preview comes off, and #640 and #653 reviewed with PB-107 when that item moves to In review.",
       "evidence": [
         {
           "kind": "test",

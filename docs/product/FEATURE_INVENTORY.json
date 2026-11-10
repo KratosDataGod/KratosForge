@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "2bf8ea1b7278e1c84ce43c271b11dc10e49f68ef",
+    "commit": "d5a867c0b32eff01f8d65b2b253be71dc81dc09f",
     "date": "2026-11-09",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -49,7 +49,8 @@
       "Acceptance of PB-130 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst).",
       "Product check 2026-11-07 23:42 at e5e6bec443b36ea22e6d9e0a8e76dbce147cd0ff: 74 PRs merged after 56e3826b; 4 were product data PRs and the other 70 were linked by title; other rows were not re-read.",
       "Product check 2026-11-09 11:42 at 2bf8ea1b7278e1c84ce43c271b11dc10e49f68ef: 41 PRs merged after e5e6bec4; 2 were product data and docs audit PRs and the other 39 were linked by title; other rows were not re-read.",
-      "Acceptance of PB-128 for the DP-700 track recorded (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); the Databricks track is PB-135."
+      "Acceptance of PB-128 for the DP-700 track recorded (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); the Databricks track is PB-135.",
+      "Product check 2026-11-09 23:42 at d5a867c0b32eff01f8d65b2b253be71dc81dc09f: 54 PRs merged after 2bf8ea1b; 5 were product data, docs audit and operations PRs and the other 49 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -163,7 +164,25 @@
         2281,
         2282,
         2285,
-        2287
+        2287,
+        2291,
+        2294,
+        2300,
+        2315,
+        2316,
+        2317,
+        2319,
+        2329,
+        2330,
+        2335,
+        2336,
+        2339,
+        2341,
+        2342,
+        2343,
+        2345,
+        2350,
+        2374
       ]
     },
     {
@@ -455,7 +474,9 @@
         "Not fed by incidents or agent status"
       ],
       "prs": [
-        122
+        122,
+        2325,
+        2369
       ],
       "next_action": "Feed incidents and agent status into the bell once incident screens exist (PB-047).",
       "backlog": [
@@ -2491,7 +2512,12 @@
         2250,
         2266,
         2271,
-        2272
+        2272,
+        2302,
+        2328,
+        2340,
+        2372,
+        2373
       ]
     },
     {
@@ -3026,7 +3052,8 @@
         2212,
         2248,
         2273,
-        2277
+        2277,
+        2375
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -8153,7 +8180,10 @@
         2255,
         2263,
         2276,
-        2278
+        2278,
+        2293,
+        2332,
+        2338
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8486,7 +8516,11 @@
         811,
         1569,
         1707,
-        1832
+        1832,
+        2292,
+        2303,
+        2307,
+        2309
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [
@@ -8661,7 +8695,11 @@
         2247,
         2257,
         2265,
-        2269
+        2269,
+        2299,
+        2301,
+        2304,
+        2318
       ],
       "backlog": [
         "PB-119",

@@ -415,8 +415,14 @@ def ended(result: dict | None) -> str:
 
 
 class Authenticator:
-    def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
+    def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True,
+                 continuous_access: bool = False):
         self.client_id = client_id or MICROSOFT_CLIENT_ID
+        # Continuous Access Evaluation (Preview): tell Entra this app handles an API's claims challenge
+        # (claims.py), so Fabric and the other APIs may end a token early when an account is disabled or
+        # its sessions revoked, and Entra may issue longer-lived tokens that can be ended that way.
+        self.continuous_access = continuous_access
+        capabilities = {"client_capabilities": ["CP1"]} if continuous_access else {}
         self.microsoft = self.client_id == MICROSOFT_CLIENT_ID  # no app registration
         self.cache_path = cache_path or default_cache_path()
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
@@ -441,13 +447,14 @@ class Authenticator:
         if self.microsoft and _broker_available():
             try:
                 self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
-                                                        enable_broker_on_windows=True, timeout=SIGN_IN_TIMEOUT)
+                                                        enable_broker_on_windows=True, timeout=SIGN_IN_TIMEOUT,
+                                                        **capabilities)
                 self.broker = True
             except Exception as exc:  # noqa: BLE001 - the broker's runtime failed to load: sign in with the browser
                 _log.warning("Windows sign-in broker didn't start; using the browser: %s", describe(exc))
         if not self.broker:
             self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
-                                                    timeout=SIGN_IN_TIMEOUT)
+                                                    timeout=SIGN_IN_TIMEOUT, **capabilities)
 
     def scopes_for(self, scopes: list[str]) -> list[str]:
         """What to ask for: the narrow scopes for an organization's own app; for Microsoft's app,
@@ -467,17 +474,19 @@ class Authenticator:
                 _log.warning("Couldn't save the sign-in, so it wasn't updated: %s", describe(exc))
 
     def _silent(self, scopes: list[str], account: dict, force_refresh: bool = False,
-                refusal: dict | None = None) -> dict | None:
+                refusal: dict | None = None, claims: str = "") -> dict | None:
         """MSAL's silent lookup, with its refusal kept: a refusal that says the saved sign-in is finished
         drops it (``_end``) and gives None, as no token does. Any other refusal gives None too, and is
-        copied into ``refusal`` when one is passed (its ``claims`` say what Conditional Access asks for)."""
+        copied into ``refusal`` when one is passed (its ``claims`` say what Conditional Access asks for).
+        ``claims``: an API's claims challenge, which makes MSAL ask Entra for a new token with them."""
         if self._ended():
             return None
         lookup = getattr(self.app, "acquire_token_silent_with_error", None)
         if lookup is None:  # a stand-in without it
             more = {"force_refresh": True} if force_refresh else {}
             return self.app.acquire_token_silent(scopes, account=account, **more)
-        result = lookup(scopes, account=account, force_refresh=force_refresh)
+        asked = {"claims_challenge": claims} if claims else {}
+        result = lookup(scopes, account=account, force_refresh=force_refresh, **asked)
         if result and "error" in result:
             code = ended(result)
             if code:
@@ -609,14 +618,16 @@ class Authenticator:
         """Someone chose Sign in: open the window even if Conditional Access refused one a moment ago."""
         self._blocked = None
 
-    def refreshed_token(self, scopes: list[str]) -> str:
+    def refreshed_token(self, scopes: list[str], claims: str = "") -> str:
         """A new token, not MSAL's cached one: for a call Fabric refused with 401 although the cached
         token hadn't expired (revoked, or the tenant ended the session). Never the cached token again:
         when no new one can be had silently, the person signs in again (the app), or SignInRequired
-        says to (headless)."""
+        says to (headless). ``claims``: the API's claims challenge (claims.py), sent to Entra with the
+        refresh and, if a person must step in, to the sign-in window."""
         accounts = self.app.get_accounts()
         why: dict = {}
-        fresh = self._silent(self.scopes_for(scopes), accounts[0], force_refresh=True, refusal=why) if accounts else None
+        fresh = (self._silent(self.scopes_for(scopes), accounts[0], force_refresh=True, refusal=why, claims=claims)
+                 if accounts else None)
         if fresh and "access_token" in fresh:
             self._save()
             self._check_tenant(fresh)
@@ -625,8 +636,8 @@ class Authenticator:
             raise SignInRequired(headless_refusal(why))
         cached = self._silent(self.scopes_for(scopes), accounts[0]) if accounts else None
         refused = (cached or {}).get("access_token") or ""  # the token the caller sent: MSAL's cached one
-        claims = why.get("claims")
-        result = self._sign_in(self.scopes_for(scopes), refused, claims if isinstance(claims, str) else "")
+        asked = why.get("claims")
+        result = self._sign_in(self.scopes_for(scopes), refused, asked if isinstance(asked, str) and asked else claims)
         self._save()
         if "access_token" not in result:
             raise sign_in_error(result)

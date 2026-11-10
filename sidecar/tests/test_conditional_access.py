@@ -112,6 +112,8 @@ def test_the_service_sign_in_opens_a_window_after_a_block(tmp_path):
     with pytest.raises(auth.SignInError):
         a.fabric_token()
     svc = Service.__new__(Service)
+    from fabric_desktop import app_settings
+    a.continuous_access = bool(app_settings.value("show_preview"))  # as Service.auth would build it
     svc.__dict__["_auth"] = a  # what Service.auth builds once
     svc._client_id, svc._auth_lock = OWN_APP, __import__("threading").Lock()
     app.interactive = {"access_token": "new", "expires_in": 3600}

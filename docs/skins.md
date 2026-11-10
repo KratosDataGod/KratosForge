@@ -80,13 +80,11 @@ part the skin leaves out keeps KratosForge's own look (the first choice listed).
 | Part | Choices |
 | --- | --- |
 | `font` | `segoe-variable`, `segoe`, `dm-sans`, `inter` |
-| `header` | `light`, `brand`, `dark`, `none`, `hero` (KratosForge skin only) |
+| `header` | `light`, `brand`, `none` |
 | `rail` | `stacked` (icon above label), `inline` (icon beside label) |
 | `corners` | `soft`, `square`, `round` |
 | `tabs` | `underline`, `boxed`, `pill` |
 | `cells` | `bordered`, `card`, `flat`, `rounded` |
-| `buttons` | `accent`, `forge` |
-| `tiles` | `plain`, `duotone` |
 | `icons` | `regular`, `light`, `bold` |
 
 The app marks the page with one attribute per part, such as `data-skin-rail="inline"`. The built-in
@@ -99,7 +97,11 @@ platform skins set these, as drawn in the "skin look and feel" mockup:
 | Snowflake-familiar | Inter | none | inline | round | pill | rounded | regular |
 
 The styles that draw each choice come in the next Preview changes, so for now the attributes are set but
-nothing looks different.
+nothing looks different. The look is Preview: with Preview features hidden in Settings, every skin draws
+the app's own look.
+
+The choices are plain platform looks. None adds art or game styling to controls, the rail, the app bar,
+type or data panels; the KratosForge skin keeps its light shell.
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See

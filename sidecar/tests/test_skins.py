@@ -306,7 +306,7 @@ def _style(skin_id="custom", **style):
 
 def test_a_skin_chooses_its_look_from_fixed_choices():
     m = _style(font="inter", header="none", rail="inline", corners="round", tabs="pill", cells="rounded",
-               buttons="accent", tiles="plain", icons="regular")
+               icons="regular")
     assert skins.parse(skins.dump(m), skins.BASE) == m
 
 
@@ -315,7 +315,8 @@ def test_a_skin_chooses_its_look_from_fixed_choices():
     ({"corners": "12px"}, "appearance style corners must be one of soft, square, round"),
     ({"tabs": {"css": "x"}}, "appearance style tabs must be one of underline, boxed, pill"),
     ({"css": "body{}"}, "appearance style has keys a skin can't hold: css"),
-    ({"header": "hero"}, "appearance style header hero is for the KratosForge skin only"),
+    ({"header": "hero"}, "appearance style header must be one of light, brand, none"),
+    ({"buttons": "forge"}, "appearance style has keys a skin can't hold: buttons"),
 ])
 def test_a_look_outside_the_choices_is_refused(style, problem):
     assert problem in _problems(_style(**style))
@@ -323,11 +324,6 @@ def test_a_look_outside_the_choices_is_refused(style, problem):
 
 def test_style_must_be_an_object():
     assert "appearance style must be an object of part: choice" in _problems(_skin(appearance={"style": "dark"}))
-
-
-def test_the_kratosforge_skin_may_use_the_hero_header():
-    m = _style("kratosforge", header="hero")
-    assert skins.validate(m, skins.BASE)["appearance"]["style"] == {"header": "hero"}
 
 
 @pytest.mark.parametrize("skin_id, font, header, rail, tabs", [
@@ -340,7 +336,7 @@ def test_the_platform_skins_look_as_drawn(skin_id, font, header, rail, tabs):
     assert (style["font"], style["header"], style["rail"], style["tabs"]) == (font, header, rail, tabs)
 
 
-def test_the_kratosforge_skin_keeps_todays_look_until_its_redraw():
+def test_the_kratosforge_skin_keeps_todays_look():
     assert "style" not in skins.KRATOSFORGE["appearance"]
 
 

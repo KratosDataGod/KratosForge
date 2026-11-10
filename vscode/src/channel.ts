@@ -62,6 +62,15 @@ export const EXTENSION_TOO_OLD = "This extension is too old for this KratosForge
 export const MAX_REPLY = 64 * 1024 * 1024;
 export const TOO_LARGE = "KratosForge's answer was larger than this extension accepts. Open the notebook in KratosForge to see this cell's output.";
 
+// The most one request to the app may hold (MAX_BODY_BYTES in editor_channel.py). A cell past it is
+// refused here, before anything is sent, with words that say it's the cell.
+export const MAX_REQUEST = 1024 * 1024;
+
+export function cellTooLarge(size: number): string {
+  return `This cell is ${(Math.ceil(size / 1024 / 1024 * 10) / 10).toFixed(1)} MB, and KratosForge takes cells of up to 1 MB from VS Code. `
+    + "Split it into smaller cells, or run it in KratosForge.";
+}
+
 interface Reply { status: number; payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } } | null }
 
 function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer): Promise<Reply> {
@@ -203,6 +212,8 @@ export class Channel {
   }
 
   start(file: string, code: string): Promise<Snapshot> {
+    const size = Buffer.byteLength(JSON.stringify({ path: file, code }));
+    if (size > MAX_REQUEST) return Promise.reject(new ChannelError(0, "cell_too_large", cellTooLarge(size)));
     return this.request("POST", "/v1/run", { path: file, code }) as Promise<Snapshot>;
   }
 

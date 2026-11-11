@@ -219,8 +219,9 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   when the warehouse accepted the cancel.
 - **If a send may have reached the warehouse:** a statement whose submit got a server error (5xx), a
   dropped connection or a reply that can't be read is never sent again, since it may have started. The
-  error says so: check Databricks' query history before you run the cell again. A refusal (4xx) means
-  nothing ran.
+  error says so: check Databricks' query history before you run the cell again. A refusal (4xx), or a
+  connection that never opened (name lookup, refused, connect timeout), means nothing ran, and the
+  error says nothing was sent.
 - **Answers the engine doesn't trust:** a result sent as download links instead of inline rows, a
   result chunk that holds fewer rows than it says or starts at the wrong row, a whole result shorter
   than the warehouse's own row count, or a reply that isn't a JSON object is an error, never a short

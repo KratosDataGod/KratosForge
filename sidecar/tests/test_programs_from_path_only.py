@@ -35,3 +35,14 @@ def test_git_is_found_only_in_paths_absolute_folders(tmp_path, monkeypatch):
     monkeypatch.chdir(planted)
     monkeypatch.setenv("PATH", ".")
     assert cli.git_path() is None
+
+
+def test_a_missing_git_says_where_programs_are_looked_for(monkeypatch):
+    import pytest
+
+    from fabric_desktop.engines.runtimes import PATH_HINT
+    from fabric_desktop.git import cli
+    monkeypatch.setattr(cli, "git_path", lambda: None)
+    with pytest.raises(cli.GitError) as err:
+        cli.command(None, ["status"])
+    assert PATH_HINT in str(err.value) and "network share" in PATH_HINT

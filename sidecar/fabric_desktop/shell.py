@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
-from .engines.runtimes import trusted_cli
+from .engines.runtimes import PATH_HINT, trusted_cli
 
 
 class ShellError(Exception):
@@ -59,12 +59,13 @@ def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> i
         exe = trusted_cli(kind) or trusted_cli("bash") or trusted_cli("sh")
         if exe is None:
             raise FileNotFoundError(f"%%{kind} needs bash or sh, and this PC has neither on its PATH. "
-                                    "Git for Windows installs one; or run the commands with %%cmd, %%powershell or !command.")
+                                    "Git for Windows installs one; or run the commands with %%cmd, %%powershell or !command. "
+                                    + PATH_HINT)
         return _run([exe, "-s"], stdin=body, echo=echo)[0]
     if kind == "powershell":
         exe = trusted_cli("pwsh") or trusted_cli("powershell")
         if exe is None:
-            raise FileNotFoundError("%%powershell needs PowerShell, which this PC doesn't have on its PATH.")
+            raise FileNotFoundError("%%powershell needs PowerShell, which this PC doesn't have on its PATH. " + PATH_HINT)
         return _run([exe, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], stdin=body, echo=echo)[0]
     if kind == "cmd":
         if os.name != "nt":

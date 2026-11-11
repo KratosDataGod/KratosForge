@@ -59,7 +59,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .. import jsonfile
-from ..engines.runtimes import trusted_cli
+from ..engines.runtimes import PATH_HINT, trusted_cli
 from . import sandbox, validators
 from . import workspace as ws
 
@@ -247,7 +247,7 @@ def parse(text: str) -> list[dict[str, Any]]:
 def git_exe() -> str:
     exe = trusted_cli("git")  # never a git.exe in the exercise's folder
     if not exe:
-        raise Refused("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again.")
+        raise Refused("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again. " + PATH_HINT)
     return exe
 
 

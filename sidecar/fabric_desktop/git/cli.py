@@ -17,7 +17,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ..engines.runtimes import trusted_cli
+from ..engines.runtimes import PATH_HINT, trusted_cli
 from .secrets import redact
 
 TIMEOUT = 60
@@ -85,8 +85,8 @@ BASE_OPTIONS = ["-c", "core.quotepath=false", "-c", "color.ui=false", "-c", "cor
 def command(cwd: Path | str | None, args: list[str]) -> list[str]:
     exe = git_path()
     if not exe:
-        raise GitError("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again.",
-                       kind="no_git")
+        raise GitError("Git isn't installed on this PC. Install Git for Windows (git-scm.com), then try again. "
+                       + PATH_HINT, kind="no_git")
     for a in args:
         if not isinstance(a, str) or "\0" in a:
             raise GitError("A Git argument wasn't plain text.", kind="invalid")

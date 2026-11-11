@@ -143,7 +143,7 @@ class LocalBackend:
 
     @staticmethod
     def _etag(data: bytes) -> str:
-        return hashlib.sha1(data).hexdigest()
+        return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
     def create(self, key: str, data: bytes) -> str | None:
         path = self._path(key)

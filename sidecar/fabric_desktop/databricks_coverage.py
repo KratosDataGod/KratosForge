@@ -186,8 +186,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but gives another value. Check results that use it on the warehouse.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: stops with an error. Run the cell on a Databricks SQL warehouse.",
-        "- **Not checked**: no example whose value can be compared (random values, the clock or the "
-        "session, or no example), or DuckDB accepts it but no check compares its value yet.",
+        ("- **Not checked**: no example whose value can be compared (random values, the clock or the "
+        "session, or no example), or DuckDB accepts it but no check compares its value yet."),
         "",
         "AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions",
         "aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,",

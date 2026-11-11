@@ -96,8 +96,8 @@ def test_a_pull_request_that_adds_to_the_allow_list_says_so():
                     "b.py": [{"type": "AWS Access Key", "hash": "bbb", "line": 4, "is_secret": False}]})
     assert scan.newly_allowed(before, before) == []
     assert scan.newly_allowed(after, before) == [
-        "::warning file=b.py,line=4::This pull request adds a AWS Access Key here to .secrets.baseline, so the "
-        "secret scan lets it through. Check it isn't a real secret."]
+        ("::warning file=b.py,line=4::This pull request adds a AWS Access Key here to .secrets.baseline, so the "
+        "secret scan lets it through. Check it isn't a real secret.")]
     assert len(scan.newly_allowed(after, {})) == 2, "no baseline on the base branch: every entry is new"
 
 
@@ -125,10 +125,10 @@ def test_a_pull_request_that_changes_the_scans_filters_or_plugins_says_so():
     after = {"results": {}, "filters_used": [{"path": "f.a"}, {"path": "f.regex", "pattern": ["x%y"]}], "plugins_used": []}
     assert scan.newly_allowed(before, before) == []
     assert scan.newly_allowed(after, before) == [
-        '::warning file=.secrets.baseline::This pull request adds to the secret scan\'s filters_used: '
-        '{"path": "f.regex", "pattern": ["x%25y"]}. Check it doesn\'t hide a real secret.',
-        '::warning file=.secrets.baseline::This pull request removes from the secret scan\'s plugins_used: '
-        '{"name": "AWSKeyDetector"}. Check it doesn\'t hide a real secret.']
+        ('::warning file=.secrets.baseline::This pull request adds to the secret scan\'s filters_used: '
+        '{"path": "f.regex", "pattern": ["x%25y"]}. Check it doesn\'t hide a real secret.'),
+        ('::warning file=.secrets.baseline::This pull request removes from the secret scan\'s plugins_used: '
+        '{"name": "AWSKeyDetector"}. Check it doesn\'t hide a real secret.')]
 
 
 def test_a_commit_id_on_its_own_line_is_never_a_finding_but_anything_else_on_it_is():

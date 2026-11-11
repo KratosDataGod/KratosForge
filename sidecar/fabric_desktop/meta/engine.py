@@ -440,8 +440,8 @@ class Engine:
         deps = self.store.meta_where("deployments", pl.col("env") == self.store.env)
         deployed = deps["version"][-1] if deps.height else None
         if deployed != self.project.version:
-            raise GateError("promote", [f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
-                                        f"project is {self.project.version}. Promote it first."])
+            raise GateError("promote", [(f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
+                                        f"project is {self.project.version}. Promote it first.")])
 
     def run(self, name: str, backfill: str | None = None, batch_id: str = "") -> RunResult:
         try:

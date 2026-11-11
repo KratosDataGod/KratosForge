@@ -1214,10 +1214,10 @@ class Kernel:
                     debugger.add(body)
                     if tail is not None:
                         debugger.add(tail)
-                exec(body, namespace)
+                exec(body, namespace)  # noqa: S102 - the person's own cell
                 value = None
                 if tail is not None:
-                    value = eval(tail, namespace)
+                    value = eval(tail, namespace)  # noqa: S307 - the cell's last expression
                 if value is not None:
                     self._emit(run, self._show(value))  # shown first, as IPython does, so Out isn't in itself
                     if namespace is self.namespace and not getattr(self._local, "depth", 0):
@@ -1451,9 +1451,9 @@ class Kernel:
         if name == "time":
             started = time.monotonic()
             try:
-                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
+                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None  # noqa: S307 - the person's %time line
             except SyntaxError:  # a statement, such as x = f()
-                exec(compile(line, _CELL_FILE, "exec"), self.namespace)
+                exec(compile(line, _CELL_FILE, "exec"), self.namespace)  # noqa: S102 - the person's %time line
                 value = None
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
@@ -2493,7 +2493,7 @@ def assign_cell_ids(cells: list[dict[str, Any]], make: Callable[[int, dict[str, 
 def _derived_id(i: int, c: dict[str, Any]) -> str:
     """An id for a cell that was never saved (cells added for publishing): the same every time."""
     import hashlib
-    return "fd-" + hashlib.sha1(f"{i}:{c.get('type')}:{c.get('source', '')}".encode()).hexdigest()[:12]
+    return "fd-" + hashlib.sha1(f"{i}:{c.get('type')}:{c.get('source', '')}".encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 # Notebook and cell metadata Fabric Desktop writes. Anything else in a notebook (written by

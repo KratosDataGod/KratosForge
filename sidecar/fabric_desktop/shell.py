@@ -49,7 +49,7 @@ def expand(command: str, namespace: dict[str, Any]) -> str:
 
 def system(command: str, echo: Callable[[str], None] | None = None) -> tuple[int, list[str]]:
     """Run one command line in the system shell; returns the exit code and the output lines."""
-    return _run(command, shell=True, echo=echo)
+    return _run(command, shell=True, echo=echo)  # noqa: S604 - the command line the person typed, for their shell
 
 
 def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> int:

@@ -19,8 +19,8 @@ from fabric_desktop.engines.contract import CellRequest, SessionConfig
 
 SETUP = [
     "CREATE TABLE t(id INT, grp VARCHAR, amt DOUBLE, ts TIMESTAMP, v JSON)",
-    """INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
-    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')""",
+    ("""INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
+    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')"""),
 ]
 
 # (name, Snowflake SQL, verdict, note ids)
@@ -43,8 +43,8 @@ PROBE = [
     ("TRY_TO_NUMBER", "select try_to_number('12x'), try_cast('5' as int)", "translated", []),
     ("SPLIT_PART/REGEXP_SUBSTR", "select split_part('a-b-c','-',2), regexp_substr('abc123','[0-9]+')",
      "translated", []),
-    ("MERGE", "merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
-              "when not matched then insert (id, amt) values (s.id, s.amt)", "translated", []),
+    ("MERGE", ("merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
+              "when not matched then insert (id, amt) values (s.id, s.amt)"), "translated", []),
     ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "difference", ["SFD-001"]),
     ("Time travel AT", "select * from t at(offset => -60)", "not_translatable", ["SFN-006"]),
     ("GENERATOR/SEQ4", "select seq4() from table(generator(rowcount => 3))", "translated", []),
@@ -816,8 +816,8 @@ def test_object_pick_with_one_key_column_reads_it_as_a_key():
 @pytest.mark.parametrize("code,rule", [
     ("SELECT to_decfloat('1.5')", "SFN-018"), ("SELECT try_to_decfloat(a) FROM t", "SFN-018"),
     ("SELECT CAST(a AS DECFLOAT) FROM t", "SFN-018"),
-    ("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
-     "DEFINE x AS a > 0)", "SFN-019"),
+    (("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
+     "DEFINE x AS a > 0)"), "SFN-019"),
     ("INSERT OVERWRITE INTO t SELECT * FROM s", "SFN-020"),
 ])
 def test_decfloat_match_recognize_and_insert_overwrite_are_refused_by_name(code, rule):

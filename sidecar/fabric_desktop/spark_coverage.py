@@ -158,8 +158,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but gives another value. Check results that use it in Fabric.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: stops with an error. Run the cell in Fabric.",
-        "- **Not checked**: no example whose value can be compared (random values, the clock or the "
-        "session, or no example).",
+        ("- **Not checked**: no example whose value can be compared (random values, the clock or the "
+        "session, or no example)."),
         "",
         "One example per function is a first check, not proof: a function can match on its example and",
         "differ on other input. [Engines](engines.md) lists the differences known in more detail.",

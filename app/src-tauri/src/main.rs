@@ -495,6 +495,7 @@ fn run_schedule(id: &str) -> i32 {
     let mut cmd = Command::new(if pythonw.exists() { pythonw.into_os_string() } else { python.into() });
     cmd.args(["-m", "fabric_desktop.cli", "run-schedule", id])
         .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+        .envs(win_proxy::engine_env().iter().cloned())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -597,6 +598,7 @@ fn updater(args: &[&str]) -> Result<Command, String> {
     // folder can shadow a standard library module.
     let mut cmd = Command::new(python()?);
     cmd.args(["-u", "-c", UPDATER]).args(args).current_dir(data_dir()).stdin(Stdio::null());
+    cmd.envs(win_proxy::engine_env().iter().cloned()); // the proxy Windows uses, when Python can't read it itself
     hide_window(&mut cmd);
     Ok(cmd)
 }
@@ -733,6 +735,9 @@ impl Sidecar {
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // The proxy Windows uses (PAC, WPAD, or one set for the whole PC), which the engine,
+            // pip, delta-rs and gRPC can't read themselves (win_proxy.rs).
+            .envs(win_proxy::engine_env().iter().cloned())
             // So a schedule that also runs while signed out can run this exe (run_schedule_arg).
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
@@ -2746,6 +2751,7 @@ fn main() {
     if let Some(id) = run_schedule_arg(&std::env::args().collect::<Vec<_>>()) {
         std::process::exit(run_schedule(id));
     }
+    win_proxy::warm_up(); // WPAD can take seconds: worked out while the window opens
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
     // An organization that turned links off (register_link_scheme: false) gets none: no listener on

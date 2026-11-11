@@ -44,7 +44,8 @@ generated data and your answer, which is saved as you type and kept after a rest
   opening the explanation, doesn't count as independent. Neither does a quiz passed after changing an answer
   that was already checked.
 - **…** has **Compare with the expected result** and **Reset the exercise**, which asks first because it
-  throws your answer away.
+  throws your answer away. Reset keeps the hints you used, the explanation you opened and the quiz answers you
+  changed, so a pass after Reset still isn't independent, until the exercise gets a new version.
 
 The panel beside the editor has **Task** (the scenario, requirements, how it's checked and the
 lesson), **Hints** and **Check** (each check's result, what it proves and doesn't, the explanation once

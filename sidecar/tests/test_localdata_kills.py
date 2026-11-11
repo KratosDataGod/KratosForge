@@ -90,7 +90,9 @@ def kill_after(root: Path, pid: str, seed: int, after: str) -> list[str]:
                 break
     finally:
         p.kill()
-        _, err = p.communicate(timeout=60)
+        # Statements the child finished before the kill landed are still in the pipe: count them too.
+        out, err = p.communicate(timeout=60)
+        lines += [line.strip() for line in out.splitlines()]
     assert after in lines, f"the child stopped before {after!r}: {err[-2000:]}"
     return lines
 

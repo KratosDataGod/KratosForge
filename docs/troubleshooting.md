@@ -127,6 +127,17 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
 | "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
 
+## This PC's clock is wrong
+
+Sign-in, HTTPS certificates, schedules and the audit trail all use the PC's clock. When it is off by more than a few minutes:
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| **Ready to work** says "This PC's clock is ... ahead of" or "behind" a server's | KratosForge compares the PC's clock with the time the last server it called over HTTPS (usually Fabric) gave in its answer. | Turn on **Set time automatically** (Settings > Time & language > Date & time). On a managed PC, ask IT to check the PC's time source. |
+| "HTTPS was refused because the server's certificate isn't valid at this PC's date and time" (also for the engine download, the update check and pip) | A wrong date makes a valid certificate look expired or not valid yet. | Fix the date, time and time zone, then try again. If they are right, the server's certificate really has expired. |
+| `fabric-desktop audit --verify` lists a note that a line's time is earlier than the line before it | The clock was set back while the app was recording. The chain itself is intact, and the line stays in order. | Nothing, if you know the clock was changed. Otherwise ask IT why it was. |
+| A schedule on this PC ran at the wrong time | Windows Task Scheduler starts it by the PC's clock. | Fix the clock. The schedule's next run follows the corrected time. |
+
 ## Still stuck
 
 1. Open the bell and expand **Details** on the error.

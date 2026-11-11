@@ -3026,6 +3026,21 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .as-publish .as-facts dd input, .as-publish .as-facts dd select { width: 100%; box-sizing: border-box; }
 .as-warnings summary { cursor: pointer; }
 .as-warnings ul { margin: 6px 0 0; padding-left: 20px; }
+.as-describe, .as-plan { display: flex; flex-direction: column; gap: 12px; }
+.as-describe h2, .as-plan h2 { margin: 0; }
+.as-describe textarea { width: 100%; resize: vertical; box-sizing: border-box; }
+.as-describe-go { align-items: center; gap: 12px; flex-wrap: wrap; }
+.as-describe-go p { margin: 0; flex: 1 1 260px; }
+.as-describe .callout, .as-ask .callout { margin-bottom: 0; }
+.as-plan-name { max-width: 420px; }
+.as-plan-pages { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.as-plan-pages h3 { margin: 0 0 4px; font-size: 14px; }
+.as-plan-pages ul { margin: 0; padding-left: 20px; }
+.as-ask-body { display: flex; flex-direction: column; gap: 10px; }
+.as-change { border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.as-change p, .as-change ul { margin: 0; }
+.as-change ul { padding-left: 18px; }
+.as-ask-request { align-self: flex-end; background: var(--accent-soft); border-radius: 8px; padding: 6px 10px; max-width: 90%; }
 
 /* Academy (academy.js, ACD-007/008). Colors come from the tokens on :root; status is never color alone. */
 .academy-body { display: flex; flex-direction: column; gap: 16px; }

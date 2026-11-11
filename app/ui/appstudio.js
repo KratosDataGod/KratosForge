@@ -2,11 +2,12 @@
 // from a template, opens one or imports an export; the workspace shows the app's pages, a local preview on
 // sample numbers, Design (the visual editor), the specification and its history. Every change is a patch the
 // engine saves with its inverse (appstudio_service.py), so Undo, Redo and versions work the same for every
-// edit. Model connections (AS-06) keep where the person's own AI key is, never the key. Publish (AS-13) checks
+// edit. Describe (AS-10) and Ask for a change (AS-11) send names, never rows, to the person's own model and
+// show its answer as the engine checked it; nothing is made or changed until the person says so. Model connections (AS-06) keep where the person's own AI key is, never the key. Publish (AS-13) checks
 // first and writes one Power BI report only after the person types the workspace's name; replacing a report
 // already there needs its own tick. Nothing here reads OneLake.
 
-const appStudio = { project: null, opened: null, tab: "preview", page: null, selection: {}, busy: false, connections: false, editing: null, tested: null };
+const appStudio = { project: null, opened: null, tab: "preview", page: null, selection: {}, busy: false, connections: false, editing: null, tested: null, plan: null, change: null };
 const AS_TABS = [["preview", "Preview"], ["design", "Design"], ["spec", "Spec"], ["history", "History"]];
 const AS_TYPES = { card: "Card", bar: "Bar", column: "Column", line: "Line", area: "Area", pie: "Pie", donut: "Donut",
   table: "Table", matrix: "Matrix", slicer: "Slicer", text: "Text", waterfall: "Waterfall", scatter: "Scatter", map: "Map" };
@@ -21,7 +22,7 @@ function appStudioOpen(name = null) {
 }
 
 function appStudioLeave() {
-  Object.assign(appStudio, { project: null, opened: null, page: null, selection: {}, connections: false, editing: null, tested: null });
+  Object.assign(appStudio, { project: null, opened: null, page: null, selection: {}, connections: false, editing: null, tested: null, plan: null, change: null });
   render();
 }
 
@@ -42,9 +43,12 @@ async function renderAppStudio() {
       changes: "Create, Save As, Clone and Import make a new project folder under this PC's KratosForge data (appstudio/projects). Export writes a new .zip in Downloads. Only Publish changes Fabric: one report, after you type the workspace's name.",
       results: "This page. Each project keeps its specification, its history and its versions in its own folder.",
     }))));
-  const home = await rpc("appstudio_home").catch((err) => { if (body.isConnected) fill(body, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; });
+  const [home, conns] = await Promise.all([
+    rpc("appstudio_home").catch((err) => { if (body.isConnected) fill(body, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; }),
+    appStudioModels()]);
   if (!home || state.view !== "appStudio" || appStudio.project || !body.isConnected) return;
-  fill(body, appStudioCreateCard(home), appStudioProjectList(home.projects), h("p", { class: "muted-text small" }, AS_LOCAL));
+  if (appStudio.plan) { fill(body, appStudioPlanView(appStudio.plan)); return; }
+  fill(body, appStudioDescribeCard(home, conns), appStudioCreateCard(home), appStudioProjectList(home.projects), h("p", { class: "muted-text small" }, AS_LOCAL));
 }
 
 function appStudioCreateCard(home) {
@@ -157,7 +161,7 @@ async function renderAppStudioWorkspace() {
       onclick: () => { appStudio.tab = id; render(); } }, label)));
   const center = h("div", { class: "as-center" });
   setView(h("div", { class: "page appstudio as-workspace" }, head, tabs,
-    h("div", { class: "as-split" }, appStudioPagesRail(pages, got.valid), center, appStudioAskPanel())));
+    h("div", { class: "as-split" }, appStudioPagesRail(pages, got.valid), center, appStudioAskPanel(got))));
   if (!got.valid && appStudio.tab !== "spec" && appStudio.tab !== "history") {
     fill(center, h("div", { class: "callout warn" }, icon("warning", 20),
       h("span", {}, "This app's specification has problems, so it can't be previewed or changed until they are fixed. Spec lists them; History can restore a version.")));
@@ -183,14 +187,6 @@ function appStudioPagesRail(pages, valid) {
       onclick: () => { appStudio.page = p.id; appStudio.selection = {}; render(); } }, p.title,
       h("span", { class: "muted-text small" }, ` ${(p.components || []).length}`))),
     valid ? btn("Add page", "add", addPage, "tool small outline") : null);
-}
-
-function appStudioAskPanel() {
-  return h("aside", { class: "card pad as-ask", "aria-label": "Ask for a change" },
-    h("h2", {}, "Ask for a change"),
-    h("textarea", { rows: 4, disabled: true, "aria-label": "Describe a change", placeholder: "Make the region chart a column chart and add a profit card" }),
-    h("p", { class: "muted-text small" }, "Asking your own AI model for a change comes in the next App Studio update. You can add your model now, under Model connections on App Studio's first page. Its plan shows here first, and nothing changes until you apply it."),
-    h("p", { class: "muted-text small" }, "Until then, change the app in Design. Every change can be undone."));
 }
 
 // A new id no entry in the specification has, like pg_3 or c_7.
@@ -399,6 +395,199 @@ async function appStudioSaveAs(clone) {
 async function appStudioExport() {
   const got = await attempt(() => rpc("appstudio_export", { project_name: appStudio.project }), "Could not export the app");
   if (got) toast(`Exported to ${got.path}`);
+}
+
+// ---------- Describe an app (AS-10) ----------
+
+// The person's description and the chosen source's names (never rows) go to their own model, which answers
+// with a plan. The engine keeps only what the data and the target support; the plan is shown here, and an app
+// is made only when the person says Build it. Formulas (DAX) go only when ticked for this request.
+async function appStudioModels() {
+  return rpc("appstudio_connections").catch(() => null);
+}
+
+// The model picker: the default first. "" means the default.
+function appStudioModelPicker(conns) {
+  const usable = (conns?.connections || []).filter((c) => !(c.refused || []).length);
+  return h("select", { "aria-label": "Model" }, usable.map((c) =>
+    h("option", { value: c.id, selected: c.id === conns.default }, `${c.name}${c.id === conns.default ? " (default)" : ""}`)));
+}
+
+function appStudioNoModel(conns) {
+  const off = conns && !conns.policy?.enabled;
+  return h("div", { class: "callout", role: "status" }, icon("info", 20), h("span", {},
+    off ? "Your organization's policy turns off AI model connections in App Studio. Templates and Design still work."
+      : "Add your own AI model to describe apps and ask for changes. ",
+    off ? null : h("a", { href: "#", onclick: (e) => { e.preventDefault(); appStudio.connections = true; render(); } }, "Model connections")));
+}
+
+function appStudioDescribeCard(home, conns) {
+  const usable = (conns?.connections || []).filter((c) => !(c.refused || []).length);
+  const card = h("section", { class: "card pad as-describe", "aria-label": "Describe an app" }, h("h2", {}, "Describe an app"));
+  if (!usable.length) { card.append(appStudioNoModel(conns)); return card; }
+  const text = h("textarea", { rows: 4, maxlength: 4000, "aria-label": "Describe what the app should do",
+    placeholder: "An executive sales dashboard: revenue, margin and retention, revenue by region and by month, and a customers page." });
+  const model = appStudioModelPicker(conns);
+  const target = h("select", { "aria-label": "Where it will run" }, home.targets.map((t) => h("option", { value: t.id }, t.label)));
+  const data = h("select", { "aria-label": "Data" }, h("option", { value: "sample" }, "Sample data"), h("option", { value: "model" }, "A semantic model…"));
+  const ws = h("select", { "aria-label": "Workspace" });
+  const sm = h("select", { "aria-label": "Semantic model" });
+  const modelRow = h("div", { class: "as-conn-grid" }, h("label", { class: "field" }, "Workspace", ws), h("label", { class: "field" }, "Semantic model", sm));
+  modelRow.hidden = true;
+  const dax = h("input", { type: "checkbox" });
+  const daxRow = h("label", { class: "check" }, dax, h("span", {}, "Also send measure formulas (DAX) this time. A formula can hold literal business values, such as a customer name or a price."));
+  daxRow.hidden = true;
+  const note = h("p", { class: "muted-text small" });
+  const sync = () => {
+    const c = usable.find((x) => x.id === model.value) || usable[0];
+    const what = data.value === "model" ? "the semantic model's table, column and measure names, types and descriptions" : "the sample data's field names";
+    note.textContent = `Sends your description and ${what} to ${c.name}. Never rows.${dax.checked && data.value === "model" ? " Measure formulas too." : ""}`;
+  };
+  const loadModels = async () => {
+    fill(sm, h("option", { value: "" }, "Reading…"));
+    const items = await attempt(() => rpc("list_items", { workspace_id: ws.value }), "Could not list the semantic models") || [];
+    const models = items.filter((i) => i.type === "SemanticModel");
+    fill(sm, models.length ? models.map((m) => h("option", { value: m.id }, m.displayName)) : h("option", { value: "" }, "No semantic models here"));
+  };
+  data.addEventListener("change", async () => {
+    modelRow.hidden = daxRow.hidden = data.value !== "model";
+    sync();
+    if (data.value === "model" && !ws.options.length) {
+      const list = await loadWorkspaces();
+      fill(ws, list.map((w) => h("option", { value: w.id }, w.displayName)));
+      if (list.length) await loadModels();
+    }
+  });
+  ws.addEventListener("change", loadModels);
+  [model, dax].forEach((el) => el.addEventListener("change", sync));
+  sync();
+  const planBtn = btn("Make a plan", null, async () => {
+    const description = text.value.trim();
+    if (!description) { text.focus(); return; }
+    let source = null;
+    if (data.value === "model") {
+      if (!sm.value) { toast("Choose a semantic model first.", true); return; }
+      source = { workspace_id: ws.value, item_id: sm.value, name: sm.selectedOptions[0]?.textContent || "" };
+    }
+    planBtn.disabled = true;
+    fill(planBtn, "Asking your model…");
+    const got = await attempt(() => rpc("appstudio_plan", { description, target: target.value, source, conn_id: model.value,
+      include_expressions: data.value === "model" && dax.checked }), "Could not make a plan");
+    planBtn.disabled = false;
+    fill(planBtn, "Make a plan");
+    if (got) { appStudio.plan = got; render(); }
+  }, "tool primary");
+  card.append(h("label", { class: "field" }, "What should the app do?", text),
+    h("div", { class: "as-conn-grid" }, h("label", { class: "field" }, "Model", model), h("label", { class: "field" }, "Data", data),
+      h("label", { class: "field" }, "Where it will run", target)),
+    modelRow, daxRow, h("div", { class: "row as-describe-go" }, planBtn, note));
+  return card;
+}
+
+const AS_COMPONENT_LINE = (c) => [AS_TYPES[c.type] || c.type, c.title, c.measure, c.field].filter(Boolean).join(" · ");
+
+// The plan the model answered, as the engine kept it. Build it makes the app; nothing is saved before that.
+function appStudioPlanView(got) {
+  const plan = got.plan;
+  const name = h("input", { value: plan.name, maxlength: 120, "aria-label": "App name" });
+  const build = btn("Build it", "add", async () => {
+    build.disabled = true;
+    const made = await attempt(() => rpc("appstudio_create_from_plan", { plan_id: got.plan_id, plan, name: name.value.trim() }), "Could not build the app");
+    build.disabled = false;
+    if (!made) return;
+    appStudio.plan = null;
+    if (made.left_out?.length) toast(`Built ${made.spec.name}. ${made.left_out.length} thing${made.left_out.length === 1 ? " was" : "s were"} left out; the plan listed them.`);
+    Object.assign(appStudio, { project: made.project, opened: made, tab: "preview", page: null, selection: {} });
+    go("appStudio");
+  }, "tool primary");
+  const sent = got.sent || {};
+  return h("section", { class: "card pad as-plan", "aria-label": "Plan" },
+    h("h2", {}, `Plan: ${plan.name}`),
+    plan.purpose ? h("p", {}, plan.purpose) : null,
+    plan.audience?.length ? h("p", { class: "muted-text small" }, `For ${plan.audience.join(", ")}`) : null,
+    h("label", { class: "field as-plan-name" }, "App name", name),
+    h("div", { class: "as-plan-pages" }, plan.pages.map((p) => h("div", {},
+      h("h3", {}, p.title), h("ul", {}, p.components.map((c) => h("li", {}, AS_COMPONENT_LINE(c))))))),
+    got.left_out?.length ? h("details", { class: "as-warnings", open: true }, h("summary", {}, `Left out (${got.left_out.length}): the data or the target can't show these`),
+      h("ul", {}, got.left_out.map((t) => h("li", {}, t)))) : null,
+    plan.questions?.length ? h("div", {}, h("h3", {}, "Your model asks"), h("ul", {}, plan.questions.map((q) => h("li", {}, q)))) : null,
+    h("p", { class: "muted-text small" }, `Sent to ${got.connection.name} (${got.connection.model}): your description and ${sent.tables} table${sent.tables === 1 ? "" : "s"}, ${sent.columns} column and ${sent.measures} measure names${sent.expressions ? ", with formulas" : ""}. No rows. ` +
+      `${(got.usage?.input_tokens || 0) + (got.usage?.output_tokens || 0)} tokens.`),
+    got.warning ? h("p", { class: "muted-text small" }, got.warning) : null,
+    h("div", { class: "row" }, build, btn("Change the description", null, () => { appStudio.plan = null; render(); }, "tool outline")));
+}
+
+// ---------- Ask for a change (AS-11) ----------
+
+// The person's request and the app's pages and components (ids, types, titles, measure names, fields) go to
+// their model; the engine turns its answer into changes it checks, and shows them. Apply saves them as one
+// step Undo takes back; Discard drops them. Nothing changes before Apply.
+function appStudioAskPanel(got) {
+  const panel = h("aside", { class: "card pad as-ask", "aria-label": "Ask for a change" }, h("h2", {}, "Ask for a change"));
+  const body = h("div", { class: "as-ask-body" }, h("p", { class: "muted-text small" }, "Reading your model connections…"));
+  panel.append(body);
+  appStudioModels().then((conns) => {
+    if (!body.isConnected) return;
+    const usable = (conns?.connections || []).filter((c) => !(c.refused || []).length);
+    if (!usable.length) { fill(body, appStudioNoModel(conns), h("p", { class: "muted-text small" }, "Until then, change the app in Design. Every change can be undone.")); return; }
+    if (!got.valid) { fill(body, h("p", { class: "muted-text small" }, "Fix the specification's problems first.")); return; }
+    const model = appStudioModelPicker(conns);
+    const text = h("textarea", { rows: 3, maxlength: 4000, "aria-label": "What should change?", placeholder: "Make the region chart a column chart and add a profit card" });
+    const fromModel = (got.spec?.sources || []).some((s) => s.kind === "semantic-model");
+    const dax = h("input", { type: "checkbox" });
+    const result = h("div", { class: "as-ask-result" });
+    const pending = appStudio.change && appStudio.change.project === appStudio.project ? appStudio.change : null;
+    const ask = btn("Plan the change", null, async () => {
+      const request = text.value.trim();
+      if (!request) { text.focus(); return; }
+      ask.disabled = true;
+      fill(ask, "Asking your model…");
+      const r = await attempt(() => rpc("appstudio_change_plan", { project_name: appStudio.project, request, conn_id: model.value,
+        include_expressions: fromModel && dax.checked }), "Could not plan the change");
+      ask.disabled = false;
+      fill(ask, "Plan the change");
+      if (!r) return;
+      appStudio.change = { ...r, project: appStudio.project, request };
+      fill(result, appStudioChangeView(appStudio.change));
+    }, "tool primary small");
+    fill(body,
+      h("label", { class: "field" }, "Model", model),
+      result,
+      h("label", { class: "field" }, "What should change?", text),
+      fromModel ? h("label", { class: "check small" }, dax, h("span", {}, "Also send measure formulas (DAX)")) : null,
+      h("p", { class: "muted-text small" }, "Sends your request, the app's page and component names, and the data's names and types. Never rows."),
+      h("div", { class: "row" }, ask));
+    if (pending) fill(result, appStudioChangeView(pending));
+  });
+  return panel;
+}
+
+// The engine names components and pages by id ("Show c_4 as a column"); people know them by title.
+function appStudioTitled(text) {
+  const names = {};
+  for (const p of appStudio.opened?.spec?.pages || []) {
+    names[p.id] = p.title;
+    for (const c of p.components || []) names[c.id] = c.title || AS_TYPES[c.type] || c.id;
+  }
+  return String(text).replace(/\b(?:c|pg)_\d+\b/g, (id) => (names[id] ? `"${names[id]}"` : id));
+}
+
+function appStudioChangeView(ch) {
+  const apply = btn("Apply", null, async () => {
+    apply.disabled = true;
+    const got = await appStudioApply("appstudio_apply_change", { change_id: ch.change_id }, "Could not apply the change");
+    if (got) { appStudio.change = null; toast("Applied. Undo puts it back."); render(); } else apply.disabled = false;
+  }, "tool primary small");
+  const discard = btn("Discard", null, () => { appStudio.change = null; render(); }, "tool outline small");
+  return h("div", { class: "as-change", role: "status" },
+    h("div", { class: "as-ask-request" }, ch.request),
+    h("b", {}, "Change plan"),
+    ch.summary ? h("p", {}, ch.summary) : null,
+    h("ul", {}, ch.done.map((d) => h("li", {}, appStudioTitled(d)))),
+    h("p", { class: "muted-text small" }, `${ch.changed.length} item${ch.changed.length === 1 ? "" : "s"} change. Nothing else is touched. Nothing is saved until you apply it.`),
+    ch.left_out?.length ? h("details", { class: "as-warnings" }, h("summary", {}, `Left out (${ch.left_out.length})`), h("ul", {}, ch.left_out.map((t) => h("li", {}, appStudioTitled(t))))) : null,
+    ch.questions?.length ? h("ul", { class: "muted-text small" }, ch.questions.map((q) => h("li", {}, q))) : null,
+    h("div", { class: "row" }, apply, discard));
 }
 
 // ---------- Model connections (AS-06) ----------

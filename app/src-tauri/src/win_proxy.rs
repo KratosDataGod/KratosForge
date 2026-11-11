@@ -106,7 +106,9 @@ pub fn engine_env() -> &'static [(String, String)] {
         let Some(windows) = windows_config() else { return Vec::new() };
         let hosts: Vec<String> = PROBE_HOSTS.iter().map(|h| h.to_string()).collect();
         let found = if windows.automatic() { routes(&windows, &hosts) } else { Vec::new() };
-        let env = plan(&windows, &hosts.into_iter().zip(found).collect::<Vec<_>>());
+        // NO_PROXY is one variable on Windows, whatever its case.
+        let existing = std::env::var("NO_PROXY").unwrap_or_default();
+        let env = plan(&windows, &hosts.into_iter().zip(found).collect::<Vec<_>>(), &existing);
         if !env.is_empty() {
             eprintln!("proxy: the engine uses Windows' proxy settings: {env:?}");
         }
@@ -125,11 +127,22 @@ pub fn warm_up() {
 /// part, tested). With PAC or WPAD: the proxy most hosts get, and the hosts it sends direct in
 /// `NO_PROXY`. Otherwise, or when Windows couldn't answer for any host: its fixed proxy, but only
 /// when the engine can't read that itself. The bypass list goes to `NO_PROXY` as far as it can be
-/// written there.
-pub fn plan(windows: &WindowsProxy, routes: &[(String, Route)]) -> Vec<(String, String)> {
+/// written there. A `NO_PROXY` IT or the person already set (`existing`) is kept and added to;
+/// `NO_PROXY=*` sends everything direct, so nothing is added at all.
+pub fn plan(windows: &WindowsProxy, routes: &[(String, Route)], existing: &str) -> Vec<(String, String)> {
+    let theirs: Vec<String> = existing.split(',').map(str::trim).filter(|e| !e.is_empty()).map(str::to_string).collect();
+    if theirs.iter().any(|e| e == "*") {
+        return Vec::new();
+    }
     let env = |proxy: String, direct: Vec<String>| {
-        let mut no_proxy = vec![ALWAYS_DIRECT.to_string()];
-        no_proxy.extend(direct.into_iter().filter(|d| !d.is_empty()));
+        let mut no_proxy: Vec<String> = Vec::new();
+        for entry in std::iter::once(ALWAYS_DIRECT.to_string()).chain(direct).chain(theirs.iter().cloned()) {
+            for e in entry.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+                if !no_proxy.iter().any(|n| n.eq_ignore_ascii_case(e)) {
+                    no_proxy.push(e.to_string());
+                }
+            }
+        }
         vec![("HTTPS_PROXY".to_string(), proxy), ("NO_PROXY".to_string(), no_proxy.join(","))]
     };
     if windows.automatic() && routes.iter().any(|(_, r)| !matches!(r, Route::Unknown(_))) {
@@ -304,8 +317,10 @@ fn routes(windows: &WindowsProxy, hosts: &[String]) -> Vec<Route> {
     }
     let _ = unsafe { WinHttpSetTimeouts(session, 5_000, 5_000, 5_000, 10_000) };
     let pac = HSTRING::from(windows.pac_url.as_str());
-    let options = |detect: bool| {
-        let mut o = WINHTTP_AUTOPROXY_OPTIONS { fAutoLogonIfChallenged: true.into(), ..Default::default() };
+    // Never sign in on the first try (autologon would hand the Windows account's NTLM or Kerberos
+    // answer to whichever PAC server challenges): see autologon_retry.
+    let options = |detect: bool, autologon: bool| {
+        let mut o = WINHTTP_AUTOPROXY_OPTIONS { fAutoLogonIfChallenged: autologon.into(), ..Default::default() };
         if detect && windows.auto_detect {
             o.dwFlags |= WINHTTP_AUTOPROXY_AUTO_DETECT;
             o.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
@@ -332,8 +347,8 @@ fn routes(windows: &WindowsProxy, hosts: &[String]) -> Vec<Route> {
             continue;
         }
         let url = HSTRING::from(format!("https://{host}/"));
-        let ask = |detect: bool| {
-            let mut opts = options(detect);
+        let ask = |detect: bool, autologon: bool| {
+            let mut opts = options(detect, autologon);
             let mut info = WINHTTP_PROXY_INFO::default();
             unsafe { WinHttpGetProxyForUrl(session, &url, &mut opts, &mut info) }.map(|()| {
                 let (proxy, _) = (take(info.lpszProxy), take(info.lpszProxyBypass));
@@ -345,17 +360,31 @@ fn routes(windows: &WindowsProxy, hosts: &[String]) -> Vec<Route> {
             })
         };
         // As Microsoft advises: when detection fails and there is a PAC address too, try that alone.
-        let route = match ask(detect) {
+        let route = match ask(detect, false) {
             Err(_) if detect && windows.auto_detect && !windows.pac_url.is_empty() => {
                 detect = false;
-                ask(false)
+                ask(false, false)
             }
+            other => other,
+        };
+        let route = match route {
+            Err(e) if autologon_retry(e.code().0 as u32 & 0xFFFF, detect && windows.auto_detect, &windows.pac_url) => ask(false, true),
             other => other,
         };
         out.push(route.unwrap_or_else(|e| Route::Unknown(e.message())));
     }
     let _ = unsafe { WinHttpCloseHandle(session) };
     out
+}
+
+/// WinHTTP's "the PAC server asked for a sign-in" (ERROR_WINHTTP_LOGIN_FAILURE).
+pub const LOGIN_FAILURE: u32 = 12015;
+
+/// Whether to ask again signed in with the Windows account, after `code`: only when the PAC
+/// server asked for a sign-in, and only for the PAC address IT set, never one WPAD found (anyone
+/// on the network can answer WPAD and collect the sign-in), as Microsoft's WinHTTP guidance has it.
+pub fn autologon_retry(code: u32, detected: bool, pac_url: &str) -> bool {
+    code == LOGIN_FAILURE && !detected && !pac_url.is_empty()
 }
 
 #[cfg(not(windows))]
@@ -365,7 +394,7 @@ fn routes(_windows: &WindowsProxy, hosts: &[String]) -> Vec<Route> {
 
 #[cfg(test)]
 mod tests {
-    use super::{args_for, bypassed, https_proxy, no_proxy_from_bypass, plan, Route, WindowsProxy, ALWAYS_DIRECT};
+    use super::{args_for, autologon_retry, bypassed, https_proxy, no_proxy_from_bypass, plan, Route, WindowsProxy, ALWAYS_DIRECT, LOGIN_FAILURE};
 
     #[test]
     fn the_https_entry_or_the_one_for_every_protocol_is_used() {
@@ -418,7 +447,7 @@ mod tests {
             ("api.fabric.microsoft.com", Route::Proxy("proxy.contoso.com:8080".into())),
             ("github.com", Route::Proxy("other.contoso.com:3128".into())),
             ("pypi.org", Route::Direct),
-        ]));
+        ]), "");
         assert_eq!(env, [
             ("HTTPS_PROXY".to_string(), "http://proxy.contoso.com:8080".to_string()),
             ("NO_PROXY".to_string(), format!("{ALWAYS_DIRECT},pypi.org")),
@@ -428,42 +457,42 @@ mod tests {
     #[test]
     fn wpad_counts_like_a_pac_file() {
         let wpad = WindowsProxy { auto_detect: true, ..Default::default() };
-        let env = plan(&wpad, &routes(&[("github.com", Route::Proxy("proxy:8080".into()))]));
+        let env = plan(&wpad, &routes(&[("github.com", Route::Proxy("proxy:8080".into()))]), "");
         assert_eq!(env[0], ("HTTPS_PROXY".to_string(), "http://proxy:8080".to_string()));
     }
 
     #[test]
     fn a_pac_file_that_sends_everything_direct_adds_nothing_unless_a_fixed_proxy_would_be_used() {
         let all_direct = routes(&[("github.com", Route::Direct), ("pypi.org", Route::Direct)]);
-        assert!(plan(&pac(), &all_direct).is_empty());
+        assert!(plan(&pac(), &all_direct, "").is_empty());
         let seen = WindowsProxy { proxy: "proxy:8080".into(), python_sees_fixed: true, ..pac() };
-        assert_eq!(plan(&seen, &all_direct), [("NO_PROXY".to_string(), "*".to_string())]);
+        assert_eq!(plan(&seen, &all_direct, ""), [("NO_PROXY".to_string(), "*".to_string())]);
     }
 
     #[test]
     fn when_windows_cant_run_its_pac_file_the_fixed_proxy_rules_apply() {
         let unknown = routes(&[("github.com", Route::Unknown("no WPAD server".into()))]);
-        assert!(plan(&WindowsProxy { auto_detect: true, ..Default::default() }, &unknown).is_empty());
+        assert!(plan(&WindowsProxy { auto_detect: true, ..Default::default() }, &unknown, "").is_empty());
         let machine = WindowsProxy { auto_detect: true, proxy: "proxy:8080".into(), bypass: "*.contoso.com".into(), ..Default::default() };
-        assert_eq!(plan(&machine, &unknown)[0].1, "http://proxy:8080");
+        assert_eq!(plan(&machine, &unknown, "")[0].1, "http://proxy:8080");
     }
 
     #[test]
     fn a_fixed_proxy_the_engine_reads_itself_is_left_alone() {
         let user = WindowsProxy { proxy: "proxy:8080".into(), python_sees_fixed: true, ..Default::default() };
-        assert!(plan(&user, &[]).is_empty());
-        assert!(plan(&WindowsProxy::default(), &[]).is_empty());
+        assert!(plan(&user, &[], "").is_empty());
+        assert!(plan(&WindowsProxy::default(), &[], "").is_empty());
     }
 
     #[test]
     fn a_machine_wide_fixed_proxy_goes_to_the_engine_with_its_bypass_list() {
         let machine = WindowsProxy { proxy: "proxy.contoso.com:8080".into(), bypass: "*.contoso.com;10.*;<local>".into(), ..Default::default() };
-        assert_eq!(plan(&machine, &[]), [
+        assert_eq!(plan(&machine, &[], ""), [
             ("HTTPS_PROXY".to_string(), "http://proxy.contoso.com:8080".to_string()),
             ("NO_PROXY".to_string(), format!("{ALWAYS_DIRECT},.contoso.com,10.0.0.0/8")),
         ]);
         let with_password = WindowsProxy { proxy: "user:pass@proxy:8080".into(), ..Default::default() };
-        assert!(plan(&with_password, &[]).is_empty(), "a credential never goes into a variable");
+        assert!(plan(&with_password, &[], "").is_empty(), "a credential never goes into a variable");
     }
 
     #[test]
@@ -471,5 +500,25 @@ mod tests {
         assert_eq!(no_proxy_from_bypass("*.contoso.com; intranet.fabrikam.com;10.1.*;192.168.1.*;<local>;*corp*;10.*.5.*"),
                    ".contoso.com,intranet.fabrikam.com,10.1.0.0/16,192.168.1.0/24");
         assert_eq!(no_proxy_from_bypass(""), "");
+    }
+
+    #[test]
+    fn the_windows_sign_in_goes_only_to_the_pac_address_it_set_and_only_when_asked() {
+        let it_pac = "http://pac.contoso.com/proxy.pac";
+        assert!(autologon_retry(LOGIN_FAILURE, false, it_pac));
+        assert!(!autologon_retry(LOGIN_FAILURE, true, it_pac), "never to a PAC server WPAD found");
+        assert!(!autologon_retry(LOGIN_FAILURE, true, ""));
+        assert!(!autologon_retry(LOGIN_FAILURE, false, ""));
+        assert!(!autologon_retry(12167, false, it_pac), "a PAC file that couldn't be fetched isn't a sign-in request");
+    }
+
+    #[test]
+    fn a_no_proxy_it_already_set_is_kept_and_added_to_and_star_switches_this_off() {
+        let machine = WindowsProxy { proxy: "proxy:8080".into(), bypass: "*.contoso.com".into(), ..Default::default() };
+        let env = plan(&machine, &[], "intranet, .fabrikam.com,LOCALHOST");
+        assert_eq!(env[1], ("NO_PROXY".to_string(), format!("{ALWAYS_DIRECT},.contoso.com,intranet,.fabrikam.com")));
+        assert!(plan(&machine, &[], "*").is_empty(), "NO_PROXY=* sends everything direct: nothing added");
+        let pac_env = plan(&pac(), &routes(&[("github.com", Route::Proxy("proxy:8080".into()))]), "files.contoso.com");
+        assert!(pac_env[1].1.ends_with(",files.contoso.com"));
     }
 }

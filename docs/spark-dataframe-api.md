@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 109 |
+| Runs | 110 |
 | Differs | 3 |
 | Refused | 16 |
-| Fails | 35 |
+| Fails | 34 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -52,7 +52,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `cube` | Runs |  |
 | `describe` | Runs |  |
 | `distinct` | Runs |  |
-| `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
+| `drop` | Runs |  |
 | `dropDuplicates` | Runs |  |
 | `dropDuplicatesWithinWatermark` | Not checked |  |
 | `drop_duplicates` | Not checked |  |

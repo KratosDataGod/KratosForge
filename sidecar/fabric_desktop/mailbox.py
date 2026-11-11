@@ -75,6 +75,7 @@ import requests
 
 from . import jsonfile
 from .errors import NotSetUp
+from .jobqueue import QueueFull
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST, _onelake_error, item_url
@@ -534,8 +535,12 @@ class Mailbox:
         # A copy still queued or running here (this agent was paused, then got the request back) is
         # carried on as it is: the request is this agent's again, so taken_over() lets it continue.
         if job is None:
-            job = self.agent.enqueue(env, status.get("entities") or [], status.get("backfill", ""),
-                                     bool(status.get("cascade")), source=key, dedupe_key=key)
+            try:
+                job = self.agent.enqueue(env, status.get("entities") or [], status.get("backfill", ""),
+                                         bool(status.get("cascade")), source=key, dedupe_key=key)
+            except QueueFull as exc:
+                self._wait_for_room(env, rid, status, stored, exc)
+                return
         cancel = self.control(env).read(f"cancel/{rid}.json") is not None
         if job["state"] == "queued":
             deadline = status.get("deadline")
@@ -547,6 +552,7 @@ class Mailbox:
         state = "expired" if job["state"] == "cancelled" and (job.get("error") or "").startswith("its deadline") \
             else _JOB_STATE.get(job["state"], "accepted")
         new = status | {"state": state, "job_id": job["id"], "attempts": job["attempts"]}
+        new.pop("waiting", None)  # queued now: no longer waiting for room
         if job.get("started_at"):
             new["started_at"] = _iso(job["started_at"])
         if job.get("finished_at") and state in FINAL:
@@ -567,6 +573,17 @@ class Mailbox:
         latest, _ = self._read(env, f"status/{rid}.json")  # changed since read: was it taken over?
         if latest and latest.get("agent") != self.agent.config.name:
             self._handed_over(rid, latest)
+
+    def _wait_for_room(self, env: str, rid: str, status: dict[str, Any], stored: Stored, exc: QueueFull) -> None:
+        """The agent's queue is full (agent.max_queued): the request stays this agent's and is queued
+        at a later poll, once there is room. Its status says why it waits, written once, never dropped."""
+        reason = f"the agent's queue is full (agent.max_queued = {exc.limit}); it is queued when there is room"
+        if status.get("waiting") == reason:
+            return
+        new = status | {"waiting": reason, "updated_at": _iso(self.clock())}
+        if self._write_status(env, rid, new, stored):
+            self.log.warning("pipeline request waiting: the agent's queue is full", extra=fields(
+                env=env, request_id=rid, waiting=exc.waiting, max_queued=exc.limit))
 
     # ---- takeover
 

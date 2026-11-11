@@ -106,6 +106,14 @@ struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, an
 `select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
 name: select it first and use it from there.
 
+`drop` works as Spark's: a name drops every column called that (`drop("a.b.c")` drops the column named `a.b.c`), and a
+column drops that column, so after `df.join(df2, df.id == df2.id)`, `drop(df2.id)` keeps df's `id`. `col("id")` that
+two columns answer to is Spark's `AMBIGUOUS_REFERENCE` error. Once the joined frame is selected or changed, this PC no
+longer knows which DataFrame a column came from: `drop(df2.id)` drops the one `id` there is, and with two it's refused
+by name. A join with no condition (`df.join(df2)`) pairs every row with every row, and `how="cross"` is an inner join.
+A join on names (`df.join(df2, "id")`) keeps the left side's column order, where Spark puts the keys first: select the
+columns by name rather than by position.
+
 `select("a.*")` and `select(col("a.*"))` give every column of the DataFrame aliased `a` (after
 `df.alias("a").join(df2.alias("b"), ...)`), and `select("s.*")` every field of struct `s`, as in Spark. A star that
 names neither is Spark's `CANNOT_RESOLVE_STAR_EXPAND` error. After a select, the result no longer knows its columns'

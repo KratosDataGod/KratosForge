@@ -1541,24 +1541,94 @@ def _stats(self: DataFrame, names: list[str], stats: Any) -> DataFrame:
     return _frame(self, out)
 
 
-def _drop_cols(fn: Any) -> Any:
-    """``df.drop("ID")`` drops ``id``: Spark resolves names ignoring case (a name that isn't there is skipped).
+# A column reference as DuckDB writes it: names, each plain or double-quoted, joined by dots.
+_REF_PART = r'(?:"(?:[^"]|"")*"|[^."()\s]+)'
+_REFERENCE = re.compile(rf"^{_REF_PART}(?:\.{_REF_PART})*$")
+_PART = re.compile(r'"((?:[^"]|"")*)"|([^."]+)')
+
+
+def _ref_parts(column: Column) -> list[str] | None:
+    """The names in ``column`` when it is a plain column reference (``col("x")``, ``df.x``,
+    ``col("t.x")``), else None."""
+    text = str(column.expr)
+    if not _REFERENCE.match(text):
+        return None
+    return [m.group(1).replace('""', '"') if m.group(1) is not None else m.group(2) for m in _PART.finditer(text)]
+
+
+def _ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _drop_cols(fn: Any) -> Any:  # noqa: ARG001 - DuckDB's drop is replaced; kept for the wrapper's shape
+    """``df.drop`` as Spark 3.5's: checked against Apache Spark 3.5.3.
+
+    - A name drops every column called that, whatever its case, and is a whole name: ``drop("a.b.c")``
+      drops the column named ``a.b.c``; a name that isn't there is skipped.
+    - A column drops that column: after ``df.join(df2, ...)``, ``drop(df2.name)`` drops df2's name and
+      keeps df's. ``col("name")`` that two columns answer to is Spark's AMBIGUOUS_REFERENCE error, and
+      a column the frame doesn't have, or an expression that isn't a column, is skipped.
+    - Once the frame was selected or changed after the join, this PC no longer knows which DataFrame
+      a column came from, so ``drop(df2.name)`` drops the one column called name, as before; with
+      two columns of that name it is refused by name rather than guessing. (Spark would also keep a
+      column of that name that came from another DataFrame; this PC drops it.)
+
     Dropping every column is refused: Spark keeps a frame with no columns, which DuckDB can't hold."""
     def drop(self: DataFrame, *cols: Any) -> DataFrame:
-        by_lower = {c.lower(): c for c in self.columns}
-
-        def resolve(c: Any) -> Any:  # F.col("ID") names the column too; another expression is left as given
-            name = c if isinstance(c, str) else c.expr.get_name() if isinstance(c, Column) else None
-            if isinstance(c, Column) and name is not None and len(name) > 1 and name[0] == name[-1] == "`":
-                name = name[1:-1]
-            return by_lower.get(name.lower(), c) if name is not None else c
-        cols = tuple(resolve(c) for c in cols)
-        gone = {c if isinstance(c, str) else c.expr.get_name() for c in cols if isinstance(c, (str, Column))}
-        if self.columns and not set(self.columns) - gone:
+        from duckdb.experimental.spark.errors import AnalysisException
+        names = [c.lower() for c in self.columns]
+        excluded: list[str] = []
+        left = list(self.columns)
+        for c in cols:
+            if isinstance(c, str):
+                if c.lower() in names:
+                    excluded.append(_ident(c))
+                    left = [x for x in left if x.lower() != c.lower()]
+                continue
+            if not isinstance(c, Column):
+                raise TypeError(f"drop() takes column names or Columns, not {type(c).__name__}.")
+            parts = _ref_parts(c)
+            if parts is None:
+                continue  # an expression, not a column: Spark leaves the frame as it is
+            whole = ".".join(parts)
+            if len(whole) > 1 and whole[0] == whole[-1] == "`":  # col("`a.b`"): the column named a.b
+                parts = [whole[1:-1]]
+            name = parts[-1]
+            matches = names.count(name.lower())
+            if not matches:
+                continue
+            ref = ".".join(_ident(p) for p in parts)
+            if len(parts) > 1:
+                try:
+                    self.relation.project(f"* EXCLUDE ({ref})")
+                except duckdb.BinderException:  # the Column's DataFrame isn't one this frame was joined from
+                    parts = [name]
+                    if matches > 1:
+                        raise NotImplementedError(
+                            f"drop() of another DataFrame's column {name}: this frame has {matches} columns named "
+                            f"{name} and this PC can't tell which one that Column is (they were selected or renamed "
+                            "after the join). Drop it before the select, or rename one side first.") from None
+            if len(parts) == 1:
+                if matches > 1:
+                    raise AnalysisException(message=f"[AMBIGUOUS_REFERENCE] Reference `{name}` is ambiguous, could "
+                                                    f"be: [{', '.join(f'`{x}`' for x in self.columns if x.lower() == name.lower())}].")
+                excluded.append(_ident(name))
+                left = [x for x in left if x.lower() != name.lower()]
+                continue
+            kept = self.relation.project(f"* EXCLUDE ({ref})").columns
+            excluded.append(ref)
+            removed = list(self.columns)
+            for x in kept:
+                removed.remove(x)
+            for x in removed:
+                left.remove(x)
+        if not excluded:
+            return self
+        if self.columns and not left:
             raise ValueError(f"drop would leave no columns ({', '.join(self.columns)}). Spark keeps an empty "
                              "frame here, but this PC's engine can't hold one; keep at least one column.")
-        return fn(self, *cols)
-    drop.__doc__ = fn.__doc__
+        return DataFrame(self.relation.project(f"* EXCLUDE ({', '.join(dict.fromkeys(excluded))})"), self.session)
+    drop.__doc__ = DataFrame.drop.__doc__
     return drop
 
 
@@ -1646,10 +1716,21 @@ def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, va
 
 
 def _same_self(fn: Any) -> Any:
-    """A join of a DataFrame with itself: DuckDB needs the two sides named apart."""
+    """A join of a DataFrame with itself: DuckDB needs the two sides named apart. A join with no
+    condition pairs every row with every row, as in Spark (``df.join(df2)``, any ``how``), and
+    ``how="cross"`` is an inner join: DuckDB knows neither."""
     def join(self: DataFrame, other: DataFrame, *args: Any, **kwargs: Any) -> DataFrame:
         if other.relation.alias == self.relation.alias:
             other = DataFrame(other.relation.set_alias(f"fd_right_{next(_ids)}"), other.session)
+        if fn.__name__ == "join":
+            names = ("on", "how")
+            given = dict(zip(names, args, strict=False))
+            given.update({k: kwargs.pop(k) for k in names if k in kwargs})
+            if isinstance(given.get("how"), str) and given["how"].lower() == "cross":
+                given["how"] = "inner"
+            if given.get("on") is None and given.get("how") is None:
+                given["how"] = "inner"  # DuckDB's join needs a condition; with a how it joins on true
+            return fn(self, other, given.get("on"), given.get("how"), *args[2:], **kwargs)
         return fn(self, other, *args, **kwargs)
     join.__doc__ = fn.__doc__
     return join

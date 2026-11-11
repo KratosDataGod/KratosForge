@@ -28,11 +28,15 @@ def engine(tmp_path):
 
 
 def spill(e):
-    return os.listdir(e.project.temp_dir) if e.project.temp_dir.exists() else []
+    """Spilled data in tmp/. DuckDB 2.0 also keeps a small duckdb_temp_<pid>_<n>_owner marker there for
+    as long as the connection is open: it holds no data, so it isn't counted."""
+    names = os.listdir(e.project.temp_dir) if e.project.temp_dir.exists() else []
+    return [n for n in names if not n.endswith("_owner")]
 
 
 def held(e):
-    return e.con.execute("SELECT sum(memory_usage_bytes), sum(temporary_storage_bytes) FROM duckdb_memory()").fetchone()
+    return tuple(e.con.execute("SELECT sum(memory_usage_bytes), sum(temporary_storage_bytes) "
+                               "FROM duckdb_memory()").fetchall()[0])
 
 
 def freed(e):

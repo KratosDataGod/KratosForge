@@ -1237,7 +1237,7 @@ def _release(con: duckdb.DuckDBPyConnection) -> None:
     memory and spill files in tmp/, until the connection runs something else: so run something now."""
     for _ in range(3):  # Stop's last interrupt may still land on this SELECT 1
         try:
-            con.execute("SELECT 1").fetchall()
+            run_through(con, "SELECT 1")  # run to its end: on 2.0 an unread result keeps the connection busy
             return
         except duckdb.InterruptException:
             time.sleep(0.06)

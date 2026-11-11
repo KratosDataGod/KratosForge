@@ -24,7 +24,7 @@ from typing import Any
 FILE = Path(__file__).resolve().parent / "rule_guides.json"
 DOCS = ("notebook-best-practices.md", "sql-best-practices.md")
 
-_RULE = re.compile(r"^(NB|SQ|SE)\d{3}$")
+_RULE = re.compile(r"^(NB|SQ|SE|DM|WH)\d{3}$")
 _FIELDS = {"Why:": "why", "When it's fine:": "fine", "Safe to leave:": "fine", "Do this instead:": "instead",
            "Principle:": "principle", "Impact:": "impact", "How to check:": "check", "Source:": None}
 IMPORTANCE = ("Critical", "Recommended", "Educational", "Advanced")

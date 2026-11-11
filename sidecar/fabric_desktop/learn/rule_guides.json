@@ -1,4 +1,17 @@
 {
+ "DM002": {
+  "importance": "Critical",
+  "area": "Reliability",
+  "why": "`ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed, every number after it moves, and the facts that stored the old numbers now point at other customers. Nothing fails; the report is just wrong. The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows (`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). In KratosForge, the keys database (LH_Keys) gives each business key its number once.",
+  "fine": "The facts are rebuilt from the same numbering in the same load, every time.",
+  "instead": "",
+  "principle": "A key, once given, never changes.",
+  "impact": "Data quality. Facts join to the wrong dimension rows without an error.",
+  "check": "Load twice with one new customer in between; every existing customer keeps its key.",
+  "language": "sql",
+  "before": "INSERT INTO dbo.dim_customer (customer_key, customer_id, name)\nSELECT ROW_NUMBER() OVER (ORDER BY customer_id) AS customer_key, customer_id, name FROM stg.customer;",
+  "after": "-- keep the numbers already given, and number only new business keys\nINSERT INTO dbo.dim_customer (customer_key, customer_id, name)\nSELECT k.max_key + ROW_NUMBER() OVER (ORDER BY s.customer_id), s.customer_id, s.name\nFROM stg.customer AS s\nCROSS JOIN (SELECT COALESCE(MAX(customer_key), 0) AS max_key FROM dbo.dim_customer) AS k\nWHERE NOT EXISTS (SELECT 1 FROM dbo.dim_customer AS d WHERE d.customer_id = s.customer_id);"
+ },
  "NB001": {
   "importance": "Critical",
   "area": "Security",
@@ -375,5 +388,18 @@
   "language": "sql",
   "before": "SELECT customer_id FROM dbo.customers WHERE email LIKE '%@contoso.com';",
   "after": "SELECT customer_id FROM dbo.customers WHERE email_domain = 'contoso.com';"
+ },
+ "WH001": {
+  "importance": "Advanced",
+  "area": "Performance",
+  "why": "The table is emptied and every row loaded again on each run, even when only a few changed. When the source has a modified date or an increasing id, an incremental load may move much less data. The check can't see the source's columns, so this is advice.",
+  "fine": "The table is small, the source has no reliable change column, or rows can be deleted at the source and a full reload is how deletes are caught.",
+  "instead": "",
+  "principle": "Move only what changed.",
+  "impact": "Performance and capacity. Every run reads and writes the whole table.",
+  "check": "Three incremental loads give the same table as one full load, and a rerun adds nothing.",
+  "language": "sql",
+  "before": "TRUNCATE TABLE dbo.sales;\nINSERT INTO dbo.sales (order_id, amount, modified_at) SELECT order_id, amount, modified_at FROM stg.sales;",
+  "after": "-- load only what changed since the last load\nINSERT INTO dbo.sales (order_id, amount, modified_at)\nSELECT order_id, amount, modified_at FROM stg.sales\nWHERE modified_at > (SELECT COALESCE(MAX(modified_at), '1900-01-01') FROM dbo.sales);"
  }
 }

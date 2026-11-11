@@ -68,6 +68,12 @@ RULES: tuple[Rule, ...] = (
     Rule("SQ016", "Info", "Performance", "LIKE with a leading wildcard in WHERE",
          "LIKE '%text' can't use the column's ordering or statistics to skip data, so every row is read. "
          "Match the start of the value when you can, or keep a column made for the search."),
+    Rule("DM002", "Warning", "Reliability", "Surrogate key renumbered on every load",
+         "ROW_NUMBER() gives each row a new number every time the load runs, so the facts that point at the old "
+         "numbers point at the wrong rows. Keep keys in a key table and assign new numbers only to new business keys."),
+    Rule("WH001", "Info", "Performance", "TRUNCATE and full reload",
+         "The whole table is emptied and loaded again on every run. If the source has a modified date or an "
+         "increasing id, loading only the rows after the last one loaded may move much less data."),
     Rule("SE001", "Error", "Security", "Password or connection string in a SQL script",
          "A secret in a script ends up in Git, history and logs. Use Microsoft Entra sign-in, or read it from "
          "Key Vault when the script runs."),
@@ -116,8 +122,19 @@ def check(query: str, target: str = "warehouse", settings: dict[str, Any] | None
             f = _finding(rule_id, at, s.index + 1, lines, settings)
             if f:
                 rows.append(f)
+    for rule_id, at, statement in _reloads(stmts):
+        if (rule_id, at) not in seen:
+            seen.add((rule_id, at))
+            f = _finding(rule_id, at, statement, lines, settings)
+            if f:
+                rows.append(f)
+    # scan_text counts lines with splitlines(), which also breaks at \r and Unicode separators: map its line
+    # numbers to offsets the same way, so the finding points at the secret's own place.
+    starts = [0]
+    for piece in query.splitlines(keepends=True):
+        starts.append(starts[-1] + len(piece))
     for hit in scan_text(query):
-        at = lines[hit["line"] - 1] if hit["line"] - 1 < len(lines) else 0
+        at = starts[hit["line"] - 1] if hit["line"] - 1 < len(starts) else 0
         statement = next((s.index + 1 for s in stmts if s.start <= at < s.end), 0)
         if ("SE001", at) not in seen:
             seen.add(("SE001", at))
@@ -185,7 +202,9 @@ def _statement(s: Stmt) -> Iterator[tuple[str, int]]:
         if t.kw == "SELECT" and i and toks[i - 1].type == TokenType.L_PAREN and _in_select_list(s, i - 1) \
                 and _correlated(s, i - 1):
             yield "SQ015", t.start
-        if t.kw == "LIKE" and i + 1 < len(toks) and toks[i + 1].type == TokenType.STRING \
+        if t.kw == "ROW_NUMBER" and _writes(s) and _numbers_a_key(s, i):
+            yield "DM002", t.start
+        if t.kw == "LIKE" and i + 1 < len(toks) and toks[i + 1].type in {TokenType.STRING, TokenType.NATIONAL_STRING} \
                 and toks[i + 1].text.startswith("%") and _clause_of(s, i) == "WHERE":
             yield "SQ016", t.start
     depth0 = [i for i, t in enumerate(toks) if t.depth == toks[0].depth]
@@ -299,9 +318,19 @@ def _select_into(s: Stmt, i: int) -> bool:
 
 
 def _drops_nulls(s: Stmt, paren: int) -> bool:
-    """The NOT IN subquery filters NULLs out itself (WHERE col IS NOT NULL), so it can't return one."""
-    kws = [t.kw for t in s.toks[paren + 1:_close(s, paren)]]
-    return any(kws[j:j + 3] == ["IS", "NOT", "NULL"] for j in range(len(kws) - 2))
+    """The NOT IN subquery filters NULLs out of the column it selects (SELECT b ... WHERE b IS NOT NULL), so it
+    can't return one. An IS NOT NULL on another column doesn't count."""
+    toks = s.toks
+    close = _close(s, paren)
+    selected, after = _name_at(s, paren + 2)  # paren + 1 is the SELECT
+    if not selected or after >= close or toks[after].kw != "FROM":
+        return False  # an expression, or more than one column: can't tell
+    column = selected[-1].text.upper()
+    for j in range(after, close - 3):
+        if toks[j + 1].kw == "IS" and toks[j + 2].kw == "NOT" and toks[j + 3].kw == "NULL" \
+                and _is_name(toks[j]) and toks[j].text.upper() == column:
+            return True
+    return False
 
 
 def _clause_of(s: Stmt, i: int) -> str:
@@ -359,7 +388,8 @@ def _correlated(s: Stmt, paren: int) -> bool:
                     defined.add(toks[after].text.upper())
     for j in inner:
         if j + 2 < close and toks[j + 1].type == TokenType.DOT and _is_name(toks[j]) and _is_name(toks[j + 2]) \
-                and (j == paren + 1 or toks[j - 1].type != TokenType.DOT) and (j + 3 >= close or toks[j + 3].type != TokenType.DOT) \
+                and (j == paren + 1 or toks[j - 1].type != TokenType.DOT) \
+                and (j + 3 >= close or toks[j + 3].type not in {TokenType.DOT, TokenType.L_PAREN}) \
                 and j not in table_names and toks[j].text.upper() not in defined:
             return True
     return False
@@ -367,3 +397,40 @@ def _correlated(s: Stmt, paren: int) -> bool:
 
 _ALIAS_STOP = {"WHERE", "ON", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "GROUP", "ORDER", "HAVING",
                "UNION", "WITH", "OPTION"}
+
+
+def _writes(s: Stmt) -> bool:
+    """INSERT, MERGE, SELECT ... INTO or CREATE TABLE ... AS: the statement stores what it selects."""
+    return s.has("INSERT") or s.has("MERGE") or s.has("INTO") or (s.has("CREATE", "TABLE") and s.has("AS"))
+
+
+def _numbers_a_key(s: Stmt, i: int) -> bool:
+    """ROW_NUMBER() OVER (...) [AS] name, where the name ends _key or _sk."""
+    toks = s.toks
+    if i + 1 >= len(toks) or toks[i + 1].type != TokenType.L_PAREN:
+        return False
+    j = _close(s, i + 1) + 1
+    if j < len(toks) and toks[j].kw == "OVER" and j + 1 < len(toks) and toks[j + 1].type == TokenType.L_PAREN:
+        j = _close(s, j + 1) + 1
+    if j < len(toks) and toks[j].kw == "AS":
+        j += 1
+    return j < len(toks) and _is_name(toks[j]) and toks[j].text.lower().endswith(("_key", "_sk"))
+
+
+def _reloads(stmts: list[Stmt]) -> Iterator[tuple[str, int, int]]:
+    """TRUNCATE TABLE t followed later in the script by INSERT INTO t: a full reload (WH001)."""
+    truncated: dict[str, tuple[int, int]] = {}
+    for s in stmts:
+        toks = s.toks
+        for i, t in enumerate(toks):
+            if t.kw == "TRUNCATE" and i + 1 < len(toks) and toks[i + 1].kw == "TABLE":
+                parts, _after = _name_at(s, i + 2)
+                if parts:
+                    truncated.setdefault(".".join(p.text.lower() for p in parts), (t.start, s.index + 1))
+            if t.kw == "INSERT" and truncated:
+                j = i + 1 + (i + 1 < len(toks) and toks[i + 1].kw == "INTO")
+                parts, _after = _name_at(s, j)
+                name = ".".join(p.text.lower() for p in parts)
+                if name in truncated:
+                    at, statement = truncated.pop(name)
+                    yield "WH001", at, statement

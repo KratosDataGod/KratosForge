@@ -43,6 +43,8 @@ and the panel says so. Like the other Preview features, the chip is hidden when 
 | SQ012 | Warning | `NOT IN (SELECT ...)` | `NOT EXISTS`, or filter the `NULL`s out in the subquery |
 | SQ015 | Info | Correlated subquery in the `SELECT` list | A `JOIN` or a window function may read the table once |
 | SQ016 | Info | `LIKE '%text'` in `WHERE` | Match the start of the value when you can |
+| DM002 | Warning | `ROW_NUMBER()` stored in a `_key` or `_sk` column | Keep keys in a key table; number only new business keys |
+| WH001 | Info | `TRUNCATE TABLE t` and a reload of `t` in one script | Load only the rows after the last one loaded, when the source allows |
 | SE001 | Error | Password or connection string in the script | Microsoft Entra sign-in, or Key Vault |
 
 A plain `SELECT *` to look at a table is fine and isn't reported. CTE names, `#temp` tables,
@@ -339,6 +341,65 @@ Principle: Filter on the start of a value, or on a column made for the search.
 Impact: Performance. Every row of the table is read.
 
 How to check: The rewritten filter returns the same rows, and reads less data in the query plan.
+
+### DM002
+
+**Surrogate key renumbered on every load** · Warning · Reliability · Critical
+
+Why: `ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed,
+every number after it moves, and the facts that stored the old numbers now point at other customers.
+Nothing fails; the report is just wrong.
+
+```sql
+-- Before
+INSERT INTO dbo.dim_customer (customer_key, customer_id, name)
+SELECT ROW_NUMBER() OVER (ORDER BY customer_id) AS customer_key, customer_id, name FROM stg.customer;
+-- After: keep the numbers already given, and number only new business keys
+INSERT INTO dbo.dim_customer (customer_key, customer_id, name)
+SELECT k.max_key + ROW_NUMBER() OVER (ORDER BY s.customer_id), s.customer_id, s.name
+FROM stg.customer AS s
+CROSS JOIN (SELECT COALESCE(MAX(customer_key), 0) AS max_key FROM dbo.dim_customer) AS k
+WHERE NOT EXISTS (SELECT 1 FROM dbo.dim_customer AS d WHERE d.customer_id = s.customer_id);
+```
+
+The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows
+(`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). In KratosForge, the keys database
+(LH_Keys) gives each business key its number once.
+
+Safe to leave: the facts are rebuilt from the same numbering in the same load, every time.
+
+Principle: A key, once given, never changes.
+
+Impact: Data quality. Facts join to the wrong dimension rows without an error.
+
+How to check: Load twice with one new customer in between; every existing customer keeps its key.
+
+### WH001
+
+**`TRUNCATE` and full reload** · Info · Performance · Advanced
+
+Why: the table is emptied and every row loaded again on each run, even when only a few changed. When
+the source has a modified date or an increasing id, an incremental load may move much less data. The
+check can't see the source's columns, so this is advice.
+
+```sql
+-- Before
+TRUNCATE TABLE dbo.sales;
+INSERT INTO dbo.sales (order_id, amount, modified_at) SELECT order_id, amount, modified_at FROM stg.sales;
+-- After: load only what changed since the last load
+INSERT INTO dbo.sales (order_id, amount, modified_at)
+SELECT order_id, amount, modified_at FROM stg.sales
+WHERE modified_at > (SELECT COALESCE(MAX(modified_at), '1900-01-01') FROM dbo.sales);
+```
+
+When it's fine: the table is small, the source has no reliable change column, or rows can be deleted
+at the source and a full reload is how deletes are caught.
+
+Principle: Move only what changed.
+
+Impact: Performance and capacity. Every run reads and writes the whole table.
+
+How to check: Three incremental loads give the same table as one full load, and a rerun adds nothing.
 
 ### SE001
 

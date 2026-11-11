@@ -752,9 +752,12 @@ def sql_limits() -> dict[str, Any]:
     """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
     back to the default."""
     out: dict[str, Any] = {}
+    settings = load()
     for key in (*SQL_RANGES, "sql_temp_dir"):
-        v = value(key)
+        v = settings[key]["value"]
         if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
             v = DEFAULTS[key]
         out[key] = v
+    # The organization's limit is a ceiling: a caller's own time limit may be shorter, never longer.
+    out["sql_time_limit_by_policy"] = settings["sql_time_limit_minutes"]["source"] == "policy"
     return out

@@ -155,7 +155,7 @@ async function warehouseRunOk(ref) {
   if (sqlWarehouseOk.has(sqlRefKey(ref))) return true;
   const ok = await confirmDialog(`Run this query in Fabric on ${ref.name}?`,
     `It runs on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"} in ${ref.workspace_name || "its workspace"}, ` +
-    "as you, and uses capacity. Only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
+    "as you, and uses capacity. Until you tick Allow changes, only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
     "This asks once per warehouse each time the app starts.", "Run in Fabric");
   if (ok) sqlWarehouseOk.add(sqlRefKey(ref));
   return ok;

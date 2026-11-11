@@ -465,6 +465,11 @@ def test_measures_count_times_and_slas_from_each_incidents_latest_state():
     assert p1["opened"] == 3 and p1["time_to_acknowledge"]["median_minutes"] == 10
     assert [p["priority"] for p in out["priorities"]] == ["P1", "P3"]  # only priorities with incidents
     assert out["since"] == "2026-10-12T12:00:00Z"
+    # Reopened: still open, but it carries the resolved_at of its earlier fix. Not counted as resolved.
+    reopened = _inc(7, "P3", "2026-11-11T09:00:00Z", "open", "2026-11-11T09:10:00Z", "2026-11-11T10:00:00Z")
+    again = report([reopened], sla.DEFAULT_TARGETS, now, 7)["total"]
+    assert again["resolved"] == 0 and again["open"] == 1 and again["time_to_resolve"]["count"] == 0
+    assert again["time_to_acknowledge"]["median_minutes"] == 10
     empty = report([], sla.DEFAULT_TARGETS, now, 7)["total"]
     assert empty["time_to_resolve"]["median_minutes"] is None and empty["sla"]["resolve"]["met_percent"] is None
 

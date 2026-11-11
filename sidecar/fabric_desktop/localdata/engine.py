@@ -41,7 +41,7 @@ from typing import Any, Callable, cast
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, sql_dialects
+from .. import delta_dml, delta_profile, durable, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -1041,6 +1041,9 @@ class LocalEngine:
             out["would_create"] = current is None
             return out
         after = DeltaTable(str(folder))
+        # On disk before the write returns, as LocalStore's commits are: a power cut can't take the
+        # data of a commit already made (durable.py).
+        durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
         delta_profile.check_table(after)
         out["version"] = after.version()
         self._register_own(con, schema, w.table, folder)
@@ -1111,6 +1114,8 @@ class LocalEngine:
             if c.kind == "merge":
                 con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table)}")
         after = DeltaTable(str(folder))
+        if after.version() > before:
+            durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
         delta_profile.check_table(after)
         out["version"] = after.version()
         self._register_own(con, entry["schema"], entry["table"], folder)

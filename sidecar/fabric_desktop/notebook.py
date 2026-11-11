@@ -2597,7 +2597,9 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
         old_src = old.get("source", "")
         old_src = "".join(old_src) if isinstance(old_src, list) else old_src
         same = (cell["cell_type"] == ("markdown" if old.get("cell_type") == "markdown" else "code")
-                and "".join(cell["source"]) == old_src and _cell_meta(cell["metadata"]) == _cell_meta(old_md))
+                and "".join(cell["source"]) == old_src
+                # the file's settings as the app would write them (a long title cut to 200, say)
+                and _cell_meta(cell["metadata"]) == _cell_meta(_cell_metadata(_cell_meta(old_md))))
         if same:
             cells.append(old | {"id": cell["id"]})
             continue

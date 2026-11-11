@@ -158,3 +158,16 @@ def test_a_new_notebook_is_written_as_before(tmp_path):
     nb = json.loads(text)
     assert nb["nbformat_minor"] == 5 and nb["metadata"]["kernelspec"]["name"] == "python3"
     assert text.splitlines()[1].startswith(' "') and not text.splitlines()[1].startswith('  "')  # indent 1
+
+
+def test_a_cell_title_longer_than_the_app_keeps_still_counts_as_unchanged(tmp_path):
+    raw = (FIXTURES / "jupyter_4_4.ipynb").read_bytes()
+    nb = json.loads(raw)
+    nb["cells"][1]["metadata"]["application/vnd.databricks.v1+cell"] = {"title": "t" * 250, "nuid": "n1"}
+    (tmp_path / "nb.ipynb").write_text(json.dumps(nb, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    written = (tmp_path / "nb.ipynb").read_bytes()
+    assert _save(store, store.load("nb")) == written  # not rewritten, outputs kept
+    loaded = store.load("nb")
+    loaded["cells"][2]["source"] += "\n"
+    assert json.loads(_save(store, loaded))["cells"][1]["outputs"] == nb["cells"][1]["outputs"]

@@ -76,7 +76,8 @@ include = ["fabric_desktop*"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
-                  "fabric_desktop/academy/packs"]  # exercise answers run with the exercise's spark (pyspark_lab)
+                  "fabric_desktop/academy/packs",  # exercise answers run with the exercise's spark (pyspark_lab)
+                  "tests/fixtures/ipynb"]  # notebooks as other tools write them, kept byte for byte (test_ipynb_round_trip)
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
 # import or a name that isn't defined, and bugbear (B), likely bugs such as a duplicate set item or an

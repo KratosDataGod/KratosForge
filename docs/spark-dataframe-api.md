@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 107 |
+| Runs | 110 |
 | Differs | 3 |
-| Refused | 15 |
-| Fails | 38 |
+| Refused | 16 |
+| Fails | 34 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -83,11 +83,11 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
 | `melt` | Not checked |  |
 | `na` | Runs |  |
-| `observe` | Fails | `from pyspark.sql import Observation`: ImportError: cannot import name 'Observation' from 'duckdb.experimental.spark.sql' |
+| `observe` | Refused | `spark.streams.addListener(MyErrorListener())`: NotImplementedError: spark.streams.addListener runs in Fabric: stream listeners and the query manager aren't on this PC. A stream started here is managed by the |
 | `offset` | Runs |  |
 | `orderBy` | Runs |  |
 | `pandas_api` | Runs |  |
-| `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
+| `persist` | Runs |  |
 | `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
 | `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
@@ -96,7 +96,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
 | `replace` | Runs |  |
 | `rollup` | Runs |  |
-| `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
+| `sameSemantics` | Runs |  |
 | `sample` | Runs |  |
 | `sampleBy` | Differs | `sampled.groupBy("key").count().orderBy("key").show()`: {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    7\|\n\|  1\| here, {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    3\|\n\|  1\| in Spark |
 | `schema` | Runs |  |
@@ -109,7 +109,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `sparkSession` | Runs |  |
 | `sql_ctx` | Not checked |  |
 | `stat` | Runs |  |
-| `storageLevel` | Fails | `df1.storageLevel`: AttributeError: 'DataFrame' object has no attribute 'storageLevel' |
+| `storageLevel` | Runs |  |
 | `subtract` | Runs |  |
 | `summary` | Runs |  |
 | `tail` | Runs |  |

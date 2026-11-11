@@ -837,7 +837,8 @@ async function renderHome() {
   const resume = h("span", { class: "home-continue" });
   // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
   // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
-  const living = typeof homeHero === "function" && homeLivingOn();
+  // Only while Home has header art: with no Home pool (RPG art is for progression pages), Home is the flat page.
+  const living = typeof homeHero === "function" && homeLivingOn() && !!heroArtPick("home");
   const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
   const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
@@ -1163,7 +1164,7 @@ async function renderMonitor() {
     : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
-  // The Forge Activity view (forge-activity.js, Preview): today's counts in the header, the band above the table.
+  // Run progress (forge-activity.js, Preview): today's counts in the header, the panel above the table.
   const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
   const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
   const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;

@@ -55,8 +55,8 @@ def test_missing_trigger_runner_and_step_kinds_are_caught(tmp_path):
 def test_a_latest_runner_label_is_refused_directly_or_through_the_matrix(tmp_path):
     latest = GOOD.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")
     assert check.problems(_write(tmp_path, latest)) == [
-        "w.yml: job a runs on ubuntu-latest, which GitHub moves to new images on its own; "
-        "name the image (for example ubuntu-24.04 or windows-2025-vs2026)"]
+        ("w.yml: job a runs on ubuntu-latest, which GitHub moves to new images on its own; "
+        "name the image (for example ubuntu-24.04 or windows-2025-vs2026)")]
     matrix = GOOD.replace("    runs-on: ubuntu-24.04\n", "    name: a (${{ matrix.os }})\n"
                           "    strategy:\n      matrix:\n        os: [windows-2025-vs2026]\n"
                           "        include:\n          - os: macos-latest\n"

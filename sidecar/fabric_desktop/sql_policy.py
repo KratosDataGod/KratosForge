@@ -137,8 +137,8 @@ def _local(st: exp.Expression, made: set[str]) -> tuple[str, str, bool] | None:
     refused: a query reads and writes only the project's own tables."""
     source = _reads_files(st)
     if source:
-        return ("fabric_mutation", f"{source} reads a file on this PC outside the project; "
-                "add the file to the project first", False)
+        return ("fabric_mutation", (f"{source} reads a file on this PC outside the project; "
+                "add the file to the project first"), False)
     if isinstance(st, (exp.Set, exp.Pragma)) or (
             isinstance(st, exp.Command) and str(st.this or "").upper() in _LOCAL_SETTINGS_COMMANDS):
         return "fabric_mutation", "changes the project database's settings, which a query can't do", False

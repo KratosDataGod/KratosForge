@@ -164,10 +164,10 @@ def test_a_file_upload_whose_rename_reply_was_lost_leaves_one_file_and_says_so()
 
 @pytest.mark.parametrize("error, again", [
     ("Generic S3 error: Error performing PUT https://onelake/t/part-0001.parquet in 30s - timed out", True),
-    ("Generic S3 error: Error performing PUT https://onelake/t/_delta_log/00000000000000000003.json "
-     "in 30s - timed out", False),
-    ("Generic S3 error: Error performing PUT https://onelake/t/_delta_log/00000000000000000003.json "
-     "- status code: 503", False),
+    (("Generic S3 error: Error performing PUT https://onelake/t/_delta_log/00000000000000000003.json "
+     "in 30s - timed out"), False),
+    (("Generic S3 error: Error performing PUT https://onelake/t/_delta_log/00000000000000000003.json "
+     "- status code: 503"), False),
 ])
 def test_a_delta_commit_whose_reply_was_lost_is_never_committed_again(error, again):
     """A dropped data file is sent again (nothing is in the table until the log is written); a dropped

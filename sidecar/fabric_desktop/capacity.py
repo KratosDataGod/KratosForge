@@ -61,10 +61,10 @@ ACTIONS = {
 
 # Capacity states, as the capacity list returns them, and what they mean for a run.
 STATES = {
-    "Active": ("running", "Running. Work can start, but this doesn't say how busy it is: a running capacity can still "
-                          "slow down or delay jobs when it is overloaded."),
-    "Inactive": ("not_running", "Not running: paused, suspended or an expired trial. Fabric runs, schedules and new "
-                                "lakehouses fail until an admin resumes it. Runs on this PC still work."),
+    "Active": ("running", ("Running. Work can start, but this doesn't say how busy it is: a running capacity can still "
+                          "slow down or delay jobs when it is overloaded.")),
+    "Inactive": ("not_running", ("Not running: paused, suspended or an expired trial. Fabric runs, schedules and new "
+                                "lakehouses fail until an admin resumes it. Runs on this PC still work.")),
 }
 
 

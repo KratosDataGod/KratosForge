@@ -1770,6 +1770,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Page header art: a path from the shipped manifest (art/experience/heroes.js), under the app's own art folder;
+    // the manifest test checks every entry is <page>/<id> with both files present.
+    "home-hero.js: src: `${base}-1086.webp`, srcset: `${base}-1086.webp 1086w, ${base}.webp 2172w`,",
     // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
     "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
@@ -5672,7 +5675,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Forge Activity view"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Run progress in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",

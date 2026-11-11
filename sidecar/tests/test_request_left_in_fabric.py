@@ -36,8 +36,8 @@ def test_declining_a_request_whose_workspace_was_made_says_it_is_still_in_fabric
     calls = len(svc.api.calls)
     out = svc.platform_decide(req["id"], False, "Not this quarter")
     assert out["status"] == "declined"
-    assert out["next"] == ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its "
-                           "capacity: delete it there if it isn't wanted"]
+    assert out["next"] == [("The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its "
+                           "capacity: delete it there if it isn't wanted")]
     assert len(svc.api.calls) == calls and len(svc.api.workspaces) == 1  # nothing in Fabric changed
     [row] = audited(svc, "declined workspace")
     assert row["detail"]["left"] == {"workspace_id": svc.api.workspaces[0]["id"]}
@@ -55,8 +55,8 @@ def test_withdrawing_a_request_whose_role_was_given_says_the_role_stays(svc, who
     calls = len(svc.api.calls)
     out = svc.platform_withdraw(req["id"])
     assert out["status"] == "withdrawn"
-    assert out["next"] == [f"{DEV} keeps the Contributor role in Sales Prod that approving this request gave: remove "
-                           "it in the workspace's Manage access in Fabric if it isn't wanted"]
+    assert out["next"] == [(f"{DEV} keeps the Contributor role in Sales Prod that approving this request gave: remove "
+                           "it in the workspace's Manage access in Fabric if it isn't wanted")]
     assert len(svc.api.calls) == calls
     assert [r["role"] for r in svc.api.roles[WS] if r["principal"]["id"] == DEV] == ["Contributor"]
     [row] = audited(svc, "withdrew workspace_access")
@@ -94,8 +94,8 @@ def test_the_audit_row_keeps_only_the_ids_of_what_was_made():
 def test_a_copy_job_left_behind_says_its_schedule_still_runs():
     req = {"kind": "source", "target": "crm", "detail": {"copy": {}, "made": {
         "copy_job_id": "j1", "workspace_id": "w1", "copy_job_name": "CJ_Landing_crm", "schedule_id": "s1"}}}
-    assert left_in_fabric(req) == ["The Copy job CJ_Landing_crm, made by this request, is still in the landing "
-                                   "workspace and its daily schedule still runs it: delete it there if it isn't wanted"]
+    assert left_in_fabric(req) == [("The Copy job CJ_Landing_crm, made by this request, is still in the landing "
+                                   "workspace and its daily schedule still runs it: delete it there if it isn't wanted")]
     del req["detail"]["made"]["schedule_id"]
     assert "schedule" not in left_in_fabric(req)[0]
 
@@ -111,8 +111,8 @@ def test_the_sentences_match_the_decline_confirm():
     assert left_in_fabric({"kind": "workspace_access", "detail": {
         "role": "Contributor", "workspace_name": "Sales Prod", "principal": {"type": "Group", "name": "Sales Engineers"},
         "made": {"assigned": True}}}) == [
-        "The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this "
-        "request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]
+        ("The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this "
+        "request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric")]
 
 
 @pytest.mark.parametrize("parent, in_fabric", [("", True), ("ops", False)], ids=["in fabric", "platform only"])
@@ -163,12 +163,12 @@ def half_given(svc, who, monkeypatch, have):
 
 
 @pytest.mark.parametrize("have, change, line", [
-    (None, "gave", f"{DEV} keeps the Contributor role in Sales Prod that approving this request gave: remove it in "
-                   "the workspace's Manage access in Fabric if it isn't wanted"),
-    ("Viewer", "raised", f"{DEV} keeps the Contributor role in Sales Prod that approving this request raised from "
-                         "Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"),
-    ("Contributor", "same", f"{DEV} has the Contributor role in Sales Prod: they had it before this request, or "
-                            "approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"),
+    (None, "gave", (f"{DEV} keeps the Contributor role in Sales Prod that approving this request gave: remove it in "
+                   "the workspace's Manage access in Fabric if it isn't wanted")),
+    ("Viewer", "raised", (f"{DEV} keeps the Contributor role in Sales Prod that approving this request raised from "
+                         "Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted")),
+    ("Contributor", "same", (f"{DEV} has the Contributor role in Sales Prod: they had it before this request, or "
+                            "approving it gave it. Check which before removing it in the workspace's Manage access in Fabric")),
     ("Admin", "kept", None),
 ], ids=["gave", "raised", "same", "kept"])
 def test_declining_after_a_failed_decision_says_exactly_what_changed(svc, who, monkeypatch, have, change, line):
@@ -195,9 +195,9 @@ def test_a_retry_after_the_role_was_given_still_records_that_it_was_given(svc, w
 def test_a_request_recorded_before_the_change_was_kept_says_to_check_before_removing():
     old = {"kind": "workspace_access", "detail": {"role": "Member", "workspace_name": "Sales Prod",
                                                   "principal": {"email": DEV}, "made": {"assigned": True}}}
-    assert left_in_fabric(old) == [f"{DEV} has the Member role or a higher one in Sales Prod: they had it before "
+    assert left_in_fabric(old) == [(f"{DEV} has the Member role or a higher one in Sales Prod: they had it before "
                                    "this request, or approving it gave it. Check which before removing it in the "
-                                   "workspace's Manage access in Fabric"]
+                                   "workspace's Manage access in Fabric")]
 
 
 def test_withdrawing_a_half_made_request_tells_the_approvers_on_teams(svc, who, monkeypatch, tmp_path):
@@ -213,8 +213,8 @@ def test_withdrawing_a_half_made_request_tells_the_approvers_on_teams(svc, who, 
     posts.clear()
     as_user(who, DEV)
     svc.platform_withdraw(req["id"])
-    assert [p[0] for p in posts] == ["Withdrawn: New workspace Sales Forecasting - Dev; the workspace it made is still "
-                                     "in Fabric"]
+    assert [p[0] for p in posts] == [("Withdrawn: New workspace Sales Forecasting - Dev; the workspace it made is still "
+                                     "in Fabric")]
     assert "Lee" not in str(posts) and "Forecast models" not in str(posts)  # no admins' names, no reason
 
 
@@ -244,8 +244,8 @@ def test_a_retry_records_the_domain_its_failed_record_left_out(svc, who, monkeyp
 def test_declining_after_the_record_failed_still_names_the_domain(svc, who, monkeypatch):
     req, _ = domain_saved_not_recorded(svc, who, monkeypatch)
     out = svc.platform_decide(req["id"], False)
-    assert out["next"] == ["The domain HR is in the platform and Fabric: it was there before this request, or "
-                           "approving it made it. Check which before deleting it"]
+    assert out["next"] == [("The domain HR is in the platform and Fabric: it was there before this request, or "
+                           "approving it made it. Check which before deleting it")]
     assert "made" not in out["detail"]  # the note words what is there; the request records nothing new
     assert "hr" in {d["id"] for d in svc.platform_domains()}
 

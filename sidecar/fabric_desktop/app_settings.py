@@ -511,8 +511,8 @@ def dns_name(host: str) -> bool:
 def _sign_in_host_problems(value: Any) -> list[str]:
     """What the shell skips in fabric_view_sign_in_hosts (it reads the key itself)."""
     if not isinstance(value, list):
-        return [f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
-                "so the Fabric view opens no extra sign-in hosts"]
+        return [(f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
+                "so the Fabric view opens no extra sign-in hosts")]
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
     return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
             "(no *, https://, port or path), so it's skipped" for v in bad]
@@ -532,14 +532,14 @@ def engine_url_ok(url: str) -> bool:
 def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     """What the shell skips in engine_download_url (it reads the key itself)."""
     if not (isinstance(value, str) and engine_url_ok(value.strip())):
-        return [f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
-                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
+        return [(f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
+                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub")]
     if auto_update is not False:
         return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
-                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
+        return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
+                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
     return []
 
 
@@ -752,9 +752,12 @@ def sql_limits() -> dict[str, Any]:
     """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
     back to the default."""
     out: dict[str, Any] = {}
+    settings = load()
     for key in (*SQL_RANGES, "sql_temp_dir"):
-        v = value(key)
+        v = settings[key]["value"]
         if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
             v = DEFAULTS[key]
         out[key] = v
+    # The organization's limit is a ceiling: a caller's own time limit may be shorter, never longer.
+    out["sql_time_limit_by_policy"] = settings["sql_time_limit_minutes"]["source"] == "policy"
     return out

@@ -149,9 +149,37 @@ def test_reset_puts_the_starter_back_and_touches_nothing_else(svc, tmp_path):
     svc.academy_hint(PACK, "E37", 1)
     (tmp_path / "academy" / "keep.txt").write_text("x", encoding="utf-8")
     st = svc.academy_reset(PACK, "E37")
-    assert st["answer"] == exercises.reference(PACK, "E37")["starter"] and st["hints_used"] == 0
+    # The hint already seen stays used: Reset starts the answer again, not the help.
+    assert st["answer"] == exercises.reference(PACK, "E37")["starter"] and st["hints_used"] == 1
     assert (tmp_path / "academy" / "keep.txt").exists()
     assert svc.academy_exercise(PACK, "E36")["workspace"]["started"]
+
+
+def test_reset_keeps_the_explanation_seen_so_a_reset_pass_isnt_independent(svc):
+    svc.academy_start(PACK, "E36")
+    svc.academy_explanation(PACK, "E36")
+    st = svc.academy_reset(PACK, "E36")
+    assert st["explanation_seen"]
+    out = svc.academy_validate(PACK, "E36", _solution("E36"))
+    assert out["passed"] and out["explanation_seen"] and svc.rows[-1]["detail"]["explanation_seen"] is True
+
+
+def test_a_new_exercise_version_starts_the_help_again(svc, tmp_path):
+    svc.academy_start(PACK, "E37")
+    svc.academy_hint(PACK, "E37", 1)
+    svc.academy_explanation(PACK, "E37")
+    st = lab._state(_folder(tmp_path))
+    st["version"] = "an older version"
+    lab._write_state(_folder(tmp_path), st)
+    st = svc.academy_reset(PACK, "E37")
+    assert st["hints_used"] == 0 and not st["explanation_seen"]
+
+
+def test_an_unreadable_state_still_resets(svc, tmp_path):
+    svc.academy_start(PACK, "E37")
+    (_folder(tmp_path) / "state.json").write_text("{not json", encoding="utf-8")
+    st = svc.academy_reset(PACK, "E37")
+    assert st["answer"] == exercises.reference(PACK, "E37")["starter"] and st["hints_used"] == 0
 
 
 def test_readiness_reads_the_profile(svc):

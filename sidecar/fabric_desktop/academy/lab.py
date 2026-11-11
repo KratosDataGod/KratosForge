@@ -453,11 +453,30 @@ def explanation(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     return out
 
 
+# What a pass records about the help it had. Reset keeps these for the same exercise version, so Reset
+# can't wash out a hint, an opened explanation or a probed quiz before an "independent" pass.
+_KEPT_ON_RESET = ("hints_used", "explanation_seen", "answers_changed", "quiz_checked")
+
+
 def reset(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
-    """Throw the workspace away, answer included, and start it again."""
+    """Throw the workspace away, answer included, and start it again. The help already used on this
+    version of the exercise (hints, the explanation, changed quiz answers) is kept."""
     folder = workspace(root, pack_id, exercise_id)
+    kept: dict[str, Any] = {}
     if os.path.lexists(folder):
         ws.inside(folder, ".")   # refused when the folder itself is a link or junction
+        try:
+            old = _state(folder)
+        except (ws.Refused, OSError, ValueError):
+            old = {}   # an unreadable state keeps nothing; the reset still happens
+        if old.get("version") == exercises.get(pack_id, exercise_id)["version"]:
+            kept = {k: old[k] for k in _KEPT_ON_RESET if old.get(k)}
         shutil.rmtree(folder)
-    return start(root, pack_id, exercise_id)
+    fresh = start(root, pack_id, exercise_id)
+    if kept:
+        st = _state(folder)
+        st.update(kept)
+        _write_state(folder, st)
+        fresh = state(root, pack_id, exercise_id)
+    return fresh
 

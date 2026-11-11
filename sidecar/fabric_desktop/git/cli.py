@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from ..engines.runtimes import trusted_cli
 from .secrets import redact
 
 TIMEOUT = 60
@@ -36,7 +36,8 @@ class GitError(RuntimeError):
 
 
 def git_path() -> str | None:
-    return shutil.which("git")
+    """git from PATH's absolute folders only (runtimes.trusted_cli), never a git.exe in the current folder."""
+    return trusted_cli("git")
 
 
 def version() -> str | None:

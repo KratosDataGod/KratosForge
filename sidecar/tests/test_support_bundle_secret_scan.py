@@ -82,6 +82,11 @@ def _planted() -> list[tuple[str, str, str]]:
         ("OAuth authorization code", f"redirect http://localhost:8400/?code={_b64url(60)}&state=x", None),
         ("basic credentials", f"proxy said Basic {_alnum(30)}==", None),
         ("api key header", f"x-api-key: {_alnum(32)}", None),
+        ("API Management subscription key", f"Ocp-Apim-Subscription-Key: {_hex(32)}", None),
+        ("request cookie", f"Cookie: .AspNetCore.Session={_b64url(48)}; ai_user={_alnum(20)}", None),
+        ("Power BI embed token", "embed token H4sI" + _b64url(400) + "==", None),
+        ("PEM key in one-line JSON", '{"type": "service_account", "private_key": "-----BEGIN ' + 'PRIVATE KEY-----\\n'
+         + "\\n".join(_alnum(64) for _ in range(3)) + '\\n-----END ' + 'PRIVATE KEY-----\\n"}', None),
     ]
     return [(kind, line, secret if secret is not None else _secret_of(line)) for kind, line, secret in rows]
 
@@ -236,3 +241,30 @@ def test_a_key_cut_in_half_by_the_log_tail_leaves_no_key_body(seeded):
     assert "after the key" in files["sidecar.log"]
     assert not any(line in files["sidecar.log"] for line in body)
     assert "PRIVATE KEY" not in files["sidecar.log"]
+
+
+def test_a_key_cut_by_the_byte_limit_leaves_no_key_body(seeded):
+    """The other cut: a log of few but long lines is read from its last TAIL_BYTES only."""
+    body = [rnd.token_urlsafe(48_000) for _ in range(support_bundle.TAIL_BYTES // 64_000 + 20)]
+    assert len(body) < support_bundle.LOG_LINES  # the byte limit cuts, not the line count
+    key = "-----BEGIN " + "PRIVATE KEY-----\n" + "\n".join(body) + "\n-----END " + "PRIVATE KEY-----\n"
+    (seeded["data"] / "sidecar.log").write_text("start\n" + key + "after the key\n", encoding="utf-8")
+    files = _bundle_files(seeded)
+    assert "after the key" in files["sidecar.log"]
+    assert not any(line[:64] in files["sidecar.log"] for line in body)
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-be"])
+def test_a_utf16_log_is_redacted_too(seeded, encoding):
+    """A log saved as UTF-16 (PowerShell 5's Out-File does) has a NUL between its characters, which
+    would hide a token from redaction if it were read as UTF-8."""
+    planted = seeded["planted"]
+    text = "".join(f"{line}\n" for _, line, _ in planted)
+    raw = text.encode(encoding)
+    if encoding == "utf-16-be":
+        raw = b"\xfe\xff" + raw
+    (seeded["data"] / "sidecar.log").write_bytes(raw)
+    log = _bundle_files(seeded)["sidecar.log"]
+    assert "\x00" not in log and "\ufeff" not in log
+    assert log.count("[removed]") >= len(planted) - 2
+    assert not [kind for kind, _, secret in planted if secret in log]

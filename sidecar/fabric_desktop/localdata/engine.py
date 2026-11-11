@@ -37,6 +37,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, cast
+from urllib.parse import unquote
 
 import duckdb
 import pyarrow as pa
@@ -102,7 +103,7 @@ def delta_select(folder: str, version: int | None = None, timestamp: str | None 
         raise ValueError("This Delta table uses " + ", ".join(sorted(set(problems))) +
                          ", which a local read can't apply yet, so it isn't queryable here.")
     schema = _arrow_schema(table)
-    files = [_local_path(f) for f in table.file_uris()]
+    files = _data_files(table, folder)
     info.update(files=len(files), bytes=sum(_size(f) for f in files))
     if not files:
         return _empty_select(schema), info
@@ -150,6 +151,22 @@ def _load(folder: str, version: int | None, timestamp: str | None, name: str) ->
 def _arrow_schema(table: Any) -> pa.Schema:
     raw = table.schema()
     return pa.schema(raw.to_arrow()) if hasattr(raw, "to_arrow") else raw.to_pyarrow()
+
+
+def _data_files(table: Any, folder: str) -> list[str]:
+    """The data files of the loaded version, as paths on disk. From the log's own paths (each one
+    percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
+    leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    files = []
+    for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
+        path = unquote(rel)
+        if "://" in path:
+            path = _local_path(path)
+        elif not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(folder, path))
+        files.append(path)
+    return files
 
 
 def _local_path(uri: str) -> str:

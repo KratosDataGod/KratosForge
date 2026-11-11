@@ -35,6 +35,9 @@ class Table:
     def file_uris(self):
         return self.files
 
+    def get_add_actions(self, flatten=False):
+        return pa.record_batch({"path": pa.array(self.files, pa.string())})
+
     def schema(self):
         return SimpleNamespace(to_arrow=lambda: pa.schema([("id", pa.int64()), ("day", pa.string())]))
 

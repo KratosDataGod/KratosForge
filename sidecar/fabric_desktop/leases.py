@@ -459,6 +459,18 @@ def check_held() -> None:
         held.check()
 
 
+def holding(key: str) -> bool:
+    """Whether the caller is inside its lease on ``key`` and the lease is still its own (Held.check)."""
+    for held in _HELD.get():
+        if held.key == key:
+            try:
+                held.check()
+            except LeaseLost:  # silent-ok: the answer is no
+                return False
+            return True
+    return False
+
+
 def table_key(lakehouse: str, schema: str, table: str) -> str:
     return f"{lakehouse}/{schema}.{table}"
 

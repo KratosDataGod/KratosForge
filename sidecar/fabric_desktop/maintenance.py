@@ -10,6 +10,7 @@ delta-rs, without V-Order.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 import stat
@@ -40,6 +41,8 @@ _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _DATA_FILE = re.compile(rf"part-\d{{5}}-{_UUID}(-c\d{{3}})?(\.[a-z0-9]+)?\.parquet", re.I)
 _STAGED_DATA = re.compile(rf"{_DATA_FILE.pattern}#\d+", re.I)
 _STAGED_LOG = re.compile(r"\d{20}\.(json|checkpoint\.parquet)#\d+")
+_COMMIT = re.compile(r"\d{20}\.json")
+_FOREIGN = re.compile(r"[a-z][a-z0-9+.-]*:|[/\\]", re.I)  # a URI (abfss:, file:, C:) or a rooted path
 
 
 def _when(ms: Any) -> str | None:
@@ -291,6 +294,106 @@ def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
     still under way isn't counted. Only files named as Delta names them. Nothing is deleted."""
     table = table or DeltaTable(uri)
     return sorted(set(_stale_staged(uri)) | set(_unnamed(uri, table, STALE_STAGED_HOURS)))
+
+
+def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:
+    """Every file path any version of the table still on disk names: the current version's files, the
+    files commits removed (VACUUM's), and each add and remove in every commit file in _delta_log, so a
+    file only an older version reads (time travel) counts as named too."""
+    named: set[str] = set()
+    if table is not None:
+        named |= {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
+        root = uri.rstrip("/") + "/"
+        named |= {unquote(p[len(root):] if p.startswith(root) else p)
+                  for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+    log = Path(uri) / "_delta_log"
+    if not log.is_dir():
+        return named
+    with os.scandir(log) as it:
+        commits = [e.path for e in it if _COMMIT.fullmatch(e.name) and not _is_link(e)]
+    for path in commits:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if '"add"' not in line and '"remove"' not in line:
+                    continue
+                action = json.loads(line)
+                for kind in ("add", "remove"):
+                    if isinstance(action.get(kind), dict) and action[kind].get("path"):
+                        named.add(unquote(str(action[kind]["path"])))
+    return named
+
+
+def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
+    """The files a run that ended mid-write (its process gone, nothing committed) left in a table folder
+    on this PC, as paths relative to it, with their bytes. A dry run: nothing is deleted.
+
+    A file counts only when every one of these holds, so it can only be that run's:
+    - delta-rs names it as a data file (or its staged copy), or it is a staged commit in _delta_log;
+    - it was last written at or after ``since``, the stopped run's start;
+    - no version of the table still on disk names it (_named_anywhere);
+    - it isn't in a linked folder, _delta_log aside, or a folder Delta keeps out of the table.
+    And none count when any commit was made at or after ``since``: another writer was at work then,
+    and its files can't be told from the stopped run's, so all are left for Compact and VACUUM.
+
+    Nothing counts either when the table folder or its _delta_log is a link (a symbolic link, a
+    junction), or when any version names a file by a full path or URI (a shallow clone, an imported
+    table), which can't be matched against the folder's files.
+
+    The caller must hold the table's write lease and know the run's process has ended. That is not
+    proof no other write is under way: compaction holds a lease of its own and runs alongside
+    appends, and notebook and SQL writes to a local table don't take the table's lease. Their files,
+    not committed yet, look just like these. So this is a list to report, not one to delete from."""
+    root = Path(uri)
+    if _linked(root) or _linked(root / "_delta_log"):
+        return {"files": [], "bytes": 0, "refused": "the table folder or its log is a link, so its files aren't looked at"}
+    if not root.is_dir():
+        return {"files": [], "bytes": 0, "refused": None}
+    try:
+        table: DeltaTable | None = DeltaTable(uri)
+    except TableNotFoundError:  # silent-ok: a first load that stopped: no version names anything
+        table = None
+    if table is not None:
+        since_ms = since * 1000
+        # A commit with no time can't be shown to come before the run: it counts as after.
+        if any(c.get("timestamp") is None or int(c["timestamp"]) >= since_ms for c in table.history(20)):
+            return {"files": [], "bytes": 0,
+                    "refused": "a commit was made to the table after the stopped run started, so its files "
+                               "can't be told from another writer's: they're left for Compact"}
+    named = _named_anywhere(uri, table)
+    if any(_FOREIGN.match(p) for p in named):
+        return {"files": [], "bytes": 0,
+                "refused": "a version of the table names a file by its full path, so which files it names "
+                           "can't be told from the folder"}
+    out = []
+    for e in _data_folder_files(uri):
+        rel = Path(e.path).relative_to(uri).as_posix()
+        if (_DATA_FILE.fullmatch(e.name) or _STAGED_DATA.fullmatch(e.name)) and rel not in named \
+                and _written_since(e, since):
+            out.append(rel)
+    log = Path(uri) / "_delta_log"
+    if log.is_dir():
+        with os.scandir(log) as it:
+            out += [f"_delta_log/{e.name}" for e in it if not _is_link(e) and e.is_file(follow_symlinks=False)
+                    and _STAGED_LOG.fullmatch(e.name) and _written_since(e, since)]
+    out.sort()
+    return {"files": out, "bytes": _size(uri, out), "refused": None}
+
+
+def _linked(path: Path) -> bool:
+    """A symbolic link, or on Windows any reparse point (a junction, a mount point). Missing: False."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:  # silent-ok: nothing there to follow
+        return False
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_file_attributes", 0)
+                                             & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def _written_since(entry: os.DirEntry[str], since: float) -> bool:
+    try:
+        return entry.stat(follow_symlinks=False).st_mtime >= since
+    except OSError:  # silent-ok: gone meanwhile
+        return False
 
 
 def _size(uri: str, paths: list[str]) -> int:

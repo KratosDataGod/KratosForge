@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, WriterProperties, write_deltalake
+from deltalake.exceptions import TableNotFoundError
 
 from . import delta_profile, runlog
 from .fabric_api import FabricClient
@@ -26,6 +27,7 @@ from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
+from .retrying import token_refused_on_log, write_token_refused
 
 _log = logging.getLogger(__name__)
 
@@ -109,6 +111,11 @@ def writer_properties() -> WriterProperties:
     return WriterProperties(compression="ZSTD", compression_level=3)
 
 
+class WriteTokenExpired(RuntimeError):
+    """OneLake refused a table write's sign-in token partway through (retrying.write_token_refused) and
+    nothing was committed, so the write can be sent again with a fresh token (HD-034)."""
+
+
 def unchanged(table: DeltaTable | None, rows: str | None) -> bool:
     """Whether ``table`` holds exactly the rows ``rows`` names: its newest commit is an overwrite this
     app made with the same fingerprint, so nothing has changed the table since."""
@@ -118,18 +125,24 @@ def unchanged(table: DeltaTable | None, rows: str | None) -> bool:
     return last.get(ROWS_KEY) == rows and (last.get("operationParameters") or {}).get("mode") == "Overwrite"
 
 
-def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode: str | None = "auto",
+def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[], str], schema_mode: str | None = "auto",
             rows: str | None = None, skip_unchanged: bool = False) -> DeltaTable:
     """Write ``data`` (an Arrow table or a stream of batches) to ``ref``. ``schema_mode`` "auto" replaces
     the schema on overwrite (as jobs always have); None refuses a different schema, as Spark does without
     overwriteSchema; "merge" adds new columns. ``rows`` is the data's fingerprint, kept in an
     overwrite's commit; with ``skip_unchanged`` an overwrite of the same rows writes nothing, and the
-    returned table has ``skipped`` set."""
-    opts = storage_options(storage_token)
+    returned table has ``skipped`` set.
+
+    ``storage_token`` is best passed as a function that returns a current token: the write lease is
+    renewed with it for as long as the write takes, so a write that outlasts one token keeps its
+    lease. delta-rs gets one token for the whole write; if OneLake refuses it partway through and
+    nothing was committed, WriteTokenExpired is raised and the write can be sent again."""
+    token: Callable[[], str] = storage_token if callable(storage_token) else (lambda: storage_token)
+    opts = storage_options(token())
     how = resolve_schema_mode(mode, schema_mode)
     committed: DeltaTable | None = None
     try:
-        with _lease(ref, storage_token):
+        with _lease(ref, token):
             # One load of the log for the profile check, the write and the new version: delta-rs moves a
             # table it was handed on to the version it committed. Loaded under the lease, so no other
             # KratosForge writer can commit in between.
@@ -145,9 +158,16 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
             # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
             extra = {"predicate": "true"} if mode == "overwrite" and table is not None else {}
             check_held()  # the lease is still ours, with time to commit (HD-016)
-            write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,  # type: ignore[call-overload]  # mode/how are checked strs, not Literals
-                            writer_properties=writer_properties(), commit_properties=meta, **extra)
-            committed = table if table is not None else DeltaTable(ref.uri, storage_options=opts)
+            before = table.version() if table is not None else None
+            try:
+                write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,  # type: ignore[call-overload]  # mode/how are checked strs, not Literals
+                                writer_properties=writer_properties(), commit_properties=meta, **extra)
+            except Exception as exc:
+                if write_token_refused(exc):
+                    raise _after_refusal(ref, before, token, exc) from exc
+                raise
+            # A current token for the load after the commit: a long write may have outlasted the first one.
+            committed = table if table is not None else DeltaTable(ref.uri, storage_options=storage_options(token()))
             table = committed
     except LeaseLost:
         if committed is None:
@@ -165,6 +185,34 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
     now = _files(table)
     table.written_bytes = sum(n for path, n in now.items() if path not in had) if now is not None and had is not None else None  # type: ignore[attr-defined]
     return table
+
+
+_UNKNOWN = object()
+
+
+def _after_refusal(ref: TableRef, before: int | None, token: Callable[[], str], exc: BaseException) -> Exception:
+    """The error for a write whose token OneLake refused partway through. A refused data file means
+    nothing was committed. A refused request to the Delta log is checked against the table: still at
+    the version the write started from (under the lease) means nothing went in; anything else, or a
+    table that can't be read, may mean the commit went in, so the error says to check its history."""
+    name = f"{ref.schema}.{ref.table}"
+    _log.warning("OneLake refused the token while writing %s: %s", name, describe(exc))
+    expired = WriteTokenExpired(f"Writing {name}: OneLake refused the sign-in token partway through the write (it "
+                                "expired during a long upload). Nothing was committed.")
+    if not token_refused_on_log(exc):
+        return expired
+    now: object = _UNKNOWN
+    try:
+        now = DeltaTable(ref.uri, storage_options=storage_options(token())).version()
+    except TableNotFoundError:
+        now = None
+    except Exception as check:  # noqa: BLE001 - the version can't be read, so the outcome isn't known
+        _log.warning("Couldn't read %s's version after the refused token: %s", name, describe(check))
+    if now == before:
+        return expired
+    return RuntimeError(f"Writing {name}: OneLake refused the sign-in token while the commit was being written, "
+                        "so it may or may not have gone in. Look at the table's history before writing it again, "
+                        "so an append isn't in the table twice.")
 
 
 def refuse_conversions(source: pa.Schema, table: DeltaTable, name: str) -> None:
@@ -204,11 +252,12 @@ def _files(table: DeltaTable) -> dict[str, int] | None:
 WRITER = "KratosForge"
 
 
-def _lease(ref: TableRef, storage_token: str) -> AbstractContextManager[Any]:
-    """The table's write lease (leases.table_lease): waits for another writer, then raises LeaseBusy."""
+def _lease(ref: TableRef, token: Callable[[], str]) -> AbstractContextManager[Any]:
+    """The table's write lease (leases.table_lease): waits for another writer, then raises LeaseBusy.
+    Each renewal asks ``token`` again, so a write longer than one token keeps its lease (HD-034)."""
     if ref.uri.startswith("abfss://"):
         return onelake_table_lease(ref.workspace_id, ref.lakehouse_id, ref.schema, ref.table,
-                                   lambda: storage_token, owner=WRITER)
+                                   token, owner=WRITER)
     return table_lease(LocalBackend(_local_leases(ref)), ref.schema, ref.table, owner=WRITER)
 
 
@@ -229,7 +278,11 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
     data = run_local(job)
     stage_locally(data, work_dir / "staging", job.name)
     ref = resolve_target(job, fabric)
-    table = publish(data, ref, job.target.mode, storage_token())
+    try:
+        table = publish(data, ref, job.target.mode, storage_token)
+    except WriteTokenExpired as exc:  # nothing was committed: once more, with a fresh token
+        _log.warning("Writing %s again with a fresh token: %s", job.name, describe(exc))
+        table = publish(data, ref, job.target.mode, storage_token)
     record = RunRecord(
         job=job.name,
         table_uri=ref.uri,

@@ -283,6 +283,8 @@ QUICK = frozenset({
 
 
 def handle(service: Service, line: str) -> dict:
+    if _NOT_UTF8.search(line):  # a byte _rpc_stdin couldn't read: refused, never run with a changed value
+        return {"id": None, "error": "invalid request: the line isn't UTF-8"}
     try:
         req = json.loads(line)
     except (ValueError, RecursionError) as exc:  # bad JSON, a number too long for Python, or nesting too deep
@@ -442,10 +444,13 @@ def _unparsable(exc: BaseException) -> str:
     return str(exc)
 
 
+_NOT_UTF8 = re.compile("[\udc80-\udcff]")  # what surrogateescape makes of a byte that isn't UTF-8
+
+
 def _rpc_stdin(stream: Any) -> Any:
     """The shell's request stream, read as UTF-8 whatever the Windows code page. A byte that isn't
-    UTF-8 becomes U+FFFD, so that request gets an error reply instead of ending the engine."""
-    stream.reconfigure(encoding="utf-8", errors="replace")
+    UTF-8 is kept as a lone surrogate, so handle refuses that request instead of the read ending the engine."""
+    stream.reconfigure(encoding="utf-8", errors="surrogateescape")
     return stream
 
 

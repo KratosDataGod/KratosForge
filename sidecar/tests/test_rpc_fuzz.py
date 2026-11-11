@@ -136,9 +136,10 @@ def _serve(svc, data: bytes) -> list[dict]:
     (b"[" * 100_000, "invalid JSON: it's nested too deeply to read"),
     (b'{"id": 1, "method": "app_settings", "params": ' + b"[" * 100_000 + b"}", "invalid JSON: it's nested too deeply to read"),
     (b'{"id": ' + b"9" * 5000 + b', "method": "app_settings"}', "invalid JSON: Exceeds the limit"),
-    (b'{"id": 1, "method": "\xff\xfe"}', "unknown method '\ufffd\ufffd'"),
+    (b'{"id": 1, "method": "\xff\xfe"}', "invalid request: the line isn't UTF-8"),
+    (b'{"id": 1, "method": "app_settings", "params": {"name": "J\xf6hn"}}', "invalid request: the line isn't UTF-8"),
     (b'{"id": 1, "method": ["app_settings"]}', "unknown method ['app_settings']"),
-], ids=["deep", "deep params", "huge number", "not utf-8", "method a list"])
+], ids=["deep", "deep params", "huge number", "not utf-8", "not utf-8 in a param", "method a list"])
 def test_a_line_that_cant_be_read_is_answered_and_the_engine_reads_on(svc, line, error):
     """Each of these used to end serve(), and the engine with it, with no reply."""
     first, last = _serve(svc, line + b"\n" + ANSWERED)

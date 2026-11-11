@@ -201,7 +201,7 @@ Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or on
 | --- | --- |
 | `project.json` | Name, settings, registered folders, type overrides and the list of discovered tables |
 | `data.duckdb` | The database: your tables and views, and views over the discovered files |
-| `tmp\` | Data DuckDB spills to disk under a memory limit. Spill files a killed engine left, older than 10 minutes, are removed when the project next opens |
+| `tmp\` | Data DuckDB spills to disk under a memory limit. Spill files a killed engine left are removed when the project next opens |
 | `transforms\<schema>\<name>.sql` | Transformation steps, and `transforms\.runs\` their last 50 runs |
 | `Tables\<schema>\<table>\` | The project's Delta tables. Tables copied in here are picked up when the project opens or is refreshed. |
 

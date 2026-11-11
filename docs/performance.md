@@ -41,8 +41,7 @@ session, so the first spark cell adds little on top of the first cell.
 
 Recorded on 2026-11-02 at main `59a61423`, with the defaults (5 runs, 1 warm-up, 1,000,000 rows),
 on a Linux cloud build machine (Python 3.13, 4 CPUs). It is a reference for comparing changes on
-that kind of machine, not a figure for a person's Windows PC: a Windows baseline has not been
-recorded yet.
+that kind of machine, not a figure for a person's Windows PC. A separate Windows CI baseline was recorded on 2026-11-05; see [In CI](#in-ci).
 
 | Measurement | Median | p95 | Min |
 | --- | ---: | ---: | ---: |
@@ -178,7 +177,7 @@ from Playwright 1.63). Times in milliseconds.
 | --- | ---: | ---: |
 | startup | 349 | 1,200 |
 | navigation, slowest page | 4.7 | 25 |
-| navigation, median | 2.2 | |
+| navigation, median | 2.2 | Not separately gated; see slowest-page budget |
 | token switch, slowest | 5.2 | 25 |
 | density switch, slowest | 2.7 | 15 |
 | large list, 5,000 items | 2,959 (706 now, see below) | 2,100 |
@@ -213,7 +212,6 @@ What the baseline shows:
 
 ## What it is not
 
-The engine benchmark (`startup_and_sql.py`) is not run in CI and nothing fails on its numbers yet; the
-[quality gates](audits/QUALITY_GATES.md) propose recording it per build, warning-only at first. It does not time WebView2 or the Tauri shell
+The engine benchmark (`startup_and_sql.py`) runs in the Performance workflow with the Windows baseline and two-run regression gate described [above](#in-ci). The older [quality gates assessment](audits/QUALITY_GATES.md) predates that workflow. It does not time WebView2 or the Tauri shell
 (see [The app window](#the-app-window) for the page itself), a notebook on Fabric, or OneLake reads and
 writes. For TPC-H on your PC and in Fabric side by side, see [the TPC-H benchmark notebooks](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark).

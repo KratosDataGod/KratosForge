@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Academy: data and content architecture
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Academy is a layer over Learn. Learn already has content folders, a lab runner, checks, evidence
 and ranks; Academy adds certifications and objectives above them, more kinds of execution beside

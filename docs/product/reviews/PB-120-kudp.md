@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Implementation review: PB-120 Platform support levels and one engine contract (FEAT-EXT-05, FEAT-SQL-03)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 | Field | Value |
 | --- | --- |

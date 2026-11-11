@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Narrator checklist (EA-030)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The second half of the accessibility pass (PB-063 part 2), done on a Windows PC with Narrator. It takes about 20 minutes. The automated half already runs on every pull request: axe on every page and dialog ([accessibility-audit.md](accessibility-audit.md), `a11y-dialogs.test.cjs`), a keyboard-only walk of every rail page (`keyboard-pass.test.cjs`) and the dialog keyboard checks (`dialog-keyboard.test.cjs`). Those tests run in Chromium, so they can't hear what Narrator says. This list covers only what a person has to listen for.
 

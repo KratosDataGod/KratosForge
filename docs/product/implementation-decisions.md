@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Implementation decisions
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Decisions made in the enterprise product program, newest last. Each says what was decided, why, and what would change it. Decisions only Chris can make are listed at the end until he makes them.
 

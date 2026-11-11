@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Architecture
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 ![KratosForge architecture](architecture.svg)
 

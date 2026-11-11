@@ -234,7 +234,7 @@ Above the result, three views, on every SQL page (lakehouse, local project and w
 - **Messages**: what the last run did: its target, when it was queued, started and ended, its state, rows and columns, why it was refused or failed, and its time limit. Never the SQL.
 - **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values (the note says how many more there are) and up to 7 series (the rest as Other).
 
-A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
+Read-only runs accept one statement. Warehouse writes and scripts already run through **Allow changes**, after a preview and confirmation; they are not waiting on a separate decision. Showing several result sets as separate result tabs is still not available. See [Changing the warehouse](#changing-the-warehouse).
 
 The page stays tagged Preview until the app's own sign-in has run a query on a tenant: the [tenant run](#tested-on-a-tenant) used another sign-in. Settings can hide preview features.
 

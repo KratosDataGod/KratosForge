@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # UX backlog and PR specifications
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The top 20 simplification opportunities from the October 2026 audit, items added since (UX-021 onward), then the focused pull requests they group into. IDs are `UX-nnn`; the product management thread links them from `docs/product/PRODUCT_BACKLOG.json`.
 

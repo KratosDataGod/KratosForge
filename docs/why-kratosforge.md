@@ -22,3 +22,5 @@ KratosForge isn't replacing Microsoft Fabric. It's extending it, giving develope
 - [Architecture](architecture.md): how the app, the local engine and OneLake fit together.
 - [Headless agent](agent.md): running the same workloads unattended on your own servers.
 - [Enterprise roadmap](enterprise-roadmap.md): where local execution goes next.
+
+<!-- website-alias: /docs/why-fabric-desktop/ -->

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Academy grading and the learner process
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Stories: ACD-004 (validators), ACD-005 (learner process), ACD-011 (Python, PySpark and Delta
 exercises), ACD-012 (pipeline exercises). Security read 2026-11-03: v1 ships without an OS sandbox,

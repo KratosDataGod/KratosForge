@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Fabric pipelines on this PC: orchestration plan
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](/docs/product/development_status/) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 KratosForge's program for importing, checking and, later, running Microsoft Fabric Data Factory pipelines on your own PC, so developing and testing a pipeline doesn't spend Fabric capacity. Feature IDs ORCH-001 to ORCH-010. The working state for whoever continues it is in the [continuation note](continuation.md); how to use what exists is in [Pipeline definitions](pipeline-definitions.md).
 

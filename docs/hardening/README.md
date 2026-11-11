@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Enterprise hardening audit
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 An evidence-based review of KratosForge's code, done to make it demonstrably enterprise-ready rather than look it. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120").
 

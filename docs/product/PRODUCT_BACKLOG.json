@@ -1885,7 +1885,7 @@
       ],
       "acceptance": [
         "Finished jobs older than the retention are removed on start",
-        "fabric-desktop agent requeue <id> moves a dead job back to queued",
+        "`fabric-desktop agent requeue <id>` moves a dead job back to queued",
         "Tests cover both"
       ],
       "scores": {

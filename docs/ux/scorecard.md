@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Simplicity scorecard
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Each major workflow is scored 0 to 100 on seven categories. The score is the weighted sum. The overall product score weights each workflow by how often people do it.
 

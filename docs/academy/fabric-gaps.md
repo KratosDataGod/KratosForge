@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Academy: risks and gaps that need Fabric
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 ## What can't be practised on this PC
 

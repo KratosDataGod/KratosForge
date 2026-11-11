@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Examples: approved and rejected
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Working examples of the identity, and the styles that are turned away. The playable sample page
 is `docs/design/examples/forge-motion-samples.html`: open it in any browser, no build step; it

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Animation event catalog
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every decorative animation is the answer to an event. Features report the event through
 `forgeEvent(name, anchor)` in `app/ui/motion.js`; the engine decides whether and how it shows,

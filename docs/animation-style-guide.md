@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Animation style guide
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 This guide says how much KratosForge's animations may move and when each kind is allowed. What they
 look like is fixed by the [visual style guide](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) and its

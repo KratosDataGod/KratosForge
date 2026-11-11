@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Engineering quality baseline
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 An independent review of whether KratosForge is built like one coherent product: no duplicated services, no functionality that only looks real, no errors that disappear, no tests that prove only their own fakes. Reviewed at `main` **3bee0db** (2026-10-18, "Merge pull request #136"); line numbers refer to that commit.
 

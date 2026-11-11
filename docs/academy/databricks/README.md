@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Databricks Data Engineer Associate path (plan)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The second KratosForge Academy certification path, after [DP-700](../README.md). It is a content
 pack and an execution adapter on the Academy that DP-700 built, not a second Academy: the same

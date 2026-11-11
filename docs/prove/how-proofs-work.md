@@ -90,7 +90,7 @@ A receipt is a JSON document whose id is the SHA-256 of its content (keys sorted
 
 Receipts are kept in `%LOCALAPPDATA%\FabricDesktop\receipts`, written once and never replaced. A receipt can be exported as an HTML or Markdown report, leaving out your identity, workspace and lakehouse names, example row values, or this PC's details.
 
-The packages a Fabric run reports are remembered, so the notebook's dependency check can say "seen in Fabric on <date>, version x" instead of "unknown".
+The packages a Fabric run reports are remembered, so the notebook's dependency check can say "seen in Fabric on &lt;date&gt;, version x" instead of "unknown".
 
 ## Cleaning up
 

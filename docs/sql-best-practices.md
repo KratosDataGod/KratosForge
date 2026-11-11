@@ -16,7 +16,7 @@ When the query's dialect is T-SQL (Fabric Warehouse, SQL analytics endpoint or S
 the Warehouse page, a **Best practices** chip sits beside **Compatibility**. Both are checked together
 shortly after you stop typing. The chip shows how many findings there are, and is red or amber for the
 worst one. It opens the panel beside the editor on its own tab, listing each finding with what to do and
-**Line n**, which selects the place in the editor. **About SQ0nn** opens the rule's explanation in
+**Line n**, which selects the place in the editor. **About** beside a rule (for example SQ001) opens the rule's explanation in
 [Each rule explained](#each-rule-explained). Pressing the chip again closes the panel. Under each
 finding, **Dismiss** hides it for you, and in Professional or Guided guidance **Explain** and **Show
 example** show its section of this page in the panel ([Learn](learn.md#beside-a-finding)).
@@ -25,6 +25,10 @@ The governance policies in force for the open project tune the rules, read once 
 the page (`governance_practice_settings`). A rule a policy turns off isn't shown, and a policy can change
 a rule's severity. With no project open, or when the policies can't be read, every rule is on as built,
 and the panel says so. Like the other Preview features, the chip is hidden when previews are hidden.
+
+## Guidance levels
+
+Expert shows findings without extra explanations. Professional adds explanations and examples; Guided opens explanations and suggests lessons. Checks and required rules stay the same. See [Learning guidance](learn.md#guidance). **Try the fix** previews a supported rewrite; **Compare** checks results before you choose to apply it.
 
 ## Rules
 
@@ -47,7 +51,7 @@ without a schema.
 
 ## Each rule explained
 
-Each finding in the panel links to its rule here with **About SQ0nn**: why the rule exists, an
+Each finding in the panel links to its rule here with **About** beside a rule (for example SQ001): why the rule exists, an
 example and, where it applies, when the finding is safe to leave. Each rule also has the principle
 behind it, its impact, and how to check the change worked. Under the title are the rule's severity,
 its area and how important it is:
@@ -190,8 +194,21 @@ Why: a loop handles one row or batch at a time. A distributed engine is fastest 
 works on the whole set.
 
 ```sql
--- Before: a cursor that updates each order's status
--- After
+-- Before: row-by-row update (T-SQL; compare on a test copy)
+DECLARE @order_id int;
+DECLARE late_orders CURSOR LOCAL FAST_FORWARD FOR
+SELECT order_id FROM dbo.orders
+WHERE due_date < CAST(GETDATE() AS date) AND shipped_date IS NULL;
+OPEN late_orders;
+FETCH NEXT FROM late_orders INTO @order_id;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+  UPDATE dbo.orders SET status = 'late' WHERE order_id = @order_id;
+  FETCH NEXT FROM late_orders INTO @order_id;
+END;
+CLOSE late_orders;
+DEALLOCATE late_orders;
+-- After: one statement
 UPDATE o SET status = 'late'
 FROM dbo.orders AS o
 WHERE o.due_date < CAST(GETDATE() AS date) AND o.shipped_date IS NULL;

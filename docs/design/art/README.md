@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Page header art: adding next month's pictures
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Header art is for progression only: Academy and Profile each have their own pool of pictures.
 Home and the working pages (Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Source control, Settings)

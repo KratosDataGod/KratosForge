@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Databricks path backlog: DBA-001 to DBA-016
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Priorities: P0 for the first vertical slice, P1 phase work, P2 later. Owners are project threads
 ([threads](delivery-plan.md#threads)). Every story's definition of done also includes the

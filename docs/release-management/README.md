@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Release management
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 How a change gets from a pull request to people's PCs, who decides each step, and how the release manager integrates work from many parallel workstreams. This page is the process; the live state is in [release status](release-status.md), the machine-readable inventory in [release-manifest.json](release-manifest.json), and every Stable build so far in [release history](release-history.md).
 
@@ -8,7 +14,7 @@ Two review threads also give each PR a PASS, CONDITIONAL PASS or FAIL: the UX an
 
 ## How KratosForge is distributed
 
-There is no installer, store or package feed. The product is two files published as GitHub release assets, and the app updates itself from them.
+The portable distribution uses release assets; Preview also builds a per-user MSI. Check the selected channel assets for availability. The product is two files published as GitHub release assets, and the app updates itself from them.
 
 | Piece | What it is | Built by |
 | --- | --- | --- |
@@ -48,7 +54,7 @@ Each build that the release job publishes to Preview also gets a release of its 
 - **Only the newest 20 are kept** (`KEEP_BUILDS` in `ci.yml`). The release job deletes older `build-*` releases and their tags. It never touches `latest` or `stable`.
 - **Every build promoted to Stable is kept.** Promote adds "promoted to Stable" to that build's release title, and the release job never deletes a release with that title. So Stable can always go back to any earlier Stable build that was published after per-build releases began.
 
-To list them: `gh release list -R KratosDataGod/fabric-desktop | grep build-`.
+To list them: `gh release list -R KratosDataGod/KratosForge | grep build-`.
 
 **Merging to `main` is a Preview release.** About 5,000 people are expected on launch; Preview is the opt-in channel, but anything merged reaches it within one CI run. Stable is the production release.
 

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Implementation review: PB-126 Learn curriculum content batches by path (FEAT-DEV-04)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 | Field | Value |
 | --- | --- |

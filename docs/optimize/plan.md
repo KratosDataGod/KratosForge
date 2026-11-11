@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Optimize program plan (PR-OPT-001 to 009)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](/docs/product/development_status/) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 The centralized optimization lakehouse: what already existed when the program started (audit of `main` at d5faebb, 2026-10-18), the risks found, the data model and the PR order. How it works for people using it: [README.md](README.md).
 

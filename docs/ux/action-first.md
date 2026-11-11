@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Action-first experience
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every screen in KratosForge should make the best next action obvious without making any other permitted action harder. This page holds the standard a screen is reviewed against, the measured baseline, and the action-first backlog. The shared code is `app/ui/actions.js`; how to use it is in [UI guidelines](../ui-guidelines.md#action-first-standard).
 

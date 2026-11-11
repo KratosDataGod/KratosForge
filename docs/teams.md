@@ -16,7 +16,7 @@ One person can hold several roles. The point is that each shared thing has one o
 
 ## One app for everyone
 
-- **No app registration by default.** Everyone signs in through Microsoft's Fabric sign-in. If your policy requires your own registration, keep it to one for the whole organization and push its ID; don't let teams register their own, which multiplies consent requests and makes support harder.
+- **No app registration by default (Preview).** This sign-in path has not yet been verified on a live tenant; see [Live testing](live-testing.md). Everyone signs in through Microsoft's Fabric sign-in. If your policy requires your own registration, keep it to one for the whole organization and push its ID; don't let teams register their own, which multiplies consent requests and makes support harder.
 - **Push the settings** with `%ProgramData%\FabricDesktop\policy.json` ([Rolling out to your organization](permissions.md#rolling-out-to-your-organization)). Set `support_url` to your team's Teams channel or ticket form so **Report a problem** goes to you first, not to GitHub.
 - **Update channels.** Keep most people on **Stable**. Put a small pilot group on **Preview** (Settings, or a separate policy file for that group) so new builds are tried by a few people before everyone gets them. A maintainer promotes to Stable after the pilot has used a build.
 - **Preview features.** Consider `"show_preview": false` for most people until each feature has been tried on your tenant, and let the pilot group report what works.

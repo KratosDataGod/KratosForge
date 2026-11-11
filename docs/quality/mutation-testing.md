@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Mutation testing, batch 1
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 How strong are the tests on the modules where a quiet bug costs the most? Line coverage says a line
 ran; mutation testing says whether a test would notice if that line were wrong. This batch covers the

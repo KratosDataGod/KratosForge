@@ -16,7 +16,7 @@ The wording here is KratosForge's own. "Theirs" summarizes guidance in microsoft
 | Needs vacuum | 30 or more versions since the last `VACUUM`, or never vacuumed | No cadence given | Ours | No guidance to compare with |
 | Vacuum retention | The longest of 7 days, the table's own setting and the layer's **Keep history** ([Vacuum](xray-fixes.md#needs-vacuum)) | No retention given | Ours | 7 days is Fabric's default; less can break running queries and restore |
 | Not changing | Last write 30 or more days ago | No staleness rule | Ours | No guidance to compare with |
-| Statistics | Not checked | No numeric rule; the SQL endpoint's `sp_get_table_health_metrics` reports "invalid file statistics" as a code ([lakehouse-health.md](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/sqldw-cli/references/operations/lakehouse-health.md)) | — | A possible later check: reading that procedure's codes needs the SQL endpoint token, which Windows sign-in doesn't give today (#1079) |
+| Statistics | Not checked | No numeric rule; the SQL endpoint's `sp_get_table_health_metrics` reports "invalid file statistics" as a code ([lakehouse-health.md](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/sqldw-cli/references/operations/lakehouse-health.md)) | — | A possible later check: reading that procedure's codes needs the SQL endpoint token, which Windows sign-in doesn't give today ([#1079](https://github.com/KratosDataGod/KratosForge/issues/1079)) |
 
 ## Warehouse monitoring
 
@@ -41,7 +41,7 @@ These apply to Local data and the SQL page, which run on DuckDB on this PC. Micr
 | Garbage collection over 20% of run time | Not checked | Over 20% | — | DuckDB has no garbage collector. Notebook kernels are held by the memory limit in Settings instead |
 | Shuffle (over 1 GB per stage; 100 to 200 MB per partition) | Not checked | 1 GB per stage, 100 to 200 MB per partition | — | DuckDB has no shuffle stages or partitions to size |
 
-Small files on tables on this PC: the 32 MB and 20-file line above is for lakehouse tables in X-ray. Tables on this PC are often much smaller, and a few small files there cost little; since 20 files is what triggers the advice, a small local table isn't flagged.
+The small-files check applies to both local Delta tables and lakehouse tables: at least 20 data files averaging under 32 MB triggers compaction advice. A local table with fewer than 20 files is not flagged, even if its files are small. V-Order advice applies only to Fabric tables, not tables on this PC. [Threshold implementation](https://github.com/KratosDataGod/KratosForge/blob/caddc343e964024d60e87e129017222221db836c/sidecar/fabric_desktop/maintenance.py).
 
 ## Capacity
 

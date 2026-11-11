@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # AI integration architecture
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 KratosForge is **AI-ready, not AI-dependent**. It contains no AI model, no chat, no AI provider SDK and asks for no AI API key. Instead it exposes its own capabilities through standard interfaces (the Model Context Protocol and a documented local API) so a developer can point whichever AI tool they already use at it: Claude, Codex, GitHub Copilot, Cursor, or tools that don't exist yet.
 

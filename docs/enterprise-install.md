@@ -1,5 +1,7 @@
 # Enterprise install
 
+> **Choose your release channel.** Release assets checked on 2026-11-11 include a per-user MSI in Preview, not Stable. Check the exact [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) or [Preview](https://github.com/KratosDataGod/KratosForge/releases/tag/latest) assets before planning a rollout. Packaging alone does not establish signing or managed-rollout readiness.
+
 This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md). To follow it step by step, use the [IT deployment checklist](it-deployment-checklist.md).
 
 > **What has been tested:** the policy keys on this page are covered by automated tests on every build. The deployment steps below have **not** been tried in an Intune or Configuration Manager tenant yet. Try them on a pilot group first.

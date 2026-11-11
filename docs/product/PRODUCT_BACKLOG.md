@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Product backlog
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 One backlog for KratosForge, in twelve categories. It consolidates the gaps found in
 [the feature inventory](FEATURE_INVENTORY.md) with the backlogs that specialist programs already
@@ -586,7 +592,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Implementation package:** [pr-ready/PB-044.md](pr-ready/PB-044.md)
 - **Acceptance criteria:**
     - Finished jobs older than the retention are removed on start
-    - fabric-desktop agent requeue <id> moves a dead job back to queued
+    - `fabric-desktop agent requeue <id>` moves a dead job back to queued
     - Tests cover both
 
 ### PB-045

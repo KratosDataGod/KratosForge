@@ -21,6 +21,10 @@ parameter, changes a rule's severity. When two policies name one rule, it's on i
 at the worse severity. With no project open, or when the policies can't be read, every rule is on as
 built, and the panel says so. The panel doesn't check NB004 and NB008, which are for scheduled runs.
 
+## Guidance levels
+
+Expert shows findings without extra explanations. Professional adds explanations and examples; Guided opens explanations and suggests lessons. Checks and required rules stay the same. See [Learning guidance](learn.md#guidance). **Try the fix** previews a supported rewrite; **Compare** checks results before you choose to apply it.
+
 ## Rules
 
 | Id | Severity | Rule | What to do |
@@ -41,7 +45,7 @@ built, and the panel says so. The panel doesn't check NB004 and NB008, which are
 | NB019 | Warning | Spark reads straight from an `http(s)` address | Copy the file into the lakehouse's `Files` first |
 | NB020 | Warning | `VACUUM` keeps less than 7 days (168 hours) of history | Keep the default retention |
 
-NB013 to NB017 are kept for rules the Learn plan names next. NB018 to NB020 are based on guidance in
+NB013 to NB017 are reserved identifiers, not implemented checks; the gap does not indicate missing content. NB018 to NB020 are based on guidance in
 Microsoft's [skills-for-fabric](https://github.com/microsoft/skills-for-fabric) (MIT), written in our own words.
 
 Secrets are found with the same patterns the Git page uses before a commit. Rules NB004 and NB008

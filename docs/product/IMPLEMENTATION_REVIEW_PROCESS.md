@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Implementation review process
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 How a merged or ready pull request becomes an **accepted** capability of KratosForge. A merge says the code is in main. Acceptance says the product does what its backlog item
 promised, for the people it was built for, with evidence. They are different decisions, made at

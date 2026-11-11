@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # DP-700 curriculum inventory
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 64 original exercises (12 of them broken environments) and 3 capstone projects, covering all 49
 objectives in [DP-700 coverage](dp-700-coverage.md). Every exercise runs on synthetic, seeded data

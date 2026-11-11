@@ -86,7 +86,8 @@ four original exam questions (ACD-013).
 
 | | Objectives |
 | --- | --- |
-| Covered by at least one exercise | 49 of 49 |
+| With a built exercise (2026-11-09 product check) | 48 of 49 |
+| Planned coverage | 49 of 49; eventstream errors remains a recorded gap |
 | Best local class LOCAL VERIFIED (all or part) | 18 |
 | Best local class SIMULATED | 20 |
 | KNOWLEDGE ONLY on this PC | 11 |

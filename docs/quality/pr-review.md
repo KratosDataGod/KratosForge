@@ -1,8 +1,9 @@
 ---
-# The review log is too long for the site search index (zensical's 256 KB field limit), so it stays out of search.
+site_group: Internal engineering
 search:
   exclude: true
 ---
+
 
 # PR quality gate
 

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Databricks execution adapter (DBA-002, DBA-013)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 One adapter, three modes, built from the Databricks pieces KratosForge already has. It holds no
 credentials of its own and adds no second connection manager.

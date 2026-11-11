@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # AI integration backlog
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The universal AI integration program: twelve pull requests that let any external AI tool use KratosForge through MCP or a local API, with no AI inside the app. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 

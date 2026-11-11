@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Configuration elimination matrix
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every setting, file and typed input a person or an administrator can supply, and what it should become. Taken at main `3bee0db` from `app_settings.py`, `settings.js`, the shell (`main.rs`, `build.rs`), the agent config and every dialog in `app/ui`.
 

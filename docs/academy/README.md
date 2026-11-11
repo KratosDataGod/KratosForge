@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # KratosForge Academy (plan)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 KratosForge Academy is the practical, exercise-first learning and certification preparation part of
 KratosForge. It grows out of [Learn](../learn.md): the same lessons, labs, lab runner, checks,

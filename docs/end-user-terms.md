@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # End-user terms (draft)
 
 > **Draft, not in effect.** These are proposed terms for KratosForge, written so that the app may include Microsoft's SQL driver. KratosBI's counsel must review them before they are used. Until then, nothing in the app shows them or asks anyone to accept them, and they bind no one. Text in [brackets] is still to be decided.

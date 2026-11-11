@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Accessibility at 200% and in a Windows contrast theme
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every page and every dialog is now checked at 200% zoom and in a Windows contrast theme, as well as in light and dark:
 

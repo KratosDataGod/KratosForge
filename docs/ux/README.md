@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # UX and simplicity audit
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 This folder is the user experience and simplicity oversight for KratosForge. It holds the first full audit (October 2026), the scoring method, the backlog of simplification work and the usability gates a pull request passes before release.
 

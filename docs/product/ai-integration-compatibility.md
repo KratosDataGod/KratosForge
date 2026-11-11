@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # AI integration compatibility
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Which external tools have been tried with KratosForge, how, and what didn't work. Only rows marked **Tested** are claimed to work. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 

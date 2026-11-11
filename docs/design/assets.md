@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Visual asset manifest
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every image the identity depends on, where it lives, what it is for, where it came from and
 whether it may ship. An asset not in this table is not approved for the app. Add a row in the

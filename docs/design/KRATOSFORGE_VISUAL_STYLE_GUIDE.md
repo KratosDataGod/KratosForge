@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # KratosForge visual style guide: Forged Heroism
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 This is the authoritative visual specification for KratosForge. Every illustration, animation,
 icon, onboarding screen and achievement that ships must pass the checks in

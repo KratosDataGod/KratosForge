@@ -1,10 +1,16 @@
+---
+site_group: Internal engineering
+---
+
 # PR-ready specifications
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Implementation packages a Claude thread (or a person) can pick up and build as one pull request.
 Each follows the same sixteen sections, from the business problem to the Definition of Done, and
 names its backlog item in [the product backlog](../PRODUCT_BACKLOG.md).
 
-**None of these is approved.** A package is built only after the product owner moves its backlog
+**Historical package list.** Implementation reviews now exist for PB-013, PB-018 and PB-044. This list is not current approval or build status; check [Development status](../DEVELOPMENT_STATUS.md) and the implementation reviews. A package is built only after the product owner moves its backlog
 item to Approved. Packages exist only for items no specialist program owns; owned items are
 specified by their programs (see [the backlog's ownership table](../PRODUCT_BACKLOG.md#how-items-are-owned)).
 

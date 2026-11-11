@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Hardening backlog
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 PR-sized work items from the enterprise hardening audit of KratosForge, in dependency order inside each priority. Each item fixes findings in the [findings register](findings.md). Reviewed at `main` **1248ccd**.
 

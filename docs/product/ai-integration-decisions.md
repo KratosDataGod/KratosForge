@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # AI integration decisions
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Decisions made while building the AI integration program, with the reason for each. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 

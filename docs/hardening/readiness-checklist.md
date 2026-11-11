@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Production readiness checklist
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Release gates for KratosForge going to an enterprise pilot. Each gate has measurable acceptance criteria and the evidence that exists today. Reviewed at `main` **1248ccd** (2026-10-17); gate states re-checked at **a346145** (2026-10-18 16:35Z). This page replaces the gate table in [release-readiness.md](../product/release-readiness.md), whose "open PR" entries have since merged.
 

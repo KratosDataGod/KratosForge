@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Scale and operations plan
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](/docs/product/development_status/) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 How KratosForge grows from "runs on my PC" to "runs large tables, ingests sources, releases from Git and takes work from Fabric pipelines". It covers ten capabilities Chris asked for on 2026-10-16. Five are planned here; the other five belong to two sister programs and are only cross-referenced.
 

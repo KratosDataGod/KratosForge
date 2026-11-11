@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Tenant smoke test
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The live test ([Live testing on your tenant](../../live-testing.md)) checks sign-in, the Fabric API, OneLake and Delta. The smoke test (PB-002) goes further. It runs ten core flows of the app on a real tenant, which is the evidence a launch to about 5,000 people needs. Part of each flow runs unattended from the command line, and a person ticks the rest in the app.
 

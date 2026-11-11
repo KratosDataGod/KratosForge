@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Usability release gates and PR reviews
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 How a pull request that changes what people see gets a UX review, and the gates a release candidate passes. These sit alongside the codebase audit's release gates in `docs/hardening/` (PR #137); they add usability, they don't repeat security or correctness. The Release Manager decides merges and promotes; this review recommends.
 

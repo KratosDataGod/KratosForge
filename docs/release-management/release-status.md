@@ -1,4 +1,43 @@
-# Release status
+---
+site_group: Internal engineering
+---
+
+# Release channels and history
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+The authoritative current record is [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases). This page combines channel status and release history, checked on **2026-11-11**. These are dated observations, not live release checks. Stable and Preview can contain different changes.
+
+## Channel status
+
+| Channel | Recorded build | Packaging evidence |
+| --- | --- | --- |
+| [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) | 6b631e2 (version manifest checked 2026-11-11) | Executable and engine assets; no MSI in the assets inspected 2026-11-11 |
+| [Preview](https://github.com/KratosDataGod/KratosForge/releases/tag/latest) | caddc34 (release description) | Executable, engine and per-user kratosforge.msi in the assets inspected 2026-11-11 |
+
+Packaging alone does not establish code signing or enterprise rollout readiness. Use [Release readiness](../product/release-readiness.md) and verify the exact assets before rollout.
+
+## Release history
+
+GitHub's channel tags are reused: tag creation and release metadata updates are not proof of a Stable promotion date. The following dates describe exactly the events returned by GitHub.
+
+| Date (UTC) | Recorded event | Evidence |
+| --- | --- | --- |
+| 2026-10-16 | Stable release tag created; this is not the date every current asset was released | [Stable release metadata](https://api.github.com/repos/KratosDataGod/KratosForge/releases/tags/stable) |
+| 2026-11-02 | Stable release metadata last updated as of this check; exact build promotion date not verified | [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) |
+| 2026-11-11 | Preview release metadata updated; its description identifies build caddc34 | [Preview](https://github.com/KratosDataGod/KratosForge/releases/tag/latest) |
+
+For retained individual build releases and their dates, use [all GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases). This is not a reconstructed promotion ledger.
+
+## Known issues and historical warnings
+
+The imported release-manager record is dated **2026-10-18** and is [preserved on GitHub](https://github.com/KratosDataGod/KratosForge/blob/caddc343e964024d60e87e129017222221db836c/docs/release-management/release-status.md). Its QA-001/QA-002 warnings do not establish the condition of today's builds. Fixes are associated with [#177](https://github.com/KratosDataGod/KratosForge/pull/177) and [#178](https://github.com/KratosDataGod/KratosForge/pull/178); both PRs are merged, but inclusion in the selected release has not been verified by this website review. Check that release's notes and build before relying on either fix. Preview limitations and release gates remain in [Release readiness](../product/release-readiness.md).
+
+
+## Historical integration snapshot — 2026-10-18
+
+The frozen integration record below is retained as history. Its release statements describe that snapshot, not current releases.
+
 
 A snapshot from the release manager's last integration cycle. GitHub is the source of truth for each PR's state and checks; this page records what the cycle found and decided. The same data, one entry per PR, is in [release-manifest.json](release-manifest.json). The process is in [release management](README.md).
 
@@ -74,3 +113,23 @@ Follow-on PRs, trialled after the batch on `5f4407b`. Each merges cleanly onto `
 | #144, #145, #146, #149, #160, #163 | Workload drafts: Chris's card in the workload thread on taking them out of draft. #164, #168 and #172 are stacked on them; the stack merges in order #143 to #172 |
 | #185 | Draft: FINOPS-004 part 2, UI mockup with Chris; stacked on #174 |
 | #131 | Not opened by this project (fork `as200219`); its CI has never run (fork workflows wait for a maintainer's approval) and it conflicts with `main`. Chris decides whether to take it |
+
+
+## Historical promotion ledger — 2026-10-18
+
+
+Every Stable promotion, newest first. Preview moves on every merge to `main`, so it isn't listed build by build; `git log --first-parent main` is its history. How a promotion is done is in [release management](README.md#promoting-to-stable).
+
+The `stable` release's files are replaced in place on each promotion. Each build is also kept as its own `build-<sha>` release, and every Stable build published after per-build releases began stays there, so it can be promoted again ([rollback](README.md#rollback)). Earlier builds can't be downloaded any more. The checksums below identify the files that were promoted.
+
+| Stable since | Commit | Last PR in it | Changes since previous Stable | Checks at promotion | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-10-17 22:56 UTC | `9715e28` | #132 What's new history | 52 merges to `main` (merge round 4: #118, #120 to #122, #124, #125, #127 to #130, #132 to #134, and earlier) | `main` CI green; `version.json` checksums equal the asset digests (exe `e5d97aff…`, engine `37253aec…`); engine `client_id` empty | Current Stable. Includes the Invalid Date fix (#122) |
+| 2026-10-17 14:40 UTC | `76bf48c` | | Builds after `698dcd5`, including no-app-registration sign-in (#42) | Promoted on Chris's decision card | Fixed issue #96: Stable users saw the "Set up sign-in" app-ID dialog because the previous Stable predated #42 |
+| 2026-10-16 12:29 UTC | `698dcd5` | | First Stable release | | Predates #42 |
+
+## Preview right now
+
+| Since | Commit | What's on it that Stable doesn't have |
+| --- | --- | --- |
+| 2026-10-18 09:46 UTC | `68198a4` | The hardening audit batch (#138, #152, #154 to #159, #162, #179, #180, #157), #140 and #184 since `9715e28`, besides #135 and #136. Checksums verified: engine `44eefec5…`; engine `client_id` empty |

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Product management process
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 How KratosForge decides what to build, builds it, and decides whether it worked. The
 cycle repeats for every development cycle. Several Claude threads and people contribute; one role,

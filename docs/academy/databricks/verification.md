@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Databricks path: acceptance and verification strategy
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 ## What each class may claim
 
@@ -6,7 +12,7 @@
 | --- | --- | --- | --- |
 | LOCAL VERIFIED | The learner's code ran in the sandbox on this PC; validators passed on its output | "Your PySpark produced the right silver table on DuckDB's PySpark API on this PC" | That it ran on Spark, Databricks Runtime or Photon |
 | SIMULATED | The learner's document or code was checked against KratosForge's model of a Databricks service | "Your job definition behaves as documented in KratosForge's Jobs model" | That Databricks ran it |
-| DATABRICKS VERIFIED | The learner's artifact ran in their own workspace and a read-only check confirmed the outcome | "Ran in your Databricks workspace on <compute> on <date>" | Anything about workspaces other than theirs |
+| DATABRICKS VERIFIED | The learner's artifact ran in their own workspace and a read-only check confirmed the outcome | "Ran in your Databricks workspace on <compute> on &lt;date&gt;" | Anything about workspaces other than theirs |
 | KNOWLEDGE ONLY | Answers to questions | "You answered N of M correctly" | That a skill was demonstrated |
 
 Rules enforced by `problems()`: only the `databricks` adapter gives DATABRICKS VERIFIED; a local

@@ -29,13 +29,13 @@ before(async () => {
       appstudio_home: () => ({ templates: [{ id: "sales", title: "Sales overview", text: "Revenue" }], projects: [],
         targets: [{ id: "powerbi-report", label: "Power BI report", components: [], interactions: [] }] }),
       appstudio_connections: () => conns,
-      appstudio_plan: () => ({ plan_id: "p1", plan: PLAN, left_out: ["Overview: 3D (hologram isn't available for a Power BI report)"],
+      appstudio_plan: () => ({ plan_id: "p1", plan: PLAN, left_out: ["Overview: Revenue by city (the model has no column 'Geo[City]')"],
         sent: { tables: 2, columns: 5, measures: 2, expressions: false, rows: 0, description_chars: 40 },
         connection: { name: "My Claude", provider: "anthropic", model: "claude-sonnet-5-5" }, usage: { input_tokens: 900, output_tokens: 100 }, warning: "" }),
       appstudio_create_from_plan: () => ({ ...OPENED, left_out: [] }),
       appstudio_open: () => OPENED,
       appstudio_preview: () => ({ note: "", page: { title: "Overview" }, components: [] }),
-      appstudio_change_plan: () => ({ change_id: "ch1", summary: "Show the region chart as columns", done: ["Show c_1 as a column"],
+      appstudio_change_plan: () => ({ change_id: "ch1", summary: "Show c_1 as columns", done: ["Show c_1 as a column"],
         left_out: [], questions: [], changed: ["c_1"], spec: SPEC, sent: {}, connection: {}, usage: {}, warning: "" }),
       appstudio_apply_change: () => ({ ...OPENED, can_undo: true }),
     },
@@ -62,7 +62,7 @@ test("Describe says what it sends, shows the plan and builds only on Build it", 
   await card.locator("button", { hasText: "Make a plan" }).click();
   const plan = page().locator(".as-plan");
   await plan.waitFor();
-  assert.match(await plan.textContent(), /Plan: Sales overview[\s\S]*Card · Revenue · Revenue[\s\S]*Left out \(1\)[\s\S]*hologram[\s\S]*Which fiscal year\?[\s\S]*No rows/);
+  assert.match(await plan.textContent(), /Plan: Sales overview[\s\S]*Purpose: Revenue for leads[\s\S]*Audience: Sales leads[\s\S]*Revenue \(card\)[\s\S]*1 thing left out[\s\S]*Geo\[City\][\s\S]*Which fiscal year\?[\s\S]*Answer in the description[\s\S]*2 table, 5 column and 2 measure names\. No rows\. About 1,000 tokens\./);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "appstudio-plan.png") });
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#view"), []);
   assert.ok(!app.calls.some((c) => c.method === "appstudio_create_from_plan"), "nothing is made before Build it");
@@ -78,7 +78,7 @@ test("Ask shows the change plan and changes nothing until Apply", { skip }, asyn
   await ask.locator("textarea").fill("Make the region chart a column chart");
   await ask.locator("button", { hasText: "Plan the change" }).click();
   await ask.locator(".as-change").waitFor();
-  assert.match(await ask.locator(".as-change").textContent(), /Show "Revenue by region" as a column[\s\S]*1 item change\. Nothing else is touched/);
+  assert.match(await ask.locator(".as-change").textContent(), /Show "Revenue by region" as columns[\s\S]*Show "Revenue by region" as a column[\s\S]*Changes 1 item\. Nothing else is touched/);
   assert.ok(!app.calls.some((c) => c.method === "appstudio_apply_change"));
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "appstudio-ask.png") });
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#view"), []);

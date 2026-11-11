@@ -7,7 +7,7 @@
 // first and writes one Power BI report only after the person types the workspace's name; replacing a report
 // already there needs its own tick. Nothing here reads OneLake.
 
-const appStudio = { project: null, opened: null, tab: "preview", page: null, selection: {}, busy: false, connections: false, editing: null, tested: null, plan: null, change: null };
+const appStudio = { project: null, opened: null, tab: "preview", page: null, selection: {}, busy: false, connections: false, editing: null, tested: null, plan: null, change: null, description: "" };
 const AS_TABS = [["preview", "Preview"], ["design", "Design"], ["spec", "Spec"], ["history", "History"]];
 const AS_TYPES = { card: "Card", bar: "Bar", column: "Column", line: "Line", area: "Area", pie: "Pie", donut: "Donut",
   table: "Table", matrix: "Matrix", slicer: "Slicer", text: "Text", waterfall: "Waterfall", scatter: "Scatter", map: "Map" };
@@ -427,6 +427,7 @@ function appStudioDescribeCard(home, conns) {
   if (!usable.length) { card.append(appStudioNoModel(conns)); return card; }
   const text = h("textarea", { rows: 4, maxlength: 4000, "aria-label": "Describe what the app should do",
     placeholder: "An executive sales dashboard: revenue, margin and retention, revenue by region and by month, and a customers page." });
+  text.value = appStudio.description || "";
   const model = appStudioModelPicker(conns);
   const target = h("select", { "aria-label": "Where it will run" }, home.targets.map((t) => h("option", { value: t.id }, t.label)));
   const data = h("select", { "aria-label": "Data" }, h("option", { value: "sample" }, "Sample data"), h("option", { value: "model" }, "A semantic model…"));
@@ -464,6 +465,7 @@ function appStudioDescribeCard(home, conns) {
   const planBtn = btn("Make a plan", null, async () => {
     const description = text.value.trim();
     if (!description) { text.focus(); return; }
+    appStudio.description = description;
     let source = null;
     if (data.value === "model") {
       if (!sm.value) { toast("Choose a semantic model first.", true); return; }
@@ -484,7 +486,21 @@ function appStudioDescribeCard(home, conns) {
   return card;
 }
 
-const AS_COMPONENT_LINE = (c) => [AS_TYPES[c.type] || c.type, c.title, c.measure, c.field].filter(Boolean).join(" · ");
+// "Revenue (card)", or "Revenue by region (bar): Revenue by Sales[Region]" when the measure or field adds something.
+function AS_COMPONENT_LINE(c) {
+  const kind = AS_TYPES[c.type] || c.type;
+  const what = [c.measure && c.measure !== c.title ? c.measure : "", c.field ? `by ${c.field}` : ""].filter(Boolean).join(" ");
+  return `${c.title || kind} (${kind.toLowerCase()})${what ? `: ${what}` : ""}`;
+}
+
+// Token counts are estimates the provider reports; show them rounded ("About 1,000 tokens").
+function appStudioAboutTokens(usage) {
+  const n = (usage?.input_tokens || 0) + (usage?.output_tokens || 0);
+  const step = n < 100 ? 1 : 10 ** (Math.floor(Math.log10(n)) - 1);
+  return `About ${(Math.round(n / step) * step).toLocaleString("en-US")} token${n === 1 ? "" : "s"}.`;
+}
+
+const AS_THINGS = (n) => `${n} thing${n === 1 ? "" : "s"} left out`;
 
 // The plan the model answered, as the engine kept it. Build it makes the app; nothing is saved before that.
 function appStudioPlanView(got) {
@@ -503,16 +519,17 @@ function appStudioPlanView(got) {
   const sent = got.sent || {};
   return h("section", { class: "card pad as-plan", "aria-label": "Plan" },
     h("h2", {}, `Plan: ${plan.name}`),
-    plan.purpose ? h("p", {}, plan.purpose) : null,
-    plan.audience?.length ? h("p", { class: "muted-text small" }, `For ${plan.audience.join(", ")}`) : null,
+    plan.purpose ? h("p", {}, h("b", {}, "Purpose: "), plan.purpose) : null,
+    plan.audience?.length ? h("p", {}, h("b", {}, "Audience: "), plan.audience.join(", ")) : null,
     h("label", { class: "field as-plan-name" }, "App name", name),
     h("div", { class: "as-plan-pages" }, plan.pages.map((p) => h("div", {},
       h("h3", {}, p.title), h("ul", {}, p.components.map((c) => h("li", {}, AS_COMPONENT_LINE(c))))))),
-    got.left_out?.length ? h("details", { class: "as-warnings", open: true }, h("summary", {}, `Left out (${got.left_out.length}): the data or the target can't show these`),
+    got.left_out?.length ? h("details", { class: "as-warnings", open: true }, h("summary", {}, AS_THINGS(got.left_out.length)),
       h("ul", {}, got.left_out.map((t) => h("li", {}, t)))) : null,
-    plan.questions?.length ? h("div", {}, h("h3", {}, "Your model asks"), h("ul", {}, plan.questions.map((q) => h("li", {}, q)))) : null,
-    h("p", { class: "muted-text small" }, `Sent to ${got.connection.name} (${got.connection.model}): your description and ${sent.tables} table${sent.tables === 1 ? "" : "s"}, ${sent.columns} column and ${sent.measures} measure names${sent.expressions ? ", with formulas" : ""}. No rows. ` +
-      `${(got.usage?.input_tokens || 0) + (got.usage?.output_tokens || 0)} tokens.`),
+    plan.questions?.length ? h("div", {}, h("h3", {}, "Your model asks"), h("ul", {}, plan.questions.map((q) => h("li", {}, q))),
+      h("p", { class: "muted-text small" }, "Answer in the description, then make the plan again. Your description is kept.")) : null,
+    h("p", { class: "muted-text small" }, `Sent to ${got.connection.name} (${got.connection.model}): your description and ${sent.tables} table, ${sent.columns} column and ${sent.measures} measure names${sent.expressions ? ", with formulas" : ""}. No rows. ` +
+      appStudioAboutTokens(got.usage)),
     got.warning ? h("p", { class: "muted-text small" }, got.warning) : null,
     h("div", { class: "row" }, build, btn("Change the description", null, () => { appStudio.plan = null; render(); }, "tool outline")));
 }
@@ -582,11 +599,11 @@ function appStudioChangeView(ch) {
   return h("div", { class: "as-change", role: "status" },
     h("div", { class: "as-ask-request" }, ch.request),
     h("b", {}, "Change plan"),
-    ch.summary ? h("p", {}, ch.summary) : null,
+    ch.summary ? h("p", {}, appStudioTitled(ch.summary)) : null,
     h("ul", {}, ch.done.map((d) => h("li", {}, appStudioTitled(d)))),
-    h("p", { class: "muted-text small" }, `${ch.changed.length} item${ch.changed.length === 1 ? "" : "s"} change. Nothing else is touched. Nothing is saved until you apply it.`),
-    ch.left_out?.length ? h("details", { class: "as-warnings" }, h("summary", {}, `Left out (${ch.left_out.length})`), h("ul", {}, ch.left_out.map((t) => h("li", {}, appStudioTitled(t))))) : null,
-    ch.questions?.length ? h("ul", { class: "muted-text small" }, ch.questions.map((q) => h("li", {}, q))) : null,
+    h("p", { class: "muted-text small" }, `Changes ${ch.changed.length} item${ch.changed.length === 1 ? "" : "s"}. Nothing else is touched. Nothing is saved until you apply it.`),
+    ch.left_out?.length ? h("details", { class: "as-warnings" }, h("summary", {}, AS_THINGS(ch.left_out.length)), h("ul", {}, ch.left_out.map((t) => h("li", {}, appStudioTitled(t))))) : null,
+    ch.questions?.length ? h("ul", { class: "muted-text small" }, ch.questions.map((q) => h("li", {}, appStudioTitled(q)))) : null,
     h("div", { class: "row" }, apply, discard));
 }
 

@@ -1,6 +1,6 @@
 """The shell's commands (app/src-tauri/src/main.rs) are what the app's page can ask the exe to do. Each
-one is listed here with what it does with text the page sends: the check it runs on that text, found in
-its body, or why it takes none. A new command, or a new argument on one, fails here until it is listed.
+one is listed here with every argument the page sends it and the check its body runs on that argument.
+A new command, or a new argument on one, fails here until it is listed with its own check.
 
 The origin and window checks in front of every command are the shell's own Rust tests
 (only_the_apps_own_page_can_use_the_apps_commands); the page's CSP is pinned there too
@@ -35,38 +35,44 @@ FROM_TAURI = ("tauri::AppHandle", "tauri::Window", "tauri::Webview", "tauri::Sta
 # Plain numbers and flags can't name a path, a link or a program.
 PLAIN = ("bool", "f64", "Option<bool>")
 
-# command -> (text its body must contain: the check on what the page sent, or None; what it does)
-COMMANDS: dict[str, tuple[str | None, str]] = {
-    "rpc": (None, ("passes method and params to the engine over its pipe; the engine refuses an unknown "
-                   "method and checks each method's own arguments, so the shell reads neither")),
-    "stop_kernel": (None, "no page text: ends the running engine"),
-    "confirm_started": (None, "no page text; main window only"),
-    "check_components": (None, "no page text; main window only"),
-    "check_for_update": (None, "no page text; main window only"),
-    "update_sidecar": (None, "no page text; main window only"),
-    "update_app": ("update_guard::is_commit(&commit)", "commit must be a build commit before any download"),
-    "fabric_view_show": ("fabric_page(&page, tenant.as_deref())?",
-                         "page must be an https app.fabric.microsoft.com page; tenant is used only as a GUID"),
-    "fabric_view_hide": (None, "no page text"),
-    "fabric_view_action": ('_ => Err(format!("unknown action {action}"))',
-                           "action is one of four fixed words; page goes through fabric_page"),
-    "fabric_view_url": (None, "no page text"),
-    "fabric_view_sign_out": (None, "no page text"),
-    "open_doc": ('!page.contains("..")', "only letters, digits and -_.#/ with no .., under docs/ on GitHub"),
-    "open_link": ('"https" => open_in_browser(&url)', "only an https link to the browser, or a mailto: address"),
-    "open_in_vscode": ("vscode_link::inside(&p, &notebook_folders())",
-                       ("a full local path, checked as text first, then canonicalised and kept inside the "
-                        "notebooks folder or an opened repository")),
-    "add_to_vscode": ("vscode_link::install_link(&launcher, &client_id, insiders)?",
-                      "the link is built from the app's own launcher path; vscode_link checks client_id"),
-    "pick_folder": ("folder_pick::pick(owner, start)",
-                    "start only sets where the dialog opens, and only for a local folder (folder_pick.rs)"),
-    "take_pending_link": (None, "no page text; main window only"),
-    "pop_out_open": ("pop_out_title(&section)?", "section must be one of the fixed pop-out sections"),
-    "pop_out_close": ("pop_out_title(&section)?", "section must be one of the fixed pop-out sections"),
-    "pop_out_on_top": (None, "a flag, for the calling pop-out window only"),
-    "pop_out_list": (None, "no page text"),
-    "pop_out_open_in_fabric": ("fabric_page(&page, None)?", "page must be an https app.fabric.microsoft.com page"),
+# command -> {argument the page sends: (text the command's body must contain, the check on that
+# argument; or None for rpc, whose arguments the engine checks; what it does)}. A command that takes
+# no text from the page has no arguments listed.
+ENGINE = None
+NONE: dict[str, tuple[str | None, str]] = {}
+FABRIC = "must be an https app.fabric.microsoft.com page (fabric_page)"
+SECTION = ("pop_out_title(&section)?", "must be one of the fixed pop-out sections")
+COMMANDS: dict[str, dict[str, tuple[str | None, str]]] = {
+    "rpc": {"method": (ENGINE, "sent to the engine over its pipe; the engine refuses an unknown method"),
+            "params": (ENGINE, "sent to the engine, which checks each method's own arguments")},
+    "stop_kernel": NONE,
+    "confirm_started": NONE,
+    "check_components": NONE,
+    "check_for_update": NONE,
+    "update_sidecar": NONE,
+    "update_app": {"commit": ("update_guard::is_commit(&commit)", "must be a build commit before any download")},
+    "fabric_view_show": {"page": ("fabric_page(&page, tenant.as_deref())?", FABRIC),
+                         "tenant": ("fabric_page(&page, tenant.as_deref())?", "added to the link only when GUID-shaped")},
+    "fabric_view_hide": NONE,
+    "fabric_view_action": {"action": ('_ => Err(format!("unknown action {action}"))', "one of four fixed words"),
+                           "page": ("fabric_page(&page, None)?", FABRIC)},
+    "fabric_view_url": NONE,
+    "fabric_view_sign_out": NONE,
+    "open_doc": {"page": ('!page.contains("..")', "letters, digits and -_.#/ only, no .., under docs/ on GitHub")},
+    "open_link": {"url": ('"https" => open_in_browser(&url)', "an https link to the browser, or a mailto: address")},
+    "open_in_vscode": {"path": ("vscode_link::inside(&p, &notebook_folders())",
+                                ("a full local path, checked as text first, then canonicalised and kept inside "
+                                 "the notebooks folder or an opened repository"))},
+    "add_to_vscode": {"client_id": ("vscode_link::install_link(&launcher, &client_id, insiders)?",
+                                    "checked by vscode_link; the link uses the app's own launcher path")},
+    "pick_folder": {"start": ("folder_pick::pick(owner, start)",
+                              "only where the dialog opens, and only a local folder (folder_pick.rs)")},
+    "take_pending_link": NONE,
+    "pop_out_open": {"section": SECTION},
+    "pop_out_close": {"section": SECTION},
+    "pop_out_on_top": NONE,
+    "pop_out_list": NONE,
+    "pop_out_open_in_fabric": {"page": ("fabric_page(&page, None)?", FABRIC)},
 }
 
 
@@ -116,19 +122,17 @@ def test_every_command_the_page_can_call_is_listed_here():
             assert "#[tauri::command]" not in other.read_text(encoding="utf-8"), other.name
 
 
-def test_each_command_checks_what_the_page_sends_before_using_it():
-    for command, (check, why) in COMMANDS.items():
+def test_each_argument_the_page_sends_is_checked_before_use():
+    for command, listed in COMMANDS.items():
         signature, body = _signature_and_body(command)
-        from_page = [(n, k) for n, k in _arguments(signature)
-                     if not k.startswith(FROM_TAURI) and k not in PLAIN]
-        if command == "rpc":
-            assert [n for n, _ in from_page] == ["method", "params"], from_page
-            continue
-        if not from_page:
-            assert check is None, f"{command} takes no text from the page; its entry needs no check"
-            continue
-        assert check, f"{command} takes {from_page} from the page: name the check its body runs ({why})"
-        assert check in body, f"{command}'s body no longer contains its check: {check}"
+        from_page = [n for n, k in _arguments(signature) if not k.startswith(FROM_TAURI) and k not in PLAIN]
+        assert sorted(from_page) == sorted(listed), (
+            f"{command} takes {from_page} from the page; list each with the check its body runs on it")
+        for argument, (check, why) in listed.items():
+            if check is ENGINE:
+                assert command == "rpc", f"only rpc hands its arguments to the engine ({command}.{argument})"
+                continue
+            assert check in body, f"{command}'s body no longer contains the check on {argument}: {check} ({why})"
 
 
 def test_the_shell_starts_programs_only_by_their_full_path():

@@ -91,8 +91,8 @@ class LearnMixin:
     # ---- beside a best-practice finding (LX-09): Explain, Show example and Dismiss
 
     def learn_rule_guides(self) -> dict[str, Any]:
-        """Each notebook and SQL rule's Why, When it's fine and Before/After, from the docs that ship
-        with the app (learn/guides.py)."""
+        """Each notebook, SQL and semantic model rule's and each pipeline gotcha's Why, When it's fine and
+        Before/After, from the docs that ship with the app (learn/guides.py). Reads nothing else."""
         return guides.load()
 
     def learn_patterns(self) -> dict[str, Any]:

@@ -16,7 +16,7 @@ A query that runs here runs in DuckDB on this PC, not in Fabric. It is not proof
 | **Succeeded** | The query finished. Its rows can be paged and exported. |
 | **Failed** | The SQL had an error, or a statement wasn't allowed. The reason is shown in place of the rows. |
 | **Stopped** | You pressed **Stop**. |
-| **Timed out** | It ran past the time limit (10 minutes by default) and was stopped. |
+| **Timed out** | It ran past the time limit (10 minutes by default, or your organization's limit if it sets one) and was stopped. The message says which limit stopped it. |
 
 **Stop** ends that query's own process and nothing else: no notebook kernel, no other query, no other part of the app. A query that was still queued simply never starts. If the app closes, its queries stop with it.
 

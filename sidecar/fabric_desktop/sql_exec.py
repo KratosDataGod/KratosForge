@@ -108,6 +108,16 @@ def run_threads(limits: dict[str, Any]) -> int:
     return max(1, (os.cpu_count() or 2) // max(1, int(limits["sql_max_concurrent"])))
 
 
+def time_limit_message(source: str, seconds: float) -> str:
+    """The message for a run its time limit stopped, by where the limit came from ("" if unknown).
+
+    Local and lakehouse/warehouse runs share it so the wording can't drift between them."""
+    minutes = f"{seconds / 60:g} minutes"
+    return {"sql": f"Stopped after the time limit ({minutes}, Settings › SQL).",
+            "policy": f"Stopped after your organization's time limit ({minutes}).",
+            "project": f"Stopped after the project's time limit ({minutes}, in the project's settings)."}.get(source, "")
+
+
 class RerunNeeded(Exception):
     """The run's snapshot is gone; the query has to run again."""
 
@@ -559,9 +569,8 @@ class SqlExecutions:
             run.proc = None
             if run.stop_reason == "timeout":
                 run.state, run.error_kind = "timed_out", "timeout"
-                run.error = (f"Stopped after your organization's time limit ({run.time_limit_s / 60:g} minutes)."
-                             if run.time_limit_from == "policy" else
-                             f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL).")
+                run.error = time_limit_message(run.time_limit_from, run.time_limit_s) \
+                    or time_limit_message("sql", run.time_limit_s)
             elif run.stop_reason == "cancel":
                 run.state, run.error = "cancelled", "Stopped."
             elif outcome.get("event") == "done":
@@ -640,10 +649,7 @@ class SqlExecutions:
             state, error = "cancelled", "Stopped."
         except TimeoutError as exc:
             state, kind = "timed_out", "timeout"
-            error = {"sql": f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL).",
-                     "policy": f"Stopped after your organization's time limit ({run.time_limit_s / 60:g} minutes).",
-                     "project": f"Stopped after the project's time limit ({run.time_limit_s / 60:g} minutes, "
-                                "in the project's settings)."}.get(run.time_limit_from, str(exc))
+            error = time_limit_message(run.time_limit_from, run.time_limit_s) or str(exc)
         except EngineBusy as exc:
             state, kind, error = "failed", "engine", str(exc)
         except Exception as exc:  # noqa: BLE001 - the SQL's own error, shown in place of the rows

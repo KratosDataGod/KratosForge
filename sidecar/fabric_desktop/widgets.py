@@ -662,8 +662,10 @@ class Output(DOMWidget):
                                                   f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
 
     def _add(self, output: dict[str, Any]) -> None:
-        from .notebook import RICH_CHARS
-        if output.get("type") != "error":  # an error always shows
+        from .notebook import RICH_CHARS, capped_error
+        if output.get("type") == "error":  # an error always shows, kept to ERROR_CHARS
+            output = capped_error(output)
+        else:
             if "rich" in self._cut:
                 return
             size = len(json.dumps(output, default=str))
@@ -1047,7 +1049,7 @@ def build() -> types.ModuleType:
     mod.__version__ = __version__  # type: ignore[attr-defined]
     mod.version_info = (8, 1, 5)  # type: ignore[attr-defined]
     mod.widgets = mod  # type: ignore[attr-defined]  # from ipywidgets import widgets
-    mod.__path__ = []  # type: ignore[attr-defined]
+    mod.__path__ = []
     mod.__kratosforge__ = True  # type: ignore[attr-defined]
     return mod
 

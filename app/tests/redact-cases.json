@@ -103,6 +103,10 @@
     {"level": "secrets", "in": ["Couldn't post to https://hooks.slack.com/services/T0", "123ABCD/B0456EFGH/aBcDeFgHiJkLmNoPqRsTuVwX (404)"], "out": "Couldn't post to [removed] (404)"},
     {"level": "secrets", "in": "see https://api.slack.com/messaging/webhooks and npm_modules/ and glpat-short", "out": "see https://api.slack.com/messaging/webhooks and npm_modules/ and glpat-short"},
     {"level": "secrets", "in": ["token glpat-", "aB3dE5fG7hJ9kL1mN2pQ.01.abcdefgh. Next"], "out": "token [removed]. Next"},
-    {"level": "secrets", "in": ["webhook: hooks.slack.com/services/T0", "123ABCD/B0456EFGH/aBcDeFgHiJkLmNoPqRsTuVwX"], "out": "webhook: [removed]"}
+    {"level": "secrets", "in": ["webhook: hooks.slack.com/services/T0", "123ABCD/B0456EFGH/aBcDeFgHiJkLmNoPqRsTuVwX"], "out": "webhook: [removed]"},
+    {"level": "secrets", "in": ["embed H4sI", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "==", " end"], "out": "embed [removed] end"},
+    {"level": "secrets", "in": "H4sI is how gzip in base64 starts", "out": "H4sI is how gzip in base64 starts"},
+    {"level": "secrets", "in": ["Ocp-Apim-Subscription-Key: ", "0123456789abcdef", "0123456789abcdef", "\nnext"], "out": "Ocp-Apim-Subscription-Key: [removed]\nnext"},
+    {"level": "secrets", "in": ["{\"subscription_key\": \"", "0123456789abcdef", "0123456789abcdef", "\"}"], "out": "{\"subscription_key\": \"[removed]\"}"}
   ]
 }

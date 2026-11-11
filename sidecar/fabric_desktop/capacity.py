@@ -61,10 +61,10 @@ ACTIONS = {
 
 # Capacity states, as the capacity list returns them, and what they mean for a run.
 STATES = {
-    "Active": ("running", "Running. Work can start, but this doesn't say how busy it is: a running capacity can still "
-                          "slow down or delay jobs when it is overloaded."),
-    "Inactive": ("not_running", "Not running: paused, suspended or an expired trial. Fabric runs, schedules and new "
-                                "lakehouses fail until an admin resumes it. Runs on this PC still work."),
+    "Active": ("running", ("Running. Work can start, but this doesn't say how busy it is: a running capacity can still "
+                          "slow down or delay jobs when it is overloaded.")),
+    "Inactive": ("not_running", ("Not running: paused, suspended or an expired trial. Fabric runs, schedules and new "
+                                "lakehouses fail until an admin resumes it. Runs on this PC still work.")),
 }
 
 
@@ -164,7 +164,7 @@ def observe(environments: dict[str, dict[str, Any]], get_workspace: Callable[[st
     if list_capacities is not None:
         try:
             capacities = {str(c.get("id", "")).lower(): c for c in list_capacities() if c.get("id")}
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any capacity read failure is classified and shown
             cap_error = classify_error(exc)
             if cap_error in ("workspace_no_access", "workspace_not_found"):
                 cap_error = "scope_not_granted"  # a 401/403 on /capacities is the scope, not a workspace

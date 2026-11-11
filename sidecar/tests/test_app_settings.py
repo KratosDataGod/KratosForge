@@ -71,8 +71,8 @@ def test_forge_animations_default_on_saved_and_lockable(dirs):
         app_settings.save({"forge_animations": True})
 
 
-def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
-    assert app_settings.load()["motion_level"] == {"value": 2, "source": "default"}
+def test_motion_level_defaults_to_subtle_saved_checked_and_lockable(dirs):
+    assert app_settings.load()["motion_level"] == {"value": 1, "source": "default"}
     assert app_settings.save({"motion_level": 3})["motion_level"] == {"value": 3, "source": "user"}
     for bad in (4, -1, True, "2", 2.5):
         with pytest.raises(ValueError, match="motion_level"):
@@ -80,7 +80,9 @@ def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
     assert app_settings.load()["motion_level"]["value"] == 3  # kept for the next start
     assert app_settings.save({"motion_wolf": False})["motion_wolf"] == {"value": False, "source": "user"}
     assert app_settings.load()["motion_follow_system"] == {"value": True, "source": "default"}
-    assert app_settings.load()["motion_achievements"] == {"value": False, "source": "default"}  # turned on, not off
+    assert app_settings.load()["motion_achievements"] == {"value": True, "source": "default"}
+    assert app_settings.save({"motion_achievements": False})["motion_achievements"] == {"value": False, "source": "user"}
+    assert app_settings.load()["motion_achievements"] == {"value": False, "source": "user"}  # a saved Off stays Off
     dirs.write_text(json.dumps({"motion_level": 0, "motion_sparks": False}))
     loaded = app_settings.load()
     assert loaded["motion_level"] == {"value": 0, "source": "policy"}

@@ -25,25 +25,29 @@ source rows.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
 import sys
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, cast
+from urllib.parse import unquote
 
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, sql_dialects
+from .. import delta_dml, delta_profile, durable, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
+from ..redact import describe
 from ..sql import KfDuckDB, refuse_spark_hashes
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
@@ -99,7 +103,7 @@ def delta_select(folder: str, version: int | None = None, timestamp: str | None 
         raise ValueError("This Delta table uses " + ", ".join(sorted(set(problems))) +
                          ", which a local read can't apply yet, so it isn't queryable here.")
     schema = _arrow_schema(table)
-    files = [_local_path(f) for f in table.file_uris()]
+    files = _data_files(table, folder)
     info.update(files=len(files), bytes=sum(_size(f) for f in files))
     if not files:
         return _empty_select(schema), info
@@ -139,7 +143,7 @@ def _load(folder: str, version: int | None, timestamp: str | None, name: str) ->
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): its first is from {start}.")
     try:
         table.load_as_version(when)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - any read failure at that time becomes the same plain message
         raise ValueError(f"{name or folder} has no version as of {timestamp} (UTC): {_short(exc)}") from None
     return table
 
@@ -147,6 +151,22 @@ def _load(folder: str, version: int | None, timestamp: str | None, name: str) ->
 def _arrow_schema(table: Any) -> pa.Schema:
     raw = table.schema()
     return pa.schema(raw.to_arrow()) if hasattr(raw, "to_arrow") else raw.to_pyarrow()
+
+
+def _data_files(table: Any, folder: str) -> list[str]:
+    """The data files of the loaded version, as paths on disk. From the log's own paths (each one
+    percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
+    leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    files = []
+    for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
+        path = unquote(rel)
+        if "://" in path:
+            path = _local_path(path)
+        elif not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(folder, path))
+        files.append(path)
+    return files
 
 
 def _local_path(uri: str) -> str:
@@ -157,6 +177,8 @@ def _local_path(uri: str) -> str:
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
+    if not len(schema):  # DuckDB can't register a table without columns
+        return {}
     con = duckdb.connect()
     con.register("__empty", schema.empty_table())
     return {row[0]: row[1] for row in con.execute("DESCRIBE SELECT * FROM __empty").fetchall()}
@@ -192,6 +214,25 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
             raise ValueError(f"{type_!r} is not a column type (for {column}).")
     casts = ", ".join(f"CAST({q(c)} AS {t}) AS {q(c)}" for c, t in overrides.items())
     return f"SELECT * REPLACE ({casts}) FROM ({select})"
+
+
+_log = logging.getLogger(__name__)
+
+
+def _remove_leftover_spill(folder: Path) -> None:
+    """Delete DuckDB temp files a crashed engine left in the project's tmp folder: DuckDB removes them
+    only when the query that wrote them ends, and never on the next open. Called once this process
+    holds the project's database, which DuckDB locks, so no other engine is spilling there. A tmp
+    folder that is a link or junction is left alone: its files are somewhere else."""
+    from ..maintenance import _linked
+    if _linked(folder):
+        return
+    for leftover in folder.glob("duckdb_temp_*"):
+        try:
+            if leftover.is_file() and not leftover.is_symlink():
+                leftover.unlink()
+        except OSError as exc:
+            _log.info("Couldn't remove %s, left from an earlier run: %s", leftover.name, describe(exc))
 
 
 def _friendly_open_error(exc: Exception, path: str) -> Exception:
@@ -262,6 +303,8 @@ class LocalEngine:
             # UTC, like Fabric. SET, not connect's config: that tries to download ICU, which fails offline.
             con.execute("SET TimeZone = 'UTC'")
             keep_try_cast(con)
+            if p.storage != "memory":
+                _remove_leftover_spill(p.temp_dir)
             con.execute(f"SET temp_directory = {lit(str(p.temp_dir))}")
             # dbo first, as in Fabric's SQL endpoints and SQL Server: CREATE TABLE t makes dbo.t, and
             # dbo.orders can be written orders.
@@ -347,9 +390,10 @@ class LocalEngine:
                      "paths": table.paths if table.files <= 50 else table.paths[:1], "folder": table.folder,
                      "files": table.files, "bytes": table.size, "status": "ok", "error": "", "columns": []}
             if key in others:
+                where = ("is one of this project's Delta tables" if catalog[key].get("kind") == OWN
+                         else f"already comes from another folder ({catalog[key]['source']})")
                 issues.append({"path": table.folder or table.paths[0],
-                               "problem": f"{table.schema}.{table.table} already comes from another folder "
-                                          f"({catalog[key]['source']}). Set a different name for one of them."})
+                               "problem": f"{table.schema}.{table.table} {where}. Set a different name for one of them."})
                 continue
             if key not in mine and self._exists(table.schema, table.table):
                 issues.append({"path": table.folder or table.paths[0],
@@ -368,7 +412,7 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
-            except Exception as exc:  # one unreadable file never stops the others
+            except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
             catalog[key] = entry
@@ -505,7 +549,7 @@ class LocalEngine:
                 raise
             raise
 
-        def batches():
+        def batches() -> Iterator[pa.RecordBatch]:
             try:
                 for batch in inner:
                     if state.get("cancelled") or state.get("timed_out"):  # an interrupt DuckDB missed
@@ -529,7 +573,8 @@ class LocalEngine:
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False, change: bool = False,
                confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None,
-               lazy: bool = False):
+               lazy: bool = False
+               ) -> Iterator[tuple[Any, dict[str, Any]]]:  # (DuckDB result or relation, run record)
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -548,7 +593,7 @@ class LocalEngine:
                 raise QueryCancelled("The query was cancelled.")
             timer = None
             if timeout and timeout > 0:
-                def expire():
+                def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
                 timer = threading.Timer(timeout, expire)
@@ -556,6 +601,7 @@ class LocalEngine:
                 timer.start()
             steps: list[dict[str, Any]] = []
             as_of: list[str] = []
+            finished = False
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
                 statements = self._statements(con, sql, dialect, run)
@@ -612,6 +658,7 @@ class LocalEngine:
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
+                finished = True
             except (duckdb.InterruptException, OSError) as exc:
                 # An interrupt while a result streams comes out of pyarrow's reader as OSError.
                 if isinstance(exc, OSError) and not str(exc).startswith("INTERRUPT Error"):
@@ -627,7 +674,9 @@ class LocalEngine:
             finally:
                 if timer:
                     timer.cancel()
-                self._running.pop(query_id, None)
+                self._running.pop(query_id, None)  # first, so Stop's interrupts end before _release runs
+                if not finished:
+                    _release(con)
                 for name in as_of:
                     try:
                         con.execute(f"DROP VIEW IF EXISTS temp.{q(name)}")
@@ -1009,6 +1058,9 @@ class LocalEngine:
             out["would_create"] = current is None
             return out
         after = DeltaTable(str(folder))
+        # On disk before the write returns, as LocalStore's commits are: a power cut can't take the
+        # data of a commit already made (durable.py).
+        durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
         delta_profile.check_table(after)
         out["version"] = after.version()
         self._register_own(con, schema, w.table, folder)
@@ -1079,6 +1131,8 @@ class LocalEngine:
             if c.kind == "merge":
                 con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table)}")
         after = DeltaTable(str(folder))
+        if after.version() > before:
+            durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
         delta_profile.check_table(after)
         out["version"] = after.version()
         self._register_own(con, entry["schema"], entry["table"], folder)
@@ -1114,7 +1168,7 @@ class LocalEngine:
         return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
-    def _shadow(self, folder: Path):
+    def _shadow(self, folder: Path) -> Iterator[Path]:
         """A copy of the Delta table at ``folder`` to try a change on: its log copied, its data files
         hard-linked (copied where links aren't possible). delta-rs only adds files and log entries,
         so nothing the copy does reaches the table."""
@@ -1220,6 +1274,20 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _release(con: duckdb.DuckDBPyConnection) -> None:
+    """Free what a query that stopped early still holds. A stream stopped part way (Stop, the time
+    limit, an error, or closed unread) leaves DuckDB's pending result on the connection, with its
+    memory and spill files in tmp/, until the connection runs something else: so run something now."""
+    for _ in range(3):  # Stop's last interrupt may still land on this SELECT 1
+        try:
+            run_through(con, "SELECT 1")  # run to its end: on 2.0 an unread result keeps the connection busy
+            return
+        except duckdb.InterruptException:
+            time.sleep(0.06)
+        except duckdb.Error:
+            return  # closed or broken: the next query reopens it or says so
 
 
 _ONE_QUERY = ("The rows to write come from one query (SELECT, WITH ... SELECT, FROM or VALUES), with no "
@@ -1436,7 +1504,7 @@ def _split_script(sql: str) -> list[str]:
 
     try:
         tokens = Dialect.get_or_raise("duckdb").tokenize(sql)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the splitter's own errors vary; all become one plain message
         raise ValueError(f"Could not split the script into statements: {exc}") from None
     out, begin = [], 0
     for token in tokens:
@@ -1489,7 +1557,7 @@ class ResultStream:
         self._generator = generator
         self.reader = pa.RecordBatchReader.from_batches(schema, batches)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
         return iter(self.reader)
 
     def read_next_batch(self) -> pa.RecordBatch:

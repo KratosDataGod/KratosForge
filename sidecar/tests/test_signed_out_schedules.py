@@ -154,6 +154,8 @@ def test_the_password_script_gets_the_task_by_environment_never_on_its_command_l
     (5, "hresult=-2147023570 The user name or password is incorrect.", "didn't accept that password"),
     (5, "hresult=-2147023511 Logon failure: the user has not been granted the requested logon type", "doesn't allow runs while"),
     (5, "hresult=-1 Access is denied.", "Task Scheduler: hresult=-1 Access is denied."),
+    (1, "Cannot invoke method. Method invocation is supported only on core types in this language mode.",
+     "Constrained Language Mode"),
 ])
 def test_refusals_are_said_plainly(monkeypatch, code, stderr, words):
     monkeypatch.setattr(signed_out_tasks.subprocess, "run", lambda args, **kw: subprocess.CompletedProcess(args, code, "", stderr))

@@ -233,15 +233,15 @@ _HERE_CHECKS = (
     (re.compile(r"\bdbutils\.library\.install"), "dbutils.library.install runs in Databricks; this PC's packages are fixed."),
     (re.compile(r"\bdbutils\.credentials\."), "dbutils.credentials is a Databricks on AWS feature; this PC signs in to Microsoft as you."),
     (re.compile(r"(?i)(?:dbfs:/|[\"'\s(]/dbfs/|[\"'\s(]/Volumes/|[\"'\s(]/Workspace/)"),
-     "A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
-     "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC."),
+     ("A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
+     "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC.")),
     # Delta Live Tables (Lakeflow declarative pipelines): Python decorators and SQL statements.
     (re.compile(r"(?m)^\s*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
                 r"(?:STREAMING|LIVE)\s+(?:TABLE|LIVE\s+TABLE|VIEW)\b|\bCREATE\s+OR\s+REFRESH\b|"
                 r"\b(?:APPLY\s+CHANGES|AUTO\s+CDC)\s+INTO\b|\bCONSTRAINT\s+\w+\s+EXPECT\s*\()"),
-     "Delta Live Tables code, which only a Databricks pipeline runs: neither this PC nor Fabric has it. "
+     ("Delta Live Tables code, which only a Databricks pipeline runs: neither this PC nor Fabric has it. "
      "Rewrite each dataset as a cell that writes its table, check the data in code instead of EXPECT, "
-     "and run the cells in order from a pipeline."),
+     "and run the cells in order from a pipeline.")),
     (re.compile(r"(?m)^\s*%run\s+(?:\.{1,2}/|/)"),
      "%run with a workspace path: on this PC it runs the notebook of that name from the notebooks folder, so import it too."),
 )
@@ -255,20 +255,20 @@ _HERE_CHECKS = (
 # Repos versus Fabric Git integration.
 _FABRIC_CHECKS = (
     (re.compile(r"\bdbutils\.widgets\."),
-     "dbutils.widgets runs on this PC, but Fabric has no widgets. Before running it in Fabric, put the "
-     "defaults in a parameter cell; a pipeline or notebookutils.notebook.run passes the values."),
+     ("dbutils.widgets runs on this PC, but Fabric has no widgets. Before running it in Fabric, put the "
+     "defaults in a parameter cell; a pipeline or notebookutils.notebook.run passes the values.")),
     (re.compile(r"\bdbutils\.library\.restartPython\b"),
-     "In Fabric the call is notebookutils.session.restartPython(). For scheduled runs, add the packages "
-     "to the Fabric environment rather than installing them in the notebook."),
+     ("In Fabric the call is notebookutils.session.restartPython(). For scheduled runs, add the packages "
+     "to the Fabric environment rather than installing them in the notebook.")),
     # spark.databricks.delta.* settings are Delta Lake's own and Fabric's Delta reads them; the rest
     # are Databricks Runtime settings.
     (re.compile(r"""["']spark\.databricks\.(?!delta\.)\w[\w.]*["']"""),
-     "A Databricks Runtime setting (spark.databricks., other than Delta's), which Fabric doesn't have: "
-     "setting it does nothing there, and reading it fails unless the call gives a default."),
+     ("A Databricks Runtime setting (spark.databricks., other than Delta's), which Fabric doesn't have: "
+     "setting it does nothing there, and reading it fails unless the call gives a default.")),
     (re.compile(r"\.trigger\(\s*(?:processingTime|continuous)\s*="),
-     "A stream that keeps running. In Fabric it uses capacity for as long as it runs, and continuous "
+     ("A stream that keeps running. In Fabric it uses capacity for as long as it runs, and continuous "
      "triggers aren't supported there. The usual Fabric pattern is trigger(availableNow=True) run on a "
-     "schedule. On this PC it already runs once, as availableNow."),
+     "schedule. On this PC it already runs once, as availableNow.")),
 )
 
 
@@ -617,7 +617,7 @@ def _dbc_notebook(doc: dict[str, Any], entry: str) -> dict[str, Any] | None:
         return None
     default = _DBC_LANGUAGE.get(str(doc.get("language", "python")).lower())
     ordered = sorted((c for c in commands if isinstance(c, dict) and isinstance(c.get("command"), str)),
-                     key=lambda c: c.get("position") if isinstance(c.get("position"), (int, float)) else 0)
+                     key=lambda c: p if isinstance(p := c.get("position"), (int, float)) else 0)
     cells: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
     for c in ordered:

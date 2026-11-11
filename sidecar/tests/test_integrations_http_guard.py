@@ -266,3 +266,119 @@ def test_resources_are_listed_and_read_with_the_same_token_checks(store):
         assert missing.status_code == 404 and missing.json()["error"]["code"] == "not_found"
         bad = c.get("/api/v1/resources/read", params={"uri": "fabric-desktop://capabilities?bogus=1"}, headers=auth(token))
         assert bad.status_code == 400
+
+
+# ---- connections: a cap, and a deadline for each request's headers (http_server.server_config) ----
+
+def _serving(monkeypatch, **limits):
+    import socket
+    import threading
+    import time
+
+    import uvicorn
+
+    from fabric_desktop.integrations import http_server
+
+    for name, value in limits.items():
+        monkeypatch.setattr(http_server, name, value)
+
+    async def app(scope, receive, send):
+        if scope["type"] != "http":
+            return
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-length", b"2")]})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    config = http_server.server_config(app, port)
+    assert (config.host, config.limit_concurrency, config.timeout_keep_alive) == ("127.0.0.1", http_server.MAX_CONNECTIONS + 1, http_server.IDLE_SECONDS)
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 30
+    while not server.started and thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert server.started
+
+    def stop():
+        server.should_exit = True
+        thread.join(10)
+        sock.close()
+    return port, stop
+
+
+def _get(port, timeout=5.0):
+    import socket
+
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as s:
+        s.sendall(f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode())
+        data = b""
+        while chunk := s.recv(4096):
+            data += chunk
+    return int(data.split(b" ", 2)[1]) if data else None
+
+
+def _closed_within(s, seconds):
+    import socket
+    import time
+
+    s.settimeout(seconds)
+    start = time.monotonic()
+    try:
+        while s.recv(1024):
+            pass
+    except (socket.timeout, TimeoutError):
+        return None
+    except ConnectionResetError:
+        pass
+    return time.monotonic() - start
+
+
+def test_a_connection_that_sends_nothing_or_a_byte_at_a_time_is_closed(monkeypatch):
+    import socket
+    import time
+
+    port, stop = _serving(monkeypatch, HEADER_SECONDS=0.5)
+    try:
+        silent = socket.create_connection(("127.0.0.1", port), timeout=5)
+        trickle = socket.create_connection(("127.0.0.1", port), timeout=5)
+        start, cut_off = time.monotonic(), False
+        for b in b"GET / HTTP/1.1\r\nHost: x" * 4:
+            try:
+                trickle.sendall(bytes([b]))  # a byte at a time, past the deadline
+            except OSError:  # closed under it: what this test wants
+                cut_off = True
+                break
+            time.sleep(0.05)
+        assert cut_off or _closed_within(trickle, 5) is not None
+        assert time.monotonic() - start < 5
+        assert _closed_within(silent, 5) is not None
+        silent.close()
+        trickle.close()
+        assert _get(port) == 200  # and the server carries on
+    finally:
+        stop()
+
+
+def test_past_the_connection_cap_a_request_gets_busy_and_the_slots_come_back(monkeypatch):
+    import socket
+    import time
+
+    from fabric_desktop.integrations import http_server
+
+    assert http_server.MAX_CONNECTIONS == 32
+    port, stop = _serving(monkeypatch, HEADER_SECONDS=5.0)
+    try:
+        held = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(31)]
+        time.sleep(0.3)
+        assert _get(port) == 200  # the 32nd connection is served
+        held.append(socket.create_connection(("127.0.0.1", port), timeout=5))
+        time.sleep(0.3)
+        assert _get(port) == 503  # the 33rd isn't
+        for s in held:
+            s.close()
+        time.sleep(0.3)
+        assert _get(port) == 200
+    finally:
+        stop()

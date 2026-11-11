@@ -13,15 +13,15 @@
         },
         {
           "id": "b",
-          "text": "It switches the query to continuous processing"
+          "text": "It switches the query to continuous processing with millisecond latency"
         },
         {
           "id": "c",
-          "text": "It runs a micro-batch every second forever"
+          "text": "It runs a micro-batch every second forever until the query is stopped"
         },
         {
           "id": "d",
-          "text": "It processes only the newest event"
+          "text": "It processes only the newest event in the source and ignores the existing backlog"
         }
       ],
       "answer": [
@@ -29,9 +29,9 @@
       ],
       "explanation": "availableNow processes everything that has arrived since the last run and stops, which lets a scheduled job use streaming's checkpointing for incremental batch loads.",
       "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/triggers",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.3-q2",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "It fails because the table already exists"
+          "text": "It fails because the target table already exists in the lakehouse"
         },
         {
           "id": "b",
-          "text": "It reprocesses the whole source from the beginning"
+          "text": "It reprocesses the whole source from the beginning and appends it to the table"
         },
         {
           "id": "c",
@@ -83,17 +83,17 @@
         },
         {
           "id": "d",
-          "text": "It deletes the table and starts over"
+          "text": "It deletes the table and starts over from the earliest offset"
         }
       ],
       "answer": [
         "c"
       ],
       "explanation": "The checkpoint records progress, so a restart picks up from the last committed point.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.3-q4",
@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.3-q5",
+      "type": "single",
+      "stem": "You write a function for `writeStream.foreachBatch(...)`. Which parameters does Spark pass to it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The source DataFrame of the whole stream and the target table name"
+        },
+        {
+          "id": "b",
+          "text": "One row of the stream at a time together with its source offset"
+        },
+        {
+          "id": "c",
+          "text": "The checkpoint location path and the trigger interval set on the query"
+        },
+        {
+          "id": "d",
+          "text": "The microbatch output DataFrame and the unique ID of the microbatch"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "foreachBatch functions take the microbatch DataFrame and its unique batch ID; row-at-a-time processing is foreach.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/foreach",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.3-q6",
+      "type": "single",
+      "stem": "A streaming aggregation must upsert its results into a Delta table by using MERGE INTO. How should the query write its output?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Use `.outputMode(\"complete\")` and let Delta merge the rows"
+        },
+        {
+          "id": "b",
+          "text": "Run MERGE INTO inside a foreachBatch function"
+        },
+        {
+          "id": "c",
+          "text": "Use `.format(\"delta\").outputMode(\"append\").toTable(...)`"
+        },
+        {
+          "id": "d",
+          "text": "Use `foreach()` with a MERGE for each row"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Delta merge operations in Structured Streaming must use foreachBatch. Append only adds rows, and complete rewrites the target table on each trigger.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/foreach",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.3-q7",
+      "type": "single",
+      "stem": "Which write guarantee does foreachBatch provide on its own?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Exactly once, but only when the sink is a Delta table"
+        },
+        {
+          "id": "b",
+          "text": "At least once; use the batch ID to deduplicate for exactly-once results"
+        },
+        {
+          "id": "c",
+          "text": "Exactly once, because the checkpoint commits each batch atomically"
+        },
+        {
+          "id": "d",
+          "text": "At most once, because failed batches are skipped"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "foreachBatch provides only at-least-once writes; you can use the batch ID to deduplicate output and get exactly-once.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/foreach",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.3-q8",
+      "type": "single",
+      "stem": "One stream must write the same output to two Delta tables with the best parallelism and throughput. What's the recommended design?",
+      "options": [
+        {
+          "id": "a",
+          "text": "One writer in complete mode to a view over both tables"
+        },
+        {
+          "id": "b",
+          "text": "One writer to the first table and a scheduled copy to the second"
+        },
+        {
+          "id": "c",
+          "text": "One foreachBatch function that writes to both tables"
+        },
+        {
+          "id": "d",
+          "text": "Two separate streaming writers on the stream"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Multiple Structured Streaming writers give the best parallelization; writing to several sinks in foreachBatch serializes the writes and adds latency.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/foreach",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.3-q9",
+      "type": "single",
+      "stem": "A query uses `df.withWatermark(\"event_time\", \"10 minutes\").groupBy(window(\"event_time\", \"5 minutes\"), \"id\").count()`. How long is state kept for each window's count?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Until the end of the window is 10 minutes older than the latest event_time seen"
+        },
+        {
+          "id": "b",
+          "text": "For 10 minutes of processing time after the query starts, then the state is dropped"
+        },
+        {
+          "id": "c",
+          "text": "Indefinitely, until the query's checkpoint folder is deleted by hand"
+        },
+        {
+          "id": "d",
+          "text": "For 5 minutes after the window ends, whatever the watermark is set to"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "State is kept until the window end is older than the latest event_time by the watermark threshold. Watermarks use event time, not processing time.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/watermarks",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.3-q10",
+      "type": "multiple",
+      "stem": "A windowed streaming aggregation has a watermark. Which two statements about output modes are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Stream-stream joins support all three output modes"
+        },
+        {
+          "id": "b",
+          "text": "In update mode, rows are written as results are calculated and can be updated as new data arrives"
+        },
+        {
+          "id": "c",
+          "text": "In complete mode, old aggregation state is dropped after the threshold passes"
+        },
+        {
+          "id": "d",
+          "text": "In append mode, rows are written only after the watermark threshold has passed"
+        },
+        {
+          "id": "e",
+          "text": "In append mode, rows are written immediately and later corrected"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Append waits for the watermark, and update writes and revises results as they change. Complete mode keeps all state and rewrites the table, and stream-stream joins support only append.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/watermarks",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

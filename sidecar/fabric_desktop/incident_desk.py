@@ -20,7 +20,7 @@ from .optimize import setup
 from . import governance_notices as notices
 from .central import core
 from .workloads import impact, model, sla
-from .workloads.incident_history import FAMILY, Sent, event_rows, snapshot_rows
+from .workloads.incident_history import FAMILY, REPORT_DAYS, Sent, event_rows, report, snapshot_rows
 from .workloads.incidents import ACTIVE, PRIORITIES, PRIORITY_LABELS, default_priority
 
 
@@ -191,7 +191,7 @@ class IncidentDeskMixin:
                     "message": message}
         conn = self.central_lakehouse()  # type: ignore[attr-defined]
         sent = Sent(self.root / "incident_history_sent.json")  # type: ignore[attr-defined]
-        envs = []
+        envs: list[dict[str, Any]] = []
         for env in ENVIRONMENTS:
             try:
                 log = self._incident_log(env)  # type: ignore[attr-defined]
@@ -235,3 +235,24 @@ class IncidentDeskMixin:
         latest = latest.sort("opened_at", descending=True, nulls_last=True).head(max(1, min(int(limit), 5000)))
         cols = [c for c in latest.columns if c not in ("record_id", "installation_id", "app_version", "schema_version")]
         return {"state": "ready", "lakehouse": conn["lakehouse_name"], "incidents": latest.select(cols).to_dicts()}
+
+    def incidents_measures(self, env: str = "", days: int = 30, approve: bool = False) -> dict[str, Any]:
+        """Time to acknowledge, time to resolve and SLAs met for incidents opened in the last ``days``.
+
+        It copies what's new to the central lakehouse first (incidents_history_sync), so the report
+        includes the latest changes, then measures from each incident's latest state there. When the
+        incident tables need setting up, it returns ``needs_confirm`` and nothing is written until the
+        person confirms (``approve``). A copy that fails for one environment is reported, not hidden."""
+        if days not in REPORT_DAYS:
+            raise ValueError(f"days is one of {', '.join(map(str, REPORT_DAYS))}.")
+        if env and env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}, or empty for all.")
+        copied = self.incidents_history_sync(approve=approve)
+        if copied["state"] != "copied":
+            return copied
+        hist = self.incidents_history(env, limit=5000)
+        table, problems, source = self._sla_targets()
+        out = report(hist["incidents"], table, dt.datetime.now(dt.UTC), days)
+        return {"state": "ready" if hist["incidents"] else "empty", "lakehouse": hist.get("lakehouse"), "env": env,
+                "copy": copied["envs"], "sla_source": source, "sla_problems": problems,
+                "capped": len(hist["incidents"]) >= 5000} | out

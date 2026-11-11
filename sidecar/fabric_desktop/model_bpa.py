@@ -102,16 +102,16 @@ def bpa_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str = "
                 "default_lakehouse_workspace_id": workspace_id}}},
             "cells": [{"cell_type": "markdown", "metadata": {}, "source": [
                 "# KratosForge best practices check\n",
-                "Runs Best Practice Analyzer from semantic-link-labs on one semantic model, read only, and saves "
+                ("Runs Best Practice Analyzer from semantic-link-labs on one semantic model, read only, and saves "
                 "the findings for KratosForge. Start checks from **Data mesh > Deploy > Semantic model** in the app; "
-                "changes here are replaced on the next check.\n"]},
+                "changes here are replaced on the next check.\n")]},
                       code(params, ["parameters"]),
                       code(_CHECK % {"mount": MOUNT, "results": RESULTS_DIR, "package": PACKAGE, "version": VERSION,
                                     "secret_patterns": _secret_patterns()})]}
 
 
 def notebook_hash(ipynb: dict[str, Any]) -> str:
-    return hashlib.sha1(json.dumps(ipynb, sort_keys=True).encode()).hexdigest()[:12]
+    return hashlib.sha1(json.dumps(ipynb, sort_keys=True).encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 def run_parameters(dataset_id: str, workspace_id: str, request_id: str, lakehouse_id: str = "") -> dict[str, Any]:

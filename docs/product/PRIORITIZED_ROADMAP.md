@@ -224,6 +224,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-027](PRODUCT_BACKLOG.md#pb-027) | Column completion for attached tables | 4 | 1 | 2 | 2 | 3 | 2 | 1 | 2.45 | 1.5 | 2.21 | none | S | High | none | Prove |
 | [PB-049](PRODUCT_BACKLOG.md#pb-049) | Run the pipeline mailbox once on a tenant | 2 | 3 | 4 | 4 | 3 | 2 | 3 | 3.15 | 2.5 | 2.21 | none | S | Medium | PB-002 | Staged roadmap |
 | [PB-019](PRODUCT_BACKLOG.md#pb-019) | Late-arriving rows and source deletes in incremental loads | 4 | 3 | 4 | 3 | 4 | 3 | 3 | 3.65 | 3.0 | 2.19 | none | M | Medium | none | Staged roadmap |
+| [PB-136](PRODUCT_BACKLOG.md#pb-136) | Process kernel by default after a clean Windows trial | 4 | 1 | 4 | 2 | 4 | 2 | 3 | 3.1 | 2.5 | 2.17 | none | S | Medium | none | Prove |
 | [PB-018](PRODUCT_BACKLOG.md#pb-018) | Publish matches Fabric items by id, not display name | 4 | 1 | 3 | 1 | 4 | 2 | 2 | 2.7 | 2.0 | 2.16 | none | S | Medium | none | Master product (unassigned) |
 | [PB-035](PRODUCT_BACKLOG.md#pb-035) | Pipeline definition engine | 4 | 4 | 4 | 5 | 5 | 4 | 3 | 4.3 | 3.5 | 2.15 | none | L | Medium | none | Local Fabric pipeline execution |
 | [PB-053](PRODUCT_BACKLOG.md#pb-053) | Scheduled shortcut health check with alerts | 2 | 2 | 4 | 2 | 3 | 2 | 2 | 2.65 | 2.0 | 2.12 | none | S | Medium | none | Master product (unassigned) |
@@ -254,14 +255,16 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-112](PRODUCT_BACKLOG.md#pb-112) | Semantic model best-practice checks in governance policies | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-108 | Best Practice Analyzer |
 | [PB-115](PRODUCT_BACKLOG.md#pb-115) | Run the Fabric Best Practice Analyzer live | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-112 | Best Practice Analyzer |
 | [PB-116](PRODUCT_BACKLOG.md#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | 4 | 1 | 3 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | none | Fabric and Databricks unified development |
-| [PB-130](PRODUCT_BACKLOG.md#pb-130) | Data product promises, status and change windows | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-002 | Data mesh |
 
-### P3 (19 items)
+### P3 (24 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-118](PRODUCT_BACKLOG.md#pb-118) | Databricks notebook conversion says what it could not carry over | 3 | 1 | 2 | 2 | 3 | 2 | 2 | 2.2 | 2.0 | 1.76 | none | S | Medium | none | Fabric and Databricks unified development |
+| [PB-132](PRODUCT_BACKLOG.md#pb-132) | Choose a skin's colors and rail separately | 3 | 1 | 2 | 3 | 4 | 3 | 2 | 2.5 | 2.5 | 1.75 | none | M | Medium | none | Platform skins |
+| [PB-133](PRODUCT_BACKLOG.md#pb-133) | Import and export skins in Settings | 3 | 1 | 2 | 3 | 4 | 3 | 2 | 2.5 | 2.5 | 1.75 | none | S | Medium | none | Platform skins |
 | [PB-092](PRODUCT_BACKLOG.md#pb-092) | Shared workload ownership | 2 | 1 | 4 | 2 | 3 | 3 | 2 | 2.45 | 2.5 | 1.72 | none | M | Medium | none | Workload management |
+| [PB-135](PRODUCT_BACKLOG.md#pb-135) | KratosForge Academy: Databricks Data Engineer Associate track | 3 | 2 | 3 | 3 | 3 | 3 | 3 | 2.8 | 3.0 | 1.68 | none | L | Medium | none | Academy |
 | [PB-107](PRODUCT_BACKLOG.md#pb-107) | Data Factory program | 4 | 4 | 4 | 4 | 5 | 5 | 3 | 4.15 | 4.0 | 1.66 | none | XL | Medium | PB-037 | Build full Data Factory experience |
 | [PB-100](PRODUCT_BACKLOG.md#pb-100) | Fuller What's new dialog | 2 | 1 | 2 | 1 | 2 | 1 | 1 | 1.65 | 1.0 | 1.65 | none | S | Medium | none | Fuller What's new dialog |
 | [PB-110](PRODUCT_BACKLOG.md#pb-110) | Semantic model interchange (Apache Ossie) | 3 | 1 | 3 | 4 | 3 | 3 | 3 | 2.75 | 3.0 | 1.65 | none | M | Medium | none | TMDL and OSI semantic model conversion |
@@ -269,14 +272,16 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
 | [PB-117](PRODUCT_BACKLOG.md#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | 2 | 1 | 2 | 2 | 3 | 2 | 2 | 1.95 | 2.0 | 1.56 | none | M | Medium | none | Fabric and Databricks unified development |
 | [PB-121](PRODUCT_BACKLOG.md#pb-121) | Power BI embedding (Embed Studio) | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | L | Medium | none | Power BI embedding (PBE) |
+| [PB-130](PRODUCT_BACKLOG.md#pb-130) | Data product promises, status and change windows | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | M | Medium | PB-002 | Data mesh |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
-| [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: certification preparation | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
+| [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: DP-700 certification preparation | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
 | [PB-097](PRODUCT_BACKLOG.md#pb-097) | Extensions | 3 | 1 | 4 | 4 | 3 | 4 | 4 | 3.0 | 4.0 | 1.2 | none | XL | Low | none | Git-native development |
 | [PB-093](PRODUCT_BACKLOG.md#pb-093) | Telemetry decision | 1 | 1 | 3 | 1 | 2 | 2 | 3 | 1.65 | 2.5 | 1.15 | none | M | Low | none | Enterprise readiness |
+| [PB-134](PRODUCT_BACKLOG.md#pb-134) | Developer classes and mastery | 3 | 1 | 3 | 4 | 3 | 5 | 3 | 2.75 | 4.0 | 1.1 | none | L | Medium | none | Build developer class and mastery system |
 | [PB-127](PRODUCT_BACKLOG.md#pb-127) | Fabric App Studio | 3 | 2 | 3 | 5 | 4 | 5 | 4 | 3.25 | 4.5 | 0.97 | none | L | Medium | none | Fabric App Studio (AS) |
 | [PB-045](PRODUCT_BACKLOG.md#pb-045) | Shared queue for several workers | 2 | 3 | 4 | 3 | 3 | 5 | 4 | 3.0 | 4.5 | 0.9 | none | L | Low | PB-003 | Workload management |
 <!-- END GENERATED: ranking -->

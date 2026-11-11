@@ -85,6 +85,35 @@ class _Ok(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def _exclusive(sock: socket.socket) -> None:
+    """On Windows, keep the port to this socket alone. Without it, another process in the run that
+    binds the same port with SO_REUSEADDR (a server started on a "free" port found a moment before)
+    can take its connections, and the caller sees the connection closed with no answer."""
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+
+
+def _listener() -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    _exclusive(sock)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(64)
+    return sock
+
+
+class _Site(http.server.ThreadingHTTPServer):
+    request_queue_size = 64  # the default 5 refuses callers on Windows when the run is busy
+    allow_reuse_address = False
+
+    def server_bind(self):
+        _exclusive(self.socket)
+        super().server_bind()
+
+    def handle_error(self, request, client_address):
+        # A caller that refuses the certificate drops the handshake; that is the test, not an error.
+        pass
+
+
 @pytest.fixture(scope="module", autouse=True)
 def python_ssl():
     """Python's own SSLContext while these tests run. On Windows an earlier test in the same run can
@@ -103,10 +132,12 @@ def python_ssl():
 @pytest.fixture(scope="module")
 def site(company_ca, python_ssl):
     """https://localhost:<port>, its certificate signed by the company's root."""
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Ok)
+    httpd = _Site(("127.0.0.1", 0), _Ok)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(company_ca / "site.pem", company_ca / "site.key")
-    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    # The handshake runs in each request's own thread, not in the accept loop: one slow handshake
+    # under a busy test run can't hold up the next caller's connection.
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"https://localhost:{httpd.server_address[1]}"
     httpd.shutdown()
@@ -119,8 +150,8 @@ class Proxy:
     sign-in, "silent" takes the connection and never answers."""
 
     def __init__(self, mode: str):
-        self.mode, self.asked = mode, []
-        self.sock = socket.create_server(("127.0.0.1", 0))
+        self.mode, self.asked, self.errors = mode, [], []
+        self.sock = _listener()
         self.url = f"http://127.0.0.1:{self.sock.getsockname()[1]}"
         self.held: list[socket.socket] = []
         threading.Thread(target=self._serve, daemon=True).start()
@@ -134,6 +165,31 @@ class Proxy:
             threading.Thread(target=self._one, args=(conn,), daemon=True).start()
 
     def _one(self, conn: socket.socket):
+        try:
+            self._answer(conn)
+        except Exception as e:  # noqa: BLE001 - say what went wrong instead of dropping the caller with no answer
+            self.errors.append(repr(e))
+            try:
+                reason = repr(e).encode(errors="replace")[:200]
+                conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+                             % (len(reason), reason))
+            except OSError:
+                pass
+            conn.close()
+
+    @staticmethod
+    def _upstream(host: str, port: int) -> socket.socket:
+        """The site, with a few tries: a busy machine can refuse a local connect once."""
+        for attempt in range(5):
+            try:
+                return socket.create_connection((host, port), timeout=10)
+            except (ConnectionRefusedError, ConnectionResetError, TimeoutError):
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+        raise AssertionError("unreachable")
+
+    def _answer(self, conn: socket.socket):
         head = b""
         while b"\r\n\r\n" not in head:
             chunk = conn.recv(4096)
@@ -149,19 +205,30 @@ class Proxy:
                          b"Content-Length: 0\r\nConnection: close\r\n\r\n")
             return conn.close()
         host, port = head.split(b" ", 2)[1].decode().rsplit(":", 1)
-        upstream = socket.create_connection(("127.0.0.1" if host == "localhost" else host, int(port)))
+        upstream = self._upstream("127.0.0.1" if host == "localhost" else host, int(port))
+        upstream.settimeout(None)
         conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        ends = [2]
         for a, b in ((conn, upstream), (upstream, conn)):
-            threading.Thread(target=self._pipe, args=(a, b), daemon=True).start()
+            threading.Thread(target=self._pipe, args=(a, b, ends), daemon=True).start()
 
-    @staticmethod
-    def _pipe(a: socket.socket, b: socket.socket):
+    _ends_lock = threading.Lock()
+
+    @classmethod
+    def _pipe(cls, a: socket.socket, b: socket.socket, ends: list[int]):
+        """One direction of the tunnel. When ``a`` has said all it will, pass that on to ``b`` as a
+        half-close and keep the other direction open: closing both here could drop bytes the other
+        direction hasn't passed on yet. Both sockets close when both directions are done."""
         try:
             while data := a.recv(65536):
                 b.sendall(data)
+            b.shutdown(socket.SHUT_WR)
         except OSError:
             pass
-        finally:
+        with cls._ends_lock:
+            ends[0] -= 1
+            last = ends[0] == 0
+        if last:
             for s in (a, b):
                 try:
                     s.close()
@@ -206,7 +273,11 @@ def test_the_proxy_windows_is_set_to_is_used_when_no_variable_is_set(network, mo
     proxy = network()
     monkeypatch.setattr(requests.utils, "getproxies", lambda: {"https": proxy.url})
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(company_ca / "root.pem"))
-    assert http_session.session().get(f"{site}/v1/workspaces", timeout=10).status_code == 200
+    try:
+        r = http_session.session().get(f"{site}/v1/workspaces", timeout=10)
+    except requests.RequestException as e:   # say what the test's own proxy saw, to tell where it failed
+        pytest.fail(f"{e!r}; the proxy saw {proxy.asked} and raised {proxy.errors}")
+    assert r.status_code == 200
     assert len(proxy.asked) == 1 and proxy.asked[0].startswith("CONNECT localhost:")
 
 

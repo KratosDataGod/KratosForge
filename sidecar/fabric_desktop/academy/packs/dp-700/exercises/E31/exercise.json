@@ -1,0 +1,165 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E31",
+  "title": "Copy activity design: staging, schema mapping and fault tolerance",
+  "objectives": [
+    "2.2.5"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Set up one copy activity into a Warehouse: decide on staging, map the columns into an existing table, clear it before each load, and choose which file errors to skip and log.",
+  "scenario": "A nightly pipeline copies stores' sales files from ADLS Gen2 into a Warehouse. The first runs created a new table with the files' column names, piled every night on top of the last, and either failed when a file vanished or quietly skipped files nobody was allowed to read.",
+  "engine_label": "A model of a copy activity's settings, checked on this PC",
+  "verifies": [
+    "Your staging, table option, mapping, pre-copy script and fault tolerance meet the five needs, as the copy activity and Warehouse destination pages on Learn describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any file is read or any row written: nothing is copied.",
+    "Throughput, parallel copies and the other settings this model leaves out.",
+    "Which errors each connector can skip, and the exact layout of the copy activity's tabs."
+  ],
+  "expected": {
+    "description": "Enable staging with an External location on adls-staging; Use existing dbo.sales_landing with five mapped columns; a pre-copy script that deletes or truncates the table; skip missing files with logging on, and don't skip forbidden files."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "These files can't go straight into the Warehouse, or the staging won't last the run.",
+      "pass": "The copy stages through the team's own storage.",
+      "rules": [
+        {
+          "path": "settings.enable_staging",
+          "equals": true,
+          "why": "The Warehouse loads directly with its COPY command only when the source meets its conditions; a skip line count other than 0 isn't one of them, so the data goes through interim staging."
+        },
+        {
+          "path": "settings.staging.location",
+          "equals": "External",
+          "why": "Workspace staging times out after 60 minutes; for long-running jobs use external storage."
+        },
+        {
+          "path": "settings.staging.connection",
+          "equals": "adls-staging"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The rows won't land in the table the reports use, under its column names.",
+      "pass": "Each source column lands in the existing table's matching column.",
+      "rules": [
+        {
+          "path": "destination.table_option",
+          "equals": "Use existing",
+          "why": "Auto create table builds a table from the source schema when none exists; the reports need the existing one."
+        },
+        {
+          "path": "mapping",
+          "count": 5,
+          "why": "The source and table names differ, and an existing table's destination column names can't be changed, so each pair is mapped."
+        },
+        {
+          "path": "mapping",
+          "count": 1,
+          "where": {
+            "source": "sale_id",
+            "destination": "SaleId"
+          }
+        },
+        {
+          "path": "mapping",
+          "count": 1,
+          "where": {
+            "source": "store",
+            "destination": "StoreCode"
+          }
+        },
+        {
+          "path": "mapping",
+          "count": 1,
+          "where": {
+            "source": "sold_at",
+            "destination": "SoldAt"
+          }
+        },
+        {
+          "path": "mapping",
+          "count": 1,
+          "where": {
+            "source": "amount_gbp",
+            "destination": "Amount"
+          }
+        },
+        {
+          "path": "mapping",
+          "count": 1,
+          "where": {
+            "source": "qty",
+            "destination": "Quantity"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Last night's rows will still be there tomorrow.",
+      "pass": "Each run clears the landing table before it writes.",
+      "rules": [
+        {
+          "path": "destination.pre_copy_script",
+          "one_of": [
+            "DELETE FROM dbo.sales_landing",
+            "TRUNCATE TABLE dbo.sales_landing"
+          ],
+          "why": "A pre-copy script runs before each write; use it to clean up the preloaded data. Insert appends to whatever is there."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Fault tolerance doesn't match what the team will and won't accept.",
+      "pass": "A deleted file is skipped and logged; a forbidden file still fails the run.",
+      "rules": [
+        {
+          "path": "settings.fault_tolerance.skip_missing_files",
+          "equals": true,
+          "why": "Fault tolerance lets the copy ignore some errors, such as a file deleted during data movement."
+        },
+        {
+          "path": "settings.enable_logging",
+          "equals": true,
+          "why": "Logging records the skipped files and rows, so a skip doesn't go unseen."
+        },
+        {
+          "path": "settings.fault_tolerance.skip_forbidden_files",
+          "equals": false,
+          "why": "Skip only what you mean to; a file the pipeline can't read is the permissions mistake the team wants to hear about."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Do these files meet every condition for the Warehouse's direct COPY load?",
+    "How long can workspace staging run?",
+    "The table already exists, with different column names. What does that rule out?",
+    "Which file errors does the team want to survive, and which should still stop the run?"
+  ],
+  "explanation": "The Warehouse loads directly with its COPY command only when the source meets a list of conditions, such as a skip line count of 0; otherwise the copy goes through interim staging. Workspace staging times out after 60 minutes, so a 90-minute run stages in external storage. Use existing writes into the table the reports use, and because its column names can't be changed in the mapping, each source column is mapped to its destination. A pre-copy script clears the preloaded data before each run. Fault tolerance skips only the errors you choose, and logging records what was skipped.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+    "https://learn.microsoft.com/en-us/fabric/data-factory/connector-data-warehouse-copy-activity"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-06: copy-data-activity (Enable staging, Workspace or External with a connection; workspace staging times out after 60 minutes, external storage recommended for long jobs; fault tolerance skips incompatible rows and file errors fileMissing, fileForbidden, invalidFileName; Enable logging logs copied files, skipped files and rows; Import schemas; an existing table's destination column names can't be modified), connector-data-warehouse-copy-activity (direct COPY needs Blob or ADLS Gen2, delimited text or Parquet, skip line count default or 0 among other conditions, otherwise enable staging; Table option Use existing or Auto create table; pre-copy script to clean up preloaded data; write behavior Insert appends). Incompatible-row skipping into a Warehouse isn't covered on these pages, so the exercise doesn't use it."
+  ]
+}

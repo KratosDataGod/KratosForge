@@ -1,6 +1,6 @@
 # Incidents and your service desk (Preview)
 
-KratosForge finds problems by itself: a failed run, a late table, a run waiting on a decision, a missed reliability objective, an agent that stopped reporting, an environment it couldn't read. Each problem becomes one incident that everyone who can read the environment sees. This page covers what an incident holds, how priorities and SLAs work, how people report problems the app can't see, and where this is going. Day-to-day use of the list is in the [user guide](user-guide.md#incidents-preview); agents and their Teams routes are in the [agent guide](agent.md#incidents-preview).
+KratosForge finds problems by itself: a failed run, a late table, a run waiting on a decision, a missed reliability objective, an agent that stopped reporting, an environment it couldn't read. Each problem becomes one incident that everyone who can read the environment sees. This page covers what an incident holds, how priorities and SLAs work, how people report problems the app can't see, and where this is going. Day-to-day use of the list is in the [user guide](user-guide.md#incidents-preview); agents and their Teams routes are in the [agent guide](agent.md#incidents-preview). What to do about each kind of incident is in the [runbook](agent-runbook.md#incidents).
 
 ## What an incident holds
 
@@ -16,7 +16,7 @@ KratosForge finds problems by itself: a failed run, a late table, a run waiting 
 
 Each environment keeps its incidents in one file, `incidents/incidents.json`, in its `LH_Meta` (open ones plus the last 200 resolved). Every change is a conditional write, so two agents or PCs that see the same failure at the same moment open one incident, and two people can't both take the same number. Agents and the app keep working on this file as they always have.
 
-**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central KratosForge lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. Nothing starts a copy yet: history and reports (stage 4) will. Until a copy runs, changes wait in the live list, and only the latest state of an incident at that moment becomes a snapshot.
+**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central KratosForge lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. A copy runs each time incident measures are asked for (below); the screen for them comes with stage 4. Until a copy runs, changes wait in the live list, and only the latest state of an incident at that moment becomes a snapshot.
 
 ## Priorities
 
@@ -72,7 +72,7 @@ Where new incidents are sent, as each one opens, recovers or escalates:
 - **The app** (**Settings > Notifications > Incident alerts**): a Teams Workflows webhook address, a Power Automate flow's HTTP trigger as `flow:https://...`, or `mailto:` and up to 20 addresses separated by `;`. Email goes through the company mail server set once in **Settings > Notifications**, with its password only in Windows Credential Manager. The flow gets JSON with `title`, `lines`, `text` and `source`, and sends it on however your admin built it.
 - **An agent** (`[[incidents.route]]` and `alerts.teams_webhook_env` in agent.toml): the variable can hold a Teams address or `flow:https://...`. An agent has no mail server, so a `mailto:` route is left out with a warning in its log; send email from an agent through a flow.
 
-Every kind gets the same text: one line each, credential-shaped values removed, at most 500 characters a line and 200 lines, of which Teams and email show 20 and say how many more. A message that doesn't go through waits in the outbox and is sent with the next try, marked as delayed. Delivery is `workloads/deliver.py`, shared with platform notices.
+Every kind gets the same text: one line each, credential-shaped values removed, at most 500 characters a line and 200 lines, of which Teams and email show 20 and say how many more. A message that doesn't go through waits in the outbox and is sent with the next try, marked as delayed. A route that keeps failing rests between tries (a minute, doubling to 30 minutes), and an outbox keeps at most 500 messages, none older than three days. Delivery is `workloads/deliver.py`, shared with platform notices.
 
 ## Who's affected (Preview)
 
@@ -92,10 +92,10 @@ KratosForge doesn't try to be a full service desk: change management, problem re
 | Stage | What it adds | State |
 | --- | --- | --- |
 | 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | Released |
-| 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | Released (nothing starts a copy until stage 4) |
+| 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | Released (a copy runs when measures are asked for) |
 | 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident**, **Change priority** | Released |
 | 3 | Incidents that need you in the bell; Teams, flow or email delivery | This release |
-| 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Planned |
+| 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Measures in the engine; the screen waits on its mockup |
 | 5 | Your service desk: ServiceNow, Jira Service Management or another tool | Planned |
 
 Each stage is tested without Fabric or a service desk. Nothing here has run against a live tenant or a real service desk yet, which is why it's Preview.
@@ -113,3 +113,4 @@ The engine is `sidecar/fabric_desktop/workloads/incidents.py` (the document and 
 | `incident_sla_policy()` | The targets in effect, where they come from, and what in the policy was ignored |
 | `incidents_history_sync(approve)` | Copies every environment's incidents and timelines to the central lakehouse, only what this PC hasn't copied before. When the incident tables need setting up it returns `needs_confirm` with what it would do, and sets them up only when called again with `approve` after the person confirms |
 | `incidents_history(env, limit)` | Each incident's latest state as the central lakehouse has it, newest first, including ones the live list no longer keeps |
+| `incidents_measures(env, days, approve)` | For incidents opened in the last 7, 30, 90 or 365 days, in one environment or all: how many opened, were resolved and are still open; time to acknowledge and time to resolve (count, median and 90th percentile, in minutes); and the SLAs met, missed and breached with the share met, in total and per priority. It first copies what's new to the central lakehouse, so the latest changes count, and returns `needs_confirm` like `incidents_history_sync` when the tables need setting up. Times are measured from when an incident opened, and resolving counts as acknowledging. SLAs use the targets in effect now. An incident without the times a measure needs is left out of that measure, never estimated |

@@ -7,17 +7,44 @@ whole feature off with the ``allow_optimize_lakehouse`` policy key.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+import hashlib
+import json
+import logging
+import time
+import uuid
+from typing import Any, Callable, cast
 
-from . import app_settings, redact, retrying
+from . import app_settings, jsonfile, measurement, redact, retrying
 from .auth import ONELAKE_SCOPES
 from .fabric_api import FabricError
+from .meta.project import ENVIRONMENTS
+from .meta_service import NoMetadataProject
 from .optimize import local_runs, roles, schema, setup
 from .optimize.outbox import ANALYSIS, LOCAL_EXECUTIONS, Outbox
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
 from .optimize.shared import Shared
+
+_log = logging.getLogger(__name__)
+OVERHEAD_SOURCE = "Optimize sync on this PC"
+
+
+def _record_overhead(shared: Shared, kind: str, began: str, seconds: float, rows: int, commits: int) -> None:
+    """What one sync took on this PC and wrote to OneLake, as Measured figures (PR-OPT-009): seconds,
+    rows handed to the lakehouse and commits. Its own commit isn't counted in it. Bytes aren't
+    measured yet, and no CU figure is given: OneLake reads and writes use capacity, but that use
+    hasn't been measured. A failure here never fails the sync."""
+    ended = now()
+    ids: dict[str, Any] = {"run_id": uuid.uuid4().hex, "workload_id": f"optimize.sync.{kind}", "source": OVERHEAD_SOURCE,
+           "collected_at": ended, "period_start": began, "period_end": ended}
+    try:
+        shared.record_measurements([
+            measurement.make(measurement.MEASURED, "optimize_sync_seconds", measurement.SECONDS, round(seconds, 3), **ids),
+            measurement.make(measurement.MEASURED, "optimize_sync_rows", measurement.COUNT, rows, **ids),
+            measurement.make(measurement.MEASURED, "optimize_sync_commits", measurement.COUNT, commits, **ids)])
+    except Exception as exc:  # noqa: BLE001 - the results were written; only their cost wasn't
+        _log.info("A sync's own cost wasn't recorded: %s", redact.describe(exc))
 
 DEFAULT_NAME = "FabricDesktop_Central"
 CHANGED_SINCE = "The central lakehouse's roles changed since you looked. Check again before confirming."
@@ -82,7 +109,7 @@ class OptimizeMixin:
                 names = self._optimize_lake(workspace_id, lh["id"]).table_names()
                 entry["optimize"] = "fdopt_schema_version" in names
                 entry["other_tables"] = sum(1 for n in names if schema.family_of(n) is None)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - any read failure is shown as no access or unreadable
                 entry["error"] = "No access" if setup.denied(exc) else "Couldn't be read"
             out.append(entry)
         return sorted(out, key=lambda e: (not e["optimize"], e["lakehouse_name"].lower()))
@@ -174,11 +201,15 @@ class OptimizeMixin:
 
     @staticmethod
     def _optimize_send(shared: Shared, kind: str, payload: dict[str, Any]) -> int:
+        began, start, rows, commits = now(), time.monotonic(), shared.rows_sent, shared.commits
         if kind == ANALYSIS:
             out = shared.record_analysis(payload["run"], payload.get("artifacts") or (),
                                          payload.get("findings") or (), payload.get("recommendations") or ())
-            return int(out["findings"])
-        return shared.record_local_executions(payload.get("rows") or [])
+            sent = int(out["findings"])
+        else:
+            sent = shared.record_local_executions(payload.get("rows") or [])
+        _record_overhead(shared, kind, began, time.monotonic() - start, shared.rows_sent - rows, shared.commits - commits)
+        return sent
 
     def _optimize_flush(self, token: Callable[[], str] | None = None) -> dict[str, Any]:
         """Send what is waiting for the active lakehouse, oldest first. Stops at the first failure
@@ -198,7 +229,7 @@ class OptimizeMixin:
             for item in items:
                 try:
                     self._optimize_send(shared, item["kind"], item["payload"])
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - the failure is recorded on the item and reported
                     if self._optimize_transient(exc) or isinstance(exc, PermissionError) or setup.denied(exc):
                         box.failed(item["id"], str(exc))
                         out["error"] = redact.secrets(str(exc))
@@ -290,6 +321,7 @@ class OptimizeMixin:
                              "lakehouse with schemas for tables only some people may read.")
         lake, installation = self.central_family(family)
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        conn = cast(dict[str, Any], conn)  # central_family raised if there were none
         ws, item = conn["workspace_id"], conn["lakehouse_id"]
         tenant = self.auth.signed_in_tenant() or ""
 
@@ -343,15 +375,20 @@ class OptimizeMixin:
         """Recommendations at their latest state, for items the person can open."""
         return self._optimize_shared().recommendations(self._optimize_workspaces(), include_closed=include_closed)
 
-    def optimize_share_local_runs(self, approve: bool = False) -> dict[str, Any]:
-        """Add this PC's notebook work (writes to OneLake tables, scheduled notebook runs) to the central
-        lakehouse's fdopt_local_execution, so Optimize counts what ran here. Without ``approve`` it
-        writes nothing and raises with what it would add; runs already added aren't added again."""
+    def optimize_share_local_runs(self, approve: bool = False, confirm: str = "") -> dict[str, Any]:
+        """Add this PC's work (notebook writes to OneLake tables, scheduled notebook runs, metadata runs,
+        proof runs) to the central lakehouse's fdopt_local_execution, so Optimize counts what ran here.
+        Without ``approve`` it writes nothing and raises with what it would add, and ``confirm`` in what
+        it would add. It writes only with ``approve`` and that ``confirm``: if the runs to add changed
+        since (a run finished in between), it asks again instead of sharing runs the person wasn't
+        shown. Runs already added aren't added again."""
         shared = self._optimize_shared()
         me = self.optimize_installation.id
         notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
         rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
-                + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me))  # type: ignore[attr-defined]
+                + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me)  # type: ignore[attr-defined]
+                + self._optimize_metadata_runs(me)
+                + local_runs.from_proofs(self._optimize_proofs(), me))
         offline = None
         try:
             done = shared.local_execution_ids()
@@ -363,25 +400,71 @@ class OptimizeMixin:
             done, offline = set(), redact.secrets(str(exc))
         waiting = self.optimize_outbox.waiting_execution_ids((self.optimize_registry.active() or {}).get("lakehouse_id", ""))
         new = [r for r in rows if r["execution_id"] not in done and r["execution_id"] not in waiting]
-        writes = sum(r["workload_type"] == "notebook_write" for r in new)
-        out = {"new": len(new), "notebook_writes": writes, "notebook_runs": len(new) - writes,
+        kinds = {k: sum(r["workload_type"] == k for r in new)
+                 for k in ("notebook_write", "notebook_run", "metadata_run", "proof_run")}
+        writes = kinds["notebook_write"]
+        out = {"new": len(new), "notebook_writes": writes, "notebook_runs": kinds["notebook_run"],
+               "metadata_runs": kinds["metadata_run"], "proof_runs": kinds["proof_run"],
                "already": len(rows) - len(new), "waiting": sum(r["execution_id"] in waiting for r in rows),
                "shared": 0, **({"offline": offline} if offline else {})}
         if not new:
             return out
-        if not approve:
+        out["confirm"] = hashlib.sha256("\n".join(sorted(r["execution_id"] for r in new)).encode()).hexdigest()[:32]
+        if not approve or confirm != out["confirm"]:
             name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
+            parts = [f"{n} {what}{'s' if n != 1 else ''}" for n, what in (
+                (writes, "notebook write"), (kinds["notebook_run"], "scheduled notebook run"),
+                (kinds["metadata_run"], "metadata run"), (kinds["proof_run"], "proof run")) if n]
+            changed = "The runs to add changed since you looked. " if approve and confirm else ""
             ask = PermissionError(
-                f"Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({writes} notebook "
-                f"write{'s' if writes != 1 else ''} to tables, {len(new) - writes} scheduled notebook "
-                f"run{'s' if len(new) - writes != 1 else ''}): when each ran, how long it took, rows written, and "
-                "the table or notebook name. No code or data, and everyone who can read the lakehouse sees them. "
-                "Confirm to continue.")
+                f"{changed}Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({', '.join(parts)}): "
+                "when each ran, how long it took, rows written, CPU time and peak memory where they were measured, "
+                "and the table, project or notebook name. No code or data, and everyone who can read the "
+                "lakehouse sees them. Confirm to continue.")
             ask.would = out  # type: ignore[attr-defined]
             raise ask
         sent = self._optimize_write(LOCAL_EXECUTIONS, {"rows": new})
         return out | {"shared": sent["sent"], "queued": len(new) if sent["queued"] else 0,
                       **({"error": sent["error"]} if sent.get("error") else {})}
+
+    def _optimize_proofs(self) -> list[dict[str, Any]]:
+        """Prove's saved proofs, one line each; a line that can't be read is left out, not the rest."""
+        try:
+            lines = jsonfile.read_text(self._proofs_file).splitlines()  # type: ignore[attr-defined]
+        except OSError:
+            return []
+        out = []
+        for line in filter(str.strip, lines):
+            try:
+                record = json.loads(line)
+            except ValueError as exc:  # one damaged proof is left out
+                _log.info("A saved proof couldn't be read, so it isn't shared: %s", redact.describe(exc))
+                continue
+            if isinstance(record, dict):
+                out.append(record)
+        return out
+
+    def _optimize_metadata_runs(self, installation_id: str) -> list[dict[str, Any]]:
+        """Runs of the open metadata project in its environments kept on this PC. An environment in
+        Fabric isn't read: that would be a OneLake read, and those runs ran in Fabric or by an agent."""
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+        except NoMetadataProject:
+            return []
+        except Exception as exc:  # noqa: BLE001 - a damaged project leaves its runs out, not the rest
+            _log.info("The metadata project couldn't be read, so its runs aren't shared: %s", redact.describe(exc))
+            return []
+        rows: list[dict[str, Any]] = []
+        for env in ENVIRONMENTS:
+            if project.environments.get(env, {}).get("target", "onelake" if env != "dev" else "local") != "local":
+                continue
+            try:
+                log = self._store(project, env).meta("run_log")  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - a damaged or missing run log leaves that env's runs out
+                _log.info("The %s run log couldn't be read: %s", env, redact.describe(exc))
+                continue
+            rows += [r | {"env": r.get("env") or env} for r in log.iter_rows(named=True)]
+        return local_runs.from_run_log(rows, project.root.name, installation_id)
 
     def optimize_set_recommendation(self, recommendation_id: str, state: str, reason: str = "") -> dict[str, Any]:
         """Accept, dismiss, reopen or otherwise move a recommendation on, for everyone using the lakehouse."""

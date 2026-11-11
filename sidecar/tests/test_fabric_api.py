@@ -83,7 +83,7 @@ def test_capacity_not_active_gets_a_plain_message():
     c, _ = client([Resp(404, {"errorCode": "CapacityNotActive", "message": "Capacity X is not active"})])
     try:
         c.list_lakehouses("ws1")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - checks the raised error's attributes below
         assert exc.code == "CapacityNotActive"
         assert "capacity is paused" in str(exc)
     else:
@@ -165,9 +165,11 @@ def test_a_result_location_on_another_host_is_refused_without_the_token():
 @pytest.mark.parametrize("state, says, code", [
     ({"status": "Failed", "error": {"errorCode": "ItemDisplayNameAlreadyInUse", "message": "Name already in use.",
                                     "moreDetails": [{"message": "Pick another name."}], "requestId": "req-9"}},
-     "Fabric's operation op1 failed: Name already in use. Pick another name (ItemDisplayNameAlreadyInUse). Request id req-9.",
+     ("Fabric's operation op1 failed: Name already in use. Pick another name (ItemDisplayNameAlreadyInUse). "
+     "Pick a name that isn't used in this workspace yet. Request id req-9."),
      "ItemDisplayNameAlreadyInUse"),
-    ({"status": "Failed", "error": None}, "Fabric's operation op1 failed and gave no reason.", None),
+    ({"status": "Failed", "error": None}, ("Fabric's operation op1 failed and gave no reason. Open the item in "
+     "Fabric to see what happened, then try again."), None),
     ({"status": "Undefined"}, "Fabric's operation op1 ended in an unknown state and gave no reason.", None),
     ({"status": "Failed", "error": {"errorCode": "CapacityNotActive", "message": "x"}}, "capacity is paused", "CapacityNotActive"),
 ])
@@ -192,8 +194,8 @@ def test_an_operation_that_never_finishes_times_out_naming_it():
 @pytest.mark.parametrize("resp, says, code", [
     (Resp(403, {"errorCode": "InsufficientPrivileges", "message": "The caller does not have permission.",
                 "requestId": "req-1"}),
-     "GET /workspaces/ws1/items failed with 403 InsufficientPrivileges: The caller does not have permission. "
-     "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access. Request id req-1.",
+     ("GET /workspaces/ws1/items failed with 403 InsufficientPrivileges: The caller does not have permission. "
+     "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access. Request id req-1."),
      "InsufficientPrivileges"),
     (Resp(409, {"errorCode": "ItemDisplayNameAlreadyInUse", "message": "Name in use",
                 "moreDetails": [{"errorCode": "X", "message": "Sales exists."}]}),
@@ -244,7 +246,7 @@ def test_a_definition_with_no_result_is_a_clear_error():
 
 def test_more_details_that_isnt_a_list_is_ignored():
     err = _operation_failed("op1", {"status": "Failed", "error": {"message": "Bad", "moreDetails": "oops"}})
-    assert str(err) == "Fabric's operation op1 failed: Bad."
+    assert str(err) == "Fabric's operation op1 failed: Bad. Open the item in Fabric to see what happened, then try again."
 
 
 class _Answer:
@@ -272,12 +274,32 @@ def test_an_odd_fabric_code_or_request_id_is_left_out(code):
     from fabric_desktop.fabric_api import _error
     err = _error("GET", "https://api.fabric.microsoft.com/v1/workspaces", _Answer(400, {
         "errorCode": code, "message": "Bad", "requestId": "id with spaces"}))
-    assert err.code is None and str(err) == "GET /workspaces failed with 400: Bad." and not err.request_id
+    assert err.code is None and not err.request_id
+    assert str(err) == "GET /workspaces failed with 400: Bad. Correct what Fabric's message names, then try again."
 
 
 def test_a_failed_operation_is_one_bounded_line_too():
     err = _operation_failed("op1", {"status": "Failed", "error": {
         "errorCode": "Bad code!", "message": "a\nb" + "y" * 1000, "requestId": "r1"}})
     text = str(err)
-    assert "\n" not in text and err.code is None and "(Bad code!)" not in text and len(text) < 400
+    assert "\n" not in text and err.code is None and "(Bad code!)" not in text and len(text) < 500
     assert text.startswith("Fabric's operation op1 failed: a b") and text.endswith("Request id r1.")
+
+
+@pytest.mark.parametrize("status, code", [(400, None), (401, None), (403, None), (404, "ItemNotFound"),
+                                          (409, None), (410, None), (422, None), (429, None), (500, None),
+                                          (503, None), (400, "CapacityNotActive")])
+def test_every_fabric_error_says_what_to_do_and_its_request_id(status, code):
+    """WR-202: an error a person sees carries one next step and Fabric's request id."""
+    from fabric_desktop.fabric_api import _error
+    body = {"message": "Something", "requestId": "req-7"} | ({"errorCode": code} if code else {})
+    err = _error("GET", "https://api.fabric.microsoft.com/v1/workspaces", _Answer(status, body))
+    text = str(err)
+    assert text.endswith(" Request id req-7.") and err.request_id == "req-7"
+    step = text[: -len(" Request id req-7.")].rstrip(".").rsplit(". ", 1)[-1]
+    assert step and step != "Something" and any(w in step for w in ("again", "Refresh", "Ask", "Resume", "Sign", "Correct", "Check", "Pick"))
+
+
+def test_a_failed_operation_carries_its_request_id():
+    err = _operation_failed("op1", {"status": "Failed", "error": {"message": "Bad", "requestId": "req-8"}})
+    assert err.request_id == "req-8" and str(err).endswith("then try again. Request id req-8.")

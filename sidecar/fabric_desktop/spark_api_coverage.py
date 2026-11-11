@@ -32,7 +32,7 @@ from typing import Any
 try:  # the capture tool loads this file on its own, next to spark_coverage
     from .spark_coverage import STATUSES, canonical
 except ImportError:  # pragma: no cover - only in tools/capture_spark_dataframe_api.py
-    from spark_coverage import STATUSES, canonical  # type: ignore[import-not-found,no-redef]
+    from spark_coverage import STATUSES, canonical  # type: ignore[no-redef]
 
 DATA = Path(__file__).with_name("spark_dataframe_api.json")
 CLASSES = ("DataFrame", "Column", "GroupedData", "DataFrameReader", "DataFrameWriter", "DataFrameNaFunctions",
@@ -219,8 +219,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but an example gives another value or prints something else.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: an example stops with an error. Run the cell in Fabric.",
-        "- **Not checked**: no example whose result can be compared (none documented, Spark itself "
-        "stops on it, or its result changes from run to run).",
+        ("- **Not checked**: no example whose result can be compared (none documented, Spark itself "
+        "stops on it, or its result changes from run to run)."),
         "",
         "Documented examples are a first check, not proof: a method can match on them and differ on other",
         "input. [Spark functions](spark-functions.md) lists the SQL functions the same way.",

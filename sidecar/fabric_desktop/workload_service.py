@@ -78,7 +78,7 @@ class WorkloadMixin:
     def _wl_token(self, scopes: list[str]) -> str | None:
         try:
             return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no silent token is a state, not a crash; logged
             _log.info("No silent token: %s", describe(exc))
             return None
 
@@ -168,7 +168,7 @@ class WorkloadMixin:
             return [], None
         source = "Pipelines on this PC"
         try:
-            listed = self.pipeline_list()  # type: ignore[attr-defined]
+            listed = self.pipeline_list()
             runs = self.pipeline_runs(limit=PIPELINE_LIST_LIMIT)["runs"]  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - one source that can't be read hides nothing else
             return [], model.observation(source, "error", None, detail=describe(exc)[:300])
@@ -231,7 +231,7 @@ class WorkloadMixin:
         items: list[dict[str, Any]] = []
         try:
             workspaces = self._schedule_workspaces(False, token)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any scan failure is classified and shown in its state
             state, message = model.classify_error(exc)
             with self._wl_scan_lock:
                 self._wl_scan = {"pending": False, "error": message, "state": state}
@@ -376,7 +376,7 @@ class WorkloadMixin:
             return list(w["runs"]), model.observation(source, "signed_out", None, detail="Sign in to read its runs.")
         try:
             jobs = FabricClient(lambda: token).list_job_instances(d["workspace_id"], d["item_id"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any read failure is classified and shown as the source's observation
             state, message = model.classify_error(exc)
             return list(w["runs"]), model.observation(source, state, None, detail=message)
         runs = [inventory.fabric_job(j, d.get("workspace_name", "")) for j in jobs[:50]]
@@ -698,7 +698,7 @@ class WorkloadMixin:
             entry = {k: secrets(str(v)) for k, v in entry.items() if v not in (None, "")}
             entry.setdefault("at", model.iso(model.now()))
             self.workload_store.audit_queue(key or uuid.uuid4().hex, wid, action, status, entry)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an audit line is best effort here; logged
             _log.warning("Couldn't keep a workload audit line: %s", describe(exc))
             return
         self._wl_audit_send()
@@ -736,7 +736,7 @@ class WorkloadMixin:
             if not waiting:
                 return 0
             platform = self._wl_audit_platform()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreachable platform means no audit lines; logged
             _log.warning("Couldn't reach the platform for workload audit lines: %s", describe(exc))
             return 0
         if platform is None:
@@ -794,6 +794,6 @@ def _rows(df: Any) -> list[dict[str, Any]]:
     try:
         return [{k: (v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
                 for r in df.to_dicts()]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - rows that can't be converted leave the view empty; logged
         _log.warning("Couldn't convert rows for the workload view: %s", describe(exc))
         return []

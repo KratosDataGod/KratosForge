@@ -14,11 +14,13 @@ The rules:
 - Every other parameter matches by name, both ways, as udf.fabric_name writes it: Fabric refuses an
   input parameter with an underscore in its name, so the operation's business_key is the function's
   businessKey (live run 6, 2026-11-04).
-- Where the operation has a default, the function has the same one. Equivalent: a `None` default
-  for an operation default of `None`, `{}` or `[]`, when the function passes `name or {}` (or
-  `name or []`) on to `_run`, or passes `None` to an operation whose default is `None`. Fabric
-  can't take a mutable default, which is why it writes `None` there. A default on the function where
-  the operation has none is a mismatch too: Fabric would accept a call the platform refuses.
+- Where the operation has a default, the function has the same one. A dict or list parameter is the
+  exception: Fabric refuses a default for one (live run 7, 2026-11-07: "Default values are not
+  allowed for 'dict' type parameters"), so it has none, and the function takes an empty one as not
+  given: it passes `name or None` on to an operation whose default is `None`, or `name or {}` (`[]`)
+  to one whose default is `None` or that empty value. The app sends an empty one for a parameter it
+  leaves out (udf.left_out_as_empty). A default on the function where the operation has none is a
+  mismatch too: Fabric would accept a call the platform refuses.
 - The function calls `_run(sqlDB, "<its own name>", [ctx,] ...)`, and the keywords it passes are
   exactly the operation's names for its own parameters (other than `sqlDB` and `ctx`), each passed
   as that parameter (or `or {}`/`[]`): `business_key=businessKey`.
@@ -41,11 +43,12 @@ DELIBERATE: dict[str, tuple[list[str], str]] = {
     "set_tags": (["function for no operation"], _REPORT_BUTTON),
     "set_classification": (["function for no operation"], _REPORT_BUTTON),
     "end_policy_exception": (["reason is required in Fabric but defaults to '' in the operation"],
-                             "The operation refuses an empty reason anyway; Fabric asks for one up front "
-                             "(pinned by test_requests_core_four::test_the_function_app_ends_exceptions_as_the_caller)."),
+                             ("The operation refuses an empty reason anyway; Fabric asks for one up front "
+                             "(pinned by test_requests_core_four::test_the_function_app_ends_exceptions_as_the_caller).")),
 }
 
 _EMPTY = inspect.Parameter.empty
+_OR_NONE = ("<or None>",)  # what _passed gives as the fill for `name or None`
 
 
 def _literal(node):
@@ -64,6 +67,10 @@ def _passed(value: ast.expr) -> tuple[str | None, object]:
             and isinstance(value.values[0], ast.Name) and isinstance(value.values[1], (ast.Dict, ast.List))
             and not getattr(value.values[1], "keys", None) and not getattr(value.values[1], "elts", None)):
         return value.values[0].id, ({} if isinstance(value.values[1], ast.Dict) else [])
+    if (isinstance(value, ast.BoolOp) and isinstance(value.op, ast.Or) and len(value.values) == 2
+            and isinstance(value.values[0], ast.Name) and isinstance(value.values[1], ast.Constant)
+            and value.values[1].value is None):
+        return value.values[0].id, _OR_NONE
     return None, ast.unparse(value)
 
 
@@ -84,7 +91,7 @@ def _has_context_decorator(fn_def: ast.FunctionDef) -> bool:
 def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
     """Every difference between the generated functions in `source` and `operations`, by operation."""
     tree = ast.parse(source)
-    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name != "_run"}
+    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")}  # helpers, as functions.json skips them
     problems: dict[str, list[str]] = {}
 
     for op, impl in operations.items():
@@ -98,6 +105,7 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
         if a.posonlyargs or a.vararg or a.kwonlyargs or a.kwarg:
             found.append("takes positional-only, *args, keyword-only or **kwargs parameters")
         names = [x.arg for x in a.args]
+        kinds = {x.arg: ast.unparse(x.annotation) if x.annotation else "" for x in a.args}
         w_defaults = dict(zip(names[len(names) - len(a.defaults):], a.defaults, strict=True))
 
         sig = inspect.signature(impl).parameters
@@ -153,17 +161,26 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
             if n not in op_of:
                 continue
             op_default, w_node = sig[op_of[n]].default, w_defaults.get(n)
+            container = kinds.get(n) in ("dict", "list")
+            if container and w_node is not None:
+                found.append(f"{n} has a default in Fabric, which refuses one for a {kinds[n]}")
+                continue
             if op_default is _EMPTY:
                 if w_node is not None:
                     found.append(f"{n} has a default in Fabric but is required by the operation")
                 continue
+            fill = passed.get(op_of[n], (None, None))[1]
+            if w_node is None and container and op_default in (None, {}, []) and (
+                    (fill is _OR_NONE and op_default is None)
+                    or (isinstance(fill, (dict, list)) and fill == (op_default if op_default is not None else fill)
+                        and (op_default is None or type(fill) is type(op_default)))):
+                continue  # required in Fabric; an empty one is not given (udf.left_out_as_empty)
             if w_node is None:
                 found.append(f"{n} is required in Fabric but defaults to {op_default!r} in the operation")
                 continue
             w_default = _literal(w_node)
             if w_default == op_default and type(w_default) is type(op_default):
                 continue
-            fill = passed.get(op_of[n], (None, None))[1]
             if w_default is None and fill is not None and fill == op_default and type(fill) is type(op_default):
                 continue  # None in Fabric, filled with `or {}`/`or []` to the operation's own default.
             found.append(f"{n} defaults to {ast.unparse(w_node)} in Fabric but {op_default!r} in the operation")
@@ -180,6 +197,29 @@ def test_every_function_takes_its_operations_parameters():
     assert not unexplained, "\n".join(f"{op}: {'; '.join(p)}" for op, p in sorted(unexplained.items()))
     stale = [op for op in DELIBERATE if op not in problems]
     assert not stale, f"listed as deliberate but no longer differ: {stale}"
+
+
+def test_no_dict_or_list_parameter_has_a_default():
+    """Fabric refuses a default for a dict parameter (live run 7), and the list ones go the same way."""
+    tree = ast.parse(udf.function_app())
+    found = []
+    for fn_def in (n for n in tree.body if isinstance(n, ast.FunctionDef)):
+        args = fn_def.args.args
+        for arg in args[len(args) - len(fn_def.args.defaults):]:
+            if arg.annotation is not None and ast.unparse(arg.annotation) in ("dict", "list"):
+                found.append(f"{fn_def.name}.{arg.arg}")
+    assert not found
+
+
+def test_the_app_sends_an_empty_value_for_a_left_out_dict_or_list():
+    empty = udf.left_out_as_empty()
+    assert empty["register_link"] == {"columns": {}}
+    assert empty["call_once"] == {"args": {}}
+    assert empty["policy_snapshot"] == {"policies": []}
+    assert empty["log_shortcut_change"] == {"before": {}, "after": {}}
+    required = {"register_link": "reads", "log_shortcut_change": "shortcut", "record_endorsements": "items"}
+    for fn_name, name in required.items():  # passed as they are: the operation needs them
+        assert name not in empty[fn_name]
 
 
 def test_report_buttons_call_save_enrichment_as_the_caller():
@@ -211,8 +251,8 @@ def _run(sqlDB, op, ctx=None, **kwargs):
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
-def save_it(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str, note: str = "",
-            detail: dict = None) -> dict:
+def save_it(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str, detail: dict,
+            note: str = "") -> dict:
     return _run(sqlDB, "save_it", ctx, name=name, note=note, detail=detail or {})
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -256,22 +296,36 @@ def test_drift_check_catches_defaults_that_differ():
     problems = parity_problems(_SOURCE, _ops(**{**_GOOD, "save_it": "db, name, by='', note='x', detail={}"}))
     assert problems == {"save_it": ["note defaults to '' in Fabric but 'x' in the operation"]}
     problems = parity_problems(_SOURCE, _ops(**{**_GOOD, "save_it": "db, name, by='', note='', detail=[]"}))
-    assert problems == {"save_it": ["detail defaults to None in Fabric but [] in the operation"]}
+    assert problems == {"save_it": ["detail is required in Fabric but defaults to [] in the operation"]}
     problems = parity_problems(_SOURCE, _ops(**{**_GOOD, "save_it": "db, name, note, by='', detail={}"}))
     assert problems == {"save_it": ["note has a default in Fabric but is required by the operation"]}
 
 
-def test_drift_check_catches_a_none_default_passed_on_unfilled():
+def test_drift_check_catches_an_empty_dict_passed_on_unfilled():
     source = _SOURCE.replace("detail=detail or {}", "detail=detail")
     assert parity_problems(source, _ops(**_GOOD)) == {
-        "save_it": ["detail defaults to None in Fabric but {} in the operation"]}
+        "save_it": ["detail is required in Fabric but defaults to {} in the operation"]}
+
+
+def test_drift_check_takes_an_empty_dict_as_none_for_a_none_default():
+    source = _SOURCE.replace("detail=detail or {}", "detail=detail or None")
+    assert parity_problems(source, _ops(**{**_GOOD, "save_it": "db, name, by='', note='', detail=None"})) == {}
+    assert parity_problems(source, _ops(**_GOOD)) == {
+        "save_it": ["detail is required in Fabric but defaults to {} in the operation"]}
+
+
+def test_drift_check_catches_a_default_on_a_dict_parameter():
+    source = _SOURCE.replace('detail: dict,\n            note: str = ""', 'note: str = "", detail: dict = None')
+    assert source != _SOURCE
+    assert parity_problems(source, _ops(**_GOOD)) == {
+        "save_it": ["detail has a default in Fabric, which refuses one for a dict"]}
 
 
 def test_drift_check_catches_a_drifted_real_operation():
     """The real tree: give one operation a new parameter and the real check reports it."""
     ops = copy.copy(core.OPERATIONS)
     ns: dict = {}
-    exec("def issue_keys(db, name, business_keys, env='dev'): pass", ns)  # noqa: S102
+    exec("def issue_keys(db, name, business_keys, by='', env='dev'): pass", ns)  # noqa: S102
     ops["issue_keys"] = ns["issue_keys"]
     problems = parity_problems(udf.function_app(), ops)
     assert problems.get("issue_keys") == ["missing parameter env"]
@@ -302,3 +356,12 @@ def test_no_function_takes_a_parameter_with_an_underscore():
 def test_fabric_names():
     assert [udf.fabric_name(n) for n in ("name", "business_keys", "call_id", "product_id")] == [
         "name", "businessKeys", "callId", "productId"]
+
+
+def test_fabric_names_never_use_a_name_fabric_reserves():
+    """Live run 8 (2026-11-11): Fabric refused the whole item for resolve_policies' 'context'."""
+    assert [udf.fabric_name(n) for n in ("context", "req", "req_invocation_id")] == [
+        "callContext", "request", "requestInvocationId"]
+    for f in udf._functions():
+        names = [p["name"] for p in f["fabricProperties"]["fabricFunctionParameters"]]
+        assert not set(names) & set(udf.RESERVED), f["name"]

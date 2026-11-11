@@ -41,7 +41,7 @@ def _days_since(iso: str | None, now: dt.datetime) -> int | None:
     return (now - t).days
 
 
-def _size(n: int) -> str:
+def _size(n: float) -> str:
     for unit in ("bytes", "KB", "MB", "GB", "TB"):
         if n < 1024 or unit == "TB":
             return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
@@ -221,11 +221,11 @@ class Scanner:
         self.progress({"phase": "Finding lakehouses", "done": 0, "total": len(workspaces)})
         skipped: list[str] = []
 
-        def lakehouses(ws: dict[str, str]) -> list[dict[str, Any]]:
+        def lakehouses(ws: dict[str, Any]) -> list[dict[str, Any]]:
             self.gate.wait()
             try:
                 ws["assignments"] = self.fabric.list_role_assignments(ws["id"])
-            except Exception:
+            except Exception:  # noqa: BLE001 - not an admin there: roles are hidden
                 ws["assignments"] = []  # not an admin there: roles are hidden
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], "lakehouse_id": lh["id"],
@@ -250,7 +250,7 @@ class Scanner:
                 self.gate.wait()
                 try:
                     h = self.health(t["workspace_id"], t["lakehouse_id"], t["schema"], t["table"])
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - one table's health error is shown on that table
                     h = {"exists": True, "advice": [], "files": 0, "bytes": 0, "error": str(exc)}
                 done[0] += 1
                 if done[0] % 10 == 0:

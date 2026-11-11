@@ -16,7 +16,7 @@ A query that runs here runs in DuckDB on this PC, not in Fabric. It is not proof
 | **Succeeded** | The query finished. Its rows can be paged and exported. |
 | **Failed** | The SQL had an error, or a statement wasn't allowed. The reason is shown in place of the rows. |
 | **Stopped** | You pressed **Stop**. |
-| **Timed out** | It ran past the time limit (10 minutes by default) and was stopped. |
+| **Timed out** | It ran past the time limit (10 minutes by default, or your organization's limit if it sets one) and was stopped. The message says which limit stopped it. |
 
 **Stop** ends that query's own process and nothing else: no notebook kernel, no other query, no other part of the app. A query that was still queued simply never starts. If the app closes, its queries stop with it.
 
@@ -54,7 +54,7 @@ The storage token for the lakehouse is handed to the query's process only when i
 
 A run can also go to a [local data project](local-data.md) instead of a lakehouse (engine call `sql_start` with `target = "local"` and the project; the screens for it come with the local data pages). It is the same managed run: the same states, **Stop**, time limit, pages and export. The differences:
 
-- It runs in the project's own database, inside the app's engine rather than in a process of its own, because only one program can open a project's database for writing and the engine already has it open. **Stop** and the time limit interrupt the query in that database; nothing else in the project or the app is stopped. The memory limit is the project's own setting. The time limit is the SQL page's; when that is off (0), the project's own time limit applies, and the run's status says which (`time_limit_from`: `sql`, `project`, or `caller` for a limit the engine call passed).
+- It runs in the project's own database, inside the app's engine rather than in a process of its own, because only one program can open a project's database for writing and the engine already has it open. **Stop** and the time limit interrupt the query in that database; nothing else in the project or the app is stopped. The memory limit is the project's own setting. The time limit is the SQL page's; when that is off (0), the project's own time limit applies, and the run's status says which (`time_limit_from`: `sql`, `project`, `policy`, or `caller` for a limit the engine call passed). A time limit your organization's policy sets is a ceiling: an engine call can ask for a shorter one, but not a longer one or none. A stopped query frees what it held when it stops, including its memory and the data it spilled to the project's `tmp` folder, and the next query in the project runs as usual.
 - It reads the project's tables, and it may change them: `CREATE TABLE`, `INSERT`, `UPDATE` and `DELETE` with a `WHERE`, `ALTER`, and the project's [Delta table](local-data.md#delta-tables) statements run without asking. The class is **Changes the project's own tables** (`local_project_write`).
 - A statement that removes or replaces a table or every row asks first: `DROP`, `TRUNCATE`, `CREATE OR REPLACE`, `INSERT OVERWRITE`, and `DELETE` or `UPDATE` without a `WHERE`. The run fails with nothing run and says which statement; run it again with **confirm** (`confirm = true`) to let it go ahead. A table made earlier in the same query can be dropped, replaced or emptied without asking.
 - Statements that would reach outside the project never run, confirmed or not: `COPY`, `EXPORT DATABASE`, `IMPORT DATABASE`, `ATTACH`, `INSTALL`, `LOAD`; reading files or other databases (`read_csv`, `read_parquet`, `read_text`, `glob`, `FROM 'file.csv'`, Spark's ``csv.`path` `` and the like); SQL text run inside a query (`query('...')`); settings that show this PC's paths (`current_setting`, `duckdb_settings()`); and `SET`, `RESET` or `PRAGMA`, which would change the project database's settings. Add a file to the project first, then query its table.
@@ -98,12 +98,12 @@ Set them in **Settings › Advanced › SQL queries**. Your IT team can set any 
 | --- | --- | --- | --- |
 | Rows per page | `sql_page_rows` | 1,000 | 100 to 10,000 |
 | Time limit | `sql_time_limit_minutes` | 10 minutes | 0 (no limit) to 1,440 |
-| Memory | `sql_memory_limit_percent` | 60% of this PC's RAM | 10 to 90 |
+| Memory | `sql_memory_limit_percent` | 60% of this PC's RAM, held to three quarters of what is free when the query starts | 10 to 90 |
 | Queries at once | `sql_max_concurrent` | 2 | 1 to 8 |
 | Keep results | `sql_result_retention_hours` | 24 hours | 0 (until the app closes) to 168 |
 | Temp folder | `sql_temp_dir` | `sql-runs` in the app's data folder | Any full folder path |
 
-When a query needs more memory than its share, DuckDB spills to the temp folder; when even that isn't enough, the query fails with a message saying so. Results past their retention time, and all but the newest 20, are deleted. Results left by an earlier session are deleted the first time a query runs.
+A query's memory is the smaller of its share and three quarters of the memory free when it starts, so on a busy PC (other apps holding most of its memory) a large query works within what is left instead of pushing the PC into paging. DuckDB gets half of that as its memory limit and spills what doesn't fit to the temp folder; the other half is for reading the lakehouse's tables, which happens outside DuckDB's limit. The query's process is held to the whole amount: past it, the query stops with a message saying how much memory was free and what to do (close other apps, or narrow the query), instead of being ended by Windows. When even spilling isn't enough within DuckDB's half, the query fails with DuckDB's own out-of-memory message. Results past their retention time, and all but the newest 20, are deleted. Results left by an earlier session are deleted the first time a query runs.
 
 ## The audit trail
 

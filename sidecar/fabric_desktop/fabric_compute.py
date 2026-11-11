@@ -20,7 +20,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 RUNNER = "nb_fabric_desktop_runner"
 BUNDLE_DIR = "Files/_fabric_desktop/current"
@@ -46,7 +46,7 @@ def bundle_files(project_root: Path, config: dict[str, Any]) -> dict[str, bytes]
 
 
 def bundle_hash(files: dict[str, bytes]) -> str:
-    h = hashlib.sha1()
+    h = hashlib.sha1(usedforsecurity=False)
     for path in sorted(files):
         h.update(path.encode() + b"\0" + files[path] + b"\0")
     return h.hexdigest()[:12]
@@ -102,8 +102,8 @@ def runner_ipynb(workspace_id: str, meta_lakehouse_id: str, meta_lakehouse: str 
                 "default_lakehouse_workspace_id": workspace_id}}},
             "cells": [{"cell_type": "markdown", "metadata": {}, "source": [
                 "# Fabric Desktop runner\n",
-                "Runs the metadata project uploaded by KratosForge to `Files/_fabric_desktop/current` "
-                "of this notebook's lakehouse. Start runs and schedules from **Metadata** in the app.\n"]},
+                ("Runs the metadata project uploaded by KratosForge to `Files/_fabric_desktop/current` "
+                "of this notebook's lakehouse. Start runs and schedules from **Metadata** in the app.\n")]},
                       code(params, ["parameters"]),
                       code(_SETUP % {"mount": MOUNT, "bundle": BUNDLE_DIR}),
                       code(_RUN)]}
@@ -138,9 +138,10 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
     project = Project(work / "project")
     env = config["env"]
     if stores is None:
-        store = OneLakeStore(env, config["workspace_id"], config["lakehouse_ids"], storage_token, work / "cache",
+        token = cast(Callable[[], str], storage_token)  # Fabric's notebook passes it whenever stores is None
+        store = OneLakeStore(env, config["workspace_id"], config["lakehouse_ids"], token, work / "cache",
                              lakehouse_workspaces=config.get("lakehouse_workspaces"))
-        keys_store = (OneLakeStore(env, config["keys_workspace_id"], config["keys_lakehouse_ids"], storage_token,
+        keys_store: Any = (OneLakeStore(env, config["keys_workspace_id"], config["keys_lakehouse_ids"], token,
                                    work / "cache") if config.get("keys_workspace_id") else None)
         if config.get("platform_keys") and fabric_token:  # keys in SQL_Platform, through UDF_Platform
             from .central.client import FabricPlatform, PlatformKeys
@@ -206,5 +207,5 @@ def _optimize(project: Any, config: dict[str, Any], results: list[dict[str, Any]
             fabric.run_table_maintenance(ws, lakehouse_id, e.table, e.schema,
                                          vacuum_retention=fabric_retention(layer.retention_days))
             r["maintenance"] = "queued"
-        except Exception as exc:  # the run itself succeeded; say why the optimize didn't start
+        except Exception as exc:  # noqa: BLE001 - the run itself succeeded; say why the optimize didn't start
             r["maintenance"], r["maintenance_message"] = "Failed", str(exc)

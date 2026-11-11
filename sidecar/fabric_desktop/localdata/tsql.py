@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Container
-from typing import Any
+from typing import Any, cast
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
@@ -115,7 +115,7 @@ class KfTSQL(TSQL):
     ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
     ``CAST(0.1 AS FLOAT)`` came back as 0.10000000149."""
 
-    class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
+    class Tokenizer(TSQL.Tokenizer):  # sqlglot sets Tokenizer per dialect at run time
         KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
 
     # In T-SQL, W is weekday (as DW), not week: DATEPART(w, d) is 1 to 7.
@@ -150,7 +150,7 @@ def _parse(batch: str) -> list[exp.Expression]:
         m = re.match(r"'(\S+)", unsupported[0])
         word = (m[1] if m else batch.strip().split(None, 1)[0]).upper()
         raise ValueError(f"The local engine doesn't run T-SQL {word} yet. {_LATER}")
-    return trees
+    return cast(list[exp.Expression], trees)  # sqlglot types parse() as its Expr base
 
 
 def _harmless_setting(tree: exp.Expression) -> bool:
@@ -220,7 +220,7 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
                     continue  # a nested type sqlglot can't read; that column stays untyped
                 kept[col] = kind
             clean.setdefault(schema, {})[table] = kept
-    return MappingSchema(clean, dialect="duckdb", normalize=True)
+    return MappingSchema(cast(dict[str, object], clean), dialect="duckdb", normalize=True)
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:
@@ -246,21 +246,21 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     try:
         typed = annotate_types(typed, schema=schema, dialect="duckdb")
     except SqlglotError:
-        for node in sized:
-            _sized_text(node, None)
-        return ["Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
+        for cast_node in sized:
+            _sized_text(cast_node, None)
+        return [("Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
-                "text, and writes a float in CONCAT with at most 6 significant digits)."]
+                "text, and writes a float in CONCAT with at most 6 significant digits).")]
     notes = _padded(compared, _in_order(typed, _COMPARISONS))
     there = _in_order(typed, kinds)
     if len(there) != len(here):
-        for node in sized:
-            _sized_text(node, None)
-        return notes + ["Couldn't match the query's columns to their types, so divisions, averages, casts to "
+        for cast_node in sized:
+            _sized_text(cast_node, None)
+        return notes + [("Couldn't match the query's columns to their types, so divisions, averages, casts to "
                 "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
-                "with at most 6 significant digits)."]
+                "with at most 6 significant digits).")]
     for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
@@ -356,8 +356,8 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
         raise ValueError(_NOT_YET + "POWER of a decimal keeps the decimal's scale in T-SQL, which isn't mapped "
                          "yet. Cast the first argument to FLOAT, or to the integer type you mean.")
     elif _unknown(base):
-        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
-                "point, and T-SQL gives the first argument's type (an integer base gives an integer)."]
+        return [(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
+                "point, and T-SQL gives the first argument's type (an integer base gives an integer).")]
     return []
 
 
@@ -383,8 +383,8 @@ def _same_type(node: exp.Expression, arg: exp.DataType | None) -> list[str]:
         inner = node.copy() if isinstance(node, (exp.Ceil, exp.Floor)) else exp.Trunc(this=node.copy())
         node.replace(exp.Cast(this=inner, to=arg.copy()))
     elif _unknown(arg):
-        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
-                "gives the argument's type (an integer gives an integer)."]
+        return [(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
+                "gives the argument's type (an integer gives an integer).")]
     return []
 
 
@@ -473,7 +473,7 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         shown = _float_text(node.this) if _is(source, _FLOATS) else text
         too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
+        cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:

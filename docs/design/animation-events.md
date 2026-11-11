@@ -67,11 +67,14 @@ what the engine reported.
 
 | Event | Kind | Tier | Region | Length | Lowest level | Reduced motion |
 | --- | --- | --- | --- | --- | --- | --- |
-| `optimize.applied` | planned, reuse `strike` | Forge | The result card | 650 ms | 2 | The anvil still |
+| `optimize.analysis.finished` | `arrive` | Forge | The X-ray card's numbers, when the scan's findings reached Optimize's shared lakehouse (otherwise the scan plays `xray.scan.finished`, the same effect) | 550 ms | 2 | none |
+| `optimize.recommendation.applied` | `settle` | Spark | The toast, after the shared lakehouse took the change | 450 ms | 2 | none |
+| `optimize.savings.verified` | planned, reuse `strike` | Forge | The saving's figure | 650 ms | 2 | The anvil still |
 | `optimize.estimated` | none | | | | | |
 
-Only a validated improvement gets the strike. Savings shown beside it are labelled estimated or
-measured; an estimate never celebrates.
+Marking a recommendation applied is the person's word, not a validated improvement, so it settles
+and never strikes. Only a Measured saving will get the strike, once Optimize records savings
+(OPT-004); an estimate never celebrates, and no figure is animated in a way that makes it look bigger.
 
 ## Achievements
 

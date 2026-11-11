@@ -8,6 +8,7 @@
     concurrency = 1                       # jobs at once
     status_seconds = 60                   # how often to publish agents/<name>.json to each LH_Meta
     queue_retention_days = 30             # finished jobs older than this leave the queue (at start, then daily)
+    max_queued = 1000                     # jobs waiting at most; past it new work is deferred or refused, never dropped
     workspaces = ["<workspace id>"]       # optional allowlist: refuse to write anywhere else
 
     [auth]
@@ -75,7 +76,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .fabric_run import schedule_configuration
+from .fabric_run import MAX_EVERY_MINUTES, schedule_configuration
 from .local_schedules import local_configuration
 from .meta.project import ENVIRONMENTS
 from .redact import one_line
@@ -171,6 +172,7 @@ class AgentConfig:
     table_lease_seconds: float = 120.0
     status_seconds: float = 60.0
     queue_retention_days: float = 30.0
+    max_queued: int = 1000
     max_attempts: int = 3
     backoff_seconds: float = 60.0
     max_backoff_seconds: float = 1800.0
@@ -213,7 +215,7 @@ _ROUTE_FILTERS = ("teams", "owners", "criticality", "kinds", "envs")
 
 def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
     """``[[incidents.route]]``: a name, the variable holding its webhook, and what it matches."""
-    out = []
+    out: list[dict[str, Any]] = []
     for i, r in enumerate(raw if isinstance(raw, list) else []):
         if not isinstance(r, dict):
             errors.append(f"incidents.route {i + 1}: write it as [[incidents.route]] with a name and webhook_env")
@@ -263,6 +265,17 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     times = value.get("times", []) if kinds[0] == "weekly" else value
     if kinds[0] != "every_minutes" and not isinstance(times, list):  # list("06:00") is five one-letter "times"
         errors.append(f"{where}: times are a list, like [\"06:00\"]")
+        return None
+    # Said here for agent.toml, naming the key: the shared checks below word them for the app's form.
+    if kinds[0] == "every_minutes" and not 1 <= value <= MAX_EVERY_MINUTES:
+        errors.append(f"{where}: every_minutes is a whole number from 1 to {MAX_EVERY_MINUTES}, like 60")
+        return None
+    if kinds[0] == "daily" and not times:
+        errors.append(f"{where}: daily needs at least one time, like [\"06:00\"]")
+        return None
+    if kinds[0] == "weekly" and not (value.get("days") and times):
+        errors.append(f"{where}: weekly needs at least one day and one time, "
+                      "like { days = [\"Monday\"], times = [\"06:00\"] }")
         return None
     try:
         if kinds[0] == "every_minutes":
@@ -441,6 +454,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         table_lease_seconds=number(agent, "table_lease_seconds", 120, 15, "agent"),
         status_seconds=number(agent, "status_seconds", 60, 5, "agent"),
         queue_retention_days=number(agent, "queue_retention_days", 30, 1, "agent"),
+        max_queued=int(number(agent, "max_queued", 1000, 1, "agent")),
         max_attempts=int(number(retry, "max_attempts", 3, 1, "retry")),
         backoff_seconds=number(retry, "backoff_seconds", 60, 0, "retry"),
         max_backoff_seconds=number(retry, "max_backoff_seconds", 1800, 0, "retry"),

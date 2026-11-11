@@ -1,0 +1,6 @@
+id,name,price,discontinued
+1,Kettle,24.5,false
+2,Toaster,39.0,false
+3,Mug,6.25,false
+4,Teapot,18.0,true
+5,Grinder,48.75,false

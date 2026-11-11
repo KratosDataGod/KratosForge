@@ -45,8 +45,12 @@ def destination() -> tuple[str, str]:
     own = app_settings.value("telemetry_connection_string")
     if own:  # one that isn't a connection string sends nothing; Settings lists it under policy problems
         return (own, "organization") if valid_connection_string(own) else ("", "")
-    built_in = os.environ.get("FABRIC_DESKTOP_TELEMETRY_CONNECTION_STRING") or \
-        str(app_settings._read_engine_info().get("telemetry_connection_string") or "")
+    built_in = str(app_settings._read_engine_info().get("telemetry_connection_string") or "")
+    # The variable is for maintainers' own test builds. When the organization turns usage data on
+    # for everyone, a variable someone sets for their own account mustn't choose where it goes.
+    setting = app_settings.load()["telemetry"]
+    if not (setting["source"] == "policy" and setting["value"]):
+        built_in = os.environ.get("FABRIC_DESKTOP_TELEMETRY_CONNECTION_STRING") or built_in
     return (built_in, "kratosbi") if valid_connection_string(built_in) else ("", "")
 
 

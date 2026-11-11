@@ -99,7 +99,7 @@ class ModelDirectLakeMixin:
     def _directlake_uri(self, workspace_id: str, lakehouse_id: str, schema: str, table: str) -> tuple[str, dict[str, str]]:
         """Where a Direct Lake table's Delta table is, with the options to read it."""
         ref = TableRef(workspace_id, lakehouse_id, schema or "dbo", table, flat=not schema)
-        return ref.uri, self._onelake_options()  # type: ignore[attr-defined]
+        return ref.uri, self._onelake_options()
 
     def _onelake_options(self) -> dict[str, str]:
         from .onelake import storage_options
@@ -136,7 +136,7 @@ class ModelDirectLakeMixin:
         except Exception as exc:  # noqa: BLE001 - the person picks the capacity instead
             _log.info("Capacity not known for the Direct Lake check: %s", describe(exc))
             return ""
-        e = next((x for x in doc.get("environments", []) if x.get("env") == env), {})
+        e: dict[str, Any] = next((x for x in doc.get("environments", []) if x.get("env") == env), {})
         return str((e.get("capacity") or {}).get("sku") or "")
 
     def meta_model_directlake_setup(self, env: str = "test") -> dict[str, Any]:

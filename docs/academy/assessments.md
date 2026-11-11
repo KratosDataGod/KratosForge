@@ -13,7 +13,7 @@ Preview.
 
 | Certification | Questions | Each question is based on |
 | --- | --- | --- |
-| DP-700 (Microsoft Fabric) | 204, at least 4 for each of the 49 objectives | A Microsoft Learn page |
+| DP-700 (Microsoft Fabric) | 498, at least 10 for each of the 49 objectives | A Microsoft Learn page |
 | Databricks Certified Data Engineer Associate (draft pack) | 165, 5 for each of the 33 objectives | A Databricks documentation page |
 
 ## Three ways to start
@@ -26,6 +26,10 @@ Preview.
 
 Questions are single answer, multiple answers (the question says how many to pick) or ordering.
 Some belong to a short case study, which stays above the question.
+
+Every attempt is a new random draw. Within each objective, a practice exam or diagnostic asks the questions
+you haven't seen in a finished exam on this PC first, then the ones you last got wrong, then the ones you
+last got right, so retaking it keeps showing new material until you've seen the whole bank.
 
 ## While you answer
 

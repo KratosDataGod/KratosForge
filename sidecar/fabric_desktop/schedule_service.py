@@ -287,7 +287,7 @@ class ScheduleMixin:
             schedules = self.pc_schedules
             paused = schedules.pause_disallowed()  # IT's control first, so a failed sync can't skip it
             return {"updated": schedules.sync(), "paused": paused, "interrupted": interrupted}
-        except Exception as exc:  # Task Scheduler refused: the list still shows them
+        except Exception as exc:  # noqa: BLE001 - Task Scheduler refused: the list still shows them
             return {"updated": 0, "interrupted": interrupted, "error": f"{type(exc).__name__}: {exc}"}
 
     def _lock(self, schedule_id: str, run: dict[str, Any] | None = None) -> Path | None:
@@ -340,7 +340,7 @@ class ScheduleMixin:
         gone either way, so a full disk never holds the schedule up."""
         try:
             label = target_label(self.pc_schedules.get(schedule_id)["target"])
-        except (KeyError, ValueError, OSError):  # the schedule was removed since
+        except (LookupError, ValueError, OSError):  # the schedule was removed since (LocalSchedules.get: LookupError)
             label = schedule_id
         # Only what this app writes in a lock goes into the history, and only from this schedule's own
         # lock: the file is anyone's to edit, and the history is what Monitor shows.
@@ -402,7 +402,7 @@ class ScheduleMixin:
                 row |= self._run_pipeline_here(s["target"])
             else:
                 row |= self._run_meta_here(s["target"]["env"], s["target"].get("entities") or None)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one row's failure is shown on that row
             row |= {"status": "failed", "message": f"{type(exc).__name__}: {exc}"}
         finally:
             lock.unlink(missing_ok=True)
@@ -493,12 +493,12 @@ class ScheduleMixin:
             try:
                 post_teams(url, title, lines)
                 return ""
-            except Exception as exc:  # kept, and sent after the next run here
+            except Exception as exc:  # noqa: BLE001 - kept, and sent after the next run here
                 why = _without_webhook(describe(exc), url).rstrip(".")
                 self._schedule_alerts().add(title, lines, why)
                 problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
                            "after the next scheduled run here, for up to three days.")
-        except Exception as exc:  # the run is still logged, with the webhook kept out of what it says
+        except Exception as exc:  # noqa: BLE001 - the run is still logged, with the webhook kept out of what it says
             if not failed:
                 _log.warning("Couldn't send waiting schedule alerts: %s", _without_webhook(describe(exc), url))
                 return ""
@@ -523,7 +523,7 @@ class ScheduleMixin:
             # errors; what the outbox keeps of a failed post must not have it.
             try:
                 post(to, title, lines)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - any send failure becomes TeamsUnreachable, with the webhook kept out
                 raise TeamsUnreachable(_without_webhook(describe(exc), to)) from None
         try:
             result = send([], single(url), self._schedule_alerts(), "this PC's schedules", scrubbed)
@@ -545,12 +545,12 @@ class ScheduleMixin:
         try:
             project = self._project()  # type: ignore[attr-defined]
             wanted |= {c.get("workspace_id") for c in project.environments.values() if c.get("workspace_id")}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - no metadata project only narrows the list; logged
             _log.info("No metadata project; its workspaces aren't added: %s", describe(exc))
         for n in self.notebooks.list():  # type: ignore[attr-defined]
             try:
                 nb = self.notebooks.load(n["name"])  # type: ignore[attr-defined]
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one unreadable notebook doesn't stop the rest; logged
                 _log.warning("Couldn't load notebook %r to find its workspace: %s", n["name"], describe(exc))
                 continue
             ws = (nb.get("workspace") or {}).get("workspace_id") or (nb.get("lakehouse") or {}).get("workspace_id")
@@ -567,7 +567,7 @@ class ScheduleMixin:
             if cached is None or refresh or (scope != all_workspaces and not cached.get("pending")):
                 try:
                     token = self.auth.fabric_token()  # type: ignore[attr-defined]  # here: MSAL isn't thread-safe
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - the list shows the error instead of items
                     self._fabric_schedules = {"pending": False, "items": [], "all_workspaces": all_workspaces,
                                               "error": f"{type(exc).__name__}: {exc}"}
                 else:
@@ -581,7 +581,7 @@ class ScheduleMixin:
         client = FabricClient(lambda: token)
         try:
             workspaces = self._schedule_workspaces(all_workspaces, token)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the list shows the error instead of items
             with self._fabric_schedules_lock:
                 self._fabric_schedules = {"pending": False, "items": [], "all_workspaces": all_workspaces,
                                           "error": f"{type(exc).__name__}: {exc}"}
@@ -593,7 +593,7 @@ class ScheduleMixin:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
                         for it in client.list_items(ws["id"]) if it.get("type") in SCHEDULED_TYPES]
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - a workspace that can't be listed is named in what was missed
                 missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
                 return []
 
@@ -601,7 +601,7 @@ class ScheduleMixin:
             job = SCHEDULED_TYPES[it["type"]]
             try:
                 found = client.list_schedules(it["workspace_id"], it["id"], job)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - an item whose schedules can't be read is named in what was missed
                 missed.append(f"schedules of item {it['id']}: {describe(exc)}")
                 return []
             if not found:
@@ -610,7 +610,7 @@ class ScheduleMixin:
             try:
                 runs = client.list_job_instances(it["workspace_id"], it["id"])
                 last = runs[0] if runs else None
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - a last run that can't be read is named in what was missed
                 missed.append(f"last run of item {it['id']}: {describe(exc)}")
             return [{"id": s["id"], "enabled": s.get("enabled", False), "text": describe_schedule(s),
                      "owner": s.get("owner") if isinstance(s.get("owner"), dict) else None,  # Fabric runs it as its owner

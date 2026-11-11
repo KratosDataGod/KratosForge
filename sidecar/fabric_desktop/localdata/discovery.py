@@ -63,7 +63,7 @@ class Source:
     # A file or table folder's path below the source ("sales/2026.csv") -> "schema.table" to call it.
     names: dict[str, str] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.naming not in NAMING_RULES:
             raise ValueError(f"naming must be one of {NAMING_RULES}, got {self.naming!r}")
         if not 0 <= int(self.max_depth) <= 10:
@@ -257,11 +257,12 @@ def discover(source: Source, max_files: int = 20000) -> Discovery:
             if entry.is_dir(follow_symlinks=False):
                 if _skip_dir(entry.name, source.exclude):
                     continue
+                kind: str | None
                 if _is_delta(path):
                     kind, hive = "delta", False
                 else:
-                    got = _dataset_folder(path, source.exclude)
-                    kind, hive = got if got else (None, False)
+                    dataset = _dataset_folder(path, source.exclude)
+                    kind, hive = dataset if dataset else (None, False)
                 if kind:
                     size, count, newest = _folder_stats(path)
                     digest.update(f"{path}|{size}|{count}|{newest}".encode())

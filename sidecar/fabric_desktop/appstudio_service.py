@@ -39,6 +39,7 @@ from .appstudio import project, sample, templates
 from .appstudio import publish as publishing
 from .appstudio import providers as prov
 from .appstudio import spec as specs
+from . import known_folders
 
 METHODS = {"appstudio_home", "appstudio_create", "appstudio_open", "appstudio_change", "appstudio_undo",
            "appstudio_redo", "appstudio_history", "appstudio_versions", "appstudio_save_version",
@@ -164,7 +165,7 @@ class AppStudioMixin:
         """The project as a new .zip in Downloads; never replaces a file."""
         folder = self._appstudio_project(project_name)
         data = project.export(folder)
-        out = Path.home() / "Downloads"
+        out = known_folders.downloads()
         out.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(out, folder.name[:-len(project.SUFFIX)] + " (App Studio)", ".zip")
         write_bytes(path, data)  # swapped in over the empty name reserved for it
@@ -425,12 +426,17 @@ class AppStudioMixin:
         out["fingerprint"] = publishing.fingerprint(spec, ws, model_id, report, checked["parts"], out["conflict"])
         return {**out, "_parts": checked["parts"]}
 
+    def _appstudio_record(self, folder: Path, state: str, ws: str, report_id: str, report: str, replaced: bool = False,
+                          note: str = "") -> None:
+        with _WRITE_LOCK:  # history.jsonl numbers its entries; a change saved at the same moment would share a number
+            project.record_publish(folder, state, ws, report_id, report, replaced=replaced, note=note)
+
     def _appstudio_left_behind(self, ws: str, report: str) -> str:
         """The id of a report a failed create may have left in the workspace, or "" (also when the lookup fails:
         the publish's own failure is what the person needs to see)."""
         try:
             return str((self.fabric.find_item(ws, publishing.REPORT_TYPE, report) or {}).get("id") or "")  # type: ignore[attr-defined]
-        except Exception:  # silent-ok: only a hint after the real failure, which is raised and recorded
+        except Exception:  # noqa: BLE001  # silent-ok: only a hint after the real failure, which is raised and recorded
             return ""
 
     def appstudio_publish_check(self, project_name: str, workspace_id: str = "", name: str = "") -> dict[str, Any]:
@@ -464,22 +470,23 @@ class AppStudioMixin:
                 return {**base, "needs_confirm": True}
             ws, report = state["workspace_id"], state["name"]
             definition = publishing.definition(parts)
-            project.record_publish(folder, "started", ws, (existing or {}).get("id", ""), report, replaced=bool(existing))
+            self._appstudio_record(folder, "started", ws, (existing or {}).get("id", ""), report, replaced=bool(existing))
             try:
                 if existing:
                     self.fabric.update_item_definition(ws, existing["id"], definition)  # type: ignore[attr-defined]
                     report_id = existing["id"]
                 else:
                     made = self.fabric.create_item(ws, publishing.REPORT_TYPE, report, definition)  # type: ignore[attr-defined]
-                    report_id = str(made.get("id") or "")
+                    report_id = str(made.get("id") or "") or self._appstudio_left_behind(ws, report)
             except Exception as exc:
                 found = existing["id"] if existing else self._appstudio_left_behind(ws, report)
                 why = redact.one_line(f"{type(exc).__name__}: {exc}", 300)
-                project.record_publish(folder, "failed", ws, found, report, replaced=bool(existing), note=why)
+                self._appstudio_record(folder, "failed", ws, found, report, replaced=bool(existing), note=why)
                 left = (f" A report named {report} is in the workspace now; publishing again replaces it." if found and not existing
                         else " The report in Fabric may be half updated; publishing again replaces it." if existing else "")
                 raise RuntimeError(f"Publishing didn't finish ({why}).{left}") from exc
-            project.record_publish(folder, "done", ws, report_id, report, replaced=bool(existing))
+            self._appstudio_record(folder, "done", ws, report_id, report, replaced=bool(existing),
+                                   note="" if report_id else "Fabric didn't return the report's id; find it by name in the workspace.")
             return {**base, "done": True, "report_id": report_id, "replaced": bool(existing),
                     "url": f"https://app.powerbi.com/groups/{ws}/reports/{report_id}" if _GUID.fullmatch(report_id) else ""}
         finally:

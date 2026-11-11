@@ -29,8 +29,10 @@ function railFeatures(bottom = false) {
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
-  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
-    icon(f.rail.icon, 22), typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label);
+  const label = typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label;
+  // The name stays the button's text, so it is the accessible name even when a short window shows icons only.
+  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, title: label, onclick: () => go(view) },
+    icon(f.rail.icon, 22), h("span", { class: "rail-label" }, label));
 }
 
 // ---------- preview ----------
@@ -101,6 +103,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
+  forgeActivity: "Run progress in Monitor",
   cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement",
@@ -354,6 +357,20 @@ function isShortcut(e, id) {
   return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
 }
 
+// The SQL a text box's Run should use, as in SSMS: the selected text when there is some, otherwise all of it.
+function boxChosenText(box) {
+  const { value, selectionStart: from, selectionEnd: to } = box;
+  return to > from && value.slice(from, to).trim() ? value.slice(from, to) : value;
+}
+
+const RUN_BOX_TIP = { title: "Run the selected text, or all of it when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" };
+
+// Run keys for a SQL text box: F5 or Ctrl+Enter call run().
+function isRunKey(e) {
+  return (e.key === "F5" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    || (e.key === "Enter" && (e.ctrlKey || e.metaKey));
+}
+
 // Whether focus is in a box someone types in, where a plain "?" must stay a character.
 function typingIn(el) {
   return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || !!el.isContentEditable
@@ -404,11 +421,17 @@ function paletteItems(text) {
   for (const f of railFeatures().concat(railFeatures(true))) {
     if (hit("go to", f.rail.label)) items.push({ group: "Pages", label: f.rail.label, icon: f.rail.icon, run: () => go(Object.keys(f.views)[0]) });
   }
+  // The skin's primary and bar commands for this page come first, under the skin's names (skins.js).
+  const placed = typeof skinPlacedCommands === "function" ? skinPlacedCommands(state.view) : [];
+  const rank = (c) => (placed.includes(c.action) ? placed.indexOf(c.action) : placed.length);
+  const actions = [];
   for (const c of features.commands) {
     if (c.preview && !previewShown()) continue;
     if (c.when && !c.when()) continue;
-    if (hit(c.label, c.keywords || "")) items.push({ group: "Actions", label: c.label, icon: c.icon || "flash", run: c.run });
+    if (hit(c.label, c.keywords || "")) actions.push(c);
   }
+  actions.sort((x, y) => rank(x) - rank(y));  // stable: definition order otherwise
+  for (const c of actions) items.push({ group: "Actions", label: c.label, icon: c.icon || "flash", run: c.run });
   if (q) {
     for (const n of (palette.notebooks || []).filter((n) => hit(n.name)).slice(0, 6)) {
       items.push({ group: "Notebooks", label: n.name, icon: "notebook", run: () => openNotebook(n.name) });

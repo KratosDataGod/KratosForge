@@ -1,5 +1,6 @@
 """The shortcut command center: history from scans and app changes, health, rules, requests."""
 
+import pathlib
 import time
 
 import pytest
@@ -294,7 +295,7 @@ def test_readers_gap_counts_readers_the_target_leaves_out():
 
 
 def test_export_writes_the_listed_shortcuts_to_a_new_csv_in_downloads(svc, tmp_path, monkeypatch):
-    monkeypatch.setattr(shortcut_service.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
     rows = center_of(svc)["rows"]
     ids = [r["id"] for r in rows if r["name"] == "events"]
     out = svc.shortcut_export([LH], ids)

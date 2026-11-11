@@ -44,7 +44,10 @@ class Fabric:
         unknown = sorted(set(body) - set(names))
         if unknown:
             raise core.PlatformError(f"{op} takes no parameter {', '.join(unknown)}")
-        return {names[k]: v for k, v in body.items()}
+        # A dict or list sent empty for one left out is "not given": the operation's own default.
+        empty = udf.left_out_as_empty().get(op, {})
+        sig = inspect.signature(core.OPERATIONS[op]).parameters
+        return {names[k]: (sig[names[k]].default if k in empty and v in ({}, []) else v) for k, v in body.items()}
 
     def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
         op = url.rsplit("/functions/", 1)[1].split("/")[0]
@@ -324,3 +327,16 @@ def test_a_second_call_while_the_first_is_still_running_gets_the_first_answer(tm
     first.join(10)
     assert answers["second"] == {"result": answers["first"]["result"], "replayed": True}
     assert len([r for r in rows_of(p, "audit") if r["action"] == "save domain"]) == 1
+
+
+def test_a_dict_or_list_left_out_is_sent_empty(fabric, client, tmp_path, who, waits):
+    """UDF_Platform's dict and list parameters have no default (Fabric refuses one), so the app sends an
+    empty one for a parameter it leaves out, or passes as None; the function takes it as not given."""
+    client.call("policy_snapshot")
+    client.call("resolve_policies", project="p", context=None)
+    assert [b for _, b in fabric.sent] == [{"policies": []}, {"project": "p", "callContext": {}, "local": []}]
+    older = Fabric(tmp_path / "older.sqlite", who, once=False)
+    FabricPlatform(lambda: "tok", "ws", "fn", session=older, sleep=waits.append).call(
+        "save_change_window", window=None)
+    assert older.sent[-1] == ("save_change_window", {"window": {}})
+    assert older.sent[0][1]["args"] == {"window": None}  # call_once passes the operation's own arguments on

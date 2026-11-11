@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from fabric_desktop.optimize import schema, setup, shared
@@ -121,7 +122,7 @@ def test_concurrent_writers_lose_nothing_and_duplicate_nothing(tmp_path, lake):
             analysis(me, "r1", [finding(item=f"own{n}"), finding(item="common")],
                      [{"workspace_id": "w1", "item_id": "common", "rule_id": "small_files", "target": "dbo.sales",
                        "kind": "optimize"}], finished_at=f"2026-10-18T10:0{n}:00Z")
-        except BaseException as exc:  # pragma: no cover - reported below
+        except BaseException as exc:  # noqa: BLE001 - pragma: no cover - reported below
             errors.append(exc)
 
     threads = [threading.Thread(target=work, args=(n,)) for n in range(4)]
@@ -164,6 +165,23 @@ def test_recommendation_lifecycle_is_events_and_checks_moves(tmp_path, lake):
     audit = lake.rows("fdopt_audit")
     changes = audit.filter(audit["action"] == "recommendation_state").sort("at")
     assert changes["outcome"].to_list() == ["dismissed", "open"]
+
+
+def test_a_reason_is_shared_without_secrets(tmp_path, lake):
+    me = pc(tmp_path, lake=lake)
+    analysis(me, "r1", [finding()], [{"workspace_id": "w1", "item_id": "i1", "rule_id": "small_files",
+                                      "target": "dbo.sales", "kind": "optimize", "impact": "high", "effort": "Low",
+                                      "confidence": "high"}])
+    rid = me.recommendations()[0]["recommendation_id"]
+    # Everyone who reads the lakehouse sees the reason, so anything credential-shaped is removed first.
+    out = me.set_recommendation_state(rid, "dismissed", "Retired, see https://x.blob.core.windows.net/c?sig=abc123SECRET")
+    assert "abc123SECRET" not in out["state_reason"] and out["state_reason"].startswith("Retired")
+    assert not any("abc123SECRET" in (r or "") for r in lake.rows("fdopt_recommendations")["reason"].to_list())
+    # The event keeps everything else the recommendation carries.
+    written = lake.rows("fdopt_recommendations").filter(pl.col("state") == "dismissed").row(0, named=True)
+    opened = lake.rows("fdopt_recommendations").filter(pl.col("state") == "open").row(0, named=True)
+    for key in ("impact", "effort", "confidence", "kind", "fingerprint"):
+        assert written[key] == opened[key], key
 
 
 def test_a_change_from_a_pc_with_a_slow_clock_still_wins(tmp_path, lake, monkeypatch):

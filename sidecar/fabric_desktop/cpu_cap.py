@@ -41,9 +41,9 @@ def from_env() -> int | None:
         return None
     if cores < 1 or not limit(cores):
         return None
-    os.cpu_count = lambda: cores  # type: ignore[assignment] - Python 3.13 does this for PYTHON_CPU_COUNT
+    os.cpu_count = lambda: cores  # Python 3.13 does this for PYTHON_CPU_COUNT
     if hasattr(os, "process_cpu_count"):
-        os.process_cpu_count = lambda: cores  # type: ignore[attr-defined,assignment]
+        os.process_cpu_count = lambda: cores
     _duckdb_threads(cores)
     return cores
 
@@ -62,7 +62,7 @@ def _duckdb_threads(cores: int) -> None:
         return connect(database, read_only, {"threads": cores, **(config or {})}, **kwargs)
 
     capped.__doc__, capped.__wrapped__ = connect.__doc__, connect  # type: ignore[attr-defined]
-    duckdb.connect = capped  # type: ignore[assignment]
+    duckdb.connect = capped
     try:
         duckdb.execute(f"SET threads = {int(cores)}")  # duckdb.sql() and friends use the default connection
     except duckdb.Error as exc:

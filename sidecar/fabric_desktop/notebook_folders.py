@@ -147,11 +147,20 @@ def rename(shelf: NotebookShelf, plan: dict[str, Any]) -> None:
             (src / child).rename(dest / child)
             moved.append(child)
         src.rmdir()
-    except OSError:
+    except OSError as exc:
+        left: list[str] = []
         for child in reversed(moved):  # put back what moved, so the folder is whole where it was
-            (dest / child).rename(src / child)
+            try:
+                (dest / child).rename(src / child)
+            except OSError:
+                # Left in the new folder, never deleted. Put the rest back, and report the first
+                # error (why the rename stopped), not this one.
+                left.append(child)
         if not any(dest.iterdir()):
             dest.rmdir()
+        if left:  # say where they are, so nobody has to hunt for them
+            raise OSError(f"{exc} Some files are still in {plan['new_path']} and couldn't be moved back to "
+                          f"{plan['path']}: {', '.join(sorted(left))}. Move them back by hand.") from exc
         raise
 
 

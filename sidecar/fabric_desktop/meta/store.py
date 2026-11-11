@@ -11,18 +11,21 @@ from __future__ import annotations
 import datetime as dt
 import fnmatch
 import logging
+import os
+import re
+import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import polars as pl
 import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from .. import delta_profile
+from .. import delta_profile, durable
 from ..errors import NotSetUp
-from ..leases import LeaseLost, check_held
-from ..retrying import local_retry
+from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
+from ..retrying import local_retry, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -30,7 +33,15 @@ _log = logging.getLogger(__name__)
 _LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease, so the files this write left are "
                                      "left for VACUUM"}
 
+# How many versions an append may move up past other writers' commits before it gives up.
+APPEND_COMMIT_RETRIES = 100
+# How many times an append is sent again after losing the Windows staged-commit race (retrying.staged_commit_race).
+APPEND_RACE_ATTEMPTS = 10
 META_LAKEHOUSE = "LH_Meta"
+# On this PC a meta table (run log, watermarks, ...) is compacted at every this-many-th commit. Each
+# run appends one small file to each, and reading them (the last good run, the watermark) costs a
+# little more per file: without it the 2,000th run of an entity spent over a second reading them.
+META_COMPACT_EVERY = 100
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
 # Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
 # With one central landing workspace (Preview), each source is in a zone, and each zone is its own
@@ -95,7 +106,7 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
         table = DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
-    return pl.from_arrow(table.to_pyarrow_table())
+    return cast(pl.DataFrame, pl.from_arrow(table.to_pyarrow_table()))  # a Table gives a DataFrame
 
 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
@@ -230,7 +241,7 @@ class Store:
         try:
             kept = (version, lazy(table, uri, self.options()).collect_schema())
             self._written = {**getattr(self, "_written", {}), uri: kept}
-        except Exception as exc:  # noqa: BLE001  silent-ok: the commit stands; written_schema then reads the log
+        except Exception as exc:  # noqa: BLE001  # silent-ok: the commit stands; written_schema then reads the log
             _log.debug("Couldn't keep the schema of %s after writing it: %s", uri, describe(exc))
         return version
 
@@ -294,9 +305,39 @@ class Store:
         try:
             how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
-            write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
-                            schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
-                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+            # Appends never conflict with each other, so one that loses the race for a version is made on
+            # the next; delta-rs's default 15 tries ran out with four runs appending to the run log at once.
+            retries = APPEND_COMMIT_RETRIES if mode == "append" else None
+            for attempt in range(APPEND_RACE_ATTEMPTS):
+                try:
+                    write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
+                                    schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                                    commit_properties=CommitProperties(custom_metadata=metadata, max_commit_retries=retries)
+                                    if metadata or retries else None)
+                    break
+                except OSError as exc:  # on Windows that same race can surface as the staged commit refused
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+                except CommitFailedError as exc:
+                    # Two first appends to a table not made yet each create it; the one that loses is
+                    # refused ("Protocol changed", or "Metadata changed" when it lost to another
+                    # writer's schema meanwhile), and is made again as an append to the table as it
+                    # is now, with that table's checks.
+                    text = str(exc).lower()
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 \
+                            or not ("protocol changed" in text or "metadata changed" in text):
+                        raise
+                    time.sleep(0.05 * (attempt + 1))  # let the other writer's commit settle
+                    check_held()  # still our table's lease, with time to commit, before writing again
+                    current = open_table(uri, self.options())
+                    if current is None:
+                        raise
+                    delta_profile.check_table(current)
+                    safe = self._delta_safe(uri, schema, table, data.schema, True, current)
+                    if safe != data.schema:
+                        data = data.cast(safe)
+                    target = current
         except Exception as exc:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
@@ -441,7 +482,7 @@ class Store:
             t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
         except TableNotFoundError:
             return None, None
-        return pl.from_arrow(t.to_pyarrow_table()), t.version()
+        return cast(pl.DataFrame, pl.from_arrow(t.to_pyarrow_table())), t.version()
 
     def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
         """The table's schema and the Delta version it was read at, as read_at gives them but without
@@ -517,7 +558,8 @@ class Store:
             if version is not None:
                 raise
             # A new table: created empty only if still absent, then merged into like any other.
-            self.create_if_absent(lakehouse, schema, table, dict(pl.from_arrow(data.schema.empty_table()).schema))
+            empty = cast(pl.DataFrame, pl.from_arrow(data.schema.empty_table()))
+            self.create_if_absent(lakehouse, schema, table, dict(empty.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(current)
@@ -627,7 +669,12 @@ class Store:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         df = pl.DataFrame([{k: r.get(k) for k in schema} | ({"at": r.get("at") or now} if "at" in schema else {})
                            for r in rows], schema=schema)
-        self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
+        version = self.write(META_LAKEHOUSE, "meta", table, df, mode="append", metadata=metadata)
+        self._tidy_meta(table, version)
+
+    def _tidy_meta(self, table: str, version: int) -> None:
+        """After an append to a meta table: on this PC, compact it now and then (LocalStore). In
+        OneLake Fabric's own table maintenance does that."""
 
     def meta(self, table: str) -> pl.DataFrame:
         df = self.read(META_LAKEHOUSE, "meta", table)
@@ -646,6 +693,32 @@ class Store:
         return df.sort(order, maintain_order=True) if order else df
 
 
+# The names Delta gives files in _delta_log that start with a version: a commit, a checksum, a
+# checkpoint (classic, multi-part or v2), a compacted log, each perhaps staged as <name>#<n>.
+_DELTA_LOG_NAME = re.compile(r"\d{20}(\.json|\.crc|\.checkpoint(\.[0-9A-Za-z-]+)*\.(parquet|json)|\.\d{20}\.compacted\.json)(#\d+)?")
+_VERSIONED = re.compile(r"(\d{20})")
+
+
+def sync_conflicts(log: Path) -> list[tuple[int, str]]:
+    """Commits in the table log folder ``log`` that a file sync client set aside, as (version, file name).
+
+    When two PCs write the same table in a synced folder (OneDrive, Dropbox, Google Drive) each makes
+    the same next version, and the sync client keeps one and saves the other beside it under another
+    name ("00000000000000000005-PC2.json", "... (conflicted copy).json"). Delta reads only the one
+    with its own name, so the other PC's rows are lost though its run said it wrote them. Any file
+    here that starts with a version but isn't a name Delta uses is one of those."""
+    try:
+        names = [entry.name for entry in os.scandir(log) if entry.is_file()]
+    except OSError:  # no log yet, or it can't be listed: nothing to report
+        return []
+    found = []
+    for name in names:
+        version = _VERSIONED.match(name)
+        if version and not _DELTA_LOG_NAME.fullmatch(name):
+            found.append((int(version.group(1)), name))
+    return sorted(found)
+
+
 class LocalStore(Store):
     """Delta tables on this PC, laid out like OneLake: <root>/<lakehouse>/Tables/<schema>/<table>."""
 
@@ -657,6 +730,10 @@ class LocalStore(Store):
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
+
+    def sync_conflicts(self, lakehouse: str, schema: str, table: str) -> list[tuple[int, str]]:
+        """The table's commits a file sync client set aside (module ``sync_conflicts``)."""
+        return sync_conflicts(Path(self.uri(lakehouse, schema, table)) / "_delta_log")
 
     # Runs at once on this PC can hit the Windows Delta log race (retrying.windows_log_race). Each call here
     # is safe to repeat: a read, create-if-absent, or an insert-only MERGE (a repeat after a commit
@@ -684,7 +761,10 @@ class LocalStore(Store):
         return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, Dtype]) -> bool:
-        return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+        created = local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+        if created:
+            durable.sync_commits(self.uri(lakehouse, schema, table), 0, 0)
+        return created
 
     def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                      version: int | None = None) -> int:
@@ -694,6 +774,40 @@ class LocalStore(Store):
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
 
     removes_unwritten = True
+
+    def _tidy_meta(self, table: str, version: int) -> None:
+        """Compact the meta table at every META_COMPACT_EVERY-th commit, so its file count (and the time
+        each run spends reading it) stays bounded. Compaction only rewrites files into one and keeps
+        every row and every version; VACUUM (Optimize on the Maintain page) is what removes the old
+        files. A writer that finds the table being compacted already skips its round. Never raises:
+        the append stands either way, and the next round tries again."""
+        if version <= 0 or version % META_COMPACT_EVERY:
+            return
+        uri = self.uri(META_LAKEHOUSE, "meta", table)
+        try:
+            with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0):
+                dt_ = DeltaTable(uri)
+                dt_.optimize.compact()
+                durable.sync_commits(uri, version + 1, dt_.version())
+        except LeaseBusy:  # silent-ok: another writer is compacting it right now, which is all this round needed
+            _log.debug("The %s table is being compacted by another writer; skipped this round", table)
+        except Exception as exc:  # noqa: BLE001 - only slower reads until the next round
+            _log.warning("Couldn't compact the %s table: %s", table, describe(exc))
+
+    def compaction_lease(self, lakehouse: str, schema: str, table: str, wait: float) -> Any:
+        """Held around every compaction of a table on this PC (the meta tables now and then, Optimize
+        on the Maintain page), by any process. Two compactions of one table at once each commit,
+        neither refused as a conflict, and the rows they rewrote are then in the table twice. Appends
+        meanwhile are safe, so this is a lease of its own, not the table's write lease. Waits up to
+        ``wait`` seconds, then raises LeaseBusy."""
+        leases = Leases(LocalBackend(self.root / "_leases"), owner="KratosForge compaction", ttl=120, wait=wait)
+        return leases.hold("compact/" + table_key(lakehouse, schema, table))
+
+    def _committed(self, uri: str, table: DeltaTable) -> int:
+        """On this PC, each commit is also flushed to disk (durable.py) before the write returns."""
+        version = super()._committed(uri, table)
+        durable.sync_commits(uri, version, version)
+        return version
 
     def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
         root = Path(self.uri(lakehouse, schema, table))

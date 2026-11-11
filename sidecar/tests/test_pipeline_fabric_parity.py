@@ -116,5 +116,5 @@ def test_a_mismatch_names_the_case_activity_and_field():
     assert "try_catch_previous_fails: activity Nope has no run record" in found
     # Fields other than status, such as the error a catch branch reads, compare only the keys given.
     err = {**case, "expected": {"status": None, "activities": {"Previous": {"error": {"errorCode": "E2"}}}}}
-    assert compare(err) == ["try_catch_previous_fails: activity Previous error is {'errorCode': 'E1'}, "
-                            "expected {'errorCode': 'E2'}"]
+    assert compare(err) == [("try_catch_previous_fails: activity Previous error is {'errorCode': 'E1'}, "
+                            "expected {'errorCode': 'E2'}")]

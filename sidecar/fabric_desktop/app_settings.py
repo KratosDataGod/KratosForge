@@ -22,10 +22,10 @@ Keys:
     show_preview     true to show features still in preview (default true)
     forge_animations  the first motion switch, kept so older settings and policy files still work:
                      false means motion_level 0 unless motion_level itself is set
-    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
-                     transitions only), 2 Refined (default), 3 Expressive
+    motion_level     experience mode (docs/forge-animations.md): 0 Professional, 1 Subtle (functional
+                     transitions and the achievement reveal; default), 2 Heroic, 3 Legendary
     motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
-                     levels 2 and 3; motion_achievements the same, but false by default
+                     levels 2 and 3; motion_achievements the same at levels 1 to 3
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
     ui_explanations  "on_request" (default): each page's How this works panel and its one-line
@@ -82,7 +82,8 @@ Keys:
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
-                     metadata framework's download cache) are deleted after this many days unused;
+                     metadata framework's download cache, replay bundle copies) are deleted after this
+                     many days unused;
                      0 keeps them (default 30)
     onelake_writes   "local_first" (default): a notebook cell's table writes are staged on this PC and
                      upload in the background while the cell goes on; the cell ends when they're in.
@@ -200,8 +201,10 @@ USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
 MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
-# Achievement celebrations are something people turn on (UX review, #361); the rest start on.
-DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key in MOTION_SWITCHES})
+# Subtle by default: everyday work stays plain and only achievements celebrate (Chris, 2026-11-09).
+# Every switch starts on (Chris, 2026-11-07). A choice someone already saved stays: only people who
+# never changed it get the new default.
+DEFAULTS.update({"motion_level": 1} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
@@ -508,8 +511,8 @@ def dns_name(host: str) -> bool:
 def _sign_in_host_problems(value: Any) -> list[str]:
     """What the shell skips in fabric_view_sign_in_hosts (it reads the key itself)."""
     if not isinstance(value, list):
-        return [f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
-                "so the Fabric view opens no extra sign-in hosts"]
+        return [(f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
+                "so the Fabric view opens no extra sign-in hosts")]
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
     return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
             "(no *, https://, port or path), so it's skipped" for v in bad]
@@ -529,14 +532,14 @@ def engine_url_ok(url: str) -> bool:
 def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     """What the shell skips in engine_download_url (it reads the key itself)."""
     if not (isinstance(value, str) and engine_url_ok(value.strip())):
-        return [f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
-                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
+        return [(f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
+                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub")]
     if auto_update is not False:
         return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
-                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
+        return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
+                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
     return []
 
 
@@ -570,9 +573,9 @@ _FOLDER_RIGHTS = (0x40, 0x40000, 0x80000)  # FILE_DELETE_CHILD, WRITE_DAC, WRITE
 def _windows_can_change(path: Path) -> bool:
     import ctypes
     from ctypes import wintypes
-    if ctypes.windll.shell32.IsUserAnAdmin():
+    if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]  # Windows-only
         return False
-    create = ctypes.windll.kernel32.CreateFileW
+    create = ctypes.windll.kernel32.CreateFileW  # type: ignore[attr-defined]  # Windows-only
     create.restype = wintypes.HANDLE
     create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
                        wintypes.DWORD, wintypes.HANDLE)
@@ -583,7 +586,7 @@ def _windows_can_change(path: Path) -> bool:
         handle = create(str(target), access, 0x7, None, 3, 0x02000000, None)  # OPEN_EXISTING, BACKUP_SEMANTICS
         if handle in (None, invalid):
             return False
-        ctypes.windll.kernel32.CloseHandle(handle)
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]  # Windows-only
         return True
     return (any(opens(path, right) for right in _FILE_RIGHTS)
             or any(opens(path.parent, right) for right in _FOLDER_RIGHTS))
@@ -749,9 +752,12 @@ def sql_limits() -> dict[str, Any]:
     """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
     back to the default."""
     out: dict[str, Any] = {}
+    settings = load()
     for key in (*SQL_RANGES, "sql_temp_dir"):
-        v = value(key)
+        v = settings[key]["value"]
         if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
             v = DEFAULTS[key]
         out[key] = v
+    # The organization's limit is a ceiling: a caller's own time limit may be shorter, never longer.
+    out["sql_time_limit_by_policy"] = settings["sql_time_limit_minutes"]["source"] == "policy"
     return out

@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import threading
+from pathlib import Path
 from typing import Any, Callable
 
 import polars as pl
@@ -23,6 +24,7 @@ from .meta.templates import _columns_toml, _dtype_name
 from .optimize.outbox import ANALYSIS
 from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
+from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -93,7 +95,7 @@ class XRayMixin:
     _xray_lock = threading.Lock()
 
     @property
-    def _xray_file(self):
+    def _xray_file(self) -> Path:
         return self.root / "xray.json"  # type: ignore[attr-defined]
 
     def _xray_saved(self) -> dict[str, Any] | None:
@@ -159,14 +161,14 @@ class XRayMixin:
                 report = self.cost_report(30)  # type: ignore[attr-defined]
                 local = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
                 result["findings"] = xray.rank(result["findings"] + xray.cost_findings(report | {"days": 30}, local))
-            except Exception as exc:  # cost needs the run logs; the rest stands without it
+            except Exception as exc:  # noqa: BLE001 - cost needs the run logs; the rest stands without it
                 _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
             result["shared"] = self._xray_share(result, lambda: storage_token)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             jsonfile.write_text(self._xray_file, json.dumps(result, default=str))
             state: dict[str, Any] = {"running": False}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the scan's failure is shown in its state
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
         with self._xray_lock:
             self._xray_state = state
@@ -201,7 +203,7 @@ class XRayMixin:
             project = self._project()  # type: ignore[attr-defined]
             managed |= {(ws, layer.lakehouse) for ws, layer in _layer_workspaces(project)}
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - no metadata project leaves those findings out; logged
             _log.info("No metadata project for X-ray: %s", describe(exc))
         fixes = self._xray_fixes(result.get("scanned"), refresh)
         rows = []
@@ -312,16 +314,8 @@ class XRayMixin:
         risk_acknowledge records it, before the job is submitted. A pass or an unknown result records nothing."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, _why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
-        current = self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, False)
-        if current["result"] == risk.BLOCKED:
-            raise PermissionError("A blocked run can't be started: " + current["summary"])
-        if current["result"] == risk.WARNING:
-            if not risk_id:
-                raise ValueError("Check the risks first: this run has warnings to accept.")
-            if current["id"] != risk_id:
-                raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
-            # Written before the job is submitted, so a failed write starts nothing (fails closed).
-            self._risk_ack_write(self._risk_ack_record(current, risk_id))  # type: ignore[attr-defined]
+        self._xray_risk_gate(self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
+                                                      workspace_name, False), risk_id)
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days))
         label = f"{schema}.{table}" if schema else table
@@ -340,14 +334,30 @@ class XRayMixin:
                 "risk": self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
                                                  workspace_name, refresh)}
 
+    def _xray_risk_gate(self, current: dict[str, Any], risk_id: str) -> None:
+        """Starting a table maintenance job after its risk check: blocked is refused, going ahead past
+        warnings needs the id of the assessment the person saw and is recorded first. A pass or an
+        unknown result records nothing."""
+        if current["result"] == risk.BLOCKED:
+            raise PermissionError("A blocked run can't be started: " + current["summary"])
+        if current["result"] == risk.WARNING:
+            if not risk_id:
+                raise ValueError("Check the risks first: this run has warnings to accept.")
+            if current["id"] != risk_id:
+                raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
+            # Written before the job is submitted, so a failed write starts nothing (fails closed).
+            self._risk_ack_write(self._risk_ack_record(current, risk_id))  # type: ignore[attr-defined]
+
     def _xray_optimize_risk(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None,
-                            lakehouse_name: str, workspace_name: str, refresh: bool) -> dict[str, Any]:
-        """The risk check for starting Optimize on one table in Fabric; a failure in it is an unknown result."""
+                            lakehouse_name: str, workspace_name: str, refresh: bool, vacuum: bool = False) -> dict[str, Any]:
+        """The risk check for starting Optimize (or Vacuum alone) on one table in Fabric; a failure in it
+        is an unknown result. Vacuum has its own workload id, so an Optimize assessment can't stand in for it."""
         label = f"{schema}.{table}" if schema else table
         reads: list[str] = []
         facts: dict[str, Any] = {
-            "workload_id": f"xray:{workspace_id}/{lakehouse_id}/{label}", "workload": f"{lakehouse_name} {label}".strip(),
-            "action": "run_in_fabric", "label": "Optimize", "env": None, "env_label": "", "where": "fabric",
+            "workload_id": f"xray{'-vacuum' if vacuum else ''}:{workspace_id}/{lakehouse_id}/{label}",
+            "workload": f"{lakehouse_name} {label}".strip(),
+            "action": "run_in_fabric", "label": "Vacuum" if vacuum else "Optimize", "env": None, "env_label": "", "where": "fabric",
             "needs_sign_in": True, "policy": {"allow_fabric_runs": bool(app_settings.value("allow_fabric_runs"))},
             "signed_in": bool(self._wl_token(FABRIC_SCOPES)),  # type: ignore[attr-defined]
             "definition_errors": [], "version": None, "schedules": [], "runs": [], "measured": [], "estimated": [],
@@ -362,9 +372,10 @@ class XRayMixin:
         return assessed
 
     def xray_vacuum_preview(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
-                            lakehouse_name: str = "") -> dict[str, Any]:
+                            lakehouse_name: str = "", workspace_name: str = "", refresh: bool = False) -> dict[str, Any]:
         """What Vacuum would delete from one table, found by a dry run that deletes nothing: how
-        many files, how much storage, and how many days of history it keeps (and why)."""
+        many files, how much storage, and how many days of history it keeps (and why), with the
+        risk check (FINOPS-004) for starting it in Fabric, as Optimize's check has. Read only."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
         doomed = maintenance.vacuum_preview(uri, days, options)
@@ -374,15 +385,23 @@ class XRayMixin:
             listed = FileStore(self.auth.storage_token).list(workspace_id, lakehouse_id, folder, recursive=True)  # type: ignore[attr-defined]
             sizes = {e["path"][len(folder) + 1:]: e["size"] for e in listed if not e["is_dir"]}
             size = sum(sizes.get(f, 0) for f in doomed)
-        except Exception as exc:  # the count still stands without the sizes
+        except Exception as exc:  # noqa: BLE001 - the count still stands without the sizes
             _log.warning("Couldn't size the files a vacuum would delete: %s", describe(exc))
-        return {"files": len(doomed), "bytes": size, "keep_days": days, "why": why}
+        return {"files": len(doomed), "bytes": size, "keep_days": days, "why": why,
+                "risk": self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
+                                                 workspace_name, refresh, vacuum=True)}
 
     def xray_vacuum(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
-                    lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
-        """VACUUM alone, as Fabric's table maintenance job, keeping the history this table promises."""
+                    lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "",
+                    risk_id: str = "") -> dict[str, Any]:
+        """VACUUM alone, as Fabric's table maintenance job, keeping the history this table promises.
+
+        The risk check is run again first, as Optimize's is: blocked is refused, and going ahead past
+        warnings needs ``risk_id`` (from xray_vacuum_preview) and is recorded before the job is submitted."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        self._xray_risk_gate(self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
+                                                      workspace_name, False, vacuum=True), risk_id)
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days), optimize=False)
         label = f"{schema}.{table}" if schema else table
@@ -512,9 +531,11 @@ class XRayMixin:
         """Every dataflow Power BI lists in the workspace: Gen1 and Dataflow Gen2 without CI/CD, which
         Fabric's items API leaves out ({"objectId", "name"}). Raises when it can't be read."""
         token = self.auth._token(POWERBI_DATAFLOW_SCOPES)  # type: ignore[attr-defined]
-        r = http_session.session().get(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/dataflows",
-                                       headers={"Authorization": f"Bearer {token}"}, timeout=30)
-        r.raise_for_status()
+        http = http_session.session()
+        r = send_with_retry(lambda: http.get(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/dataflows",
+                                             headers={"Authorization": f"Bearer {token}"}, timeout=30), "GET")
+        if r.status_code >= 400:  # the status only: Power BI's body isn't shown
+            raise RuntimeError(f"Power BI answered {r.status_code}")
         return list(r.json().get("value") or [])
 
     def xray_staging_preview(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
@@ -583,7 +604,7 @@ class XRayMixin:
             raise ValueError(f"{layer} is not a layer")
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-        except Exception:
+        except Exception:  # noqa: BLE001 - no owner leaves it blank
             owner = ""
         written, problems = [], []
         for t in tables:
@@ -594,7 +615,7 @@ class XRayMixin:
             try:
                 uri, table = self._source_table(workspace_id, lakehouse_id, t.get("schema"), t["table"])
                 schema = _table_schema(table)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one table's failure is listed and the rest go on
                 problems.append(f"{t['table']}: {type(exc).__name__}: {exc}")
                 continue
             keys = [k for k in t.get("keys") or [] if k in schema] or guess_keys(list(schema))

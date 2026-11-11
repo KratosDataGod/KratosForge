@@ -26,7 +26,12 @@ defineAction({ id: "notebook.save", label: "Save the notebook", icon: "save", ke
   risk: "low", where: "local", available: (ctx) => (ctx.nb ? true : "Open a notebook first."), run: () => saveNotebook() });
 defineAction({ id: "notebook.publish", label: "Publish to OneLake", icon: "publish", keywords: "notebook publish fabric workspace onelake",
   contexts: ["notebook"], risk: "moderate", where: "fabric", available: (ctx) => (ctx.nb ? true : "Open a notebook first."),
-  run: () => publishNotebook() });
+  run: () => publishNotebook(),
+  // In a skin's command group (actions.js): on the bar it keeps its split chevron, as on KratosForge's
+  // ribbon; under More, choosing the workspace follows it.
+  split: (ctx) => publishMenu(ctx.nb),
+  moreAfter: (ctx) => [{ label: "Change publish workspace...", icon: "folder",
+    action: () => ensureSignedIn().then((ok) => ok && chooseNotebookWorkspace(ctx.nb)) }] });
 defineAction({ id: "notebook.run_in_fabric", label: "Run in Fabric", icon: "cloud", keywords: "notebook run fabric capacity job",
   contexts: ["notebook"], risk: "moderate", where: "fabric", preview: "fabricRun", spendsCapacity: true,
   ownRiskCheck: "runInFabric (riskGate)", available: nbIdle, run: () => runInFabric() });
@@ -80,6 +85,7 @@ function nbNextLine(nb) {
 // Draws the line again in place (a run finishing doesn't redraw the whole notebook).
 function refreshNbNextLine(nb) {
   if (state.notebook !== nb || state.view !== "notebook") return;
+  refreshSkinCommandGroup();  // a failed cell takes a skin's primary slot
   const line = nbNextLine(nb);
   const old = document.querySelector(".nb-next");
   if (old) { if (line) old.replaceWith(line); else old.remove(); }

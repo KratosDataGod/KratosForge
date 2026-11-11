@@ -266,22 +266,25 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
 
 
 def _databricks(code: str) -> list[Any]:
-    """Databricks SQL statements read by sqlglot's Databricks dialect, with the same Spark fixes
-    sql.parse makes for Spark SQL (substring from 0, date_add returning a date, trunc, unix_timestamp,
-    Spark's column names), so a query answers here as it does on the warehouse. ValueError when
+    """Databricks SQL statements read by sqlglot's Databricks dialect, with the same Spark spellings and
+    fixes sql.parse makes for Spark SQL (X '1010', substring from 0, date_add returning a date, trunc,
+    unix_timestamp, Spark's column names), so a query answers here as it does on the warehouse. ValueError when
     it can't be read."""
-    import sqlglot
     from sqlglot import exp
     from sqlglot.errors import ParseError
 
     from .. import sql, sql_dialects
     try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
-        statements = [s for s in sqlglot.parse(code, read="databricks") if isinstance(s, exp.Expression)]
+        statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
+                      if isinstance(s, exp.Expression)]
     except ParseError as exc:
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
         raise ValueError("The query is empty.")
-    return [sql.spark_fixes(s, databricks=True) for s in statements]
+    # then Databricks' own functions, written for DuckDB or refused by name; not in sql.spark_fixes, which
+    # the Academy's learner package carries without them
+    from .. import databricks_builtins_sql
+    return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
 
 
 class DuckDBSession(_SqlSession):
@@ -293,6 +296,10 @@ class DuckDBSession(_SqlSession):
         target = str(Path(config.database)) if config.database else ":memory:"
         self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
         keep_try_cast(self._con)
+        from .. import databricks_bytes, databricks_ip, databricks_variant
+        databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
+        databricks_bytes.register(self._con)  # its byte-level string functions
+        databricks_variant.register(self._con)  # and its VARIANT ones
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":

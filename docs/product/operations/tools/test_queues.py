@@ -47,6 +47,11 @@ class _Base(unittest.TestCase):
 
 
 class CheckTest(_Base):
+    def test_ci_summary_counts_cancelled_apart_from_failed(self) -> None:
+        ci = ["success", "cancelled", "cancelled", "failure", "timed_out", "in_progress"]
+        self.assertEqual(queues.ci_summary(ci), "1 green, 2 failed, 2 cancelled, 1 running or other")
+        self.assertEqual(queues.ci_summary(["success"]), "1 green, 0 failed, 0 cancelled")
+
     def test_short_queues_are_shortfalls_not_errors(self) -> None:
         errors, short = self.run_check(_queues())
         self.assertEqual(errors, [])

@@ -184,8 +184,176 @@ def _elt(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | N
     return _with_args(f"CASE fj_arg0 {whens} ELSE NULL END", args)
 
 
+# ---- format_string / printf: Java's Formatter, as Spark's
+
+# One format specifier: %[index$][flags][width][.precision]conversion
+_JAVA_SPEC = re.compile(r"%(?:(\d+)\$)?([-#+ 0,(<]*)(\d+)?(?:\.(\d+))?([a-zA-Z%])")
+_JAVA_INTEGERS = "('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT')"
+# Bits of each signed whole-number type: Java prints a negative one in hex or octal as its two's complement.
+_JAVA_BITS = {"TINYINT": 8, "SMALLINT": 16, "INTEGER": 32, "BIGINT": 64}
+_JAVA_FLAGS = {"s": "-", "b": "-", "d": "-+ 0,", "x": "-0", "o": "-0", "f": "-+ 0,", "e": "-+ 0"}
+
+
+def _sql_text(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def java_double_text(x: str) -> str:
+    """DuckDB SQL for Java's Double.toString of the DOUBLE ``x`` (Spark's text for a double): the
+    shortest digits, as plain decimals from 0.001 up to 10^7 (with .0 for a whole number), else as
+    d.dddE±n; NaN, Infinity, -0.0."""
+    s = f"CAST(ABS({x}) AS VARCHAR)"
+    # DuckDB's shortest digits, in either notation: mantissa digits and the exponent of the first one
+    sci = (f"(LIST_TRANSFORM([{{'m': SPLIT_PART({s}, 'e', 1), 'x': COALESCE(TRY_CAST(NULLIF(SPLIT_PART({s}, 'e', 2), '') "
+           f"AS INTEGER), 0)}}], kf_n -> (LIST_TRANSFORM([{{'i': SPLIT_PART(kf_n.m, '.', 1), 'd': SPLIT_PART(kf_n.m, '.', 1) "
+           f"|| SPLIT_PART(kf_n.m, '.', 2), 'x': kf_n.x}}], kf_p -> (LIST_TRANSFORM([{{'g': RTRIM(LTRIM(kf_p.d, '0'), '0'), "
+           f"'e': kf_p.x + LENGTH(kf_p.i) - 1 - (LENGTH(kf_p.d) - LENGTH(LTRIM(kf_p.d, '0')))}}], "
+           f"kf_q -> LEFT(kf_q.g, 1) || '.' || COALESCE(NULLIF(SUBSTR(kf_q.g, 2), ''), '0') || 'E' || kf_q.e))[1]))[1]))[1]")
+    plain = f"(CASE WHEN CONTAINS({s}, '.') THEN {s} ELSE {s} || '.0' END)"
+    return (f"(CASE WHEN {x} IS NULL THEN NULL WHEN ISNAN({x}) THEN 'NaN' WHEN ISINF({x}) THEN "
+            f"CASE WHEN {x} > 0 THEN 'Infinity' ELSE '-Infinity' END "
+            f"ELSE CASE WHEN SIGNBIT({x}) THEN '-' ELSE '' END || CASE WHEN {x} = 0 THEN '0.0' "
+            f"WHEN ABS({x}) >= 0.001 AND ABS({x}) < 10000000 THEN {plain} ELSE {sci} END END)")
+
+
+def java_value_text(a: str) -> str:
+    """DuckDB SQL for Java's String.valueOf of a value, as Spark writes one as text, ready to run (its
+    lambdas written as this DuckDB reads them)."""
+    from .sql import duckdb_sql  # sql imports this module
+    return duckdb_sql(cast(exp.Expression, sqlglot.parse_one(_java_text(a), read="duckdb")))
+
+
+def _java_text(a: str) -> str:
+    """Java's String.valueOf of a value, as %s prints it (a double as Java writes it)."""
+    return (f"(CASE WHEN TYPEOF({a}) = 'DOUBLE' THEN {java_double_text(f'TRY_CAST({a} AS DOUBLE)')} "
+            f"WHEN TYPEOF({a}) = 'FLOAT' THEN {java_double_text(f'TRY_CAST({a} AS FLOAT)')} "
+            f"ELSE CAST({a} AS VARCHAR) END)")
+
+
+def spark_text_arg(a: str, fn: str) -> str:
+    """DuckDB SQL for Spark's implicit cast of ``a`` to text where ``fn`` takes text (upper(14) is
+    upper('14')): a number, boolean, date or timestamp as Spark writes it. Binary, arrays, maps and
+    structs are refused by name, where DuckDB would write them its own way. TYPEOF folds when the query
+    is planned, so text passes through at no cost; any other type is read once, in a lambda, so that
+    calls nested in each other (lower(trim(x))) don't repeat their argument's SQL many times over."""
+    kind = "TYPEOF(kf_t)"
+    other = (f"CASE WHEN {kind} = 'BLOB' OR {kind} LIKE '%]' OR {kind} LIKE 'STRUCT(%' "
+             f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' THEN CAST(ERROR('{fn}() reads text here, and on this PC "
+             f"a binary, array, map or struct argument isn''t read as Spark reads it, so nothing ran. Cast it to "
+             f"string first, or run the cell in Fabric.') AS VARCHAR) "
+             f"WHEN {kind} = 'TIMESTAMP WITH TIME ZONE' THEN CAST(CAST(kf_t AS TIMESTAMP) AS VARCHAR) "
+             f"ELSE {_java_text('kf_t')} END")
+    return (f"(CASE WHEN TYPEOF({a}) = 'VARCHAR' THEN CAST({a} AS VARCHAR) "
+            f"ELSE (LIST_TRANSFORM([{a}], kf_t -> {other}))[1] END)")
+
+
+def spark_text_arg_sql(a: str, fn: str) -> str:
+    """spark_text_arg over DuckDB SQL ``a``, ready to run (its lambdas written as this DuckDB reads them).
+    Only the template goes through sqlglot: ``a`` is put in afterwards as it is, since DuckDB's own SQL
+    for an expression (its lambda x: ... syntax) needn't read back."""
+    from .sql import duckdb_sql  # sql imports this module
+    template = duckdb_sql(cast(exp.Expression, sqlglot.parse_one(spark_text_arg("kf_text_arg", fn), read="duckdb")))
+    return re.sub(r"\bkf_text_arg\b", lambda _m: f"({a})", template)
+
+
+def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
+    """A typed node whose first argument Spark casts to text: that argument as spark_text_arg."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> None:
+        arg = node.args.get("this")
+        if isinstance(arg, exp.Expression):
+            node.set("this", _with_args(spark_text_arg("fj_arg0", fn), [arg]))
+        return None
+    return build
+
+
+def _refuse_spec(spec: str, why: str) -> ValueError:
+    return ValueError(f"format_string() can't run on this PC the way it runs in Fabric, so nothing ran: {spec} {why} "
+                      "Run the cell in Fabric, or use %s, %d, %x, %o, %f, %e or %b.")
+
+
+def java_format_sql(fmt: str, count: int) -> str:
+    """DuckDB SQL for Spark's format_string(fmt, fj_arg0, ..., fj_arg{count-1}): Java's Formatter, where
+    a NULL argument prints as null (false for %b) and %d, %x, %o take only whole numbers and %f and %e
+    only decimals, as in Spark. A conversion this PC can't write as Java does is refused."""
+    pieces: list[str] = []
+    ordinary = 0
+    at = 0
+    for m in _JAVA_SPEC.finditer(fmt):
+        if m.start() > at:
+            pieces.append(_sql_text(fmt[at:m.start()]))
+        at = m.end()
+        index, flags, width, precision, conversion = m.groups()
+        spec = m.group(0)
+        if conversion == "%":
+            pieces.append("'%'")
+            continue
+        if conversion == "n":
+            pieces.append("CHR(10)")
+            continue
+        kind = conversion.lower()
+        if kind not in _JAVA_FLAGS or (kind in "dxo" and precision is not None):
+            raise _refuse_spec(spec, "isn't a conversion this PC writes as Java does.")
+        if any(f not in _JAVA_FLAGS[kind] for f in flags):
+            raise _refuse_spec(spec, "has a flag this PC doesn't write as Java does.")
+        if index is None:
+            arg, ordinary = ordinary, ordinary + 1
+        else:
+            arg = int(index) - 1
+        if not 0 <= arg < count:
+            raise ValueError(f"format_string(): {spec} has no argument (the format needs more than the {count} given), "
+                             "as in Spark.")
+        a = f"fj_arg{arg}"
+        left = "-" if "-" in flags else ""
+        size = f"{left}{width or ''}"
+        cut = f".{precision}" if precision is not None else ""
+        null = f"PRINTF('%{size}{cut}s', 'null')"  # a NULL prints as null, padded and cut as text
+        if kind == "s":
+            text = f"(CASE WHEN {a} IS NULL THEN {null} ELSE PRINTF('%{size}{cut}s', {_java_text(a)}) END)"
+        elif kind == "b":
+            truth = f"(CASE WHEN {a} IS NULL THEN 'false' WHEN TYPEOF({a}) = 'BOOLEAN' THEN CAST({a} AS VARCHAR) ELSE 'true' END)"
+            text = f"PRINTF('%{size}{cut}s', {truth})"
+        else:
+            wrong = f"ERROR('format_string(): ' || {_sql_text(spec)} || ' can''t format a ' || TYPEOF({a}) || ', as in Spark.')"
+            fmt_flags = "".join(f for f in flags if f != "-")
+            pattern = f"'%{left}{fmt_flags}{width or ''}"
+            if kind in "dxo":
+                value = a
+                if kind != "d":  # a negative number as its two's complement, by its type's size
+                    value = (f"(CASE WHEN {a} >= 0 THEN CAST({a} AS UBIGINT) ELSE CAST(CAST({a} AS HUGEINT) + CASE TYPEOF({a}) "
+                             + " ".join(f"WHEN '{t}' THEN {2 ** b}" for t, b in _JAVA_BITS.items()) + " END AS UBIGINT) END)")
+                ok = f"TYPEOF({a}) IN {_JAVA_INTEGERS}"
+                body = f"PRINTF({pattern}{kind}', {value})"
+            else:
+                places = int(precision) if precision is not None else 6
+                ok = f"(TYPEOF({a}) IN ('DOUBLE', 'FLOAT') OR TYPEOF({a}) LIKE 'DECIMAL%')"
+                if kind == "f":
+                    # Java rounds a double's shortest digits half up; DuckDB's printf rounds its binary value
+                    exact = (f"(CASE WHEN TYPEOF({a}) LIKE 'DECIMAL%' THEN CAST({a} AS DECIMAL(38, 18)) "
+                             f"ELSE CAST(CAST(CAST({a} AS DOUBLE) AS VARCHAR) AS DECIMAL(38, 18)) END)")
+                    rounded = f"ROUND({exact}, {min(places, 18)})"
+                    plain = f"PRINTF({pattern}.{places}f', {rounded})"
+                    body = (f"(CASE WHEN TYPEOF({a}) LIKE 'DECIMAL%' OR ABS(CAST({a} AS DOUBLE)) < 1e19 THEN {plain} "
+                            f"ELSE PRINTF({pattern}.{places}f', CAST({a} AS DOUBLE)) END)")
+                else:
+                    body = f"PRINTF({pattern}.{places}e', CAST({a} AS DOUBLE))"
+                special = (f"WHEN TYPEOF({a}) IN ('DOUBLE', 'FLOAT') AND (ISNAN(CAST({a} AS DOUBLE)) OR ISINF(CAST({a} AS DOUBLE))) "
+                           f"THEN PRINTF('%{size}s', {java_double_text(f'TRY_CAST({a} AS DOUBLE)')}) ")
+                body = f"(CASE {special}ELSE {body} END)"
+            text = f"(CASE WHEN {a} IS NULL THEN {null} WHEN NOT {ok} THEN {wrong} ELSE {body} END)"
+        pieces.append(f"UPPER({text})" if conversion.isupper() else text)
+    if at < len(fmt):
+        pieces.append(_sql_text(fmt[at:]))
+    if "%" in _JAVA_SPEC.sub("", fmt):
+        raise ValueError(f"format_string(): {fmt!r} has a % that starts no conversion, as in Spark.")
+    return "(" + " || ".join(pieces or ["''"]) + ")"
+
+
 def _format_string(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
-    # format_string/printf use Java's Formatter; DuckDB's printf reads the same %d, %s, %f, %x, %05.2f.
+    """format_string/printf with a written format: Java's Formatter, as Spark's (java_format_sql). A
+    format that is a column is given to DuckDB's printf, which reads the same %d, %s, %f, %x, %05.2f
+    but prints a NULL argument's whole result as NULL."""
+    if args and isinstance(args[0], exp.Literal) and args[0].is_string:
+        return _with_args(java_format_sql(args[0].this, len(args) - 1), args[1:])
     return exp.Anonymous(this="PRINTF", expressions=[a.copy() for a in args]) if args else None
 
 
@@ -487,6 +655,8 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "INLINE_OUTER": _template(_INLINE_OUTER, 1),
     "ISNOTNULL": _template("(fj_arg0 IS NOT NULL)", 1),
     "ISNULL": _template("(fj_arg0 IS NULL)", 1),
+    # regexp(str, regex) is rlike and regexp_like under another name: a match anywhere in str
+    "REGEXP": lambda n, a: exp.RegexpLike(this=a[0].copy(), expression=a[1].copy()) if len(a) == 2 else None,
     "JSON_TUPLE": _json_tuple,
     "LOG1P": _template(_LOG1P, 1),
     "LUHN_CHECK": _template(_LUHN, 1),
@@ -531,6 +701,18 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "WINDOW": _time_window,
     "WINDOW_TIME": _template("CAST(STRUCT_EXTRACT(fj_arg0, 'end') - INTERVAL 1 MICROSECOND AS TIMESTAMP)", 1),
     "SESSION_WINDOW": _refuse("session_window", "session windows run in Fabric only."),
+    "PRINTF": _format_string,
+    # Java's URLDecoder, as Spark's: + is a space, and a % that doesn't start two hex digits is an error.
+    # Bytes that aren't UTF-8 are refused: Java puts U+FFFD in their place, by rules this PC doesn't follow.
+    "URL_DECODE": _template(
+        "CASE WHEN fj_arg0 IS NULL THEN NULL "
+        "WHEN NOT REGEXP_FULL_MATCH(fj_arg0, '([^%]|%[0-9A-Fa-f]{2})*') THEN ERROR('[CANNOT_DECODE_URL] The provided "
+        "URL cannot be decoded: ' || fj_arg0 || '. Please ensure that the URL is properly formatted and try again.') "
+        "ELSE COALESCE(TRY(URL_DECODE(REPLACE(fj_arg0, '+', ' '))), ERROR('url_decode() can''t run on this PC the way "
+        "it runs in Fabric, so nothing ran: ' || fj_arg0 || ' decodes to bytes that aren''t UTF-8, which Spark "
+        "replaces with U+FFFD. Run the cell in Fabric.')) END", 1),
+    # Java's URLEncoder, as Spark's: a space is +, and only A-Z a-z 0-9 . - * _ stay as they are.
+    "URL_ENCODE": _template("REPLACE(REPLACE(REPLACE(URL_ENCODE(fj_arg0), '%20', '+'), '~', '%7E'), '%2A', '*')", 1),
     "XXHASH64": _hash("xxhash64"),
 }
 
@@ -564,6 +746,13 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("ParseUrl", _parse_url),
         ("Extract", _extract),
         ("Hour", _template(f"HOUR({_TS})", 1)),
+        # Spark casts a number, boolean or date to text where these take text (upper(14) = '14'). Not initcap:
+        # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
+        *((name, _text_this(fn)) for name, fn in (
+            ("Upper", "upper"), ("Lower", "lower"), ("Trim", "trim"), ("Ascii", "ascii"),
+            ("Length", "length"), ("StrPosition", "instr"), ("RegexpSplit", "split"), ("Replace", "replace"),
+            ("Translate", "translate"), ("RegexpReplace", "regexp_replace"), ("Left", "left"), ("Right", "right"),
+            ("Repeat", "repeat"), ("Pad", "lpad"))),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),

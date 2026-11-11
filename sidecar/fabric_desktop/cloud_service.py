@@ -51,6 +51,24 @@ FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
+# How a Fabric job ended, as an audit reason: Deduped means Fabric didn't run a duplicate submission.
+_FINISHED_REASON = {"Completed": "", "Cancelled": "cancelled", "Deduped": "refused"}
+
+
+def _seconds(started: Any, finished: Any) -> float:
+    """Seconds between two ISO times (ours, or Fabric's endTimeUtc); 0.0 when either is missing or odd."""
+    try:
+        start = dt.datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        end = dt.datetime.fromisoformat(str(finished).replace("Z", "+00:00"))
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt.timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=dt.timezone.utc)
+        return max(0.0, round((end - start).total_seconds(), 3))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -110,23 +128,28 @@ class CloudMixin:
                 continue
             try:
                 job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
-            except Exception as exc:  # offline or gone: keep the last known status
+            except Exception as exc:  # noqa: BLE001 - offline or gone: keep the last known status
                 r["message"] = r.get("message") or f"Status not available: {one_line(exc)}"
                 status = retrying.status_of(exc)
                 unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
                 continue
             unreachable = 0
+            was = r.get("status")
             r["status"] = job.get("status", r["status"])
             r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
             reason = job.get("failureReason") or {}
             r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
+            if was not in TERMINAL and r["status"] in TERMINAL:  # first seen ending: the start already has its line
+                self._audit_finished("fabric_run_finished", _FINISHED_REASON.get(r["status"], "failed"),  # type: ignore[attr-defined]
+                                     _seconds(r.get("started_at"), r.get("finished_at")),
+                                     {k: r.get(k) for k in ("job_id", "kind", "name", "workspace_id", "item_id", "status")})
         return unchecked
 
     def _quiet_fabric(self) -> FabricClient | None:
         """A Fabric client only if the user is already signed in: Monitor must never pop a sign-in."""
         try:
             token = self.auth.silent_token(FABRIC_SCOPES)  # type: ignore[attr-defined]
-        except Exception as exc:  # no client ID configured
+        except Exception as exc:  # noqa: BLE001 - no client ID configured
             _log.info("No silent Fabric token for Monitor: %s", describe(exc))
             return None
         return FabricClient(lambda: token) if token else None
@@ -141,14 +164,14 @@ class CloudMixin:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:  # no metadata project yet
             return {"runs": [], "unavailable": {}}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a broken project is shown as the reason, not an empty list
             _log.warning("Couldn't read the metadata project for its runs: %s", describe(exc))
             return {"runs": [], "unavailable": {}, "project_error": describe(exc)}
         signed_in = None
         runs: list[dict[str, Any]] = []
         unavailable: dict[str, str] = {}
         for env in ENVIRONMENTS:
-            cfg = self._env_cfg(project, env)  # type: ignore[attr-defined]
+            cfg = self._env_cfg(project, env)
             local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
             if not local and not cfg.get("workspace_id"):
                 continue  # not set up yet
@@ -156,14 +179,14 @@ class CloudMixin:
                 if signed_in is None:
                     try:
                         signed_in = bool(self.auth.silent_token(STORAGE_SCOPES)) and self._quiet_fabric() is not None  # type: ignore[attr-defined]
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - any sign-in failure means not signed in
                         signed_in = False
                 if not signed_in:
                     unavailable[env] = "Sign in to see its runs"
                     continue
             try:
                 rows = self.meta_runs(env, limit)  # type: ignore[attr-defined]
-            except Exception as exc:  # offline, or a lakehouse is gone
+            except Exception as exc:  # noqa: BLE001 - offline, or a lakehouse is gone
                 unavailable[env] = str(exc)
                 continue
             for r in rows:
@@ -244,10 +267,10 @@ class CloudMixin:
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == item_name), item)
         if item.get("id") and hasattr(self, "_record_notebook_item"):  # the workload keeps the item by id
-            self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
+            self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])
         if item.get("id"):
             try:
-                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc,  # type: ignore[attr-defined]
+                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc,
                                                   name=item_name)
             except (OSError, ValueError) as exc:  # the publish happened; only the next change check is lost
                 _log.warning("Couldn't keep what was published for %r: %s", name, describe(exc))
@@ -261,7 +284,7 @@ class CloudMixin:
         """How the notebook's Fabric item changed since this app last published it, or None when
         that isn't known (never published from here, or the item is gone). ``target``, when given,
         is the item Publish writes, already looked up (_published_item)."""
-        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None
         if not link or link["workspace_id"] != workspace_id:
             return None
         # Check the item Publish writes: the linked one while it is there; when it is gone, the one with
@@ -278,7 +301,7 @@ class CloudMixin:
         if item["id"] != link["item_id"]:
             return {"changed": True, "item_id": item["id"], "other_item": True,
                     "fabric": [{"kind": "other item", "position": None, "diff": []}], "mine": []}
-        base = notebook_files.published(Path(self.root) / "published", link["item_id"])  # type: ignore[attr-defined]
+        base = notebook_files.published(Path(self.root) / "published", link["item_id"])
         if not base:
             return None
         try:
@@ -392,7 +415,7 @@ class CloudMixin:
             data = FileStore(lambda: token).read_bytes(run["workspace_id"], run["lakehouse_id"],
                                                         fabric_step.result_path(request_id))
             out["output"] = json.loads(data) if data else None
-        except Exception as exc:  # the run's status still shows; the output is in Fabric
+        except Exception as exc:  # noqa: BLE001 - the run's status still shows; the output is in Fabric
             _log.warning("Couldn't read the Fabric step's output: %s", describe(exc))
         if run["status"] == "Completed" and run.get("tables"):
             flat = not self._schemas_enabled(run["workspace_id"], run["lakehouse_id"])  # type: ignore[attr-defined]
@@ -408,7 +431,7 @@ class CloudMixin:
                         entry |= {"v_ordered": f["files"] > 0 and f["v_ordered"] == f["checked"],
                                   "files": f["files"], "checked": f["checked"], "v_ordered_files": f["v_ordered"]}
                     out["tables"].append(entry)
-                except Exception as exc:  # one table not readable doesn't hide the others
+                except Exception as exc:  # noqa: BLE001 - one table not readable doesn't hide the others
                     out["tables"].append({"table": table, "v_ordered": None, "message": describe(exc)})
         return out
 
@@ -417,7 +440,7 @@ class CloudMixin:
         item this app recorded for it in that workspace, found by id so a rename here or in Fabric
         doesn't make a second item. When that one was deleted, it is the notebook with its name (None:
         Publish creates one). With no recorded item it is None, and save_notebook matches by name as before."""
-        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None
         if link and link.get("workspace_id") == workspace_id and link.get("item_id"):
             item = self.fabric.get_notebook(workspace_id, link["item_id"])  # type: ignore[attr-defined]
             if item is not None:
@@ -430,7 +453,7 @@ class CloudMixin:
     def _fabric_item_name(self, name: str, item: dict[str, Any]) -> str:
         """The name to give ``item`` on publish: the notebook's (without its folders) when it was renamed
         here since it was last published to that item, else the item's own, so a rename in Fabric stays."""
-        last = notebook_files.published(Path(self.root) / "published", item["id"]) or {}  # type: ignore[attr-defined]
+        last = notebook_files.published(Path(self.root) / "published", item["id"]) or {}
         local = leaf_name(name)
         return local if last.get("name") and last["name"] != local else item.get("displayName") or local
 
@@ -446,7 +469,7 @@ class CloudMixin:
         if not hasattr(self, "workload_store"):
             return
         item_name = leaf_name(name)
-        for other, link in self.workload_store.links().items():  # type: ignore[attr-defined]
+        for other, link in self.workload_store.links().items():
             if (other != name and leaf_name(other) == item_name and link.get("workspace_id") == ws["workspace_id"]
                     and self.notebooks._taken(other)):  # type: ignore[attr-defined]  # noqa: SLF001
                 raise ValueError(f"{other} already publishes to the Fabric notebook {item_name} in "
@@ -532,10 +555,12 @@ class CloudMixin:
             try:
                 days = t.get("retention_days") or maintenance.RETENTION_HOURS // 24
                 if isinstance(store, LocalStore):
-                    result = maintenance.compact_local(store.uri(t["lakehouse"], t["schema"], t["table"]), days)
+                    with store.compaction_lease(t["lakehouse"], t["schema"], t["table"], wait=120):
+                        result = maintenance.compact_local(store.uri(t["lakehouse"], t["schema"], t["table"]), days)
                     out.append({"table": label, "status": "Completed", **result})
                     continue
                 lh_id = store.lakehouse_ids[t["lakehouse"]]
+                maintenance.check_retention(days)  # before the retention below, which only warns when it fails
                 try:  # so Fabric's own engines keep the same history; the job below vacuums with it too
                     maintenance.set_retention(store.uri(t["lakehouse"], t["schema"], t["table"]), days, store.options())
                 except Exception as exc:  # noqa: BLE001 - the maintenance job still runs with the right retention
@@ -547,7 +572,7 @@ class CloudMixin:
                 out.append(self._log_fabric_run({
                     "kind": "Table maintenance", "name": f"{t['lakehouse']} {label}", "env": env, "table": label,
                     "workspace_id": ws, "item_id": lh_id, "job_id": job_id}))
-            except Exception as exc:  # one table failing doesn't stop the rest
+            except Exception as exc:  # noqa: BLE001 - one table failing doesn't stop the rest
                 out.append({"table": label, "status": "Failed", "message": f"{type(exc).__name__}: {exc}"})
         return out
 
@@ -815,7 +840,7 @@ class CloudMixin:
                 fields = table_schema(store, lakehouse, t.schema, t.table)
             except TableNotFoundError:  # not written in this environment yet
                 fields = None
-            except Exception as exc:  # it may exist: leaving it out would drop it from the model
+            except Exception as exc:  # noqa: BLE001 - it may exist: leaving it out would drop it from the model
                 unreadable.append(f"{t.entity} ({type(exc).__name__}: {exc})")
                 continue
             if not fields:

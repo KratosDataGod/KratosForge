@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..winexe import system32
 from . import cli
 from .cli import GitError
 from .remote import check_url, repo_name
@@ -199,6 +200,9 @@ class Operations:
             return
         with self._lock:
             self._procs[op_id] = proc
+            cancel_now = bool(self._ops.get(op_id, {}).get("cancel_requested"))
+        if cancel_now:  # Cancel was pressed before git started: it had no process to stop then
+            _kill(proc)
         timer = threading.Timer(cli.NETWORK_TIMEOUT, lambda: _kill(proc))
         timer.daemon = True
         timer.start()
@@ -286,7 +290,7 @@ def _kill(proc: subprocess.Popen) -> None:
         return
     try:
         if _WINDOWS:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15,
+            subprocess.run([system32("taskkill.exe"), "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15,
                            creationflags=cli._NO_WINDOW)
         else:
             import os

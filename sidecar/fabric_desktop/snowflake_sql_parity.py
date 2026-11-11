@@ -30,6 +30,17 @@ from .duckdb_rows import first_row
 _FN = "https://docs.snowflake.com/en/sql-reference/functions/"
 D = dt.date
 _V = "(SELECT column1 AS x FROM VALUES ({}))"
+# The docs' table1 for CONDITIONAL_CHANGE_EVENT and CONDITIONAL_TRUE_EVENT.
+_TABLE1 = ("VALUES ('Alberta', 0), ('Alberta', 0), ('Alberta', 13), ('Alberta', 13), ('Alberta', 14), ('Alberta', 15), "
+           "('Alberta', NULL), ('Manitoba', 30) AS t(province, o_col)")
+# The docs' march_temps_every_five_mins: march_temps resampled every five minutes, NULL where nothing was observed.
+_MARCH = ("VALUES " + ", ".join(f"('{c}', '2025-03-15 {t}'::timestamp, {v})" for c, t, v in (
+    ("Big Bear City", "09:45", "NULL"), ("Big Bear City", "09:49", 48), ("Big Bear City", "09:50", "NULL"),
+    ("Big Bear City", "09:55", 49), ("Big Bear City", "10:00", "NULL"), ("Big Bear City", "10:05", "NULL"),
+    ("Big Bear City", "10:10", 51), ("Big Bear City", "10:15", "NULL"), ("Big Bear City", "10:18", 54),
+    ("South Lake Tahoe", "09:50", 44), ("South Lake Tahoe", "09:55", 46), ("South Lake Tahoe", "10:00", "NULL"),
+    ("South Lake Tahoe", "10:05", "NULL"), ("South Lake Tahoe", "10:10", 52), ("South Lake Tahoe", "10:15", 54)))
+    + " AS m(city, observed, temperature)")
 # vartab from Snowflake's IS_<object_type> and AS_<object_type> pages.
 _VARTAB = ("(SELECT column1 AS n, parse_json(column2) AS v FROM VALUES (1, 'null'), (2, null), (3, 'true'), "
            "(4, '-17'), (5, '123.12'), (6, '1.912e2'), (7, '\"Om ara pa ca na dhih\"  '), "
@@ -123,6 +134,38 @@ CASES: tuple[Case, ...] = (
     _c("SOUNDEX (first letter's code)", "String", "SELECT soundex('Pfister')", "P236"),
     _c("SOUNDEX (H between same codes)", "String", "SELECT soundex('Ashcraft')", "A261"),
     _c("SOUNDEX (padded with zeros)", "String", "SELECT soundex('Lee')", "L000"),
+    _c("TIME", "Date and time", "SELECT time('13:30:00')", dt.time(13, 30), page="to_time"),
+    _c("TIME (fraction)", "Date and time", "SELECT time('13:30:00.000')", dt.time(13, 30),
+       page="to_time"),
+    _c("TIMESTAMPADD (years)", "Date and time", "SELECT timestampadd(year, 2, to_date('2022-05-08'))",
+       dt.date(2024, 5, 8), page="timestampadd"),
+    _c("TIMESTAMPADD (hours on a date)", "Date and time", "SELECT timestampadd(hour, 2, to_date('2022-04-05'))",
+       dt.datetime(2022, 4, 5, 2, 0), page="timestampadd"),
+    _c("TIMESTAMPADD (month end)", "Date and time", "SELECT timestampadd(month, 1, '2023-01-31'::date)",
+       dt.date(2023, 2, 28), page="timestampadd"),
+    _c("TIMESTAMPADD (hours on a time)", "Date and time", "SELECT timestampadd(hour, 3, to_time('05:00:00'))",
+       dt.time(8, 0), page="timestampadd"),
+    _c("SOUNDEX_P123 (docs example)", "String", "SELECT soundex_p123('Pfister')", "P123"),
+    _c("SOUNDEX_P123 (same first two codes)", "String", "SELECT soundex_p123('Lloyd')", "L430", page="soundex_p123"),
+    _c("OCTET_LENGTH", "String", "SELECT octet_length('abc')", 3),
+    _c("OCTET_LENGTH (two-byte letter)", "String", "SELECT octet_length('Β')", 2, page="octet_length"),
+    _c("OCTET_LENGTH (binary)", "String", "SELECT octet_length(X'A1B2')", 2, page="octet_length"),
+    _c("TRY_BASE64_DECODE_STRING", "String", "SELECT try_base64_decode_string(base64_encode('HELLO'))", "HELLO"),
+    _c("TRY_BASE64_DECODE_STRING (garbage)", "String", "SELECT try_base64_decode_string('127')", None,
+       page="try_base64_decode_string"),
+    _c("TRY_BASE64_DECODE_BINARY", "String", "SELECT try_base64_decode_binary(base64_encode('HELP'))", b"HELP"),
+    _c("TRY_HEX_DECODE_STRING", "String", "SELECT try_hex_decode_string(hex_encode('AaBb'))", "AaBb"),
+    _c("TRY_HEX_DECODE_STRING (garbage)", "String", "SELECT try_hex_decode_string('127')", None,
+       page="try_hex_decode_string"),
+    _c("TRY_HEX_DECODE_BINARY", "String", "SELECT try_hex_decode_binary(hex_encode('ABab'))", b"ABab"),
+    _c("MD5_NUMBER_LOWER64", "String", "SELECT md5_number_lower64('Snowflake')", 9203306159527282910),
+    _c("MD5_NUMBER_UPPER64", "String", "SELECT md5_number_upper64('Snowflake')", 17145559544104499780),
+    _c("WIDTH_BUCKET (docs example)", "Numeric",
+       "SELECT listagg(width_bucket(price, 200000, 600000, 4), ',') WITHIN GROUP (ORDER BY d) FROM "
+       "(SELECT column1 AS d, column2 AS price FROM VALUES ('2013-08-01', 290000.00), ('2014-02-01', 320000.00), ('2015-04-01', 399999.99), ('2016-04-01', 400000.00), ('2017-04-01', 470000.00), ('2018-04-01', 510000.00))", "1,2,2,3,3,4", page="width_bucket"),
+    _c("WIDTH_BUCKET (below min)", "Numeric", "SELECT width_bucket(100, 200000, 600000, 4)", 0, page="width_bucket"),
+    _c("WIDTH_BUCKET (at max)", "Numeric", "SELECT width_bucket(600000, 200000, 600000, 4)", 5, page="width_bucket"),
+    _c("WIDTH_BUCKET (NULL)", "Numeric", "SELECT width_bucket(NULL, 200000, 600000, 4)", None, page="width_bucket"),
     _c("MD5", "String", "SELECT md5('a')", "0cc175b9c0f1b6a831c399e269772661"),
     _c("SHA2 (256 by default)", "String", "SELECT sha2('a')",
        "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"),
@@ -198,6 +241,71 @@ CASES: tuple[Case, ...] = (
     _c("ARRAY_SLICE", "Semi-structured", "SELECT array_slice(array_construct(1, 2, 3, 4), 1, 3)", [2, 3]),
     _c("ARRAY_CAT", "Semi-structured", "SELECT array_cat(array_construct(1), array_construct(2))", [1, 2]),
     _c("OBJECT_KEYS", "Semi-structured", "SELECT object_keys(parse_json('{\"a\": 1, \"b\": 2}'))", ["a", "b"]),
+    _c("OBJECT_CONSTRUCT (constant)", "Semi-structured", "SELECT {'b': 2, 'a': 1}::string", '{"a":1,"b":2}',
+       page="object_construct"),
+    _c("OBJECT_DELETE", "Semi-structured",
+       "SELECT object_delete(object_construct('a', 1, 'b', 2, 'c', 3), 'a', 'b')::string", '{"c":3}'),
+    _c("OBJECT_DELETE (nested path)", "Semi-structured",
+       "SELECT object_delete(ov:employee_contact, 'phone')::string FROM (SELECT object_construct('employee_contact', "
+       "object_construct('city', 'San Mateo', 'state', 'CA', 'phone', '800-555-0100')) AS ov)",
+       '{"city":"San Mateo","state":"CA"}', page="object_delete"),
+    _c("OBJECT_PICK", "Semi-structured",
+       "SELECT object_pick(object_construct('a', 1, 'b', 2, 'c', 3), 'a', 'b')::string", '{"a":1,"b":2}'),
+    _c("OBJECT_PICK (array of keys)", "Semi-structured",
+       "SELECT object_pick(object_construct('a', 1, 'b', 2, 'c', 3), array_construct('a', 'b'))::string",
+       '{"a":1,"b":2}', page="object_pick"),
+    _c("OBJECT_INSERT (docs example)", "Semi-structured",
+       "SELECT object_insert(object_insert(object_insert(object_insert(object_construct('a', 'value1', 'b', "
+       "'value2'), 'c', 'value3'), 'd', parse_json('null')), 'e', NULL), 'f', 'null')::string",
+       '{"a":"value1","b":"value2","c":"value3","d":null,"f":"null"}', page="object_insert"),
+    _c("OBJECT_INSERT (update)", "Semi-structured",
+       "SELECT object_insert(object_construct('a', 'value1', 'b', 'value2'), 'b', 'valuex', TRUE)::string",
+       '{"a":"value1","b":"valuex"}', page="object_insert"),
+    _c("OBJECT_INSERT (existing key)", "Semi-structured",
+       "SELECT object_insert(object_construct('a', 'value1'), 'a', 'valuex')", Raises("Duplicate field key"),
+       page="object_insert"),
+    _c("OBJECT_AGG (docs example)", "Aggregate",
+       "SELECT listagg(o::string, ' ') WITHIN GROUP (ORDER BY g) FROM (SELECT g, object_agg(k, v) AS o FROM "
+       "(SELECT column1 AS g, column2 AS k, column3 AS v FROM VALUES (0, 'name', 'Joe'::variant), (0, 'age', 21::variant), (1, 'name', 'Sue'::variant), (1, 'zip', 94401::variant)) GROUP BY g)", '{"age":21,"name":"Joe"} {"name":"Sue","zip":94401}', page="object_agg"),
+    _c("TO_OBJECT", "Conversion", "SELECT to_object(parse_json('{\"a\":1}'))::string", '{"a":1}'),
+    _c("TO_OBJECT (JSON null)", "Conversion", "SELECT to_object(parse_json('null'))", None, page="to_object"),
+    _c("ARRAYS_TO_OBJECT", "Semi-structured",
+       "SELECT arrays_to_object(['key1', 'key2', 'key3'], [1, 2, 3])::string", '{"key1":1,"key2":2,"key3":3}'),
+    _c("ARRAYS_TO_OBJECT (NULL key)", "Semi-structured",
+       "SELECT arrays_to_object(['key1', NULL, 'key3'], [1, 2, 3])::string", '{"key1":1,"key3":3}',
+       page="arrays_to_object"),
+    _c("ARRAYS_TO_OBJECT (NULL value)", "Semi-structured",
+       "SELECT arrays_to_object(['key1', 'key2', 'key3'], [1, NULL, 3])::string",
+       '{"key1":1,"key2":null,"key3":3}', page="arrays_to_object"),
+    _c("ARRAY_EXCEPT", "Semi-structured", "SELECT array_except(['A', 'B'], ['B', 'C'])", ["A"]),
+    _c("ARRAY_EXCEPT (copies)", "Semi-structured", "SELECT array_except(['A', 'B', 'B', 'B', 'C'], ['B'])",
+       ["A", "B", "B", "C"], page="array_except"),
+    _c("ARRAY_EXCEPT (NULLs)", "Semi-structured", "SELECT array_except(['A', NULL, NULL], ['B', NULL])",
+       ["A", None], page="array_except"),
+    _c("ARRAY_EXCEPT (NULL argument)", "Semi-structured", "SELECT array_except(['A', 'B'], NULL)", None,
+       page="array_except"),
+    _c("ARRAY_INTERSECTION", "Semi-structured",
+       "SELECT array_intersection(array_construct('A', 'B', 'B', 'B', 'C'), array_construct('B', 'B'))",
+       ["B", "B"]),
+    _c("ARRAY_INTERSECTION (NULLs)", "Semi-structured", "SELECT array_intersection([NULL, 102, NULL], [NULL, NULL, 103])",
+       [None, None], page="array_intersection"),
+    _c("ARRAY_INTERSECTION (objects in another order)", "Semi-structured",
+       "SELECT array_size(array_intersection([{'a': 1, 'b': 2, 'c': 3}], [{'c': 3, 'b': 2, 'a': 1}]))", 1,
+       page="array_intersection"),
+    _c("FILTER", "Semi-structured", "SELECT filter([1, NULL, 3, 5, NULL], a -> a IS NOT NULL)", [1, 3, 5]),
+    _c("FILTER (objects)", "Semi-structured",
+       "SELECT array_size(filter([{'name': 'Pat', 'value': 50}, {'name': 'Terry', 'value': 75}, "
+       "{'name': 'Dana', 'value': 25}], a -> a:value >= 50))", 2, page="filter"),
+    _c("TRANSFORM", "Semi-structured", "SELECT transform([1, 2, 3], a INT -> a * 2)", [2, 4, 6]),
+    _c("TRANSFORM (objects)", "Semi-structured",
+       "SELECT transform([{'name': 'Pat', 'value': 50}, {'name': 'Terry', 'value': 75}], "
+       "c -> c:value || ' is the number')", ["50 is the number", "75 is the number"], page="transform"),
+    _c("MAP_CAT", "Semi-structured",
+       "SELECT map_size(map_cat({'color': 'red', 'size': 'M'}::MAP(VARCHAR, VARCHAR), "
+       "{'currency': 'USD', 'size': 'L'}::MAP(VARCHAR, VARCHAR)))", 3),
+    _c("MAP_CAT (the second map wins)", "Semi-structured",
+       "SELECT map_cat({'color': 'red', 'size': 'M'}::MAP(VARCHAR, VARCHAR), "
+       "{'currency': 'USD', 'size': 'L'}::MAP(VARCHAR, VARCHAR))['size']", "L", page="map_cat"),
     _c("IS_NULL_VALUE", "Semi-structured", "SELECT is_null_value(parse_json('null'))", True),
     # The examples on Snowflake's IS_<object_type> and AS_<object_type> pages: vartab, then multiple_types.
     *(_c(f"{name} (vartab)", "Semi-structured", f"SELECT listagg(n, ',') WITHIN GROUP (ORDER BY n) FROM {_VARTAB} "
@@ -284,6 +392,15 @@ CASES: tuple[Case, ...] = (
     _c("MEDIAN", "Aggregate", f"SELECT median(x) FROM {_values(1, 2, 3, 4)}", 2.5),
     _c("BOOLOR_AGG", "Aggregate", f"SELECT boolor_agg(x) FROM {_values('TRUE', 'FALSE')}", True),
     _c("ANY_VALUE", "Aggregate", f"SELECT any_value(x) FROM {_values(1)}", 1),
+    _c("GROUPING (grouping sets, docs example)", "Aggregate",
+       "SELECT listagg(concat_ws('/', coalesce(col_x::string, '-'), coalesce(col_y::string, '-'), s::string, gx::string, gy::string, gxy::string), ' ') WITHIN GROUP (ORDER BY col_x NULLS LAST, col_y NULLS LAST) FROM (SELECT col_x, col_y, sum(col_z) AS s, grouping(col_x) AS gx, grouping(col_y) AS gy, grouping(col_x, col_y) AS gxy FROM (SELECT column1 AS col_x, column2 AS col_y, column3 AS col_z FROM VALUES (1, 2, 1), (1, 2, 3), (2, 1, 10), (2, 2, 11), (2, 2, 3)) GROUP BY GROUPING SETS ((col_x), (col_y), ()))",
+       "1/-/4/0/1/1 2/-/24/0/1/1 -/1/10/1/0/2 -/2/18/1/0/2 -/-/28/1/1/3", page="grouping"),
+    _c("GROUPING (rollup, docs example)", "Aggregate",
+       "SELECT listagg(concat_ws('/', coalesce(col_x::string, '-'), coalesce(col_y::string, '-'), s::string, gx::string, gy::string, gxy::string), ' ') WITHIN GROUP (ORDER BY col_x NULLS LAST, col_y NULLS LAST) FROM (SELECT col_x, col_y, sum(col_z) AS s, grouping(col_x) AS gx, grouping(col_y) AS gy, grouping(col_x, col_y) AS gxy FROM (SELECT column1 AS col_x, column2 AS col_y, column3 AS col_z FROM VALUES (1, 2, 1), (1, 2, 3), (2, 1, 10), (2, 2, 11), (2, 2, 3)) GROUP BY ROLLUP (col_x, col_y))",
+       "1/2/4/0/0/0 1/-/4/0/1/1 2/1/10/0/0/0 2/2/14/0/0/0 2/-/24/0/1/1 -/-/28/1/1/3", page="grouping"),
+    _c("GROUPING_ID (docs example)", "Aggregate",
+       "SELECT listagg(concat_ws('/', coalesce(col_x::string, '-'), coalesce(col_y::string, '-'), s::string, gx::string, gy::string, gxy::string), ' ') WITHIN GROUP (ORDER BY col_x NULLS LAST, col_y DESC NULLS FIRST) FROM (SELECT col_x, col_y, sum(col_z) AS s, grouping_id(col_x) AS gx, grouping_id(col_y) AS gy, grouping_id(col_x, col_y) AS gxy FROM (SELECT column1 AS col_x, column2 AS col_y, column3 AS col_z FROM VALUES (1, 2, 1), (1, 2, 3), (2, 1, 10), (2, 2, 11), (2, 2, 3)) GROUP BY GROUPING SETS ((col_x), (col_y), ()))",
+       "1/-/4/0/1/1 2/-/24/0/1/1 -/-/28/1/1/3 -/2/18/1/0/2 -/1/10/1/0/2", page="grouping_id"),
     _c("APPROX_COUNT_DISTINCT", "Aggregate", f"SELECT approx_count_distinct(x) FROM {_values(1, 1, 2)}", 2),
     _c("HLL", "Aggregate", f"SELECT hll(x) FROM {_values(1, 1, 2)}", 2),
     _c("HLL (DISTINCT has no effect)", "Aggregate", f"SELECT hll(DISTINCT x) FROM {_values(1, 1, 2)}", 2, page="hll"),
@@ -326,6 +443,64 @@ CASES: tuple[Case, ...] = (
     _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0),
     _c("HAVERSINE (docs example)", "Geospatial", "SELECT haversine(40.7127, -74.0059, 34.0500, -118.2500)",
        3936.385096389, page="haversine"),
+    _c("LATERAL FLATTEN (docs example)", "Semi-structured",
+       "SELECT listagg(key || '|' || path || '|' || coalesce(to_varchar(index), 'NULL'), ',') WITHIN GROUP (ORDER BY "
+       "path) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"b\":[77,88], \"c\": {\"d\":\"X\"}}')))",
+       "a|a|NULL,b|b|NULL,c|c|NULL", page="flatten"),
+    _c("LATERAL FLATTEN (PATH, docs example)", "Semi-structured",
+       "SELECT listagg(coalesce(key, 'NULL') || '|' || path || '|' || index || '|' || value, ',') WITHIN GROUP "
+       "(ORDER BY index) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"b\":[77,88]}'), PATH => 'b'))",
+       "NULL|b[0]|0|77,NULL|b[1]|1|88", page="flatten"),
+    _c("LATERAL FLATTEN (empty array, docs example)", "Semi-structured",
+       "SELECT count(*) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]')))", 0, page="flatten"),
+    _c("LATERAL FLATTEN (OUTER, docs example)", "Semi-structured",
+       "SELECT coalesce(key, 'NULL') || '|' || path || '|' || coalesce(to_varchar(index), 'NULL') || '|' || "
+       "coalesce(to_varchar(value), 'NULL') || '|' || to_varchar(this) FROM TABLE(FLATTEN(INPUT => "
+       "PARSE_JSON('[]'), OUTER => TRUE))", "NULL||NULL|NULL|[]", page="flatten"),
+    _c("LATERAL FLATTEN (nested, docs example)", "Semi-structured",
+       "SELECT listagg(p.id || ':' || f1.value:type::string || '=' || f1.value:content::string, ',') WITHIN GROUP "
+       "(ORDER BY p.id, f1.index) FROM (SELECT column1 AS id, PARSE_JSON(column2) AS c FROM VALUES "
+       "(12712555, '{\"contact\": [{\"business\": [{\"type\": \"phone\", \"content\": \"555-1234\"}, "
+       "{\"type\": \"email\", \"content\": \"j.smith@example.com\"}]}]}')) p, LATERAL FLATTEN(INPUT => p.c, "
+       "PATH => 'contact') f, LATERAL FLATTEN(INPUT => f.value:business) f1",
+       "12712555:phone=555-1234,12712555:email=j.smith@example.com", page="flatten"),
+    _c("CONDITIONAL_CHANGE_EVENT (docs example)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_change_event(o_col) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,1,1,2,3,3,0"),
+    _c("CONDITIONAL_CHANGE_EVENT (of a condition)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_change_event(o_col < 15) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,0,0,0,1,1,0"),
+    _c("CONDITIONAL_CHANGE_EVENT (power changes)", "Window",
+       "SELECT listagg(e, ',') WITHIN GROUP (ORDER BY ts) FROM (SELECT ts, conditional_change_event(voltage = 0) "
+       "OVER (ORDER BY ts) AS e FROM VALUES (1, 120), (2, 120), (3, 0), (4, 0), (5, 0), (6, 0), (7, 120) "
+       "AS v(ts, voltage))", "0,0,1,1,1,1,2"),
+    _c("CONDITIONAL_TRUE_EVENT (docs example)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_true_event(o_col) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,1,2,3,4,4,1"),
+    _c("CONDITIONAL_TRUE_EVENT (of a condition)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_true_event(o_col > 20) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,0,0,0,0,0,1"),
+    _c("CONDITIONAL_TRUE_EVENT (of LAG)", "Window",
+       "SELECT listagg(e, ',') WITHIN GROUP (ORDER BY p, o) FROM (SELECT p, o, conditional_true_event("
+       "lag(o) OVER (PARTITION BY p ORDER BY o) > 1) OVER (PARTITION BY p ORDER BY o) AS e FROM VALUES "
+       "(100, 1), (100, 2), (100, 3), (100, 4), (100, 5), (100, 6), (200, 7), (200, 8), (200, 9), (200, 10), "
+       "(200, 11), (300, 12), (400, 13) AS v(p, o))", "0,0,1,2,3,4,0,1,2,3,4,0,0"),
+    _c("INTERPOLATE_FFILL (docs example)", "Window",
+       f"SELECT listagg(coalesce(to_varchar(f), 'NULL'), ',') WITHIN GROUP (ORDER BY city, observed) FROM "
+       f"(SELECT city, observed, interpolate_ffill(temperature) OVER (PARTITION BY city ORDER BY observed) AS f "
+       f"FROM {_MARCH})", "NULL,48,48,49,49,49,51,51,54,44,46,46,46,52,54", page="interpolate_bfill"),
+    _c("INTERPOLATE_BFILL (docs example)", "Window",
+       f"SELECT listagg(coalesce(to_varchar(b), 'NULL'), ',') WITHIN GROUP (ORDER BY city, observed) FROM "
+       f"(SELECT city, observed, interpolate_bfill(temperature) OVER (PARTITION BY city ORDER BY observed) AS b "
+       f"FROM {_MARCH})", "48,48,49,49,51,51,51,54,54,44,46,52,52,52,54", page="interpolate_bfill"),
+    _c("INTERPOLATE_LINEAR (between two values)", "Window",
+       f"SELECT listagg(to_varchar(round(l)::int), ',') WITHIN GROUP (ORDER BY observed) FROM (SELECT observed, "
+       f"interpolate_linear(temperature) OVER (PARTITION BY city ORDER BY observed) AS l FROM {_MARCH} "
+       f"WHERE city = 'South Lake Tahoe')", "44,46,48,50,52,54", page="interpolate_bfill"),
 )
 
 
@@ -352,8 +527,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
 def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "error": "Doesn't run", "untranslated": "Runs only in Snowflake"}
-    rows = [f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
-            "reference documents (no Snowflake account was used), these don't answer the same way on this PC.", "",
+    rows = [(f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
+            "reference documents (no Snowflake account was used), these don't answer the same way on this PC."), "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]

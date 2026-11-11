@@ -31,7 +31,8 @@ def _only(rule_ids: list[str], settings: dict[str, Any]) -> dict[str, dict[str, 
 
 
 def _adapter(kind: str, rule_ids: Callable[[], list[str]],
-             run: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[dict[str, Any]]]):
+             run: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[dict[str, Any]]]
+             ) -> Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]] | None]:
     def check(item: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]] | None:
         ids = rule_ids()
         if item.get("kind") != kind or not any(rid in settings for rid in ids):
@@ -53,7 +54,8 @@ def _notebook(item: dict[str, Any], settings: dict[str, dict[str, Any]]) -> list
 
 
 def _sql(item: dict[str, Any], settings: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    target = item.get("target") if item.get("target") in sql_practices.TARGETS else "warehouse"
+    got = item.get("target")
+    target: str = got if got in sql_practices.TARGETS else "warehouse"
     return sql_practices.check(str(item.get("query") or ""), target, settings)["findings"]
 
 

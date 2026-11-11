@@ -64,7 +64,7 @@ class RiskMixin:
     # ---- facts
 
     def _risk_capacity(self, workspace_id: str, workspace_name: str, refresh: bool,
-                       reads: list[str], memo: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                       reads: list[str], memo: dict[Any, Any] | None = None) -> dict[str, Any] | None:
         """The capacity reading for a workspace: an environment's reading when the workspace is one
         (from the last hour unless ``refresh``), otherwise a read of that workspace now. ``memo``
         keeps readings across the checks of one batch, so each workspace is read once."""
@@ -101,7 +101,7 @@ class RiskMixin:
         if cap_client:
             try:
                 caps = {str(c.get("id", "")).lower(): c for c in cap_client.list_capacities() if c.get("id")}
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - any capacity read failure is classified and shown
                 cap_error = capacity_mod.classify_error(exc)
                 if cap_error in ("workspace_no_access", "workspace_not_found"):
                     cap_error = "scope_not_granted"

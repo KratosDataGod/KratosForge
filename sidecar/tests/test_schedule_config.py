@@ -35,16 +35,19 @@ def _problems(cfg, tmp_path, schedule: str) -> list[str]:
     ("every_minutes = 1.5", "every_minutes is a whole number of at least 1"),  # was every minute
     ("every_minutes = true", "every_minutes is a whole number of at least 1"),  # was every minute
     ('every_minutes = "60"', "every_minutes is a whole number of at least 1"),
-    ("every_minutes = 0", "Pick how many minutes between runs"),
+    ("every_minutes = 0", "every_minutes is a whole number from 1 to 5270400, like 60"),
+    ("every_minutes = 5270401", "every_minutes is a whole number from 1 to 5270400, like 60"),
     ('daily = "06:00"', 'times are a list, like ["06:00"]'),  # was five one-letter "times"
     ('daily = ["6:00"]', "Times are HH:MM in 24-hour form"),
     ('daily = ["24:00"]', "Times are HH:MM in 24-hour form"),
-    ("daily = []", "Pick at least one time of day"),
+    ("daily = []", 'daily needs at least one time, like ["06:00"]'),
     ('weekly = "Monday"', "weekly is { days ="),
     ('weekly = { days = "Monday", times = ["06:00"] }', "weekly is { days ="),
     ('weekly = { days = ["Monday"], times = "06:00" }', "times are a list"),
     ('weekly = { days = ["Monday", "Tusday"], times = ["06:00"] }', "Days are Monday to Sunday (got 'Tusday')"),
-    ('weekly = { days = [], times = ["06:00"] }', "Pick at least one day and one time"),
+    ('weekly = { days = [], times = ["06:00"] }', "weekly needs at least one day and one time, like { days ="),
+    ('weekly = { days = ["Monday"], times = [] }', "weekly needs at least one day and one time"),
+    ('weekly = { times = ["06:00"] }', "weekly needs at least one day and one time"),
     ('every_minutes = 60\ndaily = ["06:00"]', "give exactly one of every_minutes, daily or weekly"),
 ])
 def test_a_schedule_written_wrong_is_refused_in_words(tmp_path, setup, schedule, says):  # noqa: F811
@@ -228,9 +231,10 @@ def test_schtasks_is_called_quietly_and_its_errors_come_back_in_words(monkeypatc
         return subprocess.CompletedProcess(args, 0 if ok else 1, "", "" if ok else "ERROR: The task doesn't exist.\n")
     monkeypatch.setattr(local_schedules.subprocess, "run", run)
     monkeypatch.setattr(TaskScheduler, "available", True)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     ts = TaskScheduler()
     ts.unregister("abc")
-    assert calls[0][0] == ["schtasks", "/Delete", "/TN", "\\FabricDesktop\\abc", "/F"]
+    assert calls[0][0] == [r"C:\Windows\System32\schtasks.exe", "/Delete", "/TN", "\\FabricDesktop\\abc", "/F"]
     assert calls[0][1]["timeout"] == local_schedules.SCHTASKS_SECONDS and calls[0][1]["capture_output"]
     with pytest.raises(RuntimeError, match="Task Scheduler: ERROR: The task doesn't exist."):
         ts.run_now("abc")

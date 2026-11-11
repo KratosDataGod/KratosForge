@@ -98,6 +98,13 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "int": ("int('10')", 10),
     "json": ("json('[1, 2, 3]')", [1, 2, 3]),
     "string": ("string(10)", "10"),
+    "base64": ("base64('hello')", "aGVsbG8="),
+    "base64ToString": ("base64ToString('aGVsbG8=')", "hello"),
+    "decodeBase64": ("decodeBase64('aGVsbG8=')", "hello"),
+    "dataUri": ("dataUri('hello')", "data:text/plain;charset=utf-8;base64,aGVsbG8="),
+    "dataUriToString": ("dataUriToString('data:text/plain;charset=utf-8;base64,aGVsbG8=')", "hello"),
+    "encodeUriComponent": ("encodeUriComponent('https://contoso.com')", "https%3A%2F%2Fcontoso.com"),
+    "decodeUriComponent": ("decodeUriComponent('http%3A%2F%2Fcontoso.com')", "http://contoso.com"),
     "add": ("add(1, 1.5)", 2.5),
     "div": ("div(11, 5)", 2),
     "max": ("max(1, 2, 3)", 3),
@@ -120,9 +127,20 @@ EXAMPLES: dict[str, tuple[str, Any]] = {
     "dayOfWeek": ("dayOfWeek('2018-03-15T13:27:36Z')", 4),
     "dayOfYear": ("dayOfYear('2018-03-15T13:27:36Z')", 74),
     "ticks": ("ticks('2018-03-15T13:27:36Z')", 636567172560000000),
+    "convertFromUtc": ("convertFromUtc('2018-01-01T08:00:00.0000000Z', 'Pacific Standard Time')", "2018-01-01T00:00:00Z"),
+    "convertTimeZone": ("convertTimeZone('2018-01-01T08:00:00.0000000Z', 'UTC', 'Pacific Standard Time')",
+                        "2018-01-01T00:00:00.0000000"),
+    "convertToUtc": ("convertToUtc('01/01/2018 00:00:00', 'Pacific Standard Time')", "2018-01-01T08:00:00.0000000Z"),
 }
 # Where the reference's printed value is wrong, the value above is the corrected one, and this says why.
 NOTES: dict[str, str] = {
+    "convertFromUtc": "The reference's two examples of the same conversion disagree: convertFromUtc's ends in Z with no "
+                      "fractions, convertTimeZone's (`2018-01-01T00:00:00.0000000`) has no Z. A local run writes "
+                      "convertTimeZone's form for both. Which one Fabric writes hasn't been checked.",
+    "encodeUriComponent": "The reference prints `http%3A%2F%2Fcontoso.com` for `https://contoso.com`, which drops "
+                          "the s; escaping keeps it, so `https%3A%2F%2Fcontoso.com` is the value checked.",
+    "decodeUriComponent": "The reference prints `https://contoso.com` for `http%3A%2F%2Fcontoso.com`, which adds an "
+                          "s; unescaping can't, so `http://contoso.com` is the value checked.",
     "ticks": "The reference prints 636567724560000000 for this example. In .NET, "
              "`new DateTime(2018, 3, 15, 13, 27, 36).Ticks` is 636567172560000000 "
              "(621355968000000000 ticks at 1970-01-01, plus 1521120456 seconds), so that is the value checked.",
@@ -199,18 +217,18 @@ def markdown(cov: dict[str, list[dict[str, Any]]]) -> str:
     out = [
         "# Local pipeline coverage (Preview)",
         "",
-        "This page lists every Data Factory pipeline activity type the local runner knows and every function "
+        ("This page lists every Data Factory pipeline activity type the local runner knows and every function "
         f"in Microsoft's [pipeline expression reference]({REFERENCE}), with what a local run does with each. "
         "It is generated from the runner's activity registry and expression evaluator "
         "(`sidecar/fabric_desktop/orchestration/coverage.py`), and a test fails when it is out of date. "
-        "Nothing here has been compared with a run in Fabric yet.",
+        "Nothing here has been compared with a run in Fabric yet."),
         "",
         "## Activities",
         "",
-        f"{len(acts)} activity types: {count(acts, ('runs locally', 'simulated', 'refused', 'Fabric only'))}. "
+        (f"{len(acts)} activity types: {count(acts, ('runs locally', 'simulated', 'refused', 'Fabric only'))}. "
         "A type the registry doesn't know is refused too: it is kept in the pipeline as it is, but not checked "
         "or run. See [activity compatibility](activity-registry.md) for each type's properties, sign-in and "
-        "side effects.",
+        "side effects."),
         "",
         "- **runs locally:** a tested adapter runs it on this PC.",
         "- **simulated:** it runs against fixtures or a stand-in, with no real side effects.",
@@ -232,12 +250,12 @@ def markdown(cov: dict[str, list[dict[str, Any]]]) -> str:
         "",
         "- **runs:** it gives the reference's value for the reference's own example.",
         "- **differs:** it runs but gives another value for that example, so check results that use it in Fabric.",
-        "- **fails:** the reference's own example stops with an error here, so an expression like it fails the "
-        "activity.",
-        "- **not checked:** it runs, but its value changes from run to run, or it reads the run itself, so there "
-        "is no value to compare.",
-        "- **refused:** the activity stops with `<name>() isn't supported in local runs yet`. Nothing runs with "
-        "a guessed value.",
+        ("- **fails:** the reference's own example stops with an error here, so an expression like it fails the "
+        "activity."),
+        ("- **not checked:** it runs, but its value changes from run to run, or it reads the run itself, so there "
+        "is no value to compare."),
+        ("- **refused:** the activity stops with `<name>() isn't supported in local runs yet`. Nothing runs with "
+        "a guessed value."),
         "",
     ]
     for category in FUNCTIONS:

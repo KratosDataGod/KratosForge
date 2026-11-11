@@ -76,31 +76,55 @@ include = ["fabric_desktop*"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
-                  "fabric_desktop/academy/packs"]  # exercise answers run with the exercise's spark (pyspark_lab)
+                  "fabric_desktop/academy/packs",  # exercise answers run with the exercise's spark (pyspark_lab)
+                  "tests/fixtures/ipynb"]  # notebooks as other tools write them, kept byte for byte (test_ipynb_round_trip)
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
 # import or a name that isn't defined, and bugbear (B), likely bugs such as a duplicate set item or an
 # unused loop variable. The engine's Format cell runs ruff with --isolated, so nothing here changes how
 # cells are formatted.
+# ISC004: strings joined implicitly inside a list, tuple or set are wrapped in parentheses, so a
+# missing comma between two items can't pass as one string. PLE: errors such as invisible or
+# bidirectional characters in source. SECURITY: the bandit rules that find real risks (exec and eval,
+# shell=True, weak hashes, unsafe deserialization, TLS checks turned off, permissive file modes,
+# requests without a timeout, fixed temp paths, programs named without their folder). Each reviewed
+# use in the engine is marked `# noqa: <code> - <reason>`, and tests/test_security_lint_marks.py
+# fails on a mark without a reason.
+# A hash that isn't for security says so with usedforsecurity=False.
 [tool.ruff.lint]
-select = ["E9", "F", "B"]
+select = ["E9", "F", "B", "BLE", "ISC004", "PLE", "S102", "S103", "S104", "S108", "S113", "S301", "S302",
+          "S307", "S310", "S323", "S324", "S501", "S502", "S503", "S504", "S506", "S508", "S509", "S602",
+          "S604", "S605", "S607", "S609", "S612", "S701", "S702"]
 # Every bugbear rule is on. A closure using a loop variable (B023) that is only called within that
-# iteration is marked `noqa: B023` with the reason. Blind excepts (BLE) stay off:
-# tests/test_silent_except.py already requires every broad handler to log, narrow or say why it is silent.
+# iteration is marked `noqa: B023` with the reason. Blind excepts (BLE) are on: each reviewed broad
+# handler is marked `# noqa: BLE001 - <reason>` on its except line, and tests/test_blind_except.py
+# fails on a mark without a reason, so `grep -rn "BLE001"` is the list of reviewed exceptions.
 
 [tool.ruff.lint.per-file-ignores]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.
-"tests/**" = ["F811"]
+"tests/**" = ["F811",
+             # Tests exec the source they build or check, marshal the engine's own .pyc files, hash
+             # with MD5 and SHA-1 to compare with Spark's answers, use /tmp paths that are only text
+             # and never created, and set a folder back to 0o755 after a permission test.
+             "S102", "S302", "S324", "S108", "S103",
+             # Tests start git, pwsh and python by name, as a developer's terminal would.
+             "S607"]
 # The policy resolver defines its small helpers inside each policy's iteration and calls them there.
 "fabric_desktop/central/policy.py" = ["B023"]
 
 # CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
-# in mypy-baseline.json, and only new ones fail.
+# in mypy-baseline/ (one file per module), and only new ones fail.
 [tool.mypy]
 files = ["fabric_desktop"]
 exclude = ["^fabric_desktop/academy/packs/"]  # exercise answers run with the exercise's spark (pyspark_lab)
 python_version = "3.12"  # CI's; the counts depend on it
 ignore_missing_imports = true  # several of the engine's packages ship no type information
+check_untyped_defs = true  # bodies of functions without annotations are checked too
+strict_equality = true  # ==, is and in between types that can never match
+warn_redundant_casts = true
+warn_unused_ignores = true  # a stale ignore would hide the next real error on its line
+disallow_untyped_defs = true  # every function is annotated (tests/test_mypy_strict.py keeps it so)
+disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
 module = ["fabric_desktop._vendor.*"]  # vendored code stays as its authors wrote it
@@ -112,3 +136,6 @@ testpaths = ["tests"]
 # more; the engine reads relations there (duckdb_rows.for_arrow, #1489), and a new reader that doesn't
 # fails the 2.0 run.
 filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]
+# These take the exercise runtime's access off the shared Python install for the whole machine, so
+# another xdist worker's running exercise would lose its Python. CI runs them in a serial step of their own.
+markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist"]

@@ -305,7 +305,7 @@ function openSqlTemplates(ref, open, opts = {}) {
       return;
     }
     const params = sqlTemplateParams(t.sql);
-    const script = h("pre", { class: "sqlt-preview", "aria-label": "Script" });
+    const script = h("pre", { class: "sqlt-preview", tabindex: "0", "aria-label": "Script" });  // scrolls: arrow keys reach its long lines
     const problems = () => params.filter((p) => sqlTemplateProblem(p.kind, sel.values[p.name] ?? p.value));
     const openBtn = btn("Open in a new tab", null, () => { closeDialog(); open(t.title, `${sqlTemplateFill(t.sql, sel.values)}\n`); }, "tool primary");
     const refresh = () => {
@@ -321,7 +321,7 @@ function openSqlTemplates(ref, open, opts = {}) {
     refresh();
     detail.replaceChildren(...head,
       fields.length ? h("div", { class: "sqlt-fields" }, fields) : null, script,
-      h("div", { class: "sqlt-actions" }, h("span", { class: "muted-text" }, "Opening a template runs nothing. Only a query that reads runs on this page; for now, run the rest in Fabric."), h("span", { class: "spacer" }), openBtn));
+      h("div", { class: "sqlt-actions" }, h("span", { class: "muted-text" }, "Opening a template runs nothing. A template that changes the warehouse runs only with Allow changes ticked, after you confirm."), h("span", { class: "spacer" }), openBtn));
   }
   // Write a new template, edit one of yours (t), or start one from a copy of any template (copy), in
   // place of the gallery.

@@ -60,7 +60,8 @@ Runner = Callable[[Path, str], dict[str, Any]]
 # The process's first code: put kf_learner first on the path, make spark, run answer.py, exit at once
 # (os._exit, so no interpreter shutdown can hang on a worker thread after the answer finished).
 BOOTSTRAP = """
-import os, sys, traceback
+import faulthandler, os, sys, traceback
+faulthandler.enable()   # a crash in native code (DuckDB, delta-rs) still leaves a trace on stderr
 sys.path.insert(0, sys.argv[1])
 from kf_learner import pyspark_shim
 spark = pyspark_shim.session(sys.argv[2])
@@ -143,13 +144,15 @@ def run_reference(work: Path, code: str) -> dict[str, Any]:
     """Run first-party code (a pack's reference solution or planted wrong answer) in a ``python -I`` process
     with an empty environment. Never for a learner's answer: that is ``run_learner``."""
     jsonfile.write_text(Path(work) / ANSWER_FILE, code)
-    env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")}
+    env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")} | {"PYTHONIOENCODING": "utf-8"}
     try:
         p = subprocess.run([sys.executable, "-I", "-c", BOOTSTRAP, str(_package_dir()), str(work)], cwd=work,
-                           env=env, capture_output=True, text=True, timeout=RUN_SECONDS, check=False)
+                           env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=RUN_SECONDS, check=False)
     except subprocess.TimeoutExpired:
         return {"status": "time_limit", "stdout": "", "stderr": ""}
-    return {"status": "ok" if p.returncode == 0 else "error", "stdout": p.stdout[-4000:], "stderr": p.stderr[-4000:]}
+    return {"status": "ok" if p.returncode == 0 else "error", "exit_code": p.returncode, "stdout": p.stdout[-4000:],
+            "stderr": p.stderr[-4000:]}
 
 
 # The learner's own first code, run by the Academy learner process (academy/sandbox.py), which puts
@@ -198,7 +201,7 @@ def run_learner(work: Path, code: str, data_root: Path | None = None) -> dict[st
     # 2026-11-04: Delta exercises run the v1 way), so PySpark exercises never ask for one.
     r = sandbox.run(work, LEARNER_FILE, root, time_limit=RUN_SECONDS, lib_roots=[_package_dir().resolve()],
                     appcontainer_ok=False)
-    return {"status": r["status"], "stdout": r["stdout"], "stderr": r["stderr"]}
+    return {"status": r["status"], "exit_code": r.get("exit_code"), "stdout": r["stdout"], "stderr": r["stderr"]}
 
 
 def _table(work: Path, name: str) -> Any:
@@ -266,8 +269,60 @@ def _error(run: dict[str, Any]) -> str:
         return "Your code used more memory than the exercise allows and was stopped."
     if run["status"] == "refused":
         return "Your code wasn't run: the app couldn't start it inside its limits."
-    last = [ln for ln in (run.get("stderr") or "").strip().splitlines() if ln.strip()]
-    return f"Your code stopped with an error: {last[-1] if last else 'no message'}"
+    lines = [ln.strip() for ln in (run.get("stderr") or "").splitlines() if ln.strip()]
+    code = run.get("exit_code")
+    shown = _exit_code(code)
+    # faulthandler writes a native crash's stack to stderr; its last line is a frame or module list,
+    # so the useful line is the header ("Fatal Python error: ..." / "Windows fatal exception: ...").
+    fatal = next((ln for ln in lines if ln.startswith(("Fatal Python error:", "Windows fatal exception:"))), None)
+    if fatal:
+        return f"Your code crashed: {fatal}" + (f" ({shown})." if shown else ".")
+    if lines:
+        return f"Your code stopped with an error: {lines[-1]}"
+    if shown:
+        # A process killed by a native crash may leave no message at all; its exit code is the only clue.
+        return f"Your code stopped without an error message ({shown})."
+    return "Your code stopped with an error: no message"
+
+
+_FRAME = re.compile(r'^File "(?P<path>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)$')
+_SEP = re.compile(r"[\\/]")   # the dump names Windows or POSIX paths; only the file name is kept
+CRASH_FRAMES = 4
+
+
+def _crash_frames(run: dict[str, Any]) -> str:
+    """Where a native crash happened, from faulthandler's dump of the crashing thread: its innermost
+    Python frames as ``file:line in function``, the call that went into DuckDB or delta-rs first. Only
+    for the pack's own reference solution (never a learner's answer): the frames name files and
+    functions, never data. Empty when the run didn't crash in native code."""
+    lines = [ln.strip() for ln in (run.get("stderr") or "").splitlines()]
+    try:
+        start = next(i for i, ln in enumerate(lines) if ln.startswith(("Fatal Python error:", "Windows fatal exception:")))
+    except StopIteration:
+        return ""
+    # With other Python threads alive the dump lists each; the crashing one is "Current thread".
+    start = next((i for i, ln in enumerate(lines) if i > start and ln.startswith("Current thread")), start)
+    frames: list[str] = []
+    for ln in lines[start + 1:]:
+        if ln.startswith(("Thread 0x", "Extension modules:")):
+            break   # the next thread's stack, or the module list: the crashing thread's ends here
+        if (m := _FRAME.match(ln)) and len(frames) < CRASH_FRAMES:
+            frames.append(f"{_SEP.split(m['path'])[-1]}:{m['line']} in {m['func']}")
+    return f" Innermost frames: {'; '.join(frames)}." if frames else ""
+
+
+def _lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:]
+
+
+def _exit_code(code: Any) -> str:
+    """How a non-zero exit code reads: POSIX reports a signal as a negative code, Windows an NTSTATUS
+    such as 0xC0000005 (an access violation) as a large unsigned one."""
+    if not isinstance(code, int) or code == 0:
+        return ""
+    if code < 0:
+        return f"signal {-code}"
+    return f"exit code 0x{code:08X}" if code > 255 else f"exit code {code}"
 
 
 def _n(count: int, one: str, many: str) -> str:
@@ -345,7 +400,7 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                         rw = fresh(f"ref-{data}-{table.replace('.', '-')}", hidden if data == "hidden" and hidden else setup)
                         rrun = runner(rw, solution)
                         if rrun["status"] != "ok":
-                            raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}")
+                            raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}{_crash_frames(rrun)}")
                         refs[key] = _rows(rw, table)
                         if refs[key] is None:
                             raise RuntimeError(f"{ex['id']}: the reference solution didn't write {table}")
@@ -366,7 +421,7 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                     after = _rows(practice, table)
                     outputs[table] = after
                     if again["status"] != "ok":
-                        results.append(_check_result(kind, False, "Run a second time, " + _error(again).lower()))
+                        results.append(_check_result(kind, False, "Run a second time, " + _lower_first(_error(again))))
                     elif before != after:
                         n0, n1 = len(before[1]) if before else 0, len(after[1]) if after else 0
                         results.append(_check_result(kind, False, f"Running your code again changed {table} ({n0:,} rows, then {n1:,}). "

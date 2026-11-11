@@ -12,7 +12,8 @@ import datetime as dt
 import hashlib
 import json
 import logging
-from typing import Any
+import time
+from typing import Any, Callable
 
 import polars as pl
 import pyarrow as pa
@@ -54,13 +55,13 @@ class DataOpsMixin:
 
     # ---- compare
 
-    def _table(self, project: Any, name: str, env: str, version: int | None) -> pl.DataFrame | None:
+    def _table(self, project: Any, name: str, env: str, version: int | str | None) -> pl.DataFrame | None:
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
         return store.read(project.layer(e.layer).lakehouse, e.schema, e.table,
                           None if version in (None, "") else int(version))
 
-    def _delta(self, project: Any, name: str, env: str, version: int | None) -> Any:
+    def _delta(self, project: Any, name: str, env: str, version: int | str | None) -> Any:
         """The table's Delta log (no data) at ``version``, default the latest; None when there's none."""
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
@@ -99,7 +100,7 @@ class DataOpsMixin:
         project = self._project()  # type: ignore[attr-defined]
         try:
             log = self._store(project, target).meta("run_log")  # type: ignore[attr-defined]
-        except Exception as exc:  # the target isn't set up or can't be read: say so, don't block
+        except Exception as exc:  # noqa: BLE001 - the target isn't set up or can't be read: say so, don't block
             return {"source": source, "target": target, "tables": [], "problem": str(exc)}
         ok = log.filter(pl.col("status") == "ok")
         last = {r["entity"]: r for r in ok.iter_rows(named=True)}  # sorted by time, so the last one wins
@@ -187,13 +188,13 @@ class DataOpsMixin:
                 source = Engine(project, store, source_options=self._source_options).read_source_table(src["table"])  # type: ignore[attr-defined]
                 if source is None:
                     problem = f"the source table {src.get('from') or src['table']} doesn't exist"
-        except Exception as exc:  # the config side is still useful
+        except Exception as exc:  # noqa: BLE001 - the config side is still useful
             problem = str(exc)
         history = []
         try:
             h = store.meta_where("schema_history", pl.col("entity") == name).reverse()
             history = _rows(h, 10)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - schema history is optional; logged
             _log.info("No schema history for this entity: %s", describe(exc))
         return drift_mod.detect(project, e, source) | {"env": env, "problem": problem, "history": history}
 
@@ -222,7 +223,7 @@ class DataOpsMixin:
             # Rows held before ids existed get one from their values, not their position: Delta
             # returns rows in no fixed order, so a position could point at another row next time.
             values = q.drop([c for c in ("_qid",) if c in q.columns])
-            ids = pl.Series([f"old-{hashlib.sha1(line.encode()).hexdigest()[:16]}"
+            ids = pl.Series([f"old-{hashlib.sha1(line.encode(), usedforsecurity=False).hexdigest()[:16]}"
                              for line in values.write_ndjson().splitlines()], dtype=pl.String)
             q = q.with_columns(pl.col("_qid").fill_null(ids) if "_qid" in q.columns else ids.alias("_qid"))
         return store, lh, table, q, version
@@ -313,7 +314,7 @@ class DataOpsMixin:
             project = self._project()  # type: ignore[attr-defined]
         except NoMetadataProject:
             return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable}
-        except Exception as exc:  # a broken project is not "nothing late": say why nothing was checked
+        except Exception as exc:  # noqa: BLE001 - a broken project is not "nothing late": say why nothing was checked
             _log.warning("Couldn't read the metadata project to check freshness: %s", describe(exc))
             return {"items": [], "unavailable": {}, "alerts": alerts, "alerts_unreadable": unreadable,
                     "project_error": describe(exc)}
@@ -361,12 +362,21 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
                         "version": "1.4", "body": body}}]}
 
 
-def post_teams(url: str, title: str, lines: list[str]) -> None:
+# Teams posts happen in the agent's loop and in app requests, so one card never holds them long: a
+# webhook that doesn't answer gives up after TEAMS_TIMEOUT, and throttling is waited out at most
+# TEAMS_ATTEMPTS - 1 times for TEAMS_WAIT_CAP each. The caller's outbox keeps the card for later.
+TEAMS_TIMEOUT = (5, 15)  # seconds to connect, then to each read
+TEAMS_ATTEMPTS = 3
+TEAMS_WAIT_CAP = 10.0
+
+
+def post_teams(url: str, title: str, lines: list[str], sleep: Callable[[float], None] = time.sleep) -> None:
     """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
-    Retry-After says; after a 5xx or a dropped connection the card may have been posted, so the
-    caller's outbox decides whether to send it again."""
+    Retry-After says (capped); after a 5xx or a dropped connection the card may have been posted,
+    so the caller's outbox decides whether to send it again."""
     http = http_session.session()
-    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=15), "POST")
+    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=TEAMS_TIMEOUT), "POST",
+                        sleep=sleep, attempts=TEAMS_ATTEMPTS, wait_cap=TEAMS_WAIT_CAP)
     if r.status_code >= 300:
         raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
 

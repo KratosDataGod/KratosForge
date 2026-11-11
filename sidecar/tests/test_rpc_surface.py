@@ -66,8 +66,10 @@ NO_UI_CALLER: dict[str, str] = {
     # Engine features whose screens come later.
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
+    "incidents_measures": _INCIDENTS,
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
+    "learn_team_notes": _NO_SCREEN,  # GD-09 team notes: shown beside Explain after the mockup is approved
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview

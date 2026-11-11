@@ -6,6 +6,7 @@ import pytest
 
 from fabric_desktop.optimize import outbox as ob
 from fabric_desktop.optimize.shared import Shared
+from test_optimize_local_runs import share
 from test_optimize_service import svc, xray_result  # noqa: F401 - the fixture is used by name
 
 
@@ -63,6 +64,15 @@ def test_the_outbox_is_bounded_and_says_what_it_dropped(tmp_path):
     clock.now += 86400 + 10
     assert box.due("lh1", include_waiting=True) == []  # too old to send
     assert box.status("lh1")["dropped"] == 5
+
+
+def test_items_added_in_the_same_clock_tick_keep_the_order_they_were_added(tmp_path):
+    # Windows' clock can give back-to-back adds the same time: the cap still drops the first added,
+    # and the rest are due in the order they were added, whatever their random ids.
+    for _ in range(5):
+        box = ob.Outbox(tmp_path / f"o{_}.sqlite", clock=lambda: 1_000_000.0, max_items=3)
+        ids = [box.add("lh1", ob.ANALYSIS, payload(n), "down") for n in range(6)]
+        assert [i["id"] for i in box.due("lh1", include_waiting=True)] == ids[3:]
 
 
 def test_discard_and_drop_count_too(tmp_path):
@@ -196,7 +206,7 @@ def test_shared_local_runs_wait_too(svc, monkeypatch):  # noqa: F811
     preview = asked.value.would  # type: ignore[attr-defined]
     assert preview["new"] == 1
     _offline(monkeypatch, "record_local_executions", ConnectionError("down"))
-    out = svc.optimize_share_local_runs(approve=True)
+    out = share(svc)
     assert out["shared"] == 0 and out["queued"] == preview["new"]
     assert svc.optimize_status()["outbox"]["pending_rows"] == preview["new"]
 
@@ -211,9 +221,9 @@ def test_runs_shared_with_no_network_at_all_wait_once(svc, monkeypatch):  # noqa
     read_ids = Shared.local_execution_ids
     monkeypatch.setattr(Shared, "local_execution_ids", lambda self: (_ for _ in ()).throw(down))
     state = _offline(monkeypatch, "record_local_executions", down)
-    out = svc.optimize_share_local_runs(approve=True)
+    out = share(svc)
     assert out["queued"] == 1 and "network down" in out["offline"]
-    again = svc.optimize_share_local_runs(approve=True)  # sharing again while still offline
+    again = share(svc)  # sharing again while still offline
     assert again["new"] == 0 and again["waiting"] == 1
     assert svc.optimize_status()["outbox"]["pending"] == 1
     # Back online: the waiting run goes with the next connect or switch, once.
@@ -221,3 +231,25 @@ def test_runs_shared_with_no_network_at_all_wait_once(svc, monkeypatch):  # noqa
     monkeypatch.setattr(Shared, "local_execution_ids", read_ids)
     lakehouse = svc.optimize_status()["active"]["lakehouse_id"]
     assert svc.optimize_switch(lakehouse)["sync"]["sent"] == 1
+
+
+# PR-OPT-009: each sync records what it cost on this PC, as Measured figures, and never fails for it.
+
+def test_each_sync_records_its_own_cost(svc):  # noqa: F811
+    svc.optimize_create("w1", workspace_name="Platform")
+    svc._xray_share(xray_result(), _token)
+    rows = svc._optimize_shared().rows("measurements")
+    got = {r["metric"]: r for r in rows.iter_rows(named=True)}
+    assert set(got) == {"optimize_sync_seconds", "optimize_sync_rows", "optimize_sync_commits"}
+    assert {r["classification"] for r in got.values()} == {"measured"}
+    assert got["optimize_sync_seconds"]["unit"] == "seconds" and got["optimize_sync_rows"]["unit"] == "count"
+    assert got["optimize_sync_rows"]["value"] >= 1 and got["optimize_sync_commits"]["value"] >= 1
+    assert len({r["run_id"] for r in got.values()}) == 1 and got["optimize_sync_rows"]["workload_key"] == "optimize.sync.analysis"
+    assert not any("cu" in m for m in got)  # no capacity figure: it isn't measured
+
+
+def test_a_sync_whose_cost_cant_be_recorded_still_counts(svc, monkeypatch):  # noqa: F811
+    svc.optimize_create("w1", workspace_name="Platform")
+    monkeypatch.setattr(Shared, "record_measurements", lambda self, ms: (_ for _ in ()).throw(ConnectionError("down")))
+    assert svc._xray_share(xray_result(), _token)["findings"] == 1
+    assert svc.optimize_status()["outbox"]["pending"] == 0

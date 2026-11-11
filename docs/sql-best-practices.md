@@ -40,10 +40,17 @@ and the panel says so. Like the other Preview features, the chip is hidden when 
 | SQ008 | Info | `ORDER BY` in a view, or `TOP` without `ORDER BY` | Order in the final query |
 | SQ009 | Info | `DISTINCT` with `GROUP BY` | Drop the `DISTINCT` |
 | SQ010 | Warning | `INSERT ... SELECT *` | List the columns on both sides |
+| SQ012 | Warning | `NOT IN (SELECT ...)` | `NOT EXISTS`, or filter the `NULL`s out in the subquery |
+| SQ015 | Info | Correlated subquery in the `SELECT` list | A `JOIN` or a window function may read the table once |
+| SQ016 | Info | `LIKE '%text'` in `WHERE` | Match the start of the value when you can |
+| SE001 | Error | Password or connection string in the script | Microsoft Entra sign-in, or Key Vault |
 
 A plain `SELECT *` to look at a table is fine and isn't reported. CTE names, `#temp` tables,
 `@variables` and the alias in `UPDATE alias ... FROM table AS alias` aren't reported as tables
-without a schema.
+without a schema. A `NOT IN` subquery that already filters with `IS NOT NULL` isn't reported, and
+neither is a subquery in the `SELECT` list that names no table from the outer query. SE001 uses the
+same patterns as the secret check before a commit; the finding shows where the secret is, never the
+secret itself.
 
 ## Each rule explained
 
@@ -257,6 +264,105 @@ Principle: Match columns by name, never by position.
 Impact: Data quality. Values land in the wrong columns without an error.
 
 How to check: The `INSERT` names its columns, and a few rows of the target table have each value in the right column.
+
+### SQ012
+
+**`NOT IN` with a subquery** · Warning · Reliability · Critical
+
+Why: when the subquery returns even one `NULL`, `a NOT IN (...)` is never true, so the query returns
+no rows and no error. It works in testing and then stops returning rows the day a `NULL` arrives.
+
+```sql
+-- Before
+SELECT c.customer_id FROM dbo.customers AS c
+WHERE c.customer_id NOT IN (SELECT o.customer_id FROM dbo.orders AS o);
+-- After
+SELECT c.customer_id FROM dbo.customers AS c
+WHERE NOT EXISTS (SELECT 1 FROM dbo.orders AS o WHERE o.customer_id = c.customer_id);
+```
+
+Safe to leave: the subquery's column can never be `NULL` (it is the table's key, or declared `NOT NULL`).
+Adding `WHERE o.customer_id IS NOT NULL` to the subquery says so, and the finding goes away.
+
+Principle: Write anti-joins so a missing value can't empty the result.
+
+Impact: Data quality. A report silently returns no rows.
+
+How to check: Insert a row with a `NULL` key into the subquery's table on a copy; the query still returns the rows it should.
+
+### SQ015
+
+**Correlated subquery in the `SELECT` list** · Info · Performance · Advanced
+
+Why: a subquery in the `SELECT` list that reads the outer row may run once for every row. A `JOIN`
+to an aggregate, or a window function, may read the table once. Some engines rewrite it for you, so
+this is advice, not a rule.
+
+```sql
+-- Before
+SELECT o.order_id,
+       (SELECT SUM(p.amount) FROM dbo.payments AS p WHERE p.order_id = o.order_id) AS paid
+FROM dbo.orders AS o;
+-- After
+SELECT o.order_id, p.paid
+FROM dbo.orders AS o
+LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM dbo.payments GROUP BY order_id) AS p
+  ON p.order_id = o.order_id;
+```
+
+When it's fine: the outer query returns a few rows, or the query plan already shows a join.
+
+Principle: Read each table once, then combine.
+
+Impact: Performance. It may grow with the number of outer rows.
+
+How to check: Both forms return the same rows, and the rewritten one reads the inner table once in the query plan.
+
+### SQ016
+
+**`LIKE` with a leading wildcard in `WHERE`** · Info · Performance · Educational
+
+Why: `LIKE '%son'` can't use the column's order or its statistics to skip data, so every value is
+read and compared. `LIKE 'Jo%'` can.
+
+```sql
+-- Before
+SELECT customer_id FROM dbo.customers WHERE email LIKE '%@contoso.com';
+-- After
+SELECT customer_id FROM dbo.customers WHERE email_domain = 'contoso.com';
+```
+
+When it's fine: the table is small, or a search inside the value is what's needed and it runs rarely.
+
+Principle: Filter on the start of a value, or on a column made for the search.
+
+Impact: Performance. Every row of the table is read.
+
+How to check: The rewritten filter returns the same rows, and reads less data in the query plan.
+
+### SE001
+
+**Password or connection string in a SQL script** · Error · Security · Critical
+
+Why: a script with a password in it ends up in Git, deployment history and logs, where anyone who can
+read them can use it. The check uses the same patterns as the secret check before a commit, and the
+finding never shows the secret.
+
+```sql
+-- Before
+CREATE LOGIN etl_loader WITH PASSWORD = 'Summer2026!';
+-- After
+CREATE USER [etl-loader@contoso.com] FROM EXTERNAL PROVIDER;
+```
+
+Do this instead: sign in with Microsoft Entra ID, or read the secret from Key Vault when the script
+runs. A placeholder such as `'<from Key Vault>'` isn't reported.
+
+Principle: Code never holds a secret.
+
+Impact: Security. Anyone who can read the script can use the account.
+
+How to check: The script runs with Entra sign-in, and the secret check before a commit finds nothing.
 
 ## Settings
 

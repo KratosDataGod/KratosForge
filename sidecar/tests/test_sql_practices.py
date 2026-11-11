@@ -37,6 +37,27 @@ def ids(query, **kw):
     ("SELECT TOP (5) a FROM dbo.t ORDER BY a", []),
     ("SELECT a, ROW_NUMBER() OVER (ORDER BY a) AS n FROM dbo.t", []),
     ("SELECT DISTINCT a FROM dbo.t GROUP BY a", ["SQ009"]),
+    # SQ012: NOT IN over a subquery returns nothing once the subquery returns a NULL
+    ("SELECT a FROM dbo.t WHERE a NOT IN (SELECT b FROM dbo.u)", ["SQ012"]),
+    ("SELECT a FROM dbo.t WHERE a NOT IN (SELECT b FROM dbo.u WHERE b IS NOT NULL)", []),
+    ("SELECT a FROM dbo.t WHERE a NOT IN (1, 2)", []),
+    ("SELECT a FROM dbo.t WHERE a IN (SELECT b FROM dbo.u)", []),
+    ("SELECT a FROM dbo.t t WHERE NOT EXISTS (SELECT 1 FROM dbo.u u WHERE u.b = t.a)", []),
+    # SQ015: a subquery in the SELECT list that reads the outer row
+    ("SELECT o.id, (SELECT MAX(p.amount) FROM dbo.payments p WHERE p.order_id = o.id) AS paid FROM dbo.orders o",
+     ["SQ015"]),
+    ("SELECT o.id, (SELECT COUNT(*) FROM dbo.payments) AS total FROM dbo.orders o", []),
+    ("SELECT o.id, (SELECT MAX(dbo.payments.amount) FROM dbo.payments) AS top_paid FROM dbo.orders o", []),
+    ("SELECT a FROM dbo.t WHERE a IN (SELECT u.b FROM dbo.u u WHERE u.c = t.c)", []),  # not in the SELECT list
+    # SQ016: a leading wildcard in WHERE reads every row
+    ("SELECT a FROM dbo.t WHERE name LIKE '%son'", ["SQ016"]),
+    ("SELECT a FROM dbo.t WHERE (name LIKE '%son' OR b = 1)", ["SQ016"]),
+    ("SELECT a FROM dbo.t WHERE name LIKE 'Jo%'", []),
+    ("SELECT CASE WHEN name LIKE '%son' THEN 1 END AS s FROM dbo.t", []),
+    ("SELECT a FROM dbo.t AS x JOIN dbo.u AS y ON y.n LIKE '%' + x.n", []),
+    # SE001: a password in the script
+    ("CREATE LOGIN etl WITH PASSWORD = 'Summer2026!'", ["SE001"]),
+    ("CREATE DATABASE SCOPED CREDENTIAL c WITH IDENTITY = 'u', SECRET = '<from Key Vault>'", []),
 ])
 def test_rules(query, expected):
     assert ids(query) == expected
@@ -68,5 +89,15 @@ def test_only_tsql_targets_and_text():
 
 def test_rules_list():
     listed = p.rules()
-    assert [r["id"] for r in listed] == [f"SQ{n:03}" for n in range(1, 11)]
+    assert [r["id"] for r in listed] == [f"SQ{n:03}" for n in range(1, 11)] + ["SQ012", "SQ015", "SQ016", "SE001"]
     assert all(r["kind"] == "sql" and r["severity"] in p.SEVERITIES for r in listed)
+
+
+def test_a_secret_is_reported_once_on_its_line_and_masked_nowhere():
+    sql = "SELECT a FROM dbo.t;\nEXEC dbo.connect 'Server=x;User Id=u;Password=Hunter2xyz;'"
+    out = p.check(sql)
+    se = [f for f in out["findings"] if f["rule_id"] == "SE001"]
+    assert [(f["line"], f["statement"], f["severity"]) for f in se] == [(2, 2, "Error")]
+    assert "Hunter2xyz" not in repr(out)  # the finding never repeats the secret
+    assert out["findings"][0]["rule_id"] == "SE001"  # worst first
+    assert ids(sql, settings={"SE001": {"enabled": False}}) == []

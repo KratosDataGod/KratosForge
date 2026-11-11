@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql
+from . import spark_builtins_sql, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -55,7 +55,7 @@ def spark_expr(text: str) -> str:
 
 def _parse(text: str) -> exp.Expression:
     """One Spark SQL expression as sqlglot reads it (it types the result as its base Expr)."""
-    return cast(exp.Expression, sqlglot.parse_one(text, read="spark"))
+    return cast(exp.Expression, sql_dialects.parse_one(text, read="spark"))
 
 
 def _literal(text: str) -> Callable[[re.Match[str]], str]:

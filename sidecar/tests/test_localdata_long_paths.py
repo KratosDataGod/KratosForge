@@ -57,3 +57,13 @@ def test_a_committed_table_that_cant_be_read_isnt_reported_as_a_plain_success(pr
     with pytest.raises(ValueError, match=r"p was written \(version 0\), but it can't be read here"):
         project.write_delta("p", "SELECT 1 AS id")
     assert (project.tables_dir / "dbo" / "p" / "_delta_log").is_dir()
+
+
+def test_a_committed_change_that_leaves_the_table_unreadable_isnt_reported_as_a_plain_success(project, monkeypatch):
+    project.write_delta("p", "SELECT 1 AS id")
+
+    def unreadable(*_a, **_k):
+        raise OSError("[Errno 2] No such file or directory")
+    monkeypatch.setattr(engine_mod, "delta_select", unreadable)
+    with pytest.raises(ValueError, match=r"p was changed \(version 1\), but it can't be read here"):
+        project.execute("UPDATE p SET id = 2 WHERE id = 1")

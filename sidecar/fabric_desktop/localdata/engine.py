@@ -1025,6 +1025,8 @@ class LocalEngine:
         missing = [p for p in partitions if p not in target.names]
         if missing:
             raise ValueError(f"Can't partition by {', '.join(missing)}: the query has no such column.")
+        if not dry_run:
+            _check_path_room(name, folder, partitions)  # before Conform opens the result: DuckDB 2.0 holds it
         conform = delta.Conform(reader, target, by_position=by_position)
         counter = delta.Counter(conform.reader)
         try:
@@ -1032,7 +1034,6 @@ class LocalEngine:
                 for _ in counter.reader:
                     pass
             else:
-                _check_path_room(name, folder, partitions)
                 folder.mkdir(parents=True, exist_ok=True)
                 options: dict[str, Any] = {
                     "partition_by": partitions or None, "schema_mode": schema_mode,
@@ -1139,7 +1140,10 @@ class LocalEngine:
             durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
         delta_profile.check_table(after)
         out["version"] = after.version()
-        self._register_own(con, entry["schema"], entry["table"], folder)
+        registered = self._register_own(con, entry["schema"], entry["table"], folder)
+        if registered["status"] != "ok":  # committed, so said plainly, as in _write
+            raise ValueError(f"{name} was changed (version {after.version()}), but it can't be read here: "
+                             f"{registered['error']}")
         return out
 
     def _merge_source(self, con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", current: Any,

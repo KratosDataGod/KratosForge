@@ -1,6 +1,6 @@
 # Security evidence pack
 
-> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](/docs/product/development_status/) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 Everything a security or IT team needs to review KratosForge before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
 

@@ -6,7 +6,7 @@ site_group: Internal engineering
 
 > **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
-> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](/docs/product/development_status/) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](../product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 How KratosForge becomes the place where a data engineer manages the workloads they build and run on their PC, on their own servers and in Microsoft Fabric: what they own, what runs where and as whom, what needs attention, what changed, what it affects, and what they can safely do next. Chris asked for it on 2026-10-16 with a 100-capability backlog. This page is the source of truth for that program; [continuation.md](continuation.md) is the handoff note every PR updates.
 

@@ -6,7 +6,7 @@ site_group: Internal engineering
 
 > **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
-> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](/docs/product/development_status/) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 The program FD-LDE-001 to FD-LDE-020 makes KratosForge a local-first SQL development environment: register a folder of data files, query them as tables on this PC without starting a Fabric job, build persistent transformed datasets and local Delta tables, validate them, and publish them to OneLake through a verified mechanism. A run on this PC starts no Fabric job, but its OneLake reads and writes, including publishing, still use capacity. It takes ideas from [DaffyDB](https://www.nuget.org/packages/DaffyDB/) (a folder of files served as SQL tables over TDS) without making it a dependency.
 

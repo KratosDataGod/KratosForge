@@ -89,7 +89,7 @@ def test_a_saved_sign_in_from_another_windows_account_means_one_sign_in(tmp_path
 
 
 def test_a_lock_another_process_never_lets_go_of_doesnt_hang_sign_in(tmp_path, monkeypatch):
-    monkeypatch.setattr(auth, "LOCK_SECONDS", 0.3)
+    monkeypatch.setattr(auth, "LOCK_SECONDS", 1.0)
     path = tmp_path / "msal_cache.bin"
     a = auth.Authenticator(OWN_APP, cache_path=path)
     windows = signing_in(a)
@@ -97,7 +97,7 @@ def test_a_lock_another_process_never_lets_go_of_doesnt_hang_sign_in(tmp_path, m
         started = time.monotonic()
         assert a.fabric_token() == "token-1"  # the sign-in is kept in memory
         assert a.fabric_token() == "token-1"  # and used: no second window
-        assert time.monotonic() - started < 3  # one short wait, not one per call
+        assert time.monotonic() - started < 1.5  # one wait of LOCK_SECONDS, not one per call or entry
     assert len(windows) == 1 and a.cache.has_state_changed
     a.cache._busy_until = 0  # the holder let go, and the wait after a busy file is over
     a._save()

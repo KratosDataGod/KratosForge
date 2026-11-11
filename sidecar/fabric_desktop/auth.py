@@ -368,9 +368,10 @@ class SharedTokenCache(msal.SerializableTokenCache):
         Never raised to MSAL, which would lose a sign-in the person just finished."""
         _log.warning("Couldn't update the saved sign-in just now, so it's kept in memory and saved later: %s", describe(exc))
         with self._lock:
+            # Before change(): MSAL's add() makes each entry through modify(), which must not wait again.
+            self._busy_until = time.monotonic() + BUSY_SECONDS
             change()
             self.has_state_changed = True
-            self._busy_until = time.monotonic() + BUSY_SECONDS
 
     def forget(self, home: str) -> None:
         """Every entry of the account ``home``, which another process signed out."""

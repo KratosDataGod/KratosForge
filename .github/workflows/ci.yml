@@ -347,13 +347,32 @@ jobs:
           key: playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
       - name: Install Playwright
         run: npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION" "axe-core@$AXE_CORE_VERSION"
-      - name: Install Chromium's system packages
-        run: '"$RUNNER_TEMP/pw/node_modules/.bin/playwright" install-deps chromium'
       - name: Install Chromium
+        run: '"$RUNNER_TEMP/pw/node_modules/.bin/playwright" install chromium'
+      # Chromium's system libraries and fonts come from Ubuntu's apt mirrors, which the runner sometimes
+      # can't resolve for a few minutes ("Temporary failure resolving archive.ubuntu.com"); the job then
+      # failed before any test ran. apt runs only when one of the packages Playwright names is missing
+      # (the runner image may have them all), with apt's own retries and three tries a minute or more apart.
+      - name: Install Chromium's system packages
         run: |
-          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install chromium
-          # The tests skip when Playwright can't be loaded; here that must fail instead.
-          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
+          pw="$RUNNER_TEMP/pw/node_modules/.bin/playwright"
+          packages=$("$pw" install-deps --dry-run chromium | grep -o 'install -y --no-install-recommends [^"]*' | cut -d' ' -f4-)
+          [ -n "$packages" ] || { echo "::error::Couldn't read Playwright's package list"; exit 1; }
+          missing=$(for p in $packages; do dpkg-query -W -f='${Status}\n' "$p" 2>/dev/null | grep -q 'install ok installed' || echo "$p"; done)
+          if [ -z "$missing" ]; then echo "All of Chromium's system packages are already installed; apt not needed."; exit 0; fi
+          echo "Missing: $missing"
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/80-retries > /dev/null
+          for wait in 60 120 0; do
+            if "$pw" install-deps chromium; then exit 0; fi
+            if [ "$wait" = 0 ]; then
+              echo "::error::Chromium's system packages could not be installed: the runner couldn't reach Ubuntu's apt mirrors. This is the runner's network, not a test."
+              exit 1
+            fi
+            echo "::warning::apt failed; trying again in $wait s."
+            sleep "$wait"
+          done
+      # The tests skip when Playwright can't be loaded; here that must fail instead.
+      - run: NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
       # One file at a time: each starts a Chromium and an engine, and running them side by side on
       # a small runner made engine replies miss the tests' 10 s waits.
       - run: node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"

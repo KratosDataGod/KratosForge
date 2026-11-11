@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
     trail.add_argument("--action", default="", help="only this action, such as meta_promote")
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
+    trail.add_argument("--agent-home", help="an agent's FABRIC_DESKTOP_HOME: use its trail (<home>\\audit) instead")
     trail.add_argument("--export", metavar="FILE", help="copy the trail to FILE with a manifest IT can check on its own")
     trail.add_argument("--since", default="", help="with --export: from this date (YYYY-MM-DD) or time on")
     trail.add_argument("--replace", action="store_true", help="with --export: replace an earlier export of that name")
@@ -919,9 +920,13 @@ def _audit(args: argparse.Namespace) -> int:
     from .audit import AuditLog
     from .service import data_dir
     from . import audit_chain
-    folder = Path(args.folder) if args.folder else data_dir() / "audit"
+    if args.folder and args.agent_home:
+        print("Give --folder or --agent-home, not both", file=sys.stderr)
+        return 2
+    named = Path(args.agent_home) / "audit" if args.agent_home else Path(args.folder) if args.folder else None
+    folder = named or data_dir() / "audit"
     if args.verify_export:
-        result = audit_chain.verify_export(Path(args.verify_export), folder if args.folder else None)
+        result = audit_chain.verify_export(Path(args.verify_export), named)
         print(json.dumps(result, indent=2))
         return 0 if result["ok"] else 1
     if args.export:

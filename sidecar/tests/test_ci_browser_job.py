@@ -23,6 +23,9 @@ def test_apt_runs_only_for_missing_packages_and_rides_out_a_short_outage():
     # It asks Playwright which packages Chromium needs and skips apt when every one is installed.
     assert "install-deps --dry-run chromium" in run and "dpkg-query" in run
     assert run.index("dpkg-query") < run.index("Acquire::Retries")
+    # Playwright 1.63 and later print only this line when nothing is missing: that is a pass, not an error.
+    assert "All system dependencies are installed" in run
+    assert run.index("All system dependencies are installed") < run.index("Acquire::Retries")
     # apt retries each download itself, with a timeout, and the whole install is tried three times.
     assert 'Acquire::Retries "5"' in run and 'Acquire::http::Timeout "30"' in run
     assert "for wait in 60 120 0; do" in run and run.count('install-deps chromium;') == 1

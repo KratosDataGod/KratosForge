@@ -243,7 +243,10 @@ def test_changing_a_checked_answer_makes_the_pass_not_independent(svc):
     assert not svc.academy_validate(PACK, EID, json.dumps({**KEY, "q1": ["a"]}))["passed"]
     res = svc.academy_validate(PACK, EID, json.dumps(KEY))
     assert res["passed"] and res["answers_changed"] and svc.rows[-1]["detail"]["answers_changed"] is True
-    # Sticky until Reset, even after a later pass.
+    # Sticky, even after a later pass.
     assert svc.academy_validate(PACK, EID, json.dumps(KEY))["answers_changed"]
+    # Reset keeps it: probing, resetting and passing again isn't independent either.
     svc.academy_reset(PACK, EID)
-    assert not lab.state(svc.root, PACK, EID).get("answers_changed")
+    assert lab._state(lab.workspace(svc.root, PACK, EID))["answers_changed"]
+    res = svc.academy_validate(PACK, EID, json.dumps(KEY))
+    assert res["passed"] and res["answers_changed"] and svc.rows[-1]["detail"]["answers_changed"] is True

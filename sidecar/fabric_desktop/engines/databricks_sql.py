@@ -43,7 +43,7 @@ from ..retrying import send_remote
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
-from .databricks_auth import DatabricksAuthError, TokenProvider, provider_for
+from .databricks_auth import DatabricksAuthError, TokenProvider, TokenRefused, provider_for
 from .local_sql import ResultTooLarge
 
 _T = "unit_tests"
@@ -257,7 +257,10 @@ class Client:
             # Refused unread, so even a submit is safe to send again: once, and only with a token that is
             # actually new (the CLI's, after a new sign-in). A sign-in that can't be had says so itself.
             self._tokens.drop(token)
-            fresh = self._tokens.token()
+            try:
+                fresh = self._tokens.token()
+            except TokenRefused:
+                fresh = token  # no new token to be had: one sign-in-again message below
             if fresh != token:
                 close = getattr(resp, "close", None)
                 if callable(close):

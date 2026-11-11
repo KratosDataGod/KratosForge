@@ -194,6 +194,18 @@ For what each alert, log warning and incident means and how to recover, see the 
 
 **Local copies.** Right after pruning, the agent deletes local copies of lakehouse data in its data folder (`<home>\data`, where its runs keep them) that haven't been used for the policy's `local_retention_days` (default 30; `0` keeps them), by the same rules as the app ([Configure Azure and Fabric](azure-setup.md)): files read, staged tables, the download cache and replay bundle copies. A write's left-over spill file goes after a day whatever the setting. The queue, audit trail, logs, settings and a project's This PC data are never touched. A cleanup that fails is logged and tried again the next day.
 
+### The agent's audit trail
+
+The agent writes its own hash-chained audit trail to `<home>\audit` (its `FABRIC_DESKTOP_HOME`), in the same format as the app's ([User guide: audit trail](user-guide.md#audit-trail)). Run these on the agent's server, as an account that can read its home:
+
+```powershell
+fabric-desktop audit --agent-home D:\agent --verify                    # exit code 1 if a line was changed or removed
+fabric-desktop audit --agent-home D:\agent --export E:\handover\agent-audit.jsonl --since 2026-10-01
+fabric-desktop audit --agent-home D:\agent --verify-export E:\handover\agent-audit.jsonl
+```
+
+`--export` writes the copy and `agent-audit.jsonl.manifest.json` next to it (refused inside `<home>\audit`, and an earlier export is kept unless you add `--replace`). Anyone holding the two files can run `fabric-desktop audit --verify-export <file>` on any PC to check that nothing in the copy changed since it was taken. With `--agent-home` (or `--folder <home>\audit`), the check also confirms the lines are that agent's own, which catches a copy rebuilt with a matching manifest. So run it on the server, or keep the manifest's `last_hash` where the copy's holder can't change it. Exporting the agent's trail doesn't add a line to it.
+
 ### Status records
 
 Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. KratosForge's workload views and Monitor > KratosForge > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.

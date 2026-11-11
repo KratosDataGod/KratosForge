@@ -160,3 +160,29 @@ def test_since_is_compared_as_a_time_whatever_its_iso_form(trail, tmp_path, sinc
     out = tmp_path / "since.jsonl"
     audit_chain.export(trail, out, since=since)
     assert json.loads(_lines(out)[0])["action"] == first
+
+
+def test_an_agents_trail_exports_and_checks_by_its_home(tmp_path):
+    from fabric_desktop.audit import AuditLog
+    home = tmp_path / "agent-home"
+    agent = AuditLog(home / "audit", app="agent")
+    for n in range(3):
+        agent.record("agent_job", "ok", 1.0, {"job_id": f"j{n}"})
+    out = tmp_path / "handover" / "agent-audit.jsonl"
+    run = [sys.executable, "-m", "fabric_desktop.cli", "audit", "--agent-home", str(home)]
+    assert subprocess.run([*run, "--export", str(out)], capture_output=True).returncode == 0
+    ok = subprocess.run([*run, "--verify-export", str(out)], capture_output=True, text=True)
+    assert ok.returncode == 0 and json.loads(ok.stdout) == {"ok": True, "lines": 3, "problems": []}
+    assert [line["action"] for line in AuditLog(home / "audit").recent(10)] == ["agent_job"] * 3  # not written to
+
+    forged = tmp_path / "forged"
+    for n in range(3):
+        audit_chain.append(forged, {"at": "2026-11-11T00:00:00+00:00", "action": "agent_job", "n": n})
+    fake = tmp_path / "fake.jsonl"
+    audit_chain.export(forged, fake)
+    bad = subprocess.run([*run, "--verify-export", str(fake)], capture_output=True, text=True)
+    assert bad.returncode == 1 and json.loads(bad.stdout)["problems"] == ["the export's lines aren't in this trail"]
+
+    both = subprocess.run([*run, "--folder", str(home / "audit"), "--verify-export", str(out)], capture_output=True,
+                          text=True)
+    assert both.returncode == 2 and "not both" in both.stderr

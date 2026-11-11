@@ -321,6 +321,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                                                          len(result["removed"]), result["bytes"], result["days"])
                 except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
                     logging.getLogger(__name__).exception("Local copy cleanup failed")
+                try:
+                    self._pn_tidy()  # closed Teams notices: their bell details now, ledger keys after a year
+                except Exception:  # noqa: BLE001 - nor a notice ledger cleanup
+                    logging.getLogger(__name__).exception("Notice ledger cleanup failed")
                 if stop.wait(SWEEP_EVERY):
                     return
 

@@ -25,3 +25,18 @@ def test_a_vscode_folder_linked_outside_the_project_is_skipped(tmp_path):
     out = vscode_setup.apply(project, [".vscode/tasks.json", ".github/copilot-instructions.md"])
     assert out == {"added": [".github/copilot-instructions.md"], "skipped": [".vscode/tasks.json"]}
     assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="directory junctions are a Windows feature")
+def test_a_vscode_folder_that_is_a_junction_outside_the_project_is_skipped(tmp_path):
+    # A junction needs no extra rights on Windows, so it's the likelier way for .vscode to point elsewhere.
+    import _winapi
+
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    _winapi.CreateJunction(str(outside), str(project / ".vscode"))
+    out = vscode_setup.apply(project, [".vscode/tasks.json", ".github/copilot-instructions.md"])
+    assert out == {"added": [".github/copilot-instructions.md"], "skipped": [".vscode/tasks.json"]}
+    assert list(outside.iterdir()) == []

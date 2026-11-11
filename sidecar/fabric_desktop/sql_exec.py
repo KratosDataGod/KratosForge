@@ -814,6 +814,10 @@ class SqlExecutions:
             base = self.base()
             for folder in base.glob("*") if base.is_dir() else []:
                 if folder.is_dir() and folder.name not in known and len(folder.name) == 12:
+                    # A worker ends with the engine that started it, so an earlier session's spill
+                    # files are only left there by a crash (DuckDB never removes them): they go now,
+                    # however recent; a file still open is kept (Windows won't delete it).
+                    shutil.rmtree(folder / "spill", ignore_errors=True)
                     age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)

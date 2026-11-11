@@ -25,6 +25,7 @@ source rows.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -45,6 +46,7 @@ from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
+from ..redact import describe
 from ..sql import KfDuckDB, refuse_spark_hashes
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
@@ -197,6 +199,21 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
     return f"SELECT * REPLACE ({casts}) FROM ({select})"
 
 
+_log = logging.getLogger(__name__)
+
+
+def _remove_leftover_spill(folder: Path) -> None:
+    """Delete DuckDB temp files a crashed engine left in the project's tmp folder: DuckDB removes them
+    only when the query that wrote them ends, and never on the next open. Called once this process
+    holds the project's database, which DuckDB locks, so no other engine is spilling there."""
+    for leftover in folder.glob("duckdb_temp_*"):
+        try:
+            if leftover.is_file() and not leftover.is_symlink():
+                leftover.unlink()
+        except OSError as exc:
+            _log.info("Couldn't remove %s, left from an earlier run: %s", leftover.name, describe(exc))
+
+
 def _friendly_open_error(exc: Exception, path: str) -> Exception:
     text = str(exc)
     if "lock" in text.lower():
@@ -265,6 +282,8 @@ class LocalEngine:
             # UTC, like Fabric. SET, not connect's config: that tries to download ICU, which fails offline.
             con.execute("SET TimeZone = 'UTC'")
             keep_try_cast(con)
+            if p.storage != "memory":
+                _remove_leftover_spill(p.temp_dir)
             con.execute(f"SET temp_directory = {lit(str(p.temp_dir))}")
             # dbo first, as in Fabric's SQL endpoints and SQL Server: CREATE TABLE t makes dbo.t, and
             # dbo.orders can be written orders.

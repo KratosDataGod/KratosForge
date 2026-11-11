@@ -189,10 +189,40 @@ def has_schemas() -> bool:
     return _current().schemas_enabled()
 
 
+def name_parts(table: str) -> list[str]:
+    """``table`` split at its dots, as Spark reads a multi-part name: a part in backticks is one name
+    (`` `dbo`.`sales` `` is dbo and sales; `` `dbo.sales` `` is one name with a dot in it), and two
+    backticks inside one stand for a backtick."""
+    parts, part, quoted, i = [], [], False, 0
+    while i < len(table):
+        c = table[i]
+        if c == "`" and quoted and table[i + 1:i + 2] == "`":
+            part.append("`")
+            i += 2
+            continue
+        if c == "`":
+            quoted = not quoted
+        elif c == "." and not quoted:
+            parts.append("".join(part))
+            part = []
+        else:
+            part.append(c)
+        i += 1
+    if quoted:
+        raise ValueError(f"{table!r} isn't a table name: a backtick isn't closed.")
+    return [*parts, "".join(part)]
+
+
 def table_ref(table: str) -> TableRef:
-    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows."""
+    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows.
+    Parts may be in backticks. Another catalog (a Unity Catalog name such as main.sales.orders) is refused."""
     lh = _current()
-    parts = table.split(".")
+    parts = name_parts(table)
+    if any("." in p for p in parts):
+        dotted = next(p for p in parts if "." in p)
+        raise ValueError(f"{table}: `{dotted}` is one name with a dot in it, and Spark looks for a table called "
+                         f"exactly that, so nothing was read or written. Put backticks around each part "
+                         f"(`{'`.`'.join(dotted.split('.'))}`) or leave them out.")
     # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
     if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
         parts = parts[1:]
@@ -201,7 +231,9 @@ def table_ref(table: str) -> TableRef:
     if not all(parts) or any(c in p for p in parts for c in "/\\"):
         raise ValueError(f"{table!r} isn't a table name: a schema or table name can't be empty or hold / or \\.")
     if len(parts) > 2:
-        raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
+        raise ValueError(f"{table}: {parts[0]} isn't the attached lakehouse, and a catalog (such as a Unity Catalog "
+                         f"catalog) isn't on this PC, so nothing was read or written. Name tables as table or "
+                         f"schema.table in the attached lakehouse ({lh.name}), or run the cell where {parts[0]} is.")
     schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
     if lh.schemas_enabled():
         return TableRef(lh.workspace_id, lh.lakehouse_id, schema or "dbo", name_)

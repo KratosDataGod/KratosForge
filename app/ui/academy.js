@@ -287,7 +287,7 @@ async function renderAcademyExercise(eid) {
     fill(out, h("p", { class: "muted-text" }, "Running on this PC..."));
     clearTimeout(saveTimer);
     save();
-    try { academyPage.run = await rpc("academy_run", { pack_id: pack, exercise_id: eid, sql: editor.value }); }
+    try { academyPage.run = await rpc("academy_run", { pack_id: pack, exercise_id: eid, sql: boxChosenText(editor) }); }
     catch (err) { academyPage.run = { error: friendlyError(err).text }; }
     finally { academyPage.busy = false; }
     if (out.isConnected) fill(out, learnResult(academyPage.run));
@@ -309,11 +309,11 @@ async function renderAcademyExercise(eid) {
     { label: "Compare with the expected result", action: () => academyCompare(ex) },
     { label: "Reset the exercise…", icon: "restart", action: () => academyReset(ex) },
   ]), "tool outline", { "aria-label": "More actions", "aria-haspopup": "menu", "aria-expanded": "false" });
-  editor.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runIt(); } });
+  editor.addEventListener("keydown", (e) => { if (isRunKey(e)) { e.preventDefault(); runIt(); } });
   fill(work, h("div", { role: "toolbar", "aria-label": "Exercise", class: "row wrap" },
-    btn("Run", "play", runIt, "tool primary"), btn("Check my work", "ok", checkIt, "tool outline"), more,
+    btn("Run", "play", runIt, "tool primary", RUN_BOX_TIP), btn("Check my work", "ok", checkIt, "tool outline"), more,
     h("span", { class: "spacer" }), saved),
-  editor, h("p", { class: "muted-text small" }, "Ctrl+Enter runs. Changes are undone after each run, so the exercise's data stays as it was."), out);
+  editor, h("p", { class: "muted-text small" }, "F5 or Ctrl+Enter runs (just the selected text, when you select some). Changes are undone after each run, so the exercise's data stays as it was."), out);
   academyPanel(aside, ex, ws);
 }
 

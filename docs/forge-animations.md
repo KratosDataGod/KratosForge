@@ -16,11 +16,11 @@ The modes were called Off, Minimal, Refined and Expressive before; a saved choic
 | Mode | What you see |
 | --- | --- |
 | **Professional** | No decorative animation at all |
-| **Subtle** | Quick page and panel transitions only (a page slides 6 px in the direction you moved on the rail, 0.16 s) |
-| **Heroic** (default) | Sparks, embers, the forge strike and the wolf on real progress |
+| **Subtle** (default) | Quick page and panel transitions (a page slides 6 px in the direction you moved on the rail, 0.16 s), and the Achievement Reveal when you earn an achievement. Everyday work stays plain |
+| **Heroic** | Adds sparks, embers, the forge strike and the wolf on real progress |
 | **Legendary** | The same moments with more character: a halftone ring and an offset outline on the anvil strike, a touch of depth on page changes |
 
-At Heroic and Legendary, a switch for each family turns it off:
+At Heroic and Legendary, a switch for each family turns it off (Achievement celebrations, from Subtle up):
 
 | Switch | Effects |
 | --- | --- |

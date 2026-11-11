@@ -216,6 +216,41 @@ jobs:
       # sidecar/mypy-baseline/ records, one JSON file per source file (hundreds predate the check).
       - run: python ../.github/scripts/mypy_ratchet.py
 
+  secrets:
+    # Something that looks like a secret (a token, a key, a password in a connection string) fails the
+    # build unless .secrets.baseline lists it as reviewed (.github/scripts/secret_scan.py, detect-secrets).
+    # A pull request scans the files it changes, and each of its commits for a value added and later taken
+    # out (still in its history); a push to main scans every tracked file.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0  # all history: a pull request's commits are those its head has and the base doesn't
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install the scanner
+        run: |
+          python -m pip install --quiet --only-binary=:all: --require-hashes -r .github/requirements/secret-scan.txt
+      - name: Scan for secrets
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            git diff -z --name-only --diff-filter=d HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+            git show HEAD^1:.secrets.baseline > "$RUNNER_TEMP/base-baseline" || true
+            python .github/scripts/secret_scan.py added "$RUNNER_TEMP/base-baseline"
+            git diff -U0 --no-color --no-ext-diff HEAD^1 HEAD | python .github/scripts/secret_scan.py pragmas
+            python .github/scripts/secret_scan.py commits HEAD^1 HEAD^2
+            if [ -s "$RUNNER_TEMP/changed" ]; then
+              xargs -0 python .github/scripts/secret_scan.py check < "$RUNNER_TEMP/changed"
+            else
+              echo "No changed files to scan."
+            fi
+          else
+            python .github/scripts/secret_scan.py check
+          fi
+
   vscode-extension:
     # vscode/: the KratosForge extension compiles, and its client pairs and runs cells through the
     # real engine's editor channel (vscode/test). No VS Code is downloaded.
@@ -753,13 +788,30 @@ jobs:
             app/src-tauri/target/release/kratosforge.exe
             app/src-tauri/target/release/kratosforge.msi
           if-no-files-found: error
+      # The MSI on a real Windows machine: the current Preview MSI installed silently, this build's MSI
+      # over it, the Preview again (refused as a downgrade), then a silent uninstall, with the user's
+      # settings, notebook and sign-in cache untouched throughout (docs/enterprise-install.md).
+      - name: Install, upgrade, downgrade and uninstall the MSI
+        shell: pwsh
+        # A hung msiexec would otherwise hold the runner until the job's own limit.
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ..\installer\test-msi-lifecycle.ps1 -Msi target\release\kratosforge.msi -Exe target\release\kratosforge.exe -Work "$env:RUNNER_TEMP\msi-lifecycle"
+      - name: Keep the MSI logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: msi-lifecycle-logs
+          path: ${{ runner.temp }}/msi-lifecycle/*.log
+          if-no-files-found: ignore
 
   release:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new
     # exe, and is also kept as a release of its own (build-<sha>) for pinning and rollback.
     # People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, ui, engine, shell, sbom-app, audit, vscode-extension]
+    needs: [sidecar, ui, engine, shell, sbom-app, audit, vscode-extension, secrets]
     runs-on: ubuntu-24.04
     # The Preview publish runs in its own environment, as Stable's does (promote.yml), so its rules
     # live in Settings > Environments > preview: allow only the main branch to deploy, and add

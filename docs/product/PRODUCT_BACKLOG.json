@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-09",
+  "updated": "2026-11-10",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4934,7 +4934,11 @@
         2347,
         2351,
         2370,
-        2371
+        2371,
+        2380,
+        2385,
+        2406,
+        2409
       ],
       "issues": [
         910,
@@ -5042,7 +5046,8 @@
         2222,
         2225,
         2226,
-        2290
+        2290,
+        2410
       ],
       "issues": [
         928,
@@ -5066,7 +5071,8 @@
         "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
         "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb",
         "Spark SQL on this PC: extract, date_part, to_unix_timestamp, parse_url, binary literals, bitmap functions, tumbling window(), number formats and hash()/xxhash64() give Spark's values (#1845, #1851, #1853, #1860, #1866, #1880); type-checked compatibility layer (#1568) on main at a7631920",
-        "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016"
+        "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016",
+        "spark.catalog answers about the lakehouse or refuses by name (#2389); Unity Catalog style names read or write the table they name, or refuse (#2379); Column.withField and dropFields (#2383) on main at 5d2fc045"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5227,7 +5233,12 @@
         2328,
         2340,
         2372,
-        2373
+        2373,
+        2379,
+        2383,
+        2388,
+        2389,
+        2416
       ]
     },
     {
@@ -5718,7 +5729,8 @@
       "evidence": [
         "Proposal 2026-10-24",
         "#650 merged: the app never saves over a file another program changed",
-        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7"
+        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7",
+        "VS Code: a cell over 1 MB says so before anything is sent, a dropped check is asked again, and the editor channel bounds a refused request's body (#2402, #2404, #2412, #2421) on main at 17e7ea06"
       ],
       "features": [
         "FEAT-EXT-01",
@@ -5770,7 +5782,12 @@
         2292,
         2303,
         2307,
-        2309
+        2309,
+        2377,
+        2402,
+        2404,
+        2412,
+        2421
       ],
       "mandatory": "none",
       "computed": {
@@ -6211,7 +6228,7 @@
     {
       "id": "PB-120",
       "title": "Platform support levels and one engine contract",
-      "state": "In review",
+      "state": "Accepted",
       "owner": "Fabric and Databricks unified development",
       "category": "Extensibility, APIs, CLI, and MCP",
       "effort": "L",
@@ -6315,7 +6332,8 @@
         "Snowflake SQL: account and session functions refused by name (SFN-014, #1929), IS_ and AS_ type functions on VARIANT (#1933) on main at de881016",
         "Databricks SQL: the last Fails closed (#2276); IP address, UTF-8, VARIANT and counter_diff functions run with Databricks' values (#2243, #2255, #2263, #2278) on main at 2bf8ea1b",
         "Implementation review docs/product/reviews/PB-120-kudp.md recommends Accept with documented limitations: only Fabric has live evidence (level 2), Databricks and Snowflake are verified at level 0, and the portability report and two-engine comparison have no screen. Databricks functions at 013281be: 440 run, 0 differ, 0 fail, 92 refused by name, 57 not checked. 1,404 engine tests and 4 browser tests pass on main at bddb5b27",
-        "Databricks SQL value checks for 15 more functions (#2293); the parity page's Databricks and Snowflake SQL rows rest on the generated function lists, with a guard (#2332); generated Databricks notebook helpers list (#2338); implementation review PB-120-kudp.md (#2306) on main at d5a867c0"
+        "Databricks SQL value checks for 15 more functions (#2293); the parity page's Databricks and Snowflake SQL rows rest on the generated function lists, with a guard (#2332); generated Databricks notebook helpers list (#2338); implementation review PB-120-kudp.md (#2306) on main at d5a867c0",
+        "Implementation review docs/product/reviews/PB-120-kudp.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64); limitations: only Fabric is proven live, to level 2, with Databricks and Snowflake verified at level 0; the portability report and two-engine comparison have no screen; function checks use one documented example per function on this PC"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6523,7 +6541,9 @@
         "Enterprise install: MSI silent install, uninstall and detection, and what the support bundle collects (#1908) on main at de881016",
         "Every outbound call works behind a corporate proxy and says why it failed (#1993); supply-chain inventory, pinned deploy base image and hashed build tools (#2050, #2055, #2058); removing a platform admin reaches every environment or says which it didn't (#2021); more redaction shapes (#1956, #1958) on main at c750da45",
         "Prod and confirmed actions write their audit line first and don't run without it (#2205); an authorization matrix lists every state-changing call and its check (#2045); refused changes and returned failures leave audit rows (#2196, #2231); SBOMs cover npm and Python with checksums (#2191) on main at e5e6bec4",
-        "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0"
+        "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0",
+        "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045",
+        "Secret scan in CI: commit ids aren't findings, and a pull request's reviewers are warned about filter changes and values added then removed (#2398, #2399, #2400); the agent's crash log tells a crash from a handled fault (#2405, #2407, #2418); expired local copies swept daily (#2401, #2403); a full disk tested on a real Windows volume (#2413) on main at 17e7ea06"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6672,7 +6692,25 @@
         2345,
         2350,
         2369,
-        2374
+        2374,
+        2381,
+        2382,
+        2384,
+        2386,
+        2387,
+        2391,
+        2392,
+        2394,
+        2398,
+        2399,
+        2400,
+        2401,
+        2403,
+        2405,
+        2407,
+        2413,
+        2415,
+        2418
       ],
       "issues": [],
       "computed": {
@@ -7321,7 +7359,8 @@
         2299,
         2301,
         2304,
-        2318
+        2318,
+        2395
       ],
       "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
       "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",

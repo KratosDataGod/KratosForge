@@ -35,6 +35,18 @@ def test_the_msi_section_matches_the_wix_file_and_the_ci_build():
     assert "UNVERIFIED" in msi
 
 
+def test_ci_runs_the_msi_lifecycle_check_the_page_describes():
+    msi = section("## Silent install, uninstall and detection".lstrip("#"))
+    script = (ROOT / "app" / "installer" / "test-msi-lifecycle.ps1").read_text(encoding="utf-8")
+    assert "..\\installer\\test-msi-lifecycle.ps1 -Msi target\\release\\kratosforge.msi" in CI
+    assert "app/installer/test-msi-lifecycle.ps1" in msi
+    # The downgrade message is read from the WiX file, so the check can't drift from the MSI.
+    assert "MajorUpgrade.DowngradeErrorMessage" in script and "DowngradeErrorMessage=" not in script
+    # Only this repository's own Preview release is downloaded, and its hash is checked.
+    assert "gh release download latest --repo $Repo" in script and "msi_sha256" in script
+    assert "Invoke-WebRequest" not in script and "Start-Process -FilePath msiexec.exe" in script
+
+
 def test_the_support_bundle_section_lists_what_the_bundle_holds():
     page = section("## What the support bundle collects".lstrip("#"))
     listed = set(re.findall(r"^\| `([\w.-]+)` \|", page, re.M))

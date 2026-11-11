@@ -22,7 +22,7 @@ import sys
 import tempfile
 import threading
 import weakref
-from typing import Any
+from typing import Any, Callable, NoReturn
 
 import duckdb
 import pyarrow as pa
@@ -399,6 +399,9 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
+    "_catalog_call_in_fabric": ("spark.catalog.listTables, listDatabases, listCatalogs or listFunctions (REFUSED_CODE). "
+                                "currentDatabase is refused only with no lakehouse or one with schemas, which the "
+                                "check doesn't know, so it isn't flagged"),
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -412,6 +415,8 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
     (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
+    (re.compile(r"\bcatalog\.(listTables|listDatabases|listCatalogs|listFunctions)\("),
+     _IN_FABRIC_TEXT.format("lists the catalog with spark.catalog (_catalog_calls)")),
 ]
 # DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
 DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
@@ -500,6 +505,96 @@ def _in_attached(tree: Any, name: str | None = None) -> None:
     elif current is not None and not target.catalog and target.db and target.db.lower() == name.lower() \
             and not current.schemas_enabled():
         target.set("db", None)
+
+
+def _use(statement: Any) -> None:
+    """USE CATALOG, USE SCHEMA, USE DATABASE and USE name. On this PC a table name resolves in the attached
+    lakehouse (its dbo schema when it has schemas), and that can't be changed. So USE runs only when it
+    names where names already resolve, and changes nothing; any other catalog or schema is refused by
+    name, so an unqualified table is never read from or written to a place the cell didn't mean."""
+    kind = str(statement.args.get("kind") or "").upper()
+    target = statement.this
+    parts = [p for p in (target.catalog, target.db, target.name) if p] if hasattr(target, "catalog") else [target.name]
+    _use_parts(kind, parts)
+
+
+def _use_parts(kind: str, parts: list[str], call: str = "") -> None:
+    """_use for ``parts`` (catalog and schema names); ``call`` names the call in the message when it isn't
+    USE itself (spark.catalog.setCurrentCatalog('main'))."""
+    lh = lakehouse._attached
+    home = lh.name.lower() if lh is not None else None
+    catalogs = {"spark_catalog", *([home] if home else [])}
+    schemas = {"dbo", *([home] if home else [])}  # USE Sales: Fabric's database is the lakehouse
+    if kind == "CATALOG":
+        ok = len(parts) == 1 and parts[0].lower() in catalogs
+    else:
+        *catalog, schema = parts
+        ok = len(parts) <= 2 and schema.lower() in schemas and all(c.lower() in catalogs for c in catalog)
+    if ok:
+        return
+    named = ".".join(parts)
+    where = f"the attached lakehouse ({lh.name})" if lh is not None else "the attached lakehouse"
+    said = call or f"USE {kind + ' ' if kind else ''}{named}"
+    if kind == "CATALOG" or len(parts) == 2 and parts[0].lower() not in catalogs:
+        raise ValueError(f"{said}: the catalog {parts[0]} (such as a Unity Catalog "
+                         f"catalog) isn't on this PC, so nothing changed. Tables here are in {where}. "
+                         "Run the cell where that catalog is, or name tables as table or schema.table.")
+    raise ValueError(f"{said}: on this PC an unqualified table name always resolves "
+                     f"in {where}, schema dbo, so USE can't point it at {parts[-1]} and nothing changed. "
+                     f"Name the schema in each table instead ({parts[-1]}.table).")
+
+
+def _catalog_call_in_fabric(call: str, why: str) -> NoReturn:
+    raise NotImplementedError(f"spark.catalog.{call} runs in Fabric. {why}")
+
+
+def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
+    """spark.catalog on this PC. DuckDB's Catalog answers about its own connection (its databases memory,
+    system and temp; its own tables), which isn't what a notebook asks, so each call answers about the
+    attached lakehouse and this session's temp views, or is refused by name."""
+    from duckdb.experimental.spark.sql.catalog import Column
+
+    def refuse(call: str, why: str) -> Callable[..., Any]:
+        return lambda *_a, **_kw: _catalog_call_in_fabric(call, why)
+
+    def list_columns(tableName: str, dbName: str | None = None) -> list[Column]:  # noqa: N803
+        name = f"{dbName}.{tableName}" if dbName else tableName
+        frame = session.table(name)
+        # A lakehouse table's partition columns are in its Delta log (a table Fabric wrote partitioned); a
+        # temp view has none.
+        local = "." not in name and session._is_local(name)
+        parts = set() if local else {c.lower() for c in lakehouse.open_table(name).metadata().partition_columns}
+        return [Column(name=f.name, description=None, dataType=f.dataType.simpleString(), nullable=f.nullable,
+                       isPartition=f.name.lower() in parts, isBucket=False) for f in frame.schema.fields]
+
+    def current_database() -> str:
+        lh = lakehouse._attached
+        if lh is None or lh.schemas_enabled():
+            _catalog_call_in_fabric("currentDatabase", "On this PC unqualified table names resolve in the attached "
+                                                       "lakehouse, schema dbo.")
+        return lh.name  # Fabric's database is the default lakehouse
+
+    def set_catalog(catalogName: str) -> None:  # noqa: N803
+        _use_parts("CATALOG", [catalogName], f"spark.catalog.setCurrentCatalog({catalogName!r})")
+
+    def set_database(dbName: str) -> None:  # noqa: N803
+        _use_parts("SCHEMA", lakehouse.name_parts(dbName), f"spark.catalog.setCurrentDatabase({dbName!r})")
+
+    lists = ("On this PC it would list DuckDB's own objects, not the lakehouse's. The Explorer lists the attached "
+             "lakehouse's tables, and notebookutils.lakehouse.listTables() reads them.")
+    return {
+        "tableExists": lambda tableName, dbName=None: spark_api.table_exists(session, tableName, dbName),  # noqa: N803
+        "listColumns": list_columns,
+        "currentCatalog": lambda: "spark_catalog",
+        "setCurrentCatalog": set_catalog,
+        "setCurrentDatabase": set_database,
+        "listTables": refuse("listTables", lists),
+        "listDatabases": refuse("listDatabases", lists),
+        "listCatalogs": refuse("listCatalogs", "On this PC a notebook has one catalog: the attached lakehouse."),
+        "listFunctions": refuse("listFunctions", "docs/spark-functions.md lists every Spark function and how it "
+                                                 "runs on this PC."),
+        "currentDatabase": current_database,
+    }
 
 
 def _refuse_auto_merge(session: Any) -> None:
@@ -858,8 +953,7 @@ class LocalSparkSession(SparkSession):
         self._conf = spark_api.LocalRuntimeConfig(self)  # type: ignore[assignment]  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
-        vars(catalog).update(  # DuckDB's Catalog has no tableExists
-            tableExists=lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName))  # noqa: N803
+        vars(catalog).update(_catalog_calls(self))
 
     @property
     def sparkContext(self) -> spark_api.LocalSparkContext:  # type: ignore[override]  # noqa: N802
@@ -951,6 +1045,9 @@ class LocalSparkSession(SparkSession):
 
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
+        if isinstance(statement, exp.Use):
+            _use(statement)
+            return None
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         if isinstance(statement, exp.Merge):
             return self._merge(statement)
@@ -960,8 +1057,8 @@ class LocalSparkSession(SparkSession):
         if isinstance(statement, exp.TruncateTable) or (
                 isinstance(statement, exp.Drop) and str(statement.args.get("kind", "")).upper() == "TABLE"):
             tables = statement.expressions if isinstance(statement, exp.TruncateTable) else statement.args.get("tables") or []
-            names = [".".join(p for p in (t.db, t.name) if p) for t in tables
-                     if t.db or not self._is_local(t.name)]
+            names = [_sql.table_name(t) for t in tables  # with its catalog: DROP TABLE IF EXISTS main.dbo.t is refused
+                     if t.db or t.catalog or not self._is_local(t.name)]
             if names:
                 if isinstance(statement, exp.Drop) and statement.args.get("exists") \
                         and not any(lakehouse.table_exists(n) for n in names):
@@ -982,7 +1079,7 @@ class LocalSparkSession(SparkSession):
             is_view = isinstance(statement, exp.Create) and str(statement.args.get("kind", "")).upper() == "VIEW"
             temporary = statement.args.get("properties") and "TEMPORARY" in statement.args["properties"].sql().upper()
             if isinstance(target, exp.Table) and not is_view and not temporary:
-                name = f"{target.db}.{target.name}" if target.db else target.name
+                name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
                 data = self.conn.sql(_sql.duckdb_sql(spark_decimal_types(query, self.conn)))

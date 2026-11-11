@@ -47,6 +47,17 @@ def test_ci_runs_the_msi_lifecycle_check_the_page_describes():
     assert "Invoke-WebRequest" not in script and "Start-Process -FilePath msiexec.exe" in script
 
 
+def test_a_preview_msi_that_never_matches_its_checksum_opens_an_issue_on_main():
+    script = (ROOT / "app" / "installer" / "test-msi-lifecycle.ps1").read_text(encoding="utf-8")
+    assert '"preview_mismatch=true" | Out-File -FilePath $env:GITHUB_OUTPUT' in script
+    assert "preview_mismatch: ${{ steps.lifecycle.outputs.preview_mismatch }}" in CI
+    job = CI.split("\n  preview-integrity:\n", 1)[1].split("\n\n  release:", 1)[0]
+    assert "github.ref == 'refs/heads/main'" in job and "needs.shell.outputs.preview_mismatch == 'true'" in job
+    # The only right it gets is to file the issue.
+    assert "permissions:\n      issues: write\n    steps:" in job
+    assert "gh issue create" in job and "gh issue comment" in job
+
+
 def test_the_support_bundle_section_lists_what_the_bundle_holds():
     page = section("## What the support bundle collects".lstrip("#"))
     listed = set(re.findall(r"^\| `([\w.-]+)` \|", page, re.M))

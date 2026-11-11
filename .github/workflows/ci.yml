@@ -671,6 +671,7 @@ jobs:
     needs: engine
     outputs:
       signed: ${{ steps.signature.outputs.signed }}
+      preview_mismatch: ${{ steps.lifecycle.outputs.preview_mismatch }}
     defaults:
       run:
         working-directory: app/src-tauri
@@ -792,6 +793,7 @@ jobs:
       # over it, the Preview again (refused as a downgrade), then a silent uninstall, with the user's
       # settings, notebook and sign-in cache untouched throughout (docs/enterprise-install.md).
       - name: Install, upgrade, downgrade and uninstall the MSI
+        id: lifecycle
         shell: pwsh
         # A hung msiexec would otherwise hold the runner until the job's own limit.
         timeout-minutes: 10
@@ -805,6 +807,32 @@ jobs:
           name: msi-lifecycle-logs
           path: ${{ runner.temp }}/msi-lifecycle/*.log
           if-no-files-found: ignore
+
+  preview-integrity:
+    # The published Preview MSI didn't match the SHA-256 in its own version.json after three tries
+    # (app/installer/test-msi-lifecycle.ps1), so the file may have been replaced after publishing. A
+    # run warning is easy to miss, so a build of main opens an issue, or comments on the open one.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.shell.outputs.preview_mismatch == 'true'
+    needs: shell
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="The Preview MSI doesn't match its published checksum"
+          BODY="CI downloaded kratosforge.msi from the latest release three times, and its SHA-256 never matched msi_sha256 in that release's version.json. Compare the release's files with the build that published them before anyone installs it. Run: $RUN_URL"
+          OPEN=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$OPEN" ]; then
+            gh issue comment "$OPEN" --body "Still different in $RUN_URL"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --assignee "$GITHUB_REPOSITORY_OWNER"
+          fi
 
   release:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new

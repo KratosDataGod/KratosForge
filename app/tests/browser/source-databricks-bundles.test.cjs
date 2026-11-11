@@ -77,7 +77,8 @@ test("a safe plan deploys after a plain confirm, with the plan's digest", { skip
 test("a plan that deletes, on production, needs the target typed; Cancel sends nothing", { skip }, async () => {
   await page().locator('.dbx-bundles select[aria-label="Target"]').selectOption("prod");
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
-  await page().locator(".dbx-plan").waitFor();
+  // The tab can be drawn again after a deploy ("Reading databricks.yml…"): wait for the plan's warning, then read it.
+  await page().locator(".dbx-bundles", { hasText: /prod is a production target.*deletes or rebuilds 1 resource/ }).waitFor();
   assert.match(await page().locator(".dbx-bundles").textContent(), /prod is a production target.*deletes or rebuilds 1 resource/);
   await page().locator(".dbx-bundles button", { hasText: "Deploy to prod" }).click();
   const ok = page().locator("#dialog-root button", { hasText: "Deploy to prod" });

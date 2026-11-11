@@ -239,6 +239,21 @@ def _check_fabric_runs_allowed(what: str) -> None:
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
 
 
+_COOLDOWN_SECONDS = re.compile(r"wait (\d{1,4}) second", re.IGNORECASE)
+PUBLISH_COOLDOWN_MAX = 180  # seconds; a longer cooldown is reported instead of waited out
+
+
+def _publish_cooldown(exc: FabricError) -> float | None:
+    """How long to wait before publishing again, when Fabric refused a publish for its cooldown
+    (DeployCooldownBlock): the seconds it names plus one, or 60 if it names none. None for any other
+    error, or a cooldown longer than PUBLISH_COOLDOWN_MAX."""
+    if exc.code != "DeployCooldownBlock" and "DeployCooldownBlock" not in str(exc):
+        return None
+    found = _COOLDOWN_SECONDS.search(str(exc))
+    seconds = int(found.group(1)) + 1 if found else 60
+    return float(seconds) if seconds <= PUBLISH_COOLDOWN_MAX else None
+
+
 class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300,
@@ -671,7 +686,18 @@ class FabricClient:
             return created | {"created": True}
         if definition:
             url = f"/workspaces/{workspace_id}/items/{existing['id']}/updateDefinition"
-            self._wait(self._request("POST", url, json={"definition": definition}))
+            try:
+                self._wait(self._request("POST", url, json={"definition": definition}))
+            except FabricError as exc:
+                wait = _publish_cooldown(exc)
+                if wait is None:
+                    raise
+                # Fabric refuses a second publish of some items (User Data Functions) for a short while
+                # after the last one (live run 9, 2026-11-11: DeployCooldownBlock, "Please wait 48
+                # second(s) before publishing again"). Nothing was changed, so it's sent once more after
+                # the wait Fabric names.
+                self._sleep(wait)
+                self._wait(self._request("POST", url, json={"definition": definition}))
         return existing | {"created": False}
 
     def refresh_sql_endpoint(self, workspace_id: str, sql_endpoint_id: str) -> dict[str, Any]:

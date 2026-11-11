@@ -156,8 +156,8 @@ function Get-Preview {
             return @{ Msi = $path; Version = $version; Exe = $release.exe_sha256.ToUpper() }
         }
         if ($try -eq 3) {
-            # Still different after three tries: the published file may have been replaced. CI opens an
-            # issue for it on main (ci.yml, job preview-integrity), as a run warning is easy to miss.
+            # Still different after three tries: CI opens an issue for it on main (ci.yml, job
+            # preview-integrity), as a run warning is easy to miss.
             Write-Host "::error::The Preview release's kratosforge.msi doesn't match the SHA-256 in its version.json"
             if ($env:GITHUB_OUTPUT) { "preview_mismatch=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
             throw "its SHA-256 ($actual) isn't the one its release lists ($expected)"

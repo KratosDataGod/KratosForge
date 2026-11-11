@@ -809,8 +809,7 @@ jobs:
           if-no-files-found: ignore
 
   preview-integrity:
-    # The published Preview MSI didn't match the SHA-256 in its own version.json after three tries
-    # (app/installer/test-msi-lifecycle.ps1), so the file may have been replaced after publishing. A
+    # The Preview MSI's checksum check failed three times (app/installer/test-msi-lifecycle.ps1). A
     # run warning is easy to miss, so a build of main opens an issue, or comments on the open one.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.shell.outputs.preview_mismatch == 'true'
     needs: shell
@@ -825,8 +824,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          TITLE="The Preview MSI doesn't match its published checksum"
-          BODY="CI downloaded kratosforge.msi from the latest release three times, and its SHA-256 never matched msi_sha256 in that release's version.json. Compare the release's files with the build that published them before anyone installs it. Run: $RUN_URL"
+          TITLE="Preview release check failed"
+          BODY="The Preview MSI checksum check failed three times in $RUN_URL. A maintainer needs to look before the next Preview install."
           OPEN=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$OPEN" ]; then
             gh issue comment "$OPEN" --body "Still different in $RUN_URL"

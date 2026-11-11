@@ -74,10 +74,7 @@ teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the S
 where a lesson uses DuckDB's own SQL, it says so.
 Like every lab, they never read or write OneLake and never publish to Fabric.
 
-The Snowflake, Databricks and Python & Data Engineering paths start with one lesson each. They run on this
-PC in DuckDB too, and say where the SQL differs on the other platform: QUALIFY isn't in Fabric Warehouse,
-and the MERGE lesson checks the table a MERGE would leave with a read-only SELECT. More lessons, and the
-Enterprise Architecture path, come in later updates.
+The paths listed above include Snowflake, Databricks, Python & Data Engineering and Enterprise Architecture. They run on this PC in DuckDB and explain where SQL differs on the other platform. QUALIFY is not in Fabric Warehouse; the MERGE lesson checks the resulting table with a read-only SELECT. Draft lessons may change.
 
 ## A lesson or lab
 
@@ -110,7 +107,7 @@ organization policy can set it, and then it can't be changed here.
 | --- | --- |
 | Expert | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
 | Professional (the default) | A line on why the finding matters, from the rule's guide, with **Explain** and **Show example** under each notebook or SQL finding |
-| Guided | **Explain** open to start with, **Lesson: <title>** where a published lesson covers the rule, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order. Draft lessons are linked only from Learn |
+| Guided | **Explain** open to start with, **Lesson: &lt;title&gt;** where a published lesson covers the rule, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order. Draft lessons are linked only from Learn |
 
 A level is a preference, not a permission: the checks run the same at every level, and a rule your
 organization requires is required at every level. Guidance only adds explanations and links.

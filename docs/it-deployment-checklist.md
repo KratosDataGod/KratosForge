@@ -1,5 +1,7 @@
 # IT deployment checklist
 
+> **Choose your release channel.** Release assets checked on 2026-11-11 include a per-user MSI in Preview, not Stable. Check the exact [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) or [Preview](https://github.com/KratosDataGod/KratosForge/releases/tag/latest) assets before planning a rollout. Packaging alone does not establish signing or managed-rollout readiness.
+
 One page to follow when you roll KratosForge out to a pilot group, from first download to the support path. Each step links to the page with the detail. Every setting, path and command named here is checked against the code by `sidecar/tests/test_it_checklist_doc.py`, so a renamed setting fails the build before this page goes stale.
 
 ## Before you start

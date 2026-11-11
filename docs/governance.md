@@ -135,7 +135,7 @@ Your organization's templates are kept in `catalog.policy_template` in the platf
 A promote (Environments > **Promote Dev to Test**, **Promote Test to Prod**) runs the same checks as Check now for the project's **Block** policies, on this PC, before anything moves. Its existing list of things to do first gains one line per finding, naming the policy and the finding, like `Block policy "Sensitive columns are labelled": silver.customers#email: ...`. Up to 10 findings per policy are listed; Check now lists them all. No new screen.
 
 - **Warn and Advisory never stop a promote.** Check now still lists their findings.
-- **An exception lets it through.** A finding an active exception covers (as in Check now) doesn't stop the promote. The promote's notes name the policy, how many findings the exception lets through and the exception (**Excepted until <date>: <why>**, and who approved it), and the promote's result keeps the same under `policies`.
+- **An exception lets it through.** A finding an active exception covers (as in Check now) doesn't stop the promote. The promote's notes name the policy, how many findings the exception lets through and the exception (**Excepted until &lt;date&gt;: &lt;why&gt;**, and who approved it), and the promote's result keeps the same under `policies`.
 - **Per environment.** The policies are worked out for the target environment, so a policy whose **Applies to** lists only Prod stops a promote to Prod and not to Test.
 - **Without the platform.** When the platform can't be reached (no connection), the latest [policy package](#offline-policy-packages) on this PC stands in, and the notes say which and how old. For a promote to Prod it must have been taken within the last day: an older one may miss a Block policy assigned since, so Prod stops instead. Test and Dev take any package whose hashes match. A platform that answers with an error is never stood in for by an older package.
 - **Fails closed for Prod.** When the policies can't be read at all (the platform can't be reached and there's no package on this PC, or, for Prod, none taken within the last day, or it was changed after it was taken, or the platform answers with an error), a promote to Prod stops and says why. A promote to Test or Dev only warns. KratosForge can't know which policies are assigned without reading them, so a Prod promote stops whenever they can't be read, not only when a Block policy is known to be assigned.
@@ -149,7 +149,7 @@ It reads what Check now reads, and writes nothing: Check now's last result and t
 
 1. Works out the policies in force for the project, exactly as **Explain** does: the platform's assignments plus the project's `governance.toml`.
 2. Runs each policy's **Checked by** rules on this PC, on the project's entities and products and, when a policy names their rules, this PC's notebooks and SQL scripts, with the policy's parameters as the rules' thresholds. A policy's severity sets its findings': high or critical is **Error**, medium **Warning**, low **Info**. A `severity` parameter overrides it for the rules, and `enabled = false` switches them off.
-3. Applies exceptions: a finding an active exception covers shows **Excepted until <date>: <why>** instead of counting. **Ask for an exception** sends the request ([Data mesh > Requests](platform.md#requests)), with the policy and project filled in.
+3. Applies exceptions: a finding an active exception covers shows **Excepted until &lt;date&gt;: &lt;why&gt;** instead of counting. **Ask for an exception** sends the request ([Data mesh > Requests](platform.md#requests)), with the policy and project filled in.
 4. Shows the result, like "Sales Forecasting: 2 to look at" and "Checked on this PC 5 min ago. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers.", and where the policies came from: the platform, or (offline) which policy package and how old it is.
 
 Each finding names its policy and what's wrong. Where a safe fix exists in the app it's offered: **Label it** sets a column's classification in the platform's catalog, after asking and saying what changes. Otherwise the finding links to where to fix it (**Open the entity**, **Edit the product**, **Add a term**). Renaming an entity isn't built, so a naming finding links to the entity instead. A passing policy shows a ✓ and how many objects it checked.
@@ -329,7 +329,7 @@ problems, package, note}`. The app doesn't show the notes yet: that waits on a m
 
 ## What isn't built yet
 
-- Blocking promote or deployment on a **Block** policy (later GOV items). Check now is warn only: it reports and stops nothing.
+- Blocking other deployments is not built yet. A **Block** finding without an exception already stops a promote. **Check now** reports findings and stops nothing by itself.
 - Check now checks the open project at project scope: a policy assigned to one entity only isn't checked yet, nor are items made outside the app.
 - Renaming an entity from a finding (a naming finding links to the entity instead), and fixes beyond **Label it**.
 - Checkers that run in Fabric, and storing their findings from a Fabric run: the registry accepts them and Check now shows what's stored, but nothing stores any yet.

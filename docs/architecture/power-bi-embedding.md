@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Power BI embedding architecture (proposed)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 **Status: proposed, not built.** Nothing on this page is in the app yet. It records the design for
 **Embed Studio**, a Power BI embedded analytics development view, and what Microsoft's SDK supports

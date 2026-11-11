@@ -1,5 +1,7 @@
 # Back up and restore
 
+> **Preview — Windows procedure not yet manually verified.** These commands have automated test coverage but have not been run on a Windows PC. Read the whole procedure before restoring.
+
 KratosForge keeps some things only on your PC: notebooks you haven't published, Settings, schedules on this PC, run history, proof receipts and the workloads and incidents database. If the PC is lost or replaced, those go with it. A backup is one zip you can keep somewhere safe and restore on any PC.
 
 Your tables in OneLake, and anything you published to Fabric, aren't part of it. They stay in Fabric. A metadata project folder is also not included; keep it in Git.

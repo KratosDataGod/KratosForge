@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Engine call limits
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Which engine calls can hold the app up, and what bounds them (PB-072). The engine answers the app over one pipe in two lanes (`sidecar/fabric_desktop/server.py`):
 

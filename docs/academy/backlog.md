@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Academy backlog: ACD-001 to ACD-020
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Priorities: P0 must land for the first learner workflow, P1 phase work, P2 later. Owners are threads
 in the KratosForge project ([ownership](delivery-plan.md#ownership)). Every story's definition of

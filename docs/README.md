@@ -254,3 +254,11 @@ Two notebook settings are also in Preview: **Run notebooks in their own process*
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 
 When a Preview feature has been tried on a tenant, its tag is removed. If you try one, say how it went in the [Ideas forum](ideas.md) or a bug report.
+
+## Website source of truth
+
+The website should never have anything that is not in the Git repo. kratosforge.com/docs/ is a pure rendering of this repository’s `docs/` at the exact commit pinned in the website’s `content/source.json`. Fix docs here through a branch and PR; a fix that exists only on the website will be lost on the next sync. Other pages and assets belong in committed, pushed website source.
+
+Pipeline: this repo → pinned commit → `npm run sync-docs` → commit and push website source → `npm run build` → `npm run check` → IONOS, with a backup and live verification. Never edit docs on the website, IONOS directly, `dist/`, or `content/upstream/`. Only sync-docs updates imports and the source record.
+
+Website presentation reads canonical frontmatter: `site_group: Internal engineering`, the indented YAML block `search:` / `exclude: true`, and `redirect_to: /docs/.../`. Excluded pages retain their full source at their direct URL.

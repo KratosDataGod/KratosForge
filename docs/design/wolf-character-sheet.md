@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # The KratosForge wolf: character sheet
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 One wolf, everywhere. This sheet fixes the design so that every new image is the same animal.
 The approved painted references are the storyboard panels; the approved silhouette is the brand

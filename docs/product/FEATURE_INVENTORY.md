@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Feature inventory
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 This is the registry of what KratosForge actually does, how sure we are, and what
 should happen next for each capability. It is the starting point for every product decision in

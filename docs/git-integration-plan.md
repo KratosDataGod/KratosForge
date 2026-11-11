@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Git integration plan
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 KratosForge becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built; the rest is planned.
 

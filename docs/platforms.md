@@ -29,7 +29,7 @@ Planned work never counts toward a level.
 ## Where each platform stands
 
 <!-- Generated from platforms.docs_table(); a test keeps this table equal to the code. -->
-Manifest 1.
+This table uses support-manifest schema version 1; support levels describe the evidence for each platform below.
 
 | Platform | Built | In use | Verified | To verify the next level |
 | --- | --- | --- | --- | --- |

@@ -1,4 +1,14 @@
-# Implementation review: PB-nnn, PR #nnn
+---
+site_group: Internal engineering
+search:
+  exclude: true
+---
+
+# Implementation review template
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Template — not a guide.** This is a blank form to copy and complete, not a recorded review or test result. Fields below are placeholders.
 
 Copy this file to `docs/product/reviews/<PB-id>-<pr-number>.md`. Fill in every section. Evidence is
 a command and its output, a file and line, a screenshot, or a named person's observation.

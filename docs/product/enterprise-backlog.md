@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Enterprise backlog
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every FD item from the enterprise product program, with its owner and status. Items this program owns have acceptance criteria below; items another program owns link to that program's plan, where their stages and criteria live. Status words are defined in the [gap analysis](enterprise-gap-analysis.md#status-key).
 

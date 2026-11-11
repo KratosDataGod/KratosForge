@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Administration and FinOps program (FINOPS-001 to FINOPS-005)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](../product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 KratosForge helps developers understand, predict and avoid Fabric capacity use without becoming a copy of the Fabric admin portal or the Capacity Metrics app. This program adds evidence to what the app already shows: where each CU and cost number comes from, what capacity a workload would run on, what is risky before a cloud run, and when this PC is the better place to run.
 

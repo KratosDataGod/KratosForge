@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # AI tool test checklist
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 How to try one AI tool with KratosForge and record the result, so its row in [compatibility](ai-integration-compatibility.md) can change from **Untested** to **Tested**. Run it on a PC with a non-production Fabric workspace. A tool counts as tested only when every step below passes, with the tool's name and version, the KratosForge build and the date written down.
 

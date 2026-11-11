@@ -1,8 +1,10 @@
 # Security evidence pack
 
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
+
 Everything a security or IT team needs to review KratosForge before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
 
-Last checked against `main` c9874896 (2026-10-23). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
+Documentation cross-checked on 2026-11-11 against imported main snapshot `caddc34`: linked security, permissions, install, policy and release documentation, plus current Stable/Preview asset lists. Original security assessment baseline: `c9874896` (2026-10-23). This is a documentation consistency check, not a new security audit or live tenant certification; see [Live testing](live-testing.md) for the recorded test scope.
 
 ## At a glance
 
@@ -65,7 +67,7 @@ These are the flows the app itself starts, from the hosts named in its source co
 
 | Evidence | Where | State |
 | --- | --- | --- |
-| SBOMs (CycloneDX) for the shell, the engine, the UI and the VS Code extension | `sbom-app.cdx.json`, `sbom-engine.cdx.json`, `sbom-ui.cdx.json` and `sbom-vscode.cdx.json` on each Preview release (`latest`) and on Stable | Made for every Preview build, with each one's SHA-256 in `version.json`. Promote to stable checks those and copies the SBOMs to Stable |
+| SBOMs (CycloneDX) for the shell, the engine, the UI and the VS Code extension | `sbom-app.cdx.json`, `sbom-engine.cdx.json`, `sbom-ui.cdx.json` and `sbom-vscode.cdx.json` on Preview (`latest`); inspect the exact Stable asset list before approval | The checked Preview assets contain all four SBOMs. The checked Stable assets contain sbom-app.cdx.json and sbom-engine.cdx.json, not UI or VS Code SBOMs. Check checksums and provenance separately |
 | Build provenance attestations | Checked with `gh attestation verify <file> -R KratosDataGod/KratosForge` | Made for every build. Nothing on the PC checks them yet |
 | SHA-256 checksums | `version.json` on each release | Enforced by the app for the exe and the engine |
 | Dependency scanning | `pip-audit`, `npm audit` and `cargo audit` in CI on every pull request, over every lock file that ships | In place |
@@ -78,8 +80,8 @@ These are the flows the app itself starts, from the hosts named in its source co
 These are the items a reviewer will raise. They are tracked in [release readiness](product/release-readiness.md#whats-missing-for-an-enterprise-approved-app):
 
 - unsigned builds;
-- no live tenant run;
-- no MSI or MSIX, so the engine is installed in each person's own profile;
+- the full enterprise acceptance harness is not certified here; individual tenant runs recorded in the guides do not establish a complete pilot sign-off;
+- a per-user MSI exists in Preview (kratosforge.msi, release assets checked 2026-11-11), but not in the Stable assets checked here; signing and managed-rollout verification remain separate gates;
 - Preview features.
 
 Closed since the first version of this page: the app has a Content Security Policy, the sign-in cache is encrypted on Windows, and earlier builds are kept so IT can promote or reinstall a named build ([rollback](release-management/README.md#rollback)).

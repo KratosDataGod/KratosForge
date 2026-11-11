@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Assessments
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Academy > Assessments is where you test what you know with original practice questions. It is in
 Preview.

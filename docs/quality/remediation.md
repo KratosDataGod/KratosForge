@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Remediation plan
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Fourteen pull requests that fix the [findings](findings.md), in priority order. Each one is independent unless **Depends on** says otherwise, small enough to review in one sitting, and owned by the thread that owns the code. Specs say what to change and how to prove it; the owner decides how.
 

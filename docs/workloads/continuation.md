@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Workload operations: continuation note
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The handoff note for the workload operations program ([plan.md](plan.md)). Every PR in the program updates it. Read it first when resuming.
 

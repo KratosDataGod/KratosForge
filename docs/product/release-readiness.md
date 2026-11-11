@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Release readiness
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 What must be true before KratosForge goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
@@ -17,10 +25,10 @@ An enterprise security or IT team approving KratosForge would ask for each of th
 | # | Missing | Why an enterprise needs it | Waits on |
 | --- | --- | --- | --- |
 | 1 | Code signing | Smart App Control, App Control and many EDR tools block or flag the unsigned exe and engine | Chris: Azure Trusted Signing account (D-C3), then signing in CI |
-| 2 | Live tenant verification | Nothing has been proven on a real tenant, including sign-in with no app registration | Chris: one run of the FD-101 harness on a non-production workspace |
+| 2 | Live tenant verification | The full enterprise acceptance harness has not been completed on a real tenant. Individual maintainer runs with an own app registration are recorded below | Chris: one run of the FD-101 harness on a non-production workspace |
 | 3 | Token cache encryption | Done: the MSAL token cache is encrypted with Windows DPAPI for the person's Windows account (HD-013) | Windows check |
 | 4 | Pin a build and roll back | Partly done: each build is kept as its own `build-<commit>` release (the newest 20, and every Stable build), IT can deploy and hold any of them, and with `"auto_update": false` the app only installs its own build's engine. No rollback drill has been run | Release management (HD-028) |
-| 5 | Managed install package | Intune and Configuration Manager deploy MSI or MSIX; today it's one exe plus a policy file copied by script | A packaging PR, which needs signing (1) first |
+| 5 | Managed install package | A per-user `kratosforge.msi` is built alongside the executable (#1734). Release assets checked on 2026-11-11 include it in Preview, not Stable. | Packaging alone does not establish signing or enterprise rollout readiness; managed deployment still needs pilot verification. |
 | 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | The pack is assembled: [Security evidence pack](../evidence-pack.md). The privacy statement and support terms need Chris as publisher |
 | 7 | Open High security findings | One is left: updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)). The Content Security Policy (SH-1, #250) and binding run-notebook approvals to their code (EN-1, #156) are fixed | HD-021, which needs signing (1) |
 | 8 | Tested features | Run in Fabric, schedules, Prove, the metadata framework against OneLake and the agent are Preview: built to documented APIs, untested on a tenant | Live tenant runs (2), feature by feature |
@@ -97,7 +105,7 @@ None yet. When the FD-101 harness is run, its `summary.md` goes here with the da
 - Concurrent writers to one table are protected by leases and version-checked commits. That is untested on OneLake.
 - There is no one-step rollback: a maintainer promotes an earlier build, or IT deploys an older exe ([rollback](../release-management/README.md#rollback)).
 - Updates and the first engine download come from GitHub's release downloads (not its API), unless IT hosts the engine itself.
-- No MSI or MSIX package yet. Deployment copies one exe.
+- A per-user MSI is built alongside the executable (#1734), as recorded by the 2026-11-05 enterprise readiness re-score. Inspect the exact release assets; packaging alone does not establish signing or enterprise rollout readiness.
 
 ## Pilot acceptance checklist
 

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Enterprise gap analysis
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 This is the Phase 0 assessment for the enterprise product program (items FD-101 to FD-140). It was written on 2026-10-17 against `main` at `07e21c8`. The ids FD-101 and up are separate from the FD-1 to FD-15 work items in the [enterprise roadmap](../enterprise-roadmap.md); where an item continues one of those, the table says so.
 

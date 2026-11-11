@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Academy: capability audit and reuse
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Audited on main at `da71946` (2026-11-03). Each row names the code that exists today, what it already
 does, and what Academy needs from it. "Gap" means nothing in the repository does it yet.

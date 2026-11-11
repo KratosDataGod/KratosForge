@@ -1,0 +1,64 @@
+{
+  "checkedOn": "2026-11-11",
+  "docsSnapshot": "caddc343e964024d60e87e129017222221db836c",
+  "stable": {
+    "url": "https://github.com/KratosDataGod/KratosForge/releases/tag/stable",
+    "tagCreatedAt": "2026-10-16T12:29:25Z",
+    "metadataUpdatedAt": "2026-11-02T20:49:34Z",
+    "assets": [
+      "fabric-desktop-engine-update.zip",
+      "fabric-desktop-engine.zip",
+      "fabric-desktop.exe",
+      "kratosforge.exe",
+      "sbom-app.cdx.json",
+      "sbom-engine.cdx.json",
+      "version.json"
+    ]
+  },
+  "preview": {
+    "url": "https://github.com/KratosDataGod/KratosForge/releases/tag/latest",
+    "tagCreatedAt": "2026-10-16T19:43:58Z",
+    "metadataUpdatedAt": "2026-11-11T15:45:47Z",
+    "describedBuild": "caddc34",
+    "assets": [
+      "fabric-desktop-engine-update.zip",
+      "fabric-desktop-engine.zip",
+      "fabric-desktop.exe",
+      "kratosforge.exe",
+      "kratosforge.msi",
+      "kratosforge.vsix",
+      "sbom-app.cdx.json",
+      "sbom-engine.cdx.json",
+      "sbom-ui.cdx.json",
+      "sbom-vscode.cdx.json",
+      "version.json"
+    ]
+  },
+  "pr118": {
+    "merged": true,
+    "mergedAt": "2026-10-17T20:06:54Z",
+    "url": "https://github.com/KratosDataGod/KratosForge/pull/118"
+  },
+  "appObservation": {
+    "build": "4cc801d",
+    "rank": "Rank 1 of 13",
+    "level": "Level 1",
+    "xp": "0 XP · 100 to level 2"
+  },
+  "sourceReviews": {
+    "S1": "Re-read 2026-11-11",
+    "S2": "Re-read 2026-11-11",
+    "S3": "Re-read 2026-11-11",
+    "S4": "UNVERIFIED — inaccessible on 2026-11-11; last read 2026-10-17",
+    "S5": "Re-read 2026-11-11",
+    "S6": "Re-read 2026-11-11",
+    "S7": "Re-read 2026-11-11",
+    "S8": "Re-read 2026-11-11",
+    "S9": "Re-read 2026-11-11",
+    "S10": "Re-read 2026-11-11",
+    "S11": "Re-read 2026-11-11",
+    "S12": "PARTIALLY VERIFIED — collaboration page re-read 2026-11-11; debugger claim UNVERIFIED, previously search result only (2026-10-17)",
+    "S13": "UNVERIFIED — inaccessible on 2026-11-11; last read 2026-10-17",
+    "S14": "Re-read 2026-11-11"
+  }
+}

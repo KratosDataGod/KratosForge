@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Fabric App Studio (proposed)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 **Status: proposed, Phase 1 in progress.** App Studio lets a person describe an application, have
 their own AI model turn the description into a structured application specification, preview it

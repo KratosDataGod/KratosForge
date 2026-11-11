@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # AI integration security
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Threat model and controls for external AI tools that use KratosForge through MCP or the local API. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 

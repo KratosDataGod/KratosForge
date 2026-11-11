@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Databricks path: capability audit, reuse and gaps
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Read on 2026-11-03 from `main` (d4b1530) and the open Academy stack: #1776 registry, #1778 exercise
 format and classes, #1779 evidence and readiness, #1782 learner workspace and engine methods, #1777

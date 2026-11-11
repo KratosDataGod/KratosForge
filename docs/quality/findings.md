@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Quality findings register
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Every finding from the [engineering quality baseline](README.md), reviewed at `main` **3bee0db** (2026-10-18). Line numbers refer to that commit.
 
@@ -346,3 +352,6 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 `xray.js:162` calls `xray_optimize` as soon as **Optimize** is pressed. That starts a Fabric table maintenance job (`fabric_api.run_table_maintenance`), which rewrites the table's files in OneLake and uses capacity. The table's rows and history are unchanged, so no data is lost, but it is a OneLake write and a capacity spend with no confirmation and no FinOps risk check, unlike Vacuum (preview, then confirm) and the run dialogs. AGENTS.md asks for confirmation before OneLake writes. Fix: a plain (not danger) confirm that names the table, says it runs in Fabric and uses capacity, and goes through the risk check like other Fabric runs. Found grading #230, whose panel describes the behavior correctly.
 
+
+
+QA-031 is recorded in the PR review log as webhook-signature redaction, closed by #215. Its missing summary row is an indexing gap, not an unassigned identifier.

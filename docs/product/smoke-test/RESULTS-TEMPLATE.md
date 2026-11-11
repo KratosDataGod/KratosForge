@@ -1,4 +1,14 @@
-# Smoke test results, <date>
+---
+site_group: Internal engineering
+search:
+  exclude: true
+---
+
+# Smoke test results template
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Template — not a guide.** This is a blank form to copy and complete, not a recorded review or test result. Fields below are placeholders.
 
 This file is committed to a public repository: no workspace, tenant, user or item names or ids go in it, and no tokens.
 

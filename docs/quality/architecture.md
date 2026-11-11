@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Architecture and standards in practice
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 What the code at `main` **3bee0db** actually does, the conventions it follows, and where those conventions contradict each other. This is the reference the [PR quality gate](pr-review.md) checks new work against: a PR follows the standards below, or says why not. For how the pieces are meant to fit, see [architecture.md](../architecture.md); this page records what was found.
 

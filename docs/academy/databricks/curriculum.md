@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Databricks Data Engineer Associate: curriculum inventory
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 64 original exercises (12 of them troubleshooting labs), 4 supplementary exercises and 3 capstones,
 covering all 33 objectives in [coverage](coverage.md). Exercise ids are unique within the pack

@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Prove this notebook: program plan and backlog
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](../product/DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 This is the delivery plan for making notebook creation, local and Fabric execution, comparison and value measurement the defining experience of KratosForge. It tracks all 100 capabilities Chris listed on 2026-10-16, what exists today, and the order they will be built in. The live state of work (branches, PRs, what is next) is in [continuation.md](continuation.md).
 

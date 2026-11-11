@@ -1,4 +1,12 @@
+---
+site_group: Internal engineering
+---
+
 # Competitive capability matrix
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
+
+> **Dated assessment.** The baseline and date recorded below apply to this assessment, not the current release. See [Development status](DEVELOPMENT_STATUS.md) for subsequent work and [GitHub Releases](https://github.com/KratosDataGod/KratosForge/releases) for shipped builds. This website review has not re-certified the assessment.
 
 Where KratosForge stands against the tools Fabric developers already use, and what
 that means for the backlog. The aim is not to match every competitor: a capability belongs in the
@@ -8,8 +16,8 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 ## How to read it
 
 - **KratosForge** status and verification come from [the feature inventory](FEATURE_INVENTORY.md)
-  (main at `b7b04cc`). Partially Verified means tested with Fabric faked; nothing was run on a tenant.
-- **Competitor** claims come only from the sources listed at the end, read on 2026-10-17. A claim
+  (original baseline main `b7b04cc`). The SQL editor and debugger rows were rechecked against imported main snapshot `caddc34` on 2026-11-11; the other KratosForge rows retain their historical baseline and need a full inventory reconciliation. Partially Verified describes limited verification; consult each feature's evidence for the exact mocked or live test scope.
+- **Competitor** claims come only from the sources listed at the end, reviewed as of 2026-11-11 with the per-source verification states below. Sources that could not be re-read retain their original 2026-10-17 date and are UNVERIFIED. A claim
   marked *(search result only)* came from a search snippet, not a page that was opened. Nothing was
   installed or tried.
 - **Classification:**
@@ -33,7 +41,7 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 | Fabric-compatible Delta writes from the PC | Implemented, Partially Verified (FEAT-ONE-05) | None found in the sources for Fabric | Potential differentiator | Needs live proof before it is marketed (PB-002, PB-003) | PB-002, PB-003 |
 | Prove a notebook gives the same result on the PC and in Fabric | Implemented, Partially Verified (FEAT-PRV-01) | None found | Potential differentiator | Unique and on mission; it is also the guard against overclaiming local equivalence | PB-002 |
 | Spark API coverage on the PC | Partially Implemented (MERGE, UPDATE and DELETE in Preview; no RDD, UDF, streaming) | Real Spark in Fabric [S1], Databricks [S2] | Available but incomplete | Publish what works (matrix) before widening it | PB-012, PB-015 |
-| Notebook and code debugging | Missing (FEAT-EXT-04) | Databricks Connect debugging [S2]; Snowpark debugging in the Snowflake extension [S3]; JupyterLab debugger *(search result only)* [S12] | Genuine gap | Developers expect it on a desktop tool; after the process kernel is default | PB-026 |
+| Notebook and code debugging | Partially implemented, Preview (FEAT-EXT-04; see feature inventory) | Databricks Connect debugging [S2]; Snowpark debugging in the Snowflake extension [S3]; JupyterLab debugger *(search result only)* [S12] | Genuine gap | Developers expect it on a desktop tool; after the process kernel is default | PB-026 |
 | Reproducible environments and Fabric Environment items | Partially (import profile only) / Missing (FEAT-PRV-04, FEAT-FAB-09) | Fabric VS Code extension works with Environments [S1] | Genuine gap | Needed for trustworthy local runs; package source decided (IT wheel folder, then PyPI if policy allows, #1765) | PB-016 |
 | Run work unattended on your own machines (agent, PC schedules) | Implemented, Partially Verified (FEAT-ORC-01, FEAT-ORC-02) | None found for Fabric | Potential differentiator | Second mission pillar; needs a live run | PB-002, PB-044 |
 | Desktop app on macOS and Linux | Windows only (engine and agent also run on Linux) | VS Code, DataGrip, DBeaver, JupyterLab are cross-platform | Genuine gap, not scheduled | A product-owner decision; not added to the backlog because the Windows-first choice is deliberate | Decision |
@@ -42,7 +50,7 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 
 | Capability | KratosForge | Who else offers it | Class | Mission fit and decision | Backlog |
 | --- | --- | --- | --- | --- | --- |
-| SQL editor with completion and formatting | Plain textarea (FEAT-SQL-01) | DataGrip [S9], DBeaver [S10], SSMS [S11], VS Code MSSQL [S13], Snowflake extension [S3] | Available but incomplete | Needed for lakehouse SQL on the PC; SQL sprint owns it | PB-021 |
+| SQL editor with completion and formatting | Implemented, Partially Verified (FEAT-SQL-01): SQL editor with completion and formatting; [PR #118](https://github.com/KratosDataGod/KratosForge/pull/118) merged 2026-10-17. The older local engine plan calls it a draft; that baseline is historical | DataGrip [S9], DBeaver [S10], SSMS [S11], VS Code MSSQL [S13], Snowflake extension [S3] | Available but incomplete | Needed for lakehouse SQL on the PC; SQL sprint owns it | PB-021 |
 | Cancel, streaming results, query history | No cancel, 1,000-row page (FEAT-SQL-01) | Snowflake extension: cancel and history [S3] | Available but incomplete | SQL sprint owns it | PB-023 |
 | Connect to Warehouse, SQL endpoint, Fabric SQL database | Missing (FEAT-FAB-11, planned) | SSMS [S11], VS Code MSSQL browses Fabric SQL DB and endpoints [S13], DBeaver PRO [S10] | Available through integration | Don't rebuild SSMS. Scope SQL-004 to what local development needs (run, compare, check) and link out for administration | PB-024 |
 | Object explorer | Lakehouse table tree only | SSMS, DataGrip, Snowflake extension, VS Code MSSQL [S3][S9][S11][S13] | Available through integration | Same as above | PB-025 |
@@ -83,23 +91,23 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 
 ## Sources
 
-All read on 2026-10-17 unless marked otherwise. "Page date" is the date the page itself shows.
+Re-review: 2026-11-11. "Page date" is the publisher's date recorded in the original comparison, not the date we re-read it. The last column records this review. Re-reading documentation confirms only the claims supported there; no competitor software was installed or tested. S4 and S13 could not be retrieved; S12 confirms collaboration only, not debugging.
 
-| Id | Source | Page date | What it was used for |
-| --- | --- | --- | --- |
-| S1 | Microsoft Learn, Fabric Data Engineering VS Code extension: https://learn.microsoft.com/fabric/data-engineering/setup-vs-code-extension | 2026-03-24 | Remote Spark notebook runs, lakehouse explorer, Spark job definitions, Environments |
-| S2 | Databricks, VS Code extension: https://docs.databricks.com/aws/en/dev-tools/vscode-ext | 2026-09-11 | Databricks Connect debugging, bundles, workspace sync |
-| S3 | Snowflake, VS Code extension: https://docs.snowflake.com/en/user-guide/vscode-ext | not shown | SQL execution with cancel, query history, object explorer, Snowpark debugging, CoCo agent |
-| S4 | dbt Labs, dbt Fusion engine and VS Code extension: https://getdbt.com/blog/get-to-know-the-new-dbt-fusion-engine-and-vs-code-extension | 2025-05-28 | Local SQL compilation, column lineage, IntelliSense |
-| S5 | dbt, Microsoft Fabric setup: https://docs.getdbt.com/docs/core/connect-data-platform/fabric-setup | not shown | dbt-fabric targets Fabric Warehouse; SQL analytics endpoint is read-only |
-| S6 | Microsoft Fabric community blog, official support for fabric-cicd: https://community.fabric.microsoft.com/blog/fbc_fabricupdatesblogs/announcing-official-support-for-microsoft-fabric-cicd-tool/5172297 | 2026-02-19 | Officially supported, parameterized cross-workspace deployment |
-| S7 | Microsoft Learn, Fabric notebook selection guide: https://learn.microsoft.com/en-us/fabric/data-engineering/fabric-notebook-selection-guide | 2026-06-17 | CU per notebook type |
-| S8 | Microsoft Learn, T-SQL surface area in Fabric Data Warehouse: https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area | 2026-09-29 | What Fabric's T-SQL doesn't support |
-| S9 | JetBrains, DataGrip 2026.2: https://blog.jetbrains.com/datagrip/2026/07/16/datagrip-2026-2-ai-agent-skills-mcp-tools-and-cli-commands-for-data-source-management-bundled-jdbc-drivers-and-improved-session-control/ | 2026-07-16 | MCP tools, agent skills, CLI |
-| S10 | DBeaver 26.1: https://dbeaver.com/2026/06/10/dbeaver-26-1/ | 2026-06-10 | Fabric support in PRO editions, MCP server configuration |
-| S11 | Microsoft Learn, SSMS 22 release notes: https://learn.microsoft.com/en-us/ssms/release-notes-22 | 2026-10-13 (22.11.0) | Fabric SQL database support, Copilot Agent Mode |
-| S12 | JupyterLab documentation, real-time collaboration: https://jupyterlab.readthedocs.io/en/4.2.x/user/rtc.html | search result only | Real-time collaboration, debugger |
-| S13 | Microsoft Learn, VS Code MSSQL extension Fabric integration: https://learn.microsoft.com/sql/tools/visual-studio-code-extensions/mssql/mssql-fabric-integration | 2026-08-27 | Browse Fabric, SQL database and SQL endpoints; Warehouse not mentioned |
-| S14 | Microsoft Learn, What is the Fabric MCP server: https://learn.microsoft.com/en-us/rest/api/fabric/articles/mcp-servers/what-is-fabric-mcp-server | about 2026-09-23 | Core remote, Fabric IQ and local MCP servers |
+| Id | Source | Page date | What it was used for | Re-review |
+| --- | --- | --- | --- | --- |
+| S1 | Microsoft Learn, Fabric Data Engineering VS Code extension: https://learn.microsoft.com/fabric/data-engineering/setup-vs-code-extension | 2026-03-24 | Remote Spark notebook runs, lakehouse explorer, Spark job definitions, Environments | Re-read 2026-11-11 |
+| S2 | Databricks, VS Code extension: https://docs.databricks.com/aws/en/dev-tools/vscode-ext | 2026-09-11 | Databricks Connect debugging, bundles, workspace sync | Re-read 2026-11-11 |
+| S3 | Snowflake, VS Code extension: https://docs.snowflake.com/en/user-guide/vscode-ext | not shown | SQL execution with cancel, query history, object explorer, Snowpark debugging, CoCo agent | Re-read 2026-11-11 |
+| S4 | dbt Labs, dbt Fusion engine and VS Code extension: https://getdbt.com/blog/get-to-know-the-new-dbt-fusion-engine-and-vs-code-extension | 2025-05-28 | Local SQL compilation, column lineage, IntelliSense | UNVERIFIED — inaccessible on 2026-11-11; last read 2026-10-17 |
+| S5 | dbt, Microsoft Fabric setup: https://docs.getdbt.com/docs/core/connect-data-platform/fabric-setup | not shown | dbt-fabric targets Fabric Warehouse; SQL analytics endpoint is read-only | Re-read 2026-11-11 |
+| S6 | Microsoft Fabric community blog, official support for fabric-cicd: https://community.fabric.microsoft.com/blog/fbc_fabricupdatesblogs/announcing-official-support-for-microsoft-fabric-cicd-tool/5172297 | 2026-02-19 | Officially supported, parameterized cross-workspace deployment | Re-read 2026-11-11 |
+| S7 | Microsoft Learn, Fabric notebook selection guide: https://learn.microsoft.com/en-us/fabric/data-engineering/fabric-notebook-selection-guide | 2026-06-17 | CU per notebook type | Re-read 2026-11-11 |
+| S8 | Microsoft Learn, T-SQL surface area in Fabric Data Warehouse: https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area | 2026-09-29 | What Fabric's T-SQL doesn't support | Re-read 2026-11-11 |
+| S9 | JetBrains, DataGrip 2026.2: https://blog.jetbrains.com/datagrip/2026/07/16/datagrip-2026-2-ai-agent-skills-mcp-tools-and-cli-commands-for-data-source-management-bundled-jdbc-drivers-and-improved-session-control/ | 2026-07-16 | MCP tools, agent skills, CLI | Re-read 2026-11-11 |
+| S10 | DBeaver 26.1: https://dbeaver.com/2026/06/10/dbeaver-26-1/ | 2026-06-10 | Fabric support in PRO editions, MCP server configuration | Re-read 2026-11-11 |
+| S11 | Microsoft Learn, SSMS 22 release notes: https://learn.microsoft.com/en-us/ssms/release-notes-22 | 2026-10-13 (22.11.0) | Fabric SQL database support, Copilot Agent Mode | Re-read 2026-11-11 |
+| S12 | JupyterLab documentation, real-time collaboration: https://jupyterlab.readthedocs.io/en/4.2.x/user/rtc.html | search result only | Real-time collaboration, debugger | PARTIALLY VERIFIED — collaboration page re-read 2026-11-11; debugger claim UNVERIFIED, previously search result only (2026-10-17) |
+| S13 | Microsoft Learn, VS Code MSSQL extension Fabric integration: https://learn.microsoft.com/sql/tools/visual-studio-code-extensions/mssql/mssql-fabric-integration | 2026-08-27 | Browse Fabric, SQL database and SQL endpoints; Warehouse not mentioned | UNVERIFIED — inaccessible on 2026-11-11; last read 2026-10-17 |
+| S14 | Microsoft Learn, What is the Fabric MCP server: https://learn.microsoft.com/en-us/rest/api/fabric/articles/mcp-servers/what-is-fabric-mcp-server | about 2026-09-23 | Core remote, Fabric IQ and local MCP servers | Re-read 2026-11-11 |
 
 Re-verify every source at the start of each development cycle; competitor tools change monthly.

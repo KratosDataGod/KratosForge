@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Prove this notebook: continuation note
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The working state of the [program plan](plan.md). Whoever picks this up next starts here. Updated with every PR.
 

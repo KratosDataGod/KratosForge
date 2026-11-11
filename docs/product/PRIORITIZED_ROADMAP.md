@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Prioritized roadmap
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The order in which KratosForge should build the items in
 [the product backlog](PRODUCT_BACKLOG.md), and why. Every number on this page is computed from

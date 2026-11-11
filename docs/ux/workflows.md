@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Workflow optimization matrix
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 The ten workflows people do most, counted on main `3bee0db`. A **step** is a click, key press or wait the person must make; typing the actual work (code, SQL, a name) isn't counted. **Inputs** are mandatory values the person types or chooses. **Decisions** are choices the app could have made. Counts come from the code paths named and, where marked, the running UI; nothing was run against a live tenant.
 

@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Implementation review: PB-130 Data product promises, status and change windows (FEAT-MESH-04, FEAT-MESH-05, FEAT-GOV-01)
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 | Field | Value |
 | --- | --- |

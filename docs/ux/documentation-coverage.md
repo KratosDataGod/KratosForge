@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # Documentation coverage matrix
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Each feature, its doc page, whether its screen has a working help link, and whether the doc covers troubleshooting and limits. Checked on main `3bee0db`: every `learnMore(...)` and `open_doc` call in `app/ui`, the X-ray and readiness doc links in the engine, and every link in `docs/` (headings turned into GitHub-style anchors).
 

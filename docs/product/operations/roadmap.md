@@ -1,4 +1,10 @@
+---
+site_group: Internal engineering
+---
+
 # 12-week roadmap
+
+> **Internal — engineering working material.** This is a dated implementation, design, or planning record. Use the user guides for current instructions and check releases for shipped behavior.
 
 Rolling plan from week 1 (starting Monday 2026-11-02) to week 12 (ending 2027-01-24). The weekly review moves it on by a week, records what changed and why, and keeps it in line with the [work queues](README.md#work-queues). Items with a PB id are in [the backlog](../PRODUCT_BACKLOG.md). Anything marked *needs Chris* waits for his mockup approval, his go on a new feature, or his yes on capacity spend.
 

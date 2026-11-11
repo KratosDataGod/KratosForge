@@ -177,10 +177,10 @@ Linking and checking status change nothing in Fabric. Update from Git and Commit
 
 ## What it doesn't do yet
 
-- Stage single lines of a file (whole files only).
+- Stage individual lines within a changed block (whole blocks and whole files can be staged).
 - Create a pull request inside the app (it opens the service's page).
 - Rebase, cherry-pick, tags or submodules.
-- Compare the capacity repository with Fabric (see **Repository kinds**).
+- Compare the capacity repository with Fabric (see [Capacity repository](#capacity-repository)).
 - Connect a Fabric workspace to Git, or deploy between environments. Those are the next phases in the [Git integration plan](git-integration-plan.md).
 - It hasn't been tried with many Git servers and sign-in setups yet, which is why it is tagged **Preview**.
 

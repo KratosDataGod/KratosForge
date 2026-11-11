@@ -22,8 +22,14 @@ def _check(key: str, title: str, status: str, text: str, fix: str = "", doc: str
     return {"key": key, "title": title, "status": status, "text": text, "fix": fix, "doc": doc}
 
 
+# How far this PC's clock may be from a server's before the list says so. Microsoft sign-in and
+# Kerberos allow 5 minutes; past that, sign-in, certificates and schedules can go wrong.
+CLOCK_SLACK_SECONDS = 5 * 60
+
+
 def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]],
-           list_capacities: Callable[[], list[dict[str, Any]]], settings: dict[str, Any]) -> list[dict[str, Any]]:
+           list_capacities: Callable[[], list[dict[str, Any]]], settings: dict[str, Any],
+           clock: Callable[[], dict[str, Any] | None] = lambda: None) -> list[dict[str, Any]]:
     out = [_check("engine", "Local engine", "ok", f"Starts on this PC. Python {platform.python_version()}.")]
     if not user:
         out.append(_check("sign_in", "Signed in", "fail", "Not signed in, so Fabric can't be reached yet.",
@@ -46,7 +52,26 @@ def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]]
                               "" if n else "workspaces", "" if n else "user-guide.md#workspaces"))
             out.append(_capacity_check(spaces, list_capacities))
     out.append(_policy_check(settings))
+    row = clock_check(clock())
+    if row:
+        out.append(row)
     return out
+
+
+def clock_check(offset: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The PC clock row, from http_session.clock_offset(); None before any server has answered."""
+    if not offset or not isinstance(offset.get("seconds"), (int, float)):
+        return None
+    seconds, host = offset["seconds"], offset.get("host") or "the server"
+    if abs(seconds) <= CLOCK_SLACK_SECONDS:
+        return _check("clock", "This PC's clock", "ok", f"Within 5 minutes of {host}'s.")
+    minutes = round(abs(seconds) / 60)
+    span = f"{minutes} minutes" if minutes < 120 else f"{round(minutes / 60)} hours"
+    return _check("clock", "This PC's clock", "warn",
+                  f"This PC's clock is {span} {'ahead of' if seconds > 0 else 'behind'} {host}'s. Sign-in, HTTPS "
+                  "certificates, schedules and audit times use it, so they can fail or be wrong. Turn on Set time "
+                  "automatically (Settings > Time & language > Date & time), or ask IT to check the PC's time source.",
+                  "", "troubleshooting.md#this-pcs-clock-is-wrong")
 
 
 def _capacity_check(spaces: list[dict[str, Any]], list_capacities: Callable[[], list[dict[str, Any]]]) -> dict[str, Any]:

@@ -118,3 +118,22 @@ def test_a_reader_that_fails_as_it_starts_frees_the_connection_for_the_next_quer
         engine.execute_reader("SELECT 1 AS n")
     monkeypatch.undo()
     assert engine.execute("SELECT 2 AS n")["rows"] == [[2]]
+
+
+def test_a_found_delta_table_is_read_through_its_folder(tmp_path):
+    folder = str(tmp_path / "Tables" / "dbo" / "sales")
+    from deltalake import write_deltalake
+    write_deltalake(folder, pa.table({"id": [1, 2]}))
+    found = Found(schema="dbo", table="sales", format="delta", paths=[folder], folder=folder)
+    select = eng.file_select(found)
+    assert select.startswith('SELECT "id" FROM read_parquet(')
+    import duckdb
+    assert duckdb.sql(select).fetchall() == [(1,), (2,)]
+
+
+def test_a_type_override_that_isnt_a_type_is_refused_before_any_sql_is_made():
+    assert eng.with_overrides("SELECT 1 AS a", {}) == "SELECT 1 AS a"
+    assert eng.with_overrides("SELECT 1 AS a", {"a": "DECIMAL(18, 2)"}) == \
+        'SELECT * REPLACE (CAST("a" AS DECIMAL(18, 2)) AS "a") FROM (SELECT 1 AS a)'
+    with pytest.raises(ValueError, match=r"'INT\) AS x; --' is not a column type \(for a\)"):
+        eng.with_overrides("SELECT 1 AS a", {"a": "INT) AS x; --"})

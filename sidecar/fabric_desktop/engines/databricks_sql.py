@@ -103,9 +103,31 @@ class DatabricksError(RuntimeError):
     """The workspace refused or failed a request; the message says what to check. ``status`` is the
     HTTP status of a refusal, None when no answer came back or the answer couldn't be read."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, unsent: bool = False):
         super().__init__(message)
         self.status = status
+        self.unsent = unsent   # the connection never opened, so the workspace got nothing
+
+
+def _never_sent(exc: BaseException) -> bool:
+    """True when ``exc`` is a failure to open the connection (name lookup, refused, connect timeout),
+    so the request never reached the workspace; a reset or read timeout after sending is not."""
+    import requests
+    import urllib3.exceptions as u3
+    seen: set[int] = set()
+    todo: list[Any] = [exc]
+    while todo:
+        e = todo.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        if isinstance(e, (requests.ConnectTimeout, u3.ConnectTimeoutError, u3.NewConnectionError,
+                          ConnectionRefusedError)):
+            return True
+        if isinstance(e, BaseException):
+            todo += [e.__cause__, e.__context__, getattr(e, "reason", None)]
+            todo += [a for a in e.args if isinstance(a, BaseException)]
+    return False
 
 
 def _result_rows(data: Any, seen: int) -> list[list[Any]]:
@@ -320,7 +342,8 @@ class Client:
             return send_remote(send, repeatable, self._sleep,
                                (lambda: False) if path.endswith("/cancel") else self.stopped)
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
-            raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
+            raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.", unsent=_never_sent(exc)) \
+                from None
 
     @staticmethod
     def _refusal(resp: Any, path: str = "") -> str:
@@ -372,6 +395,8 @@ class Client:
         except DatabricksError as exc:
             if exc.status is not None and exc.status < 500:
                 raise   # refused unread (4xx): nothing ran
+            if exc.unsent:
+                raise DatabricksError(f"{exc} Nothing was sent, so the statement didn't run.") from None
             raise DatabricksError(f"{exc} The statement may have started on the warehouse, so it wasn't sent again: "
                                   "check Databricks' query history before you run the cell again.", exc.status) from None
 

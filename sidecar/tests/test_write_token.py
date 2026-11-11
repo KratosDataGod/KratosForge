@@ -10,7 +10,7 @@ from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse, publish
 from fabric_desktop.publish import WriteTokenExpired
-from fabric_desktop.retrying import data_upload_dropped, token_refused_on_log, write_token_refused
+from fabric_desktop.retrying import data_upload_dropped, write_token_refused
 
 PART = "https://onelake.blob.fabric.microsoft.com/ws/lh/Tables/dbo/t/part-00000-x.zstd.parquet?comp=block"
 LOG = "https://onelake.blob.fabric.microsoft.com/ws/lh/Tables/dbo/t/_delta_log/00000000000000000001.json"
@@ -34,18 +34,17 @@ def rows(*ids):
 # ---- what counts as a refused token
 
 
-@pytest.mark.parametrize("error, token, on_log", [
-    (refused(PART), True, False),
-    (refused(LOG), True, True),
-    (refused(PART, "Server returned non-2xx status code: 401 Unauthorized"), True, False),
-    (refused(PART, "Server returned non-2xx status code: 403 Forbidden: InvalidAuthenticationInfo"), True, False),
-    (refused(PART, "Server returned non-2xx status code: 403 Forbidden"), False, False),  # no permission: not a token
-    (refused(PART, "Server returned non-2xx status code: 503"), False, False),
-    (ValueError("Schema error: the token is expired"), False, False),  # not a request OneLake answered
+@pytest.mark.parametrize("error, token", [
+    (refused(PART), True),
+    (refused(LOG), True),
+    (refused(PART, "Server returned non-2xx status code: 401 Unauthorized"), True),
+    (refused(PART, "Server returned non-2xx status code: 403 Forbidden: InvalidAuthenticationInfo"), True),
+    (refused(PART, "Server returned non-2xx status code: 403 Forbidden"), False),  # no permission: not a token
+    (refused(PART, "Server returned non-2xx status code: 503"), False),
+    (ValueError("Schema error: the token is expired"), False),  # not a request OneLake answered
 ])
-def test_a_refused_token_is_told_from_other_write_errors(error, token, on_log):
+def test_a_refused_token_is_told_from_other_write_errors(error, token):
     assert write_token_refused(error) is token
-    assert token_refused_on_log(error) is on_log
     if token:
         assert not data_upload_dropped(error)  # the dropped-upload retry never takes these
 
@@ -107,13 +106,16 @@ def test_a_refused_commit_on_a_new_table_that_didnt_go_in_can_be_sent_again(tmp_
         publish.publish(rows(1), Ref(str(tmp_path / "t")), "overwrite", "tok")
 
 
-def test_a_refused_commit_that_may_have_gone_in_is_never_called_retryable(tmp_path, monkeypatch):
+@pytest.mark.parametrize("url", [LOG, PART, "https://onelake.blob.fabric.microsoft.com/"])
+def test_a_refused_commit_that_may_have_gone_in_is_never_called_retryable(tmp_path, monkeypatch, url):
+    """Judged by the table's version, not by the path in the error: a refusal that names a data
+    file, or no path at all, after which the table moved on is still never sent again."""
     ref = Ref(str(tmp_path / "t"))
     publish.publish(rows(1), ref, "overwrite", "tok")
 
     def commit_then_refuse(target, data, **kw):
         write_deltalake(ref.uri, data, mode="append")  # the table moved on: it may be this write's commit
-        raise refused(LOG)
+        raise refused(url)
     monkeypatch.setattr(publish, "write_deltalake", commit_then_refuse)
     with pytest.raises(RuntimeError, match="may or may not have gone in") as caught:
         publish.publish(rows(2), ref, "append", "tok")

@@ -27,7 +27,7 @@ from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
-from .retrying import token_refused_on_log, write_token_refused
+from .retrying import write_token_refused
 
 _log = logging.getLogger(__name__)
 
@@ -191,16 +191,14 @@ _UNKNOWN = object()
 
 
 def _after_refusal(ref: TableRef, before: int | None, token: Callable[[], str], exc: BaseException) -> Exception:
-    """The error for a write whose token OneLake refused partway through. A refused data file means
-    nothing was committed. A refused request to the Delta log is checked against the table: still at
-    the version the write started from (under the lease) means nothing went in; anything else, or a
-    table that can't be read, may mean the commit went in, so the error says to check its history."""
+    """The error for a write whose token OneLake refused partway through. Every refusal is checked
+    against the table, not against the error's wording: still at the version the write started from
+    (under the lease) means nothing went in; anything else, or a table that can't be read, may mean
+    the commit went in, so the error says to check its history."""
     name = f"{ref.schema}.{ref.table}"
     _log.warning("OneLake refused the token while writing %s: %s", name, describe(exc))
     expired = WriteTokenExpired(f"Writing {name}: OneLake refused the sign-in token partway through the write (it "
                                 "expired during a long upload). Nothing was committed.")
-    if not token_refused_on_log(exc):
-        return expired
     now: object = _UNKNOWN
     try:
         now = DeltaTable(ref.uri, storage_options=storage_options(token())).version()

@@ -254,15 +254,10 @@ _TOKEN_REFUSED = ("status code: 401", "invalidauthenticationinfo", "token is exp
 def write_token_refused(exc: BaseException) -> bool:
     """A table write that OneLake stopped because its sign-in token ran out partway through (401, or
     Azure's expired-token answer). delta-rs is given one token for the whole write, and a long write
-    can outlast it (HD-034). The refused request wrote nothing. When it was a data file nothing was
-    committed; when it was the Delta log, the caller checks the table's version before writing again."""
+    can outlast it (HD-034). The refused request wrote nothing; the caller checks the table's version
+    before writing again, since the error's wording can't say whether the commit went in."""
     low = str(exc).lower()
     return "error performing" in low and any(m in low for m in _TOKEN_REFUSED)
-
-
-def token_refused_on_log(exc: BaseException) -> bool:
-    """write_token_refused on a request to the table's Delta log, not on a data file."""
-    return write_token_refused(exc) and "_delta_log" in str(exc)
 
 
 T = TypeVar("T")

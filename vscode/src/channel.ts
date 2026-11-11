@@ -265,9 +265,14 @@ export class Channel {
     }
   }
 
-  /** Runs ``code`` in the notebook's session; ``progress`` gets each new snapshot while it runs. */
-  async run(file: string, code: string, progress: (snap: Snapshot) => void): Promise<Snapshot> {
+  /** Runs ``code`` in the notebook's session; ``progress`` gets each new snapshot while it runs.
+   * ``cancelled`` says the person pressed Stop: before the cell is sent, it isn't sent at all; while
+   * the start is on its way, the cell is interrupted as soon as the app says it started. Once
+   * ``progress`` has had a snapshot, interrupting is the caller's job, so it's never asked twice. */
+  async run(file: string, code: string, progress: (snap: Snapshot) => void, cancelled: () => boolean = () => false): Promise<Snapshot> {
+    if (cancelled()) return { status: "cancelled", outputs: [] };
     let snap = await this.start(file, code);
+    if (cancelled() && (snap.status === "running" || snap.status === "paused")) await this.interrupt(file).catch(() => undefined);
     progress(snap);
     let version = snap.version ?? -1;
     while (snap.status === "running" || snap.status === "paused") {

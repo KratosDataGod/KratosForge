@@ -27,6 +27,7 @@ SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
 VERSIONS_BEFORE_VACUUM = 30
 RETENTION_HOURS = 7 * 24 + 1  # Fabric's default retention is 7 days
+MIN_RETENTION_DAYS = 7  # Delta's default; VACUUM with less can delete files a reader or writer still needs
 LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next checkpoint
 # delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
 # place, so a write stopped part way leaves files under that staging name. One untouched this long
@@ -135,6 +136,16 @@ def retention_hours(days: int) -> int:
     return int(days) * 24 + 1
 
 
+def check_retention(days: int, allow_shorter: bool = False) -> None:
+    """Refuse a VACUUM keeping less than MIN_RETENTION_DAYS of history, unless a policy allows it
+    (``allow_shorter``). With less, VACUUM can delete files that a read or write still under way in
+    another process is using, and time travel to those versions stops working."""
+    if int(days) < MIN_RETENTION_DAYS and not allow_shorter:
+        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, not {int(days)}: with "
+                         "less, it can delete files that readers or writers in other processes still use, and time "
+                         "travel to those versions stops working. Nothing was changed.")
+
+
 def fabric_retention(days: int) -> str:
     """Retention as Fabric's table maintenance job takes it: d.hh:mm:ss, an hour of margin."""
     return f"{int(days)}.01:00:00"
@@ -160,9 +171,11 @@ def kept_days(config: dict[str, str] | None) -> int | None:
     return -(-int(m.group(1)) * _UNIT_HOURS[m.group(2)] // 24)
 
 
-def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None) -> list[str]:
+def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None,
+                   allow_shorter: bool = False) -> list[str]:
     """The files (relative to the table folder) VACUUM keeping ``days`` of history would delete.
-    A dry run: nothing is deleted."""
+    A dry run: nothing is deleted. Fewer than MIN_RETENTION_DAYS needs ``allow_shorter``."""
+    check_retention(days, allow_shorter)
     table = DeltaTable(uri, storage_options=options)
     paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False)
     root = uri.rstrip("/") + "/"
@@ -180,8 +193,10 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None) ->
     return True
 
 
-def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
-    """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history."""
+def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[str, Any]:
+    """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
+    Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``."""
+    check_retention(days, allow_shorter)
     before = DeltaTable(uri).version()
     set_retention(uri, days)
     table = DeltaTable(uri)

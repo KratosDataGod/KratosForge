@@ -303,7 +303,10 @@ fn network_failure(err: &str) -> bool {
 /// A failed engine download, after one line that says what to do when the network was the cause.
 /// The original line stays in brackets for IT.
 fn explain_download(err: &str, host: &str) -> String {
-    let hint = if err.contains("curl: (60)") {
+    let hint = if (err.contains("curl: (60)") || err.contains("curl: (35)")) && certificate_dates(err) {
+        format!("HTTPS to {host} was refused because its certificate isn't valid at this PC's date and time. Check \
+                 that Windows' date, time and time zone are right (Settings > Time & language > Set time automatically).")
+    } else if err.contains("curl: (60)") {
         format!("HTTPS to {host} was refused because its certificate isn't trusted on this PC. If your network \
                  inspects HTTPS, ask IT to add its root certificate to Windows.")
     } else if err.contains("curl: (35)") {
@@ -326,6 +329,16 @@ fn explain_download(err: &str, host: &str) -> String {
         return err.to_string();
     };
     format!("{hint} ({err})")
+}
+
+/// Whether curl refused a certificate for its dates (expired or not valid yet), which a wrong PC clock
+/// causes too: OpenSSL's words, and Schannel's codes and words on Windows.
+fn certificate_dates(err: &str) -> bool {
+    let low = err.to_ascii_lowercase();
+    ["certificate has expired", "certificate is not yet valid", "not within its validity period", "sec_e_cert_expired",
+     "cert_e_expired", "0x80090328", "0x800b0101"]
+        .iter()
+        .any(|t| low.contains(t))
 }
 
 fn release_file(tag: &str, file: &str) -> String {
@@ -2959,6 +2972,19 @@ mod integrity_tests {
         }
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
+    }
+
+    #[test]
+    fn a_certificate_refused_for_its_dates_asks_to_check_the_clock() {
+        for err in ["curl: (60) SSL certificate problem: certificate has expired",
+                    "curl: (60) SSL certificate problem: certificate is not yet valid",
+                    "curl: (60) schannel: SEC_E_CERT_EXPIRED (0x80090328) - The received certificate has expired."] {
+            let text = explain_download(err, "github.com");
+            assert!(text.contains("this PC's date and time"), "{text}");
+            assert!(!text.contains("root certificate"), "{text}");
+        }
+        assert!(explain_download("curl: (60) SSL certificate problem: unable to get local issuer certificate", "github.com")
+            .contains("root certificate"));
     }
 
     #[test]

@@ -527,8 +527,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
 def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "error": "Doesn't run", "untranslated": "Runs only in Snowflake"}
-    rows = [f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
-            "reference documents (no Snowflake account was used), these don't answer the same way on this PC.", "",
+    rows = [(f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
+            "reference documents (no Snowflake account was used), these don't answer the same way on this PC."), "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]

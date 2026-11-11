@@ -413,8 +413,8 @@ class ShortcutMixin:
         try:
             rules = self._catalog().call("shortcut_rules")  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - rules that can't be read block the change instead of skipping the check
-            return {"blocked": [f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
-                                "Try again once the platform answers."], "warnings": [], "unchecked": True}
+            return {"blocked": [(f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
+                                "Try again once the platform answers.")], "warnings": [], "unchecked": True}
         return center.check_rules(rules, self._sc_new(workspace_id, workspace_name, source, target_workspace_name),
                                   self._sc_admin())
 
@@ -607,9 +607,9 @@ class ShortcutMixin:
                     self._sc_progress(req, found=not ours)
                     others = self._sc_make_twins(req, why)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
-                    return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
+                    return out | {"next": [*(out.get("next") or []), (f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
-                                           "asks, so it was kept", *others]}
+                                           "asks, so it was kept"), *others]}
                 self._sc_progress(req)
                 others = self._sc_make_twins(req, why)
                 out = super().platform_decide(id, approve, note)  # type: ignore[misc]

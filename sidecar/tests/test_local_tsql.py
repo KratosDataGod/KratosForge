@@ -107,8 +107,8 @@ def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
     texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
     # BIT is a boolean here (DuckDB's BIT is a bit string).
     assert texts == ["SELECT CAST(x AS INT), CAST(y AS BOOLEAN), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
-    assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
-                     "decimal toward zero and refuses text that isn't a whole number."]
+    assert notes == [("Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
+                     "decimal toward zero and refuses text that isn't a whole number.")]
     # A literal's type is known, so it gets no note.
     assert translate("SELECT CAST(3.7 AS INT)")[1] == []
 
@@ -297,8 +297,8 @@ def test_like_with_ranges_keeps_its_escape_character(engine):
 def test_a_like_pattern_that_isnt_text_is_reported():
     texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
     assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
-    assert notes == ["A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
-                     "LIKE does, which takes no [a-c] character ranges."]
+    assert notes == [("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
+                     "LIKE does, which takes no [a-c] character ranges.")]
 
 
 def test_several_like_patterns_that_arent_text_make_one_note():
@@ -551,8 +551,8 @@ def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
     assert texts == ["SELECT 1 FROM q WHERE n = 3 AND m < 2.5"] and notes == []
     texts, notes = translate("SELECT 1 FROM q WHERE a = 'x' OR b = 'y'")
     assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
-    assert notes == ["Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
-                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count."]
+    assert notes == [("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
+                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count.")]
 
 
 def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(engine, monkeypatch):

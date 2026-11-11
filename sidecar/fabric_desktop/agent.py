@@ -503,8 +503,8 @@ class Agent:
                  f"Schedule {s.id}, due {when}: it passed its deadline here, and the {s.env.title()} mailbox "
                  "couldn't be read to check whether another agent ran it.")
         self._notify(f"KratosForge agent {self.config.name}: a shared {s.env.title()} run was missed",
-                     [first, "Check that the agents with this schedule are running and can reach the mailbox. "
-                             "The next due time runs as usual.",
+                     [first, ("Check that the agents with this schedule are running and can reach the mailbox. "
+                             "The next due time runs as usual."),
                       f"To run it now: fabric-desktop agent enqueue {s.env} {' '.join(s.entities)}".rstrip()],
                      schedule=s.id, request_id=rid)
 
@@ -749,8 +749,8 @@ class Agent:
             return
         self._notify(f"KratosForge agent {self.config.name}: its job queue file couldn't be read",
                      [f"It was moved to {moved.name} in the agent's home, and the agent started with an empty queue.",
-                      "Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
-                      "queue any other job again with fabric-desktop agent enqueue."],
+                      ("Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
+                      "queue any other job again with fabric-desktop agent enqueue.")],
                      moved_to=moved.name)
 
     # ---- the loop

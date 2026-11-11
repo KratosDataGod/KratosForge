@@ -51,7 +51,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Your organization's sign-in rules ask for a step only a person can take" (scheduled run, agent or AI tool) | The saved sign-in now needs multi-factor authentication or a device check, which only a person at the app can do. The code is in the message. | Open KratosForge and sign in. Scheduled runs pick up the new sign-in on their next start. |
 | "Your sign-in to Fabric has expired or was ended" | The saved sign-in can't be renewed: it went unused too long, a sign-in frequency rule ended it, your password changed, or your organization signed you out (AADSTS700082, 70043, 50173, 50133 and similar). KratosForge stops asking Microsoft to renew it after the first refusal, so nothing retries in the background. | Sign in again. Scheduled runs on this PC pick up the new sign-in on their next start. If it repeats, close the app, delete `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin`, and start again. |
 | "Microsoft Entra refused the agent's sign-in as service principal ..." | The agent's client secret or certificate expired, was replaced, or the app registration was disabled. The message names the code and what to change. | Fix the credential, then restart the agent. Until then the agent asks Entra again only every 5 minutes. |
-| "The personal access token in the CLI profile ... has expired or was revoked" (Databricks) | The workspace refused the token. | Create a new token in the workspace and save it in `~/.databrickscfg`. For a CLI sign-in, the message gives the `databricks auth login` command to run; the next call uses the new sign-in. |
+| "The personal access token in the CLI profile ... has expired or was revoked" (Databricks) | The workspace refused the token. | Create a new token in the workspace and save it in `~/.databrickscfg`. For a CLI sign-in, the message gives the `databricks auth login` command to run; the next call uses the new sign-in. A token the workspace refused isn't sent again while the app runs, so until it is replaced the message says so without contacting the workspace. |
 | A new permission still isn't working after consent | Your saved token was issued before the permission was added. | Close the app, delete `msal_cache.bin`, start again and sign in. Or wait up to an hour. |
 | The Fabric page or Monitoring hub asks you to sign in every time | The saved Fabric sign-in couldn't be restored. | Sign in once more. If it keeps asking, delete `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` and sign in again. |
 
@@ -126,6 +126,17 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Git needs your name and email" | No identity is set for commits. | **Repository settings > Your name on commits**. |
 | "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
 | "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
+
+## This PC's clock is wrong
+
+Sign-in, HTTPS certificates, schedules and the audit trail all use the PC's clock. When it is off by more than a few minutes:
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| **Ready to work** says "This PC's clock is ... ahead of" or "behind" a server's | KratosForge compares the PC's clock with the time the last server it called over HTTPS (usually Fabric) gave in its answer. | Turn on **Set time automatically** (Settings > Time & language > Date & time). On a managed PC, ask IT to check the PC's time source. |
+| "HTTPS was refused because the server's certificate isn't valid at this PC's date and time" (also for the engine download, the update check and pip) | A wrong date makes a valid certificate look expired or not valid yet. | Fix the date, time and time zone, then try again. If they are right, the server's certificate really has expired. |
+| `fabric-desktop audit --verify` lists a note that a line's time is earlier than the line before it | The clock was set back while the app was recording. The chain itself is intact, and the line stays in order. | Nothing, if you know the clock was changed. Otherwise ask IT why it was. |
+| A schedule on this PC ran at the wrong time | Windows Task Scheduler starts it by the PC's clock. | Fix the clock. The schedule's next run follows the corrected time. |
 
 ## Still stuck
 

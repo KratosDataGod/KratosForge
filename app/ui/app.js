@@ -1164,7 +1164,7 @@ async function renderMonitor() {
     : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
-  // The Forge Activity view (forge-activity.js, Preview): today's counts in the header, the band above the table.
+  // Run progress (forge-activity.js, Preview): today's counts in the header, the panel above the table.
   const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
   const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
   const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;

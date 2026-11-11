@@ -43,8 +43,8 @@ DELIBERATE: dict[str, tuple[list[str], str]] = {
     "set_tags": (["function for no operation"], _REPORT_BUTTON),
     "set_classification": (["function for no operation"], _REPORT_BUTTON),
     "end_policy_exception": (["reason is required in Fabric but defaults to '' in the operation"],
-                             "The operation refuses an empty reason anyway; Fabric asks for one up front "
-                             "(pinned by test_requests_core_four::test_the_function_app_ends_exceptions_as_the_caller)."),
+                             ("The operation refuses an empty reason anyway; Fabric asks for one up front "
+                             "(pinned by test_requests_core_four::test_the_function_app_ends_exceptions_as_the_caller).")),
 }
 
 _EMPTY = inspect.Parameter.empty

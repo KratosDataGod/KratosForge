@@ -125,16 +125,16 @@ _KNOWN: list[tuple[re.Pattern[str], str, str]] = [
      "Git needs your name and email for commits. Set them in Source control > Repository settings."),
     (re.compile(r"Authentication failed|could not read (Username|Password)|terminal prompts disabled|"
                 r"HTTP Basic: Access denied|returned error: 401|invalid credentials|Logon failed", re.I), "auth",
-     "Git couldn't sign in to the remote. Git signs in through Git Credential Manager: sign in when its "
-     "window opens, or check that your account can read this repository."),
+     ("Git couldn't sign in to the remote. Git signs in through Git Credential Manager: sign in when its "
+     "window opens, or check that your account can read this repository.")),
     (re.compile(r"returned error: 403|Permission to .* denied|access denied|not authorized", re.I), "forbidden",
      "Your account can't do that in this repository. Ask its owner for write access."),
     (re.compile(r"Permission denied \(publickey|no such identity|sign_and_send_pubkey", re.I), "ssh_key",
-     "The SSH server didn't accept your key. Add your key to the SSH agent (ssh-add) and to your account on "
-     "the Git host, or clone with the HTTPS address instead."),
+     ("The SSH server didn't accept your key. Add your key to the SSH agent (ssh-add) and to your account on "
+     "the Git host, or clone with the HTTPS address instead.")),
     (re.compile(r"Host key verification failed", re.I), "ssh_host",
-     "This PC doesn't know the SSH server's host key yet. Connect once from a terminal (ssh -T git@host) to "
-     "trust it, or use the HTTPS address."),
+     ("This PC doesn't know the SSH server's host key yet. Connect once from a terminal (ssh -T git@host) to "
+     "trust it, or use the HTTPS address.")),
     (re.compile(r"Could not resolve host|Could not resolve hostname|Failed to connect|Connection timed out|"
                 r"Connection refused|Network is unreachable|unable to access", re.I), "network",
      "Couldn't reach the Git server. Check the internet connection and the address, then try again."),

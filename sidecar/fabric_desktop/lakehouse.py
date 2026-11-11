@@ -32,7 +32,7 @@ from deltalake.exceptions import TableNotFoundError
 
 from . import runlog
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
+from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
 from .retrying import data_upload_dropped, log_commit_dropped
 
@@ -591,9 +591,14 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         try:
             for attempt in range(UPLOAD_ATTEMPTS):
                 try:
-                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token(),
+                    # The token function, not one token: the write lease is renewed with it (HD-034).
+                    delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token,
                                     schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
                     break
+                except WriteTokenExpired as exc:  # nothing was committed: again at once, with a fresh token
+                    if attempt == UPLOAD_ATTEMPTS - 1:
+                        raise
+                    _log.warning("Writing %s again with a fresh token: %s", name_, describe(exc))
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
                     if log_commit_dropped(exc):
                         raise CommitOutcomeUnknown(

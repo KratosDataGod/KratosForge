@@ -103,7 +103,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
-  forgeActivity: "Forge Activity view in Monitor",
+  forgeActivity: "Run progress in Monitor",
   cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement",

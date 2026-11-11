@@ -30,14 +30,14 @@ def test_braces_that_arent_python_and_dollars_stay_for_the_shell():
 
 def test_powershell_runs_the_cell_from_stdin_without_a_profile(monkeypatch):
     ran = []
-    monkeypatch.setattr(shell.shutil, "which", lambda name: "C:/pwsh/pwsh.exe" if name == "pwsh" else None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda name: "C:/pwsh/pwsh.exe" if name == "pwsh" else None)
     monkeypatch.setattr(shell, "_run", lambda args, stdin=None, echo=None, shell=False: ran.append((args, stdin)) or (0, []))
     assert shell.script("powershell", "Get-Date", echo=lambda s: None) == 0
     assert ran == [(["C:/pwsh/pwsh.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], "Get-Date")]
 
 
 def test_powershell_missing_says_so(monkeypatch):
-    monkeypatch.setattr(shell.shutil, "which", lambda name: None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda name: None)
     with pytest.raises(FileNotFoundError, match="%%powershell needs PowerShell"):
         shell.script("powershell", "Get-Date")
 

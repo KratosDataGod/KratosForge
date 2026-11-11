@@ -63,3 +63,17 @@ def test_a_name_with_a_quote_stays_a_name(kernel):
     assert out["status"] == "ok", out
     out = kernel.run("a.select('nope\" FROM x; --.*')")
     assert out["status"] == "error" and "CANNOT_RESOLVE_STAR_EXPAND" in str(out["outputs"])
+
+
+def test_a_nested_struct_star_and_sparks_errors(kernel):
+    # Spark 3.5.3's answers and error texts.
+    kernel.run("n = spark.sql(\"SELECT named_struct('i', named_struct('p', 1, 'q', 2), 'j', 3) AS s, 5 AS k, "
+               "map('a', 1) AS m\")")
+    assert frame(kernel, "n.select('s.i.*')") == "['p', 'q'] [(1, 2)]"
+    assert frame(kernel, "n.select(col('S.I.*'), 'k')") == "['p', 'q', 'k'] [(1, 2, 5)]"
+    for star, names in (("k", "k"), ("m", "m"), ("s.j", "s, j")):
+        out = kernel.run(f"n.select('{star}.*')")
+        assert out["status"] == "error", star
+        assert f"Can only star expand struct data types. Attribute: `ArrayBuffer({names})`." in str(out["outputs"])
+    out = kernel.run("n.select('s.zz.*')")
+    assert out["status"] == "error" and "CANNOT_RESOLVE_STAR_EXPAND" in str(out["outputs"])

@@ -283,10 +283,12 @@ QUICK = frozenset({
 
 
 def handle(service: Service, line: str) -> dict:
+    if _NOT_UTF8.search(line):  # a byte _rpc_stdin couldn't read: refused, never run with a changed value
+        return {"id": None, "error": "invalid request: the line isn't UTF-8"}
     try:
         req = json.loads(line)
-    except json.JSONDecodeError as exc:
-        return {"id": None, "error": f"invalid JSON: {exc}"}
+    except (ValueError, RecursionError) as exc:  # bad JSON, a number too long for Python, or nesting too deep
+        return {"id": None, "error": _short(f"invalid JSON: {_unparsable(exc)}")}
     if not isinstance(req, dict):  # a list or a bare value has no id to answer, but the shell still gets a line
         return {"id": None, "error": "invalid request: expected an object with id, method and params"}
     req_id, method = req.get("id"), req.get("method")
@@ -436,12 +438,31 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
         worker.join()
 
 
+def _unparsable(exc: BaseException) -> str:
+    if isinstance(exc, RecursionError):
+        return "it's nested too deeply to read"
+    return str(exc)
+
+
+_NOT_UTF8 = re.compile("[\udc80-\udcff]")  # what surrogateescape makes of a byte that isn't UTF-8
+
+
+def _rpc_stdin(stream: Any) -> Any:
+    """The shell's request stream, read as UTF-8 whatever the Windows code page. A byte that isn't
+    UTF-8 is kept as a lone surrogate, so handle refuses that request instead of the read ending the engine."""
+    stream.reconfigure(encoding="utf-8", errors="surrogateescape")
+    return stream
+
+
 def _method(line: str) -> object:
+    # The reading loop sorts every line by this. A line that can't be read here must not end the
+    # loop (and the engine with it): handle answers it with the reason.
     try:
         req = json.loads(line)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return None
-    return req.get("method") if isinstance(req, dict) else None
+    method = req.get("method") if isinstance(req, dict) else None
+    return method if isinstance(method, str) else None  # a list or object can't be looked up in QUICK
 
 
 def _lane(requests: queue.Queue, answer: Callable[[str], None]) -> None:
@@ -546,7 +567,7 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # a TextIOWrapper here; the shell sends UTF-8 whatever the Windows code page
+    sys.stdin = _rpc_stdin(sys.stdin)
     _log_to_stderr()
     from . import data_format
     try:

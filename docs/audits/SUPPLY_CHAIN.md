@@ -140,10 +140,11 @@ Some wheels bundle native libraries of their own, for example pyarrow and polars
 | What | Pinned by | Hash-checked on install |
 | --- | --- | --- |
 | Engine packages | `engine-requirements.txt` | Yes: `pip install --require-hashes --only-binary=:all:`, then `pip check` |
+| Engine packages and test tools in CI's test and lint jobs | `.github/requirements/test-linux.txt`, `test-windows.txt` and `lint.txt`, at `constraints.txt`'s versions (`tests/test_toolchain_pins.py` checks they match) | Yes: `pip install --require-hashes --only-binary=:all:`. The engine itself is then installed with `--no-deps --no-build-isolation`, built by the hashed setuptools |
 | Engine Python | `PYTHON_VERSION` in `ci.yml` | Yes: python.org's MD5 and a pinned SHA-256 |
 | Shell crates | `Cargo.lock` | Yes: `cargo build --locked` checks each crate's checksum against the lock file |
-| GitHub Actions | A commit SHA on every `uses:` line in every workflow (16 actions) | Yes, by the commit SHA |
-| CI-only Rust tools (cargo-audit, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
+| GitHub Actions | A commit SHA on every `uses:` line in every workflow (16 actions). `.github/scripts/check_workflows.py` fails one named by a tag or branch | Yes, by the commit SHA |
+| CI-only Rust tools (cargo-audit, cargo-deny, cargo-cyclonedx) | An exact version, with `cargo install --locked` | Yes, through each tool's own lock file |
 | Bundled JavaScript | The built files are committed | They can't change without a PR |
 
 

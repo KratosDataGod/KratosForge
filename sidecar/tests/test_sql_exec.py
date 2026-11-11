@@ -493,7 +493,8 @@ def test_sql_settings_have_defaults_ranges_and_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramData", str(tmp_path / "policy"))
     assert app_settings.sql_limits() == {"sql_page_rows": 1000, "sql_time_limit_minutes": 10,
                                          "sql_memory_limit_percent": 60, "sql_max_concurrent": 2,
-                                         "sql_result_retention_hours": 24, "sql_temp_dir": ""}
+                                         "sql_result_retention_hours": 24, "sql_temp_dir": "",
+                                         "sql_time_limit_by_policy": False}
     app_settings.save({"sql_page_rows": "500", "sql_time_limit_minutes": 0})
     assert app_settings.sql_limits()["sql_page_rows"] == 500
     assert app_settings.sql_limits()["sql_time_limit_minutes"] == 0

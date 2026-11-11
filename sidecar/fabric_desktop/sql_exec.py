@@ -614,6 +614,7 @@ class SqlExecutions:
         from .localdata import EngineBusy, QueryCancelled
         state, kind, error, refused = "completed", "", "", None
         rows, batches, columns = 0, [], []
+        engine = None
         try:
             verdicts = sql_policy.classify(_policy_statements(run.query, run.dialect), "local")
             stop = sql_policy.refused(verdicts, run.allow, run.confirm)
@@ -647,7 +648,8 @@ class SqlExecutions:
         except EngineBusy as exc:
             state, kind, error = "failed", "engine", str(exc)
         except Exception as exc:  # noqa: BLE001 - the SQL's own error, shown in place of the rows
-            state, kind, error = "failed", "sql", (str(exc).strip() or type(exc).__name__)[:4000]
+            kind, error = local_error(exc, getattr(engine, "project", None), run.snapshot)
+            state, error = "failed", error[:4000]
         with self._lock:
             run.ended = time.time()
             run.state, run.error_kind, run.error, run.refused = state, kind, error, refused
@@ -901,6 +903,30 @@ def check_local(query: str, dialect: str, confirm: bool = False) -> tuple[list[s
     in the project's engine themselves (``local_query``)."""
     verdicts = sql_policy.classify(_policy_statements(query, dialect), "local")
     return verdicts, sql_policy.refused(verdicts, TARGET_ALLOWS["local"], confirm)
+
+
+def local_error(exc: BaseException, project: Any, snapshot: Path | None) -> tuple[str, str]:
+    """The kind and message of a local data project run that failed: DuckDB's own words, except where
+    they mislead. DuckDB calls temp files that can't grow running out of memory; that is the project's
+    temp file limit when its settings set one, and otherwise the temp folder's drive being full."""
+    from . import disk_full
+    message = str(exc).strip() or type(exc).__name__
+    settings = getattr(project, "settings", None)
+    if disk_full.is_spill_full(message):
+        limit = str(getattr(settings, "max_temp_size", "") or "")
+        if limit:
+            return "disk", (f"Stopped: the query's temp files reached this project's limit ({limit}, in the "
+                            "project's settings). The statement that ran out of room didn't finish. Raise the "
+                            "limit, or narrow the query, and run it again.")
+        where = disk_full.free_space(getattr(project, "temp_dir", None))
+        return "disk", (f"Stopped: the query ran out of room for its temp files, as the temp folder's drive is "
+                        f"full{f' ({where})' if where else ''}. The statement that ran out of room didn't finish. "
+                        "Free some space, or narrow the query, and run it again.")
+    if disk_full.is_disk_full(exc):
+        named = getattr(exc, "filename", None)  # else the project's folder: its database is the usual writer
+        path = named if isinstance(named, (str, Path)) and named else getattr(project, "root", None) or snapshot
+        return "disk", disk_full.message(path, "The statement that ran out of room didn't finish.")
+    return "sql", message
 
 
 def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TARGET_ALLOWS["local"]) -> str:

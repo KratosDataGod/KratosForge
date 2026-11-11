@@ -30,6 +30,26 @@ def test_apt_runs_only_for_missing_packages_and_rides_out_a_short_outage():
     assert run.index("All system dependencies are installed") < run.index("Acquire::Retries")
     # apt retries each download itself, with a timeout, and the whole install is tried three times.
     assert 'Acquire::Retries "5"' in run and 'Acquire::http::Timeout "30"' in run
-    assert "for wait in 60 120 0; do" in run and run.count('install-deps chromium;') == 1
+    assert "for wait in 60 120 0; do" in run
+    # apt runs only once the mirrors resolve, so a DNS outage costs seconds, not apt's retry budget.
+    assert run.count('if resolve && "$pw" install-deps chromium; then exit 0; fi') == 2
+    assert "getent hosts" in run
     # The last failure says it was the network, so nobody reads it as a test failure.
     assert "not a test" in run
+
+
+def test_missing_fonts_alone_never_fail_the_job():
+    run = _step("Install Chromium's system packages")
+    # Playwright 1.63 and later list missing packages one to a line; those are read too.
+    assert "/Missing system dependencies/" in run
+    # The browser tests compare no pixels, so fonts are optional: if only fonts are missing and apt
+    # can't get them, the step warns and the tests go on.
+    fonts = run.index("grep -qvE '^x?fonts-'")
+    assert fonts < run.index("for wait in 60 120 0; do")
+    assert "::warning::Only fonts were missing" in run[fonts : run.index("for wait")]
+
+
+def test_the_step_cannot_hang_the_job():
+    jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))["jobs"]
+    steps = [s for s in jobs["ui-browser"]["steps"] if s.get("name") == "Install Chromium's system packages"]
+    assert steps[0].get("timeout-minutes") == 30

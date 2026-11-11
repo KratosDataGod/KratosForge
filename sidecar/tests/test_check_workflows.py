@@ -105,7 +105,9 @@ def test_every_job_has_a_scoped_token(tmp_path):
 
 
 def test_event_text_and_inputs_reach_a_script_only_through_env(tmp_path):
-    for expr in ("${{ github.event.pull_request.title }}", "${{github.head_ref}}", "${{ inputs.notes }}"):
+    for expr in ("${{ github.event.pull_request.title }}", "${{github.head_ref}}", "${{ inputs.notes }}",
+                 "${{ format('{0}', github.event.issue.title) }}", "${{ github.event['issue']['title'] }}",
+                 "${{ github['event'].comment.body }}", "${{ inputs['notes'] }}"):
         bad = GOOD.replace("run: echo hi", f'run: echo "{expr}"')
         assert check.problems(_write(tmp_path, bad)) == [f"w.yml: job a, step 2: {expr} is pasted into its run; pass it through env"]
     script = GOOD.replace("      - run: echo hi\n", "      - uses: actions/github-script@" + "c" * 40 + "\n"
@@ -114,6 +116,8 @@ def test_event_text_and_inputs_reach_a_script_only_through_env(tmp_path):
     env = GOOD.replace("      - run: echo hi\n", "      - env:\n          TITLE: ${{ github.event.pull_request.title }}\n"
                        '        run: echo "$TITLE" ${{ github.sha }} ${{ steps.x.outputs.y }}\n')
     assert check.problems(_write(tmp_path, env)) == []
+    name = GOOD.replace("run: echo hi", 'run: echo "${{ github.event_name }} ${{ github.repository }}"')
+    assert check.problems(_write(tmp_path, name)) == [], "github.event_name and the repository's own names are fine"
 
 
 def test_a_pull_request_target_workflow_checks_out_only_the_base(tmp_path):
@@ -125,6 +129,12 @@ def test_a_pull_request_target_workflow_checks_out_only_the_base(tmp_path):
          "check out only the base (github.sha)")]
     base = target.replace(CHECKOUT, CHECKOUT + "\n        with:\n          ref: ${{ github.sha }}")
     assert check.problems(_write(tmp_path, base)) == []
+    fork = target.replace(CHECKOUT, CHECKOUT + "\n        with:\n          repository: ${{ github.event.pull_request.head.repo.full_name }}")
+    assert check.problems(_write(tmp_path, fork)) == [
+        ("w.yml: job a, step 1: a pull_request_target workflow checks out ${{ github.event.pull_request.head.repo.full_name }}; "
+         "check out only this repository's base")]
+    own = target.replace(CHECKOUT, CHECKOUT + "\n        with:\n          repository: ${{ github.repository }}")
+    assert check.problems(_write(tmp_path, own)) == []
     push = head.replace("  pull_request_target:\n", "  push:\n")
     assert check.problems(_write(tmp_path, push)) == [], "the rule is only for pull_request_target"
 

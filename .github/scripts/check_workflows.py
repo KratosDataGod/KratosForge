@@ -40,7 +40,8 @@ _DIGEST = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-f]{64}$")
 # What a ${{ }} inside a script must not name: the event's text (titles, branch names, comments) and
 # dispatch inputs. Anything else (github.sha, needs.*.outputs, steps.*.outputs, vars, secrets) is the
 # repository's own or comes through a step the workflow wrote.
-_UNTRUSTED = re.compile(r"\$\{\{[^}]*\b(github\.event\.|github\.head_ref|inputs\.)[^}]*\}\}")
+_EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.S)   # up to the first }}, so a brace inside format('{0}') is kept
+_UNTRUSTED = re.compile(r"\bgithub\s*(\.\s*(event|head_ref)\b|\[\s*['\"](event|head_ref)['\"])|\binputs\s*[.\[]")
 
 
 def runners(job: dict[str, Any]) -> list[str] | None:
@@ -122,14 +123,19 @@ def problems(path: Path) -> list[str]:
                 out.append(f"{where}, step {i}: {step['uses']} isn't pinned to a commit (owner/repo@<40 hex>)")
             with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
             for key, script in (("run", step.get("run")), ("script", with_.get("script"))):
-                found = _UNTRUSTED.search(script) if isinstance(script, str) else None
+                found = next((e for e in _EXPRESSION.findall(script) if _UNTRUSTED.search(e)), None) \
+                    if isinstance(script, str) else None
                 if found:
-                    out.append(f"{where}, step {i}: {found[0]} is pasted into its {key}; pass it through env")
+                    out.append(f"{where}, step {i}: {found} is pasted into its {key}; pass it through env")
             if target and str(step.get("uses", "")).startswith("actions/checkout@"):
                 ref = str(with_.get("ref", ""))
                 if ref and ref.replace(" ", "") not in ("${{github.sha}}", "${{github.event.pull_request.base.sha}}"):
                     out.append(f"{where}, step {i}: a pull_request_target workflow checks out {ref}; "
                                "check out only the base (github.sha)")
+                repo = str(with_.get("repository", ""))
+                if repo and repo.replace(" ", "") != "${{github.repository}}":   # a fork's code, whatever the ref
+                    out.append(f"{where}, step {i}: a pull_request_target workflow checks out {repo}; "
+                               "check out only this repository's base")
     return out
 
 

@@ -28,7 +28,7 @@ import sqlglot
 from sqlglot import exp, transforms
 from sqlglot.errors import ErrorLevel, ParseError, UnsupportedError
 
-from . import snowflake_sql, sqlcompat
+from . import snowflake_sql, sql_dialects, sqlcompat
 
 SCHEMA = "sql-portability-report@1"
 # Each platform: its label, how sqlglot names its dialect, and the sqlcompat target that checks it.
@@ -289,7 +289,7 @@ def portability(sql: str, source: str, targets: list[str] | None = None) -> dict
         report["problem"] = f"The SQL is longer than {MAX_SQL:,} characters, so it wasn't checked."
         return report
     try:
-        trees = [t for t in sqlglot.parse(sql, read=PLATFORMS[source]["sqlglot"]) if t is not None]
+        trees = [t for t in sql_dialects.parse(sql, read=PLATFORMS[source]["sqlglot"]) if t is not None]
     except ParseError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "it can't be read"
         report["problem"] = f"Could not read the SQL as {PLATFORMS[source]['label']}: {first}"

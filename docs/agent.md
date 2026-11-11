@@ -80,7 +80,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `agent.job_lease_seconds` | 300 | How long a silent worker keeps a job before it runs again. The worker renews it every third of that, and a renewal that fails (the queue file busy) is tried again at the next one. A run whose lease ran out anyway stops before its next table, its audit log says `lease_lost`, and it can't renew or finish the job's next attempt |
 | `agent.table_lease_seconds` | 120 | Write lease length, and how long to wait for a busy table |
 | `agent.status_seconds` | 60 | How often to publish the [status record](#status-records) to each environment |
-| `agent.max_queued` | 1000 | The most jobs that may wait in the queue. Past it, nothing already queued is removed and nothing is dropped: a schedule's run waits and is queued once there is room, a pipeline request waits with `waiting` in its status, and `agent enqueue` is refused with the reason. See [Queue full](#queue-full) |
+| `agent.max_queued` | 1000 | The most jobs that may wait in the queue. Past it, nothing already queued is removed and nothing is dropped: a schedule's run waits and is queued once there is room, a pipeline request waits with `waiting` in its status, and `agent enqueue` is refused with the reason. See [Operate](#operate) and the [runbook](agent-runbook.md#the-agents-queue-is-full) |
 | `auth.type` | required | `service_principal`, `managed_identity` or `user` |
 | `retry.max_attempts` | 3 | Tries for retryable errors |
 | `retry.backoff_seconds` | 60 | First wait; doubles each try |

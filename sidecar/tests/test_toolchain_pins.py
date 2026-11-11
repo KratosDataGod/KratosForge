@@ -47,3 +47,21 @@ def test_ci_tools_install_from_hashed_files():
         pins = re.findall(r"^\S+==\S+ \\$", path.read_text(encoding="utf-8"), re.M)
         hashes = re.findall(r"--hash=sha256:[0-9a-f]{64}", path.read_text(encoding="utf-8"))
         assert pins and len(hashes) >= len(pins), path.name
+
+
+def test_the_shells_crates_are_linted_and_gated_on_licence_and_source():
+    """The shell job fails on any clippy warning; the audit job runs cargo-deny's licence, ban and source
+    checks (deny.toml) beside cargo-audit, read for the Windows exe, with crates.io the only source."""
+    shell = CI.split("\n  shell:\n", 1)[1].split("\n  preview-integrity:\n", 1)[0]
+    assert "cargo clippy --release --locked --all-targets -- -D warnings" in shell
+    assert "components: clippy" in shell
+    toolchain = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))
+    assert "clippy" in toolchain["toolchain"]["components"]
+    audit = CI.split("\n  audit:\n", 1)[1].split("\n  sbom-app:\n", 1)[0]
+    assert "check licenses bans sources" in audit and "cargo audit --file app/src-tauri/Cargo.lock" in audit
+    deny = tomllib.loads((ROOT / "app" / "src-tauri" / "deny.toml").read_text(encoding="utf-8"))
+    assert deny["graph"]["targets"] == ["x86_64-pc-windows-msvc"]
+    assert (deny["sources"]["unknown-registry"], deny["sources"]["unknown-git"]) == ("deny", "deny")
+    assert deny["sources"]["allow-registry"] == ["https://github.com/rust-lang/crates.io-index"]
+    assert deny["bans"]["wildcards"] == "deny"
+    assert not any(lic.startswith(("GPL", "LGPL", "AGPL")) for lic in deny["licenses"]["allow"])

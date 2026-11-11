@@ -205,7 +205,11 @@ _log = logging.getLogger(__name__)
 def _remove_leftover_spill(folder: Path) -> None:
     """Delete DuckDB temp files a crashed engine left in the project's tmp folder: DuckDB removes them
     only when the query that wrote them ends, and never on the next open. Called once this process
-    holds the project's database, which DuckDB locks, so no other engine is spilling there."""
+    holds the project's database, which DuckDB locks, so no other engine is spilling there. A tmp
+    folder that is a link or junction is left alone: its files are somewhere else."""
+    from ..maintenance import _linked
+    if _linked(folder):
+        return
     for leftover in folder.glob("duckdb_temp_*"):
         try:
             if leftover.is_file() and not leftover.is_symlink():

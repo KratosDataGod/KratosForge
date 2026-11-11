@@ -816,11 +816,31 @@ class SqlExecutions:
                 if folder.is_dir() and folder.name not in known and len(folder.name) == 12:
                     # A worker ends with the engine that started it, so an earlier session's spill
                     # files are only left there by a crash (DuckDB never removes them): they go now,
-                    # however recent; a file still open is kept (Windows won't delete it).
-                    shutil.rmtree(folder / "spill", ignore_errors=True)
+                    # not at the result's retention. Kept: a link (never followed), a spill written in
+                    # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
+                    # still open (Windows won't delete it).
+                    spill = folder / "spill"
+                    if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
+                        shutil.rmtree(spill, ignore_errors=True)
                     age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
+
+
+def _linked(path: Path) -> bool:
+    from .maintenance import _linked as linked
+    return linked(path)
+
+
+SPILL_QUIET_S = 600  # an earlier session's spill written more recently than this may be a live run's
+
+
+def _quiet(spill: Path, now: float) -> bool:
+    """True when nothing in ``spill`` was written in the last SPILL_QUIET_S seconds."""
+    try:
+        return all(now - f.stat().st_mtime > SPILL_QUIET_S for f in spill.iterdir())
+    except OSError:  # silent-ok: not there, or can't be read; nothing is deleted
+        return False
 
 
 class _Stopped(Exception):

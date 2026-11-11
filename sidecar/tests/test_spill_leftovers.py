@@ -67,7 +67,13 @@ def test_temp_files_a_killed_engine_left_in_a_local_data_project_go_when_the_pro
 def test_an_earlier_sessions_sql_run_loses_its_spill_folder_at_the_next_start_and_keeps_its_result(tmp_path):
     folder = tmp_path / "sql-runs" / "a1b2c3d4e5f6"  # a run folder from a session that crashed
     (folder / "spill").mkdir(parents=True)
-    (folder / "spill" / "duckdb_temp_storage_DEFAULT-0.tmp").write_bytes(b"\0" * 2**20)
+    import os
+    left = folder / "spill" / "duckdb_temp_storage_DEFAULT-0.tmp"
+    left.write_bytes(b"\0" * 2**20)
+    os.utime(left, (time.time() - 3600, time.time() - 3600))  # the crash was an hour ago
+    live = tmp_path / "sql-runs" / "0f9e8d7c6b5a" / "spill"  # another session's run, still spilling
+    live.mkdir(parents=True)
+    (live / "duckdb_temp_storage_DEFAULT-0.tmp").write_bytes(b"in use")
     (folder / "result.arrow").write_bytes(b"kept while its retention lasts")
     limits = {"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 30,
               "sql_max_concurrent": 2, "sql_result_retention_hours": 24, "sql_temp_dir": ""}
@@ -76,5 +82,34 @@ def test_an_earlier_sessions_sql_run_loses_its_spill_folder_at_the_next_start_an
         manager.cleanup(earlier_sessions=True)  # what the first run of a session does
         assert not (folder / "spill").exists()
         assert (folder / "result.arrow").read_bytes() == b"kept while its retention lasts"
+        assert (live / "duckdb_temp_storage_DEFAULT-0.tmp").read_bytes() == b"in use"  # written just now: kept
     finally:
         manager.shutdown()
+
+
+def test_the_clean_up_never_follows_a_link_into_another_folder(tmp_path):
+    import os
+
+    import pytest
+
+    from fabric_desktop.localdata.engine import _remove_leftover_spill
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "spill").mkdir(parents=True)
+    precious = elsewhere / "spill" / "duckdb_temp_storage_DEFAULT-0.tmp"
+    precious.write_bytes(b"not the app's")
+    base = tmp_path / "sql-runs"
+    base.mkdir()
+    try:
+        os.symlink(elsewhere, base / "a1b2c3d4e5f6", target_is_directory=True)  # a linked run folder
+        os.symlink(elsewhere / "spill", tmp_path / "tmp", target_is_directory=True)  # a linked project tmp
+    except (OSError, NotImplementedError):
+        pytest.skip("this account can't make symbolic links")
+    limits = {"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 30,
+              "sql_max_concurrent": 2, "sql_result_retention_hours": 24, "sql_temp_dir": ""}
+    manager = sql_exec.SqlExecutions(tmp_path, token=lambda: "", limits=lambda: limits)
+    try:
+        manager.cleanup(earlier_sessions=True)
+    finally:
+        manager.shutdown()
+    _remove_leftover_spill(tmp_path / "tmp")
+    assert precious.read_bytes() == b"not the app's"

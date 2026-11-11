@@ -27,7 +27,7 @@ def _signed_out():
 def test_source_tables_outside_the_environment_read_with_the_storage_sign_in(svc):
     svc._auth = types.SimpleNamespace(storage_token=lambda: "st-token")
     options = svc._source_options()
-    assert "st-token" in repr(options)
+    assert options["bearer_token"] == "st-token" and options["use_fabric_endpoint"] == "true"
 
 
 def test_a_files_entity_with_no_files_yet_starts_with_a_placeholder_and_no_owner(svc, monkeypatch):

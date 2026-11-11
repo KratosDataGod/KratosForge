@@ -411,10 +411,10 @@ jobs:
             python .github/scripts/audit_exceptions.py npm "$RUNNER_TEMP/npm-audit.json" "$lock" || failed=1
           done
           exit $failed
-      # Keeps the cargo-audit binary between runs (~/.cargo/bin); only main writes the cache.
+      # Keeps the cargo-audit and cargo-deny binaries between runs (~/.cargo/bin); only main writes the cache.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:
-          key: cargo-audit-0.22.2
+          key: cargo-audit-0.22.2-deny-0.19.0
           workspaces: app/src-tauri
           cache-targets: "false"
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -426,6 +426,12 @@ jobs:
           cargo audit --file app/src-tauri/Cargo.lock $ignore --json > "$RUNNER_TEMP/cargo-audit.json" || status=$?
           [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint cargo "$RUNNER_TEMP/cargo-audit.json"
           exit $status
+      # The shell's crates for the Windows exe: only the licences app/src-tauri/deny.toml allows,
+      # no "*" versions, and crates.io as the only source. Advisories stay with cargo-audit above.
+      - name: Rust crate licences, bans and sources (app/src-tauri/deny.toml)
+        run: |
+          cargo deny --version 2>/dev/null | grep -qwF 0.19.0 || cargo install --locked cargo-deny --version 0.19.0
+          cargo deny --manifest-path app/src-tauri/Cargo.toml --locked check licenses bans sources
 
   sbom-app:
     # The shell's software bill of materials (every Rust crate the Windows exe compiles, from
@@ -681,6 +687,7 @@ jobs:
         with:
           # The version in app/src-tauri/rust-toolchain.toml, which cargo uses in that folder.
           toolchain: "1.99.1"
+          components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: app/src-tauri
@@ -698,6 +705,15 @@ jobs:
       # above, so the build script doesn't rerun and the compiled crates are reused.
       - name: Run the shell's tests
         run: cargo test --release --locked
+        env:
+          FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
+          FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+          FABRIC_ENGINE_SHA256: ${{ needs.engine.outputs.engine_sha256 }}
+          FABRIC_ENGINE_UPDATE_SHA256: ${{ needs.engine.outputs.engine_update_sha256 }}
+      # Clippy's lints on the shell and its tests, every warning an error, so a new one is fixed in
+      # the pull request that adds it. Same environment again, so the build script doesn't rerun.
+      - name: Lint the shell (clippy)
+        run: cargo clippy --release --locked --all-targets -- -D warnings
         env:
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}

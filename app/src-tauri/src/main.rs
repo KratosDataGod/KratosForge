@@ -1867,7 +1867,9 @@ static FABRIC_SHOWN: Mutex<BTreeMap<&'static str, String>> = Mutex::new(BTreeMap
 
 /// Shows the calling window's Fabric view over the page's placeholder, creating it the first time.
 /// Coordinates are CSS pixels inside the window, which are Tauri's logical pixels.
+// Each argument is a field the page sends by name; one struct would change the call the page makes.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn fabric_view_show(
     app: tauri::AppHandle,
     window: tauri::Window,

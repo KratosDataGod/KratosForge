@@ -85,6 +85,8 @@ def test_polars_eager_read_then_filter():
                 'df = pl.read_csv("small.csv")', 'eu = df.filter(pl.col("r") == "EU")',
                 'x = spark.read.schema(s).csv("a").filter("a > 1")']) == []  # and a lazy collect() isn't NB003
     assert ids(['eu = pl.read_csv("a.csv").lazy().filter(pl.col("r") == "EU").collect()']) == []
+    assert ids(['lf = pl.scan_parquet("Files/s.parquet").filter(pl.col("r") == "EU")\neu = lf.collect()']) == []
+    assert ids(['sdf = spark.read.table("t")\nrows = sdf.collect()']) == ["NB003"]
 
 
 def test_print_logging_only_in_a_scheduled_notebook():

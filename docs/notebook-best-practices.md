@@ -129,7 +129,7 @@ sample = df.limit(1000).toPandas()                              # or take a samp
 
 When it's fine: the DataFrame is already small by construction, such as the result of an aggregation.
 A Polars lazy query's `.collect()` (after `pl.scan_parquet` or `.lazy()`) runs the query on this PC and
-isn't reported.
+isn't reported, also when the lazy frame is kept in a name first (`lf = pl.scan_parquet(...)`, then `lf.collect()`).
 
 Principle: Move the work to the data, not all the data to one machine.
 

@@ -29,7 +29,7 @@
   "importance": "Recommended",
   "area": "Performance",
   "why": "Both bring every row to the driver, one machine. A table that fits today can run the driver out of memory next month.",
-  "fine": "The DataFrame is already small by construction, such as the result of an aggregation. A Polars lazy query's `.collect()` (after `pl.scan_parquet` or `.lazy()`) runs the query on this PC and isn't reported.",
+  "fine": "The DataFrame is already small by construction, such as the result of an aggregation. A Polars lazy query's `.collect()` (after `pl.scan_parquet` or `.lazy()`) runs the query on this PC and isn't reported, also when the lazy frame is kept in a name first (`lf = pl.scan_parquet(...)`, then `lf.collect()`).",
   "instead": "",
   "principle": "Move the work to the data, not all the data to one machine.",
   "impact": "Reliability. The driver can run out of memory as the table grows, and the run fails.",

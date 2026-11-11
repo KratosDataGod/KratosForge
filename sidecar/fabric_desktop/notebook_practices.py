@@ -195,6 +195,9 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
             n: int) -> Iterator[tuple[str, int]]:
     in_loop: set[int] = set()
     decorators: set[int] = set()  # @udf(...) is found on its function, not again as a call
+    # lf = pl.scan_parquet(...).filter(...), then lf.collect() later in the cell: lf is a Polars lazy frame
+    lazy = {tgt.id for node in ast.walk(tree) if isinstance(node, ast.Assign) and _chain(node.value) & _POLARS_LAZY
+            for tgt in node.targets if isinstance(tgt, ast.Name)}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
             decorators.update(id(d) for d in node.decorator_list)
@@ -219,7 +222,7 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
         if chain & {"read", "readStream"} and any(a.lower().startswith(("http://", "https://")) for a in _str_args(node)):
             yield "NB019", node.lineno
         if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"} \
-                and not (name == "collect" and chain & _POLARS_LAZY):  # a Polars lazy query's collect() runs it
+                and not (name == "collect" and (chain & _POLARS_LAZY or chain & lazy)):  # a Polars lazy query's collect() runs it
             yield "NB003", node.lineno
         elif name == "display" and scheduled and node.args and not (_chain(node.args[0]) & {"limit", "head", "sample"}):
             yield "NB004", node.lineno

@@ -1,7 +1,9 @@
 // Estate X-ray on Home: every lakehouse you can reach, read once, with what needs attention
 // ranked first and a fix on each line. "Adopt" turns a lakehouse's tables into metadata entities.
 
-const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded: false, watching: null };
+// picked: the ids of findings ticked for Optimize; batch: the Optimize batch running or last run (optimizeBatch).
+const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded: false, watching: null,
+  box: null, picked: new Set(), batch: null };
 
 const XRAY_KINDS = {
   small_files: "Small files", unidentified: "Unidentified", access: "Access", cost: "Cost",
@@ -60,6 +62,7 @@ async function pauseXray(box, paused) {
 }
 
 function drawXray(box, res) {
+  if (box instanceof Element) xrayPage.box = box;
   const foldBtn = h("button", { class: "tool outline small", "aria-expanded": String(!xrayPage.folded),
     onclick: () => {
       xrayPage.folded = !xrayPage.folded;
@@ -105,6 +108,11 @@ function drawXray(box, res) {
   const chip = (kind, label, n) => h("button", { class: `chip${xrayPage.kind === kind ? " on" : ""}`,
     onclick: () => { xrayPage.kind = kind; xrayPage.showAll = false; drawXray(box, res); } }, label, n !== undefined ? h("span", { class: "count" }, n) : null);
   const limit = xrayPage.showAll ? shown.length : 6;
+  // Only findings Optimize fixes can be ticked, and only those shown: a filter or search keeps what it hides out of the batch.
+  const pickable = shown.filter(xrayPickable);
+  const keep = new Set(pickable.map((f) => f.id));
+  for (const id of [...xrayPage.picked]) if (!keep.has(id)) xrayPage.picked.delete(id);
+  const picking = pickable.length > 0 && !xrayBatchActive();
   const high = open.filter((f) => f.severity === "high").length;
 
   const stats = h("div", { class: "xray-stats" },
@@ -125,7 +133,9 @@ function drawXray(box, res) {
     result.skipped?.length ? h("p", { class: "muted-text small" }, `Couldn't read: ${result.skipped.join(", ")} (a paused capacity, or no access).`) : null,
     open.length ? h("div", { class: "row wrap xray-chips" }, chip("all", "All", open.length),
       Object.entries(XRAY_KINDS).filter(([k]) => byKind[k]).map(([k, label]) => chip(k, label, byKind[k]))) : null,
-    open.length ? h("div", { class: "xray-list" }, shown.slice(0, limit).map((f) => xrayFinding(f, box, res)))
+    xrayBatchPanel(),
+    picking ? xrayPickBar(pickable, shown, box, res) : null,
+    open.length ? h("div", { class: "xray-list" }, shown.slice(0, limit).map((f) => xrayFinding(f, box, res, picking)))
       : h("p", { class: "muted-text" }, "Nothing needs attention. Every table is compact, readable and changing."),
     h("div", { class: "row" },
       shown.length > limit ? btn(`Show all ${shown.length}`, null, () => { xrayPage.showAll = true; drawXray(box, res); }, "tool link") : null,
@@ -147,7 +157,8 @@ function xrayHow() {
       + "(Settings > Optimize lakehouses), each scan also adds its lakehouse and table findings there as new rows, never "
       + "the names of people or cost estimates. Four buttons write, and each asks first. Optimize names the table, says it runs in "
       + "Fabric and uses capacity, and shows the risk check, then starts a Fabric table maintenance job that compacts it "
-      + "and removes old files past the history the table keeps. Vacuum first shows how many old files it would delete, and deletes them in "
+      + "and removes old files past the history the table keeps. Optimize on ticked tables asks once for all of them, then starts "
+      + "the same job for each, at most 3 at a time, and only for tables whose risk check passes; Stop starts nothing more. Vacuum first shows how many old files it would delete, and deletes them in "
       + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
       + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed. "
       + "Remove, on a leftover Dataflow Gen2 staging lakehouse, first checks again that a newer one exists in the workspace and "
@@ -211,17 +222,25 @@ function redrawXray(box, res) {
   if (typeof box === "function") box(); else drawXray(box, res);
 }
 
-function xrayFinding(f, box, res) {
+function xrayFinding(f, box, res, picking = false) {
   const sev = { high: ["fail", "Fix first"], medium: ["wrn", "Worth fixing"], low: ["neu", "Good to know"] }[f.severity];
+  const inBatch = xrayBatchItem(f.id);
+  const queued = inBatch && !inBatch.ended && !inBatch.job_id;
+  const tick = !picking ? null : xrayPickable(f)
+    ? h("input", { type: "checkbox", class: "xray-pick", checked: xrayPage.picked.has(f.id) ? true : null,
+      "aria-label": `Optimize ${f.schema ? `${f.schema}.${f.table}` : f.table} in ${f.lakehouse_name}`,
+      onchange: (e) => { if (e.target.checked) xrayPage.picked.add(f.id); else xrayPage.picked.delete(f.id); xrayPage.drawPickBar?.(); } })
+    : h("span", { class: "xray-pick" });
   return h("div", { class: "xray-item" },
+    tick,
     h("span", { class: `pill-s ${sev[0]}` }, sev[1]),
     h("div", { class: "grow" },
       h("div", {}, h("b", {}, f.title)),
       h("div", { class: "muted-text small" }, f.detail, " ",
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); openXrayDoc(f.kind); } }, "How to fix this")),
       xrayWhere(f) ? h("div", { class: "muted-text small where" }, xrayWhere(f)) : null,
-      xrayFix(f)),
-    f.fix?.state === "submitted" ? null : xrayAction(f, box, res));
+      queued ? h("div", { class: "muted-text small" }, "Waiting in the Optimize batch above.") : xrayFix(f)),
+    f.fix?.state === "submitted" || (inBatch && !inBatch.ended) ? null : xrayAction(f, box, res));
 }
 
 // A fix shows as submitted until its Fabric job finishes; only a completed job marks the finding fixed.
@@ -390,6 +409,234 @@ async function vacuumAll(findings, box, res) {
       held.map((x) => `${name(x)} (${x.why})`).join(", "), ".") : "");
   go.replaceChildren(icon("delete", 16), `Vacuum ${ready.length}`);
   go.disabled = !ready.length;
+}
+
+// ---- Optimize many tables at once
+
+// At most this many of a batch's tables are optimizing in Fabric at once: the next starts only when
+// one of them ends, so a long list doesn't land on the capacity all together. How often the batch
+// asks Fabric how its running jobs are doing.
+const XRAY_BATCH = { atOnce: 3, pollMs: 20000 };
+const XRAY_BATCH_ENDED = new Set(["done", "failed", "held", "error", "stopped"]);
+
+function xrayPickable(f) {
+  return f.action === "optimize" && !f.fixed && f.fix?.state !== "submitted" && !(xrayBatchItem(f.id)?.ended === false);
+}
+
+function xrayBatchActive() {
+  return !!xrayPage.batch && !xrayPage.batch.finished;
+}
+
+// A finding's line in the batch while the batch is still on the card.
+function xrayBatchItem(id) {
+  return xrayPage.batch?.items.find((it) => it.f.id === id) || null;
+}
+
+function xrayLabel(f) {
+  return f.schema ? `${f.schema}.${f.table}` : f.table;
+}
+
+// Above the findings: tick all shown, or Optimize all, which ticks every finding shown so you can
+// untick the ones to leave out; then Optimize N selected asks before anything starts.
+function xrayPickBar(pickable, shown, box, res) {
+  const bar = h("div", { class: "row wrap xray-pickbar" });
+  const draw = () => {
+    const n = xrayPage.picked.size;
+    const all = h("input", { type: "checkbox", class: "xray-pick", checked: n && n === pickable.length ? true : null,
+      "aria-label": n === pickable.length ? "Clear the selection" : `Select all ${pickable.length} tables Optimize can fix`,
+      onchange: (e) => {
+        if (e.target.checked) { pickable.forEach((f) => xrayPage.picked.add(f.id)); xrayPage.showAll = true; }
+        else xrayPage.picked.clear();
+        drawXray(box, res);
+        (box instanceof Element ? box : document).querySelector(".xray-pickbar input")?.focus();
+      } });
+    all.indeterminate = n > 0 && n < pickable.length;
+    bar.replaceChildren(...[all,
+      h("span", { class: "grow muted-text small" }, n
+        ? `${n} of ${pickable.length} table${pickable.length === 1 ? "" : "s"} selected. Untick any you want to leave out.`
+        : `${pickable.length} table${pickable.length === 1 ? "" : "s"} here can be optimized. Tick the ones to fix together.`),
+      n ? btn("Clear", null, () => { xrayPage.picked.clear(); drawXray(box, res); }, "tool link small") : null,
+      n ? btn(`Optimize ${n} selected`, "sync", () => optimizeBatchDialog(shown.filter((f) => xrayPage.picked.has(f.id)), box, res), "tool primary small")
+        : btn(`Optimize all ${pickable.length}`, "sync", () => {
+          pickable.forEach((f) => xrayPage.picked.add(f.id));
+          xrayPage.showAll = true;
+          drawXray(box, res);
+          (box instanceof Element ? box : document).querySelector(".xray-pickbar button.primary")?.focus();
+        }, "tool outline small")].filter(Boolean));
+  };
+  xrayPage.drawPickBar = () => { if (bar.isConnected) draw(); };
+  draw();
+  return bar;
+}
+
+// Asks once for the whole batch, with the count and every table named. Nothing starts before Optimize here.
+function optimizeBatchDialog(findings, box, res) {
+  if (!findings.length || xrayBatchActive()) return;
+  const n = findings.length;
+  const lakehouses = new Set(findings.map((f) => f.lakehouse_id)).size;
+  const go = btn(`Optimize ${n}`, "sync", () => { closeDialog(); optimizeBatch(findings); }, "tool primary");
+  showDialog(`Optimize ${n} table${n === 1 ? "" : "s"}?`, h("div", { class: "wl-confirm" },
+    h("p", { class: "text" }, `Each of the ${n} table${n === 1 ? "" : "s"} in ${lakehouses} lakehouse${lakehouses === 1 ? "" : "s"} runs in Fabric `,
+      "as its own table maintenance job, and uses capacity. Each compacts small files with V-Order, then removes old files ",
+      "past the history its table keeps, as a single Optimize does."),
+    h("ul", { class: "muted-text small" },
+      h("li", {}, `At most ${XRAY_BATCH.atOnce} run at once. The next starts when one finishes.`),
+      h("li", {}, "Each table's risk check runs just before it starts. A table with warnings, a block, or a check that couldn't run is skipped, "
+        + "and stays on the list for its own Optimize, where you can see the check."),
+      h("li", {}, "Stop starts nothing more. Jobs already running in Fabric finish; cancel them in Monitor. "
+        + "Closing the app stops the batch the same way.")),
+    h("div", { class: "xray-batch-names" }, findings.map((f) => h("div", { class: "small" },
+      h("b", {}, xrayLabel(f)), h("span", { class: "muted-text" }, ` ${f.workspace_name} / ${f.lakehouse_name}`))))),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+function redrawXrayCard() {
+  if (xrayPage.box?.isConnected && xrayPage.data) drawXray(xrayPage.box, xrayPage.data);
+}
+
+// Marks the finding on the card as it is now, as well as the one the batch started from (a scan
+// since may have drawn new ones).
+function xrayBatchMark(item, fix) {
+  const now = xrayPage.data?.result?.findings?.find((x) => x.id === item.f.id);
+  for (const f of new Set([item.f, now].filter(Boolean))) {
+    f.fix = fix;
+    if (fix.state === "fixed") f.fixed = true;
+  }
+}
+
+function xrayBatchWait(batch, ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    batch.wake = () => { clearTimeout(t); resolve(); };
+  });
+}
+
+async function optimizeBatch(findings) {
+  const batch = { items: findings.map((f) => ({ f, state: "waiting", why: "", job_id: null, ended: false })),
+    stopped: false, finished: false, closed: false, wake: null };
+  xrayPage.batch = batch;
+  xrayPage.picked.clear();
+  const set = (it, state, why = "") => { it.state = state; it.why = why; it.ended = XRAY_BATCH_ENDED.has(state); };
+  const running = () => batch.items.filter((it) => it.state === "running");
+  const next = () => batch.items.find((it) => it.state === "waiting");
+  toast(`Optimizing ${findings.length} table${findings.length === 1 ? "" : "s"} in Fabric, ${XRAY_BATCH.atOnce} at a time.`, false, { log: true });
+  redrawXrayCard();
+  while (!batch.closed) {
+    let it;
+    while (!batch.stopped && !batch.closed && running().length < XRAY_BATCH.atOnce && (it = next())) {
+      await optimizeBatchStart(batch, it, set);
+      redrawXrayCard();
+    }
+    if (batch.stopped) batch.items.filter((x) => x.state === "waiting").forEach((x) => set(x, "stopped", "You stopped the batch first."));
+    if (!running().length && (batch.stopped || !next())) break;
+    await xrayBatchWait(batch, XRAY_BATCH.pollMs);
+    if (batch.closed) break;
+    await optimizeBatchPoll(running(), set);
+    redrawXrayCard();
+  }
+  batch.finished = true;
+  if (!batch.closed) {
+    const n = (s) => batch.items.filter((x) => x.state === s).length;
+    const bad = n("failed") + n("error");
+    const parts = [`${n("done")} optimized`, bad && `${bad} failed or not started`, n("held") && `${n("held")} skipped by the risk check`,
+      n("stopped") && `${n("stopped")} not started`].filter(Boolean);
+    toast(`Optimize batch finished: ${parts.join(", ")}.`, !!bad, { log: true });
+  }
+  redrawXrayCard();
+}
+
+// One table: its risk check, then its job, as a single Optimize does. Only a pass goes ahead here; the
+// engine checks again on start and refuses anything that changed.
+async function optimizeBatchStart(batch, it, set) {
+  set(it, "checking");
+  redrawXrayCard();
+  const { f } = it;
+  const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
+  let p;
+  try {
+    p = await rpc("xray_optimize_check", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name });
+  } catch (e) { set(it, "error", friendlyError(e).text); return; }
+  const result = p.risk?.result;
+  if (result !== "pass") {
+    set(it, "held", result === "blocked" ? `The risk check blocks it: ${p.risk.summary}`
+      : result === "warning" ? "The risk check has warnings. Open its own Optimize to see them."
+      : "The risk check couldn't run. Open its own Optimize to see why.");
+    return;
+  }
+  if (batch.stopped || batch.closed) { set(it, "stopped", "You stopped the batch first."); return; }
+  try {
+    const r = await rpc("xray_optimize", { ...vacuumArgs(f), risk_id: p.risk.id || "" });
+    it.job_id = r.job_id;
+    set(it, "running");
+    xrayBatchMark(it, { state: "submitted", job_id: r.job_id });
+  } catch (e) { set(it, "error", friendlyError(e).text); }
+}
+
+async function optimizeBatchPoll(items, set) {
+  if (!items.length) return;
+  let runs;
+  try {
+    runs = await rpc("fabric_runs", { limit: 200, job_ids: items.map((it) => it.job_id) });
+  } catch { return; }  // Fabric unreachable for now: ask again next time
+  const byJob = new Map((runs || []).map((r) => [r.job_id, r]));
+  for (const it of items) {
+    const run = byJob.get(it.job_id);
+    if (!run || run.stale) continue;
+    if (run.status === "Completed") {
+      set(it, "done");
+      xrayBatchMark(it, { state: "fixed", job_id: it.job_id, status: run.status, message: "" });
+    } else if (["Failed", "Cancelled", "Deduped"].includes(run.status)) {
+      set(it, "failed", `${run.status}${run.message ? `: ${run.message}` : ""}`);
+      xrayBatchMark(it, { state: "failed", job_id: it.job_id, status: run.status, message: run.message || "" });
+    }
+  }
+}
+
+const XRAY_BATCH_STATES = {
+  waiting: ["neu", "Waiting"], checking: ["info", "Checking"], running: ["info", "Running in Fabric"],
+  done: ["pass", "Optimized"], failed: ["fail", "Failed"], error: ["fail", "Not started"],
+  held: ["wrn", "Skipped"], stopped: ["neu", "Not started"],
+};
+
+// The batch's progress on the card, a line per table, until you close it.
+function xrayBatchPanel() {
+  const batch = xrayPage.batch;
+  if (!batch) return null;
+  const count = (s) => batch.items.filter((x) => x.state === s).length;
+  const total = batch.items.length;
+  const ended = batch.items.filter((x) => x.ended).length;
+  const summary = [count("running") && `${count("running")} running in Fabric`, count("waiting") && `${count("waiting")} waiting`,
+    count("done") && `${count("done")} optimized`, (count("failed") + count("error")) && `${count("failed") + count("error")} failed or not started`,
+    count("held") && `${count("held")} skipped`, count("stopped") && `${count("stopped")} not started`].filter(Boolean).join(", ");
+  const title = batch.finished ? (batch.stopped ? "Optimize batch stopped" : "Optimize batch finished")
+    : batch.stopped ? `Stopping: waiting for ${count("running")} running in Fabric` : `Optimizing ${total} table${total === 1 ? "" : "s"}`;
+  const stop = btn("Stop", "dismiss", () => {
+    batch.stopped = true;
+    batch.wake?.();
+    redrawXrayCard();
+  }, "tool outline small");
+  const close = btn(batch.finished ? "Close" : "Stop watching", null, () => {
+    batch.closed = true;
+    batch.wake?.();
+    xrayPage.batch = null;
+    redrawXrayCard();
+  }, "tool link small");
+  return h("section", { class: "xray-batch", "aria-label": "Optimize batch" },
+    h("div", { class: "row wrap" }, h("b", { class: "grow" }, title),
+      !batch.finished && !batch.stopped ? stop : null,
+      batch.finished || batch.stopped ? close : null),
+    h("div", { class: "muted-text small", role: "status" }, `${ended} of ${total} ended. ${summary}.`),
+    h("div", { class: "progress" }, h("div", { class: "bar", style: `width:${Math.max(4, Math.round(100 * ended / total))}%` })),
+    batch.stopped && !batch.finished ? h("p", { class: "muted-text small" },
+      "Nothing more starts. Jobs already running in Fabric finish; cancel them in Monitor, or Stop watching to leave them to it.") : null,
+    h("div", { class: "xray-batch-list" }, batch.items.map((it) => {
+      const [tone, label] = XRAY_BATCH_STATES[it.state];
+      return h("div", { class: "xray-batch-item" },
+        h("span", { class: `pill-s ${tone}` }, label),
+        h("div", { class: "grow" }, h("b", {}, xrayLabel(it.f)),
+          h("span", { class: "muted-text small" }, ` ${it.f.workspace_name} / ${it.f.lakehouse_name}`),
+          it.why ? h("div", { class: `small ${it.state === "held" || it.state === "stopped" ? "muted-text" : "reason"}` }, it.why) : null));
+    })));
 }
 
 function xrayLakehouses(rows) {

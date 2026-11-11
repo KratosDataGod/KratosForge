@@ -1032,6 +1032,7 @@ class LocalEngine:
                 for _ in counter.reader:
                     pass
             else:
+                _check_path_room(name, folder, partitions)
                 folder.mkdir(parents=True, exist_ok=True)
                 options: dict[str, Any] = {
                     "partition_by": partitions or None, "schema_mode": schema_mode,
@@ -1063,7 +1064,10 @@ class LocalEngine:
         durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
         delta_profile.check_table(after)
         out["version"] = after.version()
-        self._register_own(con, schema, w.table, folder)
+        entry = self._register_own(con, schema, w.table, folder)
+        if entry["status"] != "ok":  # committed, so said plainly: a retried write would add its rows twice
+            raise ValueError(f"{name} was written (version {after.version()}), but it can't be read here: "
+                             f"{entry['error']}")
         return out
 
     def change_delta(self, sql: str, dialect: str = "duckdb", dry_run: bool = False, confirm: bool = False,
@@ -1532,6 +1536,27 @@ def _int(value: Any) -> int | None:
         return None if value is None else int(value)
     except (TypeError, ValueError):
         return None
+
+
+# Windows' path limit without long paths, and room for what delta-rs adds under a table folder: a
+# separator and part-00000-<36-character uuid>-c000.zstd.parquet (54), with some to spare.
+_WINDOWS_PATH_LIMIT = 260
+_DATA_FILE_ROOM = 64
+
+
+def _check_path_room(name: str, folder: Path, partitions: list[str]) -> None:
+    """Refuse, before anything is written, a Delta table whose data files would pass Windows' 260
+    characters on a PC where long paths are off. delta-rs writes them anyway, but the flush to disk
+    and DuckDB then can't open them, so the table would be committed and unreadable. Partition
+    values aren't known yet; only their column names are counted."""
+    from ..support_bundle import long_paths_enabled
+    if long_paths_enabled() is not False:
+        return
+    need = len(os.path.abspath(folder)) + _DATA_FILE_ROOM + sum(len(p) + 3 for p in partitions)
+    if need >= _WINDOWS_PATH_LIMIT:
+        raise ValueError(f"{name} isn't written: its files' paths would be about {need} characters, past the "
+                         f"{_WINDOWS_PATH_LIMIT} Windows allows on this PC because long paths aren't turned on. "
+                         "Move the project to a folder with a shorter path, or ask IT to turn on long paths.")
 
 
 def _remove_tree(folder: Path, tables_dir: Path) -> None:

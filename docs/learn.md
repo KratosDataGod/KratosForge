@@ -133,6 +133,10 @@ used instead. Like every level it's a preference: checks and required rules don'
 with the project's policies, so it works offline from the project's policy package too. A level fixed
 by your organization's policy file (IT) always wins over a team's.
 
+The same policy can add your team's own notes to a rule's or a decision pattern's guide
+([team notes](governance.md#team-notes)), each named with the policy, its owner and version. The
+engine reads them, offline too; showing them beside **Explain** waits on a mockup.
+
 ### Beside a finding
 
 - **Explain** shows how important the rule is (Critical, Recommended, Educational or Advanced) and its

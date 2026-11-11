@@ -85,7 +85,7 @@ Opening one shows its lesson on the left and **Checks** on the right.
 
 1. **Start the lab** makes the lab's data on this PC: generated tables, the same every time, with
    known problems planted for some labs to find. Nothing is downloaded.
-2. Write SQL in the box. **Run** (or Ctrl+Enter) shows the first 200 rows. Every run is undone
+2. Write SQL in the box. **Run** (or Ctrl+Enter, or F5) shows the first 200 rows. Every run is undone
    afterwards, so the lab's data stays as it was whatever you run.
 3. **Check my answer** runs the exercise's checks and says what each one found: the same result as
    the reference, no best-practice findings, faster than the starting query, and so on.

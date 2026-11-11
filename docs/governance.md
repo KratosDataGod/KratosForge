@@ -319,7 +319,7 @@ A note sits beside the built-in guide and never replaces it, and it never change
   and anything past 200 notes in one policy. A note is cut at 2,000 characters.
 
 The engine method `learn_team_notes` returns `{notes: {id: [{text, policy, owner, version, sha256}]},
-problems, package, note}`. The app doesn't show the notes yet: that waits on a mockup.
+problems, package, note}`. The app shows each note at the bottom of **Explain** as **Your team's note**, in plain text, with its policy, version, owner and a short SHA-256, and says when it came from the package.
 
 | Field | Example |
 | --- | --- |

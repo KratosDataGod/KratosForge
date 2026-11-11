@@ -142,9 +142,12 @@ def _serve(svc, data: bytes) -> list[dict]:
 ], ids=["deep", "deep params", "huge number", "not utf-8", "not utf-8 in a param", "method a list"])
 def test_a_line_that_cant_be_read_is_answered_and_the_engine_reads_on(svc, line, error):
     """Each of these used to end serve(), and the engine with it, with no reply."""
-    first, last = _serve(svc, line + b"\n" + ANSWERED)
+    replies = _serve(svc, line + b"\n" + ANSWERED)  # serve's two lanes can answer in either order
+    assert len(replies) == 2
+    first = next(r for r in replies if r.get("id") != "last")
+    last = next(r for r in replies if r.get("id") == "last")
     assert first["error"].startswith(error)
-    assert last["id"] == "last" and "result" in last
+    assert "result" in last
 
 
 def _junk(r) -> object:
@@ -198,4 +201,5 @@ def test_random_lines_each_get_one_plain_reply_and_the_engine_stays_usable(svc, 
         text = json.dumps(reply, allow_nan=False)
         assert "id" in reply and ("result" in reply or "error" in reply)
         assert "Traceback" not in text and str(tmp_path) not in text
-    assert replies[-1]["id"] == "last" and "result" in replies[-1]
+    answered = [reply for reply in replies if reply.get("id") == "last"]  # its lane may answer before the rest
+    assert len(answered) == 1 and "result" in answered[0]

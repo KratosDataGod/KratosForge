@@ -150,7 +150,9 @@ def check_retention(days: int, allow_shorter: bool = False) -> None:
 
 
 def fabric_retention(days: int) -> str:
-    """Retention as Fabric's table maintenance job takes it: d.hh:mm:ss, an hour of margin."""
+    """Retention as Fabric's table maintenance job takes it: d.hh:mm:ss, an hour of margin. Fewer than
+    MIN_RETENTION_DAYS is refused, as on this PC: that job's VACUUM can delete files other readers use."""
+    check_retention(days)
     return f"{int(days)}.01:00:00"
 
 
@@ -185,8 +187,10 @@ def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None,
     return [p[len(root):] if p.startswith(root) else p for p in paths]
 
 
-def set_retention(uri: str, days: int, options: dict[str, str] | None = None) -> bool:
-    """Write the retention properties onto the table if they differ. True when it changed."""
+def set_retention(uri: str, days: int, options: dict[str, str] | None = None, allow_shorter: bool = False) -> bool:
+    """Write the retention properties onto the table if they differ. True when it changed. Fewer than
+    MIN_RETENTION_DAYS is refused, unless ``allow_shorter``: every engine's VACUUM would then keep that little."""
+    check_retention(days, allow_shorter)
     table = DeltaTable(uri, storage_options=options)
     wanted = retention_properties(days)
     config = table.metadata().configuration or {}
@@ -201,7 +205,7 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``."""
     check_retention(days, allow_shorter)
     before = DeltaTable(uri).version()
-    set_retention(uri, days)
+    set_retention(uri, days, allow_shorter=allow_shorter)
     table = DeltaTable(uri)
     metrics = table.optimize.compact()
     removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)

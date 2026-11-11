@@ -453,7 +453,7 @@ class LiveTest:
 
     def _publish(self, ref: TableRef, data: Any, mode: str) -> Any:
         from .publish import publish
-        return publish(data, ref, mode, self.credential.storage_token())
+        return publish(data, ref, mode, self.credential.storage_token)
 
     def _delta_concurrent(self) -> str:
         import pyarrow as pa

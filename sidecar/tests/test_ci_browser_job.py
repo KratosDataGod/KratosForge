@@ -22,6 +22,8 @@ def test_apt_runs_only_for_missing_packages_and_rides_out_a_short_outage():
     run = _step("Install Chromium's system packages")
     # It asks Playwright which packages Chromium needs and skips apt when every one is installed.
     assert "install-deps --dry-run chromium" in run and "dpkg-query" in run
+    # Newer Playwright exits 1 from the dry run when packages are missing; under bash -e that must not end the step.
+    assert '$("$pw" install-deps --dry-run chromium || true)' in run
     assert run.index("dpkg-query") < run.index("Acquire::Retries")
     # Playwright 1.63 and later print only this line when nothing is missing: that is a pass, not an error.
     assert "All system dependencies are installed" in run

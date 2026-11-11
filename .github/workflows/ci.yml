@@ -356,7 +356,8 @@ jobs:
       - name: Install Chromium's system packages
         run: |
           pw="$RUNNER_TEMP/pw/node_modules/.bin/playwright"
-          plan=$("$pw" install-deps --dry-run chromium)
+          # Playwright 1.63 and later exit 1 from the dry run when something is missing; that is an answer, not a failure.
+          plan=$("$pw" install-deps --dry-run chromium || true)
           echo "$plan"
           # Playwright 1.63 and later check the runner themselves: this line, or "Missing system dependencies".
           if grep -q 'All system dependencies are installed' <<< "$plan"; then exit 0; fi

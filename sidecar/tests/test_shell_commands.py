@@ -37,8 +37,8 @@ PLAIN = ("bool", "f64", "Option<bool>")
 
 # command -> (text its body must contain: the check on what the page sent, or None; what it does)
 COMMANDS: dict[str, tuple[str | None, str]] = {
-    "rpc": (None, "passes method and params to the engine over its pipe; the engine refuses an unknown "
-                  "method and checks each method's own arguments, so the shell reads neither"),
+    "rpc": (None, ("passes method and params to the engine over its pipe; the engine refuses an unknown "
+                   "method and checks each method's own arguments, so the shell reads neither")),
     "stop_kernel": (None, "no page text: ends the running engine"),
     "confirm_started": (None, "no page text; main window only"),
     "check_components": (None, "no page text; main window only"),
@@ -55,8 +55,8 @@ COMMANDS: dict[str, tuple[str | None, str]] = {
     "open_doc": ('!page.contains("..")', "only letters, digits and -_.#/ with no .., under docs/ on GitHub"),
     "open_link": ('"https" => open_in_browser(&url)', "only an https link to the browser, or a mailto: address"),
     "open_in_vscode": ("vscode_link::inside(&p, &notebook_folders())",
-                       "a full local path, checked as text first, then canonicalised and kept inside the "
-                       "notebooks folder or an opened repository"),
+                       ("a full local path, checked as text first, then canonicalised and kept inside the "
+                        "notebooks folder or an opened repository")),
     "add_to_vscode": ("vscode_link::install_link(&launcher, &client_id, insiders)?",
                       "the link is built from the app's own launcher path; vscode_link checks client_id"),
     "pick_folder": ("folder_pick::pick(owner, start)",

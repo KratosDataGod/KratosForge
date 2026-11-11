@@ -43,7 +43,7 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 | --- | --- |
 | Install, silently, for the signed-in user | `msiexec /i kratosforge.msi /qn /norestart`. Add `/l*v "%TEMP%\kratosforge-msi.log"` for a log |
 | Install context | **User** (`Scope="perUser"`). Run it as the user, not as SYSTEM: as SYSTEM it would install for the SYSTEM account |
-| Uninstall, silently | `msiexec /x kratosforge.msi /qn /norestart` with the same build's MSI, or `msiexec /x {ProductCode} /qn /norestart`. The product code is new for each build (WiX makes one), so read it from `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall` on a pilot PC rather than hard-coding it. An Intune line-of-business app handles this for you |
+| Uninstall, silently | `msiexec /x kratosforge.msi /qn /norestart` with the same build's MSI, or `msiexec /x {ProductCode} /qn /norestart`. The product code is new for each build (WiX makes one), so read it from `Software\Microsoft\Windows\CurrentVersion\Uninstall` on a pilot PC rather than hard-coding it. Look in both HKCU and HKLM: on CI's Windows runner, whose account is an administrator, Windows Installer keeps this per-user install's entry in HKLM. An Intune line-of-business app handles this for you |
 | Upgrade code (the same for every build) | `9b7d27af-a699-475e-a9e3-c3f09833ddda`. A newer MSI replaces an older one through it (`MajorUpgrade`), and the same version can be installed again |
 | Version | `0.<n>.<run>` from the CI run number, so each build's MSI is higher than the one before. An older MSI over a newer install stops with "A newer KratosForge is already installed. Uninstall it first to go back to this one." |
 | Installs | `%LOCALAPPDATA%\Programs\KratosForge\kratosforge.exe` and a Start menu shortcut, plus `InstallFolder` and `StartMenuShortcut` under `HKCU\Software\KratosBI\KratosForge` |
@@ -51,6 +51,8 @@ These come from the MSI's source (`app/installer/kratosforge.wxs`) and how CI bu
 | Per-machine install | Not available. The MSI is per user only; don't pass `ALLUSERS` or `MSIINSTALLPERUSER`. For one copy per PC, copy `kratosforge.exe` into `C:\Program Files\...` yourself with `"auto_update": false` ([Pick an update model](#pick-an-update-model)) |
 | The exe's own switches | None for installing: `kratosforge.exe` isn't an installer, and starting it is the whole install. The only arguments it takes are a `kratosforge://` link, the ones Windows Task Scheduler passes for a schedule, and the one it passes itself after an update |
 | Repair | None runs on its own. The shortcut isn't advertised, so starting the app never triggers a repair that would undo a self-update |
+
+CI checks the MSI on a Windows runner for every build ([`app/installer/test-msi-lifecycle.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/app/installer/test-msi-lifecycle.ps1)). It installs the current Preview MSI silently and puts this build's MSI over it, which leaves one entry in Installed apps. It then tries the Preview MSI again and checks that it's refused with the message above. Last, it uninstalls silently and checks that the program folder, the shortcut and the two values are gone. A settings file, a notebook and a sign-in cache in `%LOCALAPPDATA%\FabricDesktop` stay unchanged through every step. The app isn't started. If the Preview MSI can't be downloaded or doesn't install, the upgrade and downgrade checks are skipped with a warning, so a broken Preview never blocks the build that fixes it.
 
 **UNVERIFIED on Windows:**
 - an uninstall while the app is open;

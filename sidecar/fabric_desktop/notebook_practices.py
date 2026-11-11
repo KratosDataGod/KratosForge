@@ -61,6 +61,15 @@ RULES: tuple[Rule, ...] = (
          "Each count() runs the whole query again. Keep the count in a variable, or cache the DataFrame."),
     Rule("NB012", "Warning", "Reliability", "Error caught and ignored",
          "except ...: pass hides failures, so a run looks fine when it isn't. Log the error, or let it fail."),
+    Rule("NB014", "Warning", "Performance", "Row-by-row pandas loop",
+         "iterrows(), itertuples() and apply(..., axis=1) run Python once per row, which is slow on large tables. "
+         "Write the change as a column expression, or use Polars or DuckDB."),
+    Rule("NB015", "Info", "Performance", "Polars reads the whole file, then filters",
+         "pl.read_csv or pl.read_parquet loads every row before .filter() drops most of them. "
+         "pl.scan_csv or pl.scan_parquet with .filter() and .collect() may read only what the filter keeps."),
+    Rule("NB017", "Info", "Maintenance", "print() used for logging in a scheduled notebook",
+         "Nobody reads a scheduled run's printed output, and it has no time or level. Use the logging module, "
+         "or write the run's facts to a table.", scheduled_only=True),
     # NB018 to NB020 are based on guidance in microsoft/skills-for-fabric (MIT), written in our own words.
     Rule("NB018", "Info", "Performance", "Python UDF in Spark code",
          "A Python UDF moves every row out of Spark and back. Use a built-in function from "
@@ -201,9 +210,16 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
             continue
         name = _called(node)
         chain = _chain(node)
+        if _row_by_row(node, name):
+            yield "NB014", node.lineno
+        if name == "filter" and _eager_polars_read(node):
+            yield "NB015", node.lineno
+        if scheduled and isinstance(node.func, ast.Name) and node.func.id == "print":
+            yield "NB017", node.lineno
         if chain & {"read", "readStream"} and any(a.lower().startswith(("http://", "https://")) for a in _str_args(node)):
             yield "NB019", node.lineno
-        if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"}:
+        if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"} \
+                and not (name == "collect" and chain & _POLARS_LAZY):  # a Polars lazy query's collect() runs it
             yield "NB003", node.lineno
         elif name == "display" and scheduled and node.args and not (_chain(node.args[0]) & {"limit", "head", "sample"}):
             yield "NB004", node.lineno
@@ -318,3 +334,28 @@ def _short_hours(call: ast.Call) -> bool:
     given = [*call.args[:1], *(k.value for k in call.keywords if k.arg in {"retentionHours", "retention_hours"})]
     return any(isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) and not isinstance(v.value, bool)
                and v.value < _SAFE_HOURS for v in given)
+
+
+def _row_by_row(call: ast.Call, name: str) -> bool:
+    """df.iterrows() / df.itertuples() / df.apply(f, axis=1): pandas calling Python once per row."""
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    if name in {"iterrows", "itertuples"} and not call.args:
+        return True
+    return name == "apply" and any(k.arg == "axis" and isinstance(k.value, ast.Constant) and k.value.value in {1, "columns"}
+                                   for k in call.keywords)
+
+
+_POLARS_LAZY = {"scan_csv", "scan_parquet", "scan_ndjson", "scan_ipc", "scan_delta", "lazy"}
+_POLARS_READS = {"read_csv", "read_parquet", "read_ndjson", "read_ipc"}
+
+
+def _eager_polars_read(call: ast.Call) -> bool:
+    """pl.read_csv(...).filter(...) in one chain: the read loads every row first."""
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    inner = call.func.value
+    while isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and inner.func.attr in {"with_columns", "select", "rename", "filter"}:
+        inner = inner.func.value
+    return (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and inner.func.attr in _POLARS_READS
+            and isinstance(inner.func.value, ast.Name) and inner.func.value.id in {"pl", "polars"})

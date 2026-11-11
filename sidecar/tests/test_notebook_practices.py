@@ -69,6 +69,30 @@ def test_python_udfs_but_not_pandas_udfs_or_user_data_functions():
                 'spark.udf.register("f")', "df = df.withColumn('n', F.upper('n'))"]) == []
 
 
+def test_row_by_row_pandas_loops():
+    assert ids(["for i, row in df.iterrows():\n    total += row.amount",
+                "for r in df.itertuples():\n    out.append(r)",
+                "df['net'] = df.apply(lambda r: r.gross - r.tax, axis=1)",
+                "df['net'] = df.apply(net, axis='columns')"]) == ["NB014"] * 4
+    assert ids(["df['net'] = df['gross'] - df['tax']", "totals = df.apply(sum)", "s = df.amount.apply(round)",
+                "for k, v in d.items():\n    pass\n"]) == []
+
+
+def test_polars_eager_read_then_filter():
+    assert ids(['big = pl.read_csv("Files/sales.csv").filter(pl.col("region") == "EU")',
+                'big = pl.read_parquet("t.parquet").select("a", "b").filter(pl.col("a") > 1)']) == ["NB015", "NB015"]
+    assert ids(['eu = pl.scan_csv("Files/sales.csv").filter(pl.col("region") == "EU").collect()',
+                'df = pl.read_csv("small.csv")', 'eu = df.filter(pl.col("r") == "EU")',
+                'x = spark.read.schema(s).csv("a").filter("a > 1")']) == []  # and a lazy collect() isn't NB003
+    assert ids(['eu = pl.read_csv("a.csv").lazy().filter(pl.col("r") == "EU").collect()']) == []
+
+
+def test_print_logging_only_in_a_scheduled_notebook():
+    assert ids(['print("loaded", n)']) == []
+    assert ids(['print("loaded", n)', 'log.info("loaded %s", n)'], scheduled=True) == ["NB017"]
+    assert [r["scheduled_only"] for r in np_.rules() if r["id"] == "NB017"] == [True]
+
+
 def test_spark_reading_a_web_address():
     assert ids(['df = spark.read.parquet("https://example.com/a.parquet")',
                 'df = spark.read.format("parquet").load("HTTP://example.com/a")']) == ["NB019", "NB019"]
@@ -103,7 +127,7 @@ def test_settings_turn_rules_off_and_change_severity():
 
 def test_rules_list_and_bad_input():
     listed = np_.rules()
-    assert len(listed) == 15 and len({r["id"] for r in listed}) == 15
+    assert len(listed) == 18 and len({r["id"] for r in listed}) == 18
     assert all(r["kind"] == "notebook" and r["severity"] in np_.SEVERITIES for r in listed)
     with pytest.raises(ValueError):
         np_.check("rows = df.collect()")  # type: ignore[arg-type]

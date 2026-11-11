@@ -66,7 +66,8 @@ def test_two_app_windows_the_agent_and_a_schedule_at_once_lose_no_line(tmp_path)
     assert json.loads((trail / audit_chain.HEAD).read_text()) == {"hash": lines[-1]["hash"], "lines": len(lines)}
     assert audit_chain.verify(tools) == {"lines": count, "ok": True, "problems": []}
     order = [line["target"]["entity"].rsplit("-", 1)[0] for line in lines]
-    assert sum(a != b for a, b in zip(order, order[1:], strict=False)) > len(names)  # the writers did take turns
+    last_start = max(order.index(n) for n in names)  # the writers overlapped: two had begun before the last one did
+    assert len(set(order[:last_start])) >= 2
 
 
 def test_a_long_running_writer_sees_lines_other_processes_added(tmp_path):

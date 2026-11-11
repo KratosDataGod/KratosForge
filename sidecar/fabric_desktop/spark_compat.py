@@ -1303,30 +1303,42 @@ def _star_prefix(c: Any) -> list[str] | None:
     return None
 
 
+def _star_expr(df: DataFrame, star: list[str]) -> Column:
+    """The columns ``x.*`` stands for: every column of the DataFrame aliased x, or every field of the struct
+    x names (``s.*``, ``s.i.*``, ``a.s.*``), each name double-quoted. Spark's error when x is neither, or
+    names a column that isn't a struct."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    path = ".".join('"' + p.replace('"', '""') + '"' for p in star)
+    name = ".".join(star)
+    if len(star) == 1:  # a DataFrame alias first, as Spark resolves it, then a struct column
+        try:
+            df.relation.project(f"{path}.*")
+            return Column(duckdb.SQLExpression(f"{path}.*"))
+        except duckdb.Error:  # silent-ok: not an alias or a struct; which error Spark gives is found below
+            pass
+    try:
+        kind = str(df.relation.project(path).types[0])
+    except duckdb.Error:  # not a column or field either
+        raise AnalysisException(message=f"[CANNOT_RESOLVE_STAR_EXPAND] Cannot resolve `{name}`.* given input "
+                                        f"columns {', '.join(f'`{x}`' for x in df.columns)}. Please check that the "
+                                        "specified table or struct exists and is accessible in the input "
+                                        "columns.") from None
+    if not kind.upper().startswith("STRUCT"):
+        raise AnalysisException(message="Can only star expand struct data types. Attribute: "
+                                        f"`ArrayBuffer({', '.join(star)})`.")
+    return Column(duckdb.SQLExpression(f"unnest({path})"))  # DuckDB writes s.i.* as unnest: its .* takes one name
+
+
 def _star_select(fn: Any) -> Any:
     """``select("a.*")`` and ``select(col("a.*"))``: every column of the DataFrame aliased ``a`` (after
-    ``df.alias("a").join(...)``) or every field of struct ``a``, as in Spark; DuckDB's col reads ``*`` as a
-    column name."""
+    ``df.alias("a").join(...)``) or every field of struct ``a`` (also a nested one, ``s.i.*``), as in Spark;
+    DuckDB's col reads ``*`` as a column name."""
     def select(self: DataFrame, *cols: Any) -> DataFrame:
         flat = list(cols[0]) if len(cols) == 1 and isinstance(cols[0], list) else list(cols)
         stars = [_star_prefix(c) for c in flat]
         if not any(stars):
             return fn(self, *cols)
-        out = [Column(duckdb.SQLExpression(".".join('"' + p.replace('"', '""') + '"' for p in star) + ".*"))
-               if star else c for c, star in zip(flat, stars, strict=True)]
-        try:
-            return fn(self, *out)
-        except duckdb.BinderException as exc:
-            from duckdb.experimental.spark.errors import AnalysisException
-            text = str(exc)
-            for star in filter(None, stars):
-                name = ".".join(star)
-                if f'"{star[0]}"' in text or f'"{name}"' in text:
-                    raise AnalysisException(message=f"[CANNOT_RESOLVE_STAR_EXPAND] Cannot resolve `{name}`.* given input "
-                                                    f"columns {', '.join(f'`{x}`' for x in self.columns)}. Please check "
-                                                    "that the specified table or struct exists and is accessible "
-                                                    "in the input columns.") from None
-            raise
+        return fn(self, *[_star_expr(self, star) if star else c for c, star in zip(flat, stars, strict=True)])
     select.__doc__ = fn.__doc__
     return select
 

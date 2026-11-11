@@ -58,7 +58,21 @@ def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> st
     if size > max_bytes:
         data = data[data.find(b"\n") + 1:] if b"\n" in data else b""  # drop the line cut in half
     text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
-    return "".join(text.splitlines(keepends=True)[-lines:])
+    return _without_cut_key("".join(text.splitlines(keepends=True)[-lines:]))
+
+
+_KEY_END = re.compile(r"-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[^\n]*\n?")
+_KEY_BEGIN = re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----")
+
+
+def _without_cut_key(text: str) -> str:
+    """``text`` without the start of a private key whose BEGIN line the tail cut off. Redaction finds a
+    key by its BEGIN line, so a body left on its own would pass as plain text; the lines up to and
+    including its END line are the oldest kept, so they are dropped."""
+    end = _KEY_END.search(text)
+    if end and not _KEY_BEGIN.search(text, 0, end.start()):
+        return "[a private key cut off by the start of this log was removed]\n" + text[end.end():]
+    return text
 
 
 def about(data_dir: Path | None = None) -> dict[str, Any]:

@@ -104,12 +104,29 @@ def error_code(value: object) -> str:
     return text if _CODE.fullmatch(text) else ""
 
 
+_REQUEST_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
+# What a person can do about a refused OneLake request, by status, so every OneLake error says what to do.
+_NEXT_STEPS = {
+    401: "Sign out and in again",
+    403: "Your account needs access to this workspace in Fabric (Contributor to write). Ask a workspace admin",
+    404: "Check the workspace, lakehouse and path: it may have been deleted or moved",
+    409: "Refresh, then try again: something else changed it at the same time",
+    412: "Refresh, then try again: something else changed it at the same time",
+    429: "OneLake is limiting requests. Try again in a few minutes",
+}
+_SERVER_NEXT_STEP = "OneLake had a problem on its side. Try again, and give the request id to support if it keeps happening"
+_NEXT_STEP = "Check the path and try again, or give the request id to support"
+
+
 def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
     """A refused OneLake request as one line: what didn't happen, the status and OneLake's error code
-    (the DFS API's ``error.code``, the table API's ``error_code``, or ``x-ms-error-code``). The path
-    is the one inside the lakehouse, never the whole URL. Still a requests.HTTPError, with the
-    response, for callers that read its status."""
+    (the DFS API's ``error.code``, the table API's ``error_code``, or ``x-ms-error-code``), one next
+    step, and OneLake's request id (``x-ms-request-id``) for support. The path is the one inside the
+    lakehouse, never the whole URL. Still a requests.HTTPError, with the response, for callers that
+    read its status."""
     code = resp.headers.get("x-ms-error-code") if resp.headers else None
+    request_id = str((resp.headers.get("x-ms-request-id") if resp.headers else None) or "")
+    request_id = request_id if _REQUEST_ID.fullmatch(request_id) else ""
     try:
         body = resp.json()
     except ValueError:
@@ -118,8 +135,10 @@ def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
         err = body.get("error")
         code = (err.get("code") if isinstance(err, dict) else None) or body.get("error_code") or code
     code = error_code(code)
-    return requests.HTTPError(f"OneLake didn't {what} ({resp.status_code}{': ' + code if code else ''}).",
-                              response=resp)
+    status = resp.status_code
+    step = _NEXT_STEPS.get(status) or (_SERVER_NEXT_STEP if status >= 500 else _NEXT_STEP)
+    return requests.HTTPError(f"OneLake didn't {what} ({status}{': ' + code if code else ''}). {step}."
+                              + (f" Request id {request_id}." if request_id else ""), response=resp)
 
 
 class TableCatalog:

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, disk_full, net_trust, rpc_params
+from . import audit, disk_full, net_trust, rpc_params, sqlitefile
 from .redact import secrets
 from .service import Service, data_dir
 
@@ -306,8 +306,10 @@ def handle(service: Service, line: str) -> dict:
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
             text = f"{type(exc).__name__}: {exc}"
-            # A certificate, proxy or timeout, or a full or read-only profile disk: one line that says what to do.
-            hint = net_trust.explain(exc) or disk_full.data_folder_message(data_dir(), exc)
+            # A certificate, proxy or timeout, a full or read-only profile disk, or a store file another
+            # process held too long: one line that says what to do.
+            hint = (net_trust.explain(exc) or disk_full.data_folder_message(data_dir(), exc)
+                    or sqlitefile.busy_message(exc))
             if hint:
                 text = f"{hint} ({text})"
             reply = {"id": req_id, "error": _short(_home(secrets(text)))}

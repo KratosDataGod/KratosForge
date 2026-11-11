@@ -230,6 +230,42 @@ def _java_text(a: str) -> str:
             f"ELSE CAST({a} AS VARCHAR) END)")
 
 
+def spark_text_arg(a: str, fn: str) -> str:
+    """DuckDB SQL for Spark's implicit cast of ``a`` to text where ``fn`` takes text (upper(14) is
+    upper('14')): a number, boolean, date or timestamp as Spark writes it. Binary, arrays, maps and
+    structs are refused by name, where DuckDB would write them its own way. TYPEOF folds when the query
+    is planned, so text passes through at no cost; any other type is read once, in a lambda, so that
+    calls nested in each other (lower(trim(x))) don't repeat their argument's SQL many times over."""
+    kind = "TYPEOF(kf_t)"
+    other = (f"CASE WHEN {kind} = 'BLOB' OR {kind} LIKE '%]' OR {kind} LIKE 'STRUCT(%' "
+             f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' THEN CAST(ERROR('{fn}() reads text here, and on this PC "
+             f"a binary, array, map or struct argument isn''t read as Spark reads it, so nothing ran. Cast it to "
+             f"string first, or run the cell in Fabric.') AS VARCHAR) "
+             f"WHEN {kind} = 'TIMESTAMP WITH TIME ZONE' THEN CAST(CAST(kf_t AS TIMESTAMP) AS VARCHAR) "
+             f"ELSE {_java_text('kf_t')} END")
+    return (f"(CASE WHEN TYPEOF({a}) = 'VARCHAR' THEN CAST({a} AS VARCHAR) "
+            f"ELSE (LIST_TRANSFORM([{a}], kf_t -> {other}))[1] END)")
+
+
+def spark_text_arg_sql(a: str, fn: str) -> str:
+    """spark_text_arg over DuckDB SQL ``a``, ready to run (its lambdas written as this DuckDB reads them).
+    Only the template goes through sqlglot: ``a`` is put in afterwards as it is, since DuckDB's own SQL
+    for an expression (its lambda x: ... syntax) needn't read back."""
+    from .sql import duckdb_sql  # sql imports this module
+    template = duckdb_sql(cast(exp.Expression, sqlglot.parse_one(spark_text_arg("kf_text_arg", fn), read="duckdb")))
+    return re.sub(r"\bkf_text_arg\b", lambda _m: f"({a})", template)
+
+
+def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
+    """A typed node whose first argument Spark casts to text: that argument as spark_text_arg."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> None:
+        arg = node.args.get("this")
+        if isinstance(arg, exp.Expression):
+            node.set("this", _with_args(spark_text_arg("fj_arg0", fn), [arg]))
+        return None
+    return build
+
+
 def _refuse_spec(spec: str, why: str) -> ValueError:
     return ValueError(f"format_string() can't run on this PC the way it runs in Fabric, so nothing ran: {spec} {why} "
                       "Run the cell in Fabric, or use %s, %d, %x, %o, %f, %e or %b.")
@@ -710,6 +746,13 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("ParseUrl", _parse_url),
         ("Extract", _extract),
         ("Hour", _template(f"HOUR({_TS})", 1)),
+        # Spark casts a number, boolean or date to text where these take text (upper(14) = '14'). Not initcap:
+        # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
+        *((name, _text_this(fn)) for name, fn in (
+            ("Upper", "upper"), ("Lower", "lower"), ("Trim", "trim"), ("Ascii", "ascii"),
+            ("Length", "length"), ("StrPosition", "instr"), ("RegexpSplit", "split"), ("Replace", "replace"),
+            ("Translate", "translate"), ("RegexpReplace", "regexp_replace"), ("Left", "left"), ("Right", "right"),
+            ("Repeat", "repeat"), ("Pad", "lpad"))),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),

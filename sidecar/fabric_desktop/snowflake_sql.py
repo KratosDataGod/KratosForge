@@ -25,6 +25,8 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError
 
+from . import sql_dialects
+
 RULES_VERSION = "2026.11.11"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
@@ -180,7 +182,7 @@ def _refuse(id: str, title: str, reason: str, source: str = "") -> Note:
 def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
-        statements = [cast(exp.Expression, s) for s in sqlglot.parse(code, read="snowflake") if s is not None]
+        statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read="snowflake") if s is not None]
     except ParseError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None

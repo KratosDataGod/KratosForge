@@ -16,6 +16,7 @@ from sqlglot import exp
 from sqlglot.errors import ParseError, SqlglotError, TokenError
 from sqlglot.tokens import TokenType
 
+from .. import sql_dialects
 from .profiles import RULE_VERSION, doc, profile
 
 SEVERITIES = ("error", "warning", "information", "unverified")
@@ -148,7 +149,7 @@ def parse(stmt: Stmt, dialect: str) -> None:
     level = _log.level
     _log.setLevel(logging.ERROR)  # sqlglot's warnings quote the SQL, which can hold secrets; keep it out of logs
     try:
-        trees = [t for t in sqlglot.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
+        trees = [t for t in sql_dialects.parse(text, read=dialect, error_level=sqlglot.ErrorLevel.RAISE) if t is not None]
         stmt.ast = cast(exp.Expression, trees[0]) if trees else None  # sqlglot types parse as its Expr base
     except (ParseError, TokenError, SqlglotError, RecursionError, ValueError) as exc:
         if stmt.toks and stmt.toks[0].kw in COMMANDS.get(dialect, ()):

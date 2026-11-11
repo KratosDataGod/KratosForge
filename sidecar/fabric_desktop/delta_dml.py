@@ -90,7 +90,7 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
     if not looks_like(statement):
         return None
     try:
-        tree = sqlglot.parse_one(statement, read=dialect)
+        tree = sql_dialects.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
     return parse_tree(cast(exp.Expression, tree))  # sqlglot types parse_one as its Expr base

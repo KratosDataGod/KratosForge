@@ -246,7 +246,7 @@ function xrayFinding(f, box, res, picking = false) {
 // Why Fabric stopped a fix's job, in a sentence, with what to do when the capacity was too busy.
 function xrayStopped(status, message) {
   const why = String(message || "").trim().replace(/\.$/, "");
-  const said = why ? `Fabric stopped it: ${why[0].toLowerCase()}${why.slice(1)}.` : `Fabric stopped it (${status}).`;
+  const said = why ? `Fabric stopped it: ${/^[A-Z][a-z]/.test(why) ? why[0].toLowerCase() + why.slice(1) : why}.` : `Fabric stopped it (${status}).`;
   return /capacity|throttl/i.test(why) ? `${said} Try Optimize again when the capacity is less busy.` : said;
 }
 

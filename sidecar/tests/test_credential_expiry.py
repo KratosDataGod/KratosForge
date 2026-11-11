@@ -349,3 +349,10 @@ def test_an_embed_whose_sign_in_was_revoked_says_sign_in_again_after_one_new_tok
     with pytest.raises(auth.SignInRequired, match="Sign in again"):
         embed.content("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "Report")
     assert sent == ["Bearer old", "Bearer new"]
+
+
+def test_a_refusal_holds_however_the_workspace_address_is_spelled():
+    dba.TokenProvider("https://adb-1.azuredatabricks.net", lambda: ("t", None), "pat").drop("t")
+    other = dba.TokenProvider("HTTPS://ADB-1.azuredatabricks.net/", lambda: ("t", None), "pat", sign_in_again="Renew it.")
+    with pytest.raises(dba.TokenRefused, match="Renew it. If you're sure the token is still valid, restart KratosForge"):
+        other.token()

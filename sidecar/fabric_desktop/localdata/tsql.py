@@ -248,19 +248,19 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for cast_node in sized:
             _sized_text(cast_node, None)
-        return ["Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
+        return [("Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
-                "text, and writes a float in CONCAT with at most 6 significant digits)."]
+                "text, and writes a float in CONCAT with at most 6 significant digits).")]
     notes = _padded(compared, _in_order(typed, _COMPARISONS))
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for cast_node in sized:
             _sized_text(cast_node, None)
-        return notes + ["Couldn't match the query's columns to their types, so divisions, averages, casts to "
+        return notes + [("Couldn't match the query's columns to their types, so divisions, averages, casts to "
                 "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
-                "with at most 6 significant digits)."]
+                "with at most 6 significant digits).")]
     for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
@@ -356,8 +356,8 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
         raise ValueError(_NOT_YET + "POWER of a decimal keeps the decimal's scale in T-SQL, which isn't mapped "
                          "yet. Cast the first argument to FLOAT, or to the integer type you mean.")
     elif _unknown(base):
-        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
-                "point, and T-SQL gives the first argument's type (an integer base gives an integer)."]
+        return [(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
+                "point, and T-SQL gives the first argument's type (an integer base gives an integer).")]
     return []
 
 
@@ -383,8 +383,8 @@ def _same_type(node: exp.Expression, arg: exp.DataType | None) -> list[str]:
         inner = node.copy() if isinstance(node, (exp.Ceil, exp.Floor)) else exp.Trunc(this=node.copy())
         node.replace(exp.Cast(this=inner, to=arg.copy()))
     elif _unknown(arg):
-        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
-                "gives the argument's type (an integer gives an integer)."]
+        return [(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
+                "gives the argument's type (an integer gives an integer).")]
     return []
 
 

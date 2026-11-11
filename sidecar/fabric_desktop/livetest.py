@@ -795,8 +795,8 @@ def _safe(fn: Callable[[], Any]) -> str:
 def summary(result: dict[str, Any]) -> str:
     mark = {"passed": "Passed", "failed": "**Failed**", "skipped": "Skipped"}
     lines = [f"# KratosForge live test {result['run_id']}", "",
-             f"Outcome: **{result['outcome']}**. Workspace {cell(result['workspace']['name'], 200) or result['workspace']['id']}, "
-             f"started {result['started_at']}.", ""]
+             (f"Outcome: **{result['outcome']}**. Workspace {cell(result['workspace']['name'], 200) or result['workspace']['id']}, "
+             f"started {result['started_at']}."), ""]
     if (result.get("opt_in") or {}).get("checks"):
         lines += [f"Opt-in checks: {', '.join(result['opt_in']['checks'])}.", ""]
     if result["refused"]:

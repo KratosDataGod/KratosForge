@@ -736,6 +736,6 @@ def change_window_notes(window: dict[str, Any] | None, project: Project, publish
     if day in (window.get("days") or []) and str(window.get("start")) <= hhmm < str(window.get("end")):
         return []
     agreed = f"{_days_text(window.get('days') or [])}, {window.get('start')} to {window.get('end')} ({zone})"
-    return [f"Outside the change window: {env.title()} changes to products other projects read are agreed for {agreed}, "
+    return [(f"Outside the change window: {env.title()} changes to products other projects read are agreed for {agreed}, "
             f"and it's {_DAY_NAMES[day]} {hhmm} there. {len(readers)} {_plural(len(readers), 'project reads', 'projects read')} "
-            f"what's changing: {', '.join(readers)}. You can still promote."]
+            f"what's changing: {', '.join(readers)}. You can still promote.")]

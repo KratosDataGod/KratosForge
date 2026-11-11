@@ -37,8 +37,8 @@ BLOCKED = {
     "_check_options": ("df.write.option('someOption', 'x').saveAsTable('dbo.t')", "saveAsTable doesn't take"),
     "_refuse_dynamic_overwrite": ("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
                                   "dynamic partitionOverwriteMode"),
-    "_refuse_auto_merge": ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
-                           "spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')",
+    "_refuse_auto_merge": (("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+                           "spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')"),
                            "autoMerge"),
     "schema": ("df = spark.read.schema('a INT, b STRING').csv('Files/x.csv')", "DDL string"),
     "_no_schema": ("df = spark.read.schema(my_schema).table('dbo.t')", "read.schema() to a read of a table"),

@@ -49,8 +49,8 @@ def test_an_option_that_isnt_honored_is_refused_and_the_table_is_untouched(lake,
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'DYNAMIC')",
     "spark.sql(\"SET spark.sql.sources.partitionOverwriteMode=dynamic\")",
-    "from pyspark.sql import SparkSession\n"
-    "SparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'dynamic').getOrCreate()",
+    ("from pyspark.sql import SparkSession\n"
+    "SparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'dynamic').getOrCreate()"),
 ])
 def test_dynamic_partition_overwrite_set_on_the_session_is_refused(lake, setter):
     # Fabric would overwrite only region EU; here the whole table would go, so the cell must stop.

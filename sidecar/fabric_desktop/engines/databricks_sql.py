@@ -91,10 +91,10 @@ DATABRICKS_SQL = EngineDescriptor(
     limitations=("Preview: tested against fakes of the documented APIs, not yet against a live workspace.",
                  "A statement sent to a stopped warehouse starts it; the warehouse bills DBUs while it runs.",
                  "Results come back inline: over 25 MB the warehouse refuses them, so add a LIMIT.",
-                 "Only the last statement's result is shown, and only from its first result chunk (a whole "
-                 "result for comparing engines reads every chunk).",
-                 "Cells can change data on the warehouse (CREATE, INSERT, MERGE, DROP) with no further confirm, as "
-                 "in a Databricks notebook; the confirm is for starting the session.",
+                 ("Only the last statement's result is shown, and only from its first result chunk (a whole "
+                 "result for comparing engines reads every chunk)."),
+                 ("Cells can change data on the warehouse (CREATE, INSERT, MERGE, DROP) with no further confirm, as "
+                 "in a Databricks notebook; the confirm is for starting the session."),
                  "A statement still running after two hours is cancelled."),
 )
 

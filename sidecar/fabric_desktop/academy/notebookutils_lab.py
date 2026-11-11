@@ -158,7 +158,7 @@ class Utils:
         self.runtime.context._refresh()   # json.dumps reads the dict's own storage, not __getitem__
         try:
             for is_params, start, source in parts:
-                exec(compile("\n" * (start - 1) + source, f"{NOTEBOOKS}/{file.name}", "exec"), ns)  # noqa: S102
+                exec(compile("\n" * (start - 1) + source, f"{NOTEBOOKS}/{file.name}", "exec"), ns)  # noqa: S102 - the learner's exercise notebook, as notebookutils.notebook.run does
                 if is_params:
                     ns.update(args)
         except NotebookExit as done:

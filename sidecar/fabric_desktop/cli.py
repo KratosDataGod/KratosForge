@@ -153,8 +153,8 @@ def main(argv: list[str] | None = None) -> None:
     for name, text in (("validate", "list problems with their JSON paths; exit 1 if there are errors"),
                        ("inspect", "print the activities, dependencies, expressions and diagnostics as JSON"),
                        ("export", "print the definition in another format"),
-                       ("compat", "what this version can do with each activity (classification, capacity, "
-                                  "properties); exit 1 if there are errors")):
+                       ("compat", ("what this version can do with each activity (classification, capacity, "
+                                  "properties); exit 1 if there are errors"))):
         p = pipe_sub.add_parser(name, help=text)
         p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
         if name == "export":
@@ -369,7 +369,14 @@ def _agent(args: argparse.Namespace) -> int:
         return 0
     agent = Agent(config)
     if args.agent_command == "enqueue":
-        result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        from .jobqueue import QueueFull
+        try:
+            result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        except QueueFull as exc:
+            agent.audit.record("agent_enqueue", "error", 0.0, {"env": args.env, "entities": args.entities,
+                                                                "agent": config.name}, reason="refused", error=str(exc))
+            print(f"Not queued: {exc}. Wait for the agent to work through its queue, or raise agent.max_queued.")
+            return 1
         agent.audit.record(
             "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
                                          "cascade": args.cascade, "agent": config.name})

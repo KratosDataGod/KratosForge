@@ -178,8 +178,8 @@ def test_a_scheduled_run_never_sends_usage_data(tmp_path, monkeypatch):
 def checked(monkeypatch):
     seen = {}
 
-    def checks(user, list_workspaces, capacities, settings):
-        seen.update(user=user, workspaces=list_workspaces(), capacities=capacities)
+    def checks(user, list_workspaces, capacities, settings, clock=lambda: None):
+        seen.update(user=user, workspaces=list_workspaces(), capacities=capacities, clock=clock)
         return [{"id": "signed_in", "ok": bool(user)}]
     monkeypatch.setattr(readiness, "checks", checks)
     monkeypatch.setattr(service_mod, "FabricClient", lambda token, refresh=None: Fabric(capacities=[{"id": "c1"}]))

@@ -129,6 +129,8 @@ function redactReport(text, level = "support") {
     .replace(/\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*/g, "[removed]")
     .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "[removed]")
     .replace(/(?:https?:\/\/)?\bhooks\.slack\.com\/(?:services|workflows|triggers)\/[^\s"'<>]+/gi, "[removed]")
+    .replace(/\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}/g, "[removed]")
+    .replace(/(\b(?:ocp-apim-)?subscription[_-]?key"?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")

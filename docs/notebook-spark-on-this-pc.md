@@ -113,7 +113,25 @@ booleans and dates as Spark's implicit cast writes them: `upper(14)` is `'14'` a
 (`1.0E20`), in the DataFrame API and Spark SQL; a binary, array, map or struct argument is refused by name.
 `spark.createDataFrame(["a"], "string")`, or with a type such as `IntegerType()`, makes one column named `value`.
 
-### DataFrame: 85 of 102
+`drop` works as Spark's: a name drops every column called that (`drop("a.b.c")` drops the column named `a.b.c`), and a
+column drops that column, so after `df.join(df2, df.id == df2.id)`, `drop(df2.id)` keeps df's `id`. `col("id")` that
+two columns answer to is Spark's `AMBIGUOUS_REFERENCE` error. Once the joined frame is selected or changed, this PC no
+longer knows which DataFrame a column came from: `drop(df2.id)` drops the one `id` there is, and with two it's refused
+by name. A join with no condition (`df.join(df2)`) pairs every row with every row, and `how="cross"` is an inner join.
+A join on names (`df.join(df2, "id")`) keeps the left side's column order, where Spark puts the keys first: select the
+columns by name rather than by position.
+
+`persist(StorageLevel.DISK_ONLY)`, `cache()` and `unpersist()` record the level and `df.storageLevel` reads it back,
+printed as Spark prints it; `from pyspark.storagelevel import StorageLevel` has Spark's levels. One PC has no executors
+to keep blocks on, so the level is only recorded: `cache()` runs the query once, as before, and `persist` keeps nothing.
+`sameSemantics` says two DataFrames are the same when their plans are, apart from the names of the output columns, as
+Spark's does; like Spark's it can say False for two that give the same rows (two `createDataFrame` calls with the same
+data). `semanticHash()` is this PC's own number for that plan, not the one Spark gives. `df.observe(Observation(),
+...)` works and `observation.get` gives each metric over every row of the observed DataFrame: it runs one aggregate
+query the first time it's read, where Spark computes it during the first action. `observe` with a name and
+`spark.streams` (listeners, the query manager) are refused by name: they run in Fabric.
+
+### DataFrame: 89 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -168,7 +186,7 @@ booleans and dates as Spark's implicit cast writes them: `upper(14)` is `'14'` a
 | `mapInPandas` | Runs in Fabric: runs in Fabric |
 | `melt` | Works |
 | `na` | Works |
-| `observe` | Not yet on this PC |
+| `observe` | Works |
 | `offset` | Works |
 | `orderBy` | Works |
 | `pandas_api` | Runs in Fabric: pandas-on-Spark runs in Fabric; use toPandas() |
@@ -181,19 +199,19 @@ booleans and dates as Spark's implicit cast writes them: `upper(14)` is `'14'` a
 | `repartitionByRange` | Accepted, does nothing on one PC |
 | `replace` | Works |
 | `rollup` | Works |
-| `sameSemantics` | Not yet on this PC |
+| `sameSemantics` | Works |
 | `sample` | Works |
 | `sampleBy` | Works |
 | `schema` | Works |
 | `select` | Works |
 | `selectExpr` | Works |
-| `semanticHash` | Not yet on this PC |
+| `semanticHash` | Works |
 | `show` | Works |
 | `sort` | Works |
 | `sortWithinPartitions` | Works |
 | `sparkSession` | Works |
 | `stat` | Works |
-| `storageLevel` | Not yet on this PC |
+| `storageLevel` | Works |
 | `subtract` | Works |
 | `summary` | Works |
 | `tail` | Works |

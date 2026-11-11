@@ -37,9 +37,9 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Optimize | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
 | Optimize | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
 | Optimize | high-contrast | 13 | 0 (0) | none | 5 | 0 | 0 |
-| Monitor | light | 18 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
-| Monitor | dark | 18 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
-| Monitor | zoom-200 | 18 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
+| Monitor | light | 18 | 0 (0) | none | 18 | 0 | 0 |
+| Monitor | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
+| Monitor | zoom-200 | 18 | 0 (0) | none | 18 | 0 | 0 |
 | Monitor | high-contrast | 17 | 0 (0) | none | 18 | 0 | 0 |
 | Academy | light | 14 | 0 (0) | none | 7 | 0 | 0 |
 | Academy | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
@@ -118,7 +118,6 @@ Checks axe couldn't decide by itself (for example a glyph, a line number, or tex
 
 - **Home**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.home-hero-kicker`, `.home-hero-title`, `h1`, `.hero-outline`, `.get-started > .fold-head > .fold-toggle[title="Hide"] > .chev`. Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture). Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic).
 - **Workspaces**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.click:nth-child(1) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`, `.click:nth-child(2) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`. Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named.
-- **Monitor**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.forge-title`, `.forge-title > span`, `.forge-sub`. Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient).
 - **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
 - **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow[aria-hidden="true"]:nth-child(2)`, `.arrow[aria-hidden="true"]:nth-child(4)`, `.arrow[aria-hidden="true"]:nth-child(6)`, `.arrow[aria-hidden="true"]:nth-child(8)`, `#entity-toml`. Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text). Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered).
 - **Learn lab**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.learn-mark`. Pass: an exercise check's mark is #242424 on white, 15.5:1 (passed is #1f7a4a, 5.3:1), and hidden from assistive tech (the check's text says it).

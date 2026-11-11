@@ -217,7 +217,18 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   says the statement may still be running; stop it in Databricks' query history. The two-hour limit
   and a **Cancel** pressed while the statement is being sent report the same way: "stopped" only
   when the warehouse accepted the cancel.
-- **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
+- **If a send may have reached the warehouse:** a statement whose submit got a server error (5xx), a
+  dropped connection or a reply that can't be read is never sent again, since it may have started. The
+  error says so: check Databricks' query history before you run the cell again. A refusal (4xx) means
+  nothing ran.
+- **Answers the engine doesn't trust:** a result sent as download links instead of inline rows, a
+  result chunk that holds fewer rows than it says or starts at the wrong row, a whole result shorter
+  than the warehouse's own row count, or a reply that isn't a JSON object is an error, never a short
+  table. A statement cancelled in Databricks (not from here) or closed by the warehouse says so and
+  asks you to run the cell again.
+- **Limits:** a statement still running after two hours is cancelled. One still waiting to start
+  (PENDING, while the warehouse starts or queues it) at that point is cancelled too, and the error
+  says it never started. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
 - **Whole results, to compare engines.** When a comparison asks for the whole result, the cell's last

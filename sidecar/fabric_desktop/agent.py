@@ -36,7 +36,7 @@ from .audit import AuditLog
 from .audit import outcome as audit_outcome
 from .dataops_service import post_teams
 from .fabric_api import FabricClient
-from .jobqueue import JobQueue
+from .jobqueue import JobQueue, QueueFull
 from .local_schedules import next_run
 from .logs import fields
 from .mailbox import ControlFolderInUse, LocalControl, Mailbox, hold_control_folder
@@ -143,6 +143,10 @@ class Agent:
         self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
         self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
         self.messages_dropped = 0  # Teams or flow messages dropped unsent since this start (in the status record)
+        # Schedule due times held back while the queue was full (agent.max_queued), since this start; each
+        # runs once there is room. _deferred: the due time each schedule is waiting with, logged once.
+        self.schedules_deferred = 0
+        self._deferred: dict[str, float] = {}
         self._dropped_lock = threading.Lock()  # the shortcut check sends from its own thread
         self._missed: set[str] = set()  # shared-schedule requests already alerted as missed, this start
         self.audit = AuditLog(config.home / "audit", app="agent")
@@ -414,8 +418,13 @@ class Agent:
         if env not in self.config.environments:
             raise PermissionError(f"This agent may run {', '.join(self.config.environments)}, not {env}")
         payload = {"env": env, "entities": list(entities or []), "backfill": backfill, "cascade": cascade}
-        job = self.queue.enqueue(KIND_META, payload, source=source, max_attempts=self.config.max_attempts,
-                                 dedupe_key=dedupe_key)
+        try:
+            job = self.queue.enqueue(KIND_META, payload, source=source, max_attempts=self.config.max_attempts,
+                                     dedupe_key=dedupe_key, limit=self.config.max_queued)
+        except QueueFull as exc:
+            self.log.warning("not queued: the agent's queue is full", extra=fields(
+                env=env, entities=payload["entities"], source=source, waiting=exc.waiting, max_queued=exc.limit))
+            raise
         self.log.info("queued" if not job.get("deduplicated") else "already queued",
                       extra=fields(job_id=job["id"], env=env, entities=payload["entities"], source=source))
         return job
@@ -448,9 +457,8 @@ class Agent:
                 if due is not None:
                     if s.shared:
                         self._submit_shared(s, due, now)
-                    else:
-                        self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
-                                     dedupe_key=f"schedule:{s.id}")
+                    elif not self._enqueue_due(s, due):
+                        continue  # deferred: its next time stays this one, so it runs once there is room
                     fired.append(s.id)
                 nxt = shared_schedules.next_aligned(s.when, now) if s.shared else None
                 wall = None
@@ -460,6 +468,22 @@ class Agent:
                 if nxt is not None:
                     self.queue.set_schedule_next(s.id, nxt, wall)
         return fired
+
+    def _enqueue_due(self, s: Any, due: float) -> bool:
+        """Queue a schedule's due run. While the queue is full (agent.max_queued) it is deferred, not
+        dropped: logged once for this due time, counted in the status record, and tried at every tick."""
+        try:
+            self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}", dedupe_key=f"schedule:{s.id}")
+        except QueueFull as exc:
+            if self._deferred.get(s.id) != due:
+                self._deferred[s.id] = due
+                self.schedules_deferred += 1
+                self.log.warning("schedule deferred: the agent's queue is full; it runs once there is room",
+                                 extra=fields(schedule=s.id, env=s.env, waiting=exc.waiting, max_queued=exc.limit))
+            return False
+        if self._deferred.pop(s.id, None) is not None:
+            self.log.info("deferred schedule queued", extra=fields(schedule=s.id, env=s.env))
+        return True
 
     def _submit_shared(self, s: Any, due: float, now: float) -> None:
         """One request for this due time in the mailbox, unless another agent wrote it first or its
@@ -503,8 +527,8 @@ class Agent:
                  f"Schedule {s.id}, due {when}: it passed its deadline here, and the {s.env.title()} mailbox "
                  "couldn't be read to check whether another agent ran it.")
         self._notify(f"KratosForge agent {self.config.name}: a shared {s.env.title()} run was missed",
-                     [first, "Check that the agents with this schedule are running and can reach the mailbox. "
-                             "The next due time runs as usual.",
+                     [first, ("Check that the agents with this schedule are running and can reach the mailbox. "
+                             "The next due time runs as usual."),
                       f"To run it now: fabric-desktop agent enqueue {s.env} {' '.join(s.entities)}".rstrip()],
                      schedule=s.id, request_id=rid)
 
@@ -749,8 +773,8 @@ class Agent:
             return
         self._notify(f"KratosForge agent {self.config.name}: its job queue file couldn't be read",
                      [f"It was moved to {moved.name} in the agent's home, and the agent started with an empty queue.",
-                      "Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
-                      "queue any other job again with fabric-desktop agent enqueue."],
+                      ("Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
+                      "queue any other job again with fabric-desktop agent enqueue.")],
                      moved_to=moved.name)
 
     # ---- the loop

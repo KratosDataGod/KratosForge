@@ -47,18 +47,28 @@ TAIL_BYTES = 4 * 1024 * 1024  # LOG_LINES of even long lines; a log of any size 
 
 
 def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> str | None:
-    """The last ``lines`` lines, reading only the file's last ``max_bytes``."""
+    """The last ``lines`` lines, reading only the file's last ``max_bytes``. A UTF-16 file (one with its
+    byte order mark) is read as UTF-16, and any NUL left over is dropped: redaction matches text, and a
+    token with NULs between its characters would pass it."""
     try:
         with path.open("rb") as f:
+            encoding = _UTF16.get(f.read(2), "utf-8")
             size = f.seek(0, os.SEEK_END)
-            f.seek(max(0, size - max_bytes))
+            start = max(0, size - max_bytes)
+            if encoding != "utf-8":
+                start += start % 2  # a whole UTF-16 code unit
+            f.seek(start)
             data = f.read()
     except OSError:
         return None
-    if size > max_bytes:
-        data = data[data.find(b"\n") + 1:] if b"\n" in data else b""  # drop the line cut in half
-    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
+    text = data.decode(encoding, errors="replace").lstrip("\ufeff").replace("\x00", "")
+    if start:
+        text = text[text.find("\n") + 1:] if "\n" in text else ""  # drop the line cut in half
+    text = text.replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
     return _without_cut_key("".join(text.splitlines(keepends=True)[-lines:]))
+
+
+_UTF16 = {b"\xff\xfe": "utf-16-le", b"\xfe\xff": "utf-16-be"}
 
 
 _KEY_END = re.compile(r"-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[^\n]*\n?")

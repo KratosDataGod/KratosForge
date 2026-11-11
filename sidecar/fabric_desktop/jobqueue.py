@@ -57,6 +57,15 @@ create table if not exists schedule_state (
 """
 
 
+class QueueFull(Exception):
+    """The queue already holds ``limit`` queued jobs, so a new one wasn't added (agent.max_queued)."""
+
+    def __init__(self, waiting: int, limit: int):
+        super().__init__(f"the agent's queue is full: {waiting} jobs are waiting (agent.max_queued = {limit}); "
+                         "nothing was queued")
+        self.waiting, self.limit = waiting, limit
+
+
 class JobQueue:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time,
                  backoff_seconds: float = 60, max_backoff_seconds: float = 1800):
@@ -143,9 +152,11 @@ class JobQueue:
     # ---- adding work
 
     def enqueue(self, kind: str, payload: dict[str, Any], source: str = "", max_attempts: int = 3,
-                dedupe_key: str | None = None, delay: float = 0) -> dict[str, Any]:
+                dedupe_key: str | None = None, delay: float = 0, limit: int | None = None) -> dict[str, Any]:
         """Add a job. With ``dedupe_key``, a job with the same key that is still queued or running is
-        returned instead, so a schedule that fires while its last run is going doesn't pile up."""
+        returned instead, so a schedule that fires while its last run is going doesn't pile up. With
+        ``limit``, a new job is refused (QueueFull) while that many are already queued; nothing already
+        in the queue is removed to make room."""
         now = self.clock()
         with self._tx() as db:
             if dedupe_key:
@@ -153,6 +164,10 @@ class JobQueue:
                                   (dedupe_key,)).fetchone()
                 if same:
                     return self._row(same) | {"deduplicated": True}  # type: ignore[operator]
+            if limit is not None:
+                waiting = db.execute("select count(*) from jobs where state = 'queued'").fetchone()[0]
+                if waiting >= limit:
+                    raise QueueFull(waiting, limit)
             # 48 random bits: ids made in the same second must never meet (6 hex digits did, ~1 in 800 for 200 jobs).
             job_id = f"job-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{uuid.uuid4().hex[:12]}"
             db.execute("insert into jobs (id, kind, payload, state, source, dedupe_key, max_attempts, next_at, created_at)"

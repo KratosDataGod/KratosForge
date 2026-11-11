@@ -82,18 +82,26 @@ class Backend(Protocol):
 
 
 @contextmanager
-def _file_lock(path: Path) -> Iterator[None]:
-    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents)."""
+def _file_lock(path: Path, timeout: float | None = None) -> Iterator[None]:
+    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents). With
+    ``timeout``, TimeoutError (an OSError) once that many seconds pass without it: another process
+    that hangs while holding it can't stop this one for good."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = None if timeout is None else time.monotonic() + timeout
     with open(path, "a+b") as f:
         if os.name == "nt":
             import msvcrt
             f.seek(0)
             while True:
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]  # Windows-only; retries for about 10 s, then raises
+                    # Windows-only; LK_LOCK retries for about 10 s, LK_NBLCK once
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if deadline is None else msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                     break
                 except OSError:
+                    if deadline is not None:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError(f"{path.name} is held by another process") from None
+                        time.sleep(0.05)
                     continue
             try:
                 yield
@@ -102,7 +110,14 @@ def _file_lock(path: Path) -> Iterator[None]:
                 msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]  # Windows-only
         else:
             import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            while True:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX if deadline is None else fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if deadline is None or time.monotonic() >= deadline:
+                        raise TimeoutError(f"{path.name} is held by another process") from None
+                    time.sleep(0.05)
             try:
                 yield
             finally:

@@ -560,6 +560,7 @@ class CloudMixin:
                     out.append({"table": label, "status": "Completed", **result})
                     continue
                 lh_id = store.lakehouse_ids[t["lakehouse"]]
+                maintenance.check_retention(days)  # before the retention below, which only warns when it fails
                 try:  # so Fabric's own engines keep the same history; the job below vacuums with it too
                     maintenance.set_retention(store.uri(t["lakehouse"], t["schema"], t["table"]), days, store.options())
                 except Exception as exc:  # noqa: BLE001 - the maintenance job still runs with the right retention

@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-10 11:42 UTC, main 5d2fc045.** Covers the PRs merged from #135 to #2395.
+**Product check of 2026-11-10 23:42 UTC, main 17e7ea06.** Covers the PRs merged from #135 to #2421.
 
 ## Summary
 
+- Evening check, 2026-11-10: 21 PRs merged after 5d2fc045. 3 were product data PRs, and the other 18 were linked.
+  The secret scan no longer flags commit ids and warns reviewers about changes to its own filters, the agent's crash
+  log tells a crash from a handled fault, and expired local copies are swept daily (PB-124). VS Code says when a cell
+  is too large before sending it and asks again after a dropped check (PB-109). Living Experience now defaults to
+  Subtle, and only achievements celebrate (PB-102, Preview). PB-120 was accepted with documented limitations.
 - Acceptance, 2026-11-10: the product owner accepted PB-120 (platform support levels and one engine contract) with
   documented limitations. Only Fabric is proven live, to level 2; Databricks and Snowflake are verified at level 0.
   The SQL portability report and the two-engine comparison have no screen yet, and function checks use one

@@ -69,6 +69,18 @@ def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
 
 
+def _wall(local: dt.datetime) -> str:
+    """A schedule's next run as the local time it names, kept with it: ``+fold`` marks the second
+    time a repeated hour comes round when the clocks go back."""
+    return local.strftime("%Y-%m-%dT%H:%M") + ("+fold" if local.fold else "")
+
+
+def _from_wall(wall: str) -> float:
+    """That local time as a moment, in this machine's time zone as it is now."""
+    text, _, fold = wall.partition("+")
+    return _epoch(dt.datetime.fromisoformat(text).replace(fold=1 if fold == "fold" else 0))
+
+
 def _due(last: float | None, every: float, now: float) -> bool:
     """Whether a periodic task is due: never run, ``every`` seconds since it last ran, or the clock
     went back since then (it would otherwise wait out the jump before running again)."""
@@ -416,6 +428,16 @@ class Agent:
         now = self.clock()
         for s in self.config.schedules:
             due = self.queue.schedule_next(s.id)
+            wall = self.queue.schedule_wall(s.id) if due is not None and not s.shared else None
+            if wall and due is not None and abs(_from_wall(wall) - due) >= 60:
+                # The PC's time zone changed since this was worked out (Windows reads a new zone when the
+                # agent starts). A schedule names a time of day on this PC, so it moves with the zone:
+                # left as it was, a 06:00 schedule would run at 03:00 after a move three hours west, then
+                # again at 06:00 the same day.
+                self.log.warning("the PC's time zone changed; the schedule runs at the same time of day "
+                                 "in the new zone", extra=fields(schedule=s.id, wall=wall))
+                due = _from_wall(wall)
+                self.queue.set_schedule_next(s.id, due, wall)  # kept, so this is noticed and logged once
             if due is not None and due > now + _longest_wait(s.when):
                 # Set before the clock went back: without this, a 15-minute schedule would stop for as
                 # long as the jump. Worked out again from now, so nothing runs twice for one due time.
@@ -431,11 +453,12 @@ class Agent:
                                      dedupe_key=f"schedule:{s.id}")
                     fired.append(s.id)
                 nxt = shared_schedules.next_aligned(s.when, now) if s.shared else None
+                wall = None
                 if nxt is None:
                     local = next_run(s.config, dt.datetime.fromtimestamp(now))
-                    nxt = _epoch(local) if local is not None else None
+                    nxt, wall = (_epoch(local), _wall(local)) if local is not None else (None, None)
                 if nxt is not None:
-                    self.queue.set_schedule_next(s.id, nxt)
+                    self.queue.set_schedule_next(s.id, nxt, wall)
         return fired
 
     def _submit_shared(self, s: Any, due: float, now: float) -> None:
@@ -480,8 +503,8 @@ class Agent:
                  f"Schedule {s.id}, due {when}: it passed its deadline here, and the {s.env.title()} mailbox "
                  "couldn't be read to check whether another agent ran it.")
         self._notify(f"KratosForge agent {self.config.name}: a shared {s.env.title()} run was missed",
-                     [first, "Check that the agents with this schedule are running and can reach the mailbox. "
-                             "The next due time runs as usual.",
+                     [first, ("Check that the agents with this schedule are running and can reach the mailbox. "
+                             "The next due time runs as usual."),
                       f"To run it now: fabric-desktop agent enqueue {s.env} {' '.join(s.entities)}".rstrip()],
                      schedule=s.id, request_id=rid)
 
@@ -726,8 +749,8 @@ class Agent:
             return
         self._notify(f"KratosForge agent {self.config.name}: its job queue file couldn't be read",
                      [f"It was moved to {moved.name} in the agent's home, and the agent started with an empty queue.",
-                      "Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
-                      "queue any other job again with fabric-desktop agent enqueue."],
+                      ("Jobs that were waiting in it won't run. Schedules add their next runs again on their own; "
+                      "queue any other job again with fabric-desktop agent enqueue.")],
                      moved_to=moved.name)
 
     # ---- the loop

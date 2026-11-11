@@ -29,10 +29,10 @@ from .git import secrets
 
 SEVERITIES = ("error", "warning", "info")
 LIMITS = ["Code checks read the code; they can't see names or calls built at run time.",
-          "A clean run uses this PC's packages. Spark cells run on this PC's PySpark-compatible engine (DuckDB), "
-          "not Fabric's Spark: what it doesn't have stops the run, and results can differ slightly.",
-          "Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); "
-          "the ones the code checks find are listed before it starts."]
+          ("A clean run uses this PC's packages. Spark cells run on this PC's PySpark-compatible engine (DuckDB), "
+          "not Fabric's Spark: what it doesn't have stops the run, and results can differ slightly."),
+          ("Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); "
+          "the ones the code checks find are listed before it starts.")]
 
 _MAGIC_PIP = re.compile(r"^\s*[%!](pip|conda)\b", re.M)
 _NAME_ERROR = re.compile(r"name '([A-Za-z_]\w*)' is not defined")

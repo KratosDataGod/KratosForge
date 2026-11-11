@@ -561,6 +561,7 @@ class LocalEngine:
                 timer.start()
             steps: list[dict[str, Any]] = []
             as_of: list[str] = []
+            finished = False
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
                 statements = self._statements(con, sql, dialect, run)
@@ -617,6 +618,7 @@ class LocalEngine:
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
+                finished = True
             except (duckdb.InterruptException, OSError) as exc:
                 # An interrupt while a result streams comes out of pyarrow's reader as OSError.
                 if isinstance(exc, OSError) and not str(exc).startswith("INTERRUPT Error"):
@@ -632,7 +634,9 @@ class LocalEngine:
             finally:
                 if timer:
                     timer.cancel()
-                self._running.pop(query_id, None)
+                self._running.pop(query_id, None)  # first, so Stop's interrupts end before _release runs
+                if not finished:
+                    _release(con)
                 for name in as_of:
                     try:
                         con.execute(f"DROP VIEW IF EXISTS temp.{q(name)}")
@@ -1225,6 +1229,20 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _release(con: duckdb.DuckDBPyConnection) -> None:
+    """Free what a query that stopped early still holds. A stream stopped part way (Stop, the time
+    limit, an error, or closed unread) leaves DuckDB's pending result on the connection, with its
+    memory and spill files in tmp/, until the connection runs something else: so run something now."""
+    for _ in range(3):  # Stop's last interrupt may still land on this SELECT 1
+        try:
+            run_through(con, "SELECT 1")  # run to its end: on 2.0 an unread result keeps the connection busy
+            return
+        except duckdb.InterruptException:
+            time.sleep(0.06)
+        except duckdb.Error:
+            return  # closed or broken: the next query reopens it or says so
 
 
 _ONE_QUERY = ("The rows to write come from one query (SELECT, WITH ... SELECT, FROM or VALUES), with no "

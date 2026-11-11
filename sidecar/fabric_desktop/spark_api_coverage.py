@@ -219,8 +219,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but an example gives another value or prints something else.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: an example stops with an error. Run the cell in Fabric.",
-        "- **Not checked**: no example whose result can be compared (none documented, Spark itself "
-        "stops on it, or its result changes from run to run).",
+        ("- **Not checked**: no example whose result can be compared (none documented, Spark itself "
+        "stops on it, or its result changes from run to run)."),
         "",
         "Documented examples are a first check, not proof: a method can match on them and differ on other",
         "input. [Spark functions](spark-functions.md) lists the SQL functions the same way.",

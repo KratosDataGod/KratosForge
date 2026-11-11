@@ -56,7 +56,7 @@ def test_the_packs_python_has_no_undefined_names_or_syntax_errors():
     assert p.returncode == 0, p.stdout + p.stderr
 
 
-@pytest.mark.parametrize("eid", ("E14", "E46", "E48", "E49", "E50"))
+@pytest.mark.parametrize("eid", ("E02", "E14", "E15", "E46", "E48", "E49", "E50"))
 def test_the_api_bundle_and_ci_exercises_pass_their_reference_and_fail_each_wrong_answer(eid):
     result = exercises.self_test(PACK, eid)
     assert result["solution"]["passed"], result["solution"]

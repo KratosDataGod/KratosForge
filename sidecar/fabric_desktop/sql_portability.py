@@ -246,8 +246,8 @@ def _statement(n: int, tree: exp.Expr, source: str, target: str) -> Finding:
         reasons = qualify_notes + reasons
     else:
         if not same and _normal(rewritten, tgt) is None:
-            return Finding(n, "unverified", rewritten, ("The rewrite doesn't read back as "
-                                                        f"{PLATFORMS[target]['label']}, so it can't be trusted.",))
+            return Finding(n, "unverified", rewritten, (("The rewrite doesn't read back as "
+                                                        f"{PLATFORMS[target]['label']}, so it can't be trusted."),))
         unknown = sorted({f.name for f in tree.find_all(exp.Anonymous)})
         if unknown:
             grade = "unverified"

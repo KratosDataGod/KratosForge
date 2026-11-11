@@ -19,6 +19,7 @@ is sent to is always checked to be an Azure Databricks workspace address first.
 from __future__ import annotations
 
 import configparser
+import hashlib
 import json
 import math
 import os
@@ -37,10 +38,35 @@ CLI_TIMEOUT = 60
 # A token this close to expiring is fetched again, so a statement never starts with one about to lapse.
 REFRESH_SECONDS = 120
 _DRIVE = DRIVE
+# Tokens a workspace refused (401), kept as fingerprints for this process, so no connection sends one
+# of them again: a personal access token or an unexpired CLI token stays refused until it is replaced.
+_REFUSED: dict[str, None] = {}
+_REFUSED_LOCK = threading.Lock()
+MAX_REFUSED = 256
+
+
+def _fingerprint(host: str, token: str) -> str:
+    return hashlib.sha256(f"{host}\n{token}".encode()).hexdigest()
+
+
+def was_refused(host: str, token: str) -> bool:
+    with _REFUSED_LOCK:
+        return _fingerprint(host, token) in _REFUSED
+
+
+def _remember_refused(host: str, token: str) -> None:
+    with _REFUSED_LOCK:
+        _REFUSED[_fingerprint(host, token)] = None
+        while len(_REFUSED) > MAX_REFUSED:
+            del _REFUSED[next(iter(_REFUSED))]
 
 
 class DatabricksAuthError(RuntimeError):
     """A token couldn't be had; the message says what the person can do."""
+
+
+class TokenRefused(DatabricksAuthError):
+    """The sign-in handed back a token the workspace already refused: renewing it is the person's step."""
 
 
 def check_host(host: str) -> str:
@@ -156,9 +182,13 @@ class TokenProvider:
     def token(self) -> str:
         with self._lock:
             if not self._token or (self._expires is not None and self._clock() >= self._expires - REFRESH_SECONDS):
-                self._token, self._expires = self._fetch()
-                if not self._token:
+                token, expires = self._fetch()
+                if not token:
                     raise DatabricksAuthError("Databricks gave no access token.")
+                if was_refused(self.host, token):  # the same token again: renewing it is the person's step
+                    raise TokenRefused(f"Databricks refused this sign-in earlier, so it isn't sent again. "
+                                       f"{self.sign_in_again or 'Sign in again.'}")
+                self._token, self._expires = token, expires
             return self._token
 
     def headers(self) -> dict[str, str]:
@@ -167,7 +197,9 @@ class TokenProvider:
     def drop(self, token: str) -> None:
         """Forget ``token``, which the workspace refused (401) before it expired: revoked, or a sign-in
         ended. The next call fetches one again (the CLI's cache, which a new ``databricks auth login``
-        refreshed), rather than sending the refused one until its expiry time."""
+        refreshed), rather than sending the refused one until its expiry time. Neither this provider
+        nor another for the same workspace sends it again (``token()`` says to sign in again instead)."""
+        _remember_refused(self.host, token)
         with self._lock:
             if self._token == token:
                 self._token, self._expires = "", None

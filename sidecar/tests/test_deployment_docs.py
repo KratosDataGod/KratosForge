@@ -56,4 +56,13 @@ def test_the_engine_download_uses_the_windows_proxy_as_the_page_says():
     install = main.split("fn install_engine", 1)[1].split("\nfn ", 1)[0]
     assert 'system_tool("curl.exe")' in install and "download_args(" in install
     assert "win_proxy::curl_args(url)" in main.split("fn download_args", 1)[1].split("\n}", 1)[0]
-    assert "else the fixed proxy Windows is set to, which the app reads and passes to curl" in INSTALL
+    assert "else the proxy Windows uses for the download's address" in INSTALL
+
+
+def test_the_engine_starts_with_the_proxy_windows_uses_as_the_page_says():
+    main = (ROOT / "app" / "src-tauri" / "src" / "main.rs").read_text(encoding="utf-8")
+    start = main.split("fn start() -> std::io::Result<Self>", 1)[1].split("\n    }\n", 1)[0]
+    assert "win_proxy::engine_env()" in start  # the engine, and so notebooks, pip, delta-rs and gRPC
+    assert "win_proxy::engine_env()" in main.split("fn updater(", 1)[1].split("\n}", 1)[0]
+    assert "win_proxy::engine_env()" in main.split("fn run_schedule(", 1)[1].split("\n}", 1)[0]
+    assert "A PAC file, WPAD, or a proxy set for every user" in INSTALL

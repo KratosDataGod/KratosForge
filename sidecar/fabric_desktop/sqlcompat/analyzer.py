@@ -174,8 +174,8 @@ def analyze(query: str, target: str | None = None) -> dict[str, Any]:
         "target": {"id": p["id"], "label": p["label"], "engine": p["engine"], "runs_here": p["runs_here"]},
         "statements": 0, "diagnostics": [], "truncated": False,
         "notes": ["Static analysis: the SQL was read, not run, and nothing was sent to Fabric.",
-                  "No findings means no known problem, not proof that the query runs or gives the same results in "
-                  f"{p['short']}.",
+                  ("No findings means no known problem, not proof that the query runs or gives the same results in "
+                  f"{p['short']}."),
                   "A warning marks a risk or a difference; it doesn't mean the query is wrong."],
     }
     if len(query) > MAX_QUERY:

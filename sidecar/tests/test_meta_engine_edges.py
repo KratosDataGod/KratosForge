@@ -78,8 +78,8 @@ def test_a_link_with_nowhere_to_go_says_how_to_fix_it(repo):  # noqa: F811
 
 
 @pytest.mark.parametrize("code, ok, says", [
-    ("import polars as pl\ndef allocate_freight(df, ctx):\n"
-     "    return df.lazy().with_columns(pl.lit(0.0).alias('freight_alloc'))\n", True, ""),
+    (("import polars as pl\ndef allocate_freight(df, ctx):\n"
+     "    return df.lazy().with_columns(pl.lit(0.0).alias('freight_alloc'))\n"), True, ""),
     ("def allocate_freight(df, ctx):\n    return df.to_dicts()\n", False, "must return a Polars DataFrame, not list"),
 ])
 def test_a_hook_may_return_a_lazy_frame_but_nothing_else(repo, code, ok, says):  # noqa: F811

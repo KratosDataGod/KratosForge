@@ -234,7 +234,8 @@ class SqlExecutions:
               estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
-        WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit.
+        WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit, except that a
+        limit set by the organization's policy can only be shortened by it.
 
         ``target="warehouse"`` runs one T-SQL query that reads on ``warehouse_ref``
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric. With
@@ -588,8 +589,11 @@ class SqlExecutions:
 
     def _launch_local(self, run: Execution, limits: dict[str, Any]) -> None:
         minutes = float(limits["sql_time_limit_minutes"] or 0)
-        if run.timeout_s is not None:
+        ceiling = minutes * 60 if minutes and limits.get("sql_time_limit_by_policy") else 0.0
+        if run.timeout_s is not None and not (ceiling and not 0 < run.timeout_s <= ceiling):
             run.time_limit_s, run.time_limit_from = run.timeout_s, "caller"
+        elif ceiling:  # the organization's limit: a caller can shorten it, not lengthen or remove it
+            run.time_limit_s, run.time_limit_from = ceiling, "policy"
         elif minutes:
             run.time_limit_s, run.time_limit_from = minutes * 60, "sql"
         else:  # the engine applies the project's own limit; say so in the status
@@ -634,6 +638,7 @@ class SqlExecutions:
         except TimeoutError as exc:
             state, kind = "timed_out", "timeout"
             error = {"sql": f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL).",
+                     "policy": f"Stopped after your organization's time limit ({run.time_limit_s / 60:g} minutes).",
                      "project": f"Stopped after the project's time limit ({run.time_limit_s / 60:g} minutes, "
                                 "in the project's settings)."}.get(run.time_limit_from, str(exc))
         except EngineBusy as exc:

@@ -5,3 +5,6 @@
 
 # Vendored files stay byte for byte as published (one is checked by hash).
 app/src-tauri/embed-host/vendor/** -text
+
+# Notebook fixtures for the round-trip tests are real-world bytes: their line endings are part of the test.
+sidecar/tests/fixtures/ipynb/** -text

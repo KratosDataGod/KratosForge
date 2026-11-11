@@ -30,11 +30,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: |
-            sidecar/constraints.txt
-            sidecar/pyproject.toml
+          cache-dependency-path: .github/requirements/test-linux.txt
+      # The pinned set, every package checked against its hash (test-linux.txt); compat_tests.sh then puts
+      # the other sqlglot and DuckDB versions ahead of it, one folder each.
       - id: install
-        run: python -m pip install -e ".[dev]" -c constraints.txt
+        run: |
+          python -m pip install --only-binary=:all: --require-hashes -r ../.github/requirements/test-linux.txt
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: SQL tests on both ends of the sqlglot range
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bash ../.github/scripts/compat_tests.sh sqlglot

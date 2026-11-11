@@ -96,8 +96,12 @@ def test_ci_installs_the_engines_packages_from_hashed_locks_at_constraints_versi
     assert not missing, f"constraints.txt pins {sorted(missing)}, which neither test lock installs; regenerate them"
     assert set(locks["test-windows"]) - set(locks["test-linux"]) <= {"colorama", "pymsalruntime", "pywin32"}
     assert set(ci_tools) <= set(locks["lint"])
-    # ci.yml no longer installs anything by constraints alone; the editable engine adds no packages.
-    assert "-c constraints.txt" not in CI
+    # No workflow installs anything by constraints alone any more; the editable engine adds no packages.
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        assert "-c constraints.txt" not in workflow.read_text(encoding="utf-8"), workflow.name
+    assert "--require-hashes -r ../.github/requirements/test-linux.txt -r ../.github/requirements/tsql-live.txt" in (
+        ROOT / ".github" / "workflows" / "tsql-contract-live.yml"
+    ).read_text(encoding="utf-8")
     assert CI.count("--require-hashes -r ../.github/requirements/test-linux.txt") == 2
     assert '--require-hashes -r "../.github/requirements/$lock"' in CI and "lock=test-windows.txt" in CI
     assert "--require-hashes -r ../.github/requirements/lint.txt" in CI

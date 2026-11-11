@@ -3324,3 +3324,12 @@ tr.fg-conflict { background: var(--danger-soft); }
   .page .home-hero-welcome { margin: 0; }
   .home-hero-actions { margin-top: 0; }
 }
+
+/* Estate X-ray: ticking findings to Optimize together, and the batch's progress */
+.xray-item .xray-pick, .xray-pickbar .xray-pick { width: 16px; height: 16px; margin: 0; flex: none; }
+.xray-pickbar { padding: 6px 2px; }
+.xray-batch { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border-warm); border-radius: 6px; }
+.xray-batch-list { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
+.xray-batch-item { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border-warm); }
+.xray-batch-item .pill-s { min-width: 120px; text-align: center; }
+.xray-batch-names { max-height: 200px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--border-warm); border-radius: 6px; }

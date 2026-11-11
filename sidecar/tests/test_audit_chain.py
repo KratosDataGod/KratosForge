@@ -30,6 +30,45 @@ def test_processes_writing_at_once_keep_one_unbroken_chain(tmp_path):
     assert result == {"lines": 120, "ok": True, "problems": []}
 
 
+def _write_mixed(folder, app, count, integrations, ready, go):
+    """One writer as the app, the agent or a scheduled run does it; the first app window also writes the
+    AI tools' trail beside it, through the same chain writer, as its integrations do."""
+    log = AuditLog(folder, app=app)
+    ready.release()
+    go.wait(60)  # every writer starts at the same moment, so their writes really interleave
+    for i in range(count):
+        log.record("meta_run", "ok", 0.0, {"entity": f"{app}-{i}"})
+        if app == "desktop-1":
+            audit_chain.append(integrations, {"at": "2026-11-11T00:00:00+00:00", "capability": "list_tables",
+                                              "outcome": "ok", "n": i})
+
+
+def test_two_app_windows_the_agent_and_a_schedule_at_once_lose_no_line(tmp_path):
+    """The real case: two app processes, the agent and a scheduled run append to one trail at the same
+    time, while the AI tools' trail is written next to it. Every line lands once, in one chain."""
+    trail, tools = tmp_path / "audit", tmp_path / "integrations"
+    ctx = multiprocessing.get_context("spawn")
+    names, count = ("desktop-1", "desktop-2", "agent", "schedule"), 150
+    ready, go = ctx.Semaphore(0), ctx.Event()
+    procs = [ctx.Process(target=_write_mixed, args=(trail, name, count, tools, ready, go)) for name in names]
+    for p in procs:
+        p.start()
+    for _ in procs:
+        assert ready.acquire(timeout=120)
+    go.set()
+    for p in procs:
+        p.join(180)
+        assert p.exitcode == 0
+    assert AuditLog(trail).verify() == {"lines": len(names) * count, "ok": True, "problems": []}
+    lines = [json.loads(line) for path in audit_chain.files(trail) for line in path.read_text().splitlines()]
+    entities = sorted(line["target"]["entity"] for line in lines)
+    assert entities == sorted(f"{n}-{i}" for n in names for i in range(count))  # each once: none lost, none twice
+    assert json.loads((trail / audit_chain.HEAD).read_text()) == {"hash": lines[-1]["hash"], "lines": len(lines)}
+    assert audit_chain.verify(tools) == {"lines": count, "ok": True, "problems": []}
+    order = [line["target"]["entity"].rsplit("-", 1)[0] for line in lines]
+    assert sum(a != b for a, b in zip(order, order[1:], strict=False)) > len(names)  # the writers did take turns
+
+
 def test_a_long_running_writer_sees_lines_other_processes_added(tmp_path):
     app = AuditLog(tmp_path)
     app.record("meta_run", "ok", 0.1)

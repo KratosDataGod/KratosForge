@@ -23,6 +23,7 @@ def serve(monkeypatch, files):
         return io.StringIO(files[path])
 
     monkeypatch.setattr(fm, "open", fake_open, raising=False)
+    monkeypatch.setattr(fm, "os", SimpleNamespace(name="posix"))  # the /proc and cgroup path, on Windows CI too
 
 
 MEMINFO = "MemTotal: 16000000 kB\nMemAvailable: 8388608 kB\n"  # 8 GiB free

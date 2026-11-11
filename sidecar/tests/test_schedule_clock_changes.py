@@ -136,7 +136,7 @@ def test_the_clock_set_back_an_hour_after_the_change_doesnt_run_it_again(tmp_pat
 
 # ---- the PC's time zone changing
 
-def test_after_a_move_west_a_daily_run_keeps_its_time_of_day_and_runs_once(tmp_path, setup, zone):  # noqa: F811
+def test_after_a_move_west_a_daily_run_keeps_its_time_of_day_and_runs_once(tmp_path, setup, zone, caplog):  # noqa: F811
     day = dt.datetime(2026, 6, 10)
     agent, clock = _agent(tmp_path, setup, 'daily = ["06:00"]', day)
     agent.tick_schedules()  # 06:00 New York worked out
@@ -144,6 +144,8 @@ def test_after_a_move_west_a_daily_run_keeps_its_time_of_day_and_runs_once(tmp_p
     agent = _restart(agent, clock)
     # Was: it ran at 03:00 Los Angeles (06:00 in New York), then again at 06:00 the same day.
     assert _tick_until(agent, clock, dt.datetime(2026, 6, 11)) == ["06-10 06:00 PDT"]
+    moved = [r for r in caplog.records if "time zone changed" in r.getMessage()]
+    assert len(moved) == 1  # noticed once and kept, not again at every tick until the run
 
 
 def test_after_a_move_east_a_run_missed_while_off_runs_once(tmp_path, setup, zone):  # noqa: F811

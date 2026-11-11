@@ -437,6 +437,7 @@ class Agent:
                 self.log.warning("the PC's time zone changed; the schedule runs at the same time of day "
                                  "in the new zone", extra=fields(schedule=s.id, wall=wall))
                 due = _from_wall(wall)
+                self.queue.set_schedule_next(s.id, due, wall)  # kept, so this is noticed and logged once
             if due is not None and due > now + _longest_wait(s.when):
                 # Set before the clock went back: without this, a 15-minute schedule would stop for as
                 # long as the jump. Worked out again from now, so nothing runs twice for one due time.

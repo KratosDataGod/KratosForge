@@ -106,6 +106,11 @@ struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, an
 `select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
 name: select it first and use it from there.
 
+`select("a.*")` and `select(col("a.*"))` give every column of the DataFrame aliased `a` (after
+`df.alias("a").join(df2.alias("b"), ...)`), and `select("s.*")` every field of struct `s`, as in Spark. A star that
+names neither is Spark's `CANNOT_RESOLVE_STAR_EXPAND` error. After a select, the result no longer knows its columns'
+aliases, so `a.id` works within the select but not in a later `sort` or `filter`: use the column's name there.
+
 ### DataFrame: 85 of 102
 
 | Method | On this PC |

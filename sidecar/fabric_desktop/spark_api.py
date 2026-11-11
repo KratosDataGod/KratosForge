@@ -177,6 +177,8 @@ def table_exists(session: Any, tableName: str, dbName: str | None = None) -> boo
     name = f"{dbName}.{tableName}" if dbName else tableName
     if "." not in name and session._is_local(name):
         return True
+    if dbName is not None and dbName.lower() == GLOBAL_TEMP and "." not in tableName:
+        return bool(session._is_view(GLOBAL_PREFIX + tableName))
     return lakehouse._attached is not None and lakehouse.table_exists(name)
 
 
@@ -209,10 +211,54 @@ def explain(self: DataFrame, extended: Any = None, mode: str | None = None) -> N
     print(self.relation.explain())
 
 
+# A global temp view (global_temp.name in Spark SQL) is a temp view of this name on the connection.
+GLOBAL_TEMP = "global_temp"
+GLOBAL_PREFIX = "__kf_global_temp_"
+
+
+def _view_name(name: str) -> str:
+    """``name`` as a temp view's name, refused as Spark refuses one with more than one part."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    if not isinstance(name, str) or "." in name:
+        raise AnalysisException(message="[TEMP_VIEW_NAME_TOO_MANY_NAME_PARTS] CREATE TEMPORARY VIEW or the "
+                                        "corresponding Dataset APIs only accept single-part view names, but got: "
+                                        f"{name}.")
+    return name
+
+
+def _create_view(self: DataFrame, name: str, replace: bool, shown: str) -> None:
+    from duckdb.experimental.spark.errors import AnalysisException
+    if not replace and self.session._is_view(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
+        raise AnalysisException(message=f"[TEMP_TABLE_OR_VIEW_ALREADY_EXISTS] Cannot create the temporary view "
+                                        f"{shown} because it already exists.")
+    self.relation.create_view(name, replace=True)
+
+
 def createTempView(self: DataFrame, name: str) -> None:  # noqa: N802
-    if self.session._is_local(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
-        raise ValueError(f"Temporary view {name!r} already exists. Use createOrReplaceTempView.")
-    self.createOrReplaceTempView(name)
+    """``createTempView``: Spark's error when the name has a view already, whatever its case."""
+    _create_view(self, _view_name(name), False, f"`{name}`")
+
+
+def createOrReplaceTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    _create_view(self, _view_name(name), True, f"`{name}`")
+
+
+def createGlobalTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    """``createGlobalTempView``: read as global_temp.name in Spark SQL and spark.table."""
+    _create_view(self, GLOBAL_PREFIX + _view_name(name), False, f"`{name}`")
+
+
+def createOrReplaceGlobalTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    _create_view(self, GLOBAL_PREFIX + _view_name(name), True, f"`{name}`")
+
+
+def drop_view(session: Any, name: str) -> bool:
+    """``spark.catalog.dropTempView`` and ``dropGlobalTempView``: whether a view was there to drop. Only
+    a view a DataFrame made counts, never a lakehouse table's."""
+    if not isinstance(name, str) or not session._is_view(name) or name.lower().startswith("__lakehouse_table_"):
+        return False
+    session.conn.execute(f"DROP VIEW {_q(name)}")
+    return True
 
 
 def toLocalIterator(self: DataFrame, prefetchPartitions: bool = False) -> Any:  # noqa: N802, N803, ARG001
@@ -414,19 +460,27 @@ def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
 
 
 ADDED: dict[str, Any] = {
-    "isEmpty": isEmpty, "tail": tail, "explain": explain, "createTempView": createTempView,
-    "registerTempTable": DataFrame.createOrReplaceTempView, "toLocalIterator": toLocalIterator, "offset": offset,
+    "isEmpty": isEmpty, "tail": tail, "explain": explain,
+    "createTempView": createTempView,
+    "createOrReplaceTempView": createOrReplaceTempView,
+    "registerTempTable": createOrReplaceTempView,
+    "createGlobalTempView": createGlobalTempView,
+    "createOrReplaceGlobalTempView": createOrReplaceGlobalTempView, "toLocalIterator": toLocalIterator, "offset": offset,
     "corr": corr, "cov": cov, "approxQuantile": approxQuantile, "randomSplit": randomSplit,
-    "createOrReplaceGlobalTempView": DataFrame.createOrReplaceTempView, "sortWithinPartitions": DataFrame.orderBy,
+    "sortWithinPartitions": DataFrame.orderBy,
     "foreach": _rdd, "foreachPartition": _rdd, "mapInPandas": _rdd, "mapInArrow": _rdd,
     "crosstab": crosstab, "colRegex": colRegex, "toJSON": toJSON, "sampleBy": sampleBy,
 }
 
 
+# DuckDB's own, which these replace: Spark's errors for a name with a dot, and global temp views.
+_REPLACED = ("createOrReplaceTempView", "createGlobalTempView", "createOrReplaceGlobalTempView")
+
+
 def install() -> None:
     """Add the methods to DuckDB's DataFrame (once; spark_local calls it), after spark_compat's."""
     for name, fn in ADDED.items():
-        if name not in DataFrame.__dict__:
+        if name not in DataFrame.__dict__ or name in _REPLACED:
             setattr(DataFrame, name, fn)
     if "stat" not in DataFrame.__dict__:
         DataFrame.stat = property(lambda self: _Stat(self))  # type: ignore[attr-defined]

@@ -584,6 +584,8 @@ def _catalog_calls(session: LocalSparkSession) -> dict[str, Any]:
              "lakehouse's tables, and notebookutils.lakehouse.listTables() reads them.")
     return {
         "tableExists": lambda tableName, dbName=None: spark_api.table_exists(session, tableName, dbName),  # noqa: N803
+        "dropTempView": lambda viewName: spark_api.drop_view(session, viewName),  # noqa: N803
+        "dropGlobalTempView": lambda viewName: spark_api.drop_view(session, spark_api.GLOBAL_PREFIX + viewName),  # noqa: N803
         "listColumns": list_columns,
         "currentCatalog": lambda: "spark_catalog",
         "setCurrentCatalog": set_catalog,
@@ -987,6 +989,7 @@ class LocalSparkSession(SparkSession):
         versions that no DataFrame or temp view still reads, so a notebook that writes and reads a
         table many times doesn't keep every version's view on the connection."""
         views = self._bound()
+        self._global_temp(statement)
         _sql.bind_tables(statement, self.conn, views, self._is_local)
         old = _sql.superseded(views)
         if not old:
@@ -1003,6 +1006,22 @@ class LocalSparkSession(SparkSession):
             if not re.search(rf"\b{view}\b", text):
                 self.conn.unregister(view)
                 del views[key]
+
+    def _global_temp(self, statement: Any) -> None:
+        """Point global_temp.name at the global temp view createGlobalTempView made, as Spark reads it;
+        one that isn't there is Spark's TABLE_OR_VIEW_NOT_FOUND, not a lakehouse lookup."""
+        from duckdb.experimental.spark.errors import AnalysisException
+        from sqlglot import exp
+        for table in list(statement.find_all(exp.Table)):
+            if table.catalog or not table.db or table.db.lower() != spark_api.GLOBAL_TEMP:
+                continue
+            view = spark_api.GLOBAL_PREFIX + table.name
+            if not self._is_view(view) and not isinstance(statement, exp.Drop):
+                raise AnalysisException(message=f"[TABLE_OR_VIEW_NOT_FOUND] The table or view `{table.db}`.`{table.name}` "
+                                                "cannot be found. Verify the spelling and correctness of the schema "
+                                                "and catalog.")
+            alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
+            table.replace(exp.Table(this=exp.to_identifier(view), alias=None if isinstance(statement, exp.Drop) else alias))
 
     def _is_view(self, name: str) -> bool:
         return bool(self.conn.execute("SELECT 1 FROM duckdb_views() WHERE lower(view_name) = lower(?)", [name]).fetchall())
@@ -1212,6 +1231,7 @@ class LocalSparkSession(SparkSession):
         if module.startswith(("polars", "pyarrow")):
             arrow = data.to_arrow() if module.startswith("polars") else data
             return DataFrame(self.conn.from_arrow(arrow), self)
+        data, schema = _atomic_schema(data, schema)
         if isinstance(schema, str) and _DDL.search(schema):  # "id int, name string", as in PySpark
             schema = ddl_schema(schema)
         if schema is None and isinstance(data, (list, tuple)) and data:
@@ -1250,6 +1270,33 @@ class LocalSparkSession(SparkSession):
             changed |= wanted != text
             exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
         return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
+
+
+def _atomic_schema(data: Any, schema: Any) -> tuple[Any, Any]:
+    """createDataFrame(["a"], "string") or (data, IntegerType()): Spark makes one column, value, of
+    that type, each item one row. A type string that's a whole struct is that struct."""
+    from duckdb.experimental.spark.sql import types as T
+    kind = None
+    if isinstance(schema, str):
+        try:
+            kind = _ddl_type(schema)
+        except ValueError:  # silent-ok: not one type ("id int, name string"), read below as before
+            return data, schema
+    elif isinstance(schema, T.DataType) and not isinstance(schema, T.StructType):
+        kind = schema
+    if kind is None:
+        return data, schema
+    if isinstance(kind, T.StructType):
+        return data, kind
+    rows = list(data) if isinstance(data, (list, tuple)) else data
+    if isinstance(rows, list):
+        for item in rows:
+            if isinstance(item, (tuple, list, dict)) and not isinstance(kind, (T.ArrayType, T.MapType)):
+                raise ValueError(f"createDataFrame with the type {kind.simpleString()} makes each item one value, "
+                                 f"and {item!r} isn't one: Spark would store its Java object's name. Give plain "
+                                 "values, or a schema such as \"value string\" for rows.")
+        rows = [(item,) for item in rows]
+    return rows, T.StructType([T.StructField("value", kind, True)])
 
 
 def _nan(value: Any) -> bool:

@@ -243,10 +243,17 @@ function xrayFinding(f, box, res, picking = false) {
     f.fix?.state === "submitted" || (inBatch && !inBatch.ended) ? null : xrayAction(f, box, res));
 }
 
+// Why Fabric stopped a fix's job, in a sentence, with what to do when the capacity was too busy.
+function xrayStopped(status, message) {
+  const why = String(message || "").trim().replace(/\.$/, "");
+  const said = why ? `Fabric stopped it: ${why[0].toLowerCase()}${why.slice(1)}.` : `Fabric stopped it (${status}).`;
+  return /capacity|throttl/i.test(why) ? `${said} Try Optimize again when the capacity is less busy.` : said;
+}
+
 // A fix shows as submitted until its Fabric job finishes; only a completed job marks the finding fixed.
 function xrayFix(f) {
   if (f.fix?.state === "submitted") return h("div", { class: "muted-text small" }, "Fix submitted to Fabric, not finished yet. Follow it in Monitor.");
-  if (f.fix?.state === "failed") return h("div", { class: "reason small" }, `The fix didn't finish in Fabric (${f.fix.status})${f.fix.message ? `: ${f.fix.message}` : ""}.`);
+  if (f.fix?.state === "failed") return h("div", { class: "reason small" }, xrayStopped(f.fix.status, f.fix.message));
   return null;
 }
 
@@ -538,7 +545,7 @@ async function optimizeBatch(findings) {
   if (!batch.closed) {
     const n = (s) => batch.items.filter((x) => x.state === s).length;
     const bad = n("failed") + n("error");
-    const parts = [`${n("done")} optimized`, bad && `${bad} failed or not started`, n("held") && `${n("held")} skipped by the risk check`,
+    const parts = [`${n("done")} optimized`, n("failed") && `${n("failed")} failed`, n("error") && `${n("error")} couldn't start`, n("held") && `${n("held")} skipped by the risk check`,
       n("stopped") && `${n("stopped")} not started`].filter(Boolean);
     toast(`Optimize batch finished: ${parts.join(", ")}.`, !!bad, { log: true });
   }
@@ -586,7 +593,7 @@ async function optimizeBatchPoll(items, set) {
       set(it, "done");
       xrayBatchMark(it, { state: "fixed", job_id: it.job_id, status: run.status, message: "" });
     } else if (["Failed", "Cancelled", "Deduped"].includes(run.status)) {
-      set(it, "failed", `${run.status}${run.message ? `: ${run.message}` : ""}`);
+      set(it, "failed", xrayStopped(run.status, run.message));
       xrayBatchMark(it, { state: "failed", job_id: it.job_id, status: run.status, message: run.message || "" });
     }
   }
@@ -594,7 +601,7 @@ async function optimizeBatchPoll(items, set) {
 
 const XRAY_BATCH_STATES = {
   waiting: ["neu", "Waiting"], checking: ["info", "Checking"], running: ["info", "Running in Fabric"],
-  done: ["pass", "Optimized"], failed: ["fail", "Failed"], error: ["fail", "Not started"],
+  done: ["pass", "Optimized"], failed: ["fail", "Failed"], error: ["fail", "Couldn't start"],
   held: ["wrn", "Skipped"], stopped: ["neu", "Not started"],
 };
 
@@ -606,7 +613,7 @@ function xrayBatchPanel() {
   const total = batch.items.length;
   const ended = batch.items.filter((x) => x.ended).length;
   const summary = [count("running") && `${count("running")} running in Fabric`, count("waiting") && `${count("waiting")} waiting`,
-    count("done") && `${count("done")} optimized`, (count("failed") + count("error")) && `${count("failed") + count("error")} failed or not started`,
+    count("done") && `${count("done")} optimized`, count("failed") && `${count("failed")} failed`, count("error") && `${count("error")} couldn't start`,
     count("held") && `${count("held")} skipped`, count("stopped") && `${count("stopped")} not started`].filter(Boolean).join(", ");
   const title = batch.finished ? (batch.stopped ? "Optimize batch stopped" : "Optimize batch finished")
     : batch.stopped ? `Stopping: waiting for ${count("running")} running in Fabric` : `Optimizing ${total} table${total === 1 ? "" : "s"}`;

@@ -156,15 +156,16 @@ test("The batch keeps three running, skips what the risk check doesn't pass, and
   assert.match(text, /Optimize batch finished/);
   assert.match(text, /7 of 7 ended/);
   assert.match(text, /Optimized\s+t1/);
-  assert.match(text, /Failed\s+t3[\s\S]*Failed: Out of capacity/);
+  assert.match(text, /Failed\s+t3[\s\S]*Fabric stopped it: out of capacity\. Try Optimize again when the capacity is less busy\./);
+  assert.match(text, /2 optimized, 1 failed, 1 couldn't start, 3 skipped/);
   assert.match(text, /Skipped\s+t2[\s\S]*warnings/);
   assert.match(text, /Skipped\s+t4[\s\S]*blocks it: fabcapdev is paused/);
   assert.match(text, /Skipped\s+t5[\s\S]*couldn't run/);
-  assert.match(text, /Not started\s+t6[\s\S]*Check them again/);
+  assert.match(text, /Couldn't start\s+t6[\s\S]*Check them again/);
   // Optimized tables leave the findings; the others keep their own Optimize.
   const list = await page().locator(`${card} .xray-list`).innerText();
   assert.doesNotMatch(list, /t1 has|t7 has/);
-  assert.match(list, /didn't finish in Fabric \(Failed\)/);
+  assert.match(list, /Fabric stopped it: out of capacity\./);
   assert.deepStrictEqual(app.errors, []);
 });
 

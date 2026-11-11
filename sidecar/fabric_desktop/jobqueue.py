@@ -91,6 +91,14 @@ class JobQueue:
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc):  # another process added it first
                         raise
+            # wall: the local time a schedule's next run was worked out for (from before: none, so it is
+            # read as the time it was set for)
+            if "wall" not in {r["name"] for r in db.execute("pragma table_info(schedule_state)")}:
+                try:
+                    db.execute("alter table schedule_state add column wall text")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc):
+                        raise
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
@@ -326,10 +334,17 @@ class JobQueue:
         row = self._one("select next_at from schedule_state where id = ?", (schedule_id,))
         return row["next_at"] if row else None
 
-    def set_schedule_next(self, schedule_id: str, next_at: float) -> None:
+    def schedule_wall(self, schedule_id: str) -> str | None:
+        """The local time (``YYYY-MM-DDTHH:MM``, with ``+fold`` for the second of a repeated hour) the
+        next run was worked out for, or None when it wasn't kept (a shared schedule, or an older file)."""
+        row = self._one("select wall from schedule_state where id = ?", (schedule_id,))
+        return row["wall"] if row else None
+
+    def set_schedule_next(self, schedule_id: str, next_at: float, wall: str | None = None) -> None:
         with self._tx() as db:
-            db.execute("insert into schedule_state (id, next_at) values (?, ?)"
-                       " on conflict(id) do update set next_at = excluded.next_at", (schedule_id, next_at))
+            db.execute("insert into schedule_state (id, next_at, wall) values (?, ?, ?)"
+                       " on conflict(id) do update set next_at = excluded.next_at, wall = excluded.wall",
+                       (schedule_id, next_at, wall))
 
     def close(self) -> None:
         """Nothing stays open between calls; kept for callers that close the queue when they're done."""

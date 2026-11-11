@@ -70,7 +70,7 @@ def run(store: Any, op: str, step: int) -> None:
     elif op == "merge":
         store.upsert(LAKEHOUSE, SCHEMA, TABLE, frame(op, step), on=["id"])
     elif op == "optimize":  # the Maintain page's Optimize on this PC: compaction, then VACUUM
-        maintenance.compact_local(uri, 0)
+        maintenance.compact_local(uri, 0, allow_shorter=True)  # deletes all it can: the hardest case
     elif op == "vacuum":  # VACUUM that deletes every file the latest version no longer names
         DeltaTable(uri).vacuum(retention_hours=0, dry_run=False, enforce_retention_duration=False)
     elif op == "meta":

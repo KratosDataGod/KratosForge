@@ -9,8 +9,9 @@ every call to Fabric, OneLake, Graph or Databricks failed with CERTIFICATE_VERIF
 Each process the engine starts calls it first: the engine (cli.py) and a notebook's kernel
 (kernel_host.py).
 
-The proxy comes from requests: ``HTTPS_PROXY``/``NO_PROXY`` when set, else the proxy Windows is set
-to (Internet Options). ``explain()`` turns a refused certificate, a proxy that refused the call and
+The proxy comes from requests: ``HTTPS_PROXY``/``NO_PROXY`` when set, else the user's own fixed proxy
+in Internet Options. The shell sets the two variables from Windows' own answer when Windows uses a
+PAC file, WPAD or a proxy set for the whole PC, which Python can't read (win_proxy.rs). ``explain()`` turns a refused certificate, a proxy that refused the call and
 a server that didn't answer in time into one line that says what to do."""
 
 from __future__ import annotations

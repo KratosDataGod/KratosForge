@@ -1770,6 +1770,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Page header art: a path from the shipped manifest (art/experience/heroes.js), under the app's own art folder;
+    // the manifest test checks every entry is <page>/<id> with both files present.
+    "home-hero.js: src: `${base}-1086.webp`, srcset: `${base}-1086.webp 1086w, ${base}.webp 2172w`,",
     // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
     "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);

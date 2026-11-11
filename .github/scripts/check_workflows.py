@@ -13,8 +13,8 @@ job's matrix gives that key.
 It also holds the workflows to four supply-chain and token rules:
 - Every action is pinned to a full commit (``owner/repo@<40 hex>``), or is a local ``./`` action or a
   ``docker://`` image pinned by digest: a tag or branch can be moved to other code after review.
-- Every job's token is scoped: a top-level ``permissions`` or one on the job, so a job never runs
-  with the repository's default token rights.
+- Every job's token is scoped: a top-level ``permissions`` or one on the job (never ``write-all``), so a
+  job never runs with the repository's default token rights.
 - Text someone outside the repository can set (``github.event.*``, ``github.head_ref``) and dispatch
   ``inputs.*`` never sit inside a ``run`` or a ``script``: Actions pastes them into the script before it
   runs, so they reach the step through ``env`` instead.
@@ -97,6 +97,8 @@ def problems(path: Path) -> list[str]:
         if "permissions" not in doc and "permissions" not in job:
             out.append(f"{where} has no permissions; give it (or the workflow) the token rights it needs, "
                        "for example contents: read")
+        if "write-all" in (doc.get("permissions"), job.get("permissions")):
+            out.append(f"{where} gives its token write-all; name only the rights it needs")
         if "uses" in job:   # a reusable workflow
             if unpinned(job["uses"]):
                 out.append(f"{where} uses {job['uses']}, which isn't pinned to a commit")

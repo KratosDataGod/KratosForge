@@ -102,6 +102,9 @@ def test_every_job_has_a_scoped_token(tmp_path):
     per_job = bare.replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n")
     per_job = per_job.replace("    uses: ./.github", "    permissions: {}\n    uses: ./.github")
     assert check.problems(_write(tmp_path, per_job)) == []
+    everything = GOOD.replace("permissions:\n  contents: read\n", "permissions: write-all\n")
+    assert check.problems(_write(tmp_path, everything)) == [
+        f"w.yml: job {j} gives its token write-all; name only the rights it needs" for j in ("a", "b")]
 
 
 def test_event_text_and_inputs_reach_a_script_only_through_env(tmp_path):

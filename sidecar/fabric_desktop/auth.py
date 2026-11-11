@@ -502,8 +502,8 @@ class Authenticator:
         # refresh it again: one refusal, not one per call.
         self._ended_at: object = None
         self._sign_in_lock = threading.Lock()  # one sign-in window at a time; the others wait for it
-        # Counts sign-in windows opened here. A refresh's refusal ends the saved sign-in only if no window
-        # opened while that refresh was out: a slow refusal of the old token must not drop the tokens a
+        # Counts sign-in windows opened here, and again when one brings tokens. A refresh's refusal ends
+        # the saved sign-in only if no window opened or signed in while that refresh was out: a slow refusal of the old token must not drop the tokens a
         # window just brought, which would open a second window for the calls waiting on the first.
         self._windows = 0
         self._end_lock = threading.Lock()
@@ -663,6 +663,8 @@ class Authenticator:
                     raise SignInError("timeout", f"The sign-in in your browser wasn't finished within "
                                       f"{SIGN_IN_SECONDS // 60} minutes. Sign in again.") from None
             if result and "access_token" in result:
+                with self._end_lock:  # and a refresh that started while the window was open is older
+                    self._windows += 1
                 self._ended_at = None
                 self._blocked = None
             elif result:

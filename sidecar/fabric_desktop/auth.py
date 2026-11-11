@@ -502,6 +502,11 @@ class Authenticator:
         # refresh it again: one refusal, not one per call.
         self._ended_at: object = None
         self._sign_in_lock = threading.Lock()  # one sign-in window at a time; the others wait for it
+        # Counts sign-in windows opened here, and again when one brings tokens. A refresh's refusal ends
+        # the saved sign-in only if no window opened or signed in while that refresh was out: a slow refusal of the old token must not drop the tokens a
+        # window just brought, which would open a second window for the calls waiting on the first.
+        self._windows = 0
+        self._end_lock = threading.Lock()
         # The last interactive refusal in BLOCKED_CODES: (its error, when, the cache file as it was then).
         self._blocked: tuple[SignInError, float, object] | None = None
         self.cache = SharedTokenCache(self.cache_path)
@@ -553,11 +558,14 @@ class Authenticator:
         if lookup is None:  # a stand-in without it
             more = {"force_refresh": True} if force_refresh else {}
             return self.app.acquire_token_silent(scopes, account=account, **more)
+        window = self._windows
         result = lookup(scopes, account=account, force_refresh=force_refresh)
         if result and "error" in result:
             code = ended(result)
             if code:
-                self._end(account, code)
+                with self._end_lock:
+                    if window == self._windows:  # else a sign-in since then: the refusal is for the old one
+                        self._end(account, code)
             elif refusal is not None:
                 refusal.update(result)
             return None
@@ -642,6 +650,8 @@ class Authenticator:
             self.cache.removed_elsewhere.clear()  # signing in here: the account may come back
             asked = why.get("claims") or claims
             more = {"claims_challenge": asked} if isinstance(asked, str) and asked else {}
+            with self._end_lock:
+                self._windows += 1
             if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle(), **more)
             else:
@@ -653,6 +663,8 @@ class Authenticator:
                     raise SignInError("timeout", f"The sign-in in your browser wasn't finished within "
                                       f"{SIGN_IN_SECONDS // 60} minutes. Sign in again.") from None
             if result and "access_token" in result:
+                with self._end_lock:  # and a refresh that started while the window was open is older
+                    self._windows += 1
                 self._ended_at = None
                 self._blocked = None
             elif result:

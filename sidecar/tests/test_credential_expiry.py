@@ -151,6 +151,59 @@ def test_calls_waiting_on_a_sign_in_share_its_window(tmp_path):
     assert got == ["new"] * 4 and entra.calls.count("window") == 1
 
 
+def test_a_refusal_that_arrives_after_a_new_sign_in_keeps_the_new_tokens(tmp_path):
+    """A refresh of the old token that is still out when another call's window signs in: its refusal
+    is for the old sign-in, so it mustn't drop the new tokens (and open a second window)."""
+    a, entra = signed_in(tmp_path, refuse=REVOKED, cached="")
+    out, back = threading.Event(), threading.Event()
+    real = entra.acquire_token_silent_with_error
+
+    def slow_first(scopes, account, force_refresh=False):
+        result = real(scopes, account, force_refresh)
+        if threading.current_thread().name == "slow" and not out.is_set():
+            out.set()
+            back.wait(10)  # held until the window below has signed in
+        return result
+    entra.acquire_token_silent_with_error = slow_first
+    got: list[str] = []
+    slow = threading.Thread(target=lambda: got.append(a.fabric_token()), name="slow")
+    slow.start()
+    assert out.wait(10)
+    assert a.fabric_token() == "new"  # this call's refusal ends the old sign-in and opens the window
+    back.set()
+    slow.join(10)
+    assert got == ["new"] and entra.calls.count("window") == 1
+    assert _tokens(a, a.cache.CredentialType.REFRESH_TOKEN)
+
+
+def test_a_refusal_of_a_refresh_sent_while_the_window_was_open_keeps_what_it_brought(tmp_path):
+    """A window opened for a claims step, with the old tokens still saved: a refresh that went out while
+    it was open and is refused after it signed in is for the old sign-in too."""
+    a, entra = signed_in(tmp_path)
+    out, back = threading.Event(), threading.Event()
+    real_lookup, real_window = entra.acquire_token_silent_with_error, entra.acquire_token_interactive
+
+    def lookup(scopes, account, force_refresh=False):
+        if threading.current_thread().name != "slow":
+            return real_lookup(scopes, account, force_refresh)
+        out.set()
+        back.wait(10)  # held until the window has signed in
+        return REVOKED
+
+    def window(scopes, **kw):
+        threading.Thread(target=lambda: a._silent(scopes, entra.get_accounts()[0], force_refresh=True),
+                         name="slow").start()
+        assert out.wait(10)
+        return real_window(scopes, **kw)
+    entra.acquire_token_silent_with_error, entra.acquire_token_interactive = lookup, window
+    assert a._sign_in(auth.FABRIC_SCOPES, refused="old", claims="mfa")["access_token"] == "new"
+    back.set()
+    for t in threading.enumerate():
+        if t.name == "slow":
+            t.join(10)
+    assert not a._ended() and _tokens(a, a.cache.CredentialType.REFRESH_TOKEN)
+
+
 def test_a_refusal_for_one_new_scope_doesnt_end_the_sign_in(tmp_path):
     a, entra = signed_in(tmp_path, interactive=False, refuse=CONSENT, cached="")
     with pytest.raises(auth.SignInRequired):

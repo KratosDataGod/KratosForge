@@ -114,6 +114,11 @@ by name. A join with no condition (`df.join(df2)`) pairs every row with every ro
 A join on names (`df.join(df2, "id")`) keeps the left side's column order, where Spark puts the keys first: select the
 columns by name rather than by position.
 
+`select("a.*")` and `select(col("a.*"))` give every column of the DataFrame aliased `a` (after
+`df.alias("a").join(df2.alias("b"), ...)`), and `select("s.*")` every field of struct `s`, as in Spark. A star that
+names neither is Spark's `CANNOT_RESOLVE_STAR_EXPAND` error. After a select, the result no longer knows its columns'
+aliases, so `a.id` works within the select but not in a later `sort` or `filter`: use the column's name there.
+
 `persist(StorageLevel.DISK_ONLY)`, `cache()` and `unpersist()` record the level and `df.storageLevel` reads it back,
 printed as Spark prints it; `from pyspark.storagelevel import StorageLevel` has Spark's levels. One PC has no executors
 to keep blocks on, so the level is only recorded: `cache()` runs the query once, as before, and `persist` keeps nothing.

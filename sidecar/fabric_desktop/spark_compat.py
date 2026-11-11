@@ -1260,6 +1260,77 @@ def _global_select(fn: Any) -> Any:
     return select
 
 
+# ``a."*"``: what DuckDB's col("a.*") writes; each name before the star plain or double-quoted.
+_STAR_REF = re.compile(r'^((?:"(?:[^"]|"")*"|[^."()\s]+)(?:\.(?:"(?:[^"]|"")*"|[^."()\s]+))*)\."\*"$')
+_STAR_PART = re.compile(r'"((?:[^"]|"")*)"|([^."]+)')
+
+
+def _star_prefix(c: Any) -> list[str] | None:
+    """The names before ``.*`` when ``c`` is ``"a.*"`` or ``col("a.*")`` (a DataFrame alias's columns, or a
+    struct's fields), else None. A backquoted name (```a.b`.*``) is one name, as in Spark."""
+    if isinstance(c, str):
+        if not c.endswith(".*") or c == ".*":
+            return None
+        text = c[:-2]
+        parts, i = [], 0
+        while i < len(text):
+            if text[i] == "`":
+                end = text.find("`", i + 1)
+                if end < 0:
+                    return None
+                parts.append(text[i + 1:end])
+                i = end + 1
+            else:
+                end = text.find(".", i)
+                end = len(text) if end < 0 else end
+                parts.append(text[i:end])
+                i = end
+            if i < len(text):
+                if text[i] != ".":
+                    return None
+                i += 1
+        return parts if parts and all(parts) else None
+    if isinstance(c, Column):
+        m = _STAR_REF.match(str(c.expr))
+        if m is None:
+            return None
+        names = [p.group(1).replace('""', '"') if p.group(1) is not None else p.group(2)
+                 for p in _STAR_PART.finditer(m.group(1))]
+        whole = ".".join(names)
+        if len(whole) > 1 and whole[0] == whole[-1] == "`":  # col("`a.b`.*"): DuckDB split the quoted name
+            return [whole[1:-1]]
+        return names
+    return None
+
+
+def _star_select(fn: Any) -> Any:
+    """``select("a.*")`` and ``select(col("a.*"))``: every column of the DataFrame aliased ``a`` (after
+    ``df.alias("a").join(...)``) or every field of struct ``a``, as in Spark; DuckDB's col reads ``*`` as a
+    column name."""
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        flat = list(cols[0]) if len(cols) == 1 and isinstance(cols[0], list) else list(cols)
+        stars = [_star_prefix(c) for c in flat]
+        if not any(stars):
+            return fn(self, *cols)
+        out = [Column(duckdb.SQLExpression(".".join('"' + p.replace('"', '""') + '"' for p in star) + ".*"))
+               if star else c for c, star in zip(flat, stars, strict=True)]
+        try:
+            return fn(self, *out)
+        except duckdb.BinderException as exc:
+            from duckdb.experimental.spark.errors import AnalysisException
+            text = str(exc)
+            for star in filter(None, stars):
+                name = ".".join(star)
+                if f'"{star[0]}"' in text or f'"{name}"' in text:
+                    raise AnalysisException(message=f"[CANNOT_RESOLVE_STAR_EXPAND] Cannot resolve `{name}`.* given input "
+                                                    f"columns {', '.join(f'`{x}`' for x in self.columns)}. Please check "
+                                                    "that the specified table or struct exists and is accessible "
+                                                    "in the input columns.") from None
+            raise
+    select.__doc__ = fn.__doc__
+    return select
+
+
 def _select_expr(self: DataFrame, *exprs: str) -> DataFrame:
     return self.select(*[expr(e) for e in _flat(exprs)])
 
@@ -2152,6 +2223,7 @@ def install() -> None:
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]
     DataFrame.join = _same_self(DataFrame.join)  # type: ignore[method-assign]
     DataFrame.crossJoin = _same_self(DataFrame.crossJoin)  # type: ignore[method-assign]
+    DataFrame.select = _star_select(DataFrame.select)  # type: ignore[method-assign]  # under _naming, below
     for name in ("repartition", "repartitionByRange", "coalesce", "persist", "unpersist", "checkpoint",
                  "localCheckpoint", "hint"):
         if not hasattr(DataFrame, name):

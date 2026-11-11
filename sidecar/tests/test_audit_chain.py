@@ -30,7 +30,7 @@ def test_processes_writing_at_once_keep_one_unbroken_chain(tmp_path):
     assert result == {"lines": 120, "ok": True, "problems": []}
 
 
-def _write_mixed(folder, app, count, integrations, ready, go):
+def _write_mixed(folder, app, count, integrations, ready, go, middle):
     """One writer as the app, the agent or a scheduled run does it; the first app window also writes the
     AI tools' trail beside it, through the same chain writer, as its integrations do."""
     log = AuditLog(folder, app=app)
@@ -41,6 +41,8 @@ def _write_mixed(folder, app, count, integrations, ready, go):
         if app == "desktop-1":
             audit_chain.append(integrations, {"at": "2026-11-11T00:00:00+00:00", "capability": "list_tables",
                                               "outcome": "ok", "n": i})
+        if i == 0:
+            middle.wait(60)  # no writer goes on until every writer has a line in: they are writing at once
 
 
 def test_two_app_windows_the_agent_and_a_schedule_at_once_lose_no_line(tmp_path):
@@ -49,8 +51,8 @@ def test_two_app_windows_the_agent_and_a_schedule_at_once_lose_no_line(tmp_path)
     trail, tools = tmp_path / "audit", tmp_path / "integrations"
     ctx = multiprocessing.get_context("spawn")
     names, count = ("desktop-1", "desktop-2", "agent", "schedule"), 150
-    ready, go = ctx.Semaphore(0), ctx.Event()
-    procs = [ctx.Process(target=_write_mixed, args=(trail, name, count, tools, ready, go)) for name in names]
+    ready, go, middle = ctx.Semaphore(0), ctx.Event(), ctx.Barrier(len(names))
+    procs = [ctx.Process(target=_write_mixed, args=(trail, name, count, tools, ready, go, middle)) for name in names]
     for p in procs:
         p.start()
     for _ in procs:
@@ -66,8 +68,9 @@ def test_two_app_windows_the_agent_and_a_schedule_at_once_lose_no_line(tmp_path)
     assert json.loads((trail / audit_chain.HEAD).read_text()) == {"hash": lines[-1]["hash"], "lines": len(lines)}
     assert audit_chain.verify(tools) == {"lines": count, "ok": True, "problems": []}
     order = [line["target"]["entity"].rsplit("-", 1)[0] for line in lines]
-    last_start = max(order.index(n) for n in names)  # the writers overlapped: two had begun before the last one did
-    assert len(set(order[:last_start])) >= 2
+    assert sorted(order[:len(names)]) == sorted(names)  # every writer had a line in before any wrote its second
+    # one after another would switch writers exactly len(names) - 1 times
+    assert sum(a != b for a, b in zip(order, order[1:], strict=False)) >= len(names)
 
 
 def test_a_long_running_writer_sees_lines_other_processes_added(tmp_path):

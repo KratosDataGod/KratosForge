@@ -369,7 +369,7 @@ The agent answers in **`status/<id>.json`**:
 | `received_at`, `started_at`, `finished_at`, `updated_at` | UTC times |
 | `result` | `tables`, `ok`, `failed`, `rows_written` and `run_ids` |
 | `cancel` | Set when a cancel arrived while the run was going |
-| `waiting` | Set while the request is `accepted` but not yet queued because the agent's queue is full (`agent.max_queued`); it is queued at a later poll, and the field goes |
+| `waiting` | Set while the request is `accepted` but not yet queued because the agent's queue is full (`agent.max_queued`); it is queued at a later poll, and the field goes. A cancel file or a passed `deadline` ends it meanwhile as `cancelled` or `expired`, and it is never queued |
 | `pipeline_run` | The run the request named, with `verified`, `status`, `started_at` and `detail` (what Fabric said, or why it couldn't be checked) |
 | `contract`, `request_id`, `env`, `entities`, `backfill`, `cascade`, `deadline`, `submitted_by` | As requested |
 

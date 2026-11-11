@@ -321,3 +321,25 @@ def test_closed_and_one_off_keys_go_after_a_year_and_open_ones_never(tmp_path):
 def test_the_daily_sweep_tidies_the_ledger_and_never_makes_the_file(svc):
     svc._pn_tidy()
     assert not (svc.root / "platform_outbox.sqlite").exists()
+
+
+def test_the_daily_sweep_runs_the_ledger_tidy_even_when_nothing_is_sent(svc, monkeypatch):
+    """A PC that sends no notices for a year still prunes its ledger: the daily sweep tidies it, and a
+    tidy that fails is logged without stopping the sweep."""
+    import threading
+
+    from fabric_desktop import retention
+    tidied = threading.Event()
+
+    def tidy():
+        tidied.set()
+        raise OSError("the ledger is locked")
+    monkeypatch.setattr(retention, "sweep", lambda root, days: {"removed": [], "bytes": 0, "days": days})
+    monkeypatch.setattr(svc, "_pn_tidy", tidy)
+    svc._start_retention_sweep()
+    try:
+        assert tidied.wait(10)
+    finally:
+        svc._sweep_stop.set()
+    svc._sweeper.join(10)
+    assert not svc._sweeper.is_alive()

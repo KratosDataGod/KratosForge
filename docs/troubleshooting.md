@@ -127,6 +127,15 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
 | "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
 
+## Your data folder is short of room or on a network share
+
+| You see | Why | What to do |
+| --- | --- | --- |
+| **Ready to work** says "Only ... GB is free on the drive that holds" your data folder | The app keeps its engine, notebooks and local tables in `%LOCALAPPDATA%\FabricDesktop`. A new engine build needs about 1.5 GB while it unpacks. | Free some space. On a shared or virtual desktop, ask IT to make your profile disk bigger ([Enterprise install](enterprise-install.md#virtual-desktops-and-shared-pcs)). |
+| "There isn't room for the engine in ..." | The engine download was stopped before it started, because the drive has less than about 1.5 GB free. | Free some space and choose **Retry**. |
+| "The engine couldn't be saved: the drive that holds ... is full" or "Windows won't let KratosForge write to ..." | The drive filled up during the download or unpack, or the profile disk is attached read-only. | Free some space, or sign out and in again, then choose **Retry**. |
+| **Ready to work** says your data folder "is on a network share" | `%LOCALAPPDATA%` is redirected to a share. | Ask IT to keep `%LOCALAPPDATA%` on the PC. |
+
 ## This PC's clock is wrong
 
 Sign-in, HTTPS certificates, schedules and the audit trail all use the PC's clock. When it is off by more than a few minutes:

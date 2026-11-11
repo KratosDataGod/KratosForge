@@ -53,7 +53,7 @@ def test_the_msi_and_registry_are_as_the_page_says():
 
 def test_the_engine_download_uses_the_windows_proxy_as_the_page_says():
     main = (ROOT / "app" / "src-tauri" / "src" / "main.rs").read_text(encoding="utf-8")
-    install = main.split("fn install_engine", 1)[1].split("\nfn ", 1)[0]
+    install = main.split("fn install_engine_into", 1)[1].split("\nfn ", 1)[0]
     assert 'system_tool("curl.exe")' in install and "download_args(" in install
     assert "win_proxy::curl_args(url)" in main.split("fn download_args", 1)[1].split("\n}", 1)[0]
     assert "else the proxy Windows uses for the download's address" in INSTALL

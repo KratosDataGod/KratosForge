@@ -11,6 +11,7 @@ Nothing here writes anywhere; it only builds queries. ``install()`` is called by
 from __future__ import annotations
 
 import builtins
+import functools
 import inspect
 import itertools
 import re
@@ -951,6 +952,36 @@ def _case_step(fn: Any, kind: str) -> Any:
     return step
 
 
+# F functions whose argument at this place Spark casts to text (upper(14) is '14'), and its name.
+_TEXT_ARGS = {"upper": 0, "lower": 0, "trim": 0, "ltrim": 0, "rtrim": 0, "initcap": 0, "ascii": 0, "length": 0,
+              "char_length": 0, "character_length": 0, "instr": 0, "locate": 1, "split": 0, "regexp_replace": 0,
+              "translate": 0, "lpad": 0, "rpad": 0, "repeat": 0, "left": 0, "right": 0, "replace": 0}
+
+
+def _text_argument(name: str, at: int, fn: Any) -> Any:
+    """F.<name> with its text argument cast as Spark casts it (spark_builtins_sql.spark_text_arg); the
+    argument keeps its own name, so the column is still named upper(i)."""
+    @functools.wraps(fn)
+    def call(*args: Any, **kwargs: Any) -> Any:
+        if len(args) > at and isinstance(args[at], (Column, str)):
+            given = F.col(args[at]) if isinstance(args[at], str) else args[at]
+            text = _named(_sql(spark_builtins_sql.spark_text_arg_sql(_col_sql(given), name)), _spark_text(given))
+            args = (*args[:at], text, *args[at + 1:])
+        return fn(*args, **kwargs)
+    return call
+
+
+def _refusing_struct_edits(fn: Any) -> Any:
+    """groupBy, orderBy, sort and agg refuse an edited struct inside an expression by name, as select
+    does (spark_struct_fields), before DuckDB's own error about it."""
+    @functools.wraps(fn)
+    def call(self: Any, *cols: Any, **kwargs: Any) -> Any:
+        from .spark_struct_fields import refuse_unresolved
+        refuse_unresolved(list(_flat(cols)) + [c for c in kwargs.values() if isinstance(c, Column)])
+        return fn(self, *cols, **kwargs)
+    return call
+
+
 def _install_spark_names() -> None:
     for name in (*_OPERATORS, *_UNARY):
         if hasattr(Column, name):
@@ -1044,7 +1075,7 @@ def _alias_marked(fn: Any) -> Any:
             out._fd_struct = vars(self)["_fd_struct"]
             out._fd_struct_alias = names[0] if names else None
             out._fd_struct_named = vars(self).get("_fd_name")
-        out._fd_alias_of = _spark_text(self)  # Spark writes it "x AS name" inside another name
+        out._fd_alias_of = self  # Spark writes it "x AS name" inside update_fields' name (spark_struct_fields)
         return cast(Column, out)
     alias.__doc__ = fn.__doc__
     return alias
@@ -1256,6 +1287,77 @@ def _global_select(fn: Any) -> Any:
             if "Aggregates cannot be present" not in str(exc):
                 raise
             return _agg(self, *[F.col(c) if isinstance(c, str) else c for c in _flat(cols)])
+    select.__doc__ = fn.__doc__
+    return select
+
+
+# ``a."*"``: what DuckDB's col("a.*") writes; each name before the star plain or double-quoted.
+_STAR_REF = re.compile(r'^((?:"(?:[^"]|"")*"|[^."()\s]+)(?:\.(?:"(?:[^"]|"")*"|[^."()\s]+))*)\."\*"$')
+_STAR_PART = re.compile(r'"((?:[^"]|"")*)"|([^."]+)')
+
+
+def _star_prefix(c: Any) -> list[str] | None:
+    """The names before ``.*`` when ``c`` is ``"a.*"`` or ``col("a.*")`` (a DataFrame alias's columns, or a
+    struct's fields), else None. A backquoted name (```a.b`.*``) is one name, as in Spark."""
+    if isinstance(c, str):
+        if not c.endswith(".*") or c == ".*":
+            return None
+        text = c[:-2]
+        parts, i = [], 0
+        while i < len(text):
+            if text[i] == "`":
+                end = text.find("`", i + 1)
+                if end < 0:
+                    return None
+                parts.append(text[i + 1:end])
+                i = end + 1
+            else:
+                end = text.find(".", i)
+                end = len(text) if end < 0 else end
+                parts.append(text[i:end])
+                i = end
+            if i < len(text):
+                if text[i] != ".":
+                    return None
+                i += 1
+        return parts if parts and all(parts) else None
+    if isinstance(c, Column):
+        m = _STAR_REF.match(str(c.expr))
+        if m is None:
+            return None
+        names = [p.group(1).replace('""', '"') if p.group(1) is not None else p.group(2)
+                 for p in _STAR_PART.finditer(m.group(1))]
+        whole = ".".join(names)
+        if len(whole) > 1 and whole[0] == whole[-1] == "`":  # col("`a.b`.*"): DuckDB split the quoted name
+            return [whole[1:-1]]
+        return names
+    return None
+
+
+def _star_select(fn: Any) -> Any:
+    """``select("a.*")`` and ``select(col("a.*"))``: every column of the DataFrame aliased ``a`` (after
+    ``df.alias("a").join(...)``) or every field of struct ``a``, as in Spark; DuckDB's col reads ``*`` as a
+    column name."""
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        flat = list(cols[0]) if len(cols) == 1 and isinstance(cols[0], list) else list(cols)
+        stars = [_star_prefix(c) for c in flat]
+        if not any(stars):
+            return fn(self, *cols)
+        out = [Column(duckdb.SQLExpression(".".join('"' + p.replace('"', '""') + '"' for p in star) + ".*"))
+               if star else c for c, star in zip(flat, stars, strict=True)]
+        try:
+            return fn(self, *out)
+        except duckdb.BinderException as exc:
+            from duckdb.experimental.spark.errors import AnalysisException
+            text = str(exc)
+            for star in filter(None, stars):
+                name = ".".join(star)
+                if f'"{star[0]}"' in text or f'"{name}"' in text:
+                    raise AnalysisException(message=f"[CANNOT_RESOLVE_STAR_EXPAND] Cannot resolve `{name}`.* given input "
+                                                    f"columns {', '.join(f'`{x}`' for x in self.columns)}. Please check "
+                                                    "that the specified table or struct exists and is accessible "
+                                                    "in the input columns.") from None
+            raise
     select.__doc__ = fn.__doc__
     return select
 
@@ -2121,6 +2223,9 @@ def install() -> None:
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
+    for name, at in _TEXT_ARGS.items():
+        if hasattr(F, name):
+            setattr(F, name, _text_argument(name, at, getattr(F, name)))
     _install_spark_names()  # after every other Column patch, so it names what they give
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.show = _show  # type: ignore[method-assign,assignment]
@@ -2152,6 +2257,7 @@ def install() -> None:
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]
     DataFrame.join = _same_self(DataFrame.join)  # type: ignore[method-assign]
     DataFrame.crossJoin = _same_self(DataFrame.crossJoin)  # type: ignore[method-assign]
+    DataFrame.select = _star_select(DataFrame.select)  # type: ignore[method-assign]  # under _naming, below
     for name in ("repartition", "repartitionByRange", "coalesce", "persist", "unpersist", "checkpoint",
                  "localCheckpoint", "hint"):
         if not hasattr(DataFrame, name):
@@ -2164,4 +2270,8 @@ def install() -> None:
     for name in ("max", "min", "sum", "avg", "mean"):
         setattr(GroupedData, name, _numeric_aggregate(name))
     # spark.conf is spark_api.LocalRuntimeConfig, set on each session (spark_local).
+    for owner, names in ((DataFrame, ("groupBy", "groupby", "orderBy", "sort", "agg")), (GroupedData, ("agg",))):
+        for name in names:
+            if hasattr(owner, name):
+                setattr(owner, name, _refusing_struct_edits(getattr(owner, name)))
     DataFrame._fd_compat = True  # type: ignore[attr-defined]

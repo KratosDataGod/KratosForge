@@ -136,7 +136,7 @@ class Execution:
     timer: threading.Timer | None = field(default=None, repr=False)
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
-    time_limit_from: str = ""  # local target: "sql" (Settings › SQL), "caller" or "project" (its own setting)
+    time_limit_from: str = ""  # "sql" (Settings › SQL), "policy" (the organization's); local also "caller" or "project"
     target: str = "lakehouse"  # or "local": a local data project's database
     project: str = ""  # local target: the project's id
     project_name: str = ""
@@ -476,6 +476,7 @@ class SqlExecutions:
         except OSError:
             pass  # the reader sees the process end and reports it
         run.time_limit_s = minutes * 60
+        run.time_limit_from = ("policy" if limits.get("sql_time_limit_by_policy") else "sql") if minutes > 0 else ""
         if minutes > 0:
             run.timer = threading.Timer(minutes * 60, self._time_up, args=(run,))
             run.timer.daemon = True
@@ -558,7 +559,9 @@ class SqlExecutions:
             run.proc = None
             if run.stop_reason == "timeout":
                 run.state, run.error_kind = "timed_out", "timeout"
-                run.error = f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL)."
+                run.error = (f"Stopped after your organization's time limit ({run.time_limit_s / 60:g} minutes)."
+                             if run.time_limit_from == "policy" else
+                             f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL).")
             elif run.stop_reason == "cancel":
                 run.state, run.error = "cancelled", "Stopped."
             elif outcome.get("event") == "done":

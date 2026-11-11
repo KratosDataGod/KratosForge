@@ -448,7 +448,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         from .http_session import clock_offset
         return readiness.checks(user, fabric.list_workspaces if fabric else list, capacities, self.app_settings(),
-                                clock=clock_offset)
+                                clock=clock_offset, folder=self.root)
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""

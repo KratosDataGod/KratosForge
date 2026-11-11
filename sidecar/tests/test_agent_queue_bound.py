@@ -4,6 +4,7 @@ never dropped, and nothing already queued is removed to make room."""
 import dataclasses
 import json
 import logging
+import time
 
 import pytest
 
@@ -14,7 +15,7 @@ from fabric_desktop.meta.templates import init_project
 
 from test_agent import Clock, config_text, setup  # noqa: F401 - setup is a fixture
 from test_mailbox import config_text as pipeline_config_text
-from test_mailbox import root, status, write_request
+from test_mailbox import nb, root, status, write_request  # noqa: F401 - nb is a fixture
 
 
 def _fill(queue: JobQueue, n: int) -> list[str]:
@@ -134,7 +135,9 @@ def test_a_pipeline_request_waits_with_its_reason_then_queues(pipeline_cfg):
     st = status(cfg, "full-1")
     assert st["state"] == "accepted" and "job_id" not in st
     assert st["waiting"] == "the agent's queue is full (agent.max_queued = 1); it is queued when there is room"
-    agent.mailbox.poll()  # unchanged: the status isn't written again
+    later = agent.clock() + 120
+    agent.clock = lambda: later  # a later poll, still full: the status isn't written again
+    agent.mailbox.poll()
     assert status(cfg, "full-1")["updated_at"] == st["updated_at"]
     assert agent.queue.get(ids[0])["state"] == "queued"
     agent.queue.claim("w", 60)  # room
@@ -143,3 +146,42 @@ def test_a_pipeline_request_waits_with_its_reason_then_queues(pipeline_cfg):
     assert "waiting" not in st and st["job_id"]
     assert agent.queue.get(st["job_id"])["source"] == "pipeline:full-1"
     assert root(cfg).exists()
+
+
+def _iso_in(seconds: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + seconds))
+
+
+def test_a_waiting_request_expires_when_its_deadline_passes_and_is_never_queued(pipeline_cfg):
+    cfg = pipeline_cfg
+    agent = Agent(cfg)
+    _fill(agent.queue, 1)
+    write_request(cfg, "full-late", {"env": "dev", "entities": ["bronze.orders"], "deadline": _iso_in(3600)})
+    agent.mailbox.poll()
+    assert status(cfg, "full-late")["waiting"]
+    agent.clock = lambda: time.time() + 7200  # past the deadline, and still waiting for room
+    agent.mailbox.poll()
+    st = status(cfg, "full-late")
+    assert st["state"] == "expired" and "passed before it started" in st["reason"]
+    assert "waiting" not in st and "job_id" not in st
+    agent.queue.claim("w", 60)  # room now, but the request has ended
+    agent.mailbox.poll()
+    assert agent.queue.find("pipeline:full-late") is None
+    assert status(cfg, "full-late")["state"] == "expired"
+
+
+def test_a_waiting_request_is_cancelled_by_its_cancel_file_and_is_never_queued(pipeline_cfg, nb):
+    cfg = pipeline_cfg
+    agent = Agent(cfg)
+    _fill(agent.queue, 1)
+    write_request(cfg, "full-cancel", {"env": "dev", "entities": ["bronze.orders"]})
+    agent.mailbox.poll()
+    assert status(cfg, "full-cancel")["waiting"]
+    nb["cancel"](str(root(cfg)), "full-cancel")
+    agent.mailbox.poll()
+    st = status(cfg, "full-cancel")
+    assert st["state"] == "cancelled" and st["reason"] == "a cancel file arrived before it was queued"
+    assert "waiting" not in st and "job_id" not in st
+    agent.queue.claim("w", 60)
+    agent.mailbox.poll()
+    assert agent.queue.find("pipeline:full-cancel") is None

@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import platform
 import re
+import shutil
+import sys
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 CHECK_FOLDER = "Files/_fabric_desktop_check"
@@ -26,10 +29,16 @@ def _check(key: str, title: str, status: str, text: str, fix: str = "", doc: str
 # Kerberos allow 5 minutes; past that, sign-in, certificates and schedules can go wrong.
 CLOCK_SLACK_SECONDS = 5 * 60
 
+# Free space below which the data folder's row warns: about what a new engine build needs to unpack
+# beside the old one (disk_space.rs in the shell), with room for notebooks and local tables.
+LOW_SPACE_BYTES = 2 * 1024 ** 3
+_DRIVE_REMOTE = 4  # GetDriveTypeW: a mapped network drive
+
 
 def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]],
            list_capacities: Callable[[], list[dict[str, Any]]], settings: dict[str, Any],
-           clock: Callable[[], dict[str, Any] | None] = lambda: None) -> list[dict[str, Any]]:
+           clock: Callable[[], dict[str, Any] | None] = lambda: None,
+           folder: Path | None = None) -> list[dict[str, Any]]:
     out = [_check("engine", "Local engine", "ok", f"Starts on this PC. Python {platform.python_version()}.")]
     if not user:
         out.append(_check("sign_in", "Signed in", "fail", "Not signed in, so Fabric can't be reached yet.",
@@ -55,7 +64,48 @@ def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]]
     row = clock_check(clock())
     if row:
         out.append(row)
+    if folder is not None:
+        out.append(data_folder_check(folder))
     return out
+
+
+def _on_network(folder: Path) -> bool:
+    """Whether ``folder`` is on a share: a ``\\\\server\\share`` path, or a drive letter Windows maps to one."""
+    text = str(folder)
+    if text.startswith(("\\\\", "//")):
+        return True
+    if sys.platform != "win32" or len(text) < 2 or text[1] != ":":
+        return False
+    import ctypes
+    try:
+        return int(ctypes.windll.kernel32.GetDriveTypeW(f"{text[:2]}\\")) == _DRIVE_REMOTE
+    except (OSError, AttributeError):
+        return False
+
+
+def data_folder_check(folder: Path, free: Callable[[Path], int] = lambda p: shutil.disk_usage(p).free,
+                      network: Callable[[Path], bool] = _on_network) -> dict[str, Any]:
+    """The data folder row: where the app keeps notebooks, settings, the engine and local tables, and
+    whether it has room and is on this PC. Reads only."""
+    title = "Your data folder"
+    where = str(folder)
+    if network(folder):
+        return _check("data_folder", title, "warn",
+                      f"{where} is on a network share. Notebooks, local tables and the app's own stores are slower "
+                      "there, and their file locks can fail. Ask IT to keep %LOCALAPPDATA% on this PC (an FSLogix "
+                      "profile container counts as on this PC).", "", "enterprise-install.md#virtual-desktops-and-shared-pcs")
+    try:
+        left = free(folder)
+    except OSError:
+        return _check("data_folder", title, "ok", f"{where}.")
+    gb = left / 1024 ** 3
+    if left < LOW_SPACE_BYTES:
+        return _check("data_folder", title, "warn",
+                      f"Only {gb:.1f} GB is free on the drive that holds {where}. A new engine build needs about "
+                      "1.5 GB, and notebooks and local tables need room too. Free some space; on a shared or "
+                      "virtual desktop, ask IT to make your profile disk bigger.",
+                      "", "enterprise-install.md#virtual-desktops-and-shared-pcs")
+    return _check("data_folder", title, "ok", f"{where}, with {gb:.0f} GB free.")
 
 
 def clock_check(offset: dict[str, Any] | None) -> dict[str, Any] | None:

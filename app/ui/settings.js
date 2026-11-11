@@ -1376,7 +1376,7 @@ function readinessCard() {
     box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
-        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has and whether it is a network share. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
         results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
         anchor: "ready-to-work",

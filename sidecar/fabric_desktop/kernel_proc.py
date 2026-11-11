@@ -741,7 +741,7 @@ def _parents() -> list[tuple[int, int]]:
                     continue  # it ended while being read
         return pairs
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, errors="replace", timeout=10, check=False).stdout
+        out = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, errors="replace", timeout=10, check=False).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     return [(int(a), int(b)) for a, b in (line.split() for line in out.splitlines() if len(line.split()) == 2)]

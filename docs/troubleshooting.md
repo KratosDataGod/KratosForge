@@ -51,7 +51,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Your organization's sign-in rules ask for a step only a person can take" (scheduled run, agent or AI tool) | The saved sign-in now needs multi-factor authentication or a device check, which only a person at the app can do. The code is in the message. | Open KratosForge and sign in. Scheduled runs pick up the new sign-in on their next start. |
 | "Your sign-in to Fabric has expired or was ended" | The saved sign-in can't be renewed: it went unused too long, a sign-in frequency rule ended it, your password changed, or your organization signed you out (AADSTS700082, 70043, 50173, 50133 and similar). KratosForge stops asking Microsoft to renew it after the first refusal, so nothing retries in the background. | Sign in again. Scheduled runs on this PC pick up the new sign-in on their next start. If it repeats, close the app, delete `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin`, and start again. |
 | "Microsoft Entra refused the agent's sign-in as service principal ..." | The agent's client secret or certificate expired, was replaced, or the app registration was disabled. The message names the code and what to change. | Fix the credential, then restart the agent. Until then the agent asks Entra again only every 5 minutes. |
-| "The personal access token in the CLI profile ... has expired or was revoked" (Databricks) | The workspace refused the token. | Create a new token in the workspace and save it in `~/.databrickscfg`. For a CLI sign-in, the message gives the `databricks auth login` command to run; the next call uses the new sign-in. A token the workspace refused isn't sent again while the app runs, so until it is replaced the message says so without contacting the workspace. |
+| "The personal access token in the CLI profile ... has expired or was revoked" (Databricks) | The workspace refused the token. | Create a new token in the workspace and save it in `~/.databrickscfg`. For a CLI sign-in, the message gives the `databricks auth login` command to run; the next call uses the new sign-in. A token the workspace refused isn't sent again while the app runs, so until it is replaced the message says so without contacting the workspace. If you're sure the token is still valid (the workspace was restarting, or a new token hadn't reached it yet), restart KratosForge. |
 | A new permission still isn't working after consent | Your saved token was issued before the permission was added. | Close the app, delete `msal_cache.bin`, start again and sign in. Or wait up to an hour. |
 | The Fabric page or Monitoring hub asks you to sign in every time | The saved Fabric sign-in couldn't be restored. | Sign in once more. If it keeps asking, delete `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` and sign in again. |
 
@@ -126,6 +126,15 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "Git needs your name and email" | No identity is set for commits. | **Repository settings > Your name on commits**. |
 | "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
 | "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
+
+## Your data folder is short of room or on a network share
+
+| You see | Why | What to do |
+| --- | --- | --- |
+| **Ready to work** says "Only ... GB is free on the drive that holds" your data folder | The app keeps its engine, notebooks and local tables in `%LOCALAPPDATA%\FabricDesktop`. A new engine build needs about 1.5 GB while it unpacks. | Free some space. On a shared or virtual desktop, ask IT to make your profile disk bigger ([Enterprise install](enterprise-install.md#virtual-desktops-and-shared-pcs)). |
+| "There isn't room for the engine in ..." | The engine download was stopped before it started, because the drive has less than about 1.5 GB free. | Free some space and choose **Retry**. |
+| "The engine couldn't be saved: the drive that holds ... is full" or "Windows won't let KratosForge write to ..." | The drive filled up during the download or unpack, or the profile disk is attached read-only. | Free some space, or sign out and in again, then choose **Retry**. |
+| **Ready to work** says your data folder "is on a network share" | `%LOCALAPPDATA%` is redirected to a share. | Ask IT to keep `%LOCALAPPDATA%` on the PC. |
 
 ## This PC's clock is wrong
 

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .engines.runtimes import PATH_HINT, trusted_cli
+from .winexe import system32
 
 
 class ShellError(Exception):
@@ -74,7 +75,7 @@ def script(kind: str, body: str, echo: Callable[[str], None] | None = None) -> i
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write("@echo off\r\n" + body.replace("\r\n", "\n").replace("\n", "\r\n"))
-            code, out = _run(["cmd.exe", "/d", "/c", name], echo=echo)
+            code, out = _run([system32("cmd.exe"), "/d", "/c", name], echo=echo)
             if hint := cmd_blocked_hint(code, out):
                 (echo or sys.stdout.write)(hint + "\n")
             return code
@@ -149,7 +150,7 @@ def end(proc: subprocess.Popen[str]) -> bool:
         return True
     if os.name == "nt":
         try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
+            subprocess.run([system32("taskkill.exe"), "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
                            timeout=TASKKILL_SECONDS)
         except subprocess.TimeoutExpired:  # a stuck taskkill mustn't hold the caller, or leave the command running
             with contextlib.suppress(OSError):  # silent-ok: it ended meanwhile

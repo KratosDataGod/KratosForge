@@ -106,6 +106,13 @@ struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, an
 `select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
 name: select it first and use it from there.
 
+Temp views work as in Spark: `createTempView` refuses a name a view already has (whatever its case) or one with a dot,
+`spark.catalog.dropTempView` and `dropGlobalTempView` say whether they dropped one, and a global temp view
+(`createGlobalTempView`) is read as `global_temp.name` in `spark.sql` and `spark.table`. Text functions take numbers,
+booleans and dates as Spark's implicit cast writes them: `upper(14)` is `'14'` and a double reads as Java writes it
+(`1.0E20`), in the DataFrame API and Spark SQL; a binary, array, map or struct argument is refused by name.
+`spark.createDataFrame(["a"], "string")`, or with a type such as `IntegerType()`, makes one column named `value`.
+
 `drop` works as Spark's: a name drops every column called that (`drop("a.b.c")` drops the column named `a.b.c`), and a
 column drops that column, so after `df.join(df2, df.id == df2.id)`, `drop(df2.id)` keeps df's `id`. `col("id")` that
 two columns answer to is Spark's `AMBIGUOUS_REFERENCE` error. Once the joined frame is selected or changed, this PC no
@@ -113,6 +120,11 @@ longer knows which DataFrame a column came from: `drop(df2.id)` drops the one `i
 by name. A join with no condition (`df.join(df2)`) pairs every row with every row, and `how="cross"` is an inner join.
 A join on names (`df.join(df2, "id")`) keeps the left side's column order, where Spark puts the keys first: select the
 columns by name rather than by position.
+
+`select("a.*")` and `select(col("a.*"))` give every column of the DataFrame aliased `a` (after
+`df.alias("a").join(df2.alias("b"), ...)`), and `select("s.*")` every field of struct `s`, as in Spark. A star that
+names neither is Spark's `CANNOT_RESOLVE_STAR_EXPAND` error. After a select, the result no longer knows its columns'
+aliases, so `a.id` works within the select but not in a later `sort` or `filter`: use the column's name there.
 
 `persist(StorageLevel.DISK_ONLY)`, `cache()` and `unpersist()` record the level and `df.storageLevel` reads it back,
 printed as Spark prints it; `from pyspark.storagelevel import StorageLevel` has Spark's levels. One PC has no executors

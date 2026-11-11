@@ -80,6 +80,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `agent.job_lease_seconds` | 300 | How long a silent worker keeps a job before it runs again. The worker renews it every third of that, and a renewal that fails (the queue file busy) is tried again at the next one. A run whose lease ran out anyway stops before its next table, its audit log says `lease_lost`, and it can't renew or finish the job's next attempt |
 | `agent.table_lease_seconds` | 120 | Write lease length, and how long to wait for a busy table |
 | `agent.status_seconds` | 60 | How often to publish the [status record](#status-records) to each environment |
+| `agent.max_queued` | 1000 | The most jobs that may wait in the queue. Past it, nothing already queued is removed and nothing is dropped: a schedule's run waits and is queued once there is room, a pipeline request waits with `waiting` in its status, and `agent enqueue` is refused with the reason. See [Queue full](#queue-full) |
 | `auth.type` | required | `service_principal`, `managed_identity` or `user` |
 | `retry.max_attempts` | 3 | Tries for retryable errors |
 | `retry.backoff_seconds` | 60 | First wait; doubles each try |
@@ -190,6 +191,8 @@ For what each alert, log warning and incident means and how to recover, see the 
 
 **Policy file.** The organization's policy file applies to the agent too. At start and then every 15 minutes, the agent compares `policy.json` with what it saw last (`policy-seen.json` in its home) and writes any change to its own audit log: `policy_file_seen` the first time, then `policy_file_changed` with the SHA-256 before and after. These are the same entries the desktop app writes; [Changes to the policy file](enterprise-install.md#changes-to-the-policy-file) says what each one means. Nothing is blocked, and a check that fails is logged and tried again at the next one.
 
+**Queue full.** At most `agent.max_queued` jobs (default 1000) wait in the queue, so a backlog (a capacity paused for a day, say, under a 5-minute schedule) can't grow it without end. Past that, new work is held back with its reason, never dropped, and nothing already queued is removed. A schedule whose time comes keeps that time and is queued at the first tick with room, once, however long it waited; the log says `schedule deferred: the agent's queue is full; it runs once there is room` once per due time, and the status record counts it in `schedules_deferred`. A pipeline request stays this agent's and is queued at a later poll; its status says why in `waiting`. `agent enqueue` is refused with exit code 1 and the reason, and the audit log records `agent_enqueue` as refused. A schedule with a run already queued doesn't add another, so the limit is reached only by many schedules or requests.
+
 **Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
 **Local copies.** Right after pruning, the agent deletes local copies of lakehouse data in its data folder (`<home>\data`, where its runs keep them) that haven't been used for the policy's `local_retention_days` (default 30; `0` keeps them), by the same rules as the app ([Configure Azure and Fabric](azure-setup.md)): files read, staged tables, the download cache and replay bundle copies. A write's left-over spill file goes after a day whatever the setting. The queue, audit trail, logs, settings and a project's This PC data are never touched. A cleanup that fails is logged and tried again the next day.
@@ -212,6 +215,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `incidents` | Whether it checks [incidents](#incidents-preview) and how often, its quiet hours, escalation, and each route's name and filters. Webhook addresses and the variables holding them are never included |
 | `shortcut_health` | `enabled` (whether it checks this environment's [shortcuts](#shortcut-health)) and `minutes`. Other agents read it so that one of them posts each break. No webhook |
 | `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
+| `max_queued`, `schedules_deferred` | `agent.max_queued`, and how many schedule due times waited for room in a full queue since this start (each ran once there was room). The same numbers in each environment's record |
 | `messages_dropped` | Teams or flow messages (job alerts, incidents, shortcut breaks) dropped unsent since this start: after three days, or as the oldest beyond 500 in one outbox. The agent's log says which outbox each came from. The same number in each environment's record |
 | `messages_waiting` | Teams or flow messages waiting in the agent's outboxes now, because Teams didn't take them or quiet hours hold them. `null` when an outbox can't be read |
 | `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
@@ -353,6 +357,7 @@ The agent answers in **`status/<id>.json`**:
 | `received_at`, `started_at`, `finished_at`, `updated_at` | UTC times |
 | `result` | `tables`, `ok`, `failed`, `rows_written` and `run_ids` |
 | `cancel` | Set when a cancel arrived while the run was going |
+| `waiting` | Set while the request is `accepted` but not yet queued because the agent's queue is full (`agent.max_queued`); it is queued at a later poll, and the field goes |
 | `pipeline_run` | The run the request named, with `verified`, `status`, `started_at` and `detail` (what Fabric said, or why it couldn't be checked) |
 | `contract`, `request_id`, `env`, `entities`, `backfill`, `cascade`, `deadline`, `submitted_by` | As requested |
 

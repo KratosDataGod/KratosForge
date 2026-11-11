@@ -81,3 +81,12 @@ test("a note read from the policy package says how old the package is", { skip }
   assert.ok(said.includes("From the policy Sales data standards, version 1."), said);
   assert.ok(said.includes("From the project's policy package taken 3 days ago: the platform couldn't be reached."), said);
 });
+
+test("a package note with no recorded age still reads as a sentence", { skip }, async () => {
+  await openCheck("guided", { SM003: [{ text: "Use decimal.", policy: "Sales data standards", owner: "", version: 1, sha256: "" }] }, {});
+  const box = sm003().locator(".learn-team-notes");
+  await box.waitFor();
+  const said = await box.innerText();
+  assert.ok(said.includes("From the project's policy package, taken earlier, while the platform couldn't be reached."), said);
+  assert.ok(!said.includes("earlier ago"), said);
+});

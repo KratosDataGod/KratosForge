@@ -281,7 +281,7 @@ function learnTeamNoteBlock(id) {
     h("p", { class: "learn-team-text" }, n.text),
     h("span", { class: "muted-text small" }, [`From the policy ${n.policy}`, n.version ? `version ${n.version}` : null,
       n.owner ? `owned by ${n.owner}` : null].filter(Boolean).join(", ") + (n.sha256 ? `. SHA-256 ${hash(n.sha256)}.` : ".")),
-    learnTeamPackage ? h("span", { class: "muted-text small" }, `From the project's policy package taken ${learnTeamPackage.age || "earlier"} ago: the platform couldn't be reached.`) : null));
+    learnTeamPackage ? h("span", { class: "muted-text small" }, (learnTeamPackage.age ? `From the project's policy package taken ${learnTeamPackage.age} ago: the platform couldn't be reached.` : "From the project's policy package, taken earlier, while the platform couldn't be reached.")) : null));
 }
 
 // Gives each finding its line_hash (lineOf: the finding's line of code), and reads the dismissals.

@@ -106,7 +106,17 @@ struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, an
 `select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
 name: select it first and use it from there.
 
-### DataFrame: 85 of 102
+`persist(StorageLevel.DISK_ONLY)`, `cache()` and `unpersist()` record the level and `df.storageLevel` reads it back,
+printed as Spark prints it; `from pyspark.storagelevel import StorageLevel` has Spark's levels. One PC has no executors
+to keep blocks on, so the level is only recorded: `cache()` runs the query once, as before, and `persist` keeps nothing.
+`sameSemantics` says two DataFrames are the same when their plans are, apart from the names of the output columns, as
+Spark's does; like Spark's it can say False for two that give the same rows (two `createDataFrame` calls with the same
+data). `semanticHash()` is this PC's own number for that plan, not the one Spark gives. `df.observe(Observation(),
+...)` works and `observation.get` gives each metric over every row of the observed DataFrame: it runs one aggregate
+query the first time it's read, where Spark computes it during the first action. `observe` with a name and
+`spark.streams` (listeners, the query manager) are refused by name: they run in Fabric.
+
+### DataFrame: 89 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -161,7 +171,7 @@ name: select it first and use it from there.
 | `mapInPandas` | Runs in Fabric: runs in Fabric |
 | `melt` | Works |
 | `na` | Works |
-| `observe` | Not yet on this PC |
+| `observe` | Works |
 | `offset` | Works |
 | `orderBy` | Works |
 | `pandas_api` | Runs in Fabric: pandas-on-Spark runs in Fabric; use toPandas() |
@@ -174,19 +184,19 @@ name: select it first and use it from there.
 | `repartitionByRange` | Accepted, does nothing on one PC |
 | `replace` | Works |
 | `rollup` | Works |
-| `sameSemantics` | Not yet on this PC |
+| `sameSemantics` | Works |
 | `sample` | Works |
 | `sampleBy` | Works |
 | `schema` | Works |
 | `select` | Works |
 | `selectExpr` | Works |
-| `semanticHash` | Not yet on this PC |
+| `semanticHash` | Works |
 | `show` | Works |
 | `sort` | Works |
 | `sortWithinPartitions` | Works |
 | `sparkSession` | Works |
 | `stat` | Works |
-| `storageLevel` | Not yet on this PC |
+| `storageLevel` | Works |
 | `subtract` | Works |
 | `summary` | Works |
 | `tail` | Works |

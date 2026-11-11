@@ -1661,8 +1661,9 @@ def install(namespace: dict[str, Any]) -> None:
     spark_api.install()
     _alias_pyspark()
     _alias_delta()
-    from . import spark_stream
+    from . import spark_df_extras, spark_stream
     spark_stream.install()
+    spark_df_extras.install()
     namespace["spark"] = session()
 
 

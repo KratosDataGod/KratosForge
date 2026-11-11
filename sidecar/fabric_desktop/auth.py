@@ -38,8 +38,11 @@ _log = logging.getLogger(__name__)
 AUTHORITY = "https://login.microsoftonline.com/organizations"
 # Seconds MSAL waits for each sign-in call to Entra (MSAL's own default is to wait forever, so a
 # proxy that swallows the call hung sign-in with no message). The browser or Windows prompt itself
-# isn't bounded by this: only the calls MSAL makes.
-SIGN_IN_TIMEOUT = http_session.DEFAULT_TIMEOUT
+# isn't bounded by this: only the calls MSAL makes. Connecting gets less: a network that drops
+# the traffic (no answer at all) costs that wait per address the host has (eight for login.
+# microsoftonline.com), twice with MSAL's one retry, and Home's first check waits for it.
+SIGN_IN_CONNECT_SECONDS = 5
+SIGN_IN_TIMEOUT = (SIGN_IN_CONNECT_SECONDS, http_session.DEFAULT_TIMEOUT)
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
 MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
@@ -463,6 +466,28 @@ def ended(result: dict | None) -> str:
     if result.get("error") == "invalid_grant" and result.get("suberror") == "bad_token":
         return "bad_token"
     return ""
+
+
+# Where MSAL files a Microsoft Entra account in the cache: the public cloud's sign-in host and the
+# aliases it falls back to (its instance discovery, which asks Microsoft for them over the network).
+ACCOUNT_HOSTS = ("login.microsoftonline.com", "login.windows.net", "login.microsoft.com", "sts.windows.net")
+
+
+def cached_account(cache_path: Path | None = None) -> dict[str, Any] | None:
+    """The saved sign-in's account, from the cache file alone, as MSAL's ``get_accounts`` finds it.
+    Building MSAL's app first asks Microsoft for its sign-in endpoints, which offline or behind a
+    proxy that blocks login.microsoftonline.com waits out the timeout, so start-up reads this instead."""
+    path = cache_path or default_cache_path()
+    if not path.exists():
+        return None
+    cache = SharedTokenCache(path)
+    kinds = (msal.TokenCache.AuthorityType.MSSTS, msal.TokenCache.AuthorityType.ADFS)
+    for host in ACCOUNT_HOSTS:
+        found = [a for a in cache.search(cache.CredentialType.ACCOUNT, query={"environment": host})
+                 if a.get("authority_type") in kinds]
+        if found:
+            return found[0]
+    return None
 
 
 class Authenticator:

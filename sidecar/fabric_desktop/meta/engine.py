@@ -628,8 +628,9 @@ class Engine:
     def _stopped_leftovers(self, e: Entity, run: str, note: dict[str, Any], res: RunResult) -> None:
         """The files run ``run`` left in ``e``'s table when its process ended mid-write (PB-067), as a dry
         run: they are counted on this run's steps, and nothing is deleted. Only on this PC, and only under
-        this run's lease on the table, so no write is under way that could still commit one of them;
-        maintenance.stopped_run_leftovers says which files are proven to be that run's. Never fails the run."""
+        this run's lease on the table, so no other metadata run is writing it. That lease doesn't stop
+        compaction or a notebook or SQL write to the table, so the list is reported, never deleted from
+        (maintenance.stopped_run_leftovers says what counts). Never fails the run."""
         from .. import maintenance
         from ..leases import holding, table_key
         lh = self.lakehouse(e)

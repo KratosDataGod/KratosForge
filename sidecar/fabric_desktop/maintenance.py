@@ -41,6 +41,7 @@ _DATA_FILE = re.compile(rf"part-\d{{5}}-{_UUID}(-c\d{{3}})?(\.[a-z0-9]+)?\.parqu
 _STAGED_DATA = re.compile(rf"{_DATA_FILE.pattern}#\d+", re.I)
 _STAGED_LOG = re.compile(r"\d{20}\.(json|checkpoint\.parquet)#\d+")
 _COMMIT = re.compile(r"\d{20}\.json")
+_FOREIGN = re.compile(r"[a-z][a-z0-9+.-]*:|[/\\]", re.I)  # a URI (abfss:, file:, C:) or a rooted path
 
 
 def _when(ms: Any) -> str | None:
@@ -287,7 +288,9 @@ def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:
     named: set[str] = set()
     if table is not None:
         named |= {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
-        named |= {unquote(p) for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+        root = uri.rstrip("/") + "/"
+        named |= {unquote(p[len(root):] if p.startswith(root) else p)
+                  for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
     log = Path(uri) / "_delta_log"
     if not log.is_dir():
         return named
@@ -317,9 +320,18 @@ def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
     And none count when any commit was made at or after ``since``: another writer was at work then,
     and its files can't be told from the stopped run's, so all are left for Compact and VACUUM.
 
-    The caller must hold the table's write lease and know the run's process has ended: then no write
-    is under way that could still commit one of these files."""
-    if not Path(uri).is_dir():
+    Nothing counts either when the table folder or its _delta_log is a link (a symbolic link, a
+    junction), or when any version names a file by a full path or URI (a shallow clone, an imported
+    table), which can't be matched against the folder's files.
+
+    The caller must hold the table's write lease and know the run's process has ended. That is not
+    proof no other write is under way: compaction holds a lease of its own and runs alongside
+    appends, and notebook and SQL writes to a local table don't take the table's lease. Their files,
+    not committed yet, look just like these. So this is a list to report, not one to delete from."""
+    root = Path(uri)
+    if _linked(root) or _linked(root / "_delta_log"):
+        return {"files": [], "bytes": 0, "refused": "the table folder or its log is a link, so its files aren't looked at"}
+    if not root.is_dir():
         return {"files": [], "bytes": 0, "refused": None}
     try:
         table: DeltaTable | None = DeltaTable(uri)
@@ -327,11 +339,16 @@ def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
         table = None
     if table is not None:
         since_ms = since * 1000
-        if any(int(c.get("timestamp") or 0) >= since_ms for c in table.history(20)):
+        # A commit with no time can't be shown to come before the run: it counts as after.
+        if any(c.get("timestamp") is None or int(c["timestamp"]) >= since_ms for c in table.history(20)):
             return {"files": [], "bytes": 0,
                     "refused": "a commit was made to the table after the stopped run started, so its files "
                                "can't be told from another writer's: they're left for Compact"}
     named = _named_anywhere(uri, table)
+    if any(_FOREIGN.match(p) for p in named):
+        return {"files": [], "bytes": 0,
+                "refused": "a version of the table names a file by its full path, so which files it names "
+                           "can't be told from the folder"}
     out = []
     for e in _data_folder_files(uri):
         rel = Path(e.path).relative_to(uri).as_posix()
@@ -345,6 +362,16 @@ def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
                     and _STAGED_LOG.fullmatch(e.name) and _written_since(e, since)]
     out.sort()
     return {"files": out, "bytes": _size(uri, out), "refused": None}
+
+
+def _linked(path: Path) -> bool:
+    """A symbolic link, or on Windows any reparse point (a junction, a mount point). Missing: False."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:  # silent-ok: nothing there to follow
+        return False
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_file_attributes", 0)
+                                             & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
 def _written_since(entry: os.DirEntry[str], since: float) -> bool:

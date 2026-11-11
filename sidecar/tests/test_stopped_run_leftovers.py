@@ -252,3 +252,43 @@ def test_holding_is_true_only_inside_the_lease(tmp_path):
     with leases.hold(key):
         assert holding(key) and not holding(table_key("LH_Bronze", "dbo", "other"))
     assert not holding(key)
+
+
+def test_a_linked_table_folder_or_log_is_never_looked_at(tmp_path):
+    uri, root = _table(tmp_path)
+    since = time.time()
+    _plant(root, _part(), next(root.glob("*.parquet")), since + 1)
+    link = tmp_path / "via_link"
+    link.symlink_to(root, target_is_directory=True)
+    found = maintenance.stopped_run_leftovers(str(link), since)
+    assert found["files"] == [] and "is a link" in found["refused"]
+    real_log = tmp_path / "real_log"
+    shutil.move(str(root / "_delta_log"), real_log)
+    (root / "_delta_log").symlink_to(real_log, target_is_directory=True)
+    found = maintenance.stopped_run_leftovers(uri, since)
+    assert found["files"] == [] and "is a link" in found["refused"]
+
+
+@pytest.mark.parametrize("path", ["abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Tables/t/part-0.parquet",
+                                  "file:///C:/data/t/part-0.parquet", "/data/t/part-0.parquet",
+                                  "C:/data/t/part-0.parquet"])
+def test_a_log_that_names_a_file_by_its_full_path_means_nothing_counts(tmp_path, path):
+    uri, root = _table(tmp_path)
+    since = time.time()
+    _plant(root, _part(), next(root.glob("*.parquet")), since + 1)
+    commit = root / "_delta_log" / "00000000000000000001.json"
+    commit.write_text(commit.read_text().rstrip("\n") + "\n" + json.dumps({"remove": {"path": path, "dataChange": True}}) + "\n")
+    os.utime(commit, (since - 30, since - 30))
+    found = maintenance.stopped_run_leftovers(uri, since)
+    assert found["files"] == [] and "full path" in found["refused"]
+
+
+def test_a_commit_with_no_time_means_nothing_counts(tmp_path, monkeypatch):
+    uri, root = _table(tmp_path)
+    since = time.time()
+    _plant(root, _part(), next(root.glob("*.parquet")), since + 1)
+    real = DeltaTable.history
+    monkeypatch.setattr(DeltaTable, "history", lambda self, n=None: [{k: v for k, v in c.items() if k != "timestamp"}
+                                                                    for c in real(self, n)])
+    found = maintenance.stopped_run_leftovers(uri, since)
+    assert found["files"] == [] and "a commit was made" in found["refused"]

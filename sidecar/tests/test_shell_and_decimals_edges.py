@@ -54,6 +54,7 @@ def _windows(monkeypatch):
 
 def test_cmd_runs_the_cell_from_a_script_file_that_is_removed_after(monkeypatch):
     _windows(monkeypatch)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     seen = {}
 
     def run(args, stdin=None, echo=None, shell=False):
@@ -62,7 +63,7 @@ def test_cmd_runs_the_cell_from_a_script_file_that_is_removed_after(monkeypatch)
     monkeypatch.setattr(shell, "_run", run)
     said = []
     assert shell.script("cmd", "echo hi\nver", echo=said.append) == 0
-    assert seen["args"][:3] == ["cmd.exe", "/d", "/c"] and seen["args"][3].endswith(".cmd")
+    assert seen["args"][:3] == [r"C:\Windows\System32\cmd.exe", "/d", "/c"] and seen["args"][3].endswith(".cmd")
     assert seen["text"] == b"@echo off\r\necho hi\r\nver"
     assert not Path(seen["args"][3]).exists() and said == []
 

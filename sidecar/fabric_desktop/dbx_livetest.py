@@ -149,8 +149,10 @@ class DatabricksLiveTest:
         self.tokens, self.client = tokens, client
         self.sql_adapter, self.connect_adapter = sql_adapter, connect_adapter
         self.stop_compute = stop_compute
+        # A new bad token each run: one the workspace already refused is never sent again (databricks_auth).
+        bad = f"not-a-token-{uuid.uuid4().hex}"
         self.bad_token_client = bad_token_client if bad_token_client is not None else \
-            Client(TokenProvider(self.host, lambda: ("not-a-token", None), "live-test"))
+            Client(TokenProvider(self.host, lambda: (bad, None), "live-test"))
         self.run_id = run_id or uuid.uuid4().hex[:12]
         self.dir = Path(out_dir) / self.run_id
         self.by = by

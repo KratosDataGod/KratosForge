@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "5d2fc0454d489bb57e3adff7f56c5a4fd6ef7021",
+    "commit": "17e7ea068acfb3106f338a1f1f4efde3cae96c3e",
     "date": "2026-11-10",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -51,7 +51,9 @@
       "Product check 2026-11-09 11:42 at 2bf8ea1b7278e1c84ce43c271b11dc10e49f68ef: 41 PRs merged after e5e6bec4; 2 were product data and docs audit PRs and the other 39 were linked by title; other rows were not re-read.",
       "Acceptance of PB-128 for the DP-700 track recorded (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); the Databricks track is PB-135.",
       "Product check 2026-11-09 23:42 at d5a867c0b32eff01f8d65b2b253be71dc81dc09f: 54 PRs merged after 2bf8ea1b; 5 were product data, docs audit and operations PRs and the other 49 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-10 11:42 at 5d2fc0454d489bb57e3adff7f56c5a4fd6ef7021: 17 PRs merged after d5a867c0; 1 was a product data PR and the other 16 were linked by title; other rows were not re-read."
+      "Product check 2026-11-10 11:42 at 5d2fc0454d489bb57e3adff7f56c5a4fd6ef7021: 17 PRs merged after d5a867c0; 1 was a product data PR and the other 16 were linked by title; other rows were not re-read.",
+      "Acceptance of PB-120 recorded (Chris chose 'Accept with limits' on the decision card, 2026-11-10 20:29 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpYRYGUPQ2mE64P6mQ1JuT64).",
+      "Product check 2026-11-10 23:42 at 17e7ea068acfb3106f338a1f1f4efde3cae96c3e: 21 PRs merged after 5d2fc045; 3 were product data PRs and the other 18 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -188,7 +190,17 @@
         2384,
         2386,
         2387,
-        2392
+        2392,
+        2398,
+        2399,
+        2400,
+        2401,
+        2403,
+        2405,
+        2407,
+        2413,
+        2415,
+        2418
       ]
     },
     {
@@ -391,7 +403,8 @@
         2222,
         2225,
         2226,
-        2290
+        2290,
+        2410
       ]
     },
     {
@@ -2530,7 +2543,8 @@
         2379,
         2383,
         2388,
-        2389
+        2389,
+        2416
       ]
     },
     {
@@ -3066,7 +3080,8 @@
         2248,
         2273,
         2277,
-        2375
+        2375,
+        2406
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -6761,7 +6776,7 @@
         1289
       ],
       "workstream": "Notebook development program",
-      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350's review was done with PB-118 (Accepted)."
+      "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-10): run on a tenant before the Preview tag comes off. #350 claimed no backlog item; the feature's review was done with PB-118 (Accepted)."
     },
     {
       "id": "FEAT-NB-13",
@@ -8534,7 +8549,11 @@
         2303,
         2307,
         2309,
-        2377
+        2377,
+        2402,
+        2404,
+        2412,
+        2421
       ],
       "workstream": "Bring VS Code developers to KratosForge",
       "limitations": [

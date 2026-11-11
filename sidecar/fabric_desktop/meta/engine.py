@@ -603,6 +603,7 @@ class Engine:
             if committed or logged.height:  # committed: _record_unlogged records it; logged: nothing to do
                 path.unlink(missing_ok=True)
                 continue
+            self._stopped_leftovers(e, run, note, res)
             message = ("Stopped: the engine ended during this run (the app closed, the engine was restarted, "
                        "the PC shut down, or it ran out of memory), so nothing was written to the table. "
                        f"Run it again. Recorded by run {self.run_id}.")
@@ -623,6 +624,38 @@ class Engine:
                 res.steps.append(Step("record", 0, 0.0, f"recorded run {run}, which stopped before it "
                                                         "wrote anything"))
                 path.unlink(missing_ok=True)
+
+    def _stopped_leftovers(self, e: Entity, run: str, note: dict[str, Any], res: RunResult) -> None:
+        """The files run ``run`` left in ``e``'s table when its process ended mid-write (PB-067), as a dry
+        run: they are counted on this run's steps, and nothing is deleted. Only on this PC, and only under
+        this run's lease on the table, so no other metadata run is writing it. That lease doesn't stop
+        compaction or a notebook or SQL write to the table, so the list is reported, never deleted from
+        (maintenance.stopped_run_leftovers says what counts). Never fails the run."""
+        from .. import maintenance
+        from ..leases import holding, table_key
+        lh = self.lakehouse(e)
+        if not isinstance(self.store, LocalStore) or not holding(table_key(lh, e.schema, e.table)):
+            return
+        t0 = time.perf_counter()
+        try:
+            since = dt.datetime.fromisoformat(str(note.get("started_at"))).timestamp()
+            found = maintenance.stopped_run_leftovers(self.store.uri(lh, e.schema, e.table), since)
+        except Exception as exc:  # noqa: BLE001 - only the dry run is missed; Compact still finds them later
+            _log.warning("Couldn't look for the files run %s left in %s: %s", run, e.name, exc)
+            res.steps.append(Step("clean up", 0, 0.0, f"couldn't look for the files run {run} left "
+                                                      f"({type(exc).__name__}): Compact finds them later"))
+            return
+        if found["refused"]:
+            res.steps.append(Step("clean up", 0, round(time.perf_counter() - t0, 3),
+                                  f"run {run} stopped mid-write; {found['refused']}"))
+            return
+        n = len(found["files"])
+        if not n:
+            return
+        res.steps.append(Step("clean up", n, round(time.perf_counter() - t0, 3),
+                              f"dry run: run {run} stopped mid-write and left {n} file{'' if n == 1 else 's'} "
+                              f"({found['bytes'] / 1024 / 1024:.1f} MB) that no version of the table names; "
+                              "nothing was removed"))
 
     def _record_unlogged(self, e: Entity, res: RunResult) -> None:
         """Record the last run that committed to ``e``'s table but has no run-log row: it stopped between

@@ -9,7 +9,8 @@
     sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
     app-crash.log   the app's own crashes (a panic: when, which build, where), when there were any
     agent.log       the last lines of the headless agent's log, on a server with an agent
-    agent-crash.log the agent's native crashes (where each happened, by file and function), when there were any
+    agent-crash.log the agent's native crashes (where each happened, by file and function) and its starts,
+                    when it has a crash
     CONTENTS.txt    what is in the zip and what was taken out
 
 Every file passes through :func:`redact.for_support` (no tokens, keys, passwords, email
@@ -57,7 +58,21 @@ def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> st
     if size > max_bytes:
         data = data[data.find(b"\n") + 1:] if b"\n" in data else b""  # drop the line cut in half
     text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
-    return "".join(text.splitlines(keepends=True)[-lines:])
+    return _without_cut_key("".join(text.splitlines(keepends=True)[-lines:]))
+
+
+_KEY_END = re.compile(r"-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[^\n]*\n?")
+_KEY_BEGIN = re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----")
+
+
+def _without_cut_key(text: str) -> str:
+    """``text`` without the start of a private key whose BEGIN line the tail cut off. Redaction finds a
+    key by its BEGIN line, so a body left on its own would pass as plain text; the lines up to and
+    including its END line are the oldest kept, so they are dropped."""
+    end = _KEY_END.search(text)
+    if end and not _KEY_BEGIN.search(text, 0, end.start()):
+        return "[a private key cut off by the start of this log was removed]\n" + text[end.end():]
+    return text
 
 
 def about(data_dir: Path | None = None) -> dict[str, Any]:
@@ -147,6 +162,12 @@ def policy_record(data_dir: Path) -> dict[str, Any]:
     return record
 
 
+def _has_trace(text: str) -> bool:
+    """Whether faulthandler wrote anything there, beyond the line the agent writes at each start."""
+    from .logs import START_LINE
+    return any(line.strip() and START_LINE not in line for line in text.splitlines())
+
+
 def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
     files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2)}
@@ -167,7 +188,7 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     if crashes is not None:
         files["app-crash.log"] = crashes
     agent_crashes = _tail(agent_home / "logs" / "agent-crash.log") if agent_home else None
-    if agent_crashes:  # only there, and not empty, once the agent has crashed in native code
+    if agent_crashes and _has_trace(agent_crashes):  # start lines alone: the agent never crashed
         files["agent-crash.log"] = agent_crashes
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",

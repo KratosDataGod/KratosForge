@@ -415,7 +415,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 
 1. The **Explorer** lists the lakehouse's tables. Click a table to run `SELECT * FROM <table> LIMIT 100`. Click **▸** next to it to see its columns; click a column to type its name where the cursor is. The button in the Explorer's header collapses it to a thin strip, to give the query more room; the choice is kept on this PC. In a window under 900 px wide it starts collapsed until you choose.
 2. Pick the SQL you are writing in the dialect list next to **Run** (see below), then write it using the names Fabric uses: `SELECT * FROM sales`, or `schema.table` for schemas other than `dbo`.
-3. **Run**, or **Ctrl+Enter**. Select some text first to run just that.
+3. **Run**, **Ctrl+Enter** or **F5**. Select some text first to run just that.
 4. Results show the first page of rows (1,000 by default), with how many rows there were and how long it took. **Next ›** and **‹ Previous** move through the rest without running the query again; **Stop** ends a query that is still running. See [Running SQL queries on this PC](sql-execution.md) for states, limits and what a query may do.
 
 | Button | What it does |
@@ -451,7 +451,7 @@ As you type, the query is checked against the engine picked in the dialect list,
 
 - Line numbers, current-line highlight, bracket matching, folding (click the arrow in the gutter), and highlighting of keywords, functions, strings, numbers, comments, variables (`@name` in T-SQL) and operators. Table names the lakehouse has are underlined, so a misspelled table stands out.
 - **Suggestions** as you type, or **Ctrl+Space**: keywords and functions for the dialect, the lakehouse's schemas and tables, and the columns of the tables the statement names. After `s.` where `s` is an alias or a table, you get that table's columns. Names that need it are quoted for the dialect (`` `Region Name` ``, `[Region Name]` or `"Region Name"`). Tables come from the list the Explorer already loaded, and a table's columns are read once, the first time a statement names it, so typing doesn't call Fabric. **Refresh** reads them again.
-- **Ctrl+Enter** runs the selection, or everything. **Ctrl+S** saves the query tabs (they are also saved as you type). **Shift+Alt+F** formats.
+- **Ctrl+Enter** or **F5** runs the selection, or everything. **Ctrl+S** saves the query tabs (they are also saved as you type). **Shift+Alt+F** formats.
 - **Ctrl+F** finds, with replace. **Ctrl+/** comments or uncomments lines. **Tab** and **Shift+Tab** indent. **Ctrl+Z** and **Ctrl+Y** undo and redo.
 - More than one cursor: **Ctrl+D** selects the next match of the selection, **Ctrl+click** adds a cursor, and **Alt+drag** selects a rectangle.
 

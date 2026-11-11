@@ -85,7 +85,7 @@ Opening one shows its lesson on the left and **Checks** on the right.
 
 1. **Start the lab** makes the lab's data on this PC: generated tables, the same every time, with
    known problems planted for some labs to find. Nothing is downloaded.
-2. Write SQL in the box. **Run** (or Ctrl+Enter) shows the first 200 rows. Every run is undone
+2. Write SQL in the box. **Run** (or Ctrl+Enter, or F5) shows the first 200 rows. Every run is undone
    afterwards, so the lab's data stays as it was whatever you run.
 3. **Check my answer** runs the exercise's checks and says what each one found: the same result as
    the reference, no best-practice findings, faster than the starting query, and so on.
@@ -139,7 +139,11 @@ by your organization's policy file (IT) always wins over a team's.
   area, why it matters, what to do, when it's fine to leave, and how to check a change worked, from
   the rule's section of the notebook or SQL best-practices guide. Importance only explains a rule: its
   severity and your organization's policies decide what is flagged and required. That text ships with
-  the app, so it works offline and nothing is sent anywhere.
+  the app, so it works offline and nothing is sent anywhere. The [semantic model rules](semantic-model-rules.md#each-rule-explained)
+  (SM001 to SM007) and the [pipeline gotchas](orchestration/activity-registry.md#each-gotcha-explained)
+  (PG1 to PG10 and the ForEach limits) have guides in the same format, shipped the same way, and the
+  engine's `learn_rule_guides` returns them too. Neither has Explain in the app yet: model findings show
+  in Check now with a link to their rule's section, and pipeline reports have no page yet.
 - **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
   isn't changed for you.
 - **Try the fix**, at every level, shows a rewrite as a preview, for the rules that have a safe one. It

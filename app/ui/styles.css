@@ -1093,16 +1093,37 @@ body.pop-out .page.monitor { padding: 12px; }
   .home-body.with-aside { grid-template-columns: minmax(0, 1fr); }
   .home-hero { height: 230px; }
 }
+/* A progression page's header (pageHero: Academy, Profile): the same band at the top of the page; the page below keeps its plain layout. */
+.page.living-head > .home-hero { margin-bottom: 18px; max-width: none; }
+.page.living-head .home-hero-text { padding-top: 40px; gap: 10px; }
+.page.living-head h1.home-hero-title { margin: 0; font-size: 64px; color: var(--lx-hero-title); font-weight: 800; letter-spacing: 0; }
+.page.living-head .home-hero-actions { margin-top: 14px; }
+.page.living-head .home-hero-actions:empty { display: none; }
+/* The Preview tag on the sky: its own solid fill, not the page's soft one blended with the navy. */
+.home-hero .preview-tag { background: var(--brand-orange); color: var(--lx-hero-ink); border-color: var(--brand-orange); }
+.page.living-head .profile-name { margin: 0 0 4px; font-size: 24px; font-weight: 600; }
+/* A tab's own buttons on the sky: outline buttons read as the hero's outline, light on navy. */
+.home-hero-actions .tool.outline { background: transparent; color: var(--lx-hero-title); border: 1px solid var(--lx-hero-line); }
 /* Between the wide layout and the 960 px hide, the title steps down so its ink stays on the art's empty sky, left of the cape. */
 @media (max-width: 1250px) { .home-hero-title { font-size: 42px; } }
 @media (max-width: 1180px) { .home-hero-title { font-size: 32px; } }
 @media (max-width: 1040px) { .home-hero-title { font-size: 28px; } .page .home-hero-welcome { font-size: 18px; } }
+@media (max-width: 1250px) { .page.living-head h1.home-hero-title { font-size: 56px; } }
+@media (max-width: 1100px) { .page.living-head h1.home-hero-title { font-size: 48px; } }
 @media (max-width: 960px) { .home-hero-img { display: none; } }
+/* Without its art, a page's header band is only as tall as its title and buttons: no empty navy block. */
+@media (max-width: 960px) {
+  .page.living-head > .home-hero { height: auto; min-height: 0; }
+  .page.living-head .home-hero-text { height: auto; padding-bottom: 24px; }
+}
 @media (max-width: 720px) {
   .home-hero { height: auto; min-height: 120px; margin: 0; }
   .home-hero-img { display: none; }
   .home-hero-text { width: auto; padding: 18px 20px; }
   .home-hero-title { font-size: 28px; }
+  .page.living-head h1.home-hero-title { font-size: 40px; }
+  .page.living-head .home-hero-text { padding-top: 18px; }
+  .page.living-head h1.home-hero-title { white-space: normal; }
 }
 @media (forced-colors: active) {
   .home-hero, .home-id, .home-latest { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
@@ -2188,7 +2209,7 @@ html[data-motion-paused="on"] .splash-ember { animation-play-state: paused; }
   background: radial-gradient(circle, rgba(248,153,28,.85) 0, rgba(248,153,28,0) 70%); animation: fx-glow .5s ease-out both; }
 @keyframes fx-glow { 0% { opacity: 0; transform: scale(.4); } 40% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.25); } }
 @keyframes fx-fade { to { opacity: 0; } }
-html[data-motion="off"] .fx, html[data-motion="off"] .wolf { display: none; }
+html[data-motion="off"] .fx:not(.fx-achieve), html[data-motion-level="0"] .fx, html[data-motion="off"] .wolf { display: none; }
 @media (prefers-reduced-motion: reduce) { html:not([data-motion-override]) :is(.fx, .wolf) { display: none; } .wolf-fill { transition: none; } }
 
 /* A run in Fabric with no measurable progress (KF-MO-009): the wolf trots in place in navy on an empty

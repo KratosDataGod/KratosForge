@@ -10,7 +10,7 @@ const skip = !playwright && "Playwright is not installed";
 const apps = [];
 
 async function open(mocks = {}) {
-  const app = await openApp({ mocks: { save_notebook: () => ({}), ...mocks } });
+  const app = await openApp({ mocks: { app_settings: () => ({ motion_level: { value: 2 } }), save_notebook: () => ({}), ...mocks } });  // Heroic: everyday effects play
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion: "no-preference" });
   await app.page.waitForFunction(() => typeof go === "function" && !!document.querySelector(".rail-item"));

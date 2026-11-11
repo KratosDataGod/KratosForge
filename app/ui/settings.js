@@ -648,8 +648,8 @@ function whatsNewItems(notes, history) {
 // ---------- Settings page ----------
 
 const MOTION_LEVEL_HELP = ["No decorative effects. Progress, results and errors still show as text and bars.",
-  "Quick page and panel transitions only. No characters or sparks.",
-  "The wolf runs with your work, sparks when it succeeds, the forge strike on deploy. Recommended.",
+  "Quick page and panel transitions, and a short reveal when you earn an achievement. Everyday work stays plain. Recommended.",
+  "Adds the wolf on your runs, sparks when work succeeds and the forge strike on deploy.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
@@ -667,7 +667,7 @@ function motionSettingsCard(s, locked) {
   const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
     h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
       disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
-    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 2 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 1 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
   const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
       onchange: (e) => save({ [key]: e.target.checked }) }),
@@ -690,8 +690,11 @@ function motionSettingsCard(s, locked) {
       reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Experience mode" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Heroic and Legendary.` : help,
-      toggle(key, label, s[key]?.value ?? true, level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => {
+      const from = key === "motion_achievements" ? 1 : 2;  // achievements play from Subtle, the rest from Heroic
+      return settingRow(label, level < from ? `${help} ${from === 1 ? "Plays at Subtle and above." : "Plays at Heroic and Legendary."}` : help,
+        toggle(key, label, s[key]?.value ?? true, level < from), source(key));
+    }),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),

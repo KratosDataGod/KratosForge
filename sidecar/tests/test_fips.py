@@ -68,7 +68,10 @@ def test_databricks_sql_hmac_with_md5_or_sha1_works_under_fips(fips):
     from fabric_desktop import databricks_bytes
 
     # HMAC of b"m" with key b"k", as hashlib gives it without FIPS (and Databricks' hmac()).
-    expected = {"MD5": "ed7e724d3a91554aaa2043041d9c5305", "SHA-1": "772b71c8a2997e768be01d9711e4a4f34a24ef33",
-                "SHA256": "b60090e3052297aeb5a080889ce2fc4bca957e756faeb4df7d31800ca1e771ec"}
+    expected = {
+        "MD5": "ed7e724d3a91554aaa2043041d9c5305",  # pragma: allowlist secret
+        "SHA-1": "772b71c8a2997e768be01d9711e4a4f34a24ef33",  # pragma: allowlist secret
+        "SHA256": "b60090e3052297aeb5a080889ce2fc4bca957e756faeb4df7d31800ca1e771ec",  # pragma: allowlist secret
+    }
     for algorithm, answer in expected.items():
         assert databricks_bytes.hmac("6b", "6d", algorithm) == answer

@@ -692,11 +692,10 @@ class LocalEngine:
         steps: list[dict[str, Any]] = []
         n = 0
         if dialect == "spark":
-            import sqlglot
             from sqlglot import exp
             from sqlglot.errors import ParseError
             try:
-                trees = [cast(exp.Expression, t) for t in sqlglot.parse(sql, read="spark") if t is not None]
+                trees = [cast(exp.Expression, t) for t in sql_dialects.parse(sql, read="spark") if t is not None]
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:

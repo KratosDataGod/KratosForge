@@ -805,6 +805,7 @@ def spark_legacy_casts(statement: exp.Expression) -> exp.Expression:
         # its name's place in the query (tests/test_spark_builtins_sql.py pins it).
         if type(node) is exp.Cast and node.to.this not in _TIMESTAMPS and "start" in node.meta:
             replacement = exp.TryCast(this=node.this, to=node.to)
+            replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
             if node is statement:
                 return replacement
             node.replace(replacement)
@@ -999,6 +1000,7 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
             node.set("safe", True)
         elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
             replacement = exp.TryCast(this=node.this, to=node.to)
+            replacement.meta.update(spark_sql_names.kept(node))  # double(x) keeps the name Spark gives it
             if node is statement:
                 return replacement
             node.replace(replacement)

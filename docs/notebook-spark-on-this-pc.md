@@ -25,7 +25,10 @@ refuses a row with a null there, as Spark does (also inside structs, and for arr
 non-nullable, with PySpark's
 `[FIELD_NOT_NULLABLE_WITH_NAME]` error; `verifySchema=False` skips the check); a column `COMMENT` is accepted and left out, since it belongs to a
 table's catalog. `df.schema` shows every field as nullable on this PC. A `NaN` in the data stays `NaN`, as in Spark (inside an array or struct it
-becomes NULL with the DuckDB this app ships), and `F.isnan` of a NULL is false.
+becomes NULL with the DuckDB this app ships), and `F.isnan` of a NULL is false. `F.lit(float("nan"))` and `double('NaN')` are `NaN`, and
+`NaN` equals itself and sorts above every number, as in Spark. `spark.read.csv` splits on a comma unless `sep` or `delimiter` says
+otherwise, and a file read without a header names its columns `_c0`, `_c1` and so on, as Spark does. `extract` and `date_part`
+read a text column as a timestamp, giving NULL where the text isn't one.
 
 `sample`, `dropna` and `unpivot` check their arguments as Spark does: a fraction outside 0 to 1, a `how`
 other than `any` or `all`, and an empty list of value columns are errors rather than quietly clamped or widened.

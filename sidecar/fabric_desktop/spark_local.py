@@ -882,9 +882,8 @@ class LakehouseReader:
         self.options(**{k: v for k, v in opts.items() if v is not None})
         given = self._options
         self._refusal("csv")
-        extra: dict[str, Any] = {}
-        if given.get("sep", given.get("delimiter")):
-            extra["sep"] = str(given.get("sep", given.get("delimiter")))
+        # A comma unless sep or delimiter says otherwise, as in Spark: DuckDB would guess one from the file.
+        extra: dict[str, Any] = {"sep": str(given.get("sep") or given.get("delimiter") or ",")}
         if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
         if given.get("nullvalue") not in (None, ""):
@@ -893,7 +892,10 @@ class LakehouseReader:
             if given.get(name) not in (None, ""):
                 extra[arg] = str(given[name])
         mode = str(given.get("mode", "PERMISSIVE")).upper()
-        rel = self._session.conn.read_csv(self._local(path), header=_true(given.get("header", False)), **extra)
+        header = _true(given.get("header", False))
+        rel = self._session.conn.read_csv(self._local(path), header=header, **extra)
+        if not header:  # Spark names a file's columns _c0, _c1... (DuckDB: column0, column1...)
+            rel = rel.project(", ".join(f'"{c.replace(chr(34), chr(34) * 2)}" AS "_c{i}"' for i, c in enumerate(rel.columns)))
         return self._apply(DataFrame(rel, self._session), by_position=True, mode=mode)
 
     def _given(self, fmt: str, opts: dict[str, Any]) -> dict[str, Any]:

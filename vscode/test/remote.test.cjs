@@ -24,7 +24,7 @@ test("each kind of remote window is named as people call it; a local window is n
 });
 
 // The parts of VS Code's API the extension uses, recording what it shows.
-function fakeVscode(remoteName, notebookUri) {
+function fakeVscode(remoteName, notebookUri, cancelled = false) {
   const shown = [];
   const commands = {};
   const runs = [];
@@ -56,7 +56,7 @@ function fakeVscode(remoteName, notebookUri) {
         dispose() {},
         createNotebookCellExecution: () => {
           const run = { outputs: [], start() {}, end(ok) { run.ok = ok; }, clearOutput() {}, replaceOutput(o) { run.outputs.push(o); },
-            token: { onCancellationRequested() {} } };
+            token: { onCancellationRequested(cb) { if (cancelled) cb(); return { dispose() { run.disposed = true; } }; } } };
           runs.push(run);
           return run;
         },
@@ -127,4 +127,18 @@ test("in a local window the same calls do reach for KratosForge (so the check ab
   await fake.controller().executeHandler([{ kind: 2, document: { getText: () => "x" } }], fake.notebook, fake.controller());
   assert.ok(tried.length > 0, "the local window never looked for KratosForge");
   assert.ok(!fake.shown.some(([, m]) => /local VS Code window/.test(m || "")));
+});
+
+test("a cell stopped before anything was sent says so, and nothing reaches for KratosForge", async (t) => {
+  const tried = watchConnections(t);
+  const fake = fakeVscode(undefined, { scheme: "file", fsPath: path.join(os.tmpdir(), "nb", "a.ipynb"), toString: () => "file:///a.ipynb" }, true);
+  const ext = load(fake);
+  ext.activate(context());
+  const cells = [{ kind: 2, document: { getText: () => "x" } }, { kind: 2, document: { getText: () => "y" } }];
+  await fake.controller().executeHandler(cells, fake.notebook, fake.controller());
+  assert.strictEqual(fake.runs.length, 1, "the cells after a stopped one don't run");
+  assert.strictEqual(fake.runs[0].ok, false);
+  assert.deepStrictEqual(fake.runs[0].outputs[0].items[0], { text: ext.STOPPED_BEFORE, mime: "text/plain" });
+  assert.ok(fake.runs[0].disposed, "the Stop listener is let go when the cell ends");
+  assert.deepStrictEqual(tried, []);
 });

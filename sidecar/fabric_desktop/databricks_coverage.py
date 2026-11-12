@@ -92,10 +92,15 @@ def connect() -> Any:
     return con
 
 
+# Checked against Fabric's Spark session, not a warehouse's: Databricks SQL answers with the session's
+# Unity Catalog catalog and its own time zone setting, so these have no value to compare here.
+SESSION = frozenset({"current_catalog", "current_timezone"})
+
+
 def check(function: dict[str, Any], con: Any) -> tuple[str, str]:
     """``function``'s status and a short note, from running its example as a Databricks SQL cell."""
     example, expected = function.get("example"), DATABRICKS_VALUES.get(function["name"], function.get("value"))
-    if not example or function["name"] in spark_coverage.VARYING or "value" not in function:
+    if not example or function["name"] in spark_coverage.VARYING | SESSION or "value" not in function:
         return "not checked", ""
     try:
         got = run(example, con)

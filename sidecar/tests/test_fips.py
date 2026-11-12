@@ -62,3 +62,13 @@ def test_ids_and_change_checks_work_under_fips(fips):
     assert len(model_bpa.notebook_hash({"cells": []})) == 12
     assert len(fabric_compute.bundle_hash({"a.json": b"{}"})) == 12
     assert len(leases.LocalBackend._etag(b"data")) == 40
+
+
+def test_databricks_sql_hmac_with_md5_or_sha1_works_under_fips(fips):
+    from fabric_desktop import databricks_bytes
+
+    # HMAC of b"m" with key b"k", as hashlib gives it without FIPS (and Databricks' hmac()).
+    expected = {"MD5": "ed7e724d3a91554aaa2043041d9c5305", "SHA-1": "772b71c8a2997e768be01d9711e4a4f34a24ef33",
+                "SHA256": "b60090e3052297aeb5a080889ce2fc4bca957e756faeb4df7d31800ca1e771ec"}
+    for algorithm, answer in expected.items():
+        assert databricks_bytes.hmac("6b", "6d", algorithm) == answer

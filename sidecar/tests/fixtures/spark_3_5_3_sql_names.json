@@ -104,7 +104,6 @@
   "crc32(s)": "crc32(s)",
   "cume_dist() over (order by i)": "cume_dist() OVER (ORDER BY i ASC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)",
   "current_catalog()": "current_catalog()",
-  "current_database()": "current_database()",
   "current_date": "current_date()",
   "current_date()": "current_date()",
   "current_timestamp": "current_timestamp()",

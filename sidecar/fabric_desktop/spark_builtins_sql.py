@@ -999,6 +999,12 @@ def _extract(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression
     if part in _SPARK_SECOND:
         return _with_args(f"CAST(CAST(MICROSECOND({ts}) AS DECIMAL(14, 6)) / 1000000 AS DECIMAL(8, 6))", [value])
     out = node.copy()
+    if not isinstance(value, exp.Literal) and (value.type is None or value.is_type(exp.DataType.Type.UNKNOWN)) \
+            and re.fullmatch(r"[A-Z_]+", part):
+        # A column's type isn't known here: text is read as a timestamp, as Spark casts it, and an interval
+        # keeps its own fields. TYPEOF is fixed when DuckDB plans the query, so only one branch runs.
+        return _with_args(f"CAST(CASE WHEN TYPEOF(fj_arg0) = 'INTERVAL' THEN EXTRACT({part} FROM TRY_CAST(fj_arg0 AS INTERVAL)) "
+                          f"ELSE EXTRACT({part} FROM {ts}) END AS INTEGER)", [value])
     if (isinstance(value, exp.Literal) and value.is_string) or value.is_type(*exp.DataType.TEXT_TYPES):
         out.set("expression", _with_args(ts, [value]))  # text is read as a timestamp, as Spark casts it
     elif value.is_type(exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ):

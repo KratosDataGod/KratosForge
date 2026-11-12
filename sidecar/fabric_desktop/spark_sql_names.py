@@ -165,6 +165,11 @@ def _keep_arguments(node: exp.Expr, tokens: list[Any], i: int, text: str) -> Non
     node.meta[_ARGS] = pieces
 
 
+def kept(node: exp.Expr) -> dict[str, Any]:
+    """What ``remember`` keeps on ``node``, for a rewrite that replaces it with another node."""
+    return {k: v for k, v in node.meta.items() if k.startswith("fd_spark_")}
+
+
 def column_name(column: exp.Expression, scope: exp.Expression | None = None) -> str | None:
     """Spark's name for ``column``, a selected expression without AS; None for one it names otherwise (a
     column, a star, a generator that makes more than one column)."""
@@ -455,7 +460,7 @@ class _Printer:
         if name == "log":
             return f"LOG({'E(), ' if len(args) == 1 else ''}{self.args(args)})"
         if name in _CASTS and len(args) == 1:
-            return f"CAST({self.pretty(args[0])} AS {_CASTS[name]})"
+            return self.pretty(args[0])  # Spark writes a cast it made (double(x)) as its value; CAST is one written
         if name in ("first", "last", "first_value", "last_value") and len(args) == 2 and isinstance(args[1], exp.Boolean):
             args = args[:1]
         if name == "from_json":

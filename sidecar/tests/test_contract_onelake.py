@@ -215,7 +215,7 @@ def test_a_refused_write_says_what_and_why_without_the_url():
     fs, _, _ = waiting_store([Reply(201), Reply(202), Reply(503, {"error": {"code": "ServerBusy", "message": "x"}})])
     with pytest.raises(requests.HTTPError) as err:
         fs.upload(WS, LH, "Files/in/data.csv", b"data")
-    assert str(err.value) == "OneLake didn't commit Files/in/data.csv (503: ServerBusy). OneLake had a problem on its side. Try again, and give the request id to support if it keeps happening."
+    assert str(err.value) == "OneLake didn't commit Files/in/data.csv (503: ServerBusy). OneLake had a problem on its side. Try again, and contact support if it keeps happening."
     assert err.value.response.status_code == 503 and "https://" not in str(err.value)
 
     fs, _, _ = waiting_store([Reply(403, headers={"x-ms-error-code": "AuthorizationPermissionMismatch"})])
@@ -531,8 +531,8 @@ def test_an_error_code_is_shown_only_when_it_looks_like_one(code, shown):
     (404, "Check the workspace, lakehouse and path: it may have been deleted or moved."),
     (409, "Refresh, then try again: something else changed it at the same time."),
     (412, "Refresh, then try again: something else changed it at the same time."),
-    (501, "OneLake had a problem on its side. Try again, and give the request id to support if it keeps happening."),
-    (418, "Check the path and try again, or give the request id to support."),
+    (501, "OneLake had a problem on its side. Try again, and contact support if it keeps happening."),
+    (418, "Check the path and try again."),
 ])
 def test_every_refusal_names_one_next_step(status, step):
     fs, _ = store([Reply(status, {})])
@@ -547,6 +547,18 @@ def test_a_refusal_carries_onelakes_request_id_for_support():
     with pytest.raises(requests.HTTPError) as err:
         fs.list(WS, LH, "Files/in")
     assert str(err.value).endswith(f"Ask a workspace admin. Request id {rid}.")
+
+
+@pytest.mark.parametrize("status, step", [
+    (501, "OneLake had a problem on its side. Try again, and give the request id to support if it keeps happening."),
+    (418, "Check the path and try again, or give the request id to support."),
+])
+def test_a_fallback_step_points_at_the_request_id_only_when_there_is_one(status, step):
+    rid = "0f9c3a2e-701f-0047-5a1b-3c2d1e000000"
+    fs, _ = store([Reply(status, {}, {"x-ms-request-id": rid})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == f"OneLake didn't list Files/in ({status}). {step} Request id {rid}."
 
 
 @pytest.mark.parametrize("rid", ["has spaces in it", "x" * 65, "line\nbreak", ""])

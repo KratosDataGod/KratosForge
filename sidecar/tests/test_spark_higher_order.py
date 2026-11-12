@@ -138,7 +138,9 @@ def test_columns_keep_spark_names(dialect):
     statements = (_databricks if dialect == "databricks" else lambda q: sql.parse(q, dialect))(
         "SELECT map_filter(map(1, 0), (k, v) -> k > v)")
     cursor = duckdb.connect().execute(sql.duckdb_sql(statements[-1]))
-    assert cursor.description[0][0] == "map_filter(map(1, 0), (k, v) -> k > v)"
+    assert cursor.description[0][0] == (  # Spark 3.5.3's name
+        "map_filter(map(1, 0), lambdafunction((namedlambdavariable() > namedlambdavariable()), "
+        "namedlambdavariable(), namedlambdavariable()))")
 
 
 @pytest.mark.parametrize("query", [

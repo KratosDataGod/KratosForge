@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql, sql_dialects
+from . import spark_builtins_sql, spark_sql_names, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -389,6 +389,9 @@ def expr(text: str) -> Column:
     col = _sql(spark_sql.duckdb_sql(body))
     if isinstance(read, (exp.Column, exp.Star)):
         return col
+    named = spark_sql_names.column_name(read)
+    if named is not None:
+        return _named(col, named)
     shown = read.copy()  # Spark's name drops a string literal's quotes
     for literal in list(shown.find_all(exp.Literal)):
         if literal.is_string:

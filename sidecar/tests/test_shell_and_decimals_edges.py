@@ -136,8 +136,23 @@ def test_expressions_whose_spark_type_cant_be_worked_out_keep_duckdbs_types(conn
     assert _types(conn, spark_decimal_types(sql.parse(query)[0], conn)) == duckdb_types
 
 
+def _same_unnamed(conn, query):
+    """As _same, for a statement whose columns have no names yet: sql.parse names each unnamed column as
+    Spark does (spark_sql_names), so these read the query without that, as one it couldn't name."""
+    statement = sqlglot.parse_one(query, read="spark")
+    before = sql.duckdb_sql(statement)
+    assert sql.duckdb_sql(spark_decimal_types(statement, conn)) == before
+
+
 def test_a_changed_column_between_two_stars_cant_be_named_so_nothing_changes(conn):
-    _same(conn, "SELECT *, a / b, * FROM t")
+    _same_unnamed(conn, "SELECT *, a / b, * FROM t")
+
+
+def test_a_column_spark_names_is_changed_between_two_stars(conn):
+    statement = sql.parse("SELECT *, a / b, * FROM t")[0]
+    before = sql.duckdb_sql(statement)
+    after = sql.duckdb_sql(spark_decimal_types(statement, conn))
+    assert after != before and after.count('AS "(a / b)"') == 1
 
 
 def test_a_string_operand_has_no_decimal_type_so_nothing_changes(conn):
@@ -146,7 +161,7 @@ def test_a_string_operand_has_no_decimal_type_so_nothing_changes(conn):
 
 def test_a_statement_duckdb_cant_bind_is_left_as_it_was_and_logged(conn, caplog):
     with caplog.at_level(logging.INFO, logger=spark_decimals.log.name):
-        _same(conn, "SELECT a / b FROM t WHERE no_such_column = 1")
+        _same_unnamed(conn, "SELECT a / b FROM t WHERE no_such_column = 1")
     assert "column names unknown" in caplog.text
 
 

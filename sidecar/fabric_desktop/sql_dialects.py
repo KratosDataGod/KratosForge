@@ -36,18 +36,30 @@ def parse(sql: str, read: Any = None, **options: Any) -> list[Any]:
     Spark's map('a')) stops its build_var_map with an IndexError. Any other IndexError is raised as it is."""
     import sqlglot
     try:
-        return sqlglot.parse(sql, read=read, **options)
+        statements = sqlglot.parse(sql, read=read, **options)
     except IndexError as exc:
         raise _uneven_pairs(exc) from None
+    _remember_spark_names(statements, sql, read)
+    return statements
 
 
 def parse_one(sql: str, read: Any = None, **options: Any) -> Any:
     """sqlglot.parse_one, with the same ParseError as parse() for an odd number of key and value arguments."""
     import sqlglot
     try:
-        return sqlglot.parse_one(sql, read=read, **options)
+        statement = sqlglot.parse_one(sql, read=read, **options)
     except IndexError as exc:
         raise _uneven_pairs(exc) from None
+    _remember_spark_names([statement], sql, read)
+    return statement
+
+
+def _remember_spark_names(statements: list[Any], sql: str, read: Any) -> None:
+    """Spark SQL keeps the names its functions were called by and its constants as written, for the
+    column names Spark gives (spark_sql_names)."""
+    if read in ("spark", "databricks"):
+        from . import spark_sql_names
+        spark_sql_names.remember(statements, sql)
 
 
 def _uneven_pairs(exc: IndexError) -> Exception:

@@ -64,7 +64,7 @@ def test_spark_sql_reports_it_instead_of_reading_the_query_as_duckdb():
     # DuckDB's reader would keep MAP('a', 1) and drop 'b'; the query is refused as written instead
     with pytest.raises(ValueError, match=f"Could not read the query: MAP {PAIRS}"):
         sql.parse("SELECT map('a', 1, 'b')")
-    assert sql.parse("SELECT map('a', 1)")[0].sql("duckdb") == "SELECT MAP(['a'], [1])"
+    assert sql.parse("SELECT map('a', 1)")[0].sql("duckdb") == 'SELECT MAP([\'a\'], [1]) AS "map(a, 1)"'
 
 
 def test_databricks_sql_refuses_it():

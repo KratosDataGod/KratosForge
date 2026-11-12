@@ -106,6 +106,16 @@ struct (`"e.f"`), a field matched whatever its case, a NULL struct left NULL, an
 `select`, `withColumn` or `withColumns`, or as its field (`.c`); inside another function or a filter it's refused by
 name: select it first and use it from there.
 
+A column of `spark.sql`, `selectExpr` or `F.expr` without `AS` is named as Spark names it: a function as it was
+called with the arguments Spark fills in (`char_length(s)`, `locate(b, s, 1)`, `split(s, [.], -1)`), text constants
+without their quotes (`upper(a)`), each operator in parentheses (`(i + 1)`, `(NOT (i = 1))`), a column cast to a
+type after the column (`cast(i AS string)` is `i`), and a window with its frame in full
+(`row_number() OVER (ORDER BY i ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)`), so
+`df["upper(a)"]` finds the column it finds in Fabric. A few spellings keep this PC's own name: `+i`, a quoted text
+written in two pieces (`'it''s'`), `assert_true`, and generators that make several columns (`posexplode`, `inline`,
+`stack`, `json_tuple`). `split` with a limit, `replace` with two arguments and `btrim` work in Spark SQL as in
+Spark; `base64` takes text or binary, and any other type is refused by name.
+
 Temp views work as in Spark: `createTempView` refuses a name a view already has (whatever its case) or one with a dot,
 `spark.catalog.dropTempView` and `dropGlobalTempView` say whether they dropped one, and a global temp view
 (`createGlobalTempView`) is read as `global_temp.name` in `spark.sql` and `spark.table`. Text functions take numbers,

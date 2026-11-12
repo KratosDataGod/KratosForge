@@ -26,7 +26,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
-from . import spark_builtins_sql
+from . import spark_builtins_sql, sql_dialects
 from . import sql as spark_sql
 from .duckdb_rows import one_row
 
@@ -55,7 +55,7 @@ def spark_expr(text: str) -> str:
 
 def _parse(text: str) -> exp.Expression:
     """One Spark SQL expression as sqlglot reads it (it types the result as its base Expr)."""
-    return cast(exp.Expression, sqlglot.parse_one(text, read="spark"))
+    return cast(exp.Expression, sql_dialects.parse_one(text, read="spark"))
 
 
 def _literal(text: str) -> Callable[[re.Match[str]], str]:
@@ -1291,6 +1291,89 @@ def _global_select(fn: Any) -> Any:
     return select
 
 
+# ``a."*"``: what DuckDB's col("a.*") writes; each name before the star plain or double-quoted.
+_STAR_REF = re.compile(r'^((?:"(?:[^"]|"")*"|[^."()\s]+)(?:\.(?:"(?:[^"]|"")*"|[^."()\s]+))*)\."\*"$')
+_STAR_PART = re.compile(r'"((?:[^"]|"")*)"|([^."]+)')
+
+
+def _star_prefix(c: Any) -> list[str] | None:
+    """The names before ``.*`` when ``c`` is ``"a.*"`` or ``col("a.*")`` (a DataFrame alias's columns, or a
+    struct's fields), else None. A backquoted name (```a.b`.*``) is one name, as in Spark."""
+    if isinstance(c, str):
+        if not c.endswith(".*") or c == ".*":
+            return None
+        text = c[:-2]
+        parts, i = [], 0
+        while i < len(text):
+            if text[i] == "`":
+                end = text.find("`", i + 1)
+                if end < 0:
+                    return None
+                parts.append(text[i + 1:end])
+                i = end + 1
+            else:
+                end = text.find(".", i)
+                end = len(text) if end < 0 else end
+                parts.append(text[i:end])
+                i = end
+            if i < len(text):
+                if text[i] != ".":
+                    return None
+                i += 1
+        return parts if parts and all(parts) else None
+    if isinstance(c, Column):
+        m = _STAR_REF.match(str(c.expr))
+        if m is None:
+            return None
+        names = [p.group(1).replace('""', '"') if p.group(1) is not None else p.group(2)
+                 for p in _STAR_PART.finditer(m.group(1))]
+        whole = ".".join(names)
+        if len(whole) > 1 and whole[0] == whole[-1] == "`":  # col("`a.b`.*"): DuckDB split the quoted name
+            return [whole[1:-1]]
+        return names
+    return None
+
+
+def _star_expr(df: DataFrame, star: list[str]) -> Column:
+    """The columns ``x.*`` stands for: every column of the DataFrame aliased x, or every field of the struct
+    x names (``s.*``, ``s.i.*``, ``a.s.*``), each name double-quoted. Spark's error when x is neither, or
+    names a column that isn't a struct."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    path = ".".join('"' + p.replace('"', '""') + '"' for p in star)
+    name = ".".join(star)
+    if len(star) == 1:  # a DataFrame alias first, as Spark resolves it, then a struct column
+        try:
+            df.relation.project(f"{path}.*")
+            return Column(duckdb.SQLExpression(f"{path}.*"))
+        except duckdb.Error:  # silent-ok: not an alias or a struct; which error Spark gives is found below
+            pass
+    try:
+        kind = str(df.relation.project(path).types[0])
+    except duckdb.Error:  # not a column or field either
+        raise AnalysisException(message=f"[CANNOT_RESOLVE_STAR_EXPAND] Cannot resolve `{name}`.* given input "
+                                        f"columns {', '.join(f'`{x}`' for x in df.columns)}. Please check that the "
+                                        "specified table or struct exists and is accessible in the input "
+                                        "columns.") from None
+    if not kind.upper().startswith("STRUCT"):
+        raise AnalysisException(message="Can only star expand struct data types. Attribute: "
+                                        f"`ArrayBuffer({', '.join(star)})`.")
+    return Column(duckdb.SQLExpression(f"unnest({path})"))  # DuckDB writes s.i.* as unnest: its .* takes one name
+
+
+def _star_select(fn: Any) -> Any:
+    """``select("a.*")`` and ``select(col("a.*"))``: every column of the DataFrame aliased ``a`` (after
+    ``df.alias("a").join(...)``) or every field of struct ``a`` (also a nested one, ``s.i.*``), as in Spark;
+    DuckDB's col reads ``*`` as a column name."""
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        flat = list(cols[0]) if len(cols) == 1 and isinstance(cols[0], list) else list(cols)
+        stars = [_star_prefix(c) for c in flat]
+        if not any(stars):
+            return fn(self, *cols)
+        return fn(self, *[_star_expr(self, star) if star else c for c, star in zip(flat, stars, strict=True)])
+    select.__doc__ = fn.__doc__
+    return select
+
+
 def _select_expr(self: DataFrame, *exprs: str) -> DataFrame:
     return self.select(*[expr(e) for e in _flat(exprs)])
 
@@ -2186,6 +2269,7 @@ def install() -> None:
     DataFrame.unpivot = DataFrame.melt = _unpivot  # type: ignore[attr-defined]
     DataFrame.join = _same_self(DataFrame.join)  # type: ignore[method-assign]
     DataFrame.crossJoin = _same_self(DataFrame.crossJoin)  # type: ignore[method-assign]
+    DataFrame.select = _star_select(DataFrame.select)  # type: ignore[method-assign]  # under _naming, below
     for name in ("repartition", "repartitionByRange", "coalesce", "persist", "unpersist", "checkpoint",
                  "localCheckpoint", "hint"):
         if not hasattr(DataFrame, name):

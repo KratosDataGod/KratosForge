@@ -72,7 +72,7 @@ def format_sql(query: str, dialect: str | None = None) -> dict[str, Any]:
     if not query.strip():
         return {"sql": query, "changed": False, "warning": ""}
     try:
-        statements = [s for s in sqlglot.parse(query, read=name) if s is not None]
+        statements = [s for s in sql_dialects.parse(query, read=name) if s is not None]
     except (ParseError, SqlglotError) as exc:
         return unchanged(f"Format SQL left the query as it was: it couldn't be read as "
                          f"{sql_dialects.get(dialect)['label']}. {_first_line(exc)}")
@@ -106,8 +106,8 @@ def _first_line(exc: Exception) -> str:
 def _difference(before: str, after: str, dialect: Any) -> str:
     """What formatting changed besides layout and case, in words; empty when nothing did."""
     try:
-        old = [s for s in sqlglot.parse(before, read=dialect) if s is not None]
-        new = [s for s in sqlglot.parse(after, read=dialect) if s is not None]
+        old = [s for s in sql_dialects.parse(before, read=dialect) if s is not None]
+        new = [s for s in sql_dialects.parse(after, read=dialect) if s is not None]
     except (ParseError, SqlglotError):
         return "produce SQL that doesn't parse"
     if old != new:  # sqlglot compares trees by meaning, ignoring layout and comments

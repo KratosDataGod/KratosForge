@@ -45,6 +45,7 @@ from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
 from . import tsql_format
+from .. import sql_dialects
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
@@ -141,7 +142,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     log = logging.getLogger("sqlglot")
     log.addHandler(handler)
     try:
-        trees = [t for t in sqlglot.parse(batch, read=KfTSQL) if t is not None]
+        trees = [t for t in sql_dialects.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
         raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
     finally:

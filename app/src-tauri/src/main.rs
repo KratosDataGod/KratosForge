@@ -15,6 +15,7 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 mod crash;
 mod deep_link;
+mod disk_space;
 mod engine_patch;
 mod exe_name;
 mod folder_pick;
@@ -1325,6 +1326,11 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
+    // A full or read-only profile disk (shared and virtual desktops) is said plainly (disk_space.rs).
+    install_engine_into(app).map_err(|e| disk_space::explain(&e, &engine_root()))
+}
+
+fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
     let say = |line: &str| {
         let _ = app.emit("component-log", line);
     };
@@ -1348,7 +1354,8 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         }
     }
 
-    say("Downloading the engine (Python and its packages, about 150 MB)…");
+    disk_space::check_room(&root, disk_space::free_bytes(&root))?;
+    say("Downloading the engine (Python and its packages, about 330 MB)…");
     let mut result = Err(String::new());
     let mut release = Value::Null;
     let mut release_tag_used = "";
@@ -1860,7 +1867,9 @@ static FABRIC_SHOWN: Mutex<BTreeMap<&'static str, String>> = Mutex::new(BTreeMap
 
 /// Shows the calling window's Fabric view over the page's placeholder, creating it the first time.
 /// Coordinates are CSS pixels inside the window, which are Tauri's logical pixels.
+// Each argument is a field the page sends by name; one struct would change the call the page makes.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn fabric_view_show(
     app: tauri::AppHandle,
     window: tauri::Window,

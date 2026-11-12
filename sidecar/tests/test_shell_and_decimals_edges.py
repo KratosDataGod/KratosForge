@@ -30,14 +30,14 @@ def test_braces_that_arent_python_and_dollars_stay_for_the_shell():
 
 def test_powershell_runs_the_cell_from_stdin_without_a_profile(monkeypatch):
     ran = []
-    monkeypatch.setattr(shell.shutil, "which", lambda name: "C:/pwsh/pwsh.exe" if name == "pwsh" else None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda name: "C:/pwsh/pwsh.exe" if name == "pwsh" else None)
     monkeypatch.setattr(shell, "_run", lambda args, stdin=None, echo=None, shell=False: ran.append((args, stdin)) or (0, []))
     assert shell.script("powershell", "Get-Date", echo=lambda s: None) == 0
     assert ran == [(["C:/pwsh/pwsh.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], "Get-Date")]
 
 
 def test_powershell_missing_says_so(monkeypatch):
-    monkeypatch.setattr(shell.shutil, "which", lambda name: None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda name: None)
     with pytest.raises(FileNotFoundError, match="%%powershell needs PowerShell"):
         shell.script("powershell", "Get-Date")
 
@@ -54,6 +54,7 @@ def _windows(monkeypatch):
 
 def test_cmd_runs_the_cell_from_a_script_file_that_is_removed_after(monkeypatch):
     _windows(monkeypatch)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     seen = {}
 
     def run(args, stdin=None, echo=None, shell=False):
@@ -62,7 +63,7 @@ def test_cmd_runs_the_cell_from_a_script_file_that_is_removed_after(monkeypatch)
     monkeypatch.setattr(shell, "_run", run)
     said = []
     assert shell.script("cmd", "echo hi\nver", echo=said.append) == 0
-    assert seen["args"][:3] == ["cmd.exe", "/d", "/c"] and seen["args"][3].endswith(".cmd")
+    assert seen["args"][:3] == [r"C:\Windows\System32\cmd.exe", "/d", "/c"] and seen["args"][3].endswith(".cmd")
     assert seen["text"] == b"@echo off\r\necho hi\r\nver"
     assert not Path(seen["args"][3]).exists() and said == []
 

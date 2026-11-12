@@ -32,7 +32,7 @@ from duckdb.experimental.spark.sql import session as _session_module
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql
+from . import lakehouse, spark_api, spark_compat, spark_infer, sql as _sql, sql_dialects
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
 from .spark_decimals import spark_decimal_types
@@ -371,7 +371,7 @@ def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
     if not lakehouse._setting("show_preview", True) or not delta_dml.looks_like(query):
         return False
     try:
-        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+        trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
         if len(trees) != 1 or not isinstance(trees[0], (exp.Merge, exp.Update, exp.Delete)):
             return False
         _in_attached(trees[0], lakehouse_name)
@@ -465,7 +465,7 @@ def sql_refusal(query: str) -> tuple[str, str] | None:
     if _SCHEMA_EVOLUTION.match(head):
         return "blocked", _IN_FABRIC_TEXT.format("merges WITH SCHEMA EVOLUTION")
     try:
-        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+        trees = [t for t in sql_dialects.parse(query, read="spark") if t is not None]
     except sqlglot.errors.SqlglotError:
         return None
     if len(trees) > 1 and any(isinstance(t, (exp.Merge, exp.Update, exp.Delete)) for t in trees):

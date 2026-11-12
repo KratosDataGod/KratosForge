@@ -305,3 +305,33 @@ def test_a_model_waits_for_the_sql_endpoint_and_builds_when_its_refresh_fails(on
     svc.fake.refresh_sql_endpoint = refresh_fails
     built = svc.meta_build_model("test")
     assert built["id"] == "m1" and built["endpoint_refreshed"] is False
+
+
+def test_onelake_maintenance_refuses_less_than_seven_days_before_it_sets_retention_or_starts_a_job(svc, tmp_path,
+                                                                                                    monkeypatch):
+    project = svc._project()
+    store = FolderOneLake(tmp_path / "onelake", "test", [l.lakehouse for l in project.layers])
+    monkeypatch.setattr(svc, "_store", lambda p, env, create=False: store)
+    tables = [dict(t, retention_days=3) for t in svc._managed_tables(project, include_meta=False)]
+    monkeypatch.setattr(svc, "_managed_tables", lambda p, include_meta=True: tables)
+    set_calls, jobs = [], []
+    monkeypatch.setattr(maintenance, "set_retention", lambda *a, **k: set_calls.append(a))
+    svc.fake.run_table_maintenance = lambda *a, **k: jobs.append(a) or "job"
+    out = svc.meta_optimize("test")
+    assert out and all(o["status"] == "Failed" and "at least 7 days" in o["message"] for o in out), out
+    assert set_calls == [] and jobs == []  # nothing was changed in OneLake, and no capacity was used
+
+
+@pytest.mark.parametrize("days", [0, 6])
+def test_fabric_retention_and_table_properties_refuse_less_than_seven_days(tmp_path, days):
+    import polars as pl
+    from deltalake import DeltaTable, write_deltalake
+    uri = str(tmp_path / "t")
+    write_deltalake(uri, pl.DataFrame({"id": [1]}).to_arrow())
+    with pytest.raises(ValueError, match="at least 7 days"):
+        maintenance.fabric_retention(days)
+    with pytest.raises(ValueError, match="at least 7 days"):
+        maintenance.set_retention(uri, days)
+    assert DeltaTable(uri).version() == 0  # no properties were written
+    assert maintenance.set_retention(uri, days, allow_shorter=True) is True
+    assert maintenance.fabric_retention(7) == "7.01:00:00"

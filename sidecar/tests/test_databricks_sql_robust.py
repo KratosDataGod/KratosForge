@@ -279,3 +279,33 @@ def test_refusals_carry_their_status_and_never_a_token():
     with pytest.raises(dbsql.DatabricksError) as err:
         dbsql.Client(t.tokens(), ws, sleep=lambda s: None).warehouse("wh1")
     assert err.value.status == 403 and t.PAT not in str(err.value)
+
+
+def _connect_failures():
+    import requests
+    import urllib3.exceptions as u3
+    refused = requests.ConnectionError(u3.MaxRetryError(None, "/", u3.NewConnectionError(None, "refused")))
+    lookup = requests.ConnectionError(u3.MaxRetryError(None, "/", u3.NameResolutionError("adb", None, OSError())))
+    return [refused, lookup, requests.ConnectTimeout("connect timed out"), ConnectionRefusedError()]
+
+
+@pytest.mark.parametrize("failure", _connect_failures(), ids=["refused", "lookup", "connect-timeout", "os-refused"])
+def test_a_submit_whose_connection_never_opened_says_nothing_was_sent(failure):
+    ws = t.FakeWorkspace()
+    s = t.open_session(ws)
+    real = ws.request
+
+    def request(method, url, **kw):
+        if method == "POST" and url.endswith(STATEMENTS):
+            raise failure
+        return real(method, url, **kw)
+    ws.request = request
+    evalue = s.execute(CellRequest("INSERT INTO t VALUES (1)", "sql")).outputs[-1]["evalue"]
+    assert "Nothing was sent" in evalue and "may have started" not in evalue
+
+
+def test_a_connection_reset_after_sending_still_says_it_may_have_started():
+    import requests
+    import urllib3.exceptions as u3
+    reset = requests.ConnectionError(u3.ProtocolError("Connection aborted.", ConnectionResetError()))
+    assert dbsql._never_sent(reset) is False and dbsql._never_sent(requests.ReadTimeout()) is False

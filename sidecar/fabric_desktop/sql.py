@@ -43,8 +43,8 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
-        statements = _statements(sqlglot.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
-                                               read=chosen["sqlglot"]))
+        statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
+                                                    read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
             statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
@@ -55,7 +55,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
                 pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
-        if chosen["id"] != "spark":
+        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
             statements = _statements(sqlglot.parse(query, read="duckdb"))
@@ -162,7 +162,7 @@ def _only_empty_structs_fail(query: str) -> bool:
     for start, end in reversed(spans):
         filled = filled[:start] + "<x: int>" + filled[end + 1:]
     try:
-        sqlglot.parse(filled, read="spark")
+        sql_dialects.parse(filled, read="spark")
     except ParseError:
         return False
     return True

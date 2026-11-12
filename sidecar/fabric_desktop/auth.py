@@ -38,8 +38,11 @@ _log = logging.getLogger(__name__)
 AUTHORITY = "https://login.microsoftonline.com/organizations"
 # Seconds MSAL waits for each sign-in call to Entra (MSAL's own default is to wait forever, so a
 # proxy that swallows the call hung sign-in with no message). The browser or Windows prompt itself
-# isn't bounded by this: only the calls MSAL makes.
-SIGN_IN_TIMEOUT = http_session.DEFAULT_TIMEOUT
+# isn't bounded by this: only the calls MSAL makes. Connecting gets less: a network that drops
+# the traffic (no answer at all) costs that wait per address the host has (eight for login.
+# microsoftonline.com), twice with MSAL's one retry, and Home's first check waits for it.
+SIGN_IN_CONNECT_SECONDS = 5
+SIGN_IN_TIMEOUT = (SIGN_IN_CONNECT_SECONDS, http_session.DEFAULT_TIMEOUT)
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
 MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
@@ -465,6 +468,28 @@ def ended(result: dict | None) -> str:
     return ""
 
 
+# Where MSAL files a Microsoft Entra account in the cache: the public cloud's sign-in host and the
+# aliases it falls back to (its instance discovery, which asks Microsoft for them over the network).
+ACCOUNT_HOSTS = ("login.microsoftonline.com", "login.windows.net", "login.microsoft.com", "sts.windows.net")
+
+
+def cached_account(cache_path: Path | None = None) -> dict[str, Any] | None:
+    """The saved sign-in's account, from the cache file alone, as MSAL's ``get_accounts`` finds it.
+    Building MSAL's app first asks Microsoft for its sign-in endpoints, which offline or behind a
+    proxy that blocks login.microsoftonline.com waits out the timeout, so start-up reads this instead."""
+    path = cache_path or default_cache_path()
+    if not path.exists():
+        return None
+    cache = SharedTokenCache(path)
+    kinds = (msal.TokenCache.AuthorityType.MSSTS, msal.TokenCache.AuthorityType.ADFS)
+    for host in ACCOUNT_HOSTS:
+        found = [a for a in cache.search(cache.CredentialType.ACCOUNT, query={"environment": host})
+                 if a.get("authority_type") in kinds]
+        if found:
+            return found[0]
+    return None
+
+
 class Authenticator:
     def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
         self.client_id = client_id or MICROSOFT_CLIENT_ID
@@ -477,6 +502,11 @@ class Authenticator:
         # refresh it again: one refusal, not one per call.
         self._ended_at: object = None
         self._sign_in_lock = threading.Lock()  # one sign-in window at a time; the others wait for it
+        # Counts sign-in windows opened here, and again when one brings tokens. A refresh's refusal ends
+        # the saved sign-in only if no window opened or signed in while that refresh was out: a slow refusal of the old token must not drop the tokens a
+        # window just brought, which would open a second window for the calls waiting on the first.
+        self._windows = 0
+        self._end_lock = threading.Lock()
         # The last interactive refusal in BLOCKED_CODES: (its error, when, the cache file as it was then).
         self._blocked: tuple[SignInError, float, object] | None = None
         self.cache = SharedTokenCache(self.cache_path)
@@ -528,11 +558,14 @@ class Authenticator:
         if lookup is None:  # a stand-in without it
             more = {"force_refresh": True} if force_refresh else {}
             return self.app.acquire_token_silent(scopes, account=account, **more)
+        window = self._windows
         result = lookup(scopes, account=account, force_refresh=force_refresh)
         if result and "error" in result:
             code = ended(result)
             if code:
-                self._end(account, code)
+                with self._end_lock:
+                    if window == self._windows:  # else a sign-in since then: the refusal is for the old one
+                        self._end(account, code)
             elif refusal is not None:
                 refusal.update(result)
             return None
@@ -617,6 +650,8 @@ class Authenticator:
             self.cache.removed_elsewhere.clear()  # signing in here: the account may come back
             asked = why.get("claims") or claims
             more = {"claims_challenge": asked} if isinstance(asked, str) and asked else {}
+            with self._end_lock:
+                self._windows += 1
             if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle(), **more)
             else:
@@ -628,6 +663,8 @@ class Authenticator:
                     raise SignInError("timeout", f"The sign-in in your browser wasn't finished within "
                                       f"{SIGN_IN_SECONDS // 60} minutes. Sign in again.") from None
             if result and "access_token" in result:
+                with self._end_lock:  # and a refresh that started while the window was open is older
+                    self._windows += 1
                 self._ended_at = None
                 self._blocked = None
             elif result:

@@ -1,0 +1,35 @@
+# cargo-deny's rules for the shell's crates (CI's audit job runs `cargo deny check licenses bans sources`).
+# Known vulnerabilities stay with cargo-audit and .github/audit-exceptions.txt, in the same job.
+# Read for the build that ships: the Windows exe. Crates only other platforms pull in aren't in it.
+
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+
+[licenses]
+# Every licence a shipped crate may use. A crate under any other licence fails CI until someone
+# decides, in its own pull request, to allow it here and record it in NOTICE if it asks for that.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "MIT-0",
+    "BSD-3-Clause",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",  # file-level copyleft; unmodified crates (cssparser, selectors and others), listed in NOTICE
+]
+confidence-threshold = 0.93
+
+[bans]
+# A dependency declared as "*" would take whatever version is newest.
+wildcards = "deny"
+# Several versions of one crate are common in Tauri's tree and are reported, not refused.
+multiple-versions = "allow"
+
+[sources]
+# Crates come from crates.io only: no other registry and no git repository.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

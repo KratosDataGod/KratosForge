@@ -257,6 +257,20 @@ def test_the_time_limit_stops_a_run(tmp_path, lake):
     try:
         status = wait(manager, manager.start(SLOW, lake)["id"])
         assert status["state"] == "timed_out" and "time limit" in status["error"]
+        assert "Settings › SQL" in status["error"]
+    finally:
+        manager.shutdown()
+
+
+def test_a_lakehouse_run_stopped_by_the_organizations_limit_says_so(tmp_path, lake):
+    manager = sql_exec.SqlExecutions(tmp_path, token=lambda: "",
+                                     limits=limits(sql_time_limit_minutes=0.02, sql_time_limit_by_policy=True))
+    try:
+        run = manager.start(SLOW, lake)
+        status = wait(manager, run["id"])
+        assert status["state"] == "timed_out", status
+        assert status["error"] == "Stopped after your organization's time limit (0.02 minutes)."
+        assert not manager._get(run["id"]).folder.exists()  # its spill folder goes with it
     finally:
         manager.shutdown()
 
@@ -827,3 +841,10 @@ def test_a_temp_view_is_found_whatever_case_it_is_named_in(runs, lake):
                                    "SELECT count(*) AS n FROM recent", lake, allow=["local_mutation"])["id"])
     assert status["state"] == "completed", status.get("error")
     assert runs.page(status["id"])["rows"] == [[2]]
+
+
+def test_local_and_lakehouse_runs_share_the_time_limit_wording():
+    assert sql_exec.time_limit_message("sql", 600) == "Stopped after the time limit (10 minutes, Settings › SQL)."
+    assert sql_exec.time_limit_message("policy", 90) == "Stopped after your organization's time limit (1.5 minutes)."
+    assert "project's settings" in sql_exec.time_limit_message("project", 60)
+    assert sql_exec.time_limit_message("caller", 60) == ""

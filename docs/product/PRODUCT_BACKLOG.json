@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -2655,7 +2655,8 @@
         "support_bundle.py has no RPC or UI",
         "Smoke: CLI wrote about.json and CONTENTS.txt",
         "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup",
-        "Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920"
+        "Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920",
+        "Support bundles: proven to carry no secrets, a private key cut by the log tail is dropped (#2433), subscription keys and embed tokens hidden and UTF-16 logs read (#2457) on main at 47416473"
       ],
       "features": [
         "FEAT-SHL-11"
@@ -2690,7 +2691,9 @@
       "prs": [
         1177,
         1679,
-        1870
+        1870,
+        2433,
+        2457
       ]
     },
     {
@@ -2937,7 +2940,8 @@
         "meta/batches.py",
         "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open",
         "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui",
-        "A stopped local Delta write's leftover files are reported and removed (#2063); each local Delta commit is flushed to disk before the write returns (#2145); the next run records a run that stopped after its commit (#2144) on main at 56e3826b"
+        "A stopped local Delta write's leftover files are reported and removed (#2063); each local Delta commit is flushed to disk before the write returns (#2145); the next run records a run that stopped after its commit (#2144) on main at 56e3826b",
+        "The files a run that ended mid-write left are listed as a dry run (#2434); DuckDB spill files a killed engine left are removed (#2486) on main at 47416473"
       ],
       "features": [
         "FEAT-META-06"
@@ -2979,7 +2983,9 @@
         950,
         2063,
         2144,
-        2145
+        2145,
+        2434,
+        2486
       ],
       "issues": [
         915
@@ -3249,7 +3255,8 @@
       "capability": "Process kernel default after a Windows trial, with time and memory limits.",
       "evidence": [
         "kernel_proc.py",
-        "Settings > Preview"
+        "Settings > Preview",
+        "Implementation review docs/product/reviews/PB-073-kernel-limits.md recommends Accept with documented limitations: cell time and memory limits shipped and tested (#115, #996, #1084; 53 kernel tests passed on main at 47416473); the default flip waits on a clean Windows trial rerun and Chris's go (#896 closed 2026-11-02) and moves to PB-136"
       ],
       "features": [
         "FEAT-NB-03"
@@ -3273,7 +3280,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -3284,6 +3291,7 @@
         "priority": "P2"
       },
       "prs": [
+        115,
         996,
         1084
       ],
@@ -4380,7 +4388,9 @@
         "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949",
         "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f",
         "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb",
-        "A seeded kill test for local Delta writes runs in CI on Linux and Windows (#2375) on main at d5a867c0"
+        "A seeded kill test for local Delta writes runs in CI on Linux and Windows (#2375) on main at d5a867c0",
+        "OneLake table writes outlast their token (#2439); local data projects flush each Delta commit to disk and their database is tested after a killed engine (#2490, #2497) and say a full temp drive instead of Out of Memory (#2478); a DuckDB relation result pages, searches and downloads (#2475) on main at 47416473",
+        "Local data projects read Delta tables under folders with a space, a non-ASCII letter or % (#2502) and refuse a Delta write Windows can't read back with long paths off (#2519) on main at 86c07814"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4503,7 +4513,14 @@
         2248,
         2273,
         2277,
-        2375
+        2375,
+        2439,
+        2475,
+        2478,
+        2490,
+        2497,
+        2502,
+        2519
       ]
     },
     {
@@ -4938,7 +4955,34 @@
         2380,
         2385,
         2406,
-        2409
+        2409,
+        2443,
+        2448,
+        2452,
+        2453,
+        2462,
+        2464,
+        2466,
+        2469,
+        2472,
+        2473,
+        2479,
+        2480,
+        2483,
+        2487,
+        2488,
+        2489,
+        2491,
+        2492,
+        2499,
+        2500,
+        2504,
+        2508,
+        2510,
+        2512,
+        2515,
+        2518,
+        2520
       ],
       "issues": [
         910,
@@ -4962,7 +5006,8 @@
       "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.",
       "evidence": [
         "UX audit by the oversight thread, 2026-10-18 (PR #166)",
-        "Living Experience, all Preview: the Home hero and progression panel (#2213, #2222), the Forge Activity view on Runs (#2215, #2226), spot illustrations for empty states (#2216), motion modes Professional to Legendary (#2211), and celebrations that are on by default and hold off while you type (#2201, #2225) on main at e5e6bec4"
+        "Living Experience, all Preview: the Home hero and progression panel (#2213, #2222), the Forge Activity view on Runs (#2215, #2226), spot illustrations for empty states (#2216), motion modes Professional to Legendary (#2211), and celebrations that are on by default and hold off while you type (#2201, #2225) on main at e5e6bec4",
+        "Header art only on Academy and Profile, with a rotating pool (#2246); Monitor run progress is a plain panel (#2411) on main at 47416473"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -5046,8 +5091,11 @@
         2222,
         2225,
         2226,
+        2246,
         2290,
-        2410
+        2410,
+        2411,
+        2503
       ],
       "issues": [
         928,
@@ -5072,7 +5120,8 @@
         "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb",
         "Spark SQL on this PC: extract, date_part, to_unix_timestamp, parse_url, binary literals, bitmap functions, tumbling window(), number formats and hash()/xxhash64() give Spark's values (#1845, #1851, #1853, #1860, #1866, #1880); type-checked compatibility layer (#1568) on main at a7631920",
         "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016",
-        "spark.catalog answers about the lakehouse or refuses by name (#2389); Unity Catalog style names read or write the table they name, or refuse (#2379); Column.withField and dropFields (#2383) on main at 5d2fc045"
+        "spark.catalog answers about the lakehouse or refuses by name (#2389); Unity Catalog style names read or write the table they name, or refuse (#2379); Column.withField and dropFields (#2383) on main at 5d2fc045",
+        "Spark on this PC: storage levels, sameSemantics, Observation, struct stars, drop after a join, temp views and createDataFrame types answer as Spark (#2446, #2454, #2456, #2459, #2477); notebooks keep the .ipynb as other tools wrote it (#2449) on main at 47416473"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5238,7 +5287,13 @@
         2383,
         2388,
         2389,
-        2416
+        2416,
+        2446,
+        2449,
+        2454,
+        2456,
+        2459,
+        2477
       ]
     },
     {
@@ -5251,7 +5306,8 @@
         "Chris's Optimize brief, 2026-10-18 08:55Z",
         "Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py",
         "Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4",
-        "Plan merged (#1708): what's merged, what's left, the audit's four gaps, and no CU savings claim without a measured baseline; results wait on this PC when the lakehouse can't be reached (#1726, #1733) on main at 5f8144f7"
+        "Plan merged (#1708): what's merged, what's left, the audit's four gaps, and no CU savings claim without a measured baseline; results wait on this PC when the lakehouse can't be reached (#1726, #1733) on main at 5f8144f7",
+        "Estate X-ray: tick small-files findings and Optimize them together (#2425); Optimize and Vacuum under concurrency in real processes, and VACUUM and table retention refuse less than 7 days (#2428, #2468) on main at 47416473"
       ],
       "features": [
         "FEAT-ADM-01"
@@ -5302,7 +5358,10 @@
         2061,
         2147,
         2163,
-        2165
+        2165,
+        2425,
+        2428,
+        2468
       ]
     },
     {
@@ -5315,7 +5374,8 @@
         "Chris's unit testing, 2026-10-18, item 33",
         "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)",
         "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb",
-        "Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38"
+        "Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38",
+        "Stage 4 engine: time to acknowledge, time to resolve and SLAs met from the incident tables (#2467) on main at 47416473. Left, per the owning thread on 2026-11-11: the stage 4 reports screen (needs a UX mockup) and stage 5, opening tickets in ServiceNow or Jira Service Management (needs Chris's go and a Security read)"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -5361,7 +5421,8 @@
         1996,
         2006,
         2007,
-        2044
+        2044,
+        2467
       ]
     },
     {
@@ -5454,7 +5515,9 @@
         1900,
         1912,
         1913,
-        1939
+        1939,
+        2451,
+        2496
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5787,7 +5850,9 @@
         2402,
         2404,
         2412,
-        2421
+        2421,
+        2422,
+        2481
       ],
       "mandatory": "none",
       "computed": {
@@ -6434,7 +6499,9 @@
         1186,
         1216,
         1233,
-        1713
+        1713,
+        2437,
+        2441
       ],
       "problem": "Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.",
       "capability": "Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and \"fixed and checked\" evidence in Profile.",
@@ -6543,7 +6610,9 @@
         "Prod and confirmed actions write their audit line first and don't run without it (#2205); an authorization matrix lists every state-changing call and its check (#2045); refused changes and returned failures leave audit rows (#2196, #2231); SBOMs cover npm and Python with checksums (#2191) on main at e5e6bec4",
         "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0",
         "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045",
-        "Secret scan in CI: commit ids aren't findings, and a pull request's reviewers are warned about filter changes and values added then removed (#2398, #2399, #2400); the agent's crash log tells a crash from a handled fault (#2405, #2407, #2418); expired local copies swept daily (#2401, #2403); a full disk tested on a real Windows volume (#2413) on main at 17e7ea06"
+        "Secret scan in CI: commit ids aren't findings, and a pull request's reviewers are warned about filter changes and values added then removed (#2398, #2399, #2400); the agent's crash log tells a crash from a handled fault (#2405, #2407, #2418); expired local copies swept daily (#2401, #2403); a full disk tested on a real Windows volume (#2413) on main at 17e7ea06",
+        "Sign-in survives a damaged saved sign-in, an unreachable Microsoft sign-in and a late refusal (#2444, #2484, #2498); Windows proxy with PAC and WPAD (#2436); tools started by full path (#2470, #2476); agent queue holds work with its reason (#2432, #2465); the app's stores tested after a killed writer (#2426, #2485); MSI lifecycle on the Windows runner (#2420) on main at 47416473",
+        "CI installs engine packages from hashed lock files (#2517); workflows pin actions to a commit with scoped tokens (#2514); the shell's Rust crates gated by clippy and cargo-deny (#2509); an unreadable request line gets an error reply instead of ending the engine (#2501); a republish inside Fabric's publish cooldown waits and is sent once more (#2523) on main at 86c07814"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6710,7 +6779,31 @@
         2407,
         2413,
         2415,
-        2418
+        2418,
+        2420,
+        2426,
+        2427,
+        2429,
+        2431,
+        2432,
+        2436,
+        2440,
+        2442,
+        2444,
+        2458,
+        2460,
+        2465,
+        2470,
+        2476,
+        2484,
+        2485,
+        2494,
+        2498,
+        2501,
+        2509,
+        2514,
+        2517,
+        2523
       ],
       "issues": [],
       "computed": {
@@ -6844,7 +6937,8 @@
         1868,
         1871,
         1897,
-        2037
+        2037,
+        2054
       ],
       "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
       "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
@@ -6855,7 +6949,8 @@
         "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
         "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)",
         "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb",
-        "AS-06 model connections behind the organization's AI policy (#1842), AS-10 describe an app and approve a plan into a project (#1868), AS-11 ask for a change and apply it as one undoable step (#1871), AS-13 publish as a Power BI report behind a check and a typed confirm (#1897) on main at a7631920"
+        "AS-06 model connections behind the organization's AI policy (#1842), AS-10 describe an app and approve a plan into a project (#1868), AS-11 ask for a change and apply it as one undoable step (#1871), AS-13 publish as a Power BI report behind a check and a typed confirm (#1897) on main at a7631920",
+        "App Studio: Model connections screen and a working Publish dialog (#2054, Preview) on main at 86c07814"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -7360,7 +7455,12 @@
         2301,
         2304,
         2318,
-        2395
+        2395,
+        2445,
+        2447,
+        2455,
+        2463,
+        2513
       ],
       "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
       "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",
@@ -7399,6 +7499,53 @@
         "cost": 3.0,
         "score": 1.68,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-136",
+      "title": "Process kernel by default after a clean Windows trial",
+      "category": "Reliability, Testing, and Performance",
+      "problem": "Notebooks share the in-engine kernel unless a Preview setting is on, so Stop restarts the whole engine and the cell limits don't apply.",
+      "capability": "Rerun the Windows trial from issue #896 on Python 3.12 with the #996 fix; only if it is clean, make the process kernel the default in its own PR and keep the in-engine kernel as a setting.",
+      "evidence": [
+        "Issue #896 trial, 2026-10-28; closed 2026-11-02 waiting on Chris's go",
+        "PB-073 review docs/product/reviews/PB-073-kernel-limits.md"
+      ],
+      "features": [
+        "FEAT-NB-03"
+      ],
+      "acceptance": [
+        "Trial results recorded per area on Windows with Python 3.12, defects filed",
+        "The default flips only after a clean trial, in its own PR",
+        "Existing notebooks run unchanged under the new default (test)"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 2,
+        "strategic_alignment": 4,
+        "complexity": 2,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "owner": "Prove",
+      "source_refs": [
+        "FD-110",
+        "PB-073"
+      ],
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "Proposed",
+      "external_dependencies": [
+        "Chris's go for a Windows trial on his PC through Remote Control"
+      ],
+      "prs": [],
+      "computed": {
+        "benefit": 3.1,
+        "cost": 2.5,
+        "score": 2.17,
+        "priority": "P2"
       }
     }
   ]

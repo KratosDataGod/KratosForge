@@ -43,9 +43,19 @@ from pathlib import Path
 
 SIDECAR = Path(__file__).resolve().parents[1]
 TIMEOUT = 120
-# Not copied into the temporary sidecar/: caches, a local virtual environment and build output.
-IGNORE = ("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", "venv", "build", "dist",
-          "*.egg-info", ".coverage", "htmlcov")
+KILL_WAIT = 30
+# Not copied into the temporary sidecar/: caches at any depth, and a local virtual environment and
+# build output only at the top of sidecar/, so a folder of the same name deeper down (a test
+# fixture, say) is still copied.
+IGNORE = ("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "*.egg-info")
+IGNORE_TOP = {".venv", "venv", "build", "dist", ".coverage", "htmlcov"}
+
+
+def _ignore(folder: str, names: list[str]) -> set[str]:
+    skip = set(shutil.ignore_patterns(*IGNORE)(folder, names))
+    if Path(folder).resolve() == SIDECAR:
+        skip |= IGNORE_TOP & set(names)
+    return skip
 
 CMP_SWAP = {ast.Eq: ast.NotEq, ast.NotEq: ast.Eq, ast.Lt: ast.GtE, ast.GtE: ast.Lt, ast.Gt: ast.LtE,
             ast.LtE: ast.Gt, ast.Is: ast.IsNot, ast.IsNot: ast.Is, ast.In: ast.NotIn, ast.NotIn: ast.In}
@@ -146,13 +156,24 @@ def _run_tests(work: Path, tests: list[str]) -> str:
 def _kill_group(proc: subprocess.Popen) -> None:
     if os.name == "nt":
         taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
-        subprocess.run([taskkill, "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False)
+        try:
+            subprocess.run([taskkill, "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
+                           timeout=KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            pass
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-    proc.wait()
+    try:
+        proc.wait(timeout=KILL_WAIT)
+    except subprocess.TimeoutExpired:  # the kill failed: stop pytest itself and move on
+        proc.kill()
+        try:
+            proc.wait(timeout=KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            print(f"pytest {proc.pid} would not stop; moving on", file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="mutate-") as tmp:
         work = Path(tmp) / "sidecar"
-        shutil.copytree(SIDECAR, work, ignore=shutil.ignore_patterns(*IGNORE))
+        shutil.copytree(SIDECAR, work, ignore=_ignore)
         target = work / args.module
         src = target.read_text(encoding="utf-8")
         base = ast.parse(src)

@@ -162,7 +162,7 @@ def _only_empty_structs_fail(query: str) -> bool:
     for start, end in reversed(spans):
         filled = filled[:start] + "<x: int>" + filled[end + 1:]
     try:
-        sqlglot.parse(filled, read="spark")
+        sql_dialects.parse(filled, read="spark")
     except ParseError:
         return False
     return True

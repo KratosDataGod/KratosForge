@@ -217,6 +217,9 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     exercise, ``sql`` is the script: it runs in the learner process in ``run/`` (what it wrote there
     stays until Reset), and the result is its status, output and how long it took."""
     adapter = exercises.get(pack_id, exercise_id)["adapter"]
+    sql = str(sql)
+    if adapter not in pylab.ADAPTERS and adapter != gitlab.ADAPTER and len(sql.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That answer is over 1 MB, so it wasn't run; an exercise answer is much smaller.")
     if adapter in pylab.ADAPTERS:
         return _run_python(root, pack_id, exercise_id, sql)
     if adapter == quizlab.ADAPTER:

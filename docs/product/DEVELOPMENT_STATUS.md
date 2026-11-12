@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-11 11:42 UTC, main 47416473.** Covers the PRs merged from #135 to #2500.
+**Product check of 2026-11-11 23:42 UTC, main 86c07814.** Covers the PRs merged from #135 to #2523.
 
 ## Summary
 
+- Evening check, 2026-11-11: 19 PRs merged after 47416473. 2 were product data and docs audit PRs, and the other 17
+  were linked. App Studio gained its Model connections screen and a working Publish dialog (PB-127, Preview). Local
+  data projects read Delta tables under folders with spaces or non-ASCII names and refuse a write Windows can't read
+  back (PB-099). CI installs from hashed lock files, workflows pin their actions, and the shell's Rust crates are
+  gated by clippy and cargo-deny (PB-124). No item changed state; PB-073's acceptance waits on the product owner.
 - Morning check, 2026-11-11: 72 PRs merged after 17e7ea06. 2 were product data and docs audit PRs, and the other 70
   were linked. Incidents gained their measures (time to acknowledge, time to resolve, SLAs met) in the engine
   (PB-105); what's left there is the reports screen, which needs a mockup, and service desk tickets, which need the

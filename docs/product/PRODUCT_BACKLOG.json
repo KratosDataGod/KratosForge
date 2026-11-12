@@ -4577,7 +4577,8 @@
         "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
         "Backlog not yet pushed (push freeze)",
         "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f",
-        "The mypy baseline is empty: every engine module type-checks (#2069 to #2171); credentials kept out of the engine log and backups (#2161); restore checks the same roles as rollback (#2053) on main at 56e3826b"
+        "The mypy baseline is empty: every engine module type-checks (#2069 to #2171); credentials kept out of the engine log and backups (#2161); restore checks the same roles as rollback (#2053) on main at 56e3826b",
+        "Mutation testing batches 6 to 10 pin the policy and approval gates, SQL translation, local PySpark and notebook formats (#2545, #2550, #2559, #2564, #2565); a script drafts release notes from merged PRs (#2563) on main at 36844275"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -4990,7 +4991,16 @@
         2526,
         2540,
         2543,
-        2544
+        2544,
+        2545,
+        2550,
+        2556,
+        2559,
+        2560,
+        2562,
+        2563,
+        2564,
+        2565
       ],
       "issues": [
         910,
@@ -5130,7 +5140,8 @@
         "PySpark DataFrame API coverage list checked against Spark 3.5.3 (#1906); Row, Column and GroupedData imports, df.show() as Spark prints it, cube/rollup with grouping, and Column helpers (#1919, #1927, #1928, #1941); QUALIFY applies ORDER BY and LIMIT after its filter (#1905) on main at de881016",
         "spark.catalog answers about the lakehouse or refuses by name (#2389); Unity Catalog style names read or write the table they name, or refuse (#2379); Column.withField and dropFields (#2383) on main at 5d2fc045",
         "Spark on this PC: storage levels, sameSemantics, Observation, struct stars, drop after a join, temp views and createDataFrame types answer as Spark (#2446, #2454, #2456, #2459, #2477); notebooks keep the .ipynb as other tools wrote it (#2449) on main at 47416473",
-        "Spark SQL session, clock and random functions answer as in Fabric (#2535), and columns without AS are named as Spark names them (#2539) on main at 7c3dbd0e"
+        "Spark SQL session, clock and random functions answer as in Fabric (#2535), and columns without AS are named as Spark names them (#2539) on main at 7c3dbd0e",
+        "Spark on this PC: extract on text, NaN literals and read.csv's default comma (#2561); SQL cells ending in comments run, and a cell with no statement is done (#2551, #2553) on main at 36844275"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5304,7 +5315,10 @@
         2459,
         2477,
         2535,
-        2539
+        2539,
+        2551,
+        2553,
+        2561
       ]
     },
     {
@@ -6821,7 +6835,10 @@
         2532,
         2534,
         2536,
-        2538
+        2538,
+        2547,
+        2548,
+        2558
       ],
       "issues": [],
       "computed": {

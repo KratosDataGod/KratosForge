@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-12 11:42 UTC, main 7c3dbd0e.** Covers the PRs merged from #135 to #2544.
+**Product check of 2026-11-12 23:42 UTC, main 36844275.** Covers the PRs merged from #135 to #2565.
 
 ## Summary
 
+- Evening check, 2026-11-12: 16 PRs merged after 7c3dbd0e. 1 was a product data PR, and the other 15 were linked.
+  Mutation testing reached batch 10, covering the policy and approval gates, SQL translation and local PySpark
+  (PB-101). Spark on this PC handles extract on text, NaN literals and read.csv's default comma, and SQL cells that
+  end in comments run (PB-103). Set-aside copies made in the same instant no longer replace each other (PB-124). No
+  item changed state; PB-073's acceptance waits on the product owner.
 - Morning check, 2026-11-12: 18 PRs merged after 86c07814. 1 was a product data PR, and the other 17 were linked.
   Spark SQL's session, clock and random functions answer as in Fabric, and unnamed columns are named as Spark names
   them (PB-103). A failed Delta write no longer leaves the next query stuck (PB-099). Blocked files name AppLocker or

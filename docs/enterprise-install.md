@@ -249,7 +249,7 @@ What we suggest until signing lands:
 - Run shell commands with `%%powershell` or `!command` rather than `%%cmd`; don't allow `%TEMP%`.
 - Under script enforcement PowerShell runs in Constrained Language Mode, so "also run while signed out" on a schedule can't be saved. Ordinary schedules are unaffected.
 
-When something is blocked, the app says so. It names the engine folder when the engine's Python is blocked, names the packages when engine or notebook-environment files are blocked, and suggests `%%powershell` when a `%%cmd` cell is blocked.
+When something is blocked, the app says so. It names the engine folder when the engine's Python is blocked, names the packages when engine or notebook-environment files are blocked, and suggests `%%powershell` when a `%%cmd` cell is blocked. A notebook's own Python process, a SQL worker or the local API that the policy refuses, or a package file a cell imports, gets the same kind of line, naming AppLocker or App Control (WDAC), rather than `[WinError 1260]` or "DLL load failed". A scheduled run whose engine is blocked ends with the policy's own code, so Task Scheduler's **Last Run Result** shows it (`0x000004EC` for AppLocker). These messages are tested with Windows' error codes simulated, and are UNVERIFIED on a PC with a real policy.
 
 ## What the support bundle collects
 

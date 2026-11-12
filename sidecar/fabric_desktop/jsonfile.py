@@ -97,19 +97,31 @@ def _next_stamp(path: Path) -> dt.datetime:
     """The time for a new set-aside copy of ``path``: now, or just after its newest copy when that is
     already at or past now. Windows' clock can give two set-asides the same time, and a copy with the
     same name would replace the one kept before it; a copy stamped before the newest would be the first
-    one pruned."""
+    one pruned. Stamps that aren't a date, or are more than a day ahead (renamed by hand, not ours),
+    are left out of the ordering."""
     now = dt.datetime.now(dt.timezone.utc)
     own = re.compile(re.escape(path.name) + r"\.corrupt-(\d{8}T\d{12})Z")
-    stamps = [m.group(1) for p in path.parent.glob(f"{path.name}.corrupt-*") if (m := own.fullmatch(p.name))]
-    if stamps:
+    newest: dt.datetime | None = None
+    for p in path.parent.glob(f"{path.name}.corrupt-*"):
+        m = own.fullmatch(p.name)
+        if m is None:
+            continue
         try:
-            newest = dt.datetime.strptime(max(stamps), "%Y%m%dT%H%M%S%f").replace(tzinfo=dt.timezone.utc)
-        except ValueError:  # digits that aren't a date: renamed by hand, not one of ours to order after
-            _log.info("Ignoring %s.corrupt-%sZ when naming the next set-aside copy.", path.name, max(stamps))
-            return now
-        if newest >= now:
-            return newest + dt.timedelta(microseconds=1)
+            when = dt.datetime.strptime(m.group(1), "%Y%m%dT%H%M%S%f").replace(tzinfo=dt.timezone.utc)
+        except ValueError:  # digits that aren't a date
+            _log.info("Ignoring %s when naming the next set-aside copy: its stamp isn't a date.", p.name)
+            continue
+        if when - now > _SET_ASIDE_AHEAD:
+            _log.info("Ignoring %s when naming the next set-aside copy: its stamp is in the future.", p.name)
+            continue
+        if newest is None or when > newest:
+            newest = when
+    if newest is not None and newest >= now:
+        return newest + dt.timedelta(microseconds=1)
     return now
+
+
+_SET_ASIDE_AHEAD = dt.timedelta(days=1)  # a clock stepped back by more than this restarts the ordering
 
 
 def _prune_set_aside(path: Path, dest: Path) -> None:

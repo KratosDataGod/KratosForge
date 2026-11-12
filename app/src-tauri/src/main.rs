@@ -514,7 +514,10 @@ fn run_schedule(id: &str) -> i32 {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     hide_window(&mut cmd);
-    cmd.status().ok().and_then(|s| s.code()).unwrap_or(1)
+    match cmd.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => schedule_start_failed(e.raw_os_error()),
+    }
 }
 
 fn hide_window(cmd: &mut Command) {
@@ -584,8 +587,9 @@ fn apply_release_rule(latest: &mut Value) {
 
 /// Windows' answers when application control refuses to start a program: AppLocker or Software
 /// Restriction Policies (ERROR_ACCESS_DISABLED_BY_POLICY), App Control for Business / WDAC
-/// (ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION).
-const APP_CONTROL_BLOCKED: [i32; 2] = [1260, 4551];
+/// (ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION), and an unsigned file under a signing policy
+/// (ERROR_INVALID_IMAGE_HASH).
+const APP_CONTROL_BLOCKED: [i32; 3] = [1260, 4551, 577];
 
 /// Why the engine's Python didn't start, in words that say what to do: application control is
 /// named with the folder IT allows, and a missing file isn't called blocked (or the reverse).
@@ -595,11 +599,33 @@ fn python_failed(e: &std::io::Error) -> String {
     python_failed_text(e.raw_os_error(), &e.to_string(), &folder)
 }
 
+/// Why the engine didn't start. Application control's line stands on its own; anything else keeps
+/// saying it was the engine.
+fn engine_start_failed(e: &std::io::Error) -> String {
+    engine_start_text(e.raw_os_error(), python_failed(e))
+}
+
+fn engine_start_text(code: Option<i32>, why: String) -> String {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => why,
+        _ => format!("Could not start the Python sidecar: {why}"),
+    }
+}
+
+/// A scheduled run's exit code when its engine couldn't be started: application control's own code,
+/// so Task Scheduler's "Last Run Result" shows why (0x000004EC is AppLocker), and 1 for anything else.
+fn schedule_start_failed(code: Option<i32>) -> i32 {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => c,
+        _ => 1,
+    }
+}
+
 fn python_failed_text(code: Option<i32>, error: &str, folder: &str) -> String {
     match code {
         Some(c) if APP_CONTROL_BLOCKED.contains(&c) => format!(
-            "Your organization's application control (AppLocker or App Control for Business) blocked the \
-             engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
+            "Your organization's application control (AppLocker, or App Control for Business, also called \
+             WDAC) blocked the engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
              the enterprise install guide lists the rules (Application control). ({error})"
         ),
         Some(2 | 3) => format!("Python was not found ({error})."),
@@ -888,7 +914,7 @@ impl SidecarState {
     fn start_into(&self, guard: &mut Option<Arc<Sidecar>>) -> Result<(), String> {
         if guard.is_none() {
             self.crash_loop.lock().map_err(|e| e.to_string())?.may_start(std::time::Instant::now(), &data_dir())?;
-            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {}", python_failed(&e)))?;
+            let sidecar = Sidecar::start().map_err(|e| engine_start_failed(&e))?;
             *self.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
             *guard = Some(Arc::new(sidecar));
         }
@@ -2974,11 +3000,18 @@ mod integrity_tests {
     #[test]
     fn a_python_that_application_control_blocks_says_so_and_names_the_folder() {
         let folder = r"C:\Users\a\AppData\Local\FabricDesktop\engine\abc";
-        for code in [1260, 4551] {
+        for code in [1260, 4551, 577] {
             let text = python_failed_text(Some(code), "This program is blocked by group policy. (os error 1260)", folder);
-            assert!(text.starts_with("Your organization's application control"), "{text}");
-            assert!(text.contains(folder) && text.ends_with("(This program is blocked by group policy. (os error 1260))"));
+            assert!(text.starts_with("Your organization's application control (AppLocker, or App Control"), "{text}");
+            assert!(text.contains("WDAC") && text.contains(folder));
+            assert!(text.ends_with("(This program is blocked by group policy. (os error 1260))"));
+            // The engine's start says only that, not "Could not start the Python sidecar" before it.
+            assert_eq!(engine_start_text(Some(code), text.clone()), text);
+            assert_eq!(schedule_start_failed(Some(code)), code); // Task Scheduler shows the policy's code
         }
+        assert!(engine_start_text(Some(2), "Python was not found (x).".into()).starts_with("Could not start the Python sidecar: "));
+        assert_eq!(schedule_start_failed(Some(2)), 1);
+        assert_eq!(schedule_start_failed(None), 1);
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
     }

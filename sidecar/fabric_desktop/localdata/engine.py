@@ -32,7 +32,7 @@ import shutil
 import sys
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import time
 import uuid
 from pathlib import Path
@@ -1056,7 +1056,8 @@ class LocalEngine:
         except BaseException:
             # On DuckDB 2.0 a reader that isn't read to its end keeps the connection busy: the next query,
             # and the CHECKPOINT on close, would fail. A refused or failed write leaves nothing open.
-            reader.close()
+            with suppress(Exception):  # a close that fails never hides the error that stopped the write
+                reader.close()
             raise
         out.update(rows=counter.rows, bytes=counter.bytes, columns=[{"name": f.name, "type": str(f.type)}
                                                                     for f in target])

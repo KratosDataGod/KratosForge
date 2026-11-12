@@ -51,3 +51,35 @@ def test_a_partition_column_the_query_lacks_leaves_the_connection_free(engine, l
     local.close_all()
     assert engine.execute("SELECT 41 + 1 AS n")["rows"] == [[42]]
     assert caught.value.__traceback__ is not None
+
+
+class _CloseFails:
+    """A reader whose close() raises, standing in for the write's real reader."""
+
+    def __init__(self, reader):
+        self.real = reader
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+    def __iter__(self):
+        return iter(self.real)
+
+    def close(self):
+        raise RuntimeError("close failed")
+
+
+def test_a_close_that_fails_never_hides_the_error_that_stopped_the_write(engine, local, monkeypatch):
+    from fabric_desktop.localdata import engine as eng
+
+    real, made = eng.arrow_reader, []
+
+    def reader(result, rows):
+        made.append(_CloseFails(real(result, rows)))
+        return made[-1]
+    monkeypatch.setattr(eng, "arrow_reader", reader)
+    with pytest.raises(ValueError, match="doesn't fit its type int8"):
+        engine.write_delta("dbo.tiny", "SELECT 1000 AS a", mode="append", dry_run=True)
+    assert len(made) == 1  # the write's reader was the one whose close failed
+    made[0].real.close()  # free the connection, as a close that works would have
+    local.close_all()

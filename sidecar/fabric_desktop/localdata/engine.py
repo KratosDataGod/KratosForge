@@ -32,7 +32,7 @@ import shutil
 import sys
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import time
 import uuid
 from pathlib import Path
@@ -987,71 +987,78 @@ class LocalEngine:
         if result is None or not result.description:
             raise ValueError("The query returns no rows to write.")
         reader = arrow_reader(result, _WRITE_BATCH)
-        positional = current is not None and not w.replace and w.by_position
-        incoming = delta.fabric_schema(reader.schema, names=not positional)
-        target, schema_mode, by_position = incoming, None, False
-        partitions = list(w.partition_by)
-        if current is not None and not w.replace:
-            table_schema = _arrow_schema(current)
-            if w.by_position:
-                if len(incoming) != len(table_schema):
-                    raise ValueError(f"The query returns {len(incoming)} columns and {name} has {len(table_schema)}"
-                                     f" ({', '.join(table_schema.names)}). INSERT matches columns by position; "
-                                     "INSERT ... BY NAME matches them by name.")
-                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema, strict=True)])
-                by_position = True
-            problems = delta.fits(incoming, table_schema)
-            if problems and w.schema_mode == "merge" and \
-                    all(p.endswith((" is new", " is missing")) for p in problems):
-                target = pa.schema([table_schema.field(f.name) if f.name in table_schema.names else f
-                                    for f in incoming])
-                schema_mode = "merge"
-                out["schema_change"] = problems
-            elif problems:
-                raise ValueError(f"The query's columns don't match {name}: " + "; ".join(problems) + ". "
-                                 + ("Use schema_mode merge to add new columns, or " if w.mode == "append" else "")
-                                 + "CREATE OR REPLACE TABLE to give it a new schema.")
-            else:
-                target = pa.schema([table_schema.field(f.name) for f in incoming]) if by_position else table_schema
-            existing_parts = list(current.metadata().partition_columns)
-            if partitions and [p.lower() for p in partitions] != [p.lower() for p in existing_parts]:
-                raise ValueError(f"{name} is partitioned by {existing_parts or 'nothing'}. Use CREATE OR REPLACE "
-                                 "TABLE to change its partitioning.")
-            partitions = existing_parts
-        elif current is not None:  # a new schema and partitioning
-            schema_mode = "overwrite"
-            out["schema_change"] = delta.fits(incoming, _arrow_schema(current))
-        missing = [p for p in partitions if p not in target.names]
-        if missing:
-            raise ValueError(f"Can't partition by {', '.join(missing)}: the query has no such column.")
-        if not dry_run:
-            _check_path_room(name, folder, partitions)  # before Conform opens the result: DuckDB 2.0 holds it
-        conform = delta.Conform(reader, target, by_position=by_position)
-        counter = delta.Counter(conform.reader)
         try:
-            if dry_run:
-                for _ in counter.reader:
-                    pass
-            else:
-                folder.mkdir(parents=True, exist_ok=True)
-                options: dict[str, Any] = {
-                    "partition_by": partitions or None, "schema_mode": schema_mode,
-                    "commit_properties": CommitProperties(custom_metadata={
-                        "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
-                if current is not None and w.mode == "overwrite":
-                    write_deltalake(str(folder), counter.reader, mode="overwrite", **options)
+            positional = current is not None and not w.replace and w.by_position
+            incoming = delta.fabric_schema(reader.schema, names=not positional)
+            target, schema_mode, by_position = incoming, None, False
+            partitions = list(w.partition_by)
+            if current is not None and not w.replace:
+                table_schema = _arrow_schema(current)
+                if w.by_position:
+                    if len(incoming) != len(table_schema):
+                        raise ValueError(f"The query returns {len(incoming)} columns and {name} has {len(table_schema)}"
+                                         f" ({', '.join(table_schema.names)}). INSERT matches columns by position; "
+                                         "INSERT ... BY NAME matches them by name.")
+                    incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema, strict=True)])
+                    by_position = True
+                problems = delta.fits(incoming, table_schema)
+                if problems and w.schema_mode == "merge" and \
+                        all(p.endswith((" is new", " is missing")) for p in problems):
+                    target = pa.schema([table_schema.field(f.name) if f.name in table_schema.names else f
+                                        for f in incoming])
+                    schema_mode = "merge"
+                    out["schema_change"] = problems
+                elif problems:
+                    raise ValueError(f"The query's columns don't match {name}: " + "; ".join(problems) + ". "
+                                     + ("Use schema_mode merge to add new columns, or " if w.mode == "append" else "")
+                                     + "CREATE OR REPLACE TABLE to give it a new schema.")
                 else:
-                    write_deltalake(str(folder), counter.reader, mode="error" if current is None else "append",
-                                    **options)
-        except BaseException as exc:
-            if not dry_run and current is None and not (folder / "_delta_log").is_dir():
-                _remove_tree(folder, self.tables_dir)  # nothing committed: leave no half-written folder
-            if state["cancelled"] or state["timed_out"]:
-                raise duckdb.InterruptException("cancelled") from None
-            if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
-                raise
-            raise ValueError(f"Writing {name} failed, and nothing was committed: "
-                             f"{conform.error or _short(exc).split(' Detail: Python exception')[0]}") from None
+                    target = pa.schema([table_schema.field(f.name) for f in incoming]) if by_position else table_schema
+                existing_parts = list(current.metadata().partition_columns)
+                if partitions and [p.lower() for p in partitions] != [p.lower() for p in existing_parts]:
+                    raise ValueError(f"{name} is partitioned by {existing_parts or 'nothing'}. Use CREATE OR REPLACE "
+                                     "TABLE to change its partitioning.")
+                partitions = existing_parts
+            elif current is not None:  # a new schema and partitioning
+                schema_mode = "overwrite"
+                out["schema_change"] = delta.fits(incoming, _arrow_schema(current))
+            missing = [p for p in partitions if p not in target.names]
+            if missing:
+                raise ValueError(f"Can't partition by {', '.join(missing)}: the query has no such column.")
+            if not dry_run:
+                _check_path_room(name, folder, partitions)  # before Conform opens the result: DuckDB 2.0 holds it
+            conform = delta.Conform(reader, target, by_position=by_position)
+            counter = delta.Counter(conform.reader)
+            try:
+                if dry_run:
+                    for _ in counter.reader:
+                        pass
+                else:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    options: dict[str, Any] = {
+                        "partition_by": partitions or None, "schema_mode": schema_mode,
+                        "commit_properties": CommitProperties(custom_metadata={
+                            "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
+                    if current is not None and w.mode == "overwrite":
+                        write_deltalake(str(folder), counter.reader, mode="overwrite", **options)
+                    else:
+                        write_deltalake(str(folder), counter.reader, mode="error" if current is None else "append",
+                                        **options)
+            except BaseException as exc:
+                if not dry_run and current is None and not (folder / "_delta_log").is_dir():
+                    _remove_tree(folder, self.tables_dir)  # nothing committed: leave no half-written folder
+                if state["cancelled"] or state["timed_out"]:
+                    raise duckdb.InterruptException("cancelled") from None
+                if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
+                    raise
+                raise ValueError(f"Writing {name} failed, and nothing was committed: "
+                                 f"{conform.error or _short(exc).split(' Detail: Python exception')[0]}") from None
+        except BaseException:
+            # On DuckDB 2.0 a reader that isn't read to its end keeps the connection busy: the next query,
+            # and the CHECKPOINT on close, would fail. A refused or failed write leaves nothing open.
+            with suppress(Exception):  # a close that fails never hides the error that stopped the write
+                reader.close()
+            raise
         out.update(rows=counter.rows, bytes=counter.bytes, columns=[{"name": f.name, "type": str(f.type)}
                                                                     for f in target])
         if dry_run:

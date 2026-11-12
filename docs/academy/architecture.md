@@ -178,10 +178,16 @@ evidence can be marked "shown", which skips its guided exercises (never its Fabr
 
 ## Certification change detection (ACD-020)
 
-A scheduled GitHub workflow fetches the study guide, extracts the skills-measured list, and
-compares it with the registry's source snapshot. On a change it opens a draft PR that updates the
-snapshot and lists objectives added, removed and reworded, with a draft crosswalk. People review
-and merge it; the app never changes its curriculum by itself.
+A scheduled GitHub workflow (`.github/workflows/academy-guide-check.yml`, Tuesdays, or by hand)
+fetches each pack's study guide from Learn, extracts the skills-measured list
+(`academy/guide_check.py`: domain headings with their weights, skill areas, objectives) and compares
+it with the registry. On a change it opens, or updates, one draft PR per pack that adds
+`docs/academy/guide-changes/<pack>.md` (domains, skill areas and objectives added, removed, reworded
+and renumbered) and `<pack>.crosswalk.json` (a draft crosswalk). People review it, then update the
+registry's words, version, snapshot hash and crosswalk by hand; the app never changes its curriculum
+or anyone's results by itself. An unchanged page does nothing. A page that can't be fetched or read
+is reported in the run summary with a warning, and the run still passes. A guide published as a PDF
+(the Databricks pack) is listed as not checked automatically.
 
 ## Screens (mockup first)
 

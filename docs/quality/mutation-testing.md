@@ -126,7 +126,12 @@ to re-check survivors once tests are added. After `--`, the test files. Each lin
 result. Keep the seed at 7 to compare with the tables here: the script samples and mutates the same
 points as the batch 1 scratch copy did. One module at a time takes 5 to 25
 minutes on four cores; write_queue is the slowest, because a mutant that stops the queue's workers
-hangs until the 120 s timeout.
+hangs until the 120 s timeout. A timed-out run is stopped with every process it started (its own
+process group, or `taskkill /T` on Windows); a kill that hasn't finished within 30 s is given up on,
+so one mutant can't hang the run. Caches (anywhere) and a local `.venv` and build output (at the top of
+`sidecar/` only, so a test fixture folder of the same name is still copied) aren't copied into the
+temporary `sidecar/`, and `--only` names any index that isn't in the run's sample instead of quietly
+skipping it.
 
 # Mutation testing, batch 2
 
@@ -217,3 +222,476 @@ each module's survivors with `--only` once its new tests were in.
   (`localdata/delta.py` was in batch 1).
 - The policy and approval gates, and `lakehouse.write_refusal` (the open metadata project's guard), are
   covered by other work and were not touched.
+
+# Mutation testing, batch 3
+
+The local engine's statement, write and commit side: running a script and its Delta writes
+(`localdata/engine.py`), the local Delta write path again now that #2516 changed it
+(`localdata/delta.py`), T-SQL on this PC (`localdata/tsql.py`), the safe SQL parser
+(`sql_dialects.py`), local SQL transformations (`localdata/transform.py`), the list of local
+projects (`localdata/projects.py`), and the shared JSON file writer every saved setting goes through
+(`jsonfile.py`). Run at `main` e26ff6876 (2026-11-12) with `sidecar/tools/mutate.py`, the same method,
+sample cap and seed as batches 1 and 2.
+
+## Results
+
+| Module | Test files run | Mutants (of points) | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent or left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `localdata/engine.py` | test_local_data, test_local_data_engine_edges, test_local_data_engine_more_edges, test_duckdb2_shapes, test_localdata_long_paths, test_spill_leftovers, test_local_delta, test_local_delta_dml, test_local_explain, test_awkward_paths, test_local_transform, test_localdata_manager_edges, test_safe_parse_readers (+ test_localdata_engine_mutation) | 150 (859) | 107 / 43 (2 timeouts) | **71.3%** | 140 / 10 | **93.3%** | 8 equivalent, 2 left |
+| `localdata/delta.py` | batch 1's set, test_localdata_delta_mutation, test_safe_parse_readers | 150 (322) | 145 / 5 | **96.7%** | no change needed | **96.7%** | 5 (batch 1's) |
+| `localdata/tsql.py` | test_local_tsql, test_local_tsql_more_edges, test_sql_lambdas, test_tsql_loud_gaps | 150 (694) | 150 / 0 | **100%** | no change needed | **100%** | 0 |
+| `sql_dialects.py` | test_parse_errors_plain, test_safe_parse_readers, test_snowflake_sql_variadic, test_sql_editor | 27 (27) | 27 / 0 | **100%** | no change needed | **100%** | 0 |
+| `localdata/transform.py` | test_local_transform, test_local_transform_edges (+ test_local_transform_mutation) | 150 (170) | 122 / 28 | **81.3%** | 146 / 4 | **97.3%** | 4 |
+| `localdata/projects.py` | test_local_data_projects_edges, test_corrupt_state_reads, test_file_replace (+ test_localdata_projects_mutation) | 64 (64) | 44 / 20 (3 timeouts) | **68.8%** | 64 / 0 | **100%** | 0 |
+| `jsonfile.py` | test_json_files, test_file_replace, test_state_writes, test_meta_atomic_save (+ test_jsonfile_mutation) | 40 (40) | 31 / 9 | **77.5%** | 38 / 2 | **95.0%** | 2 |
+
+`localdata/engine.py`'s test set leaves out the slowest files that also drive it (test_sql_exec,
+test_local_sql_stop, test_local_tsql, test_localdata_kills): with them each surviving mutant took about
+two minutes. The "after" numbers come from re-running each module's survivors with `--only` once its
+new tests were in. `localdata/delta.py` scored the same as in batch 1 after #2516, with the same five
+equivalent mutants.
+
+### What the survivors were, and the tests that now kill them
+
+- **localdata/engine.py (33 killed).** A `limit` of 0 could return a row; statement numbers could
+  count from -1; the seconds that `write_delta`, `make_table` and `change_delta` report weren't held
+  to three places; a script mixing a Delta write and another statement could be refused as unreadable;
+  a dry run's "doesn't fit" message could come back wrapped as "Writing ... failed"; a change to a
+  table Fabric couldn't read could go ahead (removing that `raise` passed every test); which versions a
+  change flushes to disk; `delta_history` with a limit of 0, its `own` flag, and a folder of Parquet
+  files asking for versions; reading as of a time before the first version; a folder table listing at
+  most 50 paths; the automatic look for changed files forcing a full refresh; spill leftovers that are
+  folders or links; the 64 characters kept for a data file's name and 3 per partition in the
+  long-path check; an unreadable log counting as maybe committed; the Fabric check's 20 findings;
+  `_collect` with no result; `_short`'s 1,000 characters; and the explain plan's estimates, details,
+  memory and spill totals, zero-time shares and indentation. → `tests/test_localdata_engine_mutation.py`.
+- **localdata/transform.py (24).** A comment line before the settings ended them; a CTE could be read
+  as a table; a bad default's message could name the wrong thing; the plan could drop a broken step;
+  a run's start and end times, its rounded seconds, the run files' names, newest-first listing, the
+  default of 20, a limit of 0 still giving one, and the 50 runs kept; a run in a project with no
+  transforms folder; the state file's layout; a dry run planning each query with `LIMIT 0`, no row
+  count and (for Spark SQL) an alias; marking a table without counting its rows; a Delta step's
+  `version:N` mark, a Delta step written another way since being refused, and a dry run treating a
+  built Delta step as built. → `tests/test_local_transform_mutation.py`.
+- **localdata/projects.py (20).** The default settings, a time limit of exactly a week, where a project
+  keeps its database and spills, finding a registered folder by its normalized path, the summary, an
+  unknown project raising KeyError, a list file that can't be opened, ids counting up from 2, and a
+  project kept in a folder that isn't made yet or one that is already there and empty.
+  → `tests/test_localdata_projects_mutation.py`.
+- **jsonfile.py (7).** The two-space indent, making missing folders and reusing existing ones for text
+  and bytes, a failed swap of bytes raising and leaving no temporary file (removing that `raise` passed
+  every test), a missing file reading as the default itself, and pruning set-aside copies that have no
+  `-wal` or `-shm` without logging a failure. → `tests/test_jsonfile_mutation.py`.
+- **localdata/tsql.py, sql_dialects.py, localdata/delta.py.** Their own tests already killed every
+  sampled mutant that can be caught.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it can't be caught |
+| --- | --- | --- | --- |
+| localdata/engine.py | 140 | `min(..., default=0)` → `default=1` | A Delta table always has at least one commit, so the default is never used. |
+| localdata/engine.py | 379 | `return False` → `return None` | The caller only tests it for truth. |
+| localdata/engine.py | 548 | `if not query.__exit__(...)` negated | Both branches raise the same error. |
+| localdata/engine.py | 576 | `lazy=False` → `True` (the default) | The rows are the same either way; only the memory a large result uses differs. |
+| localdata/engine.py | 748 | `len(texts) > 1` → `> 0` | One statement was already checked by DuckDB when the script was split. |
+| localdata/engine.py | 965 | `entry is not None and ...` → `or` | A table folder with a Delta log is always in the catalog (`_refresh_own` adds it), so an entry is never missing for one. |
+| localdata/engine.py | 987, 988 | `result is None or not result.description` → `and`, and its `raise` removed | Only one SELECT is accepted (checked just before), and a SELECT always has a description. |
+| localdata/transform.py | 253 | `return []` → `None` | The caller only tests it for truth. |
+| localdata/transform.py | 274 | `delta_history(name, 1)` → `0` | `delta_history` reads at least one version. |
+| localdata/transform.py | 307 | `mkdir(parents=True)` → `False` | The transforms folder's parent is the project folder, which always exists. |
+| localdata/transform.py | 315 | `unlink(missing_ok=True)` → `False` | The file was just listed. |
+| jsonfile.py | 49, 64 | `unlink(missing_ok=True)` → `False` | The temporary file is made before the `try`, so it exists when a failed write removes it. |
+
+**Left, not equivalent:** `engine.py` 539, `execute_reader` with `lazy=False`, gives the same rows
+but copies a whole result into memory before the first batch (#1340). Catching that needs a memory
+measurement, not a unit test. `engine.py` 1262, the Stop thread not being a daemon, only matters when
+the process exits while a query is being stopped.
+
+### Real bugs found
+
+- None. Every killed survivor was a missing test, not wrong behavior.
+
+### Not in this batch
+
+- `delta_dml.py`: #2528 changed it while this batch ran, so its re-score is left for the next batch
+  (batch 2 scored it at 98.7%).
+- `audit_chain.py` and `retention.py`: still changed by an open pull request (#2305).
+- The policy and approval gates were not touched.
+
+# Mutation testing, batch 4
+
+The modules that guard written and read data on this PC and in OneLake. They cover:
+- MERGE, UPDATE and DELETE (`delta_dml.py`), scored again now that #2528 has changed it.
+- The write leases that keep two writers off one table (`leases.py`).
+- OneLake file reads, downloads, uploads and listings (`onelake.py`).
+- Backing up and restoring the app's folder (`backup.py`).
+- A notebook's version history (`notebook_versions.py`) and resources folder (`notebook_resources.py`).
+- Finding the data files in a local source (`localdata/discovery.py`).
+
+The run was at `main` f073d852c (2026-11-12), with `sidecar/tools/mutate.py` and the same method, sample cap and seed as batches 1 to 3.
+
+## Results
+
+| Module | Test files run | Mutants (of points) | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `delta_dml.py` | test_delta_dml_edges, test_delta_dml_mutation, test_local_delta_dml, test_merge_conversions | 150 (222) | 146 / 4 | **97.3%** | 148 / 2 | **98.7%** | 2 (batch 2's) |
+| `leases.py` | test_leases_edges, test_leases_local, test_table_leases, test_lease_before_commit, test_lease_clock_skew (+ test_leases_mutation) | 150 (223) | 104 / 46 | **69.3%** | 147 / 3 (4 timeouts) | **98.0%** | 3 |
+| `onelake.py` | test_onelake_writes, test_contract_onelake, test_paging, test_profile_paths (+ test_onelake_mutation) | 150 (190) | 108 / 42 | **72.0%** | 149 / 1 | **99.3%** | 1 |
+| `backup.py` | test_backup, test_backup_edges, test_backup_integrity, test_backup_restore_whole (+ test_backup_mutation) | 150 (209) | 122 / 28 | **81.3%** | 135 / 15 | **90.0%** | 15 |
+| `notebook_versions.py` | test_notebook_versions, test_notebook_versions_service_edges (+ test_notebook_versions_mutation) | 130 (130) | 97 / 33 | **74.6%** | 125 / 5 | **96.2%** | 5 |
+| `notebook_resources.py` | test_notebook_resources, test_notebook_resources_edges, test_builtin_links (+ test_notebook_resources_mutation) | 120 (120) | 94 / 26 (1 timeout) | **78.3%** | 118 / 2 | **98.3%** | 2 |
+| `localdata/discovery.py` | test_local_data, test_local_data_discovery_edges (+ test_localdata_discovery_mutation) | 142 (142) | 113 / 29 | **79.6%** | 136 / 6 | **95.8%** | 6 |
+
+The "after" numbers come from running each module's survivors again with `--only` once its new tests were in.
+
+Test set notes:
+- `leases.py`'s set leaves out test_concurrent_writers, which runs several processes at once and takes about 11 s a run.
+- `delta_dml.py`'s set leaves out test_spark_merge, which batch 2's set included. That is why it started below batch 2's 98.7%.
+- Four of the lease kills are timeouts. Each comes from a lock wait that, once mutated, never gives up: the test would hang, so the mutant is caught.
+
+### What the survivors were, and the tests that now kill them
+
+- **leases.py (43 killed).**
+  - Throttling and retries: a throttled OneLake change is sent 3 times in all. A lease file another writer has open gets 50 tries for a change and 10 for a read, and the last try's error is raised. Removing either raise, or moving which try raises, passed every test.
+  - The file lock: on POSIX it waits its full timeout before giving up. On Windows, through a stand-in `msvcrt`, it locks and unlocks 1 byte from the start of the file and waits out its timeout. Removing the raise made it wait for ever.
+  - The local backend: `delete` says no to a stale etag, and a `replace` whose copy can't be written raises that error rather than a missing-file one.
+  - OneLake requests: a 60 s timeout, and a change has three timeouts to finish. A 412 on create is a lost race. A 400 at the create, append, flush, read and release steps is an error; `>= 400` → `>= 401` passed for each.
+  - Expiry: an empty lease counts from when its file was written. On the store's clock a lease expires one second after its length, and a lease shorter than a second keeps that length.
+  - Defaults: a lease lasts 120 s and a writer waits 120 s. A table lease lasts 60 s and its writer waits 90 s.
+  - Waits between tries double up to 15 s.
+  - `holder()` names the owner. The renewer is a daemon thread, and `stop` waits 30 s for it.
+  - `holding()` is true only inside a live lease on that key.
+  - → `tests/test_leases_mutation.py`.
+- **onelake.py (41).**
+  - A 400 at every kind of request is an error: catalog, list, probe, download, Range read, an upload step, mkdir and delete. `>= 400` → `>= 401` passed at nine places, and a probe answered 400 must say why.
+  - Each request's time limit, 60 s or 300 s.
+  - A download exactly at its size limit is kept. One a byte over is removed, raises `FileTooBig` and names its limit in MB, and removing that `raise` passed every test. A download also counts from 0, reads 1 MB chunks, streams, makes nested folders and returns its path.
+  - A Range read is cut to its length.
+  - `list` is shallow by default. Listing the lakehouse root is allowed, and its repeated page is called "Files".
+  - The read-only storage options.
+  - `TableRef` is frozen and keeps a schema folder unless it is flat.
+  - Dates and the catalog's answers.
+  - → `tests/test_onelake_mutation.py`.
+- **notebook_versions.py (28).**
+  - The limits: the 5-minute coalescing window, 30 days to the second, 100 automatic versions, 200 checkpoints and 80-character labels. Saves still keep versions once the checkpoint limit is reached.
+  - The refusals for an unknown kind, too many checkpoints and a version no longer kept.
+  - Hashing a cell whose source is a list of lines or None, and the code-cell count.
+  - After a delete, the index still names the other versions, and no folder is made for a notebook without versions.
+  - A coalesced save's index names the new version, not the one it replaced. With that mutant, the index only looked right because it was rebuilt on the next read.
+  - Rebuilding a missing or bad index, newest first.
+  - `keep_copy`.
+  - Renaming into new nested folders, joining existing versions without replacing any, and moving only its own files out of a shared folder.
+  - → `tests/test_notebook_versions_mutation.py`.
+- **notebook_resources.py (24).**
+  - The 120-character name limit and the 50 MB file limit at their edges, with the limit's message.
+  - The Windows device names COM1 to COM9 and LPT1 to LPT9, and the names next to them that are fine.
+  - Running out of free names after 999.
+  - A missing file is refused.
+  - What `delete`, `rename_folder`, `copy_folder` and `remove_folder` return. They count nested files too.
+  - A copy that fails before making its folder raises its own error.
+  - → `tests/test_notebook_resources_mutation.py`.
+- **localdata/discovery.py (23).**
+  - When two files make one table, which format wins: delta, then parquet, csv, json, then excel. Each pair is set up so that a tie would hand the table to the wrong file.
+  - The default depth of 4 folders, `max_depth` from 0 to 10, and 128-character names.
+  - Exclude patterns.
+  - A dotted file name sets the schema only at the top of a flat source, and only with a table after the dot.
+  - The counts and partition flag of single files, Delta and Hive tables.
+  - Writer files starting with `_`, and links inside a part folder or below the source (POSIX).
+  - Where an issue points: a single file or a folder.
+  - An unreadable file's message.
+  - The 20,000-file cap.
+  - → `tests/test_localdata_discovery_mutation.py`.
+- **backup.py (13).**
+  - 5 restores' safety copies are kept by default, or the newest 1. Pruning leaves folders it didn't name and files with a restore's name. A missing safety folder prunes nothing.
+  - A top-level file named like a skipped folder (`logs`, `engine`) is backed up.
+  - An empty `.db` file goes in as a database.
+  - A database known only by its header has its stale WAL moved aside.
+  - A restore that replaces and moves nothing keeps no safety copy.
+  - Backups go into a new nested folder and again into the same one. A backup that stops before its `.part` file exists raises its own error.
+  - The restore summary counts replaced files and says whether it restored.
+  - → `tests/test_backup_mutation.py`.
+- **delta_dml.py (2).**
+  - A MERGE with no WHEN clause is refused.
+  - A count delta-rs leaves out, or reports as None, is 0.
+  - → two tests added to `tests/test_delta_dml_mutation.py`.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it can't be caught |
+| --- | --- | --- | --- |
+| delta_dml.py | 180, 346 | `strict=True` → `False`; back-cast `safe=False` → `True` | As in batch 2. |
+| leases.py | 186 | `range(10)` → `range(11)` | The last try raises at attempt 9 either way. |
+| leases.py | 348 | `self.clock() if now is None else now` swapped | Every caller of `_body` passes the time. |
+| leases.py | 181 | `tmp.unlink(missing_ok=True)` → `False` | The copy was just written, so it exists. |
+| onelake.py | 311 | `dest.unlink(missing_ok=True)` → `False` | The download had opened the file for writing, so it exists. |
+| backup.py | 310, 339 | the suffix check in `_is_database` swapped; its `return False` → `None` | The header check decides, and only a non-database with a `-wal` beside it would differ; the caller only tests for truth. |
+| backup.py | 333 | `no_checkpoint is not None and hasattr(...)` → `or` | Python 3.12 and later have both. |
+| backup.py | 133, 149, 219 | JSON `indent` changed | Only the layout of JSON that is read back as JSON changes. |
+| backup.py | 295, 397 (×2), 408 | copy buffer `1 << 20` changed | Only the read size changes; 0 means the default. |
+| backup.py | 412 | `zip(..., strict=True)` → `False` | Both lists come from the same plan. |
+| backup.py | 420 | a companion's `mkdir(parents=True)` → `False` | Step 2 already made the folder. |
+| backup.py | 447, 466 | `exc_info=True` → `False` | Only the log line changes. |
+| backup.py | 462 | `unlink(missing_ok=True)` → `False` | A file restore swapped in exists. |
+| notebook_versions.py | 86 | `_all`'s `return []` → `None` | Its only caller checks the folder first. |
+| notebook_versions.py | 91 | `r.get("t", 0)` → `1` | Every record read has `t`. |
+| notebook_versions.py | 111 | index `indent=0` → `1` | Layout only. |
+| notebook_versions.py | 171, 185 | `unlink(missing_ok=True)` → `False` | The replaced or pruned version is listed, so its file exists. |
+| notebook_resources.py | 158, 178 | `unlink(missing_ok=True)` → `False` | The file was made with `open(..., "xb")` just before. |
+| localdata/discovery.py | 39 | excel's precedence 4 → 5 | It is last either way. |
+| localdata/discovery.py | 90, 91 | `Found.size` and `files` defaults | Every `Found` the module makes sets them. |
+| localdata/discovery.py | 124 | suffixes tried shortest first | No two data suffixes both match one name. |
+| localdata/discovery.py | 173 | `len(names) >= 1` → `>= 0` | One format found means at least one name. |
+| localdata/discovery.py | 265 | a non-table's `hive` → `True` | It is unused when there is no table. |
+
+### Real bugs found
+
+- None. Every killed survivor was a missing test, not wrong behavior.
+
+### Not in this batch
+
+- `audit_chain.py` and `retention.py`, which an open pull request (#2305) still changes.
+- The modules other open pull requests change: among them `app_settings.py`, `auth.py`, `meta_service.py`, `service.py`, `server.py` and `fabric_api.py`.
+- The policy and approval gates were not touched.
+
+# Mutation testing, batch 5
+
+The small modules that guard data integrity and reliability around the local engine and the data folder:
+- The Fabric-safe Delta profile check (`delta_profile.py`).
+- Reading rows and Arrow readers the same way on DuckDB 1.x and 2.0 (`duckdb_rows.py`).
+- The local engines and background queries (`localdata/manager.py`).
+- Telling a full or read-only disk apart from other failures, and saying so (`disk_full.py`).
+- The guard on paged service reads (`paging.py`).
+- The cached SQL endpoint schemas (`schema_cache.py`).
+- The data folder's format mark, which keeps an older build from opening newer data (`data_format.py`).
+
+The run was at `main` b96c80215 (2026-11-12), with `sidecar/tools/mutate.py` and the same method, sample cap and seed as batches 1 to 4. Every module has fewer points than the cap, so every mutant was run.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `delta_profile.py` | test_delta_profile_writes, test_local_delta, test_schema_evolution (+ test_delta_profile_mutation) | 18 | 17 / 1 | **94.4%** | 18 / 0 | **100%** | 0 |
+| `duckdb_rows.py` | test_duckdb_rows, test_duckdb_rows_edges, test_duckdb_try_cast (+ test_duckdb_rows_mutation) | 29 | 26 / 3 | **89.7%** | 29 / 0 | **100%** | 0 |
+| `localdata/manager.py` | test_local_data, test_local_data_calls, test_local_sql_stop (+ test_localdata_manager_mutation) | 51 | 38 / 13 | **74.5%** | 51 / 0 | **100%** | 0 |
+| `disk_full.py` | test_disk_full, test_disk_full_windows, test_out_of_memory (+ test_disk_full_mutation) | 72 | 25 / 47 | **34.7%** | 71 / 1 | **98.6%** | 1 |
+| `paging.py` | test_paging, test_paging_complete (+ test_paging_mutation) | 12 | 11 / 1 | **91.7%** | 12 / 0 | **100%** | 0 |
+| `schema_cache.py` | test_schema_cache, test_attach_race (+ test_schema_cache_mutation) | 11 | 10 / 1 | **90.9%** | 11 / 0 | **100%** | 0 |
+| `data_format.py` | test_data_format (+ test_data_format_mutation) | 17 | 16 / 1 | **94.1%** | 17 / 0 | **100%** | 0 |
+
+The "after" numbers are full re-runs with the new tests in, except `disk_full.py`, whose last five survivors were run again with `--only`.
+
+`disk_full.py` started low because its own test files check the messages end to end through a few real failures. Most of its branches (each Windows error code, each text, the chain limit, the sizes, the data folder's refusals) were only reached from other modules' tests, if at all.
+
+### What the survivors were, and the tests that now kill them
+
+- **delta_profile.py**: the writer-version limit raised from 2 to 3 passed. A table at writer version 3 would then have been written as Fabric-safe. → `test_delta_profile_mutation.py` pins both limits at their edges.
+- **duckdb_rows.py**: on the pinned DuckDB 1.x, nothing checked that 2.0 gets a relation (`con.sql`) and 1.x an executed result. Nothing checked either that a result with only `to_arrow_reader` is read through it. → stand-in connections and results pin both branches.
+- **localdata/manager.py**:
+  - A folder added twice.
+  - A folder whose first look fails, which must be taken back off the project.
+  - The status of an unknown query.
+  - The elapsed time's arithmetic and rounding.
+  - Cancelling an unknown or finished query.
+  - The ten-minute keep for finished results, at its edge.
+  - The background thread's name and daemon flag.
+  - → `test_localdata_manager_mutation.py`. The clock and thread are replaced only as the module's own names.
+- **disk_full.py**:
+  - Both Windows disk-full codes and both refusal codes.
+  - Each errno and each text.
+  - The 20-deep chain limit and a cycle in the chain.
+  - Free space walking up to a folder that exists.
+  - Every size unit at its edge.
+  - Each message with and without free space.
+  - A data-folder refusal inside versus outside the folder.
+  - A full disk already reported.
+  - The bool results.
+  - → `test_disk_full_mutation.py` (one Windows-only test, for a drive letter).
+- **paging.py**: the 10,000-page limit raised by one. → a test follows 9,999 links and is refused on the next.
+- **schema_cache.py**: the 64-character cut of a lakehouse id in its file name. → pinned with a 70-character id.
+- **data_format.py**: a folder already at this build's format was written again, which replaced the record of the build that marked it. → pinned: the mark is left as it was.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it can't be caught |
+| --- | --- | --- | --- |
+| disk_full.py | 72 | `_size`'s last `return` → `None` | Unreachable: the loop always returns at "GB" (`# pragma: no cover`). |
+
+### Review follow-ups in this batch
+
+- `tests/test_leases_mutation.py` (batch 4) no longer patches the process-wide `time.sleep`. Three tests now replace only `leases`' own `time` name with a stand-in whose `sleep` does nothing.
+- `localdata/engine.py`: when a refused or failed Delta write closes its reader (#2542), a close that fails is now suppressed, so it can't replace the error that stopped the write. This is the batch's only product-code change: one line, on the error path only. `tests/test_localdata_engine_refused_write.py` checks it with a reader whose `close()` raises. It passes on DuckDB 1.5.6 and 2.0.
+
+### Real bugs found
+
+- None. Every killed survivor was a missing test, not wrong behavior.
+
+### Not in this batch
+
+- `audit_chain.py` and `retention.py`, which an open pull request (#2305) still changes.
+- `sealed_settings.py`, which belongs to the policy settings.
+- The policy and approval gates.
+
+# Mutation testing, batch 6
+
+The policy and approval gates that a pull request isn't already changing:
+- The settings kept sealed with DPAPI: webhooks and route addresses (`sealed_settings.py`).
+- The SQL statement policy for the warehouse (`sql_policy.py`).
+- The integrations policy: which integrations may run and who may edit them (`integrations/policy.py`).
+- The App Studio model policy: allowed providers and hosts (`appstudio/policy.py`).
+- The Git sync gates for Fabric workspaces (`fabric_git_service.py`).
+- The warehouse SQL path, including its refusal of change statements and dynamic SQL where they aren't allowed (`warehouse.py`).
+- The central policy and its promotion gate (`central/policy.py`).
+- The local data service (`localdata_service.py`).
+
+The run was at `main` 7c3dbd0ec (2026-11-12), with `sidecar/tools/mutate.py` and the same method as batches 1 to 5 (sample cap 150, seed 7). `warehouse.py` and `central/policy.py` have more points than the cap, so 150 of each were sampled. Every mutant of the other modules was run.
+
+Owners: the Governance thread owns the policy modules, the Warehouse thread owns Prod writes, and the Data retention thread owns the audit and receipt time limits (not in this batch, see below).
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `sealed_settings.py` | test_sealed_settings (+ test_sealed_settings_mutation) | 56 | 52 / 4 | **92.9%** | 56 / 0 | **100%** | 0 |
+| `sql_policy.py` | test_sql_exec, test_warehouse_queries, test_tsql_contract | 130 | 130 / 0 | **100%** | 130 / 0 | **100%** | 0 |
+| `integrations/policy.py` | test_policy_fail_closed, test_integrations_permissions, test_integrations_executions (+ test_integrations_policy_mutation) | 49 | 45 / 4 | **91.8%** | 49 / 0 | **100%** | 0 |
+| `appstudio/policy.py` | test_appstudio_connections, test_appstudio_edit, test_appstudio_generate (+ test_appstudio_policy_mutation) | 60 | 51 / 9 | **85.0%** | 60 / 0 | **100%** | 0 |
+| `fabric_git_service.py` | test_fabric_git, test_audit (+ test_fabric_git_service_mutation) | 78 | 63 / 15 | **80.8%** | 78 / 0 | **100%** | 0 |
+| `warehouse.py` | test_warehouse_connect, test_warehouse_edges, test_warehouse_precondition, test_warehouse_queries, test_parse_errors_plain, test_safe_parse_readers, test_sql_worker_inprocess (+ test_warehouse_mutation) | 150 of 309 | 124 / 26 | **82.7%** | 150 / 0 | **100%** | 0 |
+| `central/policy.py` | test_best_practice_checks, test_central_roles, test_central_upgrades, test_domain_delete_uses, test_file_text_one_line, test_governance, test_platform_retries, test_policy_package, test_policy_promote_gate, test_requests_core_four | 150 of 653 | 150 / 0 | **100%** | 150 / 0 | **100%** | 0 |
+| `localdata_service.py` | test_local_data, test_local_data_calls, test_local_delta, test_local_delta_dml, test_local_explain, test_local_transform, test_spill_leftovers, test_sql_exec | 63 | 63 / 0 | **100%** | 63 / 0 | **100%** | 0 |
+
+The "after" numbers re-run each survivor with `--only` and the new tests in.
+
+### What the survivors were, and the tests that now kill them
+
+- **sealed_settings.py**: nothing checked that a value isn't unsealed when DPAPI isn't there, that a webhook set again replaces one that can't be read while an empty one keeps it, that the same holds for route addresses, or that a route without a url passes through unchanged. → `test_sealed_settings_mutation.py`, with the same stand-in DPAPI as `test_sealed_settings.py`.
+- **integrations/policy.py**: the answer for a policy file that can't be read was only checked in part, and the editors setting was only checked as true. → `test_integrations_policy_mutation.py` pins the whole fail-closed answer, the defaults, both editors values and a wrong-type value.
+- **appstudio/policy.py**:
+  - The fail-closed answer was only checked in part.
+  - A providers or hosts value that isn't a list.
+  - The 40- and 60-character cuts and the limit of 5 names in the problem text.
+  - The refusal text with and without an allowed list, and a host matched without regard to case.
+  - → `test_appstudio_policy_mutation.py`.
+- **fabric_git_service.py**:
+  - The item-support answer, for every type and for one.
+  - A link file that can't be read, for status and for update.
+  - Other Fabric errors passing through status.
+  - The text for an update without a Test link.
+  - Every gate answer saying it didn't run.
+  - Nothing to update.
+  - An overview where Fabric refuses the read.
+  - → `test_fabric_git_service_mutation.py`, with the fixtures of `test_fabric_git.py`.
+- **warehouse.py**:
+  - Change statements numbered across GO batches.
+  - Names checked inside brackets, and a comment between words keeping them apart (`EXEC/* … */sp_executesql`).
+  - OPENROWSET, OPENQUERY and OPENDATASOURCE.
+  - The frozen endpoint and the missing-server text.
+  - The access-token attribute number and each transient login error number.
+  - The retry log text.
+  - The name and column limits of a precondition at their edges.
+  - A change's row count, commit and close.
+  - An empty result.
+  - When progress is said.
+  - The Arrow types for a one-digit decimal and an all-null datetime column.
+  - → `test_warehouse_mutation.py`, with stand-in connections. Progress replaces only `warehouse`'s own `time` name, not the process-wide one.
+
+### Equivalent mutants (left on purpose)
+
+- None.
+
+### Real bugs found
+
+- None. Every killed survivor was a missing test, not wrong behavior.
+
+### Not in this batch
+
+- `app_settings.py` (the policy ceilings and what a setting may loosen), which open pull requests still change.
+- `policy_schema.py`, `policy_watch.py`, `policy_trust.py` and `registry_policy.py`, which an open pull request still changes.
+- `audit.py` (writing the audit record, and failing closed when it can't), which an open pull request still changes.
+- `audit_chain.py` and `retention.py`, which an open pull request still changes.
+- `service.py`, which holds the typed-name check for Prod writes and other approval paths, and which several open pull requests still change.
+- `lakehouse.py`'s write refusal, already at 100% in batch 2.
+- The publish confirmation in `appstudio_service.py`, left for a later batch because the module is large.
+
+# Mutation testing, batch 7
+
+The SQL translation and the notebook's own code, which no open pull request is changing:
+- The Spark SQL translation to DuckDB (`sql.py`).
+- The notebook files, outputs, history and `%fs` magic (`notebook.py`), leaving out the kernel and the debugger.
+- The SQL engines on this PC: DuckDB, SQLite and Polars (`engines/local_sql.py`).
+- The local `notebookutils` (`notebookutils_local.py`).
+
+The run was at `main` 7c3dbd0ec (2026-11-12), with `sidecar/tools/mutate.py` and the same method as batches 1 to 6 (sample cap 150, seed 7), on DuckDB 1.5.6 and sqlglot 30.23. Every module has more points than the cap, so 150 of each were sampled. For `notebook.py`, 80 of the 150 fall outside the kernel and debugger (the `Kernel` class and the kernel magics, lines 628 to 2040, and `set_paused`); only those 80 are counted.
+
+`test_notebook.py`, `test_databricks_coverage.py` and `test_sql_exec.py` were not in any run: they read files outside `sidecar/` (such as `examples/data/sales.csv`), which the mutator's copy of `sidecar/` doesn't have, so with them in every mutant is "killed" by a missing file.
+
+## Results
+
+| Module | Test files run | Mutants | Before: killed + timeout / survived | Before | After: killed + timeout / survived | After | Equivalent left |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `sql.py` | test_sql_compat, test_sql_editor, test_sql_run_edges, test_bounded_previews, test_untranslatable_sql, test_tsql_contract, test_shell_and_decimals_edges, test_safe_parse_readers, test_time_travel, test_duckdb_try_cast, test_sql_lambdas and the test_spark_* SQL files (+ test_sql_mutation) | 150 of 894 | 108 / 42 | **72.0%** | 144 / 6 | **96.0%** | 6 |
+| `notebook.py` (outside the kernel and debugger) | test_notebook_files, test_notebook_files_edges, test_notebook_folders, test_notebook_shelf_edges, test_ipynb_round_trip, test_output_cap, test_outputs_hardening, test_notebook_display_edges, test_notebook_history, test_notebook_places, test_notebook_resources, test_notebook_inputs, test_notebook_run (+ test_notebook_mutation) | 80 of 150 sampled from 1,680 | 49 / 31 | **61.3%** | 80 / 0 | **100%** | 0 |
+| `engines/local_sql.py` | test_engines, test_local_sql_results, test_engine_compare, test_snowflake_sql_variadic, test_untranslatable_sql and the test_spark_* SQL files (+ test_local_sql_mutation) | 150 of 245 | 108 / 42 | **72.0%** | 142 / 8 | **94.7%** | 6, and 2 behind a bug |
+| `notebookutils_local.py` | test_notebookutils_fs, test_notebookutils_helpers, test_notebookutils_local_edges, test_notebookutils_parity, test_dbutils, test_keys, test_paging_complete, test_contract_onelake (+ test_notebookutils_local_mutation) | 150 of 449 | 128 / 22 | **85.3%** | 149 / 1 | **99.3%** | 1 |
+
+The "after" numbers re-run each survivor with `--only` and the new tests in. All four new test files also pass on DuckDB 2.0 and on sqlglot 30.22 and 30.27, the ends of the range `pyproject.toml` allows.
+
+### What the survivors were, and the tests that now kill them
+
+- **sql.py**:
+  - DuckDB SQL that Spark can't read being read as DuckDB, a key and value call with an odd number of arguments never being read that way, and a lone `X '0A'` read as binary while `t.x '0A'` is left alone.
+  - Counting a call's arguments: brackets, square brackets and braces, an unclosed call, a call inside another, and a `datediff` that sits inside brackets.
+  - An empty `struct< >` named whichever way it is spelled, including one at the very end of the query and one sqlglot reads without an error.
+  - Which name the `current_database()` and `current_schema()` refusals give.
+  - Where Spark puts NULL for `array_sort` and `sort_array`, a whole number in brackets, `schema_of_json` for equal types and for a number one past BIGINT, `from_json` as a whole expression, and `str_to_map`.
+  - `timestampdiff` in minutes, hours, months, quarters and years, run on DuckDB.
+  - `substring` with a start of 0, 1, 2 and -3, as a number and as a column.
+  - The Spark name of a rewritten scalar subquery.
+  - `bind_tables` binding a table unless it is told the name is local, an older version of a table being superseded, a Databricks `@` time point, and `point_args`.
+  - → `test_sql_mutation.py`.
+- **notebook.py**:
+  - An error at and just past the character cap, and the preview row count for a LazyFrame and for pandas.
+  - Clearing outputs with and without waiting, what a run's snapshot holds, and the query progress it reads.
+  - The output router's return value, and the `%fs` magic: ls, cp with and without `-r`, a `/mnt` path refused, and put.
+  - Value sizes and memory, the watch cap, and durations in s, ms, µs and ns.
+  - Notebook folders down to the depth limit, the store's list, cell metadata merging, a save keeping compute and workspace, what delete says about resources, and a shelf move whose copy vanished.
+  - → `test_notebook_mutation.py`.
+- **engines/local_sql.py**:
+  - The 256 MB limit in the descriptor and in the error text, and `Done in` for a statement with no rows.
+  - A second cell refused at once while one runs, and the seconds an error cell reports.
+  - The row and byte limits in `_drain` and `_keep` at their edges, and the preview across several batches.
+  - The DuckDB connection's external access and extension settings being off.
+  - Which parser reads Snowflake and Databricks SQL, Databricks' `timediff`, a runnable Snowflake cell, and the Snowflake plan's label.
+  - An INSERT's count, the DuckDB 2.0 relation path forced on 1.x, the catalog's view and table types, SQLite's and Polars' no-row results, a one-column Polars result, and the Polars adapter.
+  - → `test_local_sql_mutation.py`.
+- **notebookutils_local.py**:
+  - Each local change returning True, a plain local path, `head`'s default length, and the default `display`.
+  - `ls` of a file when OneLake answers 400, `cp` of `Files` with recurse, and `mv` keeping its source when a file didn't land, both on OneLake and locally.
+  - The default workspace, `runMultiple` clearing task values only at the top level, `validateDAG`, the UDF function list, and the variable library note printed once.
+  - → `test_notebookutils_local_mutation.py`.
+
+### Equivalent mutants (left on purpose)
+
+| Module | Line | Mutant | Why it changes nothing |
+| --- | --- | --- | --- |
+| `sql.py` | 434 | the comparator check negated | Only reached on sqlglot 30.24 and later; on 30.23, where the run was, `array_sort` takes the older branch. The new test kills it on 30.27. |
+| `sql.py` | 673, 675 | depth 0 → 1 for `from_json` | The depth only numbers the lambda names, which stay distinct. |
+| `sql.py` | 699 | `and` → `or` when putting arguments into a template | The only unqualified columns in the templates are the `fj_arg` ones. |
+| `sql.py` | 1047 | `copy=False` → `True` | Copies a node that was already copied. |
+| `sql.py` | 1460 | `wrap` default True → False | DuckDB's `LAMBDA x : …` form always writes without brackets. |
+| `engines/local_sql.py` | 93 | `_cancelled` starts True | `execute` sets it to False before anything reads it. |
+| `engines/local_sql.py` | 358 | `or` → `and` choosing the Arrow reader | Both readers give the same batches. |
+| `engines/local_sql.py` | 437, 439 | `strict=True` → `False` in two `zip`s | SQLite's rows and names always have the same length. |
+| `engines/local_sql.py` | 481, 488 | `result_rows > 0` → `> 1` in SQLite's batch loop | `_keep` checks the same row and byte limits again on the table the loop builds, so only how early it stops changes. |
+| `notebookutils_local.py` | 236 | the size of the `Files` or `Tables` root entry 0 → 1 | Nothing reads that size: moving `Files` itself is refused. |
+
+### Real bugs found
+
+- #2549: on DuckDB 1.x, a DuckDB engine cell with no statement in it, such as only a comment, fails with an internal `AttributeError`, where DuckDB 2.0 says it is done. The two `local_sql.py` survivors on line 357 are the branch that should answer it; on 1.x no input reaches it. They are left for the fix.
+
+### Not in this batch
+
+- `spark_compat.py`: 112 of its 150 sampled mutants survived its own tests, too many to handle alongside the others. It is left for its own batch.
+- `spark_local.py`, left with `spark_compat.py` for a later batch.
+- The notebook kernel and debugger, as asked.
+- `app_settings.py`, `policy_schema.py`, `audit.py`, `service.py`, `audit_chain.py` and `retention.py`, which open pull requests still change.

@@ -20,8 +20,9 @@ again (to re-check survivors once tests are added). --entries NAME instead delet
 module-level list or tuple NAME in turn, for a table of patterns the point mutations can't reach.
 
 For each mutant the given tests run with pytest -x and a 120 s timeout. A failing run is "killed",
-a passing one "survived", and a run that hangs "timeout", which counts as killed in the score. Each
-mutant prints `<index> <line> <kind> <change> <status>`, and --out gets the totals and every result.
+a passing one "survived", and a run that hangs "timeout" (stopped along with every process it
+started), which counts as killed in the score. Each mutant prints
+`<index> <line> <kind> <change> <status>`, and --out gets the totals and every result.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ import json
 import os
 import random
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -41,6 +43,19 @@ from pathlib import Path
 
 SIDECAR = Path(__file__).resolve().parents[1]
 TIMEOUT = 120
+KILL_WAIT = 30
+# Not copied into the temporary sidecar/: caches at any depth, and a local virtual environment and
+# build output only at the top of sidecar/, so a folder of the same name deeper down (a test
+# fixture, say) is still copied.
+IGNORE = ("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "*.egg-info")
+IGNORE_TOP = {".venv", "venv", "build", "dist", ".coverage", "htmlcov"}
+
+
+def _ignore(folder: str, names: list[str]) -> set[str]:
+    skip = set(shutil.ignore_patterns(*IGNORE)(folder, names))
+    if Path(folder).resolve() == SIDECAR:
+        skip |= IGNORE_TOP & set(names)
+    return skip
 
 CMP_SWAP = {ast.Eq: ast.NotEq, ast.NotEq: ast.Eq, ast.Lt: ast.GtE, ast.GtE: ast.Lt, ast.Gt: ast.LtE,
             ast.LtE: ast.Gt, ast.Is: ast.IsNot, ast.IsNot: ast.Is, ast.In: ast.NotIn, ast.NotIn: ast.In}
@@ -125,12 +140,40 @@ def _list_node(tree: ast.Module, name: str) -> ast.List | ast.Tuple:
 
 def _run_tests(work: Path, tests: list[str]) -> str:
     env = {**os.environ, "PYTHONPATH": str(work)}
+    # Its own process group (a new console group on Windows), so a timeout stops everything pytest
+    # started too, such as an engine or kernel process, not just pytest.
+    group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen([sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests],
+                            cwd=work, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **group)
     try:
-        r = subprocess.run([sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests],
-                           cwd=work, env=env, capture_output=True, text=True, timeout=TIMEOUT)
+        code = proc.wait(timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
+        _kill_group(proc)
         return "timeout"
-    return "survived" if r.returncode == 0 else "killed"
+    return "survived" if code == 0 else "killed"
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    if os.name == "nt":
+        taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+        try:
+            subprocess.run([taskkill, "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False,
+                           timeout=KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        proc.wait(timeout=KILL_WAIT)
+    except subprocess.TimeoutExpired:  # the kill failed: stop pytest itself and move on
+        proc.kill()
+        try:
+            proc.wait(timeout=KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            print(f"pytest {proc.pid} would not stop; moving on", file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="mutate-") as tmp:
         work = Path(tmp) / "sidecar"
-        shutil.copytree(SIDECAR, work, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
+        shutil.copytree(SIDECAR, work, ignore=_ignore)
         target = work / args.module
         src = target.read_text(encoding="utf-8")
         base = ast.parse(src)
@@ -165,7 +208,12 @@ def main(argv: list[str] | None = None) -> int:
             random.Random(args.seed).shuffle(idx)
             plan = sorted(idx[:args.cap])
         if args.only:
-            plan = [k for k in plan if k in {int(x) for x in args.only.split(",")}]
+            wanted = {int(x) for x in args.only.split(",")}
+            missing = sorted(wanted - set(plan))
+            if missing:
+                print(f"--only: not in this run's plan (check --cap, --seed or --entries): "
+                      f"{', '.join(map(str, missing))}", file=sys.stderr, flush=True)
+            plan = [k for k in plan if k in wanted]
         for k in plan:
             tree = copy.deepcopy(base)
             if args.entries:

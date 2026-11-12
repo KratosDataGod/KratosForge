@@ -35,7 +35,7 @@ Baseline: `main` at `b75dcf5`, 2026-11-02.
 - **Complexity:** S to M.
 - **Regression risk:** medium. Some appends that "worked" will now stop, and the release note must say so.
 
-### EA-002: Notebook Parquet and CSV file writes ignored the save mode (P1, DEFECT, confirmed, fix in review)
+### EA-002: Notebook Parquet and CSV file writes ignored the save mode (P1, DEFECT, confirmed, fixed in #1572)
 
 - **Category:** data integrity and interoperability.
 - **Evidence:** `df.write.parquet(p)`, then `df2.write.mode("append").parquet(p)`, then reading `p` back gives only `df2`'s rows. The default mode and `ignore` also overwrote a file that was already there.
@@ -151,7 +151,7 @@ Baseline: `main` at `b75dcf5`, 2026-11-02.
 | EA-016 | P2 | DEFECT (audit script) | Cancel interrupts the session's DuckDB and the default connection, but not a `duckdb.connect()` the user opened, or Polars. engines.md says "Native" | `spark_local.py` cancel, `docs/engines.md` | Parity, then docs |
 | EA-017 | P2 | DEFECT (audit script) | `hash()` returns a 64-bit DuckDB hash, where Spark returns a 32-bit Murmur3, so values differ silently | translation | Parity |
 | EA-018 | P3 | DEFECT | CONTRIBUTING.md says "Python 3.11 or later"; `pyproject.toml` requires 3.12 | `CONTRIBUTING.md` | This audit (docs PR) |
-| EA-019 | P3 | DEFECT, fixed in review | `test_fabric_environment` failed whenever the test's Python had `rich` installed | `tests/test_fabric_environment.py` | This audit |
+| EA-019 | P3 | DEFECT, fixed in #1572 | `test_fabric_environment` failed whenever the test's Python had `rich` installed | `tests/test_fabric_environment.py` | This audit |
 | EA-020 | P2 | GAP | Supply chain hardening: check the embedded Python with SHA-256 instead of MD5; install engine wheels with `--require-hashes`; gate the Preview `latest` publish with an environment; the legacy non-bundled engine update installs a commit-pinned source archive over HTTPS, without checking a content hash (SHA-256); planned fix: pin a SHA-256 for the archive | `ci.yml`, `updater.py` | Release management (workflow changes need maintainer review) |
 | EA-021 | P3 | RISK | `sidecar.log` and `schedule_runs.jsonl` have no size bound, and the support bundle reads a whole file to keep its last 2,000 lines | `main.rs`, `local_schedules.py`, `support_bundle.py` | Enterprise readiness |
 | EA-022 | P3 | RISK, power loss UNVERIFIED | Notebook saves and the token cache are replaced without `fsync`. Only `jsonfile.write_text` and receipts flush | `notebook.py` `_write_atomic`, `auth.py` | Codebase audit |
@@ -174,7 +174,7 @@ Four further P3 security hardening items are tracked privately and have been rou
 
 ## Progress
 
-As of 2026-11-05, on `main` at `1ca71e3`. The audit's 17 repro tests for EA-001, EA-003 to EA-007 and EA-012 to EA-017 all pass on this commit.
+Checked row by row against `main` at `5ec9d05` on 2026-11-12: each PR below is on `main`. Earlier check: 2026-11-05 at `1ca71e3`, where the audit's 17 repro tests for EA-001, EA-003 to EA-007 and EA-012 to EA-017 all pass on this commit.
 
 | Id | State | PR |
 | --- | --- | --- |
@@ -193,18 +193,18 @@ As of 2026-11-05, on `main` at `1ca71e3`. The audit's 17 repro tests for EA-001,
 | EA-013 | Merged | #1626 |
 | EA-014 | Merged | #1609 |
 | EA-015 | Merged | #1607 |
-| EA-016 | Merged | #1624 |
+| EA-016 | Merged for DuckDB connections a notebook opens; Polars and other native code still finish first, and [engines](../engines.md) lists the Python engine's Cancel as Partial | #1624 |
 | EA-017 | Merged | #1625 |
 | EA-018 | Done | #1571 |
-| EA-020 | Merged | #1573, #1636, #1637 |
+| EA-020 | Merged | #1573, #1636, #1637. Related: CI test, lint and nightly tools also install from hashed locks (#2517, #2525) |
 | EA-021 | Merged | #1581, #1584, #1589 |
 | EA-022 | Merged | #1590, #1592, #1593 |
 | EA-023 | Merged | #1580 |
-| EA-024 | Draft, waiting on a Windows check | #1596 |
+| EA-024 | Merged | #1596 |
 | EA-025 | Merged | #1613, #1614, #1615 |
 | EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
 | EA-027 | First slice merged (rule B on); BLE still to come | #1597 |
-| EA-028 | Under way: callers move one at a time | #1602, #1606, #1627, #1630 merged |
+| EA-028 | Under way: callers move one at a time | Atomic writes: #1602, #1630, #1883, #1885, #1893, #1909. Redaction: #1606, #1627, #1956. Retry loops through `retrying.py`, with an inventory test: #2330, #2342. Damaged SQLite stores set aside or refused: #1689, #1698 |
 | EA-029 | Merged | #1608 |
 | EA-030 | Parked: needs a Windows PC. A keyboard-only browser pass is merged (#1690); Narrator is still to do | |
 

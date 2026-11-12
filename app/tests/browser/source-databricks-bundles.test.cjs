@@ -56,10 +56,11 @@ test("the Bundles tab reads the targets; Validate and Plan send no deploy", { sk
   assert.strictEqual(await page().locator('.dbx-bundles select[aria-label="Target"]').inputValue(), "dev");
   assert.ok(await page().locator(".dbx-bundles button", { hasText: "Deploy to dev" }).isDisabled());
   await page().locator(".dbx-bundles button", { hasText: "Validate" }).click();
-  await page().locator(".dbx-valid").waitFor();
+  // The tab can be drawn again while a result arrives: wait for the result's text, then read it (as below).
+  await page().locator(".dbx-valid", { hasText: /1 warning.*unknown field/ }).waitFor();
   assert.match(await page().locator(".dbx-valid").textContent(), /1 warning.*unknown field/);
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
-  await page().locator(".dbx-plan").waitFor();
+  await page().locator(".dbx-plan tbody tr", { hasText: "nightly_sales" }).waitFor();
   assert.deepStrictEqual(await page().locator(".dbx-plan tbody tr").allTextContents(), ["Updatejobnightly_sales"]);
   assert.deepStrictEqual(sent("databricks_bundle_plan"), [{ folder: REPO, target: "dev", connection: "cli:dev", allow_commands: "" }]);
   assert.deepStrictEqual(sent("databricks_bundle_deploy"), []);

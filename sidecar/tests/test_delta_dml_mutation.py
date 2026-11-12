@@ -112,3 +112,18 @@ def test_counts_a_change_doesnt_report_are_zero():
     assert D._result({"num_added_files": 1, "num_removed_files": 2, "num_target_files_added": 9,
                       "num_target_files_removed": 9}) == {
         "rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0, "files_added": 1, "files_removed": 2}
+
+
+# Batch 4 (re-score after #2528).
+
+def test_a_merge_with_no_when_clause_is_refused():
+    tree = _merge("MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
+    tree.set("whens", None)
+    with pytest.raises(ValueError, match="MERGE INTO needs at least one WHEN clause"):
+        D.parse_tree(tree)
+
+
+def test_a_count_the_change_names_but_delta_rs_leaves_out_or_reports_as_none_is_zero():
+    assert D._result({}, deleted="num_deleted_rows")["rows_deleted"] == 0
+    assert D._result({"num_updated_rows": None}, updated="num_updated_rows")["rows_updated"] == 0
+    assert D._result({}, source="num_source_rows")["source_rows"] == 0

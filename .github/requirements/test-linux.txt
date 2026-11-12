@@ -1,5 +1,6 @@
 # The engine's packages and test tools as CI installs them on Linux (ci.yml: the sidecar job, and
-# the vscode-extension and ui-browser jobs), with --require-hashes. The same versions as
+# the vscode-extension and ui-browser jobs; soak.yml, compat-nightly.yml, tsql-contract-live.yml),
+# with --require-hashes. The same versions as
 # sidecar/constraints.txt (tests/test_toolchain_pins.py checks), plus the build backend the editable
 # install uses (--no-build-isolation). Regenerate from the repository root after changing
 # constraints.txt or pyproject.toml's dependencies (test-linux.txt and test-windows.txt together):

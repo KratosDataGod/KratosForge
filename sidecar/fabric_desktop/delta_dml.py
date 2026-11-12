@@ -145,7 +145,7 @@ def _merge(tree: exp.Merge) -> Change:
     if isinstance(source, exp.Subquery):
         source = source.this
     on = tree.args.get("on")
-    if on is None:
+    if not isinstance(on, exp.Expression):  # sqlglot gives on=False, not None, when ON is left out
         raise ValueError("MERGE INTO needs ON (how a source row finds its row in the table).")
     whens_node = tree.args.get("whens")
     whens: list[When] = []

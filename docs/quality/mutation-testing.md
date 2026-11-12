@@ -311,7 +311,7 @@ the process exits while a query is being stopped.
 
 ### Not in this batch
 
-- `delta_dml.py`: an open pull request (#2528) changes it, so it is left for a re-score once that
-  lands (batch 2 scored it at 98.7%).
+- `delta_dml.py`: #2528 changed it while this batch ran, so its re-score is left for the next batch
+  (batch 2 scored it at 98.7%).
 - `audit_chain.py` and `retention.py`: still changed by an open pull request (#2305).
 - The policy and approval gates were not touched.

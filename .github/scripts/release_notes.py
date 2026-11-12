@@ -86,8 +86,16 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
 
 
+def resolve(ref: str) -> str:
+    """The commit ``ref`` names, as a SHA, so a ref can never be read as a git option."""
+    try:
+        return _git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}").strip()
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"Not a commit here: {ref!r}") from None
+
+
 def collect(base: str, head: str, patterns: list[re.Pattern[str]] = []) -> list[dict]:  # noqa: B006 - never changed
-    log = _git("log", "--first-parent", "--format=%H%x1f%cI%x1f%B%x1e", f"{base}..{head}")
+    log = _git("log", "--first-parent", "--format=%H%x1f%cI%x1f%B%x1e", f"{resolve(base)}..{resolve(head)}")
     items = []
     for item in whats_new.parse(log) if log.strip() else []:
         files = _git("diff", "--name-only", f"{item['commit']}^1", item["commit"]).split()
@@ -103,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--neutral", action="append", default=[], metavar="REGEX",
                     help="a title matching this is written as plain 'Security hardening' (repeatable)")
     args = ap.parse_args(argv)
+    if not args.neutral:
+        print("No --neutral pattern given: every title is copied as it is.", file=sys.stderr)
     items = collect(args.base, args.head, [re.compile(p, re.IGNORECASE) for p in args.neutral])
     args.out.write_text(render(args.base, args.head, items), encoding="utf-8", newline="\n")
     print(f"Wrote {len(items)} changes to {args.out}", file=sys.stderr)

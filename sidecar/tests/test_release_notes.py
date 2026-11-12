@@ -3,6 +3,8 @@
 import importlib.util
 import os
 import re
+
+import pytest
 import subprocess
 from pathlib import Path
 
@@ -72,3 +74,14 @@ def test_the_draft_lists_the_range_by_area_oldest_first_and_writes_only_its_file
     assert "- Docs: explain joins (#11)" in text[docs:]
     assert "ZZ-7" not in text and "Initial commit" not in text
     assert git("status", "--porcelain") == ""  # nothing written into the repository
+
+
+    # a ref that looks like a git option is refused, and git writes nothing for it
+    cwd = os.getcwd()
+    os.chdir(repo)
+    try:
+        with pytest.raises(SystemExit):
+            release_notes.main(["--out", str(tmp_path / "n2.md"), "--", f"--output={tmp_path / 'x'}"])
+    finally:
+        os.chdir(cwd)
+    assert not list(tmp_path.glob("x*")) and not (tmp_path / "n2.md").exists()

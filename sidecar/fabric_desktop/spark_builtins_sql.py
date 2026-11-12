@@ -753,6 +753,17 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
 }
 
 
+# randn(): a standard normal draw (Box-Muller from two uniform draws in [0, 1)); 1 - random() keeps LN off 0.
+# Spark's seeded randn gives its own XORShift sequence, which this PC can't make, so a seed is refused.
+_RANDN = "(SQRT(-2 * LN(1 - RANDOM())) * COS(2 * PI() * RANDOM()))"
+# shuffle(a): a random order of a's elements (each sorted by its own random draw), NULLs kept; the array
+# is read once.
+_SHUFFLE = ("(LIST_TRANSFORM([fj_arg0], kf_a -> CASE WHEN kf_a IS NULL THEN NULL ELSE LIST_TRANSFORM(LIST_SORT("
+            "LIST_TRANSFORM(kf_a, (kf_v, kf_i) -> {'r': RANDOM(), 'i': kf_i})), kf_p -> kf_a[kf_p.i]) END))[1]")
+_SEEDED_RANDN = _refuse("randn", "with a seed Spark gives its own sequence of numbers, which this PC can't make.",
+                        "leave out the seed")
+
+
 def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
     """Rewrites of nodes sqlglot reads into its own classes, looked up by name so a sqlglot without
     one of them still loads."""
@@ -765,6 +776,10 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Sec", _template("1 / COS(CAST(fj_arg0 AS DOUBLE))", 1)),
         ("DateFromUnixDate", _template("CAST(DATE '1970-01-01' + CAST(fj_arg0 AS INTEGER) AS DATE)", 1)),
         ("Elt", _elt),
+        # Spark's uuid() is a string; DuckDB's is its own UUID type, which string functions don't take.
+        ("Uuid", lambda n, a: exp.cast(n.copy(), exp.DataType.build("VARCHAR")) if not a else None),
+        ("Shuffle", _template(_SHUFFLE, 1)),
+        ("Randn", lambda n, a: _with_args(_RANDN, []) if not a else _SEEDED_RANDN(n, a)),
         ("TsOrDsToDate", _to_date_with_format),
         ("ArraysZip", _arrays_zip),
         ("BitmapConstructAgg", _template(_BITMAP_CONSTRUCT_AGG, 1)),

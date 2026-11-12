@@ -1,5 +1,5 @@
-# The engine's packages and test tools as CI installs them on Windows (ci.yml: the sidecar job),
-# with --require-hashes. The same versions as sidecar/constraints.txt (tests/test_toolchain_pins.py
+# The engine's packages and test tools as CI installs them on Windows (ci.yml: the sidecar job;
+# perf.yml; soak.yml), with --require-hashes. The same versions as sidecar/constraints.txt (tests/test_toolchain_pins.py
 # checks), plus the build backend the editable install uses (--no-build-isolation). Regenerate from
 # the repository root after changing constraints.txt or pyproject.toml's dependencies (test-linux.txt
 # and test-windows.txt together):

@@ -114,8 +114,11 @@ _NEXT_STEPS = {
     412: "Refresh, then try again: something else changed it at the same time",
     429: "OneLake is limiting requests. Try again in a few minutes",
 }
+# The fallback steps point at the request id only when OneLake sent one to give.
 _SERVER_NEXT_STEP = "OneLake had a problem on its side. Try again, and give the request id to support if it keeps happening"
+_SERVER_NEXT_STEP_NO_ID = "OneLake had a problem on its side. Try again, and contact support if it keeps happening"
 _NEXT_STEP = "Check the path and try again, or give the request id to support"
+_NEXT_STEP_NO_ID = "Check the path and try again"
 
 
 def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
@@ -136,7 +139,10 @@ def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
         code = (err.get("code") if isinstance(err, dict) else None) or body.get("error_code") or code
     code = error_code(code)
     status = resp.status_code
-    step = _NEXT_STEPS.get(status) or (_SERVER_NEXT_STEP if status >= 500 else _NEXT_STEP)
+    if status >= 500 and status not in _NEXT_STEPS:
+        step = _SERVER_NEXT_STEP if request_id else _SERVER_NEXT_STEP_NO_ID
+    else:
+        step = _NEXT_STEPS.get(status) or (_NEXT_STEP if request_id else _NEXT_STEP_NO_ID)
     return requests.HTTPError(f"OneLake didn't {what} ({status}{': ' + code if code else ''}). {step}."
                               + (f" Request id {request_id}." if request_id else ""), response=resp)
 

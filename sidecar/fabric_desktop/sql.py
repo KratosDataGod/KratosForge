@@ -180,8 +180,34 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
-    return _spark_timestampdiff(spark_builtins_sql.rewrite(
+    statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
         _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_cast_functions(_spark_names(statement)))))))))
+    return statement if databricks else _spark_session_functions(statement)
+
+
+def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
+    """Spark's session functions in a Fabric notebook, where DuckDB would describe its own session
+    ('memory' for its catalog). current_catalog() is spark_catalog, as in Fabric; current_timezone()
+    is the session's spark.sql.session.timeZone (DuckDB's TimeZone, which spark.conf.set changes).
+    current_database() and current_schema() are refused: in Fabric they name the default lakehouse,
+    which a SQL cell here can't read; spark.catalog.currentDatabase() can. Databricks SQL keeps
+    DuckDB's own answers (its session is the engine's, not a Unity Catalog one)."""
+    for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
+                                        exp.CurrentSchema)):
+        if isinstance(node, exp.CurrentCatalog):
+            new: exp.Expression = exp.Literal.string("spark_catalog")
+        elif isinstance(node, exp.CurrentTimezone):
+            new = exp.Anonymous(this="CURRENT_SETTING", expressions=[exp.Literal.string("TimeZone")])
+        else:
+            name = "current_database" if isinstance(node, exp.CurrentDatabase) else "current_schema"
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: in Fabric "
+                             "it names the notebook's default lakehouse, and a SQL cell here would name DuckDB's "
+                             "own database instead. Use spark.catalog.currentDatabase() in a Python cell, or run "
+                             "the cell in Fabric.")
+        if node is statement:
+            return new
+        node.replace(new)
+    return statement
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that

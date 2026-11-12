@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-11 23:42 UTC, main 86c07814.** Covers the PRs merged from #135 to #2523.
+**Product check of 2026-11-12 11:42 UTC, main 7c3dbd0e.** Covers the PRs merged from #135 to #2544.
 
 ## Summary
 
+- Morning check, 2026-11-12: 18 PRs merged after 86c07814. 1 was a product data PR, and the other 17 were linked.
+  Spark SQL's session, clock and random functions answer as in Fabric, and unnamed columns are named as Spark names
+  them (PB-103). A failed Delta write no longer leaves the next query stuck (PB-099). Blocked files name AppLocker or
+  WDAC, Windows FIPS mode is explained, and errors cite a request id only when one was sent (PB-124). Mutation
+  testing now pins the write, commit and clear-up paths. No item changed state; PB-073's acceptance waits on the
+  product owner.
 - Evening check, 2026-11-11: 19 PRs merged after 47416473. 2 were product data and docs audit PRs, and the other 17
   were linked. App Studio gained its Model connections screen and a working Publish dialog (PB-127, Preview). Local
   data projects read Delta tables under folders with spaces or non-ASCII names and refuse a write Windows can't read

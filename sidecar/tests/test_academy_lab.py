@@ -306,6 +306,20 @@ def test_an_oversized_answer_to_check_is_refused(svc):
         svc.academy_validate(PACK, "E37", "x" * (lab.MAX_ANSWER_BYTES + 1))
 
 
+@pytest.mark.parametrize("eid", ("E37", "E53"))   # a SQL exercise and a settings exercise
+def test_an_oversized_answer_to_run_is_refused_before_it_runs(svc, eid):
+    svc.academy_start(PACK, eid)
+    with pytest.raises(ValueError, match="over 1 MB, so it wasn't run"):
+        svc.academy_run(PACK, eid, "x" * (lab.MAX_ANSWER_BYTES + 1))
+
+
+def test_an_answer_of_exactly_1_mb_still_runs(svc):
+    svc.academy_start(PACK, "E37")
+    sql = "SELECT 1 AS n -- "
+    sql += "x" * (lab.MAX_ANSWER_BYTES - len(sql))
+    assert svc.academy_run(PACK, "E37", sql)["rows"] == [[1]]
+
+
 def test_sandbox_status_counts_the_runtime_grants_on_record(svc, tmp_path):
     from fabric_desktop import jsonfile
     got = svc.academy_sandbox_status()

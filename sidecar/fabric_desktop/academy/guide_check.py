@@ -198,6 +198,8 @@ def _cell(text: Any) -> str:
     s = _SPACE.sub(" ", str(text if text is not None else "")).strip()
     for ch in "|<>[]`":
         s = s.replace(ch, " ")
+    s = s.replace("://", ": //").replace("@", "@\u200b")   # no autolinked URL, no @mention that notifies
+    s = re.sub(r"(?i)\bwww\.", "www .", s)
     return s[:400] or "-"
 
 

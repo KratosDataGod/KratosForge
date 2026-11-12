@@ -74,6 +74,8 @@ def test_page_text_cant_break_or_link_out_of_the_report(cert, page):
     changed = page.replace("Endorse items", "Endorse | items [x](https://example.com) &lt;script&gt;")
     body = guide_check.check(cert, changed)["report"]
     assert "](https://" not in body and "<script>" not in body and "Endorse   items" in body
+    flat = guide_check._cell("see https://evil.example/x, www.evil.example and @someone")
+    assert "://" not in flat and "www.evil" not in flat and "@someone" not in flat and "someone" in flat
 
 
 def test_a_page_without_the_skills_list_is_refused(cert):

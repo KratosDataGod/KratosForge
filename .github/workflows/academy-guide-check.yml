@@ -69,6 +69,11 @@ jobs:
             cp "$RUNNER_TEMP/guide/$pack.crosswalk.json" "docs/academy/guide-changes/$pack.crosswalk.json"
             git add docs/academy/guide-changes
             git commit -q -m "Academy: the $pack study guide changed (draft for review)"
+            # The same report as last week: leave the branch alone, so reviewers don't see a weekly force-push.
+            if git fetch -q origin "$branch" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD -- docs/academy/guide-changes; then
+              echo "$pack: the open draft already has this report."
+              continue
+            fi
             git push -q --force origin "$branch"
             number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
             if [ -n "$number" ]; then

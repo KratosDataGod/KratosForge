@@ -338,7 +338,9 @@ def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
     beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
     beat.start()
     try:
-        deadline = time.monotonic() + 10
+        # Longer than the queue file's 30 s busy wait: a renewal can block on a locked file (Windows
+        # runners, a scanner) and still succeed, since heartbeat extends the lease whenever the job is ours.
+        deadline = time.monotonic() + 45
         while len(renewed) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
         # The beats after the failed one renewed the lease. (Asserting recover() == [] against the

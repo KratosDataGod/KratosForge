@@ -266,6 +266,41 @@ def _text_this(fn: str) -> Callable[..., exp.Expression | None]:
     return build
 
 
+def _split(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """split(str, regex, limit), as Spark's: with a limit above 0, at most that many parts, the last holding
+    the rest of the text (as spark_compat.split); 0 or less splits at every match."""
+    _text_this("split")(node, args)
+    limit = node.args.get("limit")
+    if limit is None:
+        return None
+    if not (isinstance(limit, exp.Literal) and not limit.is_string) and not (
+            isinstance(limit, exp.Neg) and isinstance(limit.this, exp.Literal)):
+        raise ValueError("split() can't run on this PC with a limit worked out from the data, so nothing ran. Give "
+                         "the limit as a number, or run the cell in Fabric.")
+    n = int(limit.this.this) * -1 if isinstance(limit, exp.Neg) else int(limit.this)
+    text, pattern = node.this, node.expression
+    if isinstance(pattern, exp.Literal) and pattern.is_string and pattern.this == "":
+        chars = "STRING_SPLIT(fj_arg0, '')"
+        return _with_args(chars if n <= 0 else f"{chars}[1:{n}]", [text])
+    parts = "REGEXP_SPLIT_TO_ARRAY(fj_arg0, fj_arg1)"
+    if n <= 0:
+        return _with_args(parts, [text, pattern])
+    seps = "REGEXP_EXTRACT_ALL(fj_arg0, fj_arg1)"
+    before = (f"COALESCE(LIST_SUM(LIST_TRANSFORM({parts}[1:{n - 1}], kf_p -> LENGTH(kf_p))), 0) + "
+              f"COALESCE(LIST_SUM(LIST_TRANSFORM({seps}[1:{n - 1}], kf_p -> LENGTH(kf_p))), 0)")
+    return _with_args(f"CASE WHEN fj_arg0 IS NULL THEN NULL WHEN LEN({parts}) <= {n} THEN {parts} "
+                      f"ELSE LIST_CONCAT({parts}[1:{n - 1}], [SUBSTRING(fj_arg0, CAST({before} + 1 AS BIGINT))]) END",
+                      [text, pattern])
+
+
+def _replace(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """replace(str, search) drops each search, as replace(str, search, '') does in Spark."""
+    _text_this("replace")(node, args)
+    if node.args.get("replacement") is None:
+        node.set("replacement", exp.Literal.string(""))
+    return None
+
+
 def _refuse_spec(spec: str, why: str) -> ValueError:
     return ValueError(f"format_string() can't run on this PC the way it runs in Fabric, so nothing ran: {spec} {why} "
                       "Run the cell in Fabric, or use %s, %d, %x, %o, %f, %e or %b.")
@@ -640,7 +675,8 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
                               "kf_i -> fj_arg0) END", 2),
     "ASSERT_TRUE": _template("CASE WHEN fj_arg0 THEN NULL ELSE ERROR('''' || CAST(fj_arg0 AS VARCHAR) "
                              "|| ''' is not true!') END", 1),
-    "BTRIM": _template("TRIM(fj_arg0)", 1),
+    # spaces, or each of the characters given, off both ends
+    "BTRIM": lambda n, a: _with_args("TRIM(fj_arg0)" if len(a) == 1 else "TRIM(fj_arg0, fj_arg1)", a) if len(a) in (1, 2) else None,
     "CARDINALITY": lambda n, a: None if len(a) != 1 else _with_args(
         "CASE WHEN fj_arg0 IS NULL THEN -1 ELSE " + ("CARDINALITY" if isinstance(a[0], (exp.Map, exp.VarMap)) else "LEN")
         + "(fj_arg0) END", a),
@@ -750,9 +786,16 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
         *((name, _text_this(fn)) for name, fn in (
             ("Upper", "upper"), ("Lower", "lower"), ("Trim", "trim"), ("Ascii", "ascii"),
-            ("Length", "length"), ("StrPosition", "instr"), ("RegexpSplit", "split"), ("Replace", "replace"),
+            ("Length", "length"), ("StrPosition", "instr"),
             ("Translate", "translate"), ("RegexpReplace", "regexp_replace"), ("Left", "left"), ("Right", "right"),
             ("Repeat", "repeat"), ("Pad", "lpad"))),
+        ("RegexpSplit", _split),
+        ("Replace", _replace),
+        # base64 takes bytes, and text as its UTF-8 bytes; any other type is refused, as in Spark
+        ("ToBase64", _template("TO_BASE64(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) "
+                               "WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN ENCODE(CAST(fj_arg0 AS VARCHAR)) "
+                               "ELSE CAST(ERROR('base64() takes text or binary, as in Spark. Cast the value to "
+                               "string first.') AS BLOB) END)", 1)),
         ("Minute", _template(f"MINUTE({_TS})", 1)),
         ("Second", _template(f"SECOND({_TS})", 1)),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),

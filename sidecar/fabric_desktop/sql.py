@@ -23,7 +23,7 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import spark_builtins_sql, sql_dialects
+from . import spark_builtins_sql, spark_sql_names, sql_dialects
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -1147,11 +1147,19 @@ _BUILTIN_NAMES = spark_builtins_sql.names()
 
 
 def _spark_names(statement: exp.Expression) -> exp.Expression:
-    """Name a selected expression this module rewrites as Spark names it ("add_months(d, 1)"), not after
-    the DuckDB SQL it becomes."""
+    """Name each selected expression without AS as Spark names it ("upper(a)", "locate(b, s, 1)"), not after
+    the DuckDB SQL it becomes (spark_sql_names); one that module can't name keeps the older rule: named
+    by spark_name when this module rewrites it."""
     for select in statement.find_all(exp.Select):
         for i, column in enumerate(select.expressions):
-            if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not (
+            if isinstance(column, (exp.Alias, exp.Column, exp.Star)):
+                continue
+            named = spark_sql_names.column_name(column, statement)
+            if named is not None:
+                select.expressions[i] = exp.alias_(column, named, quoted=True)
+                select.expressions[i].parent = select
+                continue
+            if not (
                     column.find(*_REWRITTEN, *spark_builtins_sql.typed_classes())
                     or any(str(a.this).upper() in _ANON_TEMPLATES or str(a.this).upper() in _MAP_LAMBDAS
                            or str(a.this).upper() in _BUILTIN_NAMES

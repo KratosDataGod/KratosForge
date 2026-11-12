@@ -34,7 +34,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install what the registry reads with
-        run: python -m pip install --disable-pip-version-check -c sidecar/constraints.txt duckdb
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r .github/requirements/academy-guide.txt
       - name: Compare each study guide with its registry
         working-directory: sidecar
         run: |

@@ -4389,7 +4389,8 @@
         "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f",
         "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb",
         "A seeded kill test for local Delta writes runs in CI on Linux and Windows (#2375) on main at d5a867c0",
-        "OneLake table writes outlast their token (#2439); local data projects flush each Delta commit to disk and their database is tested after a killed engine (#2490, #2497) and say a full temp drive instead of Out of Memory (#2478); a DuckDB relation result pages, searches and downloads (#2475) on main at 47416473"
+        "OneLake table writes outlast their token (#2439); local data projects flush each Delta commit to disk and their database is tested after a killed engine (#2490, #2497) and say a full temp drive instead of Out of Memory (#2478); a DuckDB relation result pages, searches and downloads (#2475) on main at 47416473",
+        "Local data projects read Delta tables under folders with a space, a non-ASCII letter or % (#2502) and refuse a Delta write Windows can't read back with long paths off (#2519) on main at 86c07814"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4517,7 +4518,9 @@
         2475,
         2478,
         2490,
-        2497
+        2497,
+        2502,
+        2519
       ]
     },
     {
@@ -4972,7 +4975,14 @@
         2491,
         2492,
         2499,
-        2500
+        2500,
+        2504,
+        2508,
+        2510,
+        2512,
+        2515,
+        2518,
+        2520
       ],
       "issues": [
         910,
@@ -5084,7 +5094,8 @@
         2246,
         2290,
         2410,
-        2411
+        2411,
+        2503
       ],
       "issues": [
         928,
@@ -6600,7 +6611,8 @@
         "Hardening from the weekly review (WR-201, WR-202, WR-503): retry loops through retrying.py (#2330, #2342), Fabric errors name what to do (#2335), UI errors name a next step with a guard (#2325), lost-reply writes never made twice (#2345), audit exports IT can check (#2336), lock files scanned (#2315), sign-in and profile-disk messages (#2317, #2316, #2369, #2343) on main at d5a867c0",
         "Every outbound request retries throttling or says why it's sent once (#2394); Fabric reads sent as POST retry like a GET (#2391); lists follow continuationToken (#2382); CI scans for secrets with a reviewed allow-list (#2384, #2387); a memory soak in CI, advisory, on Linux and Windows (#2381, #2386); out of memory under a Windows job-object cap (#2392) on main at 5d2fc045",
         "Secret scan in CI: commit ids aren't findings, and a pull request's reviewers are warned about filter changes and values added then removed (#2398, #2399, #2400); the agent's crash log tells a crash from a handled fault (#2405, #2407, #2418); expired local copies swept daily (#2401, #2403); a full disk tested on a real Windows volume (#2413) on main at 17e7ea06",
-        "Sign-in survives a damaged saved sign-in, an unreachable Microsoft sign-in and a late refusal (#2444, #2484, #2498); Windows proxy with PAC and WPAD (#2436); tools started by full path (#2470, #2476); agent queue holds work with its reason (#2432, #2465); the app's stores tested after a killed writer (#2426, #2485); MSI lifecycle on the Windows runner (#2420) on main at 47416473"
+        "Sign-in survives a damaged saved sign-in, an unreachable Microsoft sign-in and a late refusal (#2444, #2484, #2498); Windows proxy with PAC and WPAD (#2436); tools started by full path (#2470, #2476); agent queue holds work with its reason (#2432, #2465); the app's stores tested after a killed writer (#2426, #2485); MSI lifecycle on the Windows runner (#2420) on main at 47416473",
+        "CI installs engine packages from hashed lock files (#2517); workflows pin actions to a commit with scoped tokens (#2514); the shell's Rust crates gated by clippy and cargo-deny (#2509); an unreadable request line gets an error reply instead of ending the engine (#2501); a republish inside Fabric's publish cooldown waits and is sent once more (#2523) on main at 86c07814"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6786,7 +6798,12 @@
         2484,
         2485,
         2494,
-        2498
+        2498,
+        2501,
+        2509,
+        2514,
+        2517,
+        2523
       ],
       "issues": [],
       "computed": {
@@ -6920,7 +6937,8 @@
         1868,
         1871,
         1897,
-        2037
+        2037,
+        2054
       ],
       "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
       "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
@@ -6931,7 +6949,8 @@
         "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
         "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)",
         "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb",
-        "AS-06 model connections behind the organization's AI policy (#1842), AS-10 describe an app and approve a plan into a project (#1868), AS-11 ask for a change and apply it as one undoable step (#1871), AS-13 publish as a Power BI report behind a check and a typed confirm (#1897) on main at a7631920"
+        "AS-06 model connections behind the organization's AI policy (#1842), AS-10 describe an app and approve a plan into a project (#1868), AS-11 ask for a change and apply it as one undoable step (#1871), AS-13 publish as a Power BI report behind a check and a typed confirm (#1897) on main at a7631920",
+        "App Studio: Model connections screen and a working Publish dialog (#2054, Preview) on main at 86c07814"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -7440,7 +7459,8 @@
         2445,
         2447,
         2455,
-        2463
+        2463,
+        2513
       ],
       "problem": "People preparing for the Databricks Data Engineer Associate exam can't practise every objective yet: 7 of its 33 objectives name exercises that aren't built and have no recorded gap.",
       "capability": "The Databricks Data Engineer Associate pack in Academy (packs/dbx-de-associate) on the same exam engine, graders and sandbox as DP-700, with an exercise or a recorded gap for every objective (docs/academy/databricks/).",

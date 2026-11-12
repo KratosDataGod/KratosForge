@@ -625,8 +625,15 @@ fn python_failed_text(code: Option<i32>, error: &str, folder: &str) -> String {
     match code {
         Some(c) if APP_CONTROL_BLOCKED.contains(&c) => format!(
             "Your organization's application control (AppLocker, or App Control for Business, also called \
-             WDAC) blocked the engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
-             the enterprise install guide lists the rules (Application control). ({error})"
+             WDAC) blocked the engine's Python, so KratosForge can't start it. {} IT to allow the engine's files in {folder}; \
+             the enterprise install guide lists the rules (Application control). ({error})",
+            // 577 also means a file that changed after it was signed: allowing it would allow the change.
+            if c == 577 {
+                "If your organization doesn't use a signing policy, a file may have been changed: restart \
+                 KratosForge to reinstall the engine before anything is allowed. Otherwise ask"
+            } else {
+                "Ask"
+            }
         ),
         Some(2 | 3) => format!("Python was not found ({error})."),
         _ => format!("Python could not be started ({error})."),
@@ -3012,6 +3019,9 @@ mod integrity_tests {
         assert!(engine_start_text(Some(2), "Python was not found (x).".into()).starts_with("Could not start the Python sidecar: "));
         assert_eq!(schedule_start_failed(Some(2)), 1);
         assert_eq!(schedule_start_failed(None), 1);
+        let changed = python_failed_text(Some(577), "Windows cannot verify the digital signature for this file. (os error 577)", folder);
+        assert!(changed.contains("may have been changed: restart KratosForge to reinstall the engine before anything is allowed. Otherwise ask IT"), "{changed}");
+        assert!(!python_failed_text(Some(1260), "x", folder).contains("may have been changed"));
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
     }

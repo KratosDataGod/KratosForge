@@ -103,8 +103,13 @@ def explain(exc: BaseException) -> str | None:
             by = "AppLocker" if applocker else "App Control for Business, also called WDAC"
             found = _IMPORTING.search(text)
             what = f"a file of the {found.group(1).lstrip('_')} package" if found else "a program KratosForge starts"
+            # 577 also means a file that changed after it was signed: allowing it would allow the change.
+            unsigned = code == 577 or "verify the digital signature" in text.lower()
+            check = ("If your organization doesn't use a signing policy, the file may have been changed: "
+                     "restart KratosForge to reinstall the engine (or reinstall the package) before anything "
+                     "is allowed. Otherwise ask" if unsigned else "Ask")
             return (f"Your organization's application control ({by}) blocked {what}, so this can't run. "
-                    "Ask IT to allow KratosForge's engine files by hash or publisher; the enterprise install "
+                    f"{check} IT to allow KratosForge's engine files by hash or publisher; the enterprise install "
                     "guide lists the rules (Application control).")
         cur = cur.__cause__ or cur.__context__
     return None

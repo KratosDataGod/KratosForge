@@ -23,7 +23,7 @@ def _winerror(code: int, text: str) -> OSError:
 def test_a_program_the_policy_blocks_names_the_policy_and_what_it_can_do(code, by):
     text = app_control.explain(_winerror(code, "refused"))
     assert text and text.startswith("Your organization's application control (") and by in text
-    assert "Ask IT to allow" in text and "Application control" in text
+    assert "ask it to allow" in text.lower() and "Application control" in text
 
 
 def test_a_blocked_package_file_names_the_package():
@@ -67,3 +67,14 @@ def test_an_rpc_call_that_starts_a_blocked_program_gets_the_line(monkeypatch, tm
     reply = server.handle(Blocked(), json.dumps({"id": 1, "method": "environment", "params": {}}))  # type: ignore[arg-type]
     assert reply["error"].startswith("Your organization's application control (AppLocker)")
     assert "blocked by group policy" in reply["error"]  # Windows' own words stay for IT, after the line
+
+
+def test_an_unsigned_or_changed_file_says_to_reinstall_before_allowing_it():
+    # 577 also means a file that changed after it was signed: allowing it by hash would allow the change.
+    for exc in (_winerror(577, "refused"),
+                ImportError("DLL load failed while importing lib: Windows cannot verify the digital signature for this file.")):
+        text = app_control.explain(exc) or ""
+        assert "may have been changed: restart KratosForge to reinstall the engine" in text
+        assert "before anything is allowed. Otherwise ask IT to allow" in text
+    for code in (1260, 4551):
+        assert "may have been changed" not in (app_control.explain(_winerror(code, "refused")) or "")

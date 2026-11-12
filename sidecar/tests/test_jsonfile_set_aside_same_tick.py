@@ -66,3 +66,27 @@ def test_a_hand_named_copy_with_an_impossible_date_doesnt_stop_a_set_aside(tmp_p
     f.write_text("{torn", encoding="utf-8")
     dest = jsonfile.set_aside(f)
     assert dest.read_text(encoding="utf-8") == "{torn" and odd.read_text(encoding="utf-8") == "kept by hand"
+
+
+def test_an_impossible_date_doesnt_hide_the_valid_copies_from_the_ordering(tmp_path, monkeypatch):
+    _freeze(monkeypatch)
+    (tmp_path / "s.json.corrupt-99991399T999999999999Z").write_text("by hand", encoding="utf-8")
+    f = tmp_path / "s.json"
+    made = []
+    for i in range(3):
+        f.write_text(f"{{torn {i}", encoding="utf-8")
+        made.append(jsonfile.set_aside(f))
+    assert len(set(made)) == 3 and [p.read_text(encoding="utf-8") for p in made] == ["{torn 0", "{torn 1", "{torn 2"]
+
+
+def test_a_copy_stamped_at_the_end_of_time_doesnt_stop_a_set_aside(tmp_path, monkeypatch):
+    _freeze(monkeypatch)
+    planted = tmp_path / "s.json.corrupt-99991231T235959999999Z"
+    planted.write_text("by hand", encoding="utf-8")
+    f = tmp_path / "s.json"
+    made = []
+    for i in range(2):
+        f.write_text(f"{{torn {i}", encoding="utf-8")
+        made.append(jsonfile.set_aside(f))
+    assert len(set(made)) == 2 and planted.read_text(encoding="utf-8") == "by hand"
+    assert made[0].name == "s.json.corrupt-20261112T120000500000Z"

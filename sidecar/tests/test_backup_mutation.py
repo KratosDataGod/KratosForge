@@ -10,7 +10,7 @@ import sqlite3
 import zipfile
 from contextlib import closing
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -75,7 +75,7 @@ def test_backups_go_into_a_new_nested_folder_and_again_into_the_same_one(app, tm
     out = tmp_path / "a" / "b" / "c"
     first = backup.create(out, app, now=NOW)
     second = backup.create(out, app, now=datetime(2026, 10, 17, 12, 1, tzinfo=timezone.utc))
-    assert {p.name for p in out.iterdir()} == {PurePosixPath(first["path"]).name, PurePosixPath(second["path"]).name}
+    assert {p.name for p in out.iterdir()} == {Path(first["path"]).name, Path(second["path"]).name}
 
 
 def test_a_backup_that_stops_before_its_part_file_exists_raises_its_own_error(app, tmp_path, monkeypatch):

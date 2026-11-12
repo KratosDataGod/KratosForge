@@ -607,6 +607,11 @@ def test_comment_lines_after_the_last_semicolon_are_read_only_in_every_dialect()
     # comments don't hide what comes before them
     verdicts = sql_policy.classify(sql.parse("DROP TABLE sales; -- notes", "spark"))
     assert verdicts[0].kind == "onelake_write"
+    # a Semicolon that ever carries parts isn't read as comments only
+    from sqlglot import exp
+    odd = exp.Semicolon()
+    odd.set("this", exp.to_identifier("x"))
+    assert sql_policy.classify([odd])[0].kind == "fabric_mutation"
 
 
 def test_a_lakehouse_run_can_never_allow_project_writes(runs, lake):

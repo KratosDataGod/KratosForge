@@ -203,7 +203,7 @@ Checked row by row against `main` at `5ec9d05` on 2026-11-12: each PR below is o
 | EA-024 | Merged | #1596 |
 | EA-025 | Merged | #1613, #1614, #1615 |
 | EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
-| EA-027 | First slice merged (rule B on); BLE still to come | #1597 |
+| EA-027 | Merged: bugbear (B) and blind-except (BLE) are on, each reviewed broad handler marked with its reason | #1597, #2341 |
 | EA-028 | Under way: callers move one at a time | Atomic writes: #1602, #1630, #1883, #1885, #1893, #1909. Redaction: #1606, #1627, #1956. Retry loops through `retrying.py`, with an inventory test: #2330, #2342. Damaged SQLite stores set aside or refused: #1689, #1698 |
 | EA-029 | Merged | #1608 |
 | EA-030 | Parked: needs a Windows PC. A keyboard-only browser pass is merged (#1690); Narrator is still to do | |

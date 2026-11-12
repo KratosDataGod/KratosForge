@@ -56,7 +56,9 @@ function fakeVscode(remoteName, notebookUri, cancelled = false) {
         dispose() {},
         createNotebookCellExecution: () => {
           const run = { outputs: [], start() {}, end(ok) { run.ok = ok; }, clearOutput() {}, replaceOutput(o) { run.outputs.push(o); },
-            token: { onCancellationRequested(cb) { if (cancelled) cb(); return { dispose() { run.disposed = true; } }; } } };
+            // As VS Code: a listener added to a cancelled token is called later, on a timer, not right away.
+            token: { isCancellationRequested: cancelled,
+              onCancellationRequested(cb) { if (cancelled) setTimeout(cb, 0); return { dispose() { run.disposed = true; } }; } } };
           runs.push(run);
           return run;
         },

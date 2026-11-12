@@ -117,7 +117,8 @@ async function execute(context: vscode.ExtensionContext, controller: vscode.Note
     const run = controller.createNotebookCellExecution(cell);
     run.start(Date.now());
     run.clearOutput();
-    let stopped = false;
+    // VS Code tells a listener added to an already-cancelled token later (on a timer), so ask it directly too.
+    let stopped = run.token.isCancellationRequested;
     let started = false; // the app has said the cell started, so Stop interrupts it there
     const listening = run.token.onCancellationRequested(() => {
       stopped = true;

@@ -353,7 +353,7 @@ class DuckDBSession(_SqlSession):
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
             cur = self._con.execute(code)
-            if cur.description is None:
+            if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
             reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
         table, total = _drain(reader, request.preview_rows, request.result_rows)

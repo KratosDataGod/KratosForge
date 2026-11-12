@@ -75,8 +75,19 @@ def test_windows_waits_out_its_timeout_then_gives_up(tmp_path, monkeypatch):
 
 # ---- a lease file another writer has open (Windows refuses with PermissionError)
 
+class _QuietTime:
+    """leases' own ``time``, with sleep a no-op. Only the module's name is replaced, so the real
+    time.sleep that the rest of the process (and pytest) uses is left alone."""
+
+    def sleep(self, seconds):
+        pass
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
 def test_a_change_refused_every_time_is_tried_50_times_then_raised(monkeypatch):
-    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    monkeypatch.setattr(L, "time", _QuietTime())
     calls = []
 
     def refuse():
@@ -88,7 +99,7 @@ def test_a_change_refused_every_time_is_tried_50_times_then_raised(monkeypatch):
 
 
 def test_a_change_refused_a_few_times_goes_through(monkeypatch):
-    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    monkeypatch.setattr(L, "time", _QuietTime())
     calls = []
 
     def flaky():
@@ -102,7 +113,7 @@ def test_a_change_refused_a_few_times_goes_through(monkeypatch):
 def test_a_read_refused_every_time_is_tried_ten_times_then_raised(tmp_path, monkeypatch):
     backend = L.LocalBackend(tmp_path)
     backend.create("k", b"{}")
-    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    monkeypatch.setattr(L, "time", _QuietTime())
     calls = []
 
     def refuse(self):

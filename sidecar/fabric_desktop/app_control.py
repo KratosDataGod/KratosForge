@@ -103,13 +103,18 @@ def explain(exc: BaseException) -> str | None:
             by = "AppLocker" if applocker else "App Control for Business, also called WDAC"
             found = _IMPORTING.search(text)
             what = f"a file of the {found.group(1).lstrip('_')} package" if found else "a program KratosForge starts"
-            # 577 also means a file that changed after it was signed: allowing it would allow the change.
-            unsigned = code == 577 or "verify the digital signature" in text.lower()
-            check = ("If your organization doesn't use a signing policy, the file may have been changed: "
-                     "restart KratosForge to reinstall the engine (or reinstall the package) before anything "
-                     "is allowed. Otherwise ask" if unsigned else "Ask")
+            if code == 577 or "verify the digital signature" in text.lower():
+                # Also a file that changed after it was signed: a fresh copy comes first, so a hash rule
+                # never allows a changed file. A restart alone doesn't replace the engine's files.
+                return (f"Windows couldn't verify the signature on {what}, so this can't run. The file may have "
+                        "been changed: close KratosForge, delete the engine folder (FabricDesktop\\engine in your "
+                        "AppData\\Local folder) and start KratosForge again to download a fresh engine, or "
+                        "reinstall the package if it's in an environment. If it's still blocked, your "
+                        "organization's application control (App Control for Business, also called WDAC) is "
+                        "refusing it: ask IT to allow KratosForge's engine files by hash or publisher; the "
+                        "enterprise install guide lists the rules (Application control).")
             return (f"Your organization's application control ({by}) blocked {what}, so this can't run. "
-                    f"{check} IT to allow KratosForge's engine files by hash or publisher; the enterprise install "
+                    "Ask IT to allow KratosForge's engine files by hash or publisher; the enterprise install "
                     "guide lists the rules (Application control).")
         cur = cur.__cause__ or cur.__context__
     return None

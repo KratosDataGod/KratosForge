@@ -623,17 +623,20 @@ fn schedule_start_failed(code: Option<i32>) -> i32 {
 
 fn python_failed_text(code: Option<i32>, error: &str, folder: &str) -> String {
     match code {
+        // 577 also means a file that changed after it was signed: a fresh engine comes first, so a
+        // hash rule never allows a changed file. A restart alone doesn't replace it (the startup
+        // check runs on the same Python), so the folder is deleted and the next start downloads it.
+        Some(577) => format!(
+            "Windows couldn't verify the signature on the engine's Python, so KratosForge can't start it. A file \
+             may have been changed: close KratosForge, delete the folder {folder}, and start KratosForge again to \
+             download a fresh engine. If it's still blocked, your organization's application control (App Control \
+             for Business, also called WDAC) is refusing it: ask IT to allow the engine's files in {folder}; the \
+             enterprise install guide lists the rules (Application control). ({error})"
+        ),
         Some(c) if APP_CONTROL_BLOCKED.contains(&c) => format!(
             "Your organization's application control (AppLocker, or App Control for Business, also called \
-             WDAC) blocked the engine's Python, so KratosForge can't start it. {} IT to allow the engine's files in {folder}; \
-             the enterprise install guide lists the rules (Application control). ({error})",
-            // 577 also means a file that changed after it was signed: allowing it would allow the change.
-            if c == 577 {
-                "If your organization doesn't use a signing policy, a file may have been changed: restart \
-                 KratosForge to reinstall the engine before anything is allowed. Otherwise ask"
-            } else {
-                "Ask"
-            }
+             WDAC) blocked the engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
+             the enterprise install guide lists the rules (Application control). ({error})"
         ),
         Some(2 | 3) => format!("Python was not found ({error})."),
         _ => format!("Python could not be started ({error})."),
@@ -3009,8 +3012,7 @@ mod integrity_tests {
         let folder = r"C:\Users\a\AppData\Local\FabricDesktop\engine\abc";
         for code in [1260, 4551, 577] {
             let text = python_failed_text(Some(code), "This program is blocked by group policy. (os error 1260)", folder);
-            assert!(text.starts_with("Your organization's application control (AppLocker, or App Control"), "{text}");
-            assert!(text.contains("WDAC") && text.contains(folder));
+            assert!(text.contains("application control (") && text.contains("WDAC") && text.contains(folder), "{text}");
             assert!(text.ends_with("(This program is blocked by group policy. (os error 1260))"));
             // The engine's start says only that, not "Could not start the Python sidecar" before it.
             assert_eq!(engine_start_text(Some(code), text.clone()), text);
@@ -3020,7 +3022,9 @@ mod integrity_tests {
         assert_eq!(schedule_start_failed(Some(2)), 1);
         assert_eq!(schedule_start_failed(None), 1);
         let changed = python_failed_text(Some(577), "Windows cannot verify the digital signature for this file. (os error 577)", folder);
-        assert!(changed.contains("may have been changed: restart KratosForge to reinstall the engine before anything is allowed. Otherwise ask IT"), "{changed}");
+        assert!(changed.starts_with("Windows couldn't verify the signature on the engine's Python"), "{changed}");
+        assert!(changed.contains(&format!("close KratosForge, delete the folder {folder}, and start KratosForge again")), "{changed}");
+        assert!(changed.contains("If it's still blocked, your organization's application control (App Control"), "{changed}");
         assert!(!python_failed_text(Some(1260), "x", folder).contains("may have been changed"));
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");

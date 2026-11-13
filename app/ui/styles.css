@@ -195,7 +195,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; color: var(--accent); }
 .brand img { display: block; }
 .brand .brand-name { height: 19px; width: auto; }
-.brand .brand-text { display: none; font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
 .nav-buttons { display: flex; align-items: center; gap: 2px; }
 .nav-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;

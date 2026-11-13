@@ -19,8 +19,8 @@ from fabric_desktop.engines.contract import CellRequest, SessionConfig
 
 SETUP = [
     "CREATE TABLE t(id INT, grp VARCHAR, amt DOUBLE, ts TIMESTAMP, v JSON)",
-    """INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
-    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')""",
+    ("""INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
+    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')"""),
 ]
 
 # (name, Snowflake SQL, verdict, note ids)
@@ -33,9 +33,9 @@ PROBE = [
     ("TO_VARCHAR format", "select to_varchar(ts, 'YYYY-MM-DD') from t", "translated", []),
     ("TO_CHAR format", "select to_char(current_date(), 'YYYY-MM-DD')", "translated", []),
     ("VARIANT path", "select v:k.x::int as x from t", "translated", []),
-    ("LATERAL FLATTEN", "select t.id, f.value from t, lateral flatten(input => v:arr) f", "difference", ["SFD-005"]),
+    ("LATERAL FLATTEN", "select t.id, f.value from t, lateral flatten(input => v:arr) f", "translated", []),
     ("TABLE(FLATTEN)", "select t.id, f.value from t, table(flatten(input => parse_json(t.v):arr)) f",
-     "difference", ["SFD-005"]),
+     "translated", []),
     ("OBJECT_CONSTRUCT with NULL", "select object_construct('a', 1, 'b', null)", "translated", []),
     ("ARRAY_AGG WITHIN GROUP", "select grp, array_agg(id) within group (order by id) from t group by grp",
      "translated", []),
@@ -43,8 +43,8 @@ PROBE = [
     ("TRY_TO_NUMBER", "select try_to_number('12x'), try_cast('5' as int)", "translated", []),
     ("SPLIT_PART/REGEXP_SUBSTR", "select split_part('a-b-c','-',2), regexp_substr('abc123','[0-9]+')",
      "translated", []),
-    ("MERGE", "merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
-              "when not matched then insert (id, amt) values (s.id, s.amt)", "translated", []),
+    ("MERGE", ("merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
+              "when not matched then insert (id, amt) values (s.id, s.amt)"), "translated", []),
     ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "difference", ["SFD-001"]),
     ("Time travel AT", "select * from t at(offset => -60)", "not_translatable", ["SFN-006"]),
     ("GENERATOR/SEQ4", "select seq4() from table(generator(rowcount => 3))", "translated", []),
@@ -127,9 +127,62 @@ def test_sfx001_flatten_over_an_object_gives_its_keys(session):
     assert r.status == "ok" and rows(r) == [["x", 2]]
 
 
-@pytest.mark.parametrize("column", ["seq", "this"])
-def test_sfx001_flatten_columns_without_an_equivalent_are_refused(column):
-    t = sf.translate(f"select f.{column} from t, lateral flatten(input => v:arr) f")
+@pytest.mark.parametrize("code", ["select f.seq from t, lateral flatten(input => v:arr) f",
+                                  "select seq from t, lateral flatten(input => v:arr) f"])
+def test_sfx001_flatten_seq_is_refused(code):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == "SFX-001"
+
+
+def _flat(code):
+    t = sf.translate(code)
+    assert t.runnable and not t.statements[0].notes, t.statements[0].notes
+    return duckdb.connect().execute(t.duckdb_sql).fetchall()
+
+
+def test_sfx001_flatten_columns_are_snowflakes():
+    rows = _flat("SELECT f.key, f.path, f.index, f.value::int, f.this FROM TABLE(FLATTEN(INPUT => "
+                 "PARSE_JSON('{\"a\":1, \"b\":[77,88]}'), PATH => 'b')) f ORDER BY f.index")
+    assert rows == [(None, "b[0]", 0, 77, "[77,88]"), (None, "b[1]", 1, 88, "[77,88]")]
+    rows = _flat("SELECT key, path, index FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"c\": {\"d\":2}}'), "
+                 "PATH => 'c'))")
+    assert rows == [("d", "c.d", None)]
+
+
+def test_sfx001_flatten_outer_gives_one_row_for_an_empty_value_wherever_it_is():
+    assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'), OUTER => TRUE)) f") == [
+        (None, "", None, None, "[]")]
+    assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'))) f") == []
+
+
+@pytest.mark.parametrize("value", ["'5'", "'null'", "'\"hi\"'"])
+def test_sfx001_flatten_of_a_scalar_gives_no_rows_and_one_with_outer(value):
+    assert _flat(f"SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON({value})))") == []
+    rows = _flat(f"SELECT key, path, index, value FROM TABLE(FLATTEN(INPUT => PARSE_JSON({value}), OUTER => TRUE))")
+    assert rows == [(None, "", None, None)]
+
+
+def test_sfx001_flatten_of_a_scalar_at_a_path_gives_no_rows_and_one_with_outer():
+    assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1}'), PATH => 'a'))") == []
+    assert _flat("SELECT key, path, index, value FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1}'), PATH => 'a', "
+                 "OUTER => TRUE))") == [(None, "a", None, None)]
+
+
+def test_sfx001_flatten_over_mixed_rows_counts_only_arrays_and_objects():
+    rows = _flat("SELECT p.id, f.index FROM (SELECT column1 AS id, PARSE_JSON(column2) AS v FROM VALUES (1, '[7, 8]'), "
+                 "(2, '3'), (3, '{\"k\": 1}')) p, LATERAL FLATTEN(INPUT => p.v) f ORDER BY p.id, f.index")
+    assert rows == [(1, 0), (1, 1), (3, None)]
+
+
+def test_sfx001_flatten_columns_of_json_each_dont_clash_with_the_tables():
+    rows = _flat("SELECT id, type, f.value::int FROM (SELECT 1 AS id, 'x' AS type, PARSE_JSON('[5]') AS c) p, "
+                 "LATERAL FLATTEN(INPUT => p.c) f")
+    assert rows == [(1, "x", 5)]
+
+
+@pytest.mark.parametrize("path", ["a b", "a-b", "$.a", "a[x]"])
+def test_sfx001_flatten_path_that_isnt_plain_is_refused(path):
+    t = sf.translate(f"SELECT value FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{{}}'), PATH => '{path}'))")
     assert not t.runnable and t.statements[0].notes[0].id == "SFX-001"
 
 
@@ -178,7 +231,6 @@ def test_sfx004_object_construct_star_is_refused():
     ("select '2026-01-01'::timestamp_tz", "SFD-002"),
     ("select amt / 2 from t", "SFD-003"),
     ("select current_timestamp()", "SFD-004"),
-    ("select f.value from t, lateral flatten(input => v:arr) f", "SFD-005"),
     ("select date_trunc('month', ts) from t", "SFD-006"),
     ("select dateadd(week, 1, ts) from t", "SFD-006"),
     ("select typeof(v) from t", "SFD-007"),
@@ -759,3 +811,134 @@ def test_object_pick_with_one_key_column_reads_it_as_a_key():
                      "object_pick(parse_json('{\"a\": 1, \"b\": 2}'), parse_json('[\"b\"]'))::string "
                      "FROM (SELECT 'a' AS k)")
     assert duckdb.connect().execute(t.duckdb_sql).fetchone() == ('{"a":1}', '{"b":2}')
+
+
+@pytest.mark.parametrize("code,rule", [
+    ("SELECT to_decfloat('1.5')", "SFN-018"), ("SELECT try_to_decfloat(a) FROM t", "SFN-018"),
+    ("SELECT CAST(a AS DECFLOAT) FROM t", "SFN-018"),
+    (("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
+     "DEFINE x AS a > 0)"), "SFN-019"),
+    ("INSERT OVERWRITE INTO t SELECT * FROM s", "SFN-020"),
+])
+def test_decfloat_match_recognize_and_insert_overwrite_are_refused_by_name(code, rule):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == rule
+
+
+def test_a_plain_insert_still_runs():
+    assert sf.translate("INSERT INTO t SELECT * FROM s").duckdb_sql == "INSERT INTO t SELECT * FROM s"
+
+
+def test_time_of_a_timestamp_is_its_time_of_day():
+    import duckdb
+    t = sf.translate("SELECT time(ts) FROM (SELECT '2024-01-01 10:20:30'::timestamp AS ts)")
+    assert str(duckdb.connect().execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT TIME(CURRENT_TIMESTAMP)",
+    "SELECT TIME(CURRENT_TIMESTAMP())",
+    "SELECT TIME(SYSDATE())",
+    "SELECT TIME('2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ)",
+    "SELECT TIME('2024-01-01 10:20:30'::TIMESTAMP_LTZ)",
+    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ))",
+])
+def test_time_of_a_zoned_timestamp_runs(code):
+    import duckdb
+    t = sf.translate(code)
+    assert t.runnable
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    value = con.execute(t.duckdb_sql).fetchone()[0]
+    assert type(value).__name__ == "time"
+
+
+def test_time_of_a_timestamp_tz_is_the_local_time():
+    import duckdb
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
+    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "08:20:30"
+_EVENTS = ("SELECT * FROM VALUES ('a', 1, 5), ('a', 2, NULL), ('a', 3, 5), ('a', 4, 7), ('b', 1, NULL), ('b', 2, 9) "
+           "AS t(p, o, x)")
+
+
+def _rows(code):
+    t = sf.translate(code)
+    assert t.runnable, t.first_refusal()
+    return duckdb.connect().execute(t.duckdb_sql).fetchall()
+
+
+def test_sfx018_change_event_keeps_the_select_star_and_where():
+    rows = _rows(f"SELECT *, CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o) AS e "
+                 f"FROM ({_EVENTS}) AS s WHERE o > 1 ORDER BY p, o")
+    # the WHERE drops o = 1 before the events are counted, and SELECT * shows only the table's columns
+    assert rows == [("a", 2, None, 0), ("a", 3, 5, 0), ("a", 4, 7, 1), ("b", 2, 9, 0)]
+
+
+def test_sfx018_a_null_is_not_a_change_on_either_side():
+    rows = _rows(f"SELECT p, o, CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o) FROM ({_EVENTS}) "
+                 "ORDER BY p, o")
+    assert [r[2] for r in rows] == [0, 0, 0, 1, 0, 0]
+
+
+def test_sfx018_true_event_counts_true_rows_and_skips_null():
+    rows = _rows(f"SELECT CONDITIONAL_TRUE_EVENT(x > 4) OVER (PARTITION BY p ORDER BY o) FROM ({_EVENTS}) "
+                 "ORDER BY p, o")
+    assert [r[0] for r in rows] == [1, 1, 2, 3, 0, 1]
+
+
+def test_sfx018_fill_functions():
+    rows = _rows(f"SELECT INTERPOLATE_FFILL(x) OVER (PARTITION BY p ORDER BY o), "
+                 f"INTERPOLATE_BFILL(x) OVER (PARTITION BY p ORDER BY o) FROM ({_EVENTS}) ORDER BY p, o")
+    assert rows == [(5, 5), (5, 5), (5, 5), (7, 7), (None, 9), (9, 9)]
+
+
+@pytest.mark.parametrize("order, expected", [
+    ("o", 6.0),
+    ("o * 1.5", 6.0),
+    ("'2025-01-0' || o::varchar::date", 6.0),
+    ("('2025-01-01 10:0' || o::varchar || ':00')::timestamp", 6.0),
+])
+def test_sfx018_linear_by_a_number_date_or_timestamp(order, expected):
+    code = (f"SELECT INTERPOLATE_LINEAR(x) OVER (ORDER BY {order}) FROM VALUES (1, 4), (2, NULL), (3, 8), (4, NULL) "
+            "AS t(o, x) ORDER BY o")
+    code = code.replace("'2025-01-0' || o::varchar::date", "('2025-01-0' || o::varchar)::date")
+    t = sf.translate(code)
+    assert [n.id for s in t.statements for n in s.notes] == ["SFD-011"]
+    assert [r[0] for r in duckdb.connect().execute(t.duckdb_sql).fetchall()] == [4.0, expected, 8.0, None]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT INTERPOLATE_BFILL(x) OVER (ORDER BY o ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t",
+    "SELECT CONDITIONAL_TRUE_EVENT(x) OVER (PARTITION BY p) FROM t",
+    "SELECT INTERPOLATE_LINEAR(x) OVER (ORDER BY a, b) FROM t",
+    "SELECT INTERPOLATE_FFILL(x, y) OVER (ORDER BY o) FROM t",
+    "SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM t JOIN u ON t.id = u.id",
+    "SELECT p, CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY p) FROM t GROUP BY p, x",
+])
+def test_sfx018_refuses_what_it_cant_do_faithfully(code):
+    t = sf.translate(code)
+    assert not t.runnable and t.statements[0].notes[0].id == "SFX-018"
+
+
+def test_sfx018_true_event_without_a_window_inside_runs_after_a_join():
+    rows = _rows("SELECT CONDITIONAL_TRUE_EVENT(a.x > 1) OVER (ORDER BY a.o) FROM VALUES (1, 2), (2, 0) AS a(o, x) "
+                 "JOIN VALUES (1), (2) AS b(o) ON a.o = b.o ORDER BY a.o")
+    assert rows == [(1,), (1,)]
+
+
+def test_sfx018_qualified_columns_still_resolve():
+    rows = _rows("SELECT t.o, CONDITIONAL_CHANGE_EVENT(t.x) OVER (ORDER BY t.o) FROM VALUES (1, 2), (2, 3) AS t(o, x) "
+                 "ORDER BY t.o")
+    assert rows == [(1, 0), (2, 1)]
+
+
+def test_sfx018_lag_and_running_count_read_tied_rows_in_one_order():
+    sql = sf.translate("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (PARTITION BY p ORDER BY o), CONDITIONAL_TRUE_EVENT("
+                       "LAG(x) OVER (PARTITION BY p ORDER BY o) > 1) OVER (PARTITION BY p ORDER BY o) FROM s").duckdb_sql
+    assert "LAG((x)) OVER (PARTITION BY p ORDER BY __sf_place0)" in sql
+    assert "LAG(x) OVER (PARTITION BY p ORDER BY __sf_place1)" in sql
+    rows = _rows("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM VALUES (1, 'a'), (1, 'b'), (1, 'a'), "
+                 "(2, 'a') AS t(o, x)")
+    assert max(r[0] for r in rows) in (1, 2, 3)  # tied rows come in some order, but one order for LAG and count

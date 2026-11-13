@@ -308,6 +308,24 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     assert svc.fabric_runs(refresh=False)[0]["side_by_side"] == out["id"]
 
 
+def test_a_matching_side_by_side_run_earns_proof_forged_and_a_differing_one_nothing(svc, tables):
+    # Rules v5: every table the same on this PC and in Fabric is a proof, as a Prove run is.
+    from fabric_desktop import progress
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [1, 3]}), "bench.q01"))
+    out = wait(svc, call(svc, "side_by_side_start", **payload() | {"name": "Differs"})["id"])
+    assert out["verdict"]["same"] is False and "earned" not in out
+    assert call(svc, "profile_get")["evidence"] == []
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])
+    assert out["state"] == "done", out["message"]
+    assert [a["id"] for a in out["earned"]] == ["proof-forged"] and out["earned"][0]["first"] is True
+    [row] = call(svc, "profile_get")["evidence"]
+    assert row["type"] == "prove.match" and row["ref"] == {"source": "side_by_side", "id": out["id"],
+                                                           "revision": out["code_revision"]}
+    assert row["rules_version"] == progress.RULES_VERSION >= 5
+    assert call(svc, "side_by_side_list", name="NB")[0]["earned"][0]["id"] == "proof-forged"  # kept with the run
+
+
 def test_side_by_side_uses_the_repository_location_without_saving_it_into_the_notebook(svc, tables):
     # A notebook in a notebooks repository with no lakehouse of its own (publishPayload's location_ref).
     svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
@@ -405,7 +423,7 @@ def _tpch_available() -> bool:
         con.execute("INSTALL tpch")
         con.execute("LOAD tpch")
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - any import failure means the extension isn't there
         try:
             import duckdb_extension_tpch  # noqa: F401
             return True

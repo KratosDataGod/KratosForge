@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Dynamic data masking on the Region column"
+          "text": "Dynamic data masking on the Region column, with UNMASK granted per region"
         },
         {
           "id": "b",
-          "text": "A view per region, shared by email"
+          "text": "A separate view per region, shared with each sales rep by email from the warehouse editor"
         },
         {
           "id": "c",
-          "text": "A deployment rule"
+          "text": "A deployment rule that filters the table's rows for each stage"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Row-level security uses a predicate function and a security policy, so every query on the table returns only the rows the predicate allows for the user.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.3-q2",
@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "CREATE SECURITY POLICY ON dbo.Patients"
+          "text": "CREATE SECURITY POLICY DiagnosisFilter ON dbo.Patients(Diagnosis)"
         },
         {
           "id": "b",
-          "text": "GRANT UNMASK TO Analysts"
+          "text": "GRANT UNMASK ON dbo.Patients(Diagnosis) TO Analysts"
         },
         {
           "id": "c",
-          "text": "ALTER TABLE dbo.Patients DROP COLUMN Diagnosis"
+          "text": "ALTER TABLE dbo.Patients DROP COLUMN Diagnosis; GRANT SELECT TO Analysts"
         },
         {
           "id": "d",
@@ -60,9 +60,9 @@
       ],
       "explanation": "Granting SELECT on a list of columns lets the role read those columns only. A query that touches Diagnosis fails for them.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.3.3-q3",
@@ -106,15 +106,15 @@
         },
         {
           "id": "b",
-          "text": "Dynamic data masking"
+          "text": "Dynamic data masking on the folders' files for users without access to them"
         },
         {
           "id": "c",
-          "text": "Deployment rules"
+          "text": "Deployment rules that hide selected folders in each stage"
         },
         {
           "id": "d",
-          "text": "Sensitivity labels"
+          "text": "Sensitivity labels applied to each folder in the Files section"
         }
       ],
       "answer": [
@@ -122,9 +122,200 @@
       ],
       "explanation": "OneLake security lets you define roles over specific tables and folders, so access to data is granted below the item level.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q5",
+      "type": "single",
+      "stem": "A warehouse table has a row-level security policy that shows each rep only their own rows. Workspace Contributors need to see every row to validate the data. What do you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write the security policy's predicate so that it also allows those users"
+        },
+        {
+          "id": "b",
+          "text": "Turn the policy off for their sessions with STATE = OFF when they log in"
+        },
+        {
+          "id": "c",
+          "text": "Nothing; workspace Contributors are exempt from row-level security policies"
+        },
+        {
+          "id": "d",
+          "text": "Grant them UNMASK on the table so they see the filtered rows"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Security policies apply to all users, including dbo and table owners. If some people must see all rows, the predicate has to allow them.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q6",
+      "type": "single",
+      "stem": "A Sales table has a row-level security policy. A new SalesArchive table holds the same columns but has no policy. What do users see when they query SalesArchive?",
+      "options": [
+        {
+          "id": "a",
+          "text": "No rows until a policy is created"
+        },
+        {
+          "id": "b",
+          "text": "Only their own rows, because the Sales policy applies to similar tables"
+        },
+        {
+          "id": "c",
+          "text": "All rows, because each table needs its own policy"
+        },
+        {
+          "id": "d",
+          "text": "Only rows older than a year"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Row-level security is defined per table. A table without a policy returns unfiltered data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q7",
+      "type": "multiple",
+      "stem": "A security officer must create a security policy in a warehouse schema. Which two permissions does creating the policy itself require? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "CONTROL on the capacity"
+        },
+        {
+          "id": "b",
+          "text": "UNMASK"
+        },
+        {
+          "id": "c",
+          "text": "ALTER permission on the schema"
+        },
+        {
+          "id": "d",
+          "text": "ALTER ANY SECURITY POLICY"
+        },
+        {
+          "id": "e",
+          "text": "ALTER ANY MASK"
+        }
+      ],
+      "answer": [
+        "c",
+        "d"
+      ],
+      "explanation": "Creating a security policy needs ALTER ANY SECURITY POLICY and ALTER on the schema, plus SELECT and REFERENCES on the predicate objects. UNMASK and ALTER ANY MASK are masking permissions.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q8",
+      "type": "single",
+      "stem": "Charlie was granted SELECT on every column of dbo.Customers except CreditCard. What happens when he runs SELECT * FROM dbo.Customers?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The query fails with a SELECT permission denied error on the CreditCard column"
+        },
+        {
+          "id": "b",
+          "text": "The query returns all of the columns, with every CreditCard value shown as NULL"
+        },
+        {
+          "id": "c",
+          "text": "The query silently returns only the columns he was granted SELECT on"
+        },
+        {
+          "id": "d",
+          "text": "The query returns all columns, with CreditCard masked as XXXX"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Column-level security doesn't silently drop columns. Any query that includes the denied column, such as SELECT *, fails.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q9",
+      "type": "single",
+      "stem": "A user belongs to two OneLake security roles on a lakehouse table. One role's row filter allows Region = 'East', the other allows Region = 'West'. Which rows does the user see?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only East rows, from the first role created"
+        },
+        {
+          "id": "b",
+          "text": "All rows, because multiple roles cancel row filters"
+        },
+        {
+          "id": "c",
+          "text": "No rows, because the filters conflict"
+        },
+        {
+          "id": "d",
+          "text": "Rows for both East and West"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "OneLake combines roles as a union. When several roles grant the same table, their row-level rules combine with OR.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q10",
+      "type": "single",
+      "stem": "OneLake security is enabled on a lakehouse. An admin deletes the DefaultReader role. What happens to users who have only the ReadAll permission?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They get write access instead"
+        },
+        {
+          "id": "b",
+          "text": "They lose data access until they're added to another role that grants it"
+        },
+        {
+          "id": "c",
+          "text": "They keep access, because ReadAll grants data access on its own"
+        },
+        {
+          "id": "d",
+          "text": "Nothing changes until the lakehouse is redeployed"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With OneLake security on, ReadAll grants data access only through DefaultReader. Workspace Admins, Members and Contributors keep access through their Write permission.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

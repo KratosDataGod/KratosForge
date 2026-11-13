@@ -56,10 +56,11 @@ test("the Bundles tab reads the targets; Validate and Plan send no deploy", { sk
   assert.strictEqual(await page().locator('.dbx-bundles select[aria-label="Target"]').inputValue(), "dev");
   assert.ok(await page().locator(".dbx-bundles button", { hasText: "Deploy to dev" }).isDisabled());
   await page().locator(".dbx-bundles button", { hasText: "Validate" }).click();
-  await page().locator(".dbx-valid").waitFor();
+  // The tab can be drawn again while a result arrives: wait for the result's text, then read it (as below).
+  await page().locator(".dbx-valid", { hasText: /1 warning.*unknown field/ }).waitFor();
   assert.match(await page().locator(".dbx-valid").textContent(), /1 warning.*unknown field/);
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
-  await page().locator(".dbx-plan").waitFor();
+  await page().locator(".dbx-plan tbody tr", { hasText: "nightly_sales" }).waitFor();
   assert.deepStrictEqual(await page().locator(".dbx-plan tbody tr").allTextContents(), ["Updatejobnightly_sales"]);
   assert.deepStrictEqual(sent("databricks_bundle_plan"), [{ folder: REPO, target: "dev", connection: "cli:dev", allow_commands: "" }]);
   assert.deepStrictEqual(sent("databricks_bundle_deploy"), []);
@@ -77,7 +78,8 @@ test("a safe plan deploys after a plain confirm, with the plan's digest", { skip
 test("a plan that deletes, on production, needs the target typed; Cancel sends nothing", { skip }, async () => {
   await page().locator('.dbx-bundles select[aria-label="Target"]').selectOption("prod");
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
-  await page().locator(".dbx-plan").waitFor();
+  // The tab can be drawn again after a deploy ("Reading databricks.yml…"): wait for the plan's warning, then read it.
+  await page().locator(".dbx-bundles", { hasText: /prod is a production target.*deletes or rebuilds 1 resource/ }).waitFor();
   assert.match(await page().locator(".dbx-bundles").textContent(), /prod is a production target.*deletes or rebuilds 1 resource/);
   await page().locator(".dbx-bundles button", { hasText: "Deploy to prod" }).click();
   const ok = page().locator("#dialog-root button", { hasText: "Deploy to prod" });

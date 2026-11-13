@@ -110,7 +110,7 @@ def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float =
                 return
             try:
                 con.interrupt()
-            except Exception:  # silent-ok: the connection closed as the query ended
+            except Exception:  # noqa: BLE001  # silent-ok: the connection closed as the query ended
                 return
         stopped.wait(0.05)
 

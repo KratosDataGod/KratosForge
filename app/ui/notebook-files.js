@@ -574,7 +574,7 @@ function nbOpenFile() {
     const file = input.files?.[0];
     input.remove();
     if (!file) return;
-    if (file.size > NB_FILE_MAX_BYTES) { toast(`${file.name} is over 20 MB, so it isn't opened.`, true); return; }
+    if (file.size > NB_FILE_MAX_BYTES) { toast(`${file.name} is over 20 MB, so it isn't opened. Pick a file of 20 MB or less.`, true); return; }
     const content = await file.text();
     const check = await attempt(() => rpc("notebook_import_check", { file_name: file.name, content }), `Couldn't open ${file.name}`);
     if (check) nbOpenFileDialog(file, content, check);

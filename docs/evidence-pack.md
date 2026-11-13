@@ -65,10 +65,10 @@ These are the flows the app itself starts, from the hosts named in its source co
 
 | Evidence | Where | State |
 | --- | --- | --- |
-| SBOMs (CycloneDX) for the shell and the engine | `sbom-app.cdx.json` and `sbom-engine.cdx.json` on each Preview release (`latest`) | Made for every Preview build. The Stable release carries only the exe, engine and `version.json` |
+| SBOMs (CycloneDX) for the shell, the engine, the UI and the VS Code extension | `sbom-app.cdx.json`, `sbom-engine.cdx.json`, `sbom-ui.cdx.json` and `sbom-vscode.cdx.json` on each Preview release (`latest`) and on Stable | Made for every Preview build, with each one's SHA-256 in `version.json`. Promote to stable checks those and copies the SBOMs to Stable |
 | Build provenance attestations | Checked with `gh attestation verify <file> -R KratosDataGod/KratosForge` | Made for every build. Nothing on the PC checks them yet |
 | SHA-256 checksums | `version.json` on each release | Enforced by the app for the exe and the engine |
-| Dependency scanning | `pip-audit` and `cargo audit` in CI on every pull request | In place |
+| Dependency scanning | `pip-audit`, `npm audit` and `cargo audit` in CI on every pull request, over every lock file that ships | In place |
 | Pinned dependencies | `sidecar/constraints.txt`, `Cargo.lock` with `--locked` | In place |
 | Pinned CI actions | Every action in every workflow pinned by commit | In place (SH-8 closed) |
 | Code signing | Authenticode via Azure Trusted Signing | **Not in place**: needs the signing account |

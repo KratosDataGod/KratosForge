@@ -231,6 +231,15 @@ def test_changed_compares_like_the_scoring_rule():
     assert not quizlab.changed(QUESTIONS, {"zz": ["a"]}, {})
 
 
+def test_a_wrong_check_then_reset_then_the_key_is_not_independent(svc):
+    # One wrong check is enough to probe the count; Reset mustn't forget what was checked.
+    svc.academy_start(PACK, EID)
+    assert not svc.academy_validate(PACK, EID, json.dumps({**KEY, "q1": ["a"]}))["passed"]
+    svc.academy_reset(PACK, EID)
+    res = svc.academy_validate(PACK, EID, json.dumps(KEY))
+    assert res["passed"] and res["answers_changed"]
+
+
 def test_changing_a_checked_answer_makes_the_pass_not_independent(svc):
     svc.academy_start(PACK, EID)
     # Answer q1 only, check, then answer the rest: q1 never changed, so the pass is independent.
@@ -243,7 +252,10 @@ def test_changing_a_checked_answer_makes_the_pass_not_independent(svc):
     assert not svc.academy_validate(PACK, EID, json.dumps({**KEY, "q1": ["a"]}))["passed"]
     res = svc.academy_validate(PACK, EID, json.dumps(KEY))
     assert res["passed"] and res["answers_changed"] and svc.rows[-1]["detail"]["answers_changed"] is True
-    # Sticky until Reset, even after a later pass.
+    # Sticky, even after a later pass.
     assert svc.academy_validate(PACK, EID, json.dumps(KEY))["answers_changed"]
+    # Reset keeps it: probing, resetting and passing again isn't independent either.
     svc.academy_reset(PACK, EID)
-    assert not lab.state(svc.root, PACK, EID).get("answers_changed")
+    assert lab._state(lab.workspace(svc.root, PACK, EID))["answers_changed"]
+    res = svc.academy_validate(PACK, EID, json.dumps(KEY))
+    assert res["passed"] and res["answers_changed"] and svc.rows[-1]["detail"]["answers_changed"] is True

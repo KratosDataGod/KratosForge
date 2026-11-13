@@ -75,11 +75,11 @@ Every build of `main` comes with proof of where it came from and a list of what 
 
     It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works. Builds made before the repository was renamed (October 2026) name the old repository, so check those with `-R KratosDataGod/fabric-desktop`.
 
-- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it. One piece of third-party code ships inside the engine package instead of as its own package, so it isn't a separate SBOM entry: the Apache Ossie Microsoft converter (Apache License 2.0, upstream commit `82b9eff`, in `fabric_desktop/_vendor/ossie_microsoft` with its LICENSE and NOTICE).
+- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (the engine's Python and every Python package in the engine, read from the engine itself), `sbom-app.cdx.json` (every Rust crate in the exe), `sbom-ui.cdx.json` (the JavaScript packages bundled into the app's notebook editor and charts) and `sbom-vscode.cdx.json` (the VS Code extension: every file in `kratosforge.vsix` and the tools that built it), in CycloneDX format. Most vulnerability scanners and asset tools read it. One piece of third-party code ships inside the engine package instead of as its own package, so it isn't a separate SBOM entry: the Apache Ossie Microsoft converter (Apache License 2.0, upstream commit `82b9eff`, in `fabric_desktop/_vendor/ossie_microsoft` with its LICENSE and NOTICE).
 
 - **Microsoft's SQL driver.** The engine includes `mssql-python` (MIT), which carries Microsoft ODBC Driver 18 for SQL Server and the Visual C++ runtime (`msvcp140.dll`) under Microsoft's own license terms. Their license files are in the engine at `Lib\site-packages\mssql_python_odbc\libs\windows\x64\`. Nothing connects to a warehouse until you run a warehouse query.
 
-- **Vulnerability scanning.** CI checks the engine's pinned Python packages (`pip-audit`) and the exe's Rust crates (`cargo audit`) on every pull request.
+- **Vulnerability scanning.** On every pull request, CI checks the engine's pinned Python packages and the Databricks Connect locks (`pip-audit`), the npm packages behind the UI bundles and the VS Code extension (`npm audit`), and the exe's Rust crates (`cargo audit`).
 
 These prove where a file came from; they don't replace code signing, which is still being set up ([If Windows blocks the engine](#if-windows-blocks-the-engine)).
 
@@ -95,24 +95,48 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Past 20 MB its older half is dropped. Attach it to a problem report if asked. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.prev.log` | The engine's log from the run before, kept when the app restarts the engine, so a crash's log survives. The support bundle includes both. |
+| `%LOCALAPPDATA%\FabricDesktop\app-crash.log` | Only after the app itself has crashed: when, which build and where. Nothing is uploaded; the support bundle includes it. |
 | `%LOCALAPPDATA%\FabricDesktop\local-data\` | Local data projects (Preview): each project's settings, registered folders and database. See [Local data projects](local-data.md). |
 | `%LOCALAPPDATA%\FabricDesktop\usage_imports\` | Measured usage you imported from Capacity Metrics app and Azure Cost Management exports (Preview), one file per import. See [Measured usage](finops/usage-import.md). |
 | `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` | The audit trail: one line for each thing you ran or changed. See [Audit trail](user-guide.md#audit-trail). |
 | `%LOCALAPPDATA%\FabricDesktop\files`, `onelake-cache` | Local copies of lakehouse data: files notebooks and the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
 | `%LOCALAPPDATA%\FabricDesktop\staging` | Nothing, normally. Each table write checks its schema in an empty table here and deletes it straight after; full copies older builds kept are deleted on that table's next write. A notebook's write kept on this PC for a background upload (`staging\_writes`) is deleted when its upload ends, succeeded, failed or cancelled; one left by an engine ended mid-upload goes a day later, whatever the retention setting. Skip unchanged keeps nothing here: its fingerprint is in the table's Delta log in OneLake. **Settings > Advanced > OneLake writes > Files on this PC** shows what's here, opens the folder and has **Delete left-overs**. |
 | `%TEMP%\tpch_*` | Nothing, normally. The TPC-H data notebook generates its data here and deletes it when its write cell ends, whether or not the writes worked, or when the engine closes. A folder is only left when the engine was ended mid-run; **Settings > Advanced > OneLake writes > Files on this PC** lists it, opens it and deletes it. |
-| `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`) and their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made). See [Connect your AI tool](ai/README.md). |
-| `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. |
+| `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`), their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made), and the local API's log (`http.log`, kept as `http.prev.log` past 5 MB). See [Connect your AI tool](ai/README.md). |
+| `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. The run histories (`history.jsonl`, `schedule_runs.jsonl`) keep their newest rows: past 8 MB the older ones are dropped. |
+| `%LOCALAPPDATA%\FabricDesktop\replays` | The app's copy of each replay bundle you opened. A bundle can hold a sample of the tables its notebook read, so a copy unused for 30 days (your organization can change that) is deleted like the local copies above; the bundle you opened stays where it was. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
 | `Documents\FabricDesktop\metadata` | The default folder for a new metadata project. You can pick another, and you should keep it in Git. |
 
 ## Uninstall
 
-1. If you added schedules on this PC, remove them in **Monitor > KratosForge > Schedules** first. They live in Windows Task Scheduler under the `FabricDesktop` folder.
-2. Close the app and delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name).
-3. Delete `%LOCALAPPDATA%\FabricDesktop` to remove the engine, your notebooks, settings and sign-in. Copy the `notebooks` folder somewhere first if you want to keep them.
+1. If you added schedules on this PC, remove them in **Monitor > KratosForge > Schedules** first, or let the script below remove them. They live in Windows Task Scheduler under the `FabricDesktop` folder.
+2. Close the app. If it came from the MSI, uninstall it from **Settings > Apps > Installed apps** (that removes `kratosforge.exe` and its Start menu shortcut). Otherwise you delete `kratosforge.exe` (or `fabric-desktop.exe` on a copy that kept that name) yourself.
+3. Remove the rest with [`uninstall-kratosforge.ps1`](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/uninstall-kratosforge.ps1), run as yourself in PowerShell (not as administrator):
 
-Nothing in Fabric is removed. Lakehouses, tables and notebooks you published stay where they are.
+   ```powershell
+   .\uninstall-kratosforge.ps1             # keeps your notebooks, settings and stores
+   .\uninstall-kratosforge.ps1 -RemoveData # deletes %LOCALAPPDATA%\FabricDesktop as well, except the audit trail
+   .\uninstall-kratosforge.ps1 -RemoveData -RemoveAuditTrail # deletes the whole folder, audit trail included
+   ```
+
+   `-RemoveData` keeps the audit trails (`audit` and `integrations\audit` in that folder), because your organization may have to keep them. Ship or copy them first if they must outlive the PC, then add `-RemoveAuditTrail`.
+
+   Add `-WhatIf` to see what it would remove, and `-AppPath <path to kratosforge.exe>` to delete a copy you placed yourself.
+
+| The script removes | It keeps |
+| --- | --- |
+| The app's scheduled tasks (`\FabricDesktop\`, except the agent's task `\FabricDesktop\Agent`) | Your notebooks, settings, stores and backups in `%LOCALAPPDATA%\FabricDesktop`, unless you pass `-RemoveData`; the audit trail, unless you also pass `-RemoveAuditTrail` |
+| The `kratosforge://` link handler (`HKCU\Software\Classes\kratosforge`) | `%ProgramData%\FabricDesktop` (your organization's policy file, the agent's folder) |
+| The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `Documents\FabricDesktop` and your Git repositories |
+| Every saved sign-in and token: `msal_cache.bin`, `fabric-view-signin.bin`, the Fabric view's browser profile (`fabric-view`), the app window's browser profile (`%LOCALAPPDATA%\com.kratosbi.fabricdesktop`), the link listener's token (`link-port`), the VS Code pairing hello (`editor-port`), sealed copies a cut-off save left behind (`*.tmp`), and the mail server password in Windows Credential Manager (`KratosForge/mail-server`) | VS Code's own settings and the KratosForge extension: remove the `fabric-desktop` MCP server and the extension in VS Code |
+| `kratosforge.exe`, when you give `-AppPath` | Anything in Fabric: lakehouses, tables and notebooks you published stay where they are |
+
+What stays when you keep your data holds no usable token: connected AI tools' and VS Code windows' tokens are stored only as hashes, and settings that are secrets stay encrypted for your Windows account ([Security](security.md)). Credential Manager entries you named yourself for a Databricks secret (`credman:<name>`) are yours, and stay.
+
+## Going back to an older build
+
+An update keeps everything in `%LOCALAPPDATA%\FabricDesktop`: each store is upgraded in place when the new build first opens it, and older builds can still open what newer ones saved. The folder carries a data format mark (`data-format.json`). If a future build ever has to change your data in a way older builds can't read, it raises that mark, and an older build then refuses to start rather than damage the data: the app and its commands say "saved by a newer KratosForge" and name the folder. To go back past such a build, restore a [backup](backup.md) taken before the upgrade, or run the newer build again. Builds made before the mark don't read it, so this protection starts with the build that adds it: the current Stable build and the builds before it would open the folder whatever its mark says.
 
 ## For developers: run from source
 

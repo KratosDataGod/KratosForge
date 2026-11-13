@@ -1082,6 +1082,13 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50079: The user is required to use multi-factor authentication"), /multi-factor/);
   assert.match(say("SignInError: AADSTS50020: User account from identity provider does not exist in tenant"), /work account/);
   assert.match(say("SignInError: AADSTS53003: Access has been blocked by Conditional Access policies"), /Conditional Access/);
+  assert.match(say("SignInError: AADSTS53000: Device is not in required device state: compliant"), /manages and finds compliant/);
+  assert.match(say("SignInError: AADSTS530003: Your device is required to be managed"), /manages and finds compliant/);
+  assert.match(say("SignInError: AADSTS53001: Device is not in required device state: domainJoined"), /joined to its domain/);
+  assert.match(say("SignInError: AADSTS53002: Application used is not an approved application"), /approved apps/);
+  assert.match(say("SignInError: AADSTS53004: Proof up required"), /aka\.ms\/mfasetup/);
+  assert.match(say("SignInError: AADSTS530032: Blocked by security policy"), /location or network/);
+  assert.match(say("SignInError: AADSTS53000: Device is not compliant. Windows sign-in didn't start, so this sign-in used the browser, which can't show your organization that this PC is managed."), /Restart KratosForge/);
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
@@ -1553,6 +1560,19 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
     "the line's button opens the dialog instead of starting the job");
 });
 
+// X-ray's Vacuum and Vacuum all run the same risk check as Optimize, and send the id of the assessment seen.
+test("Estate X-ray's Vacuum and Vacuum all run the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function vacuumDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /rpc\("xray_vacuum_preview"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id: risk\?\.id/);
+  assert.match(dialog, /result === "blocked"/);
+  const all = /async function vacuumAll\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(all, /rpc\("xray_vacuum_preview"[\s\S]*rpc\("xray_vacuum", \{ \.\.\.vacuumArgs\(f\), risk_id \}\)/);
+  assert.match(all, /result === "blocked" \|\| result === "warning"/, "tables with warnings or a block don't start from Vacuum all");
+  assert.ok(!/rpc\("xray_vacuum", vacuumArgs\(f\)\)/.test(xray), "every Vacuum call carries the risk id");
+});
+
 test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -1750,6 +1770,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Page header art: a path from the shipped manifest (art/experience/heroes.js), under the app's own art folder;
+    // the manifest test checks every entry is <page>/<id> with both files present.
+    "home-hero.js: src: `${base}-1086.webp`, srcset: `${base}-1086.webp 1086w, ${base}.webp 2172w`,",
     // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
     "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
@@ -2284,6 +2307,8 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
 });
 
 // motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
+// Effects on everyday work play from Heroic (level 2), so the harness runs there unless told otherwise;
+// the default for a new install (Subtle) is checked with settings of its own.
 function motionHarness({ setting = true, reduced = false, hidden = false, settings = null, appLoaded = true } = {}) {
   let clock = 0;
   let timers = [];
@@ -2306,7 +2331,7 @@ function motionHarness({ setting = true, reduced = false, hidden = false, settin
   };
   const live = node();
   const ctx = {
-    state: { settings: settings || { forge_animations: { value: setting } } },
+    state: { settings: settings || { forge_animations: { value: setting }, ...(setting ? { motion_level: { value: 2 } } : {}) } },
     document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null),
       addEventListener() {}, hasFocus: () => true },
     addEventListener() {},
@@ -2379,8 +2404,9 @@ test("Forge animations: nothing is made with the setting off, reduced motion or 
   const on = motionHarness();
   on.applyMotion();
   assert.strictEqual(on.document.documentElement.dataset.motion, "on");
-  on.state.settings = null;  // settings not loaded yet: on, as for a new install
-  assert.strictEqual(on.motionOn(), true);
+  on.state.settings = null;  // settings not loaded yet: Subtle, as for a new install
+  assert.strictEqual(on.motionOn(), false, "everyday effects play on a new install");
+  assert.strictEqual(on.motionOn("achievements"), true, "achievements don't celebrate on a new install");
 });
 
 test("Forge animations: the wolf track waits 600 ms, follows real progress and goes when the run ends", () => {
@@ -2494,11 +2520,13 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Living Experience"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
-  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? key !== "motion_achievements", level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /const from = key === "motion_achievements" \? 1 : 2;/, "achievements don't play from Subtle");
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value \?\? true, level < from\)/, "family switches don't grey out below where they play");
+  assert.match(card, /\$\{n === 1 \? " \(default\)" : ""\}/, "Subtle isn't marked as the default");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
   for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
@@ -2512,7 +2540,7 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
   assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
-  assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
+  assert.match(css, /html\[data-motion="off"\] \.fx:not\(\.fx-achieve\), html\[data-motion-level="0"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
   assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike, \.fx-cool\),/);
   // Effects animate only transform and opacity, so they never move the layout.
@@ -2739,11 +2767,13 @@ test("a replay notebook offers to delete what its replays wrote, with a danger c
 });
 
 // Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
-test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
+test("Motion levels: Subtle (the default) plays only the Achievement Reveal, Heroic and Legendary play everything, and <html> says which", () => {
   const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });
   const minimal = at(1);
   assert.strictEqual(minimal.fx(minimal.node(), "spark"), null);
   assert.strictEqual(minimal.motionDiagnostics().skipped.level, 1);
+  assert.ok(minimal.fx(minimal.node(), "achieve"), "Subtle played no Achievement Reveal");
+  assert.strictEqual(at(0).fx(minimal.node(), "achieve"), null, "Professional played an Achievement Reveal");
   minimal.applyMotion();
   assert.strictEqual(minimal.document.documentElement.dataset.motionLevel, "1");
   assert.strictEqual(minimal.document.documentElement.dataset.motion, "off");
@@ -2756,7 +2786,7 @@ test("Motion levels: Minimal plays no branded effects, Refined and Expressive do
   const off = at(0);
   assert.strictEqual(off.motionLevel(), 0);
   assert.strictEqual(motionHarness({ setting: false }).motionLevel(), 0, "the first switch turned off no longer means Off");
-  assert.strictEqual(motionHarness({ setting: true }).motionLevel(), 2, "Refined is not the default");
+  assert.strictEqual(motionHarness({ settings: { forge_animations: { value: true } } }).motionLevel(), 1, "Subtle is not the default");
 });
 
 test("Motion families: each switch silences only its own effects", () => {
@@ -2850,7 +2880,7 @@ test("Forge events: every event names a real effect, unknown ones play nothing, 
   for (const [kind, m] of Object.entries(kinds)) {
     assert.ok(m.ms > 0 && m.ms <= 900, `${kind} is longer than a signature moment`);
     assert.ok(["wolf", "sparks", "achievements", "ambient"].includes(m.family), `${kind} has no family switch`);
-    assert.ok(m.level >= 2, `${kind} plays at Minimal`);
+    assert.ok(m.level >= (kind === "achieve" ? 1 : 2), `${kind} plays at Subtle`);
   }
   assert.ok(ctx.forgeEvent("deploy.succeeded", ctx.node()), "a deployment struck no anvil");
   assert.strictEqual(ctx.forgeEvent("cell.typed", ctx.node()), null);
@@ -3250,6 +3280,9 @@ test("friendlyError checks the engine first, then files on this PC, then Fabric'
   const cases = [
     ["The engine stopped answering, so KratosForge restarted it. (sql_page)", /stopped answering/],
     ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
+    ["The Python sidecar stopped. It will restart on the next action.\nmemory allocation of 6834176 bytes failed\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with a failed security check (fail fast) (exit code 0xC0000409).", /ran out of memory, so the local engine stopped/],
+    ["The Python sidecar stopped. It will restart on the next action.\n2026-11-09T18:11:57Z The engine stopped after 40 seconds: it crashed with running out of memory (exit code 0xC0000017).", /ran out of memory, so the local engine stopped/],
+    ["The engine keeps stopping as it starts, so KratosForge has stopped starting it for now. The last time: 403 Forbidden", /keeps stopping as it starts, so KratosForge has stopped starting it for a few minutes/],
     ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
     ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
     ["FileNotFoundError: The notebook nb_sales does not exist on this PC", /^The notebook nb_sales does not exist on this PC$/],
@@ -5630,7 +5663,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5642,7 +5675,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], forgeActivity: ["Run progress in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
@@ -5941,4 +5974,35 @@ test("every dialog has an axe case, or is in the baseline that only shrinks", ()
   ];
   assert.deepStrictEqual(problems, []);
   assert.deepStrictEqual(baseline, [...baseline].sort(), "keep a11y-dialog-baseline.json sorted");
+});
+
+// WR-503: an error says what to do next. Every error toast whose words are written here (toast(text, true))
+// and every plain-language error in friendlyError (activity.js) must name a next step: a verb the person can
+// act on (try, check, sign in, pick, ask...), "again", who can help ("an admin can"), or where the details
+// are. A message built around friendlyError(...) or an error's own text carries that step already, so it
+// isn't judged here. error-next-step-baseline.json lists the ones not fixed yet: the list may only shrink.
+test("error toasts and plain-language errors name a next step (WR-503)", () => {
+  const NEXT = /\b(try|retry|check|sign (?:in|out)|open|pick|choose|close|ask|run|install|restart|save|select|add|turn|free|reconnect|wait|use|connect|report|refresh|set|rename|remove|delete|publish|start|fix|enter|type|go to|update|see|read|make|copy|change|stop|give|allow|attach|create|edit|reload|unlock|import|move|keep|switch|re-?run|upgrade|download|fill|clear|load|resolve|commit|push|pull|reopen|undo|tick|cancel|name)\b|\bagain\b|\b(?:admin|IT|owner)\b.*\bcan\b|details below|Activity/i;
+  const carries = /\$\{[^}]*(friendlyError|\.text\b|err\b|\.error\b|\.message|reason|why|msg)/i;  // the error's own words follow
+  const found = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js")).sort()) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const toasts = /\btoast\(\s*(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*")\s*,\s*true\b/g;
+    for (let m; (m = toasts.exec(src));) {
+      if (carries.test(m[1])) continue;
+      const text = m[1].slice(1, -1).replace(/\$\{[^}]*\}/g, "…");
+      if (!NEXT.test(text)) found.push(`${name}: ${text}`);
+    }
+  }
+  const act = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const fe = act.slice(act.indexOf("function friendlyError("));
+  const table = fe.slice(0, fe.indexOf("\n}\n"));
+  for (const m of table.matchAll(/\[\/(?:[^/\\\n]|\\.)+\/[a-z]*, "((?:[^"\\]|\\.)*)"\]/g)) {
+    if (!NEXT.test(m[1])) found.push(`activity.js friendlyError: ${m[1]}`);
+  }
+  const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "error-next-step-baseline.json"), "utf8")).without_next_step;
+  assert.deepStrictEqual(found.filter((f) => !baseline.includes(f)), [],
+    "a new error with no next step: say what the person can do (try again, check, pick, ask an admin...)");
+  assert.deepStrictEqual(baseline.filter((b) => !found.includes(b)), [],
+    "a listed error now names a next step or is gone: remove it from error-next-step-baseline.json");
 });

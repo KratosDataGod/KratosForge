@@ -122,7 +122,7 @@ def test_concurrent_writers_lose_nothing_and_duplicate_nothing(tmp_path, lake):
             analysis(me, "r1", [finding(item=f"own{n}"), finding(item="common")],
                      [{"workspace_id": "w1", "item_id": "common", "rule_id": "small_files", "target": "dbo.sales",
                        "kind": "optimize"}], finished_at=f"2026-10-18T10:0{n}:00Z")
-        except BaseException as exc:  # pragma: no cover - reported below
+        except BaseException as exc:  # noqa: BLE001 - pragma: no cover - reported below
             errors.append(exc)
 
     threads = [threading.Thread(target=work, args=(n,)) for n in range(4)]

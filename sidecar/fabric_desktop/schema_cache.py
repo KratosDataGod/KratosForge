@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,7 @@ def load(root: Path, lakehouse_id: str) -> dict[str, Any]:
     return {"tables": tables if isinstance(tables, dict) else {}, "columns": columns if isinstance(columns, dict) else {}}
 
 
-def _update(root: Path, lakehouse_id: str, change) -> None:
+def _update(root: Path, lakehouse_id: str, change: Callable[[dict[str, Any]], object]) -> None:
     path = _path(root, lakehouse_id)
     if not path:
         return

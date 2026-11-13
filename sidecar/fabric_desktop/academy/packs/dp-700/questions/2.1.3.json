@@ -9,15 +9,15 @@
       "options": [
         {
           "id": "a",
-          "text": "A deployment pipeline"
+          "text": "A deployment pipeline that moves the events from the hub into the lakehouse"
         },
         {
           "id": "b",
-          "text": "A Dataflow Gen2 scheduled every minute"
+          "text": "A Dataflow Gen2 that reads the event hub and is scheduled to refresh once every minute"
         },
         {
           "id": "c",
-          "text": "A notebook that runs a COPY INTO statement once a day"
+          "text": "A notebook that runs a COPY INTO statement from the event hub once a day"
         },
         {
           "id": "d",
@@ -29,9 +29,9 @@
       ],
       "explanation": "Eventstreams capture, transform and route streaming events without code, and a lakehouse is one of their destinations. A dataflow or a daily notebook runs in batches rather than continuously, and deployment pipelines move content between workspaces.",
       "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.3-q2",
@@ -40,15 +40,15 @@
       "options": [
         {
           "id": "a",
-          "text": "So that the stream can be read with T-SQL"
+          "text": "So that the stream's output can be queried with T-SQL through the SQL analytics endpoint"
         },
         {
           "id": "b",
-          "text": "So that Spark keeps a second copy of the Delta table"
+          "text": "So that Spark keeps a second, backup copy of the Delta table that it can restore from after a driver failure"
         },
         {
           "id": "c",
-          "text": "So that V-Order is applied to the files it writes"
+          "text": "So that V-Order and optimized write are applied to the Parquet files the stream writes"
         },
         {
           "id": "d",
@@ -59,10 +59,10 @@
         "d"
       ],
       "explanation": "The checkpoint records which source data the query has processed and what it has committed. After a restart the query reads it and carries on from that point, which is what gives exactly-once writes to a Delta sink.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.3-q3",
@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Delete the table's _delta_log folder"
+          "text": "Delete the table's _delta_log folder so Spark rebuilds the file list from the data files"
         },
         {
           "id": "b",
-          "text": "Turn off the checkpoint"
+          "text": "Turn off the stream's checkpoint so it writes fewer files on each trigger"
         },
         {
           "id": "c",
@@ -83,17 +83,17 @@
         },
         {
           "id": "d",
-          "text": "Switch the table from Delta to CSV"
+          "text": "Switch the table from Delta to CSV so appends go into a single growing file"
         }
       ],
       "answer": [
         "c"
       ],
       "explanation": "Frequent small appends create many small files. OPTIMIZE rewrites them into fewer, larger files, and a longer trigger interval writes fewer files to begin with. Deleting the log destroys the table, CSV loses Delta's features, and dropping the checkpoint breaks recovery.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.1.3-q4",
@@ -130,6 +130,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.3-q5",
+      "type": "single",
+      "stem": "A structured streaming query writes to a Delta table as soon as each microbatch finishes, creating many small files. You want larger files by changing only the streaming query, without a separate maintenance job. What should you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`.trigger(availableNow=True)` on a continuously running query"
+        },
+        {
+          "id": "b",
+          "text": "`.trigger(processingTime=\"1 minute\")`"
+        },
+        {
+          "id": "c",
+          "text": "`.outputMode(\"complete\")`"
+        },
+        {
+          "id": "d",
+          "text": "`.option(\"checkpointLocation\", \"Files/checkpoint2\")`"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A trigger interval batches events and produces bigger Delta files. Complete mode rewrites the whole table on each trigger, a new checkpoint location only restarts the stream, and availableNow processes the available data and then stops.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.3-q6",
+      "type": "single",
+      "stem": "A streaming load from Event Hubs into a lakehouse must run around the clock and restart by itself if it stops unexpectedly. How should you run it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "As a Spark job definition with a retry policy"
+        },
+        {
+          "id": "b",
+          "text": "As a Dataflow Gen2 with a refresh every minute"
+        },
+        {
+          "id": "c",
+          "text": "As a pipeline Copy activity on a one-minute schedule"
+        },
+        {
+          "id": "d",
+          "text": "As a notebook cell left running in an interactive session"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Spark job definitions are recommended for continuous workloads, and a retry policy restarts the job when it stops unexpectedly. An interactive notebook isn't built for that robustness, and dataflows or copy activities on a schedule aren't streaming.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.3-q7",
+      "type": "single",
+      "stem": "Two Spark streaming jobs must each read the same event hub independently, at their own pace and from their own position. What should each job use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Its own consumer group on the event hub"
+        },
+        {
+          "id": "b",
+          "text": "Its own checkpoint location but the same consumer group"
+        },
+        {
+          "id": "c",
+          "text": "A trigger interval that differs from the other job's"
+        },
+        {
+          "id": "d",
+          "text": "A separate event hub partition assigned to each job"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Consumer groups let several consuming applications each read the stream independently, with their own offsets. Partitions split the data rather than giving each reader a full copy, and a trigger interval doesn't separate readers.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.3-q8",
+      "type": "single",
+      "stem": "A streaming query uses foreachBatch to append each microbatch to a Delta table. After a failure, Spark replays a batch. How do you stop the replayed batch from being written twice?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete the checkpoint folder before restarting so the query starts with a clean batch ID"
+        },
+        {
+          "id": "b",
+          "text": "Call `persist()` on the batch DataFrame before writing it so Spark remembers committed rows"
+        },
+        {
+          "id": "c",
+          "text": "Change the stream's output mode from append to update so replayed rows overwrite themselves"
+        },
+        {
+          "id": "d",
+          "text": "Write with the `txnAppId` and `txnVersion` options, binding `txnVersion` to the batch ID"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "With txnAppId and txnVersion bound to the batch ID, Delta Lake skips a write it has already committed. Persisting doesn't deduplicate, the output mode doesn't make writes idempotent, and deleting the checkpoint makes the stream lose its progress.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/foreach",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.3-q9",
+      "type": "single",
+      "stem": "A streaming notebook calls `repartition(48)` before writing to a Delta table. You want Spark to size the written files itself so that you can remove the manual repartition. What should you set?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`spark.conf.set(\"spark.sql.shuffle.partitions\", 1)`"
+        },
+        {
+          "id": "b",
+          "text": "`spark.conf.set(\"spark.databricks.delta.optimizeWrite.enabled\", True)`"
+        },
+        {
+          "id": "c",
+          "text": "`spark.conf.set(\"spark.sql.sources.default\", \"parquet\")`"
+        },
+        {
+          "id": "d",
+          "text": "`spark.conf.set(\"spark.sql.parquet.vorder.dictionaryPageSize\", \"4g\")`"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Optimized Write merges or splits partitions before writing, so repartition() or coalesce() calls aren't needed. Changing the default format, the V-Order dictionary size or forcing one shuffle partition doesn't do this.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.3-q10",
+      "type": "multiple",
+      "stem": "Which two statements about partitioning the output of a streaming write to a Delta table are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "`coalesce()` only decreases the number of in-memory partitions, minimizing data movement"
+        },
+        {
+          "id": "b",
+          "text": "`repartition()` only decreases partitions and never shuffles data"
+        },
+        {
+          "id": "c",
+          "text": "The best `partitionBy()` column is a unique event ID, because it gives the most partitions"
+        },
+        {
+          "id": "d",
+          "text": "`partitionBy()` organizes the data on disk into subdirectories based on column values"
+        },
+        {
+          "id": "e",
+          "text": "`partitionBy()` can't be used once Optimized Write is enabled"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "partitionBy() creates subdirectories by column value, and coalesce() only reduces partitions. repartition() does a full shuffle, a unique ID creates too many tiny partitions, and partitionBy() still works with Optimized Write.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

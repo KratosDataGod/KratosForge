@@ -598,7 +598,7 @@ function learnExercise(m, ex) {
     fill(out, h("p", { class: "muted-text" }, "Running on this PC..."));
     clearTimeout(saveTimer);
     save();
-    try { learnPage.results[ex.id] = await rpc("learn_lab_run", { module_id: m.id, sql: editor.value }); }
+    try { learnPage.results[ex.id] = await rpc("learn_lab_run", { module_id: m.id, sql: boxChosenText(editor) }); }
     catch (err) { learnPage.results[ex.id] = { error: friendlyError(err).text }; }
     finally { learnPage.busy = false; }
     if (out.isConnected) fill(out, learnResult(learnPage.results[ex.id]));
@@ -616,10 +616,10 @@ function learnExercise(m, ex) {
     learnChecksRefresh(ex);
     profileEarned(learnPage.checks[ex.id].earned);  // a pass in a published lesson, recorded in Profile
   };
-  editor.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runIt(); } });
+  editor.addEventListener("keydown", (e) => { if (isRunKey(e)) { e.preventDefault(); runIt(); } });
   return [...top, editor,
-    h("div", { class: "row" }, btn("Run", "play", runIt, "tool primary"), btn("Check my answer", "ok", checkIt, "tool outline"),
-      h("span", { class: "muted-text small" }, "Ctrl+Enter runs. Changes are undone after each run, so the lab's data stays as it was.")),
+    h("div", { class: "row" }, btn("Run", "play", runIt, "tool primary", RUN_BOX_TIP), btn("Check my answer", "ok", checkIt, "tool outline"),
+      h("span", { class: "muted-text small" }, "F5 or Ctrl+Enter runs (just the selected text, when you select some). Changes are undone after each run, so the lab's data stays as it was.")),
     out];
 }
 

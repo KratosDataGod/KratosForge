@@ -82,16 +82,16 @@ PLATFORM_FLOWS = [
     Flow(11, "Central platform: Finish or repair once, from empty", ["FEAT-MESH-01"],
          ["Platform > Settings: the test workspace's platform shows as ready, with you as its admin."]),
     Flow(12, "Central platform: Finish or repair once, again or from a previous version", ["FEAT-MESH-01"],
-         ["For the upgrade: before the run, Finish setup in the test workspace from the Stable build, then run "
-          "the smoke test from the candidate with --platform-upgrade."]),
+         [("For the upgrade: before the run, Finish setup in the test workspace from the Stable build, then run "
+          "the smoke test from the candidate with --platform-upgrade.")]),
     Flow(13, "Central platform: register a data product", ["FEAT-MESH-04"],
          ["Data mesh > Products lists the fdlt_ product while the run keeps the platform (--platform-keep)."]),
     Flow(14, "Central platform: issue and look up surrogate keys", ["FEAT-MESH-02", "FEAT-META-05"], []),
     Flow(15, "Central platform: a policy exception, asked for, approved and ended", ["FEAT-GOV-03", "FEAT-GOV-08"],
          ["Data mesh > Requests: ask for an exception to a published policy, approve it as an admin, end it."]),
     Flow(16, "Central platform: restrict a central lakehouse family (central_restrict)", ["FEAT-ADM-11"],
-         ["Optimize > Access > Who may read it: with a central lakehouse in the test workspace (OneLake security on, "
-          "a lakehouse with schemas), pick the readers, confirm, and check the OneLake security role in Fabric."]),
+         [("Optimize > Access > Who may read it: with a central lakehouse in the test workspace (OneLake security on, "
+          "a lakehouse with schemas), pick the readers, confirm, and check the OneLake security role in Fabric.")]),
 ]
 
 
@@ -130,16 +130,16 @@ class SmokeTest:
     def plan(self) -> list[str]:
         return [
             "Flow 1: check the engine's version and that DuckDB, Polars, delta-rs and PyArrow load.",
-            "Flow 2: sign in the way the app does and get tokens for Fabric and OneLake, then try Azure SQL "
-            "(warehouses) and Kusto (Monitoring) and record the answer.",
+            ("Flow 2: sign in the way the app does and get tokens for Fabric and OneLake, then try Azure SQL "
+            "(warehouses) and Kusto (Monitoring) and record the answer."),
             f"Flow 3: list your workspaces, check {self.workspace_id} is among them, and list its items.",
             "Flow 4: check the Fabric client's name check refuses the lakehouse name '1 bad name' (no request is sent).",
             "Flows 4, 5, 6 and 9: run the live test with every opt-in check"
             + (" and --run-in-fabric (spends Spark capacity)." if self.run_in_fabric
                else "; without --run-in-fabric the notebook is published and deleted again, but not run."),
             "Flow 10: save a support bundle and check it holds no token, user name, tenant id or workspace id.",
-            *(["Flows 11-16 (--platform): make the central platform in the test workspace, use it and delete it again; "
-               "see the platform plan below."] if self.platform_test else []),
+            *([("Flows 11-16 (--platform): make the central platform in the test workspace, use it and delete it again; "
+               "see the platform plan below.")] if self.platform_test else []),
             "Flows 7 and 8, and the by-hand part of every flow: listed in the summary for a person to tick.",
             f"Write the results to {self.dir}.",
         ]
@@ -149,7 +149,7 @@ class SmokeTest:
         try:
             step.detail = fn() or ""
             step.status = "passed"
-        except Exception as exc:  # every failure is a result, not a crash
+        except Exception as exc:  # noqa: BLE001 - every failure is a result, not a crash
             step.status = "failed"
             step.detail = livetest.scrub(f"{type(exc).__name__}: {exc}")
         self.steps.append(step)
@@ -299,9 +299,9 @@ def summary(result: dict[str, Any]) -> str:
     mark = {"passed": "Passed", "failed": "**Failed**", "skipped": "Skipped", "none": "Nothing automated"}
     ws = result["workspace"]
     lines = [f"# KratosForge smoke test {result['run_id']}", "",
-             f"Outcome of the automated parts: **{result['outcome']}**. Engine {result['version']}, workspace "
+             (f"Outcome of the automated parts: **{result['outcome']}**. Engine {result['version']}, workspace "
              f"{ws.get('name') or ws.get('id')}, started {result['started_at']}"
-             f"{', with Run in Fabric' if result['run_in_fabric'] else ', without Run in Fabric'}.", "",
+             f"{', with Run in Fabric' if result['run_in_fabric'] else ', without Run in Fabric'}."), "",
              "Copy docs/product/smoke-test/RESULTS-TEMPLATE.md to results-<date>.md and fill in the by-hand part.", "",
              "| Flow | Features | Automated | By hand |", "| --- | --- | --- | --- |"]
     for f in result["flows"]:
@@ -321,6 +321,6 @@ def summary(result: dict[str, Any]) -> str:
         lines += ["", "**Left behind** by the live test: run `fabric-desktop live-test --cleanup` with its ledger.json."]
     platform = result.get("platform_test")
     if platform and platform.get("left_behind"):
-        lines += ["", f"**{'Kept' if platform.get('kept') else 'Left behind'}** by the platform flows: the items in "
-                      "platform/platform-ledger.json. Delete them in Fabric when you're done."]
+        lines += ["", (f"**{'Kept' if platform.get('kept') else 'Left behind'}** by the platform flows: the items in "
+                      "platform/platform-ledger.json. Delete them in Fabric when you're done.")]
     return "\n".join(lines) + "\n"

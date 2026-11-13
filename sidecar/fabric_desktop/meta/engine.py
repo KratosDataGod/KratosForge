@@ -12,11 +12,15 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
+import socket
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 import polars as pl
@@ -24,7 +28,8 @@ import polars as pl
 if TYPE_CHECKING:
     import pyarrow as pa  # annotations only; loads import it where they need it
 
-from .. import disk_full, retrying
+from .. import disk_full, jsonfile, retrying
+from ..leases import LeaseBusy
 from . import batches as batches_mod
 from . import drift as drift_mod
 from . import keys as keys_mod
@@ -54,6 +59,23 @@ _log = logging.getLogger(__name__)
 # seconds old with the row still on its way. Only a commit older than this, well past any lease's
 # life and the few retries of that append, counts as a run that stopped before it was recorded.
 UNLOGGED_AFTER = dt.timedelta(minutes=15)
+OUT_OF_MEMORY_ADVICE = ("Close other apps and run it again, or read it in batches (batch_by under [load]) "
+                        "or run it in Fabric.")
+
+
+def _out_of_memory(exc: BaseException) -> bool:
+    """True for an allocation that failed in Python or Arrow (pyarrow's ArrowMemoryError is a
+    MemoryError), or Polars' and DuckDB's own words for it, anywhere in ``exc``'s chain."""
+    seen: list[BaseException] = []
+    cur: BaseException | None = exc
+    while cur is not None and cur not in seen and len(seen) < 20:
+        seen.append(cur)
+        text = str(cur).lower()
+        if isinstance(cur, MemoryError) or "memory allocation of" in text or (
+                "out of memory" in text and not disk_full.is_spill_full(text)):  # a full temp drive is disk
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
 # What this app writes in a commit's metadata (new_run_id, Project.version, Project.fingerprint). Any
 # writer to the table can set commit metadata, so a run is recorded from it only in these formats.
 _RUN_ID = re.compile(r"r-\d{8}-\d{6}-[0-9a-f]{12}")
@@ -307,6 +329,9 @@ class Engine:
         # Held for the whole of an entity's run, so no other writer (another agent, the app) can
         # read and overwrite the same table in between. The agent passes one; the app runs without.
         self.table_lock = table_lock or (lambda entity: nullcontext())
+        # A note per run under way, on this PC (_mark_running): None keeps no notes (OneLake).
+        self.running_dir: Path | None = store.root / "_running" if isinstance(store, LocalStore) else None
+        self._running: Path | None = None
         # Extra run_log fields: which worker, host and attempt ran it (the agent sets these).
         self.run_context = dict(run_context or {})
         # Storage options for a source table elsewhere in OneLake ([source] table = "abfss://...").
@@ -415,10 +440,16 @@ class Engine:
         deps = self.store.meta_where("deployments", pl.col("env") == self.store.env)
         deployed = deps["version"][-1] if deps.height else None
         if deployed != self.project.version:
-            raise GateError("promote", [f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
-                                        f"project is {self.project.version}. Promote it first."])
+            raise GateError("promote", [(f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
+                                        f"project is {self.project.version}. Promote it first.")])
 
     def run(self, name: str, backfill: str | None = None, batch_id: str = "") -> RunResult:
+        try:
+            return self._run(name, backfill, batch_id)
+        finally:
+            self._unmark_running()
+
+    def _run(self, name: str, backfill: str | None, batch_id: str) -> RunResult:
         errors = validate(self.project, self.load_date)
         if errors:
             raise GateError("save", errors)
@@ -439,9 +470,13 @@ class Engine:
         self._files_recovered: list[dict[str, Any]] = []
         self._pending_quarantine = []
         unsaved = ""  # the schema history's note, if it couldn't be saved: kept whatever the run's message becomes
+        synced = ""  # commits a file sync client set aside: kept whatever the run's message becomes
         try:
             with self.table_lock(e):
                 self._record_unlogged(e, res)
+                synced = self._sync_note(e, res)
+                self._record_stopped(e, res)
+                self._mark_running(e, started_at, backfill, batch_id)
                 self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
                 try:
                     if backfill == "migrate":
@@ -472,18 +507,28 @@ class Engine:
             return res
         except CheckStop as ex:
             res.status, res.message = "failed", str(ex)
-        except Exception as ex:  # custom code and source errors are reported, not raised
+        except Exception as ex:  # noqa: BLE001 - custom code and source errors are reported, not raised
             from ..retrying import is_retryable
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
+            if isinstance(ex, LeaseBusy):  # another run or notebook is writing the table: its own words say so
+                res.message = str(ex)
             if disk_full.is_disk_full(ex):  # delta-rs words it as a parse or copy error; say what it is
                 res.steps.append(Step("error", 0, 0.0, res.message[:2000]))
                 res.message = disk_full.message(
                     self._local_path((self.lakehouse(e), e.schema, e.table)),
                     "The table was not changed." if res.delta_version is None else "")
+            elif _out_of_memory(ex):  # a bare "MemoryError: " says nothing the user can act on
+                res.steps.append(Step("error", 0, 0.0, res.message[:2000]))
+                res.message = " ".join(part for part in (
+                    "This PC ran out of memory during the run.",
+                    "The table was not changed." if res.delta_version is None else "",
+                    OUT_OF_MEMORY_ADVICE) if part)
         finally:
             self._pending_quarantine = []  # a run that didn't commit quarantines nothing
             if unsaved and unsaved not in res.message:  # a failure after the commit replaced the message
                 res.message = f"{res.message}; {unsaved}" if res.message else unsaved
+            if synced and synced not in res.message:
+                res.message = f"{res.message}; {synced}" if res.message else synced
         seconds = round(time.perf_counter() - started, 3)
         log = [{
             "run_id": self.run_id, "batch_id": batch_id, "entity": name, "env": self.store.env,
@@ -500,6 +545,117 @@ class Engine:
                     self.store.meta_append(t, r, metadata=m)
                 self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table), append)
         return res
+
+    def _mark_running(self, e: Entity, started_at: str, backfill: str | None, batch_id: str) -> None:
+        """Leave a note that this run is under way, removed when it ends (run). A run that runs out of
+        memory takes the engine with it, with no exception to catch, so the note is all that is left
+        of it; the next run of the table records it (_record_stopped). Never fails the run."""
+        if self.running_dir is None:
+            return
+        from ..schedule_service import process_identity
+        note = {"run_id": self.run_id, "entity": e.name, "started_at": started_at, "pid": os.getpid(),
+                "pc": socket.gethostname(),  # not "host": run_context may carry its own
+                "identity": process_identity(os.getpid()), "load_date": self.load_date.isoformat(),
+                "backfill": backfill or "", "batch_id": batch_id} | self.run_context
+        path = self.running_dir / f"{self.run_id}.json"
+        try:
+            jsonfile.write_text(path, json.dumps(note))  # a note read half-written would be skipped
+            self._running = path
+        except OSError as exc:
+            _log.warning("Couldn't note that run %s is under way: %s", self.run_id, exc)
+
+    def _unmark_running(self) -> None:
+        path, self._running = self._running, None
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                _log.warning("Couldn't remove the note for run %s: %s", path.stem, exc)
+
+    def _record_stopped(self, e: Entity, res: RunResult) -> None:
+        """Record, as failed, a run of ``e`` whose process ended before it did: the app closed, the
+        engine was restarted, the PC shut down, or it ran out of memory, which ends the engine at once
+        (Rust aborts when an allocation fails, and the OS kills a process past its memory). Called under the table's lock. A run that committed is
+        left to _record_unlogged; one already in the run log needs nothing. Never fails the run."""
+        if self.running_dir is None or not self.running_dir.is_dir():
+            return
+        from ..schedule_service import _pid_alive
+        for path in sorted(self.running_dir.glob("r-*.json")):
+            try:
+                note = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(note, dict) or note.get("entity") != e.name or note.get("run_id") == self.run_id:
+                    continue
+                run = str(note.get("run_id", ""))
+                if note.get("pc") != socket.gethostname():
+                    continue  # another PC's run, in a synced folder: its PID means nothing here
+                if note.get("pid") == os.getpid() or _pid_alive(note.get("pid"), note.get("identity")):
+                    continue  # its process is still running (or may be): not stopped
+                if not _RUN_ID.fullmatch(run):
+                    path.unlink(missing_ok=True)
+                    continue
+                history = self.store.history(self.lakehouse(e), e.schema, e.table, 20) \
+                    if self.store.exists(self.lakehouse(e), e.schema, e.table) else []
+                committed = any(c.get("fabric_desktop_run_id") == run for c in history)
+                logged = self.store.meta_where("run_log", (pl.col("entity") == e.name) & (pl.col("run_id") == run))
+            except Exception as exc:  # noqa: BLE001 - only the earlier run's record is missed; this run goes on
+                _log.warning("Couldn't check %s for a run that stopped: %s", path.name, exc)
+                continue
+            if committed or logged.height:  # committed: _record_unlogged records it; logged: nothing to do
+                path.unlink(missing_ok=True)
+                continue
+            self._stopped_leftovers(e, run, note, res)
+            message = ("Stopped: the engine ended during this run (the app closed, the engine was restarted, "
+                       "the PC shut down, or it ran out of memory), so nothing was written to the table. "
+                       f"Run it again. Recorded by run {self.run_id}.")
+            def text(key: str, note: dict[str, Any] = note) -> str:
+                return str(note.get(key, ""))[:200]
+            row = {"run_id": run, "batch_id": text("batch_id"), "entity": e.name,
+                   "env": self.store.env, "status": "failed", "metadata": self.project.version,
+                   "logic": self.project.fingerprint(e), "load_date": text("load_date"),
+                   "started_at": text("started_at"), "seconds": None, "rows_read": None,
+                   "rows_written": None, "quarantined": None, "delta_version": None,
+                   "backfill": text("backfill"), "message": message, "steps": "[]"}
+            row |= {k: v if v is None or isinstance(v, int) else text(k) for k, v in note.items()
+                    if k in self.run_context}
+            def append(m: dict[str, str], r: dict[str, Any] = row) -> None:
+                self.store.meta_append("run_log", [r], metadata=m)
+            if self._after_commit(res, "the record of a run that stopped", (META_LAKEHOUSE, "meta", "run_log"),
+                                  append):
+                res.steps.append(Step("record", 0, 0.0, f"recorded run {run}, which stopped before it "
+                                                        "wrote anything"))
+                path.unlink(missing_ok=True)
+
+    def _stopped_leftovers(self, e: Entity, run: str, note: dict[str, Any], res: RunResult) -> None:
+        """The files run ``run`` left in ``e``'s table when its process ended mid-write (PB-067), as a dry
+        run: they are counted on this run's steps, and nothing is deleted. Only on this PC, and only under
+        this run's lease on the table, so no other metadata run is writing it. That lease doesn't stop
+        compaction or a notebook or SQL write to the table, so the list is reported, never deleted from
+        (maintenance.stopped_run_leftovers says what counts). Never fails the run."""
+        from .. import maintenance
+        from ..leases import holding, table_key
+        lh = self.lakehouse(e)
+        if not isinstance(self.store, LocalStore) or not holding(table_key(lh, e.schema, e.table)):
+            return
+        t0 = time.perf_counter()
+        try:
+            since = dt.datetime.fromisoformat(str(note.get("started_at"))).timestamp()
+            found = maintenance.stopped_run_leftovers(self.store.uri(lh, e.schema, e.table), since)
+        except Exception as exc:  # noqa: BLE001 - only the dry run is missed; Compact still finds them later
+            _log.warning("Couldn't look for the files run %s left in %s: %s", run, e.name, exc)
+            res.steps.append(Step("clean up", 0, 0.0, f"couldn't look for the files run {run} left "
+                                                      f"({type(exc).__name__}): Compact finds them later"))
+            return
+        if found["refused"]:
+            res.steps.append(Step("clean up", 0, round(time.perf_counter() - t0, 3),
+                                  f"run {run} stopped mid-write; {found['refused']}"))
+            return
+        n = len(found["files"])
+        if not n:
+            return
+        res.steps.append(Step("clean up", n, round(time.perf_counter() - t0, 3),
+                              f"dry run: run {run} stopped mid-write and left {n} file{'' if n == 1 else 's'} "
+                              f"({found['bytes'] / 1024 / 1024:.1f} MB) that no version of the table names; "
+                              "nothing was removed"))
 
     def _record_unlogged(self, e: Entity, res: RunResult) -> None:
         """Record the last run that committed to ``e``'s table but has no run-log row: it stopped between
@@ -536,7 +692,7 @@ class Engine:
                    "started_at": first.isoformat(timespec="microseconds"), "seconds": None,
                    "rows_read": None, "rows_written": rows.height if rows is not None else None, "quarantined": None,
                    "delta_version": version, "backfill": "", "message": note, "steps": "[]"}
-        except Exception as exc:  # noqa: BLE001  only the earlier run's record is missed; this run goes on
+        except Exception as exc:  # noqa: BLE001 - only the earlier run's record is missed; this run goes on
             _log.warning("Couldn't check %s for a run that stopped before it was recorded: %s", e.name, exc)
             return
         if self._after_commit(res, "the record of a run that stopped", (META_LAKEHOUSE, "meta", "run_log"),
@@ -556,7 +712,7 @@ class Engine:
         token = f"{self.run_id}:{uuid.uuid4().hex[:8]}"
         try:
             since = self.store.version(*where)
-        except Exception:  # noqa: BLE001  unknown: the check below then reads the whole history
+        except Exception:  # noqa: BLE001 - unknown: the check below then reads the whole history
             since = None
         tried = [0]
 
@@ -569,7 +725,7 @@ class Engine:
         try:
             retrying.retry_call(once, lambda exc: True, AFTER_COMMIT_ATTEMPTS, lambda n: 0.2 * n, time.sleep)
             return True
-        except Exception as exc:  # noqa: BLE001  the table is committed whatever happens here
+        except Exception as exc:  # noqa: BLE001 - the table is committed whatever happens here
             if disk_full.is_disk_full(exc):
                 free = disk_full.free_space(self._local_path(where))
                 note = (f"couldn't save {what}, as the disk is full{f' ({free})' if free else ''}. The table's "
@@ -579,6 +735,30 @@ class Engine:
             res.steps.append(Step("record", 0, 0.0, note))
             res.message = f"{res.message}; {note}" if res.message else note
             return False
+
+    def _sync_note(self, e: Entity, res: RunResult) -> str:
+        """Say so when another PC's write to this table, or its run record, was lost to a file sync
+        conflict (store.sync_conflicts): the project's folder is synced and two PCs wrote it at once.
+        The run goes ahead (it can't bring the lost commit back); the note stays on every run until
+        the set-aside file is deleted."""
+        if not isinstance(self.store, LocalStore):
+            return ""
+        lh = self.lakehouse(e)
+        notes = []
+        for (lakehouse, schema, table), what in (((lh, e.schema, e.table), "this table"),
+                                                  ((META_LAKEHOUSE, "meta", "run_log"), "the run log")):
+            lost = self.store.sync_conflicts(lakehouse, schema, table)
+            if lost:
+                files = ", ".join(name for _, name in lost[:3]) + (f" and {len(lost) - 3} more" if len(lost) > 3 else "")
+                notes.append(f"another PC's write to {what} was lost: two PCs wrote it at once in a synced folder "
+                             f"(OneDrive or similar), and the sync kept one and set the other aside as {files} in "
+                             f"{self.store.uri(lakehouse, schema, table)}{os.sep}_delta_log")
+        if not notes:
+            return ""
+        note = ("; ".join(notes) + ". Run this project on one PC only, check the table and backfill it if rows are "
+                "missing, then delete the set-aside files to clear this note")
+        res.steps.append(Step("sync", 0, 0.0, note))
+        return note
 
     def _local_path(self, where: tuple[str, str, str]) -> str | None:
         """The folder of a table on this PC, for the free space a disk-full message names; None in OneLake."""
@@ -610,7 +790,7 @@ class Engine:
             return saved
         try:
             history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
-        except Exception:  # noqa: BLE001  no history to go by: the saved watermark is all there is
+        except Exception:  # noqa: BLE001 - no history to go by: the saved watermark is all there is
             return saved
         for commit in history:  # newest first
             value, run = commit.get("fabric_desktop_watermark"), commit.get("fabric_desktop_run_id")
@@ -883,7 +1063,7 @@ class Engine:
         if e.soft_deletes:  # every row the source has is live
             stamp += [pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at")]
 
-        def tables():
+        def tables() -> Iterator[pa.Table]:
             for b in plan:
                 tb = time.perf_counter()
                 df = lf.filter(b.expr(src_col)).select(keep).collect(engine="streaming")
@@ -901,6 +1081,7 @@ class Engine:
                 del df  # not held while the next batch is read
             if rebuild and e.keys:  # rows the table has whose keys the source no longer has stay, as before
                 old = self.store.scan(lh, e.schema, e.table, read_version)
+                assert old is not None  # read_version is this table's
                 seen = pl.concat(state["keys"]).unique()
                 old_counts = old.group_by(col).len().collect(engine="streaming")
                 for b in batches_mod.plan(old_counts, col, self.batch_rows or batches_mod.batch_rows(est, free)):
@@ -941,7 +1122,7 @@ class Engine:
                     if not asked():
                         return
                 put(done)
-            except BaseException as ex:  # a check that stops, an error in a hook: the commit never happens
+            except BaseException as ex:  # noqa: BLE001 - a check that stops, an error in a hook: the commit never happens
                 put(ex)
 
         def take() -> Any:
@@ -982,7 +1163,7 @@ class Engine:
                         for f in schema]
                 return pa.Table.from_arrays(cols, schema=schema)
 
-            def record_batches():
+            def record_batches() -> Iterator[pa.RecordBatch]:
                 item = first
                 while item is not done:
                     # Small record batches: delta-rs holds each one until written, so one per batch
@@ -1044,7 +1225,7 @@ class Engine:
         # the last 20 commits are looked at, as for the watermark.
         try:
             history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
-        except Exception as exc:  # noqa: BLE001  no history to go by: the saved list is all there is
+        except Exception as exc:  # noqa: BLE001 - no history to go by: the saved list is all there is
             res.steps.append(Step("files", 0, 0.0, f"couldn't read the table's history ({type(exc).__name__}: {exc}), "
                                                    "so only the saved list of loaded files is used"))
             return done

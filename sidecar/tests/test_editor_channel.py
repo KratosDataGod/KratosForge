@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import threading
 import time
 
@@ -12,6 +13,7 @@ import pytest
 from test_kernel_sessions import out, svc  # noqa: F401
 from test_prove import call
 
+from fabric_desktop.editor_channel import MAX_BODY_BYTES as MAX_BODY
 from fabric_desktop.editor_pairing import MAX_WAITING, REQUEST_SECONDS, Pairings
 
 
@@ -26,9 +28,11 @@ class Clock:
 def test_a_pairing_hands_its_token_over_once_and_keeps_only_a_hash(tmp_path):
     clock = Clock()
     p = Pairings(tmp_path, clock)
-    req = p.request("C:\\repos\\sales\x07", "KratosForge for VS Code 0.1.0")
+    with pytest.raises(PermissionError, match="control characters"):  # refused, never altered into another folder
+        p.request("C:\\repos\\sales\x07", "KratosForge for VS Code 0.1.0")
+    req = p.request("C:\\repos\\sales", "KratosForge for VS Code 0.1.0\x07")
     assert p.collect(req["id"]) == {"state": "waiting"}
-    assert [w["window"] for w in p.waiting()] == ["C:\\repos\\sales"]  # control characters dropped
+    assert [(w["window"], w["client"]) for w in p.waiting()] == [("C:\\repos\\sales", "KratosForge for VS Code 0.1.0")]
     assert p.decide(req["id"], True, "8h")["paired"]
     got = p.collect(req["id"])
     assert got["state"] == "paired" and got["token"].startswith("kfp_")
@@ -226,6 +230,46 @@ def test_a_negative_length_is_refused_and_an_unpaired_body_is_never_read(paired)
     con.close()
 
 
+def test_a_refused_requests_small_body_is_read_before_the_answer(paired):
+    """Windows resets a connection closed with bytes still unread, which can drop the 401 before the
+    window reads it: the channel takes a small body first. A large claimed one is still never read."""
+    import socket
+
+    svc, window, path = paired
+    body = json.dumps({"path": path, "code": "1"}).encode()
+    with socket.create_connection(("127.0.0.1", window.port), timeout=10) as sock:
+        sock.sendall(f"POST /v1/run HTTP/1.1\r\nHost: 127.0.0.1:{window.port}\r\nContent-Type: application/json\r\n"
+                     f"Content-Length: {len(body)}\r\n\r\n".encode())
+        sock.settimeout(0.5)
+        with pytest.raises(TimeoutError):
+            sock.recv(1)  # no answer while the body it was told of hasn't come
+        sock.settimeout(10)
+        sock.sendall(body)
+        answer = b""
+        while chunk := sock.recv(65536):
+            answer += chunk
+    assert answer.startswith(b"HTTP/1.0 401 ") and b"not_paired" in answer
+
+
+def test_a_refused_requests_body_sent_slowly_doesnt_hold_the_answer(paired, monkeypatch):
+    """A body that comes a byte at a time is read for DISCARD_SECONDS at most, then answered."""
+    import socket
+
+    from fabric_desktop import editor_channel
+
+    monkeypatch.setattr(editor_channel, "DISCARD_SECONDS", 0.5)
+    svc, window, path = paired
+    with socket.create_connection(("127.0.0.1", window.port), timeout=10) as sock:
+        sock.sendall(f"POST /v1/run HTTP/1.1\r\nHost: 127.0.0.1:{window.port}\r\nContent-Type: application/json\r\n"
+                     "Content-Length: 1000\r\n\r\n".encode())
+        start = time.monotonic()
+        for _ in range(2):  # a byte at a time, then nothing: stop before the 0.5 s so nothing is left unread
+            sock.sendall(b" ")
+            time.sleep(0.15)
+        answer = sock.recv(65536)  # without the deadline it comes only after the 5 s idle timeout
+        assert answer.startswith(b"HTTP/1.0 401 ") and time.monotonic() - start < 3
+
+
 WRITE = "from fabric_desktop import lakehouse\nprint(lakehouse.write_refusal('LH_Gold', 'dbo', 'daily'))"
 
 
@@ -417,7 +461,228 @@ def test_the_hello_names_the_channel_api_and_refuses_an_extension_too_old_for_it
     nonce = "n" * 32
     status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
     assert status == 200 and res["result"]["api"] == editor_channel.API_VERSION
-    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say is taken as current
+    assert window.call("GET", f"/v1/hello?nonce={nonce}")[0] == 200  # a window that doesn't say speaks API 1
+    for garbled in ("abc", "1.5", "-1", "0x1", "%C2%B2", "1" * 7):
+        status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={garbled}")
+        assert status == 400 and res["error"]["code"] == "invalid_input" and "proof" not in json.dumps(res), garbled
     monkeypatch.setattr(editor_channel, "OLDEST_CLIENT_API", editor_channel.API_VERSION + 1)
     status, res = window.call("GET", f"/v1/hello?nonce={nonce}&api={editor_channel.API_VERSION}")
     assert status == 426 and res["error"]["code"] == "extension_too_old" and "proof" not in json.dumps(res)
+    # An extension from before the version was sent speaks API 1, so it's told to update too, not let through.
+    status, res = window.call("GET", f"/v1/hello?nonce={nonce}")
+    assert status == 426 and res["error"]["code"] == "extension_too_old"
+
+
+def _raw(port, data, read_timeout=15, half_close=False):
+    """Sends ``data`` as is and returns what comes back before the engine closes the connection.
+    ``half_close`` ends the sending side, for data that isn't a whole request (on Windows the caller
+    check may then no longer find the connection and refuse it 403, which is a clean answer too)."""
+    import socket
+    s = socket.create_connection(("127.0.0.1", port), timeout=read_timeout)
+    try:
+        s.sendall(data)
+        if half_close:
+            s.shutdown(socket.SHUT_WR)
+        chunks = []
+        while True:
+            try:
+                got = s.recv(65536)
+            except ConnectionResetError:  # closed with bytes it didn't read: what it answered is above
+                got = b""
+            if not got:
+                return b"".join(chunks)
+            chunks.append(got)
+    finally:
+        s.close()
+
+
+def _status(reply):
+    line = reply.split(b"\r\n", 1)[0].split()
+    if len(line) > 1 and line[1].isdigit():
+        return int(line[1])
+    # Some Python releases take a malformed request line as HTTP/0.9 and send only the error page.
+    if reply.startswith(b"<!DOCTYPE HTML") and b"Error code: 400" in reply:
+        return 400
+    return None
+
+
+def test_malformed_requests_are_refused_cleanly_and_the_channel_keeps_serving(paired):
+    import random
+    svc, window, path = paired
+    window.pair(svc)
+    port, host = window.port, f"127.0.0.1:{window.port}".encode()
+    auth = f"Authorization: Bearer {window.token}\r\n".encode()
+
+    def post(body, extra=b"", length=None):
+        n = len(body) if length is None else length
+        return (b"POST /v1/run HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + extra
+                + b"Content-Type: application/json\r\nContent-Length: " + str(n).encode() + b"\r\n\r\n" + body)
+
+    cases = {
+        "garbage request line": (b"\x00\xff\xfe nonsense HTTP/1.1\r\n\r\n", {501}),
+        "unknown method": (b"PUT /v1/run HTTP/1.1\r\nHost: " + host + b"\r\n\r\n", {501}),
+        "header line too long": (b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\nX: " + b"a" * 70000 + b"\r\n\r\n", {431, 400}),
+        "too many headers": (b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n"
+                             + b"".join(b"X-%d: y\r\n" % i for i in range(150)) + b"\r\n", {431}),
+        "request line too long": (b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\n\r\n", {414}),
+        "body over the limit": (post(b"{}", length=MAX_BODY + 1), {413}),
+        "body not json": (post(b"{not json"), {400}),
+        "body not utf-8": (post(b'{"path": "\xff\xfe"}'), {400}),
+        "body deeply nested": (post(b"[" * 200_000 + b"]" * 200_000), {400}),
+        "body a list": (post(b"[1, 2]"), {400}),
+        "body a number": (post(b"7"), {400}),
+        "path not text": (post(json.dumps({"path": 7, "code": "x"}).encode()), {400}),
+        "code too long": (post(json.dumps({"path": path, "code": None}).encode()), {400}),
+        "negative length": (post(b"{}", length=-5), {400}),
+        "length not a number": (post(b"{}", extra=b"", length="ten"), {400}),
+        "chunked body": (post(b"{}", extra=b"Transfer-Encoding: chunked\r\n"), {411}),
+        "poll wait not a number": (b"GET /v1/run?path=" + _q(path).encode() + b"&wait=nan&version=1e999 HTTP/1.1\r\nHost: "
+                                   + host + b"\r\n" + auth + b"\r\n", {200}),
+        "query with control characters": (b"GET /v1/variables?path=%00%0d%0a HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + b"\r\n", {400, 403, 404}),
+    }
+    # Two words is an HTTP/0.9 request to http.server: refused 400, though some Python releases answer
+    # it as HTTP/0.9 does, with the error page and no status line.
+    reply = _raw(port, b"\x00\xff\xfe nonsense\r\n\r\n")
+    assert _status(reply) == 400, reply[:200]
+    for name, (data, want) in cases.items():
+        started = time.monotonic()
+        reply = _raw(port, data)
+        assert _status(reply) in want, (name, reply[:200])
+        assert time.monotonic() - started < 10, name
+        if b"application/json" in reply:
+            json.loads(reply.split(b"\r\n\r\n", 1)[1])  # a refusal the extension can read
+    # Truncated: a body shorter than its Content-Length is closed after the idle timeout, not held.
+    started = time.monotonic()
+    reply = _raw(port, post(b'{"path": "x"', length=500), half_close=True)
+    assert time.monotonic() - started < 10 and (reply == b"" or _status(reply) in {400, 403, 408, 500}), reply[:200]
+    # Random bytes after a valid start: never a crash, always an answer or a close.
+    rng = random.Random(7)
+    for _ in range(40):
+        junk = bytes(rng.randrange(256) for _ in range(rng.randrange(1, 400)))
+        reply = _raw(port, rng.choice([b"", b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n", post(b"")]) + junk,
+                     half_close=True)
+        assert reply == b"" or _status(reply) is not None, reply[:200]
+    # Two requests in one connection: the second is never run, because each connection serves one.
+    first = b"GET /v1/status HTTP/1.1\r\nHost: " + host + b"\r\n" + auth + b"\r\n"
+    reply = _raw(port, first + post(json.dumps({"path": path, "code": "pipelined = 1"}).encode()))
+    assert reply.count(b"HTTP/1.") == 1 and _status(reply) == 200
+    # And it still serves a well-formed window.
+    assert window.call("GET", "/v1/status")[0] == 200
+
+
+def test_numbers_in_a_query_that_arent_finite_fall_back_to_the_default():
+    from fabric_desktop.editor_channel import _float, _int
+    for text in ("nan", "inf", "-inf", "1e999", "x", None):
+        assert _float(text, 0.5) == 0.5, text
+    assert _float("2.5", 0) == 2.5
+    assert _int("9" * 5000, -1) == -1 and _int("4", -1) == 4
+
+
+# Real-world folders (docs/vscode.md, "Paths"): each one works, or is refused with words that say why. A
+# paired folder is kept and compared whole, so no folder is ever taken for another.
+
+def test_a_paired_folder_is_kept_whole_however_long_or_unusual(tmp_path):
+    p = Pairings(tmp_path, Clock())
+    for folder in ["C:\\Users\\Ana Lima\\OneDrive - Contoso\\Documents\\Notebooks",
+                   "C:\\Users\\José\\📊 Q1\\👩\u200d💻 work",  # an emoji with a zero-width joiner
+                   "C:\\a\u00a0b",  # a no-break space
+                   "C:\\" + "\\".join(["d" * 50] * 8)]:  # past 300 characters
+        req = p.request(folder, "t")
+        assert [w["window"] for w in p.waiting()] == [folder]
+        p.decide(req["id"], False)
+
+
+@pytest.fixture
+def real_world(tmp_path, monkeypatch):
+    """The app with its data in a folder whose path has spaces, letters outside ASCII and emoji, as
+    a Documents folder OneDrive moved can."""
+    from fabric_desktop.service import Service
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    root = tmp_path / "José Ñúñez" / "OneDrive - Contoso" / "Documents" / "📊 Q1 notebooks"
+    s = Service(root=root)
+    s.save_notebook("Daily sales", [{"type": "code", "source": "x = 1"}])
+    call(s, "editor_set_enabled", enabled=True)
+    yield s, Window(s), s.notebook_file_path("Daily sales")["path"]
+    call(s, "editor_set_enabled", enabled=False)
+    for k in s.sessions.kernels():
+        getattr(k, "close", lambda: None)()
+
+
+def test_a_folder_with_spaces_letters_outside_ascii_and_emoji_pairs_and_runs(real_world):
+    svc, window, path = real_world
+    window.pair(svc, window=str(svc.root))
+    assert call(svc, "editor_status")["pairings"][-1]["window"] == str(svc.root)
+    snap = window.run(path, "print('ok')")
+    assert snap["status"] == "ok", snap
+    assert window.call("POST", "/v1/notebook", {"path": path})[1]["result"]["name"] == "Daily sales"
+
+
+def test_a_folder_differing_only_in_case_is_the_same_folder_on_windows_and_another_elsewhere(paired):
+    svc, window, path = paired
+    window.pair(svc, window=str(svc.root).swapcase())
+    status, res = window.call("POST", "/v1/notebook", {"path": path})
+    if os.name == "nt":  # Windows compares folder names without case, as the app does
+        assert status == 200, res
+    else:
+        assert status == 403 and "the folder this VS Code window was paired from" in res["error"]["message"]
+
+
+def test_a_long_folder_isnt_cut_short_into_its_parent(paired):
+    svc, window, _ = paired
+    # A folder whose first 300 characters are its parent: cut there to show it, it would reach the parent.
+    parent = str(svc.root) + os.sep + "p" * (299 - len(str(svc.root)))
+    assert len(parent) == 300
+    inner = parent + os.sep + "deeper"
+    window.pair(svc, window=inner)
+    assert call(svc, "editor_status")["pairings"][-1]["window"] == inner
+    status, res = window.call("POST", "/v1/notebook", {"path": parent + os.sep + "x.ipynb"})
+    assert status == 403 and "the folder this VS Code window was paired from" in res["error"]["message"]
+
+
+def test_a_path_past_windows_limit_says_why_it_cant_be_found(paired, monkeypatch):
+    svc, window, path = paired
+    window.pair(svc)
+    notebooks = os.path.dirname(path)
+    far = os.path.join(notebooks, "d" * 120, "e" * 120, "x.ipynb")
+    status, res = window.call("POST", "/v1/notebook", {"path": far})
+    assert status == 404 and "long paths" in res["error"]["message"] and str(len(far)) in res["error"]["message"]
+    assert call(svc, "notebook_name_for_path", path=far)["why"].startswith("KratosForge couldn't open it")
+    assert "why" not in call(svc, "notebook_name_for_path", path=os.path.join(notebooks, "missing.ipynb"))
+    # Outside every known folder, a long path gets no reason and nothing looks at it on disk: a link from
+    # anywhere could name a mapped drive or a junction, which would make Windows contact another computer.
+    outside = os.path.join(os.path.dirname(str(svc.root)), "x" * 150, "y" * 150, "x.ipynb")
+    looked = []
+    for name in ("exists", "isfile", "isdir", "lexists"):
+        real = getattr(os.path, name)
+        monkeypatch.setattr(os.path, name, lambda p, real=real: looked.append(str(p)) or real(p))
+    for name in ("stat", "lstat"):
+        real = getattr(os, name)
+        monkeypatch.setattr(os, name, lambda p, *a, real=real, **k: looked.append(str(p)) or real(p, *a, **k))
+    assert call(svc, "notebook_name_for_path", path=outside) == {"name": None}
+    assert not [p for p in looked if "x" * 150 in p], looked
+
+
+@pytest.mark.parametrize("folder", ["\\\\server\\share\\repo", "//server/share/repo", "\\\\server@SSL\\dav\\repo"])
+def test_a_network_folder_is_refused_with_what_to_do_instead(paired, folder):
+    svc, window, _ = paired
+    status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})
+    assert status == 403 and "network folder" in res["error"]["message"] and "mapped" in res["error"]["message"]
+    assert call(svc, "editor_pending")["pairing"] == []
+
+
+def test_a_mapped_drive_pairs_like_any_other_drive(paired):
+    svc, window, _ = paired
+    status, res = window.call("POST", "/v1/pair", {"window": "Z:\\team\\notebooks", "client": "t"},
+                              {"X-KratosForge-Hello": window.hello})
+    assert status == 200, res
+    assert [w["window"] for w in call(svc, "editor_pending")["pairing"]] == ["Z:\\team\\notebooks"]
+
+
+@pytest.mark.parametrize("odd", ["\x07", "\x1b", "\u202e", "\u2066", "\u200f"])
+def test_a_folder_that_would_show_as_another_is_refused(paired, odd):
+    svc, window, _ = paired
+    folder = str(svc.root) + odd + "gpj"
+    status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})
+    assert status == 403 and f"U+{ord(odd):04X}" in res["error"]["message"]
+    assert call(svc, "editor_pending")["pairing"] == []

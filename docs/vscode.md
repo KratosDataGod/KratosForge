@@ -85,7 +85,7 @@ Preview. This needs the KratosForge extension for VS Code, which adds **KratosFo
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
 ![Let VS Code run notebooks on this PC?, with the window's folder, the pairing code and what it may do](images/editor-pairing.png)
 
-3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell.
+3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell, even one pressed before the cell reached KratosForge: a cell stopped while the window is still pairing isn't sent at all, and says it was stopped before it ran.
 
 What a paired window can and can't do:
 
@@ -98,11 +98,44 @@ What a paired window can and can't do:
 - A pairing is bound to the folder it paired from (the workspace folder holding the notebook, or the notebook's own folder): that window can't reach a notebook outside it, even with its token. A whole drive, or no folder, can't be paired.
 - A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all. When the organization sets `integrations_editors` to `false`, the next call from any window is refused, every pairing ends and the engine stops listening.
 - Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
-- HTML a cell displays is shown as it is in VS Code's notebook output, as Jupyter kernels' is; tables KratosForge renders are escaped.
+- HTML a cell displays is shown as it is in VS Code's notebook output, as Jupyter kernels' is; tables KratosForge renders are escaped. The extension opens no web views of its own: every output goes to VS Code's own renderers. One output item over 16 MB (an image, HTML, a chart or text), or JSON nested too deeply to write, shows a line saying so instead; an answer from the app over 64 MB is refused. A cell over 1 MB isn't sent: the window says so, and to split it or run it in KratosForge. Control characters other than tab, newline, carriage return, backspace and color codes are dropped from printed text and tracebacks.
+- If KratosForge restarts while a cell runs, the cell ends with "the notebook's session ended" rather than looking finished; run it again. A pairing kept for 8 hours or 7 days carries on after a restart; one kept until KratosForge closes asks to pair again. When the app has too many editor connections open, the window tries again a few times before saying so. While a cell runs, a check on it that drops or gets no answer is asked again a few times, so a brief hiccup doesn't fail the cell; starting a cell is never sent twice. A connection that fails any other way says so in plain words.
 - AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).
 - The OneLake question is a guard rail, not a security control. It covers KratosForge's own write paths in the cell's thread; code that starts its own threads or processes, or calls OneLake directly with your sign-in, isn't asked about. A cell runs as you, as your own cells here do. To stop VS Code running cells at all, turn the switch off, or set `integrations_editors` to `false` in the policy file: that is the control.
 
 How it connects: while the switch is on, the engine listens on `127.0.0.1` on a port it picks, and writes the port with a random value (the "hello") to `editor-port` in your data folder (`%LOCALAPPDATA%\FabricDesktop`). Asking to pair needs the hello, so only programs that can read your data folder can ask, and you still have to say yes. A paired window sends a token with every call; only a hash of the token is kept. Requests from a web page, or with a `Host` that isn't this PC's loopback address, are refused. Before the extension sends the hello or a token, it checks that whatever answers on that port knows the hello (it asks for an HMAC of a random value), so another user on a shared PC who takes the port after KratosForge stops gets nothing. The extension stays off in VS Code's Restricted Mode. The same check tells the extension which version of the channel the app speaks: if the app is newer than the extension, or the extension is too old for the app, the window says which one to update and sends nothing else.
+
+### Paths
+
+A window pairs from its folder exactly as VS Code has it open. KratosForge keeps that folder whole, never shortened or altered to show it, and compares each notebook's path with it as text, without case, as Windows does. Each kind of folder below either works or is refused with a message that says why; none is taken for another folder.
+
+| Folder or path | Pairing and running cells | **Open in KratosForge** and `kratosforge://` links |
+| --- | --- | --- |
+| Spaces, letters outside ASCII, emoji, `&`, `+`, `#`, `%` | Works | Works. The extension encodes every character of the path. |
+| Documents moved to OneDrive (`C:\Users\…\OneDrive - Contoso\Documents`) | Works, including files kept online only | Works |
+| A path past 260 characters | Works where long paths are turned on for the PC. Where they aren't, a notebook in a known folder is refused with a message to use a shorter folder or ask IT to turn long paths on. Paths are limited to 4,096 characters. | Same as pairing |
+| A network folder (`\\server\share\…`) | Refused at pairing, with a message to clone or copy the notebooks to this PC, or use a mapped drive | Refused before anything reads it |
+| A mapped drive (`Z:\…`) | Works like any drive, for notebooks in a repository opened from that drive | Same as pairing |
+| Folders whose names differ only in case | One folder, as Windows treats them | One folder |
+| A control or text-direction character in the folder's path | Refused at pairing, because the folder would show as a different one | A control character is refused |
+| A Remote-SSH, WSL, Dev Container, Codespaces or tunnel window | Not served. The first time you run a cell, pair or open in KratosForge, the window says once that KratosForge runs cells only in a local window; each cell run there ends with the same message. It never contacts KratosForge. | Same as pairing |
+
+### Versions
+
+The extension and the app each speak a version of the channel's API. The extension sends its version in its first check, and the app answers with its own. The app sets the oldest extension version it still serves. An extension from before versions were sent counts as version 1. Each row below is a test in `vscode/test/compat.test.cjs`, which runs against the real engine.
+
+| Extension | App | What happens |
+| --- | --- | --- |
+| Current | Current (the same version) | It pairs and runs cells. |
+| Current | From before versions were reported | Taken as version 1, so it pairs and runs cells. |
+| Older than the app, and the app still serves it | Newer | The window stops and says to install `kratosforge.vsix` from the latest release. No pairing request reaches the app. |
+| Older than the oldest the app serves | Newer | The app refuses it, and the window says to install `kratosforge.vsix` from the latest release. No pairing request reaches the app. |
+| From before versions were sent | Serves version 1 | It works. Once the app no longer serves version 1, the app tells it to update. |
+| Sends a garbled version | Any | The app refuses the check (`invalid_input`) and proves nothing. |
+| Any | `editor-port` missing or garbled | The window says KratosForge isn't running or the switch is off. It sends nothing. |
+| Any | Answers the check with something other than KratosForge's proof, or with a garbled version | The window says something else is on the port, or that it can't read the reply. It sends neither the hello nor a token. |
+
+To update, install the newer `kratosforge.vsix` (each Preview and Stable release carries one) and reload the window, or update KratosForge.
 
 ## What it reads and writes
 
@@ -116,3 +149,47 @@ How it connects: while the switch is on, the engine listens on `127.0.0.1` on a 
 | Let VS Code run notebooks | Nothing | `editor-port` while it's on; `editor\settings.json` |
 | Pairing a window | The window's folder and name, as it sends them | `editor\pairings.json` (a hash of the token) for 8-hour and 7-day pairings |
 | A cell run from a paired window | What the cell reads | What the cell writes on this PC; OneLake only after you allow it |
+
+## For IT: allowing the extension
+
+What the KratosForge extension for VS Code does and doesn't do, for teams that review extensions before allowing them:
+
+- **Workspace Trust.** It doesn't support untrusted workspaces, so in Restricted Mode VS Code doesn't start it: it runs nothing and doesn't contact KratosForge until the workspace is trusted. It also doesn't run in virtual workspaces.
+- **Runs on this PC only.** It's a UI extension. In a Remote-SSH, WSL, Dev Container, Codespaces or tunnel window it runs no cells and never contacts KratosForge: it says once that cells run only in a local window ([Paths](#paths)).
+- **Secrets.** A pairing kept for 8 hours or 7 days is stored only in VS Code's SecretStorage, which VS Code encrypts with the operating system's protection (DPAPI on Windows). A pairing kept until KratosForge closes is held in memory only. Nothing goes into settings, global or workspace state, or files.
+- **Network.** It connects only to KratosForge's editor channel on `127.0.0.1`. It makes no other requests and has no telemetry, so `telemetry.telemetryLevel` has nothing to turn off. VS Code sends loopback requests directly, so `http.proxy` and `http.proxySupport` don't affect it and need no exception.
+- **Allow lists.** It's published as `kratosbi.kratosforge`. Where `extensions.allowed` is set, allow that id (or the `kratosbi` publisher). It isn't on the VS Code Marketplace yet: install `kratosforge.vsix` from the release, check it with `gh attestation verify`, or host it in your private extension gallery. It has no runtime dependencies.
+- **Turning it off.** Turning off **Let VS Code run notebooks**, or setting `integrations_editors` to `false` in the policy file, stops every window whatever the extension does.
+
+### Verify the .vsix before you install it
+
+Each Preview and Stable release carries `kratosforge.vsix`, its SBOM `sbom-vscode.cdx.json` (CycloneDX) and `version.json`. Before you install or host the file, check three things:
+
+1. **It is the file the release names.** Its SHA-256 must equal `vsix_sha256` in the same release's `version.json`:
+
+   ```powershell
+   (Get-FileHash .\kratosforge.vsix -Algorithm SHA256).Hash.ToLower()
+   (Get-Content .\version.json | ConvertFrom-Json).vsix_sha256
+   ```
+
+2. **KratosForge's CI built it from this repository.** The command below checks the signed build provenance and prints the commit it was built from:
+
+   ```
+   gh attestation verify kratosforge.vsix -R KratosDataGod/KratosForge
+   ```
+
+3. **What's inside it.** The SBOM names the `.vsix` by the same SHA-256 and lists every file inside it, each with its own SHA-256. It also lists the build tools that made it, each with its lock file's hash; those are marked `excluded` because none of them ships in the file. Its own SHA-256 is `sbom_vscode_sha256` in `version.json`. The `.vsix` is a zip file, so you can list and hash what it holds and compare against the SBOM.
+
+**Rebuilding it yourself.** The build is reproducible: built from the same commit, the file comes out byte for byte the same. CI builds it twice, the second time from a fresh copy in another time zone, and fails if the two differ. To rebuild it on Linux or WSL from a checkout of the commit `gh attestation verify` printed:
+
+```
+cd vscode
+export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+npm pkg set version="0.2.$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M)"
+npm ci --ignore-scripts && npm run package
+sha256sum kratosforge.vsix
+```
+
+`npm ci` installs exactly the versions `package-lock.json` pins and checks each one against the lock file's SHA-512. CI also runs `npm audit signatures`, which checks each package's npm registry signature. The version and the files' time come from the commit, and `scripts/package.cjs` gives every file the same mode and packages in UTC (a zip stores local times), so the build machine's clock, time zone and umask don't change the result. CI's second build runs in another folder, umask and time zone.
+
+**After a rollback.** The version comes from the commit's time, so an older build has a lower version. VS Code doesn't take a lower version as an update. To go back to the extension from an older build, uninstall KratosForge in VS Code's Extensions view, then install that build's `kratosforge.vsix` with **Extensions: Install from VSIX…**.

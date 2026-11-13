@@ -13,8 +13,11 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from .. import jsonfile
+from ..winexe import system32
 from . import policy
 from .config import TOOLS, launcher_path, snippets, write_launcher
 from .extensions import ExtensionHost
@@ -28,6 +31,9 @@ METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_
            "integrations_set_extension"}
 
 HTTP_START_SECONDS = 15
+# The local API's log (its start-up and warnings; requests aren't logged) is appended to at every start.
+# Past this size it becomes http.prev.log at the next start, so it can't grow without bound.
+HTTP_LOG_CAP = 5 * 1024 * 1024
 
 
 def _check_permissions(values: list[str], field: str) -> list[str]:
@@ -100,6 +106,7 @@ class IntegrationsMixin:
         folder = self.root / "integrations"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "http.json").unlink(missing_ok=True)
+        _roll_log(folder / "http.log")
         port = int(self.integration_store.settings()["http_port"])
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with open(folder / "http.log", "ab") as log:
@@ -305,7 +312,7 @@ def _test_stdio(launcher: Any, client_id: str, timeout: float = 60) -> dict[str,
 
     if not launcher.exists():
         return {"ok": False, "message": "The launcher isn't there yet. Turn integrations on first."}
-    command, args = (("cmd.exe", ["/c", str(launcher)]) if os.name == "nt" else (str(launcher), []))
+    command, args = ((system32("cmd.exe"), ["/c", str(launcher)]) if os.name == "nt" else (str(launcher), []))
     params = StdioServerParameters(command=command, args=args + ["--client", client_id], env=dict(os.environ))
 
     async def run() -> dict[str, Any]:
@@ -319,3 +326,14 @@ def _test_stdio(launcher: Any, client_id: str, timeout: float = 60) -> dict[str,
         return anyio.run(run)
     except Exception as exc:  # noqa: BLE001 - shown on the page
         return {"ok": False, "message": f"The MCP server didn't start: {type(exc).__name__}: {exc}"}
+
+
+def _roll_log(log: Path, cap: int = HTTP_LOG_CAP) -> None:
+    """Keep ``log`` as ``<name>.prev.log`` (replacing the one before) once it is past ``cap``."""
+    try:
+        if log.stat().st_size > cap:
+            jsonfile.replace(log, log.with_name(log.stem + ".prev.log"))
+    except FileNotFoundError:  # silent-ok: no log yet
+        return
+    except OSError as exc:  # another process still has it open (Windows): tried again at the next start
+        print(f"integrations: couldn't roll {log.name}: {exc}", file=sys.stderr)

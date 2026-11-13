@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import getpass
 import os
+import re
 import time
 from typing import Any, cast
 
 import sqlglot
 from duckdb.experimental.spark.sql.dataframe import DataFrame
+from . import spark_builtins_sql
 from .duckdb_rows import first_row, one_row
 
 SPARK_VERSION = "3.5.0"  # the PySpark API this emulates, as in Fabric runtime 1.3
@@ -175,6 +177,8 @@ def table_exists(session: Any, tableName: str, dbName: str | None = None) -> boo
     name = f"{dbName}.{tableName}" if dbName else tableName
     if "." not in name and session._is_local(name):
         return True
+    if dbName is not None and dbName.lower() == GLOBAL_TEMP and "." not in tableName:
+        return bool(session._is_view(GLOBAL_PREFIX + tableName))
     return lakehouse._attached is not None and lakehouse.table_exists(name)
 
 
@@ -207,10 +211,54 @@ def explain(self: DataFrame, extended: Any = None, mode: str | None = None) -> N
     print(self.relation.explain())
 
 
+# A global temp view (global_temp.name in Spark SQL) is a temp view of this name on the connection.
+GLOBAL_TEMP = "global_temp"
+GLOBAL_PREFIX = "__kf_global_temp_"
+
+
+def _view_name(name: str) -> str:
+    """``name`` as a temp view's name, refused as Spark refuses one with more than one part."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    if not isinstance(name, str) or "." in name:
+        raise AnalysisException(message="[TEMP_VIEW_NAME_TOO_MANY_NAME_PARTS] CREATE TEMPORARY VIEW or the "
+                                        "corresponding Dataset APIs only accept single-part view names, but got: "
+                                        f"{name}.")
+    return name
+
+
+def _create_view(self: DataFrame, name: str, replace: bool, shown: str) -> None:
+    from duckdb.experimental.spark.errors import AnalysisException
+    if not replace and self.session._is_view(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
+        raise AnalysisException(message=f"[TEMP_TABLE_OR_VIEW_ALREADY_EXISTS] Cannot create the temporary view "
+                                        f"{shown} because it already exists.")
+    self.relation.create_view(name, replace=True)
+
+
 def createTempView(self: DataFrame, name: str) -> None:  # noqa: N802
-    if self.session._is_local(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
-        raise ValueError(f"Temporary view {name!r} already exists. Use createOrReplaceTempView.")
-    self.createOrReplaceTempView(name)
+    """``createTempView``: Spark's error when the name has a view already, whatever its case."""
+    _create_view(self, _view_name(name), False, f"`{name}`")
+
+
+def createOrReplaceTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    _create_view(self, _view_name(name), True, f"`{name}`")
+
+
+def createGlobalTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    """``createGlobalTempView``: read as global_temp.name in Spark SQL and spark.table."""
+    _create_view(self, GLOBAL_PREFIX + _view_name(name), False, f"`{name}`")
+
+
+def createOrReplaceGlobalTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    _create_view(self, GLOBAL_PREFIX + _view_name(name), True, f"`{name}`")
+
+
+def drop_view(session: Any, name: str) -> bool:
+    """``spark.catalog.dropTempView`` and ``dropGlobalTempView``: whether a view was there to drop. Only
+    a view a DataFrame made counts, never a lakehouse table's."""
+    if not isinstance(name, str) or not session._is_view(name) or name.lower().startswith("__lakehouse_table_"):
+        return False
+    session.conn.execute(f"DROP VIEW {_q(name)}")
+    return True
 
 
 def toLocalIterator(self: DataFrame, prefetchPartitions: bool = False) -> Any:  # noqa: N802, N803, ARG001
@@ -240,8 +288,16 @@ def approxQuantile(self: DataFrame, col: Any, probabilities: list[float], relati
 
 def randomSplit(self: DataFrame, weights: list[float], seed: int | None = None) -> list[DataFrame]:  # noqa: N802
     """Splits by a hash of each row and the seed, so the parts never overlap and together hold
-    every row, however often each is read (identical rows go to the same part)."""
+    every row, however often each is read (identical rows go to the same part). Spark's own checks
+    on the weights come first."""
+    from duckdb.experimental.spark.errors import IllegalArgumentException, PySparkValueError
+    for w in weights:
+        if w < 0.0:
+            raise PySparkValueError(error_class="VALUE_NOT_POSITIVE",
+                                    message_parameters={"arg_name": "weights", "arg_value": str(w)})
     total = float(sum(weights))
+    if total <= 0:
+        raise IllegalArgumentException(f"requirement failed: Sum of weights must be positive, but got {weights}")
     cols = ", ".join(_q(c) for c in self.relation.columns)
     salt = int(seed) if seed is not None else int(time.time() * 1000)
     point = f"(hash({cols}, {salt}) % 1000000) / 1000000.0"
@@ -251,6 +307,131 @@ def randomSplit(self: DataFrame, weights: list[float], seed: int | None = None) 
         out.append(_new(self, self.relation.filter(f"{point} >= {low} AND {point} < {high}")))
         low = high
     return out
+
+
+def _text_sql(col: str) -> str:
+    """A column's value as Spark writes it as text (Java's toString), null as 'null'."""
+    q = _q(col)
+    return f"(CASE WHEN {q} IS NULL THEN 'null' ELSE {spark_builtins_sql.java_value_text(q)} END)"
+
+
+def crosstab(self: DataFrame, col1: str, col2: str) -> DataFrame:
+    """A count of each pair of values: a row per value of ``col1`` (named ``col1_col2``) and a column
+    per value of ``col2``, as text (null for NULL) in sorted order, as Spark's."""
+    pairs = self.relation.aggregate(f"{_text_sql(col1)} AS kf_a, {_text_sql(col2)} AS kf_b, count(*) AS kf_n",
+                                    "kf_a, kf_b")
+    # one past Spark's limit is enough to refuse, without holding every value
+    heads = sorted({row[0] for row in pairs.project("kf_b").distinct().limit(10001).fetchall()})
+    if len(heads) > 10000:  # Spark's own limit, so the frame stays a table someone can read
+        raise ValueError(f"crosstab: {col2} has more than 10000 distinct values; Spark allows up to 10000.")
+    cells = ", ".join(f"CAST(coalesce(sum(kf_n) FILTER (WHERE kf_b = {_text(h)}), 0) AS BIGINT) AS {_q(h)}"
+                      for h in heads)
+    return _new(self, pairs.aggregate(f"kf_a AS {_q(f'{col1}_{col2}')}" + (f", {cells}" if cells else ""), "kf_a"))
+
+
+def _text(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+_RE2_SPECIAL = re.compile(r"([\\.^$|?*+()\[\]{}])")
+
+
+def colRegex(self: DataFrame, colName: str) -> Any:  # noqa: N802, N803
+    """The columns whose names match the regex in backticks (`(id|name)`), whole names, ignoring case
+    as Spark does; a name without backticks is that column. The names are matched here, so the regex
+    is Python's, which reads Java's syntax."""
+    from duckdb import SQLExpression
+    from duckdb.experimental.spark.sql.column import Column
+    if not (len(colName) >= 2 and colName.startswith("`") and colName.endswith("`")):
+        return Column(SQLExpression(_q(colName)))
+    try:  # Python's re reads Java's syntax closer than DuckDB's RE2 (possessive ?+ *+ ++, for one)
+        pattern = re.compile(colName[1:-1], re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"colRegex: {colName} isn't a regex this PC can read: {exc}.") from None
+    names = [c for c in self.columns if pattern.fullmatch(c)]
+    if not names:
+        raise ValueError(f"colRegex: no column matches {colName}.")
+    exact = "|".join(_RE2_SPECIAL.sub(r"\\\1", n) for n in names)  # each name as itself, in DuckDB's RE2
+    return Column(SQLExpression(f"COLUMNS({_text('^(?:' + exact + ')$')})"))
+
+
+class _JsonRows(list):
+    """toJSON's rows: Spark returns an RDD of JSON text; here it is a list with collect, first, take
+    and count, which is how a notebook reads it."""
+
+    def collect(self) -> list[str]:
+        return list(self)
+
+    def first(self) -> str:
+        if not self:
+            raise ValueError("RDD is empty")
+        return str(self[0])
+
+    def take(self, num: int) -> list[str]:
+        return list(self[:num])
+
+    def count(self) -> int:  # type: ignore[override]
+        return len(self)
+
+
+def _json_value(value: Any) -> str:
+    """``value`` as Spark's JSON writes it: no NULL fields in a row or struct, doubles as Java writes
+    them, timestamps in ISO form with milliseconds, binary as base64."""
+    import base64
+    import datetime
+    import decimal
+    import json
+    from .spark_compat import _java_double
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return json.dumps("NaN" if value != value else ("Infinity" if value > 0 else "-Infinity"))
+        return _java_double(value)
+    if isinstance(value, (int, decimal.Decimal)):
+        return str(value)
+    if isinstance(value, datetime.datetime):
+        stamp = value if value.tzinfo is None else value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        return json.dumps(stamp.strftime("%Y-%m-%dT%H:%M:%S.") + f"{stamp.microsecond // 1000:03d}Z")
+    if isinstance(value, datetime.date):
+        return json.dumps(value.isoformat())
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return json.dumps(base64.b64encode(bytes(value)).decode())
+    if isinstance(value, dict) or hasattr(value, "asDict"):  # a map keeps NULL values; a row or struct doesn't
+        fields = value if isinstance(value, dict) else value.asDict()
+        return "{" + ",".join(f"{json.dumps(str(k), ensure_ascii=False)}:{_json_value(v)}"
+                              for k, v in fields.items() if v is not None or isinstance(value, dict)) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_json_value(v) for v in value) + "]"
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def toJSON(self: DataFrame, use_unicode: bool = True) -> _JsonRows:  # noqa: N802, ARG001
+    """Each row as a JSON object, as Spark's toJSON writes it (NULL fields left out)."""
+    return _JsonRows(_json_value(row) for row in self.collect())
+
+
+def sampleBy(self: DataFrame, col: Any, fractions: dict[Any, float], seed: int | None = None) -> DataFrame:  # noqa: N802
+    """A sample of each group: a row whose ``col`` is a key of ``fractions`` is kept with that
+    probability, any other row is left out, as Spark's. A seed gives the same rows each time on this PC
+    (not the rows Spark picks)."""
+    if not isinstance(fractions, dict):
+        raise TypeError(f"[NOT_DICT] Argument `fractions` should be a dict, got {type(fractions).__name__}.")
+    for key, fraction in fractions.items():
+        if not 0.0 <= float(fraction) <= 1.0:
+            raise ValueError(f"Fractions must be in [0, 1], but got {fraction} for {key!r}.")
+    from duckdb import ConstantExpression
+    from duckdb.experimental.spark.sql.column import Column
+    target = str(col.expr) if isinstance(col, Column) else _q(col)
+    point = "random()" if seed is None else f"((hash(row_number() OVER (), {int(seed)}) % 1000000) / 1000000.0)"
+    keep = " ".join(f"WHEN {ConstantExpression(k)} THEN {float(f)!r}" for k, f in fractions.items() if k is not None)
+    if not keep:
+        return _new(self, self.relation.filter("false"))
+    cols = ", ".join(_q(c) for c in self.columns)
+    marked = self.relation.project(f"*, {point} < (CASE {target} {keep} ELSE 0.0 END) AS kf_keep")
+    return _new(self, marked.filter("kf_keep").project(cols))
 
 
 class _Stat:
@@ -266,6 +447,12 @@ class _Stat:
     def approxQuantile(self, col: Any, probabilities: list[float], relativeError: float) -> list[Any]:  # noqa: N802, N803
         return approxQuantile(self._df, col, probabilities, relativeError)
 
+    def crosstab(self, col1: str, col2: str) -> DataFrame:
+        return crosstab(self._df, col1, col2)
+
+    def sampleBy(self, col: Any, fractions: dict[Any, float], seed: int | None = None) -> DataFrame:  # noqa: N802
+        return sampleBy(self._df, col, fractions, seed)
+
 
 def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
     raise NotImplementedError("RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in "
@@ -273,18 +460,27 @@ def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
 
 
 ADDED: dict[str, Any] = {
-    "isEmpty": isEmpty, "tail": tail, "explain": explain, "createTempView": createTempView,
-    "registerTempTable": DataFrame.createOrReplaceTempView, "toLocalIterator": toLocalIterator, "offset": offset,
+    "isEmpty": isEmpty, "tail": tail, "explain": explain,
+    "createTempView": createTempView,
+    "createOrReplaceTempView": createOrReplaceTempView,
+    "registerTempTable": createOrReplaceTempView,
+    "createGlobalTempView": createGlobalTempView,
+    "createOrReplaceGlobalTempView": createOrReplaceGlobalTempView, "toLocalIterator": toLocalIterator, "offset": offset,
     "corr": corr, "cov": cov, "approxQuantile": approxQuantile, "randomSplit": randomSplit,
-    "createOrReplaceGlobalTempView": DataFrame.createOrReplaceTempView, "sortWithinPartitions": DataFrame.orderBy,
+    "sortWithinPartitions": DataFrame.orderBy,
     "foreach": _rdd, "foreachPartition": _rdd, "mapInPandas": _rdd, "mapInArrow": _rdd,
+    "crosstab": crosstab, "colRegex": colRegex, "toJSON": toJSON, "sampleBy": sampleBy,
 }
+
+
+# DuckDB's own, which these replace: Spark's errors for a name with a dot, and global temp views.
+_REPLACED = ("createOrReplaceTempView", "createGlobalTempView", "createOrReplaceGlobalTempView")
 
 
 def install() -> None:
     """Add the methods to DuckDB's DataFrame (once; spark_local calls it), after spark_compat's."""
     for name, fn in ADDED.items():
-        if name not in DataFrame.__dict__:
+        if name not in DataFrame.__dict__ or name in _REPLACED:
             setattr(DataFrame, name, fn)
     if "stat" not in DataFrame.__dict__:
         DataFrame.stat = property(lambda self: _Stat(self))  # type: ignore[attr-defined]
@@ -336,10 +532,11 @@ def coverage() -> list[dict[str, str]]:
     (raises, with why). A method is "works" only if calling it doesn't raise DuckDB's not-implemented error."""
     from duckdb.experimental.spark.exception import ContributionsAcceptedError
 
-    from . import spark_stream
+    from . import spark_df_extras, spark_stream
     from .spark_local import LocalSparkSession
     install()
     spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
+    spark_df_extras.install()  # persist, storageLevel, sameSemantics, observe
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

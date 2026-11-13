@@ -30,6 +30,17 @@ from .duckdb_rows import first_row
 _FN = "https://docs.snowflake.com/en/sql-reference/functions/"
 D = dt.date
 _V = "(SELECT column1 AS x FROM VALUES ({}))"
+# The docs' table1 for CONDITIONAL_CHANGE_EVENT and CONDITIONAL_TRUE_EVENT.
+_TABLE1 = ("VALUES ('Alberta', 0), ('Alberta', 0), ('Alberta', 13), ('Alberta', 13), ('Alberta', 14), ('Alberta', 15), "
+           "('Alberta', NULL), ('Manitoba', 30) AS t(province, o_col)")
+# The docs' march_temps_every_five_mins: march_temps resampled every five minutes, NULL where nothing was observed.
+_MARCH = ("VALUES " + ", ".join(f"('{c}', '2025-03-15 {t}'::timestamp, {v})" for c, t, v in (
+    ("Big Bear City", "09:45", "NULL"), ("Big Bear City", "09:49", 48), ("Big Bear City", "09:50", "NULL"),
+    ("Big Bear City", "09:55", 49), ("Big Bear City", "10:00", "NULL"), ("Big Bear City", "10:05", "NULL"),
+    ("Big Bear City", "10:10", 51), ("Big Bear City", "10:15", "NULL"), ("Big Bear City", "10:18", 54),
+    ("South Lake Tahoe", "09:50", 44), ("South Lake Tahoe", "09:55", 46), ("South Lake Tahoe", "10:00", "NULL"),
+    ("South Lake Tahoe", "10:05", "NULL"), ("South Lake Tahoe", "10:10", 52), ("South Lake Tahoe", "10:15", 54)))
+    + " AS m(city, observed, temperature)")
 # vartab from Snowflake's IS_<object_type> and AS_<object_type> pages.
 _VARTAB = ("(SELECT column1 AS n, parse_json(column2) AS v FROM VALUES (1, 'null'), (2, null), (3, 'true'), "
            "(4, '-17'), (5, '123.12'), (6, '1.912e2'), (7, '\"Om ara pa ca na dhih\"  '), "
@@ -123,6 +134,17 @@ CASES: tuple[Case, ...] = (
     _c("SOUNDEX (first letter's code)", "String", "SELECT soundex('Pfister')", "P236"),
     _c("SOUNDEX (H between same codes)", "String", "SELECT soundex('Ashcraft')", "A261"),
     _c("SOUNDEX (padded with zeros)", "String", "SELECT soundex('Lee')", "L000"),
+    _c("TIME", "Date and time", "SELECT time('13:30:00')", dt.time(13, 30), page="to_time"),
+    _c("TIME (fraction)", "Date and time", "SELECT time('13:30:00.000')", dt.time(13, 30),
+       page="to_time"),
+    _c("TIMESTAMPADD (years)", "Date and time", "SELECT timestampadd(year, 2, to_date('2022-05-08'))",
+       dt.date(2024, 5, 8), page="timestampadd"),
+    _c("TIMESTAMPADD (hours on a date)", "Date and time", "SELECT timestampadd(hour, 2, to_date('2022-04-05'))",
+       dt.datetime(2022, 4, 5, 2, 0), page="timestampadd"),
+    _c("TIMESTAMPADD (month end)", "Date and time", "SELECT timestampadd(month, 1, '2023-01-31'::date)",
+       dt.date(2023, 2, 28), page="timestampadd"),
+    _c("TIMESTAMPADD (hours on a time)", "Date and time", "SELECT timestampadd(hour, 3, to_time('05:00:00'))",
+       dt.time(8, 0), page="timestampadd"),
     _c("SOUNDEX_P123 (docs example)", "String", "SELECT soundex_p123('Pfister')", "P123"),
     _c("SOUNDEX_P123 (same first two codes)", "String", "SELECT soundex_p123('Lloyd')", "L430", page="soundex_p123"),
     _c("OCTET_LENGTH", "String", "SELECT octet_length('abc')", 3),
@@ -370,6 +392,15 @@ CASES: tuple[Case, ...] = (
     _c("MEDIAN", "Aggregate", f"SELECT median(x) FROM {_values(1, 2, 3, 4)}", 2.5),
     _c("BOOLOR_AGG", "Aggregate", f"SELECT boolor_agg(x) FROM {_values('TRUE', 'FALSE')}", True),
     _c("ANY_VALUE", "Aggregate", f"SELECT any_value(x) FROM {_values(1)}", 1),
+    _c("GROUPING (grouping sets, docs example)", "Aggregate",
+       "SELECT listagg(concat_ws('/', coalesce(col_x::string, '-'), coalesce(col_y::string, '-'), s::string, gx::string, gy::string, gxy::string), ' ') WITHIN GROUP (ORDER BY col_x NULLS LAST, col_y NULLS LAST) FROM (SELECT col_x, col_y, sum(col_z) AS s, grouping(col_x) AS gx, grouping(col_y) AS gy, grouping(col_x, col_y) AS gxy FROM (SELECT column1 AS col_x, column2 AS col_y, column3 AS col_z FROM VALUES (1, 2, 1), (1, 2, 3), (2, 1, 10), (2, 2, 11), (2, 2, 3)) GROUP BY GROUPING SETS ((col_x), (col_y), ()))",
+       "1/-/4/0/1/1 2/-/24/0/1/1 -/1/10/1/0/2 -/2/18/1/0/2 -/-/28/1/1/3", page="grouping"),
+    _c("GROUPING (rollup, docs example)", "Aggregate",
+       "SELECT listagg(concat_ws('/', coalesce(col_x::string, '-'), coalesce(col_y::string, '-'), s::string, gx::string, gy::string, gxy::string), ' ') WITHIN GROUP (ORDER BY col_x NULLS LAST, col_y NULLS LAST) FROM (SELECT col_x, col_y, sum(col_z) AS s, grouping(col_x) AS gx, grouping(col_y) AS gy, grouping(col_x, col_y) AS gxy FROM (SELECT column1 AS col_x, column2 AS col_y, column3 AS col_z FROM VALUES (1, 2, 1), (1, 2, 3), (2, 1, 10), (2, 2, 11), (2, 2, 3)) GROUP BY ROLLUP (col_x, col_y))",
+       "1/2/4/0/0/0 1/-/4/0/1/1 2/1/10/0/0/0 2/2/14/0/0/0 2/-/24/0/1/1 -/-/28/1/1/3", page="grouping"),
+    _c("GROUPING_ID (docs example)", "Aggregate",
+       "SELECT listagg(concat_ws('/', coalesce(col_x::string, '-'), coalesce(col_y::string, '-'), s::string, gx::string, gy::string, gxy::string), ' ') WITHIN GROUP (ORDER BY col_x NULLS LAST, col_y DESC NULLS FIRST) FROM (SELECT col_x, col_y, sum(col_z) AS s, grouping_id(col_x) AS gx, grouping_id(col_y) AS gy, grouping_id(col_x, col_y) AS gxy FROM (SELECT column1 AS col_x, column2 AS col_y, column3 AS col_z FROM VALUES (1, 2, 1), (1, 2, 3), (2, 1, 10), (2, 2, 11), (2, 2, 3)) GROUP BY GROUPING SETS ((col_x), (col_y), ()))",
+       "1/-/4/0/1/1 2/-/24/0/1/1 -/-/28/1/1/3 -/2/18/1/0/2 -/1/10/1/0/2", page="grouping_id"),
     _c("APPROX_COUNT_DISTINCT", "Aggregate", f"SELECT approx_count_distinct(x) FROM {_values(1, 1, 2)}", 2),
     _c("HLL", "Aggregate", f"SELECT hll(x) FROM {_values(1, 1, 2)}", 2),
     _c("HLL (DISTINCT has no effect)", "Aggregate", f"SELECT hll(DISTINCT x) FROM {_values(1, 1, 2)}", 2, page="hll"),
@@ -412,6 +443,64 @@ CASES: tuple[Case, ...] = (
     _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0),
     _c("HAVERSINE (docs example)", "Geospatial", "SELECT haversine(40.7127, -74.0059, 34.0500, -118.2500)",
        3936.385096389, page="haversine"),
+    _c("LATERAL FLATTEN (docs example)", "Semi-structured",
+       "SELECT listagg(key || '|' || path || '|' || coalesce(to_varchar(index), 'NULL'), ',') WITHIN GROUP (ORDER BY "
+       "path) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"b\":[77,88], \"c\": {\"d\":\"X\"}}')))",
+       "a|a|NULL,b|b|NULL,c|c|NULL", page="flatten"),
+    _c("LATERAL FLATTEN (PATH, docs example)", "Semi-structured",
+       "SELECT listagg(coalesce(key, 'NULL') || '|' || path || '|' || index || '|' || value, ',') WITHIN GROUP "
+       "(ORDER BY index) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('{\"a\":1, \"b\":[77,88]}'), PATH => 'b'))",
+       "NULL|b[0]|0|77,NULL|b[1]|1|88", page="flatten"),
+    _c("LATERAL FLATTEN (empty array, docs example)", "Semi-structured",
+       "SELECT count(*) FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]')))", 0, page="flatten"),
+    _c("LATERAL FLATTEN (OUTER, docs example)", "Semi-structured",
+       "SELECT coalesce(key, 'NULL') || '|' || path || '|' || coalesce(to_varchar(index), 'NULL') || '|' || "
+       "coalesce(to_varchar(value), 'NULL') || '|' || to_varchar(this) FROM TABLE(FLATTEN(INPUT => "
+       "PARSE_JSON('[]'), OUTER => TRUE))", "NULL||NULL|NULL|[]", page="flatten"),
+    _c("LATERAL FLATTEN (nested, docs example)", "Semi-structured",
+       "SELECT listagg(p.id || ':' || f1.value:type::string || '=' || f1.value:content::string, ',') WITHIN GROUP "
+       "(ORDER BY p.id, f1.index) FROM (SELECT column1 AS id, PARSE_JSON(column2) AS c FROM VALUES "
+       "(12712555, '{\"contact\": [{\"business\": [{\"type\": \"phone\", \"content\": \"555-1234\"}, "
+       "{\"type\": \"email\", \"content\": \"j.smith@example.com\"}]}]}')) p, LATERAL FLATTEN(INPUT => p.c, "
+       "PATH => 'contact') f, LATERAL FLATTEN(INPUT => f.value:business) f1",
+       "12712555:phone=555-1234,12712555:email=j.smith@example.com", page="flatten"),
+    _c("CONDITIONAL_CHANGE_EVENT (docs example)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_change_event(o_col) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,1,1,2,3,3,0"),
+    _c("CONDITIONAL_CHANGE_EVENT (of a condition)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_change_event(o_col < 15) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,0,0,0,1,1,0"),
+    _c("CONDITIONAL_CHANGE_EVENT (power changes)", "Window",
+       "SELECT listagg(e, ',') WITHIN GROUP (ORDER BY ts) FROM (SELECT ts, conditional_change_event(voltage = 0) "
+       "OVER (ORDER BY ts) AS e FROM VALUES (1, 120), (2, 120), (3, 0), (4, 0), (5, 0), (6, 0), (7, 120) "
+       "AS v(ts, voltage))", "0,0,1,1,1,1,2"),
+    _c("CONDITIONAL_TRUE_EVENT (docs example)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_true_event(o_col) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,1,2,3,4,4,1"),
+    _c("CONDITIONAL_TRUE_EVENT (of a condition)", "Window",
+       f"SELECT listagg(e, ',') WITHIN GROUP (ORDER BY province, o_col) FROM (SELECT province, o_col, "
+       f"conditional_true_event(o_col > 20) OVER (PARTITION BY province ORDER BY o_col) AS e FROM {_TABLE1})",
+       "0,0,0,0,0,0,0,1"),
+    _c("CONDITIONAL_TRUE_EVENT (of LAG)", "Window",
+       "SELECT listagg(e, ',') WITHIN GROUP (ORDER BY p, o) FROM (SELECT p, o, conditional_true_event("
+       "lag(o) OVER (PARTITION BY p ORDER BY o) > 1) OVER (PARTITION BY p ORDER BY o) AS e FROM VALUES "
+       "(100, 1), (100, 2), (100, 3), (100, 4), (100, 5), (100, 6), (200, 7), (200, 8), (200, 9), (200, 10), "
+       "(200, 11), (300, 12), (400, 13) AS v(p, o))", "0,0,1,2,3,4,0,1,2,3,4,0,0"),
+    _c("INTERPOLATE_FFILL (docs example)", "Window",
+       f"SELECT listagg(coalesce(to_varchar(f), 'NULL'), ',') WITHIN GROUP (ORDER BY city, observed) FROM "
+       f"(SELECT city, observed, interpolate_ffill(temperature) OVER (PARTITION BY city ORDER BY observed) AS f "
+       f"FROM {_MARCH})", "NULL,48,48,49,49,49,51,51,54,44,46,46,46,52,54", page="interpolate_bfill"),
+    _c("INTERPOLATE_BFILL (docs example)", "Window",
+       f"SELECT listagg(coalesce(to_varchar(b), 'NULL'), ',') WITHIN GROUP (ORDER BY city, observed) FROM "
+       f"(SELECT city, observed, interpolate_bfill(temperature) OVER (PARTITION BY city ORDER BY observed) AS b "
+       f"FROM {_MARCH})", "48,48,49,49,51,51,51,54,54,44,46,52,52,52,54", page="interpolate_bfill"),
+    _c("INTERPOLATE_LINEAR (between two values)", "Window",
+       f"SELECT listagg(to_varchar(round(l)::int), ',') WITHIN GROUP (ORDER BY observed) FROM (SELECT observed, "
+       f"interpolate_linear(temperature) OVER (PARTITION BY city ORDER BY observed) AS l FROM {_MARCH} "
+       f"WHERE city = 'South Lake Tahoe')", "44,46,48,50,52,54", page="interpolate_bfill"),
 )
 
 
@@ -438,8 +527,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
 def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "error": "Doesn't run", "untranslated": "Runs only in Snowflake"}
-    rows = [f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
-            "reference documents (no Snowflake account was used), these don't answer the same way on this PC.", "",
+    rows = [(f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
+            "reference documents (no Snowflake account was used), these don't answer the same way on this PC."), "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]

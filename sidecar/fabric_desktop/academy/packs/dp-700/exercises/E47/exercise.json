@@ -1,0 +1,59 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E47",
+  "version": 1,
+  "status": "draft",
+  "title": "Capacity Metrics: find the throttled hour and what caused it",
+  "objectives": [
+    "3.1.2"
+  ],
+  "objective_text": "From a Capacity Metrics-style timeline, find the hours an F64 capacity was throttled, the worst stage each reached, and the item that used the most smoothed capacity in each.",
+  "scenario": "Report users on an F64 capacity saw slow visuals in the morning and errors after lunch. The Capacity Metrics app's throttling charts show when; you need to say which stage, and what caused it. You have the day's operations and the carried-forward overage per timepoint. Name the culprit without blaming whatever was running at the time.",
+  "prerequisites": [],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "simulated",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC, over a simulated capacity timeline",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "throttling_check.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your query finds the throttled hours from the carried-forward overage, names the worst stage in each, and ranks items by smoothed CU, background over 24 hours and interactive in its own hour, on simulated data with DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "The Capacity Metrics app itself: its pages, charts, drill-through to a timepoint, and 30-second timepoints. The operations and timeline here are made up and shaped like what it shows.",
+    "Fabric's exact smoothing, which starts at the operation's own timepoint rather than a whole hour, and smooths interactive operations over at least 5 minutes.",
+    "What to do about it: scaling, pausing, moving workloads or surge protection."
+  ],
+  "expected": {
+    "description": "Columns hour_start, stage, top_item, top_item_kind, item_cu_s: one row per throttled hour, ordered by hour_start."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The throttling check finds every throttled hour, its stage, and its cause.",
+      "fail": "Some row is off: check when an hour counts as throttled, which stage it reached, and how each operation's CU is spread over the day."
+    }
+  ],
+  "hints": [
+    "Up to 10 minutes of carried-forward overage is overage protection: nothing is throttled yet.",
+    "The stage comes from the worst timepoint in the hour, not its average.",
+    "A background job is smoothed over 24 hours, so the notebook started at 12:00 keeps adding to every hour after it, while its start hour gets only a 24th of it.",
+    "Many small queries from one report add up: rank items, not single operations."
+  ],
+  "explanation": "Fabric doesn't charge an operation to the moment it ran. It smooths it: interactive operations such as report queries over at least 5 minutes, background operations such as notebooks, pipelines and refreshes over 24 hours. Throttling then looks at how much future capacity the overage has already used. Up to 10 minutes is overage protection; over 10 minutes interactive requests are delayed; over 60 minutes they're rejected; over 24 hours background requests are rejected too. In the morning, one report's burst of queries pushed the overage past 10 minutes. After 12:00 it was the backfill notebook: a 24th of its CU lands in every hour for a day, more than an F64 can absorb on its own, so the overage grows each hour until interactive queries are rejected. Charging the backfill to its start hour, or ranking single queries, blames the wrong thing.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/enterprise/throttling",
+    "https://learn.microsoft.com/fabric/enterprise/metrics-app-compute-page"
+  ],
+  "reset": "Reset rebuilds operations and throttle_log from setup.sql and puts the starter query back.",
+  "review_notes": [
+    "SIMULATED: the operations and timeline are synthetic; nothing here reads Fabric or the Capacity Metrics app.",
+    "The timeline is computed from the operations by the builder with this lab's simplified smoothing, so the two tables agree.",
+    "Facts used, from Learn (2026-11-07): stages overage protection (up to 10 minutes), interactive delay (10 to 60), interactive rejection (60 minutes to 24 hours), background rejection (over 24 hours); interactive smoothing over a minimum of 5 minutes, background over 24 hours; report queries are interactive, refreshes background."
+  ]
+}

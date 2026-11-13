@@ -258,8 +258,8 @@ MANUAL_STEPS = (
     "1. In the Microsoft Entra admin center, open Groups > All groups > New group.",
     "2. Group type Security, the name and description from the file, membership type Assigned.",
     "3. Add the owners from the file, then the members (or let the owners add them).",
-    "4. Then give each group its Fabric role: Fabric's Admin portal > Domains for domain owners and contributors, "
-    "each workspace's Manage access for workspace roles, and the lakehouse's Manage OneLake data access for readers.",
+    ("4. Then give each group its Fabric role: Fabric's Admin portal > Domains for domain owners and contributors, "
+    "each workspace's Manage access for workspace roles, and the lakehouse's Manage OneLake data access for readers."),
 )
 
 

@@ -68,8 +68,8 @@ def silent_handlers(source: str) -> list[tuple[int, str]]:
         header = lines[node.lineno - 1:node.body[0].lineno - 1] or [lines[node.lineno - 1]]
         marks = [m for m in (MARKER.search(line) for line in header) if m]
         if not marks:
-            found.append((node.lineno, "silent broad except: log, narrow or re-raise "
-                                       "(or add '# silent-ok: <reason>')"))
+            found.append((node.lineno, ("silent broad except: log, narrow or re-raise "
+                                       "(or add '# silent-ok: <reason>')")))
         elif len(marks[0].group("reason").strip()) < MIN_REASON:
             found.append((node.lineno, "'# silent-ok:' needs a reason"))
     return sorted(found)

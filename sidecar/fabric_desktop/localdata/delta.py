@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -190,7 +191,7 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     if not _AS_OF_HINT.search(sql):
         return sql, []
     try:
-        tree = sqlglot.parse_one(sql, read="duckdb")
+        tree = sql_dialects.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(cast(exp.Expression, tree), start)  # sqlglot types parse_one as its Expr base
@@ -471,7 +472,7 @@ class Conform:
         self.error: str | None = None
         self.reader = pa.RecordBatchReader.from_batches(target, self._batches(reader))
 
-    def _batches(self, reader: Any):
+    def _batches(self, reader: Any) -> Iterator[pa.RecordBatch]:
         target = self.target
         for batch in reader:
             if batch.schema.equals(target):
@@ -499,7 +500,7 @@ class Counter:
         self.bytes = 0
         self.reader = pa.RecordBatchReader.from_batches(reader.schema, self._count(reader))
 
-    def _count(self, reader: Any):
+    def _count(self, reader: Any) -> Iterator[pa.RecordBatch]:
         for batch in reader:
             self.rows += batch.num_rows
             self.bytes += batch.nbytes

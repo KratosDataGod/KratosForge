@@ -294,7 +294,7 @@ def _is_sql(c: dict[str, Any]) -> bool:
 # ---- where a notebook can run
 
 # The notebookutils parts that need Fabric, after "notebookutils." (or "mssparkutils.").
-_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|"
+_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete)|notebook\.(create|update|updateDefinition|delete)\b|"
                  r"warehouse|udf|connections)\b")
 _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 

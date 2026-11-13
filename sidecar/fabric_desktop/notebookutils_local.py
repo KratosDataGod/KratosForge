@@ -726,14 +726,76 @@ def _make_lakehouse(host: Host) -> types.SimpleNamespace:
     def refuse(*_a: Any, **_kw: Any) -> None:
         raise NotImplementedError(_ITEM_CHANGES)
 
-    def loadTable(*_a: Any, **_kw: Any) -> None:  # noqa: N802
-        raise NotImplementedError("Loading files into a table runs in Fabric. On this PC, read the file and "
-                                  "write it with saveAsTable or lakehouse.write_table.")
+    def loadTable(loadOption: dict[str, Any], table: str, lakehouse: str = "",  # noqa: N802, N803
+                  workspaceId: str = "") -> bool:  # noqa: N803
+        return _load_table(loadOption, table, lakehouse, workspaceId)
 
     return types.SimpleNamespace(get=get, getWithProperties=getWithProperties, list=list, listTables=listTables,
                                  create=refuse, update=refuse, delete=refuse, loadTable=loadTable,
                                  help=lambda *_a: print("notebookutils.lakehouse on this PC: get, getWithProperties, "
-                                                        "list, listTables (create, update, delete run in Fabric)"))
+                                                        "list, listTables, loadTable into the attached lakehouse "
+                                                        "(create, update, delete run in Fabric)"))
+
+
+_LOAD_FORMATS = {"csv": "csv", "parquet": "parquet"}
+
+
+def _load_table(option: Any, table: str, target: str, workspace_id: str) -> bool:
+    """notebookutils.lakehouse.loadTable on this PC: a CSV or Parquet file (or folder) in the attached
+    lakehouse's Files/ written to one of its tables, as Fabric's Load to Tables does: Overwrite
+    replaces the table and its schema, Append adds rows. Another lakehouse's load runs in Fabric."""
+    from . import spark_local
+    lh = lakehouse._attached
+    if lh is None:
+        raise ValueError("Attach a lakehouse first: loadTable loads its Files into its Tables.")
+    if (target and target.lower() != lh.name.lower()) or (workspace_id and workspace_id != lh.workspace_id):
+        raise NotImplementedError(f"Loading into a lakehouse other than the attached one ({lh.name}) runs in Fabric. "
+                                  "Attach that lakehouse, or run the cell in Fabric.")
+    if not isinstance(option, dict):
+        raise TypeError("loadOption is a dict, such as {'relativePath': 'Files/sales.csv', 'pathType': 'File', "
+                        "'mode': 'Overwrite', 'formatOptions': {'format': 'Csv', 'header': True}}.")
+    if not isinstance(table, str) or not table.strip():
+        raise ValueError("Give loadTable the table's name.")
+    rel = str(option.get("relativePath") or "").strip().lstrip("/")
+    if not rel.startswith("Files/") or ".." in rel.split("/"):
+        raise ValueError(f"relativePath is a path under Files/ in the attached lakehouse, not {rel!r}.")
+    kind = str(option.get("pathType") or "File").lower()
+    mode = str(option.get("mode") or "Overwrite").lower()
+    fmt_options = option.get("formatOptions") or {}
+    fmt = _LOAD_FORMATS.get(str(fmt_options.get("format") or "Csv").lower())
+    if kind not in ("file", "folder"):
+        raise ValueError("pathType is File or Folder.")
+    if mode not in ("overwrite", "append"):
+        raise ValueError("mode is Overwrite or Append.")
+    if fmt is None:
+        raise ValueError("formatOptions format is Csv or Parquet.")
+    if kind == "file":
+        files = [rel]
+    else:
+        from .onelake import FileStore
+        found = FileStore(lh.storage_token).list(lh.workspace_id, lh.lakehouse_id, rel.rstrip("/"),
+                                                 recursive=bool(option.get("recursive")))
+        files = sorted(e["path"] for e in found
+                       if not e["is_dir"] and not e["name"].startswith(("_", ".")))
+        if not files:
+            raise FileNotFoundError(f"{rel} has no files to load.")
+    spark = spark_local.session()
+
+    def read(path: str) -> Any:
+        reader = spark.read
+        if fmt == "parquet":
+            return reader.parquet(path)
+        return reader.csv(path, header=bool(fmt_options.get("header", True)),
+                          sep=str(fmt_options.get("delimiter") or ","), inferSchema=True)
+    frames = [read(p) for p in files]
+    df = frames[0]
+    for more in frames[1:]:
+        df = df.unionByName(more, allowMissingColumns=True)
+    writer = df.write.mode(mode)
+    if mode == "overwrite":
+        writer = writer.option("overwriteSchema", "true")  # as Load to Tables: the file's columns replace the table's
+    writer.saveAsTable(table.strip())
+    return True
 
 
 def _udf_functions(parts: dict[str, str]) -> list[dict[str, Any]]:

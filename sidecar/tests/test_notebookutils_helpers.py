@@ -65,7 +65,7 @@ def test_lakehouse_defaults_to_the_attached_one_and_explains_without_it(k, monke
     assert out["outputs"][-1]["ename"] == "LookupError"
 
 
-@pytest.mark.parametrize("call", ["create('x')", "update('x', 'y')", "delete('x')", "loadTable({}, 't')"])
+@pytest.mark.parametrize("call", ["create('x')", "update('x', 'y')", "delete('x')"])
 def test_lakehouse_changes_run_in_fabric(k, call):
     out = k.run(f"notebookutils.lakehouse.{call}")
     assert out["outputs"][-1]["ename"] == "NotImplementedError"

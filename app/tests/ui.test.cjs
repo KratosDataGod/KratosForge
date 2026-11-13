@@ -1749,6 +1749,10 @@ test("no raw HTML sinks in app/ui outside the reviewed list", () => {
     // sqlParsePlan(): Fabric's showplan parsed as XML ("application/xml" runs no script and loads nothing);
     // the document is never put on the page, only attribute values are read and drawn as text with h().
     `sqlplan.js: const doc = new DOMParser().parseFromString(String(xml || ""), "application/xml");`,
+    // nbfPrintNodes(): the engine's web page export (notebook_formats.to_html escapes every text and
+    // leaves HTML outputs out), parsed inert; script, style, frames, svg and every attribute but class,
+    // alt and a picture data: src are removed before its body's nodes are shown for printing.
+    `notebook-formats.js: const doc = new DOMParser().parseFromString(String(html || ""), "text/html");`,
     // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
     // (project and product ids in <title>) goes through esc().
     `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
@@ -4161,7 +4165,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   const items = ctx.menu();
   assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
-    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)", "PDF (print to PDF)"]);
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /ribbonMenu\("Share", [^\n]*btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(menu\)\]/);

@@ -3422,3 +3422,26 @@ tr.fg-conflict { background: var(--danger-soft); }
 .assess-evidence section p { margin: 0; }
 .assess-ev { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .assess-ev li { display: flex; flex-direction: column; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; }
+
+/* Notebook Export > PDF (notebook-formats.js): the web page export, shown alone when printing. */
+.nbf-print { display: none; }
+@media print {
+  html:has(body.nbf-printing) { height: auto; }
+  body.nbf-printing > *:not(#nbf-print) { display: none !important; }
+  body.nbf-printing { overflow: visible !important; height: auto !important; background: var(--surface); }
+  body.nbf-printing .nbf-print { display: block; font: 12px/1.5 "Segoe UI", system-ui, sans-serif; color: var(--text); }
+  .nbf-print h1 { font-size: 18px; margin: 0 0 4px; }
+  .nbf-print .nbfp-note { color: var(--muted); margin: 0 0 16px; }
+  .nbf-print .nbfp-cell { border: 1px solid var(--border); border-radius: 6px; margin: 0 0 10px; overflow: hidden; break-inside: avoid-page; }
+  .nbf-print .nbfp-label { font-size: 11px; color: var(--muted); padding: 3px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  .nbf-print pre { margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font: 11.5px/1.45 Consolas, monospace; }
+  .nbf-print .nbfp-src { background: var(--surface-2); }
+  .nbf-print .nbfp-md { padding: 8px 10px; white-space: pre-wrap; }
+  .nbf-print .nbfp-out { border-top: 1px dashed var(--border); }
+  .nbf-print .nbfp-err { color: var(--danger); }
+  .nbf-print .nbfp-skipped { padding: 6px 10px; color: var(--muted); font-style: italic; }
+  .nbf-print table { border-collapse: collapse; margin: 8px 10px; font-size: 11px; }
+  .nbf-print th, .nbf-print td { border: 1px solid var(--border); padding: 2px 6px; text-align: left; }
+  .nbf-print th { background: var(--surface-2); }
+  .nbf-print img { max-width: 100%; margin: 8px 10px; }
+}

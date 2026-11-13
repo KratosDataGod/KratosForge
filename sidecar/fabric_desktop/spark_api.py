@@ -47,7 +47,7 @@ KNOWN_CONF: dict[str, tuple[str, str]] = {
     "spark.microsoft.delta.optimizeWrite.enabled": ("true", "fabric"),
     "spark.databricks.delta.optimizeWrite.enabled": ("true", "fabric"),
     "spark.databricks.delta.autoCompact.enabled": ("false", "fabric"),
-    "spark.sql.sources.partitionOverwriteMode": ("static", "fabric"),
+    "spark.sql.sources.partitionOverwriteMode": ("static", "honored"),
     "spark.app.name": ("KratosForge", "honored"),
 }
 
@@ -61,11 +61,8 @@ class LocalRuntimeConfig:
 
     def set(self, key: str, value: Any) -> None:
         text = str(value).lower() if isinstance(value, bool) else str(value)
-        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
-            # Kept and ignored, an overwrite with partitionBy would replace the whole table, where
-            # Fabric replaces only the partitions it writes.
-            raise ValueError("partitionOverwriteMode=dynamic isn't supported on this PC, and ignoring it would "
-                             "replace the whole table. Run the cell in Fabric.")
+        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() not in ("static", "dynamic"):
+            raise ValueError(f"partitionOverwriteMode is static or dynamic, not {text!r}.")
         if key == "spark.sql.session.timeZone":
             self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
         self._set[key] = text

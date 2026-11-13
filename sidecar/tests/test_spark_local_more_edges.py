@@ -25,7 +25,7 @@ class _Conf:
 @pytest.mark.parametrize("error", [KeyError("x"), NotImplementedError("x")])
 def test_a_conf_that_cant_answer_has_nothing_set(error):
     session = SimpleNamespace(conf=_Conf(error))
-    assert sl._refuse_dynamic_overwrite(session) is None
+    assert sl._overwrite_mode(session, {}) == "static"
     assert sl._refuse_auto_merge(session) is None
 
 

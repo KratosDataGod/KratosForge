@@ -514,7 +514,8 @@ UPLOAD_RETRY_WAIT = 15.0  # seconds, then twice that
 
 
 def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto",
-                upload: str | None = None, skip_unchanged: bool | None = None) -> WriteResult | PendingWrite:
+                upload: str | None = None, skip_unchanged: bool | None = None,
+                predicate: str | None = None) -> WriteResult | PendingWrite:
     """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
 
     ``data`` is a table (polars, pandas, Arrow, DuckDB) or a stream of batches (a RecordBatchReader,
@@ -530,12 +531,17 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     when its writes are in. Elsewhere (scripts, Fabric) every write is direct.
 
     ``skip_unchanged``: an overwrite of exactly the rows this app last wrote to the table uploads
-    nothing; None follows the onelake_skip_unchanged setting."""
+    nothing; None follows the onelake_skip_unchanged setting.
+
+    ``predicate``: an overwrite replaces only the rows that match it (Delta SQL), in one commit, and
+    every written row must match it (a dynamic partition overwrite names the partitions written)."""
     from . import write_queue
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     if upload not in (None, *UPLOADS):
         raise ValueError(f"upload must be one of {UPLOADS}, got {upload!r}")
+    if predicate is not None and mode != "overwrite":
+        raise ValueError("predicate goes with mode='overwrite'")
     resolve_schema_mode(mode, schema_mode)
     started = time.monotonic()
     lh = _current()
@@ -558,9 +564,11 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     if (p := _proof()) is not None:
         if arrow is None:
             arrow = pa.concat_tables(list(streamed[1]), promote_options="none") if streamed else schema.empty_table()
-        return _write_proof(p, arrow, ref, mode, schema_mode)
+        return _write_proof(p, arrow, ref, mode, schema_mode, predicate)
     if skip_unchanged is None:
         skip_unchanged = bool(_setting("onelake_skip_unchanged", True))
+    if predicate is not None:
+        skip_unchanged = False  # the fingerprint is of the whole table; this write replaces part of it
     parts: list[tuple[int, int, int]] = []
     if arrow is not None:
         rows = arrow.num_rows
@@ -582,7 +590,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
             raise
         spill.close()
         rows = spill.rows
-    fingerprint = write_queue.fingerprint(schema, write_queue.combine(parts)) if mode == "overwrite" else None
+    fingerprint = write_queue.fingerprint(schema, write_queue.combine(parts)) \
+        if mode == "overwrite" and predicate is None else None
     name_ = f"{ref.schema}.{ref.table}"
     stats = write_queue.stats()  # the cell's, for its timing; a background write runs on another thread
 
@@ -593,7 +602,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                 try:
                     # The token function, not one token: the write lease is renewed with it (HD-034).
                     delta = publish(arrow if arrow is not None else cast(write_queue.Spill, spill).reader(), ref, mode, lh.storage_token,
-                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged)
+                                    schema_mode=schema_mode, rows=fingerprint, skip_unchanged=skip_unchanged,
+                                    **({"predicate": predicate} if predicate is not None else {}))
                     break
                 except WriteTokenExpired as exc:  # nothing was committed: again at once, with a fresh token
                     if attempt == UPLOAD_ATTEMPTS - 1:
@@ -725,21 +735,24 @@ def _open_for_change(uri: str, opts: dict[str, str] | None, name: str) -> DeltaT
                                  "(df.write.saveAsTable or CREATE TABLE ... AS SELECT).") from None
 
 
-def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
+def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto",
+                 predicate: str | None = None) -> WriteResult:
     """A write during a proof: to this run's sandbox, never the shared table."""
     from deltalake import write_deltalake
 
     from . import delta_profile
 
-    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
+    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto",
+              where: str | None = None) -> DeltaTable:
         target = delta_profile.open_target(uri, proof.options())
         if target is not None and resolve_schema_mode(how, schema) != "overwrite":
             refuse_conversions(data.schema, target, f"{ref.schema}.{ref.table}")
+        extra = {"predicate": where} if where is not None and target is not None else {}
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),  # type: ignore[call-overload]  # how is a checked str
-                        schema_mode=resolve_schema_mode(how, schema))
+                        schema_mode=resolve_schema_mode(how, schema), **extra)
         table = DeltaTable(uri, storage_options=proof.options())
         delta_profile.note_after_write(table)
         return table
     uri = proof.write_location(ref.schema, ref.table, mode, write)
-    table = write(uri, arrow, mode, schema_mode)
+    table = write(uri, arrow, mode, schema_mode, predicate)
     return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

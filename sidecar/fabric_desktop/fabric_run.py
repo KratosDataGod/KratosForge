@@ -871,8 +871,7 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                     sql_unknown.append((1, refused[1]))
         else:
             hit = next(((m, text) for rx, text in refused_code if (m := rx.search(source))), None)
-            # A refused writer option by its name, in any cell: replaceWhere and partitionOverwriteMode are
-            # writer options only, so this also catches a writer held in a variable (w = df.write).
+            # A refused writer option by its name, in any cell: replaceWhere is a writer option only, so this also catches a writer held in a variable (w = df.write).
             hit = hit or next(((m, text) for m in spark_local.REFUSED_OPTION_TEXT.finditer(source)
                                if (text := spark_local.writer_option_refusal(m[1], None))), None)
             if read is None:  # not parsed: the literal spark.sql calls in its text

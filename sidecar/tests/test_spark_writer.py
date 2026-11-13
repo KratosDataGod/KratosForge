@@ -37,39 +37,79 @@ def run(code):
 ORIGINAL = [{"id": 1, "region": "EU"}, {"id": 2, "region": "US"}, {"id": 3, "region": "EU"}]
 
 
-@pytest.mark.parametrize("option, value", [("replaceWhere", "region = 'EU'"), ("partitionOverwriteMode", "dynamic"),
-                                           ("path", "abfss://elsewhere"), ("txnAppId", "x")])
+@pytest.mark.parametrize("option, value", [("replaceWhere", "region = 'EU'"), ("path", "abfss://elsewhere"),
+                                           ("txnAppId", "x")])
 def test_an_option_that_isnt_honored_is_refused_and_the_table_is_untouched(lake, option, value):
     status, text = run(f"df.write.mode('overwrite').option({option!r}, {value!r}).saveAsTable('dbo.sales')")
     assert status == "error" and option.lower() in text.lower().replace(" ", "")
     assert rows(lake) == ORIGINAL
 
 
+def _partitioned(lake):
+    """A table Fabric wrote partitioned by region."""
+    write_deltalake(str(lake / "dbo" / "parts"), pa.table({"id": [1, 2, 3], "region": ["EU", "US", None]}),
+                    partition_by=["region"])
+
+
 @pytest.mark.parametrize("setter", [
-    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
-    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'DYNAMIC')",
-    "spark.sql(\"SET spark.sql.sources.partitionOverwriteMode=dynamic\")",
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\nw = df.write",
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'DYNAMIC')\nw = df.write",
+    "spark.sql(\"SET spark.sql.sources.partitionOverwriteMode=dynamic\")\nw = df.write",
     ("from pyspark.sql import SparkSession\n"
-    "SparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'dynamic').getOrCreate()"),
+     "SparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'dynamic').getOrCreate()\nw = df.write"),
+    "w = df.write.option('partitionOverwriteMode', 'dynamic')",
+    "w = df.write.options(partitionOverwriteMode='dynamic')",
 ])
-def test_dynamic_partition_overwrite_set_on_the_session_is_refused(lake, setter):
-    # Fabric would overwrite only region EU; here the whole table would go, so the cell must stop.
-    status, text = run(setter + "\ndf.write.mode('overwrite').partitionBy('region').saveAsTable('dbo.sales')")
-    assert status == "error" and "partitionoverwritemode" in text.lower().replace(" ", "")
-    assert rows(lake) == ORIGINAL
-    assert run("spark.conf.get('spark.sql.sources.partitionOverwriteMode', 'static')")[1] == "'static'"
+def test_dynamic_partition_overwrite_replaces_only_the_partitions_written(lake, setter):
+    _partitioned(lake)
+    version = DeltaTable(str(lake / "dbo" / "parts")).version()
+    status, text = run(setter + "\nw.mode('overwrite').saveAsTable('dbo.parts')")  # df is (9, 'EU')
+    assert status == "ok", text
+    assert rows(lake, "parts") == [{"id": 2, "region": "US"}, {"id": 3, "region": None}, {"id": 9, "region": "EU"}]
+    assert DeltaTable(str(lake / "dbo" / "parts")).version() == version + 1
 
 
-def test_an_overwrite_is_refused_when_the_session_conf_says_dynamic(lake):
-    # Whatever stores spark.conf, the writer reads it before an overwrite.
-    status, text = run("spark.conf._set['spark.sql.sources.partitionOverwriteMode'] = 'dynamic'\n"
+def test_dynamic_overwrite_of_a_null_partition_and_with_insert_into(lake):
+    _partitioned(lake)
+    status, text = run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\n"
+                       "spark.createDataFrame([(7, None)], 'id long, region string').write.insertInto('dbo.parts', overwrite=True)")
+    assert status == "ok", text
+    assert rows(lake, "parts") == [{"id": 1, "region": "EU"}, {"id": 2, "region": "US"}, {"id": 7, "region": None}]
+
+
+def test_dynamic_overwrite_of_a_table_without_partitions_replaces_it_as_in_delta(lake):
+    status, text = run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\n"
                        "df.write.mode('overwrite').saveAsTable('dbo.sales')")
-    assert status == "error" and "spark.conf.unset" in text
-    assert rows(lake) == ORIGINAL
-    status, _ = run("spark.conf.unset('spark.sql.sources.partitionOverwriteMode')\n"
-                    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')\n"
-                    "df.write.mode('append').saveAsTable('dbo.sales')")
-    assert status == "ok" and len(rows(lake)) == 4
+    assert status == "ok", text
+    assert rows(lake) == [{"id": 9, "region": "EU"}]
+
+
+def test_dynamic_overwrite_with_no_rows_or_overwrite_schema(lake):
+    _partitioned(lake)
+    status, text = run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\n"
+                       "df.limit(0).write.mode('overwrite').saveAsTable('dbo.parts')")
+    assert status == "ok" and "replaced no partitions" in text, text
+    status, text = run("df.write.mode('overwrite').option('partitionOverwriteMode', 'dynamic')"
+                       ".option('overwriteSchema', 'true').saveAsTable('dbo.parts')")
+    assert status == "error" and "overwriteSchema can't go with a dynamic partition overwrite" in text
+    assert len(rows(lake, "parts")) == 3
+
+
+@pytest.mark.parametrize("code", [
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'sometimes')",
+    "df.write.option('partitionOverwriteMode', 'sometimes')",
+])
+def test_a_partition_overwrite_mode_other_than_static_or_dynamic_is_refused(lake, code):
+    status, text = run(code)
+    assert status == "error" and "static or dynamic" in text
+
+
+def test_static_overwrite_still_replaces_the_whole_table(lake):
+    _partitioned(lake)
+    status, text = run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')\n"
+                       "df.write.mode('overwrite').saveAsTable('dbo.parts')")
+    assert status == "ok", text
+    assert rows(lake, "parts") == [{"id": 9, "region": "EU"}]
 
 
 def test_options_given_as_keywords_are_checked_too(lake):
@@ -329,3 +369,16 @@ def test_a_path_option_and_a_path_argument_together_are_refused_as_in_spark(lake
     status, text = run(code)
     assert status == "error" and "Give the path once" in text, text
     assert rows(lake) == ORIGINAL
+
+
+def test_a_predicate_goes_only_with_an_overwrite(lake):
+    with pytest.raises(ValueError, match="predicate goes with mode='overwrite'"):
+        lakehouse.write_table(pa.table({"id": [1]}), "dbo.sales", mode="append", predicate="id = 1")
+
+
+def test_a_dynamic_overwrite_keeps_no_fingerprint_so_a_later_overwrite_is_never_skipped(lake):
+    from fabric_desktop.publish import ROWS_KEY
+    _partitioned(lake)
+    status, text = run("df.write.mode('overwrite').option('partitionOverwriteMode', 'dynamic').saveAsTable('dbo.parts')")
+    assert status == "ok", text
+    assert ROWS_KEY not in DeltaTable(str(lake / "dbo" / "parts")).history(1)[0]

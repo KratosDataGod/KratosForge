@@ -107,17 +107,17 @@ def _spark_types(rel: Any) -> Any:
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
-# option that changes what gets written (replaceWhere, partitionOverwriteMode) can never be
-# dropped and turn into a full overwrite. A path option is save()'s path, as in Spark; a table write
+# option that changes what gets written (replaceWhere) can never be dropped and turn into a full
+# overwrite. A path option is save()'s path, as in Spark; a table write
 # refuses it (_TABLE_PATH).
 _SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
 # Options that only change how files are laid out, not which rows end up in the table.
 _LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
+# partitionOverwriteMode: static or dynamic, as the session setting (_overwrite_mode).
+_MODE_OPTIONS = ("partitionoverwritemode",)
 _REFUSED = {
     "replacewhere": "replaceWhere (replace only matching rows) isn't supported on this PC, and ignoring it would "
                     "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
-    "partitionoverwritemode": "partitionOverwriteMode isn't supported on this PC, and ignoring it would replace the "
-                              "whole table. Run the cell in Fabric.",
 }
 _TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option."
 
@@ -125,17 +125,43 @@ _TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabri
 _OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
 
 
-def _refuse_dynamic_overwrite(session: Any) -> None:
-    """A dynamic partitionOverwriteMode set on the session (spark.conf, the builder) replaces only the
-    written partitions in Fabric. Tables here have no partitions, so an overwrite would replace the
-    whole table: refuse it, as the writer option is refused."""
-    try:
-        mode = session.conf.get(_OVERWRITE_MODE, "static")
-    except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
-        return
-    if str(mode).strip().lower() == "dynamic":
-        raise NotImplementedError(_REFUSED["partitionoverwritemode"] + " Unset it first: "
-                                  f"spark.conf.unset({_OVERWRITE_MODE!r}).")
+def _overwrite_mode(session: Any, options: dict[str, Any]) -> str:
+    """static or dynamic: the writer's partitionOverwriteMode option, else the session's setting."""
+    mode = options.get("partitionoverwritemode")
+    if mode is None:
+        try:
+            mode = session.conf.get(_OVERWRITE_MODE, "static")
+        except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
+            mode = "static"
+    mode = str(mode).strip().lower()
+    if mode not in ("static", "dynamic"):
+        raise ValueError(f"partitionOverwriteMode is static or dynamic, not {mode!r}.")
+    return mode
+
+
+def _sql_literal(value: Any) -> str:
+    """A partition value as Delta SQL, for an overwrite's predicate."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return repr(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _partitions_predicate(data: pa.Table, columns: list[str]) -> str | None:
+    """The partitions ``data`` writes to, as Delta SQL: each (column = value AND ...) it has, ORed.
+    None when it has no rows (a dynamic overwrite with no rows replaces nothing, as in Spark)."""
+    names = {n.lower(): n for n in data.column_names}
+    have = [names[c.lower()] for c in columns]
+    seen = data.select(have).group_by(have).aggregate([]).to_pylist()
+    if not seen:
+        return None
+    quoted = {c: '"' + c.replace('"', '""') + '"' for c in columns}
+
+    def term(column: str, value: Any) -> str:
+        return f"{quoted[column]} IS NULL" if value is None else f"{quoted[column]} = {_sql_literal(value)}"
+    return " OR ".join("(" + " AND ".join(term(c, row[h]) for c, h in zip(columns, have, strict=True)) + ")"
+                       for row in seen)
 
 
 def _true(value: Any) -> bool:
@@ -163,6 +189,8 @@ class LakehouseWriter:
         name = str(key).lower()
         if name in _REFUSED:
             raise NotImplementedError(_REFUSED[name])
+        if name in _MODE_OPTIONS:
+            _overwrite_mode(None, {name: value})  # static or dynamic, else refused here
         self._options[name] = value
         return self
 
@@ -230,8 +258,23 @@ class LakehouseWriter:
         return "merge" if _true(self._options.get("mergeschema")) else None
 
     def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
-        if how == "overwrite":
-            _refuse_dynamic_overwrite(self._df.session)
+        predicate = None
+        if how == "overwrite" and _overwrite_mode(self._df.session, self._options) == "dynamic" \
+                and lakehouse.table_exists(name):
+            parts = list(lakehouse.open_table(name).metadata().partition_columns)
+            if parts and schema_mode == "overwrite":
+                raise ValueError("overwriteSchema can't go with a dynamic partition overwrite, which replaces only "
+                                 "some partitions. Leave one of them out.")
+            if parts:
+                missing = [c for c in parts if c.lower() not in {n.lower() for n in data.column_names}]
+                if missing:
+                    raise ValueError(f"Table {name} is partitioned by {', '.join(parts)}, and the data has no "
+                                     f"{', '.join(missing)}, so a dynamic overwrite can't tell which partitions to "
+                                     "replace. Nothing was written.")
+                predicate = _partitions_predicate(data, parts)
+                if predicate is None:
+                    print(f"Note: no rows, so the dynamic overwrite replaced no partitions of {name}.")
+                    return
         if schema_mode is None:
             current = _columns(name)
             extra = [c for c in data.column_names if c.lower() not in {x.lower() for x in current or []}]
@@ -242,7 +285,7 @@ class LakehouseWriter:
                     ".option(\"mergeSchema\", \"true\").")
         if schema_mode != "overwrite" and lakehouse.table_exists(name):
             _check_types(data, name, how)  # mergeSchema adds columns; it never changes a column's type
-        print(_write_table(data, name, how, schema_mode))
+        print(_write_table(data, name, how, schema_mode, predicate))
 
     def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None,  # noqa: A002
                     partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -253,7 +296,7 @@ class LakehouseWriter:
         self.options(**options)
         if (format or self._format) not in ("delta", None):
             raise ValueError("Lakehouse tables are Delta tables. Leave out format, or use format(\"delta\").")
-        self._check_options(_SCHEMA_OPTIONS, "a Delta table")
+        self._check_options(_SCHEMA_OPTIONS + _MODE_OPTIONS, "a Delta table")
         how = self._write_mode(name)
         if how != "skip":
             self._write(_arrow(self._df), name, how, self._schema_mode(how))
@@ -261,7 +304,7 @@ class LakehouseWriter:
     def insertInto(self, tableName: str, overwrite: bool | None = None) -> None:  # noqa: N802, N803
         """Spark's insertInto: the table must exist, columns match by position, and it appends
         unless ``overwrite=True`` or ``.mode("overwrite")``. The table's schema never changes."""
-        self._check_options((), "with insertInto")
+        self._check_options(_MODE_OPTIONS, "with insertInto")
         if overwrite is None:
             overwrite = self._mode == "overwrite"
         current = _columns(tableName)
@@ -317,9 +360,11 @@ class LakehouseWriter:
         self.save(path, format="csv", mode=mode, **options)
 
 
-def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None) -> Any:
+def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None, predicate: str | None = None) -> Any:
     from deltalake.exceptions import SchemaMismatchError
     try:
+        if predicate is not None:
+            return lakehouse.write_table(data, name, mode=how, schema_mode=schema_mode, predicate=predicate)
         return lakehouse.write_table(data, name, mode=how, schema_mode=schema_mode)
     except SchemaMismatchError as e:
         raise ValueError(f"The data doesn't match table {name}'s schema ({e}). Nothing was written. To replace "
@@ -355,6 +400,7 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
 
 _MERGE_SOURCES = itertools.count(1)
 _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
+_SPARK_SET = re.compile(r"\s*SET\s+(?P<key>spark\.[\w.]+)\s*=\s*(?P<value>[^;]*?)\s*;?\s*", re.I)
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
 
@@ -389,7 +435,6 @@ def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
 CHECKED_REFUSALS = {
     "option": "a refused writer option, by its literal name (writer_option_refusal)",
     "_check_options": "an option saveAsTable or insertInto doesn't take, by its literal name (writer_option_refusal)",
-    "_refuse_dynamic_overwrite": "spark.conf.set of a dynamic partitionOverwriteMode (REFUSED_CODE)",
     "_refuse_auto_merge": "spark.conf.set of autoMerge in a notebook that runs a MERGE (AUTO_MERGE_CODE)",
     "_preview_on": "change_runs_here, with Preview features off",
     "schema": "read.schema() given a string (READ_SCHEMA_TEXT)",
@@ -410,8 +455,6 @@ CHECKED_REFUSALS = {
 _IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
 # Code this PC's Spark refuses, as (pattern on a Python cell's text, reason).
 REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"""\.conf\.set\(\s*["']spark\.sql\.sources\.partitionOverwriteMode["']\s*,\s*["']dynamic["']""", re.I),
-     "sets a dynamic partitionOverwriteMode, which this PC's Spark refuses: ignoring it would replace the whole table"),
     (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
      "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
     (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
@@ -427,14 +470,14 @@ AUTO_MERGE_TEXT = ("turns on Delta schema autoMerge, so its MERGE would add the 
                    "runs in Fabric (this PC's Spark refuses it)")
 # For a cell Python can't read: the refused writer options that only a writer takes (a reader's
 # "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
-REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere|partitionOverwriteMode)["']""", re.I)
+REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere)["']""", re.I)
 READ_SCHEMA_TEXT = "gives read.schema() a DDL string, which this PC's Spark refuses (give it a StructType)"
 READ_SCHEMA_ON = "applies read.schema() to a read of {}, which this PC's Spark refuses (leave it out and cast the columns after)"
 READ_FORMATS = ("delta", "csv", "json", "parquet", "text")
 READ_FORMAT_TEXT = "reads format {!r}, which this PC's Spark doesn't have (it reads csv, json, parquet, text and delta)"
 TABLE_FORMAT_TEXT = "saves a lakehouse table as {!r}, which this PC's Spark refuses: lakehouse tables are Delta tables"
 # The options each table write takes on this PC (_check_options), by lower-case name.
-WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS, "insertInto": _LAYOUT_OPTIONS}
+WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS + _MODE_OPTIONS, "insertInto": _LAYOUT_OPTIONS + _MODE_OPTIONS}
 
 
 def writer_option_refusal(name: str, terminal: str | None) -> str | None:
@@ -1047,6 +1090,10 @@ class LocalSparkSession(SparkSession):
         if kwargs:
             sqlQuery = sqlQuery.format(**kwargs)
         head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
+        if (setting := _SPARK_SET.fullmatch(head)) is not None:  # SET spark.x = y goes to spark.conf, as in Spark
+            key, value = setting["key"], setting["value"].strip().strip("'\"")
+            self.conf.set(key, value)
+            return self.createDataFrame([(key, value)], ["key", "value"])
         if _RESTORE.match(head):
             raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
                              "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")

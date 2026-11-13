@@ -1,7 +1,10 @@
-// Format code, as Fabric and Databricks notebooks have it: Format cell (Shift+Alt+F while editing, or
-// the cell's menu) and Format notebook (Edit tab). The engine formats (code_format.py): Python in
-// Black's style with ruff, %%sql cells with the SQL page's formatter. Nothing runs. Frozen cells, other
-// languages and a cell Python can't read are left as they are; Ctrl+Z in a cell undoes its formatting.
+// Format code, as Fabric and Databricks notebooks have it: Format cell (the Format button on a code
+// cell, Shift+Alt+F while editing, or the cell's menu) and Format notebook (Home and Edit tabs). The
+// engine formats (code_format.py): Python in Black's style with ruff, %%sql cells with the SQL page's
+// formatter in Spark SQL, %%tsql cells with it in T-SQL. Nothing runs. Frozen cells, other languages
+// and a cell Python can't read are left as they are; Ctrl+Z in a cell undoes its formatting.
+
+const FORMAT_NOTEBOOK_TITLE = "Format every code cell: Python in Black's style, SQL and T-SQL in the SQL page's style";
 
 async function formatCells(cells, { notebook = false } = {}) {
   const nb = state.notebook;
@@ -46,5 +49,5 @@ async function formatCells(cells, { notebook = false } = {}) {
 const formatNotebook = () => formatCells(state.notebook.cells, { notebook: true });
 
 registerShortcuts("Notebook", [
-  { keys: ["Shift+Alt+F"], label: "While editing a code cell: format it (Python in Black's style, SQL in the SQL page's style)", when: () => state.view === "notebook" },
+  { keys: ["Shift+Alt+F"], label: "While editing a code cell: format it (Python in Black's style, SQL and T-SQL in the SQL page's style)", when: () => state.view === "notebook" },
 ]);

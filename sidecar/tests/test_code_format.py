@@ -94,3 +94,25 @@ def test_the_rpc_takes_a_list_of_sources():
         pass
     else:
         raise AssertionError("a string isn't a list of cells")
+
+
+def test_tsql_cells_are_formatted_as_tsql_and_keep_their_magic_line():
+    a, b = format_cells(["%%tsql -artifact Sales -type Warehouse\nselect top 10 a from dbo.t where x=1",
+                         "%%tsql -type Lakehouse\r\nselect a,b from t"])
+    assert a == {"source": "%%tsql -artifact Sales -type Warehouse\nSELECT\nTOP 10\n  a\nFROM dbo.t\nWHERE\n  x = 1",
+                 "changed": True, "error": ""}
+    assert b["source"] == "%%tsql -type Lakehouse\nSELECT\n  a,\n  b\nFROM t"
+
+
+def test_tsql_the_formatter_cant_read_or_an_empty_cell_is_left_as_written():
+    bad, empty = format_cells(["%%tsql\nselect from (((", "%%tsql -artifact Sales"])
+    assert bad["source"] == "%%tsql\nselect from (((" and not bad["changed"] and "T-SQL" in bad["error"]
+    assert empty == {"source": "%%tsql -artifact Sales", "changed": False, "error": ""}
+
+
+def test_tsql_dialect_follows_the_type_option():
+    assert code_format.tsql_dialect("") == "warehouse"
+    assert code_format.tsql_dialect("-artifact X -type SQLAnalyticsEndpoint") == "endpoint"
+    assert code_format.tsql_dialect("-type sqldatabase") == "sqldb"
+    assert code_format.tsql_dialect("-type Lakehouse") == "endpoint"
+    assert code_format.tsql_dialect("-type Unknown") == "warehouse"

@@ -1,5 +1,6 @@
-// Format code (nbformat.js, code_format.py in the real engine): Format cell from Shift+Alt+F and the
-// cell menu, Format notebook from the Edit tab, and the cells it leaves as they are.
+// Format code (nbformat.js, code_format.py in the real engine): Format cell from the cell's Format
+// button, Shift+Alt+F and the cell menu, Format notebook from the Home and Edit tabs, and the cells it
+// leaves as they are.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -14,6 +15,7 @@ const CELLS = [
   { type: "code", cell_id: "bad", source: "def f( :\n  pass", meta: {} },
   { type: "markdown", cell_id: "md", source: "# Notes  here", meta: {} },
   { type: "code", cell_id: "frozen", source: "z=1", meta: { frozen: true } },
+  { type: "code", cell_id: "tsql", source: "%%tsql -artifact Sales -type Warehouse\nselect top 10 a from dbo.t where x=1", meta: {} },
 ];
 
 let app;
@@ -52,6 +54,21 @@ test("Format cell in the cell menu formats a SQL cell and keeps its magic", { sk
   assert.match(await source("sql"), /^%%sql\nSELECT\n {2}a,\n {2}b\nFROM t\nWHERE\n {2}x = 1$/);
 });
 
+test("the Format button on a code cell formats it, and a T-SQL cell keeps its %%tsql line", { skip }, async () => {
+  const id = await idOf("tsql");
+  await cell(id).hover();
+  await cell(id).getByRole("button", { name: "Format", exact: true }).click();
+  await page().waitForFunction(() => state.notebook.cells.find((c) => c.cell_id === "tsql").source.includes("SELECT"));
+  assert.strictEqual(await source("tsql"), "%%tsql -artifact Sales -type Warehouse\nSELECT\nTOP 10\n  a\nFROM dbo.t\nWHERE\n  x = 1");
+  await cell(id).hover();
+  await cell(id).getByRole("button", { name: "Format", exact: true }).click();
+  await page().locator("#toast", { hasText: "The cell is already formatted." }).waitFor();
+  // Markdown cells have no Format button.
+  const md = await idOf("md");
+  await cell(md).hover();
+  assert.strictEqual(await cell(md).locator("[data-format-cell]").count(), 0);
+});
+
 test("a cell Python can't read is left as written, with the reason", { skip }, async () => {
   const id = await idOf("bad");
   await cell(id).locator(".cm-content").click();
@@ -63,7 +80,8 @@ test("a cell Python can't read is left as written, with the reason", { skip }, a
 test("Format notebook formats every code cell it can and points at the one it couldn't", { skip }, async () => {
   await page().evaluate(() => { state.notebook.cells[0].source = "import os,sys"; renderNotebook(); });
   await page().keyboard.press("Escape");
-  await page().evaluate(() => { state.ribbonTab = "edit"; renderNotebook(); });
+  // Format notebook is on the Home tab (and the Edit tab).
+  await page().evaluate(() => { state.ribbonTab = "home"; renderNotebook(); });
   await page().getByRole("button", { name: "Format notebook" }).click();
   await page().locator("#toast", { hasText: "Formatted 1 cell." }).waitFor();
   const text = await toastText();

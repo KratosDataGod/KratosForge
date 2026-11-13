@@ -65,6 +65,8 @@ fabric-desktop = "fabric_desktop.cli:main"
 include = ["fabric_desktop*"]
 
 [tool.setuptools.package-data]
+# The SQL editor's function help (sql_function_help.py).
+"fabric_desktop" = ["spark_function_help.json", "tsql_function_help.json"]
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.

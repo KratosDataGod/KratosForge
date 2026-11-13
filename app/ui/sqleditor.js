@@ -265,6 +265,127 @@ function sqlTableRefs(maskedStatement) {
   return { refs, ctes };
 }
 
+// ---------- hover and signature help (editor parity S07, S11) ----------
+
+const SQL_NAME_TOKEN = /^(?:`[^`]*`|\[[^\]]*\]|"[^"]*"|[A-Za-z_@#][\w$#@]*)$/;
+
+// What is under `pos`, for the hover card: a function (a name followed by "("), a table, an alias or a
+// column, with its range. `tables` are the known tables; `columnsOf(table)` the columns already read
+// (or undefined). Null in strings and comments, and on keywords, numbers and punctuation.
+function sqlHoverTarget(text, pos, dialect, tables, columnsOf = () => undefined) {
+  const stmt = sqlStatementAt(text, pos);
+  const toks = [];
+  const re = new RegExp(SQL_TOKEN.source, "g");
+  for (let m; (m = re.exec(stmt.masked));) toks.push({ t: m[0], from: stmt.from + m.index, to: stmt.from + m.index + m[0].length });
+  const i = toks.findIndex((k) => k.from <= pos && pos < k.to);
+  if (i < 0 || !SQL_NAME_TOKEN.test(toks[i].t)) return null;
+  const tok = toks[i];
+  const name = sqlUnquote(tok.t);
+  const low = name.toLowerCase();
+  const range = { from: tok.from, to: tok.to };
+  if (toks[i + 1]?.t === "(" && /^[A-Za-z_]/.test(tok.t)) return { kind: "function", name: low, ...range };
+  const words = SQL_WORDS[sqlDialect(dialect)];
+  if (/^[A-Za-z_]/.test(tok.t) && (words.keywords.includes(low) || words.types.includes(low))) return null;
+  const { refs } = sqlTableRefs(stmt.masked);
+  // A dotted name: the parts before this one, read back across the dots.
+  const parts = [name];
+  for (let j = i; j >= 2 && toks[j - 1].t === "." && SQL_NAME_TOKEN.test(toks[j - 2].t); j -= 2) parts.unshift(sqlUnquote(toks[j - 2].t));
+  const after = [];
+  for (let j = i; toks[j + 1]?.t === "." && toks[j + 2] && SQL_NAME_TOKEN.test(toks[j + 2].t); j += 2) after.push(sqlUnquote(toks[j + 2].t));
+  const refFor = (q) => refs.find((r) => r.alias && r.alias.toLowerCase() === q.toLowerCase());
+  const columnIn = (table) => (columnsOf(table) || []).find((c) => c.name.toLowerCase() === low);
+  if (parts.length > 1) {  // x.name: a column of x (an alias or a table), or a table in schema x
+    const q = parts.slice(0, -1);
+    const alias = q.length === 1 && refFor(q[0]);
+    const table = alias ? sqlResolveTable(alias.parts, tables) : sqlResolveTable(q, tables);
+    if (table) return { kind: "column", name, table, column: columnIn(table) || null, ...range };
+    const asTable = sqlResolveTable(parts, tables);
+    return asTable ? { kind: "table", table: asTable, ...range } : null;
+  }
+  if (after.length) {  // name.x: an alias, a table, or a schema
+    const alias = refFor(name);
+    if (alias) { const table = sqlResolveTable(alias.parts, tables); return table ? { kind: "alias", name, table, ...range } : null; }
+    const table = sqlResolveTable([name], tables);
+    return table ? { kind: "table", table, ...range } : null;
+  }
+  const alias = refFor(name);
+  if (alias) { const table = sqlResolveTable(alias.parts, tables); if (table) return { kind: "alias", name, table, ...range }; }
+  if (refs.some((r) => r.name && r.name.toLowerCase() === low)) {
+    const table = sqlResolveTable(refs.find((r) => r.name && r.name.toLowerCase() === low).parts, tables);
+    if (table) return { kind: "table", table, ...range };
+  }
+  for (const r of refs) {  // a bare column of one of the statement's tables
+    const table = sqlResolveTable(r.parts, tables);
+    const column = table && columnIn(table);
+    if (column) return { kind: "column", name, table, column, ...range };
+  }
+  const table = sqlResolveTable([name], tables);
+  if (table) return { kind: "table", table, ...range };
+  // Not resolved yet: a column of a statement table whose columns haven't been read.
+  const unread = refs.map((r) => sqlResolveTable(r.parts, tables)).filter((t) => t && columnsOf(t) === undefined);
+  return unread.length ? { kind: "column", name, table: null, unread, ...range } : null;
+}
+
+// The call the cursor is in, for signature help: the function's name and which argument (from 0) the
+// cursor is on. Null outside a call, inside a string or comment, and in a subquery's parentheses.
+function sqlCallAt(text, pos) {
+  if (sqlMask(text, pos).inert) return null;
+  const stmt = sqlStatementAt(text, pos);
+  const m = stmt.masked.slice(0, pos - stmt.from);
+  let depth = 0;
+  let arg = 0;
+  for (let i = m.length - 1; i >= 0; i--) {
+    const c = m[i];
+    if (c === ")") depth++;
+    else if (c === "(") {
+      if (depth) { depth--; continue; }
+      const before = m.slice(0, i).match(/([A-Za-z_][\w$]*)\s*$/);
+      if (!before || SQL_CLAUSE_WORDS.has(before[1].toLowerCase()) || /^(in|exists|as|over|values|select)$/i.test(before[1])) return null;
+      if (/^\s*select\b/i.test(m.slice(i + 1))) return null;
+      return { name: before[1].toLowerCase(), from: stmt.from + i - before[0].length, arg };
+    } else if (c === "," && !depth) arg++;
+  }
+  return null;
+}
+
+// A signature split for display, so the argument the cursor is on can be marked: { head, args, tail }.
+// Arguments split on the commas outside nested parentheses; each keeps the separator before it, so
+// head + args.join("") + tail is the signature again ("f(a, b[, c])" → "f(", ["a", ", b[", ", c]"], ")").
+function sqlSignatureParts(signature) {
+  const open = signature.indexOf("(");
+  const close = signature.lastIndexOf(")");
+  if (open < 0 || close < open) return { head: signature, args: [], tail: "" };
+  const inner = signature.slice(open + 1, close);
+  const args = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if (c === "," && !depth) { args.push(inner.slice(start, i)); start = i; }
+  }
+  if (inner.trim()) args.push(inner.slice(start));
+  // "b[, c]": the "[" opens the next, optional argument, so it goes with that one.
+  for (let i = 0; i + 1 < args.length; i++) {
+    const m = args[i].match(/\[\s*$/);
+    if (m) { args[i] = args[i].slice(0, -m[0].length); args[i + 1] = m[0] + args[i + 1]; }
+  }
+  return { head: signature.slice(0, open + 1), args, tail: signature.slice(close) };
+}
+
+// The form to show for a call on argument `arg`: the first with that many arguments (or a repeating last
+// one), else the first; and which argument to mark.
+function sqlPickForm(forms, arg) {
+  const fits = (f) => {
+    const n = sqlSignatureParts(f.signature).args.length;
+    return n > arg || /\.\.\.|N\]|\]\+|\.\.\.n\]/i.test(f.signature);
+  };
+  const form = forms.find(fits) || forms[0];
+  const n = sqlSignatureParts(form.signature).args.length;
+  return { form, mark: n ? Math.min(arg, n - 1) : -1 };
+}
+
 // What the person is typing at `pos`: the partial word, what comes before its dot, and the statement's tables.
 function sqlCompletionContext(text, pos) {
   if (sqlMask(text, pos).inert) return null;
@@ -450,6 +571,135 @@ function sqlCompletionSource(provider, getDialect) {
   };
 }
 
+// The engine's help for a function in a dialect (sql_function_help), asked once per name and kept.
+const sqlFunctionHelpCache = new Map();
+function sqlFunctionHelp(dialect, name) {
+  const key = `${dialect}:${name}`;
+  if (!sqlFunctionHelpCache.has(key)) {
+    sqlFunctionHelpCache.set(key, rpc("sql_function_help", { name, dialect }).catch(() => {
+      sqlFunctionHelpCache.delete(key);  // the engine was busy or stopped: ask again next time
+      return null;
+    }));
+  }
+  return sqlFunctionHelpCache.get(key);
+}
+
+const sqlTableLabel = (t) => (t.schema && t.schema !== "dbo" ? `${t.schema}.${t.name}` : t.name);
+
+// The hover card for a target from sqlHoverTarget, as nodes for intelFloat (nbintel.js), or null.
+async function sqlHoverCard(target, dialect, provider) {
+  const head = (name, kind) => h("div", { class: "nb-intel-head" }, h("code", {}, h("b", {}, name)), h("span", { class: "nb-intel-kind" }, kind));
+  if (target.kind === "function") {
+    const help = await sqlFunctionHelp(dialect, target.name);
+    if (!help) return null;
+    const shown = help.forms.slice(0, 3);
+    const more = help.forms.length - shown.length + (help.more || 0);
+    return [
+      ...shown.map((f, i) => h("div", { class: "nb-intel-head" }, h("code", {}, f.signature), i ? null : h("span", { class: "nb-intel-kind" }, "function"))),
+      shown[0].summary ? h("div", { class: "nb-intel-doc" }, shown[0].summary) : null,
+      more > 0 ? h("div", { class: "nb-intel-value" }, `${more} more form${more === 1 ? "" : "s"}`) : null,
+    ];
+  }
+  if (target.kind === "table" || target.kind === "alias") {
+    const cols = await provider.columns(target.table).catch(() => []);
+    const shown = cols.slice(0, 12);
+    return [
+      head(target.kind === "alias" ? `${target.name} → ${sqlTableLabel(target.table)}` : sqlTableLabel(target.table), "table"),
+      shown.length ? h("div", { class: "nb-intel-doc sql-intel-cols" }, ...shown.map((c) => h("div", {}, h("code", {}, c.name), " ", h("span", { class: "nb-intel-kind" }, c.type || "")))) : null,
+      cols.length > shown.length ? h("div", { class: "nb-intel-value" }, `${cols.length - shown.length} more column${cols.length - shown.length === 1 ? "" : "s"}`) : null,
+    ];
+  }
+  if (target.kind === "column") {
+    let { table, column } = target;
+    if (!table && target.unread) {  // read the statement's tables, then look again
+      for (const t of target.unread) {
+        const cols = await provider.columns(t).catch(() => []);
+        const hit = cols.find((c) => c.name.toLowerCase() === target.name.toLowerCase());
+        if (hit) { table = t; column = hit; break; }
+      }
+    }
+    if (table && !column) {
+      const cols = await provider.columns(table).catch(() => []);
+      column = cols.find((c) => c.name.toLowerCase() === target.name.toLowerCase()) || null;
+    }
+    if (!table || !column) return null;
+    return [head(column.name, column.type || "column"), h("div", { class: "nb-intel-value" }, `Column of ${sqlTableLabel(table)}`)];
+  }
+  return null;
+}
+
+let sqlIntelHoverTimer = 0;
+let sqlIntelSigTimer = 0;
+let sqlIntelSigSeq = 0;
+
+// Hover a table, alias, column or function for what it is: the same card as the notebook's (nbintel.js).
+function sqlIntelHover(provider, getDialect) {
+  return CM.ViewPlugin.fromClass(class {}, {
+    eventHandlers: {
+      mousemove(e, view) {
+        clearTimeout(sqlIntelHoverTimer);
+        if (e.buttons) return;
+        const { clientX: x, clientY: y } = e;
+        sqlIntelHoverTimer = setTimeout(() => sqlIntelShowHover(view, x, y, provider, getDialect()), 450);
+      },
+      mouseleave() { clearTimeout(sqlIntelHoverTimer); intelHide("hover"); },
+      keydown() { intelHide("hover"); },
+    },
+  });
+}
+
+async function sqlIntelShowHover(view, x, y, provider, dialect) {
+  const pos = view.posAtCoords({ x, y }, false);
+  if (pos == null || !view.dom.isConnected) return;
+  const near = view.coordsAtPos(pos);
+  if (!near || Math.abs(near.left - x) > 16 && Math.abs(near.right - x) > 16) return;  // past the end of the line
+  const text = view.state.doc.toString();
+  const tables = provider.tables();
+  const target = sqlHoverTarget(text, pos, dialect, tables, (t) => provider.cachedColumns(t));
+  if (!target) { intelHide("hover"); return; }
+  const card = await sqlHoverCard(target, dialect, provider);
+  if (!card || !view.dom.matches(":hover") || view.state.doc.toString() !== text) return;
+  const tip = intelFloat("hover");
+  tip.replaceChildren(...card.filter(Boolean));
+  intelPlace(tip, view.coordsAtPos(target.from) || near);
+}
+
+// While typing a call's arguments: the function's form, with the argument the cursor is on marked.
+function sqlIntelSignature(getDialect) {
+  return CM.ViewPlugin.fromClass(class {
+    update(u) {
+      if (!u.view.hasFocus) { if (u.focusChanged) intelHide("call"); return; }
+      if (!(u.docChanged || u.selectionSet || u.focusChanged)) return;
+      clearTimeout(sqlIntelSigTimer);
+      const view = u.view;
+      sqlIntelSigTimer = setTimeout(() => sqlIntelShowSignature(view, getDialect()), 180);
+    }
+    destroy() { intelHide("call"); }
+  });
+}
+
+async function sqlIntelShowSignature(view, dialect) {
+  const sel = view.state.selection.main;
+  if (!view.hasFocus || !sel.empty) { intelHide("call"); return; }
+  const call = sqlCallAt(view.state.doc.toString(), sel.head);
+  if (!call) { intelHide("call"); return; }
+  const seq = ++sqlIntelSigSeq;
+  const help = await sqlFunctionHelp(dialect, call.name);
+  if (seq !== sqlIntelSigSeq || !view.hasFocus) return;
+  if (!help) { intelHide("call"); return; }
+  const { form, mark } = sqlPickForm(help.forms, call.arg);
+  const parts = sqlSignatureParts(form.signature);
+  const tip = intelFloat("call");
+  tip.replaceChildren(h("code", {}, parts.head, ...parts.args.flatMap((a, i) => {
+    if (i !== mark) return [a];
+    const [, sep, arg, close] = a.match(/^([[,\s]*)([\s\S]*?)(\]*)$/);  // "[, " before it and "]" after aren't part of it
+    return [sep, h("b", {}, arg), close];
+  }), parts.tail),
+    form.summary ? h("div", { class: "nb-intel-doc" }, form.summary) : null);
+  const at = view.coordsAtPos(sel.head);
+  if (at) intelPlace(tip, at, true);
+}
+
 // Ctrl+Shift+U / Ctrl+Shift+L: each selection, or the word at a bare cursor, in upper or lower case, as one undo step.
 function sqlChangeCase(view, to) {
   const { state } = view;
@@ -522,6 +772,7 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
         CM.syntaxHighlighting(sqlHighlight),
         langComp.of(language()),
         sqlReferenceMarks(provider, () => current),
+        sqlIntelHover(provider, () => current), sqlIntelSignature(() => current),
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),

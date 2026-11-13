@@ -1708,6 +1708,8 @@ def reset() -> None:
 
 def install(namespace: dict[str, Any]) -> None:
     spark_api.install()
+    from . import spark_map
+    spark_map.install()
     _alias_pyspark()
     _alias_delta()
     from . import spark_df_extras, spark_stream

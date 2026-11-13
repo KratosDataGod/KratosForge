@@ -512,8 +512,7 @@ PYSPARK_SESSION = (
 
 # Why a method isn't here, when it isn't.
 NOT_HERE = {
-    "rdd": "RDDs run in Fabric", "foreach": "row-by-row Python runs in Fabric", "foreachPartition": "runs in Fabric",
-    "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric",
+    "rdd": "RDDs run in Fabric",
     "withWatermark": "streaming runs in Fabric", "dropDuplicatesWithinWatermark": "streaming runs in Fabric",
     "streams": "streaming runs in Fabric",
     "udf": "Python UDFs run in Fabric", "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
@@ -537,6 +536,8 @@ def coverage() -> list[dict[str, str]]:
     install()
     spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
     spark_df_extras.install()  # persist, storageLevel, sameSemantics, observe
+    from . import spark_map
+    spark_map.install()  # mapInPandas, mapInArrow, foreach, foreachPartition
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

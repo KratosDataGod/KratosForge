@@ -302,7 +302,7 @@ _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 # DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials,
 # runtime and variableLibrary, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
-    (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
+    (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),

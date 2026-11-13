@@ -410,6 +410,58 @@ def test_parquet_export_renames_repeated_columns_so_it_reads_back(runs, lake):
     assert table.column_names == ["id", "amount", "id_2"] and table.column(1).to_pylist() == [1.5, None, 3.25]
 
 
+def test_excel_export_has_a_header_row_and_every_row(runs, lake):
+    import zipfile
+    run = wait(runs, runs.start("SELECT id, country FROM sales ORDER BY id", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "xlsx", "sales")["id"])
+    assert status["state"] == "completed" and status["rows"] == 3 and status["path"].endswith(".xlsx")
+    with zipfile.ZipFile(status["path"]) as z:
+        sheet = z.read("xl/worksheets/sheet1.xml").decode()
+    assert sheet.count("<row ") == 4 and ">country<" in sheet and ">NL<" in sheet
+
+
+def test_excel_export_refuses_more_rows_than_a_sheet_holds(runs, lake, monkeypatch):
+    run = wait(runs, runs.start("SELECT id FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_exec, "EXCEL_MAX_ROWS", 2)
+    with pytest.raises(ValueError, match="Excel holds at most 2 rows"):
+        runs.export(run["id"], "xlsx")
+
+
+def test_json_export_is_an_array_of_rows_with_unique_keys(runs, lake):
+    run = wait(runs, runs.start("SELECT id, amount, country, id, DATE '2026-01-02' AS d, CAST('NaN' AS DOUBLE) AS bad, "
+                                "CAST(1.10 AS DECIMAL(5,2)) AS money, unhex('0001') AS raw FROM sales ORDER BY id", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "json")["id"])
+    rows = json.loads(Path(status["path"]).read_text(encoding="utf-8"))
+    assert status["rows"] == 3 and len(rows) == 3
+    assert rows[0] == {"id": 1, "amount": 1.5, "country": "NL", "id_2": 1, "d": "2026-01-02", "bad": None,
+                       "money": "1.10", "raw": "AAE="}
+    assert rows[1]["amount"] is None and rows[1]["country"] is None
+
+
+def test_json_export_of_no_rows_is_an_empty_array(runs, lake):
+    run = wait(runs, runs.start("SELECT id FROM sales WHERE id < 0", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "json")["id"])
+    assert json.loads(Path(status["path"]).read_text()) == []
+
+
+def test_an_unknown_export_format_is_refused(runs, lake):
+    run = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    with pytest.raises(ValueError, match="Export as csv, parquet, xlsx or json"):
+        runs.export(run["id"], "xml")
+
+
+@pytest.mark.parametrize("fmt", ["xlsx", "json"])
+def test_a_stopped_excel_or_json_export_leaves_no_files(runs, lake, tmp_path, monkeypatch, fmt):
+    run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
+    export = sql_exec.Export(id="x", execution=run["id"], format=fmt, path=tmp_path / "Downloads" / f"r.{fmt}", total=0)
+    export.path.parent.mkdir(parents=True)
+    export.path.write_bytes(b"")
+    export.cancel.set()
+    runs._write(runs._get(run["id"]), export)
+    assert export.state == "cancelled"
+    assert list((tmp_path / "Downloads").iterdir()) == []
+
+
 def test_a_stopped_export_leaves_no_files(runs, lake, tmp_path, monkeypatch):
     run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
     real = sql_exec._writer
@@ -863,3 +915,4 @@ def test_local_and_lakehouse_runs_share_the_time_limit_wording():
     assert sql_exec.time_limit_message("policy", 90) == "Stopped after your organization's time limit (1.5 minutes)."
     assert "project's settings" in sql_exec.time_limit_message("project", 60)
     assert sql_exec.time_limit_message("caller", 60) == ""
+

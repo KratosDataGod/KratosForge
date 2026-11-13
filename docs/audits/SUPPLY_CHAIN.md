@@ -118,7 +118,7 @@ The full list, crate by crate, is in each release's `sbom-app.cdx.json`.
 | sqlglot | 30.23.0 | MIT |  |
 | sse-starlette | 3.5.0 | BSD-3-Clause |  |
 | starlette | 1.8.0 | BSD-3-Clause |  |
-| tornado | 6.6 | Apache-2.0 |  |
+| tornado | 6.6.1 | Apache-2.0 |  |
 | truststore | 0.10.5 | MIT |  |
 | typing-extensions | 4.16.0 | PSF-2.0 |  |
 | typing-inspection | 0.4.4 | MIT |  |

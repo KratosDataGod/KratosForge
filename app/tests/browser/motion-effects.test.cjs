@@ -12,11 +12,16 @@ const skip = !playwright && "Playwright is not installed";
 const ENGINE = ["app_settings", "save_app_settings", "pipeline_run_start", "pipeline_run_status"];
 
 const apps = [];
-async function open({ reducedMotion = "no-preference" } = {}) {
+// heroic: start at Heroic, where everyday effects play (Subtle, the default, plays only achievements).
+async function open({ reducedMotion = "no-preference", heroic = true } = {}) {
   const app = await openApp({ engine: ENGINE });
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion });
-  await app.page.evaluate(async () => { await loadSettings(); go("settings"); });
+  await app.page.evaluate(async (heroic) => {
+    await loadSettings();
+    if (heroic) await saveSettings({ motion_level: 2 });
+    go("settings");
+  }, heroic);
   await app.page.getByRole("radiogroup", { name: "Experience mode" }).waitFor();
   await app.page.evaluate(() => {
     window.__fx = [];
@@ -29,11 +34,11 @@ async function open({ reducedMotion = "no-preference" } = {}) {
 
 after(async () => { for (const app of apps) await app.close(); });
 
-test("Settings > Appearance > Living Experience: Heroic by default, each level kept and applied at once", { skip }, async () => {
-  const app = await open();
+test("Settings > Appearance > Living Experience: Subtle by default, each level kept and applied at once", { skip }, async () => {
+  const app = await open({ heroic: false });
   const { page } = app;
-  assert.strictEqual(await page.getByRole("radio", { name: /^Heroic \(default\)/ }).isChecked(), true);
-  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "2");
+  assert.strictEqual(await page.getByRole("radio", { name: /^Subtle \(default\)/ }).isChecked(), true);
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "1");
   await page.evaluate(() => { document.getElementById("toast").hidden = true; });
   if (SHOTS) await page.locator(".motion-settings").screenshot({ path: path.join(SHOTS, "motion-settings.png") });
   await page.getByRole("radio", { name: /^Legendary/ }).check();
@@ -117,5 +122,67 @@ test("Changing page slides the new page in only at Subtle and above, and never o
   await page.evaluate(() => saveSettings({ motion_level: 0 }));
   await page.evaluate(() => go("settings"));
   assert.strictEqual(await animated(), 0, "a page change animated with motion Off");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("While you type, celebrations hold off; small effects still play; after a pause they play again", { skip }, async () => {
+  const app = await open();
+  const { page } = app;
+  await page.evaluate(() => {
+    motionLoadWatch?.disconnect();
+    loadTasks = [];
+    dropUntil = 0;
+    applyMotion();
+    const box = document.createElement("textarea");
+    box.id = "deep-work-box";
+    box.setAttribute("aria-label", "Deep work");
+    document.querySelector(".motion-settings").prepend(box);
+  });
+  const box = page.getByRole("textbox", { name: "Deep work" });
+  await box.click();
+  await box.pressSequentially("sel", { delay: 20 });  // fewer than 8 keys, so a 2 s pause ends deep work
+  const anchor = () => document.querySelector(".motion-settings h2");
+  assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), false, "the strike played mid-typing");
+  assert.strictEqual(await page.evaluate(() => motionDiagnostics().skipped.deepwork), 1);
+  assert.strictEqual(await page.evaluate(() => !!forgeEvent("sql.succeeded", document.querySelector(".motion-settings h3"))), true, "a spark is not a celebration");
+  // Nothing about what was typed is kept: only times.
+  assert.ok(await page.evaluate(() => typedAt.every((t) => typeof t === "number")));
+  assert.strictEqual(await box.evaluate((el) => el === document.activeElement), true, "focus moved");
+  await page.waitForTimeout(2200);
+  assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), true, "the strike didn't play after the pause");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("An achievement unlocked while you type is held and revealed once you pause", { skip }, async () => {
+  const app = await open();
+  const { page } = app;
+  await page.evaluate(() => {
+    motionLoadWatch?.disconnect();
+    loadTasks = [];
+    dropUntil = 0;
+    applyMotion();
+    const box = document.createElement("textarea");
+    box.setAttribute("aria-label", "Deep work");
+    document.querySelector(".motion-settings").prepend(box);
+  });
+  const box = page.getByRole("textbox", { name: "Deep work" });
+  await box.click();
+  await box.pressSequentially("sel", { delay: 20 });
+  const played = () => page.evaluate(() => motionDiagnostics().played.achieve || 0);
+  assert.strictEqual(await page.evaluate(() => !!fx(document.querySelector(".motion-settings h2"), "achieve")), false, "the reveal played mid-typing");
+  assert.strictEqual(await played(), 0);
+  await page.waitForTimeout(2800);
+  assert.strictEqual(await played(), 1, "the held reveal didn't play after the pause");
+  assert.strictEqual(await box.evaluate((el) => el === document.activeElement), true, "focus moved");
+  // A held reveal whose message is gone by the pause doesn't play.
+  await box.pressSequentially("se", { delay: 20 });
+  await page.evaluate(() => {
+    const gone = document.createElement("p");
+    document.querySelector(".motion-settings").append(gone);
+    fx(gone, "achieve");
+    gone.remove();
+  });
+  await page.waitForTimeout(2800);
+  assert.strictEqual(await played(), 1, "a reveal played for a message that was gone");
   assert.deepStrictEqual(app.errors, []);
 });

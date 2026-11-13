@@ -19,6 +19,7 @@ is sent to is always checked to be an Azure Databricks workspace address first.
 from __future__ import annotations
 
 import configparser
+import hashlib
 import json
 import math
 import os
@@ -37,10 +38,36 @@ CLI_TIMEOUT = 60
 # A token this close to expiring is fetched again, so a statement never starts with one about to lapse.
 REFRESH_SECONDS = 120
 _DRIVE = DRIVE
+# Tokens a workspace refused (401), kept as fingerprints for this process, so no connection sends one
+# of them again: a personal access token or an unexpired CLI token stays refused until it is replaced.
+_REFUSED: dict[str, None] = {}
+_REFUSED_LOCK = threading.Lock()
+MAX_REFUSED = 256
+
+
+def _fingerprint(host: str, token: str) -> str:
+    """One workspace however its address is spelled (case, a trailing slash)."""
+    return hashlib.sha256(f"{host.strip().rstrip('/').lower()}\n{token}".encode()).hexdigest()
+
+
+def was_refused(host: str, token: str) -> bool:
+    with _REFUSED_LOCK:
+        return _fingerprint(host, token) in _REFUSED
+
+
+def _remember_refused(host: str, token: str) -> None:
+    with _REFUSED_LOCK:
+        _REFUSED[_fingerprint(host, token)] = None
+        while len(_REFUSED) > MAX_REFUSED:
+            del _REFUSED[next(iter(_REFUSED))]
 
 
 class DatabricksAuthError(RuntimeError):
     """A token couldn't be had; the message says what the person can do."""
+
+
+class TokenRefused(DatabricksAuthError):
+    """The sign-in handed back a token the workspace already refused: renewing it is the person's step."""
 
 
 def check_host(host: str) -> str:
@@ -142,9 +169,11 @@ class TokenProvider:
     """``token()`` gives a current access token, fetching a new one only when it is near expiry."""
 
     def __init__(self, host: str, fetch: Callable[[], tuple[str, float | None]], method: str,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time, sign_in_again: str = ""):
         self.host = host
         self.method = method
+        # What to do when the workspace refuses this sign-in (401): it expired or was revoked.
+        self.sign_in_again = sign_in_again
         self._fetch = fetch
         self._clock = clock
         self._token = ""
@@ -154,13 +183,28 @@ class TokenProvider:
     def token(self) -> str:
         with self._lock:
             if not self._token or (self._expires is not None and self._clock() >= self._expires - REFRESH_SECONDS):
-                self._token, self._expires = self._fetch()
-                if not self._token:
+                token, expires = self._fetch()
+                if not token:
                     raise DatabricksAuthError("Databricks gave no access token.")
+                if was_refused(self.host, token):  # the same token again: renewing it is the person's step
+                    raise TokenRefused(f"Databricks refused this sign-in earlier, so it isn't sent again. "
+                                       f"{self.sign_in_again or 'Sign in again.'} If you're sure the token is still valid, "
+                                       "restart KratosForge to try it again.")
+                self._token, self._expires = token, expires
             return self._token
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token()}"}
+
+    def drop(self, token: str) -> None:
+        """Forget ``token``, which the workspace refused (401) before it expired: revoked, or a sign-in
+        ended. The next call fetches one again (the CLI's cache, which a new ``databricks auth login``
+        refreshed), rather than sending the refused one until its expiry time. Neither this provider
+        nor another for the same workspace sends it again (``token()`` says to sign in again instead)."""
+        _remember_refused(self.host, token)
+        with self._lock:
+            if self._token == token:
+                self._token, self._expires = "", None
 
 
 def _cfg_section(profile: str, path: Path | None) -> dict[str, str]:
@@ -290,6 +334,12 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     return data.get("access_token") or "", (clock() + seconds) if seconds is not None else None
 
 
+PAT_REFUSED = ("The personal access token in the CLI profile {profile!r} has expired or was revoked. Create a new "
+               "one in the workspace (Settings > Developer > Access tokens) and save it as token in ~/.databrickscfg.")
+M2M_REFUSED = ("The service principal's sign-in was refused: check that its OAuth secret hasn't expired or been "
+               "revoked, and that the principal is still in the workspace.")
+
+
 def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subprocess.run, http: Any = None,
                  environ: Mapping[str, str] | None = None, cfg_path: Path | None = None,
                  clock: Callable[[], float] = time.time) -> TokenProvider:
@@ -313,19 +363,22 @@ def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subpro
         check_profile_host(name, section, host)
         if section.get("token"):
             pat = section["token"]
-            return TokenProvider(host, lambda: (pat, None), "pat", clock)
+            return TokenProvider(host, lambda: (pat, None), "pat", clock, PAT_REFUSED.format(profile=name))
         if section.get("client_id") and section.get("client_secret"):
             cid, sec = section["client_id"], section["client_secret"]
-            return TokenProvider(host, lambda: _m2m_token(host, cid, sec, http, clock), "oauth-m2m", clock)
-        return TokenProvider(host, lambda: _cli_token(["--profile", name], run), "databricks-cli", clock)
+            return TokenProvider(host, lambda: _m2m_token(host, cid, sec, http, clock), "oauth-m2m", clock,
+                                 M2M_REFUSED)
+        return TokenProvider(host, lambda: _cli_token(["--profile", name], run), "databricks-cli", clock,
+                             f"Sign in again with: databricks auth login --profile {name}")
     host = check_host(connection.get("host") or "")
     if method == "oauth-u2m":
-        return TokenProvider(host, lambda: _cli_token(["--host", host], run), "oauth-u2m", clock)
+        return TokenProvider(host, lambda: _cli_token(["--host", host], run), "oauth-u2m", clock,
+                             f"Sign in again with: databricks auth login --host {host}")
     if method == "oauth-m2m":
         cid = str(cred.get("client_id") or "")
         ref = str(cred.get("secret") or "")
         if not cid or not ref:
             raise DatabricksAuthError("OAuth machine-to-machine needs client_id and a secret reference.")
         return TokenProvider(host, lambda: _m2m_token(host, cid, resolve_secret(ref, environ), http, clock),
-                             "oauth-m2m", clock)
+                             "oauth-m2m", clock, M2M_REFUSED)
     raise DatabricksAuthError(f"Unknown Databricks sign-in method {method!r}.")

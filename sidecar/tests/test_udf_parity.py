@@ -43,8 +43,8 @@ DELIBERATE: dict[str, tuple[list[str], str]] = {
     "set_tags": (["function for no operation"], _REPORT_BUTTON),
     "set_classification": (["function for no operation"], _REPORT_BUTTON),
     "end_policy_exception": (["reason is required in Fabric but defaults to '' in the operation"],
-                             "The operation refuses an empty reason anyway; Fabric asks for one up front "
-                             "(pinned by test_requests_core_four::test_the_function_app_ends_exceptions_as_the_caller)."),
+                             ("The operation refuses an empty reason anyway; Fabric asks for one up front "
+                             "(pinned by test_requests_core_four::test_the_function_app_ends_exceptions_as_the_caller).")),
 }
 
 _EMPTY = inspect.Parameter.empty
@@ -91,7 +91,7 @@ def _has_context_decorator(fn_def: ast.FunctionDef) -> bool:
 def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
     """Every difference between the generated functions in `source` and `operations`, by operation."""
     tree = ast.parse(source)
-    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name != "_run"}
+    wrappers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")}  # helpers, as functions.json skips them
     problems: dict[str, list[str]] = {}
 
     for op, impl in operations.items():
@@ -325,7 +325,7 @@ def test_drift_check_catches_a_drifted_real_operation():
     """The real tree: give one operation a new parameter and the real check reports it."""
     ops = copy.copy(core.OPERATIONS)
     ns: dict = {}
-    exec("def issue_keys(db, name, business_keys, env='dev'): pass", ns)  # noqa: S102
+    exec("def issue_keys(db, name, business_keys, by='', env='dev'): pass", ns)  # noqa: S102
     ops["issue_keys"] = ns["issue_keys"]
     problems = parity_problems(udf.function_app(), ops)
     assert problems.get("issue_keys") == ["missing parameter env"]
@@ -356,3 +356,12 @@ def test_no_function_takes_a_parameter_with_an_underscore():
 def test_fabric_names():
     assert [udf.fabric_name(n) for n in ("name", "business_keys", "call_id", "product_id")] == [
         "name", "businessKeys", "callId", "productId"]
+
+
+def test_fabric_names_never_use_a_name_fabric_reserves():
+    """Live run 8 (2026-11-11): Fabric refused the whole item for resolve_policies' 'context'."""
+    assert [udf.fabric_name(n) for n in ("context", "req", "req_invocation_id")] == [
+        "callContext", "request", "requestInvocationId"]
+    for f in udf._functions():
+        names = [p["name"] for p in f["fabricProperties"]["fabricFunctionParameters"]]
+        assert not set(names) & set(udf.RESERVED), f["name"]

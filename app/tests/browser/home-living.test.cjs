@@ -1,4 +1,4 @@
-// LX-06: the Living Experience hero and progression panel on Home (home-hero.js), driven with what the
+// LX-06: Home under the Living Experience (home-hero.js), driven with what the
 // real engine's profile_get returns for one validated notebook (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
@@ -6,7 +6,6 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { playwright, openApp } = require("./harness.cjs");
 
-const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 
 const BUILD = `
@@ -42,39 +41,17 @@ after(async () => { if (app) await app.close(); });
 
 const home = async () => page().evaluate(() => { homeCache.done = false; go("home"); });
 
-test("Home shows the hero and the progression panel from profile_get", { skip }, async () => {
+// RPG art is for ranks, progression and achievements only (Chris, 2026-11-09): Home has no header art, so
+// even with Preview on at the Heroic level it is the flat page, with Continue and New notebook in Start something.
+// The progression panel gets its own switch in the LX Home work; until then it shows only beside header art.
+test("Home has no header art: Preview at Heroic shows the plain Home", { skip }, async () => {
   await page().evaluate(() => { state.settings.show_preview.value = true; state.settings.motion_level.value = 2; });
   await home();
-  await page().locator(".home-hero").waitFor();
-  await page().locator(".home-id").waitFor();
-  const p = profile.progression;
-  assert.ok(await page().getByText(`Level ${p.level}`, { exact: true }).isVisible());
-  assert.ok(await page().getByText(`${p.next_level_xp - p.xp} XP to level ${p.level + 1}`).isVisible());
-  assert.ok(await page().locator(".home-id-rank").getByText(p.title, { exact: true }).isVisible());
-  assert.ok(await page().getByText("First Flame", { exact: true }).isVisible());
-  assert.ok(await page().getByText("Not measured").isVisible());
-  // The hero holds no control.
-  assert.strictEqual(await page().locator(".home-hero button, .home-hero a, .home-hero input").count(), 0);
-  // Never a god name, never a capacity figure.
-  assert.ok(!(await page().locator(".home-aside").innerText()).includes("Data God"));
-  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "home-living.png") });
-});
-
-test("hiding the panel closes the gap, and the link brings it back", { skip }, async () => {
-  await page().getByRole("button", { name: "Hide your progress on Home" }).click();
-  await page().getByRole("button", { name: "Show your progress" }).waitFor();
-  assert.strictEqual(await page().locator(".home-aside").count(), 0);
-  await page().getByRole("button", { name: "Show your progress" }).click();
-  await page().locator(".home-id").waitFor();
-});
-
-test("with progression off in Profile the panel is hidden", { skip }, async () => {
-  profile.settings.progression = false;
-  await home();
-  await page().locator(".home-hero").waitFor();
-  await page().waitForFunction(() => !document.querySelector(".home-aside"));
-  assert.strictEqual(await page().locator(".home-body.with-aside").count(), 0);
-  profile.settings.progression = true;
+  await page().locator(".home-head h1").waitFor();
+  assert.strictEqual(await page().locator(".home-hero").count(), 0);
+  assert.ok(await page().locator(".home-start").getByRole("button", { name: "New notebook" }).isVisible());
+  assert.strictEqual(await page().locator(".home-start .home-continue").count(), 1);
+  assert.deepStrictEqual(app.errors, []);
 });
 
 test("Professional and preview off show the plain Home", { skip }, async () => {

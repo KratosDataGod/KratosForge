@@ -6,7 +6,7 @@ a publish, a promote, a write to OneLake, a schedule, a setting) adds one line t
 
 Each line holds:
 
-    at, action, outcome (ok or error), seconds, and reason (one of REASONS) when a call that
+    at, action, outcome (ok or error; "started" before a call in FAIL_CLOSED), seconds, and reason (one of REASONS) when a call that
              returned rather than raised refused or partly failed
     who (the signed-in account), tenant, host, os user, app version, compute ("this PC")
     target   the call's short identifying values: workspace, lakehouse, environment, entity,
@@ -38,7 +38,9 @@ SCHEMA = "audit@1"
 GENESIS = audit_chain.GENESIS
 
 # Calls that only read or watch. Everything else is recorded, so a new call is audited unless it
-# is added here on purpose.
+# is added here on purpose. academy_run and learn_lab_run run a learner's code, but in a sandbox
+# whose writes are rolled back, so they change nothing a person would audit; pbi_embed_token is
+# left off because it issues a credential.
 READ_ONLY = frozenset("""
 skins_list access_cache access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules cached_schemas app_settings
 editor_pending editor_status telemetry_status support_bundle_preview benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
@@ -88,7 +90,7 @@ profile_get profile_report profile_avatar
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
-learn_fixes learn_fix_compare learn_fix_checked learn_patterns
+learn_fixes learn_fix_compare learn_fix_checked learn_patterns learn_team_notes
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
 pbi_embed_content
 appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview appstudio_connections appstudio_publish_check
@@ -126,9 +128,50 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Calls that must not run without a record: a "started" line is written before them, and they are
+# refused when it can't be (a full disk, a locked file). These Prod-reaching changes always; any other
+# call when it is aimed at Prod (an env or target of "prod"); and any other call when it is given a
+# confirmation, an approval, a typed name, a risk-check acknowledgement or an override (a non-empty
+# value). An ordinary query or edit still runs as before when its line can't be written.
+FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_vacuum", "shortcut_repoint",
+                         "shortcut_repoint_many", "shortcut_undo", "shortcut_accept_risk"})
+# Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
+# one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
+GUARD_PARAMS = frozenset({
+    "confirm", "confirmed", "confirm_name", "confirm_deletes", "confirm_unknown", "confirm_writes",
+    "approve", "approval_id", "typed", "risk_id", "require_acknowledgement",
+    "allow", "allow_commands", "allow_override", "allow_secrets", "allow_uncontained", "force"})
+NOT_GUARD_PARAMS = frozenset({"expect"})        # the version a tab opened, not a go-ahead
+_PROD_PARAMS = ("env", "envs", "target")
+
+
+def _given(value: Any) -> bool:
+    return value not in (None, False, "", 0, [], {})
+
+
+def _is_prod(value: Any) -> bool:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_is_prod(v) for v in value)
+    return isinstance(value, str) and value.strip().lower() == "prod"
+
+
+def fails_closed(method: str, params: Any) -> bool:
+    """Whether this call of ``method`` with ``params`` runs only once its line is written."""
+    if method in FAIL_CLOSED:
+        return True
+    if not isinstance(params, dict):
+        return False
+    return any((key in GUARD_PARAMS and _given(value)) or (key in _PROD_PARAMS and _is_prod(value))
+               for key, value in params.items())
+
+
+NOT_RECORDED = ("The audit log couldn't be written, so this didn't run ({error}). Free some disk space for "
+                "KratosForge's data folder, or close what holds its audit file, then try again.")
+
+
 # Why a call that returned (rather than raised) still counts as an error: one of these fixed codes,
 # never anything taken from the reply's text.
-REASONS = ("refused", "busy", "policy", "preview", "invalid", "partial", "failed")
+REASONS = ("refused", "busy", "policy", "preview", "invalid", "partial", "failed", "cancelled")
 _DONE = ("ok", "skipped")
 
 
@@ -172,7 +215,7 @@ class AuditLog:
         self.host = socket.gethostname()
         try:
             self.os_user = getpass.getuser()
-        except Exception:  # no user name on this system
+        except Exception:  # noqa: BLE001 - no user name on this system
             self.os_user = ""
 
     def _files(self) -> list[Path]:

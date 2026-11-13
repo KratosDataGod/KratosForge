@@ -130,6 +130,205 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.1-q5",
+      "type": "single",
+      "stem": "You connect a workspace that already holds finished items to a Git branch that also has content. You want to keep the workspace's items. Which sync direction do you choose?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Disconnect and reconnect until the branch is empty"
+        },
+        {
+          "id": "b",
+          "text": "Commit the workspace to the Git branch"
+        },
+        {
+          "id": "c",
+          "text": "Run a deployment pipeline into the workspace"
+        },
+        {
+          "id": "d",
+          "text": "Update the workspace from Git"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Committing exports the workspace's supported content to Git and overwrites the branch. Updating from Git would overwrite the workspace and lose its content.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-integration-process",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.1-q6",
+      "type": "single",
+      "stem": "You edited a notebook in a Git-connected workspace, but Commit is disabled. A teammate merged changes into the connected branch, and none touched your notebook. What do you do first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Switch the workspace to a new branch"
+        },
+        {
+          "id": "b",
+          "text": "Disconnect the workspace from Git"
+        },
+        {
+          "id": "c",
+          "text": "Undo your notebook changes"
+        },
+        {
+          "id": "d",
+          "text": "Update the workspace from Git, then commit"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "When the branch has updates, commits are disabled until you update the workspace. Your notebook isn't in conflict, so after the update you can commit it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-integration-process",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.1-q7",
+      "type": "multiple",
+      "stem": "Which two statements about Commit and Update in Fabric Git integration are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "You can commit and update in one operation"
+        },
+        {
+          "id": "b",
+          "text": "You can choose which items to update from Git"
+        },
+        {
+          "id": "c",
+          "text": "Update keeps workspace changes on items that changed in both places"
+        },
+        {
+          "id": "d",
+          "text": "When several items changed, you can choose which ones to commit"
+        },
+        {
+          "id": "e",
+          "text": "Update always applies the whole branch, up to the latest commit"
+        }
+      ],
+      "answer": [
+        "d",
+        "e"
+      ],
+      "explanation": "Commit lets you pick items, but Update always brings in the entire branch. You can sync only one direction at a time, and items changed in both places are conflicts that block updates.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-integration-process",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.1-q8",
+      "type": "single",
+      "stem": "A notebook was changed in both the workspace and the Git branch. You resolve the conflict in the source control panel and choose Keep current content. What is the notebook's Git status afterwards?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Uncommitted changes"
+        },
+        {
+          "id": "b",
+          "text": "Update required"
+        },
+        {
+          "id": "c",
+          "text": "Synced"
+        },
+        {
+          "id": "d",
+          "text": "Unsupported item"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Keeping current content leaves the workspace version in place, which isn't in the branch yet, so its status becomes uncommitted changes. Accept incoming changes would make it synced.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/conflict-resolution",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.1-q9",
+      "type": "single",
+      "stem": "A lead engineer has the Member role in a workspace and must connect it to an Azure DevOps repository. What is the least change that lets them do it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Give them the Admin role in the workspace"
+        },
+        {
+          "id": "b",
+          "text": "Give them Contribute permission in the repository only"
+        },
+        {
+          "id": "c",
+          "text": "Give them Reshare permission on every item"
+        },
+        {
+          "id": "d",
+          "text": "Make them a pipeline admin"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Connecting a workspace to a Git repository requires the workspace Admin role. Members and Contributors can commit and update but can't connect.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.1-q10",
+      "type": "order",
+      "stem": "A conflict can't be resolved in the Fabric UI, so you resolve it in Git. Put the steps in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "In Git, resolve the conflicts between the original branch and the new branch"
+        },
+        {
+          "id": "b",
+          "text": "In Fabric, switch the workspace back to the original branch"
+        },
+        {
+          "id": "c",
+          "text": "Commit your changes into the new branch"
+        },
+        {
+          "id": "d",
+          "text": "In Git, merge the new branch into the original branch"
+        },
+        {
+          "id": "e",
+          "text": "From the Source control panel, check out a new branch from the last synced branch ID"
+        }
+      ],
+      "answer": [
+        "e",
+        "c",
+        "a",
+        "d",
+        "b"
+      ],
+      "explanation": "You branch from the last synced state, commit your work there, resolve and merge in Git, and then point the workspace back at the original branch.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/conflict-resolution",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

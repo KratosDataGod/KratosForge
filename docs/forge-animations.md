@@ -16,11 +16,11 @@ The modes were called Off, Minimal, Refined and Expressive before; a saved choic
 | Mode | What you see |
 | --- | --- |
 | **Professional** | No decorative animation at all |
-| **Subtle** | Quick page and panel transitions only (a page slides 6 px in the direction you moved on the rail, 0.16 s) |
-| **Heroic** (default) | Sparks, embers, the forge strike and the wolf on real progress |
+| **Subtle** (default) | Quick page and panel transitions (a page slides 6 px in the direction you moved on the rail, 0.16 s), and the Achievement Reveal when you earn an achievement. Everyday work stays plain |
+| **Heroic** | Adds sparks, embers, the forge strike and the wolf on real progress |
 | **Legendary** | The same moments with more character: a halftone ring and an offset outline on the anvil strike, a touch of depth on page changes |
 
-At Heroic and Legendary, a switch for each family turns it off:
+At Heroic and Legendary, a switch for each family turns it off (Achievement celebrations, from Subtle up):
 
 | Switch | Effects |
 | --- | --- |
@@ -43,7 +43,7 @@ reduced-motion setting**.
 ### For IT
 
 Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-settings-to-everyone)):
-`"motion_level": 0` to `3`, `"motion_wolf"`, `"motion_sparks"`, `"motion_achievements"` (off by default),
+`"motion_level": 0` to `3`, `"motion_wolf"`, `"motion_sparks"`, `"motion_achievements"`,
 `"motion_ambient"` and `"motion_follow_system"` (`true` or `false`). The earlier
 `"forge_animations": false` still locks motion Off unless the policy also sets `motion_level`.
 
@@ -80,7 +80,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | An Estate X-ray scan you're watching ends | **Wolf Arrival**: the numbers glow once; a scan that stopped gets the failure ember beside why. A scan that ended before you opened Home plays nothing | the X-ray numbers or the reason | 0.55 s or 0.45 s |
 | A platform deployment fails (Source control) | **Controlled Failure**: the ember beside the note saying where the deploy stopped, or beside the error when the engine refused it. A cancelled sign-in plays nothing | beside the note or error | 0.45 s |
 | You save a notebook yourself (**Save**, or **Ctrl+S**) | **Forge Spark** once the save is written: on **Save**, or on the "Saved" message for Ctrl+S. At most one every 5 s; autosave and the saves other actions make first (Publish, Run in Fabric, closing) never spark | the Save button or the message | 0.4 s |
-| Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). Off unless you turn on **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
+| Profile awards you an achievement | **Achievement Reveal**: a ring and an offset outline reveal the message naming it, once per award (never again for the same award, even after a restart). On unless you turn off **Achievement celebrations**, shown while Preview features are on | the achievement message | 0.9 s |
 | KratosForge starts on a new build, or for the first time as KratosForge (the forge splash) | The emblem strikes the anvil, sparks fly and embers rise behind the name. Off and Minimal show it still, as does Windows' reduced motion unless you unticked **Respect Windows' reduced-motion setting**; with **Forge sparks** off the emblem strikes but no sparks fly and no embers rise. The embers wait while the window is in the background | the whole window | about 2 s, embers until you close it |
 | A dialog opens or closes (Minimal and above) | The dialog rises and fades in; focus is inside it from the first frame. On close it is gone at once and a blank card fades where it was. **Escape** closes with no fade | the dialog | 0.2 s in, 0.16 s out |
 | The Activity tray or a side pane opens (Explorer, Variables, Comments, Runs, Prove, Validate; Minimal and above) | It slides 16 px in from its edge and fades in. A page that opens with its panes doesn't animate them, and redraws never replay it. The tray leaves like a dialog | the tray or pane | 0.22 s |
@@ -108,6 +108,11 @@ compositor draws them without layout. The engine keeps them cheap:
   the effect's level. Ambient loops pause while the app isn't in front.
 - If the app's main thread is busy (long tasks adding up to 0.5 s within 5 s), effects drop one
   level for 30 s.
+- While you are typing in a cell, query, field or editor (a key in the last 2 s, or 8 keys in 10 s),
+  the Anvil Strike and Wolf Run don't play, and an Achievement Reveal waits until you pause (the
+  latest one, if its message is still shown). Sparks, embers and progress still play, and the result
+  is always in the app as text. Only when keys were pressed is
+  noted, never which keys or what you wrote.
 - Every effect removes itself when it ends; a redraw of the page removes any still playing.
 
 Measured with `app/tests/browser/motion-benchmark.cjs` (headless Chromium 141, Linux build machine,

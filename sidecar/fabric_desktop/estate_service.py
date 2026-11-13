@@ -62,7 +62,7 @@ def _guid(value: Any, what: str) -> str:
 def _who(service: Any) -> str:
     try:
         return service.auth.signed_in_user() or ""
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no user name from the OS falls back to the environment
         return os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
 
@@ -232,7 +232,7 @@ class EstateMixin:
         """Managed tables that live in this lakehouse of an environment's workspace."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no metadata project means no managed tables; logged
             _log.info("No metadata project for managed tables: %s", describe(exc))
             return []
         if not any(project.environments.get(env, {}).get("workspace_id") == workspace_id for env in ENVIRONMENTS):
@@ -334,7 +334,7 @@ class EstateMixin:
             return []
         try:
             store = self._store(project, env)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no store means no files listed; logged
             _log.info("No store for this environment's files: %s", describe(exc))
             return []
         if not isinstance(store, OneLakeStore):
@@ -451,7 +451,7 @@ class EstateMixin:
                     return {"id": p["id"], "name": p["name"], "email": p["email"], "type": p["type"] or "User"}
         try:
             token = self.auth._token(GRAPH_USER_SCOPES)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any directory lookup failure becomes one plain instruction
             raise LookupError(f"{text} doesn't have a role in this workspace, and KratosForge can't look people up "
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
@@ -612,7 +612,7 @@ class EstateMixin:
         if library == varlib_mod.LIBRARY:
             try:
                 project = self._project()  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - no metadata project means no notebook variables; logged
                 _log.info("No metadata project for notebook variables: %s", describe(exc))
             else:
                 env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")

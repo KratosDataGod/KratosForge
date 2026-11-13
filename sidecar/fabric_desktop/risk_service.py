@@ -101,7 +101,7 @@ class RiskMixin:
         if cap_client:
             try:
                 caps = {str(c.get("id", "")).lower(): c for c in cap_client.list_capacities() if c.get("id")}
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - any capacity read failure is classified and shown
                 cap_error = capacity_mod.classify_error(exc)
                 if cap_error in ("workspace_no_access", "workspace_not_found"):
                     cap_error = "scope_not_granted"

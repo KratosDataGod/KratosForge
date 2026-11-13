@@ -129,6 +129,8 @@ function redactReport(text, level = "support") {
     .replace(/\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*/g, "[removed]")
     .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "[removed]")
     .replace(/(?:https?:\/\/)?\bhooks\.slack\.com\/(?:services|workflows|triggers)\/[^\s"'<>]+/gi, "[removed]")
+    .replace(/\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}/g, "[removed]")
+    .replace(/(\b(?:ocp-apim-)?subscription[_-]?key"?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
@@ -648,16 +650,16 @@ function whatsNewItems(notes, history) {
 // ---------- Settings page ----------
 
 const MOTION_LEVEL_HELP = ["No decorative effects. Progress, results and errors still show as text and bars.",
-  "Quick page and panel transitions only. No characters or sparks.",
-  "The wolf runs with your work, sparks when it succeeds, the forge strike on deploy. Recommended.",
+  "Quick page and panel transitions, and a short reveal when you earn an achievement. Everyday work stays plain. Recommended.",
+  "Adds the wolf on your runs, sparks when work succeeds and the forge strike on deploy.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
   ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
-// Achievement celebrations (off by default, #361) shows only while Profile (a Preview feature) can
+// Achievement celebrations (on by default) shows only while Profile (a Preview feature) can
 // award something; a switch that does nothing would only confuse.
 const MOTION_ACHIEVEMENTS = ["motion_achievements", "Achievement celebrations",
-  "A short reveal on the message when Profile awards you an achievement. Off unless you turn it on."];
+  "A short reveal on the message when Profile awards you an achievement. On unless you turn it off."];
 const motionFamilies = () => (previewShown() ? [...MOTION_FAMILIES, MOTION_ACHIEVEMENTS] : MOTION_FAMILIES);
 
 function motionSettingsCard(s, locked) {
@@ -667,7 +669,7 @@ function motionSettingsCard(s, locked) {
   const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
     h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
       disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
-    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 2 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 1 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
   const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
       onchange: (e) => save({ [key]: e.target.checked }) }),
@@ -690,8 +692,11 @@ function motionSettingsCard(s, locked) {
       reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Experience mode" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Heroic and Legendary.` : help,
-      toggle(key, label, s[key]?.value ?? key !== "motion_achievements", level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => {
+      const from = key === "motion_achievements" ? 1 : 2;  // achievements play from Subtle, the rest from Heroic
+      return settingRow(label, level < from ? `${help} ${from === 1 ? "Plays at Subtle and above." : "Plays at Heroic and Legendary."}` : help,
+        toggle(key, label, s[key]?.value ?? true, level < from), source(key));
+    }),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
@@ -891,7 +896,8 @@ async function renderSettings() {
   // Advanced (UX-006): what most people never change, folded until opened once.
   const advanced = advancedSection(s, locked, limitRow);
 
-  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
+  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine. Hidden for now
+  // (USAGE_DATA_SHOWN), except while it's on, as a policy file can set it.
   const usage = await usageSection(s);
 
   // Notifications
@@ -1191,11 +1197,21 @@ function sqlSettingsSection(s, locked) {
 
 // ---------- Usage data ----------
 
+// The Usage data card is hidden until there's a need for it: this build has nowhere to send usage data.
+// Set to true to bring the card back. The engine (telemetry.py), the setting and its off default are
+// unchanged. While usage data is on (a policy file can turn it on for everyone) the card shows anyway,
+// so nobody sends it without seeing that it's on and what's sent. A policy-set value stays locked (only the
+// organization changes it); otherwise the switch can always turn it off.
+const USAGE_DATA_SHOWN = false;
+
 const USAGE_WHERE = { kratosbi: "KratosBI's Application Insights", organization: "your organization's Application Insights" };
 
 async function usageSection(s) {
   const u = await rpc("telemetry_status").catch(() => null);
-  if (!u) return null;
+  // Status unreadable while the setting says on: still say it's on, rather than hide it.
+  if (!u) return s.telemetry?.value ? h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),
+    h("p", { class: "muted-text" }, "Usage data is on, but its status couldn't be read. Open Settings again to retry.")) : null;
+  if (!USAGE_DATA_SHOWN && !u.on) return null;
   const locked = s.telemetry?.source === "policy";
   const today = u.waiting.find((w) => w.day === u.today);
   const actions = today ? Object.values(today.features).reduce((n, f) => n + f.count, 0) : 0;
@@ -1204,7 +1220,7 @@ async function usageSection(s) {
     ? `${u.waiting.length} day${u.waiting.length === 1 ? "" : "s"}${today ? `; today so far ${actions} action${actions === 1 ? "" : "s"}, ${failures} failed` : ""}`
     : "Nothing yet";
   const toggle = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: u.on ? true : null,
-    disabled: locked || !u.available ? true : null,
+    disabled: locked || (!u.available && !u.on) ? true : null,  // turning it off is always allowed
     onchange: async (e) => { if (await saveSettings({ telemetry: e.target.checked })) { toast(e.target.checked ? "Usage data on" : "Usage data off; nothing waiting is sent"); render(); } } }),
   h("span", {}, u.on ? "On" : "Off"));
   return h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),
@@ -1360,7 +1376,7 @@ function readinessCard() {
     box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
-        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has and whether it is a network share. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
         results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
         anchor: "ready-to-work",

@@ -1,8 +1,8 @@
-"""The list of files allowed to keep unannotated functions only shrinks.
+"""Every engine function stays annotated.
 
-sidecar/pyproject.toml turns on mypy's disallow_untyped_defs and disallow_incomplete_defs, so new
-code annotates every function. Files written before that are listed in one [[tool.mypy.overrides]]
-section that switches both off. Annotate a file and take it off the list; never add one.
+sidecar/pyproject.toml turns on mypy's disallow_untyped_defs and disallow_incomplete_defs. The files
+written before that were listed in a [[tool.mypy.overrides]] section that switched both off; all of
+them are annotated now and the list is gone. No file may switch the checks off again.
 """
 
 from __future__ import annotations
@@ -13,38 +13,8 @@ from pathlib import Path
 
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
-# The list when it was made (2026-11-07). Entries may be removed from pyproject.toml, never added:
-# remove a file here too once it is off the list, so it can't come back.
-ALLOWED = frozenset({
-    "fabric_desktop.academy._bootstrap",
-    "fabric_desktop.auth",
-    "fabric_desktop.best_practice_checkers",
-    "fabric_desktop.central.service",
-    "fabric_desktop.costs",
-    "fabric_desktop.engines.runtime_worker",
-    "fabric_desktop.fabric_api",
-    "fabric_desktop.jobs",
-    "fabric_desktop.localdata.delta",
-    "fabric_desktop.localdata.discovery",
-    "fabric_desktop.localdata.engine",
-    "fabric_desktop.localdata.projects",
-    "fabric_desktop.meta.engine",
-    "fabric_desktop.meta.project",
-    "fabric_desktop.meta.release",
-    "fabric_desktop.meta.testing",
-    "fabric_desktop.notebook",
-    "fabric_desktop.onelake",
-    "fabric_desktop.orchestration.activities",
-    "fabric_desktop.orchestration.definition",
-    "fabric_desktop.pipeline_service",
-    "fabric_desktop.proof_runtime",
-    "fabric_desktop.proof_spark",
-    "fabric_desktop.schema_cache",
-    "fabric_desktop.spark_hash",
-    "fabric_desktop.sql_templates_service",
-    "fabric_desktop.sqlcompat.rules",
-    "fabric_desktop.xray_service",
-})
+# Files allowed to switch the checks off: none, since every file on the 2026-11-07 list was annotated.
+ALLOWED: frozenset[str] = frozenset()
 
 
 def _config() -> dict:
@@ -69,7 +39,7 @@ def test_new_code_must_annotate_every_function():
 
 def test_the_list_of_unannotated_files_only_shrinks():
     added = sorted(_unannotated() - ALLOWED)
-    assert not added, (f"{added} can't be added to the unannotated list in pyproject.toml: annotate the "
+    assert not added, (f"{added} can't switch off mypy's annotation checks in pyproject.toml: annotate the "
                        "functions mypy reports instead")
 
 

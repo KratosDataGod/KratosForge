@@ -126,7 +126,7 @@ class Transforms:
         if not step.sql:
             raise ValueError("The file has no query.")
         try:
-            trees = [t for t in sqlglot.parse(step.sql, read=step.dialect) if t is not None]
+            trees = [t for t in sql_dialects.parse(step.sql, read=step.dialect) if t is not None]
         except sqlglot.errors.ParseError as exc:
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
         if len(trees) != 1 or not isinstance(trees[0], exp.Query):

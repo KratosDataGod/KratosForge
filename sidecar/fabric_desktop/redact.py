@@ -73,6 +73,10 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"), REMOVED),
     # A Slack incoming webhook or workflow trigger: anyone with the address can post to the channel.
     (re.compile(r"(?i)(?:https?://)?\bhooks\.slack\.com/(?:services|workflows|triggers)/[^\s\"'<>]+"), REMOVED),
+    # A Power BI embed token: gzip'd, base64 text (it starts H4sI), not a JWT, so nothing above finds it.
+    (re.compile(r"\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}"), REMOVED),
+    # An API Management subscription key (Ocp-Apim-Subscription-Key), as a header or name=value.
+    (re.compile(r"(?i)(\b(?:ocp-apim-)?subscription[_-]?key\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1" + REMOVED),
     # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
     # line. Before the quoted-value rules, so a key inside quotes is still found by its BEGIN line.
     (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),
@@ -95,7 +99,8 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
 ]
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
 # "sas" only at either end (sas_url, blob_sas), so names that merely contain the letters stay.
-_SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey", "connectionstring", "authorization")
+_SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey", "subscriptionkey", "connectionstring",
+                "authorization")
 # A guest's sign-in name carries "#EXT#" before the "@" (name_home.com#EXT#@tenant.onmicrosoft.com).
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 # The tenant's own domain, and the organization's name on a OneDrive for Business folder, name the company.

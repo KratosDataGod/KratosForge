@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -895,7 +896,7 @@ class PlatformMixin:
                 try:
                     client.call("ensure_key_table", name=out["target"], business_key=d.get("business_key", ""),
                                 description=d.get("description", "") or out.get("reason", ""))
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 - one environment's failure is listed in problems
                     out.setdefault("problems", []).append(f"{env.title()}: {exc}")
         self._notify_request(out, notices.request_closed)
         return out
@@ -933,11 +934,11 @@ class PlatformMixin:
         requests = catalog.call("list_requests", status="waiting")
         try:
             keys = self._keys_platform(env).call("list_key_tables")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreadable key table is listed in problems
             keys, problems = [], problems + [str(exc)]
         try:
             landing = self.platform_landing(env)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreadable landing area is shown as its problem
             landing = {"sources": [], "problem": str(exc)}
         status = self.platform_status()
         return {"env": env, "me": me, "status": status,
@@ -1397,7 +1398,7 @@ class PlatformMixin:
         (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
-    def _link_table(self, project: Any, env: str):
+    def _link_table(self, project: Any, env: str) -> Callable[[str], str]:
         """For the engine: a link's alias to the OneLake address it reads in ``env``."""
         def resolve(alias: str) -> str:
             link = project.links.get(alias)
@@ -1420,7 +1421,7 @@ class PlatformMixin:
         for link in project.links.values():
             try:
                 out.append({"alias": link.alias, "table": resolve(link.alias), "ok": True})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - one link's failure is shown on that link
                 out.append({"alias": link.alias, "ok": False, "message": str(exc)})
         return out
 
@@ -1434,7 +1435,7 @@ class PlatformMixin:
         try:
             saved = self._catalog().call("enrichment", project=mesh.project_name(project))
             glossary = [t["term"] for t in self._catalog().call("list_glossary")]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - an unreadable glossary is shown as the problem
             saved, glossary, problem = {}, [], str(exc)
         return mesh.merged_catalog(project, e, saved) | {
             "entity": name, "products": mesh.products_of(project, name), "owner": e.spec.get("owner", ""),
@@ -1524,9 +1525,9 @@ class PlatformMixin:
                 if top.get("next", 1) > have.get("next", 1):
                     newer.append(f"{kt.name} (keys {have['next']} to {top['next'] - 1})")
             if newer:
-                raise GateError("save", [f"The platform issued keys after the move that LH_Keys doesn't have: "
+                raise GateError("save", [(f"The platform issued keys after the move that LH_Keys doesn't have: "
                                          f"{', '.join(newer)}. Going back would reuse those numbers, so keys stay "
-                                         "in the platform."])
+                                         "in the platform.")])
         envs = {k: dict(v) for k, v in project.environments.items()}
         envs.setdefault(env, {})["keys"] = "lakehouse"
         envs[env].pop("keys_moved_at", None)

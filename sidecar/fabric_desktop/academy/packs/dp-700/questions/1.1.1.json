@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "Put the libraries in a lakehouse Files folder"
+          "text": "Upload the wheel files to the default lakehouse's Files folder, which Spark loads at session start"
         },
         {
           "id": "b",
-          "text": "Paste the same %pip install cell at the top of every notebook"
+          "text": "Paste the same %pip install and %%configure cells at the top of every notebook in the workspace"
         },
         {
           "id": "c",
@@ -59,10 +59,10 @@
         "d"
       ],
       "explanation": "An environment holds libraries and Spark settings, and choosing it as the workspace default in the workspace's Spark settings applies it to notebooks and Spark job definitions that don't pick another.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/create-and-use-environment",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "1.1.1-q3",
@@ -131,6 +131,197 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.1-q5",
+      "type": "single",
+      "stem": "A data engineer with the Contributor role tries to change the default Spark pool in a workspace's settings but can't. Which workspace role do they need?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Member"
+        },
+        {
+          "id": "b",
+          "text": "Viewer"
+        },
+        {
+          "id": "c",
+          "text": "Contributor with Reshare permission"
+        },
+        {
+          "id": "d",
+          "text": "Admin"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Only workspace admins can change the workspace's Apache Spark settings. Member and Contributor can build items but not change these settings.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.1-q6",
+      "type": "single",
+      "stem": "A workspace admin wants to create a custom Spark pool, but the option isn't available. What must happen first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The workspace admin publishes a default environment that includes the custom pool definition"
+        },
+        {
+          "id": "b",
+          "text": "A capacity admin enables Customized workspace pools in the Spark Compute section of the capacity settings"
+        },
+        {
+          "id": "c",
+          "text": "A Fabric admin assigns the workspace to a domain whose settings allow its workspaces to create custom Spark pools"
+        },
+        {
+          "id": "d",
+          "text": "The workspace admin turns on high concurrency mode for notebooks in the workspace's Spark settings"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Custom pools depend on the capacity-level Customized workspace pools control. Domains, environments and high concurrency don't unlock custom pools.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.1-q7",
+      "type": "multiple",
+      "stem": "A workspace admin turns on Set maximum job lifetime to stop runaway Spark jobs. Which two kinds of work can this setting stop? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A scheduled notebook run started by a pipeline"
+        },
+        {
+          "id": "b",
+          "text": "A Spark job definition run started by a user"
+        },
+        {
+          "id": "c",
+          "text": "A materialized lake view refresh"
+        },
+        {
+          "id": "d",
+          "text": "Platform security and policy enforcement operations"
+        },
+        {
+          "id": "e",
+          "text": "Lakehouse table maintenance such as optimize and vacuum"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "The limit applies only to user-submitted jobs such as notebook runs, including pipeline-orchestrated runs, and Spark job definition runs. System-managed jobs such as table maintenance and materialized lake view refreshes run to completion.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.1-q8",
+      "type": "single",
+      "stem": "Analysts say their interactive notebook sessions expire too soon during long investigations. Where does a workspace admin change how long interactive sessions last?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The retention period in the workspace's OneLake settings"
+        },
+        {
+          "id": "b",
+          "text": "The runtime version in the workspace's default environment"
+        },
+        {
+          "id": "c",
+          "text": "The node size of the starter pool in the Pool tab"
+        },
+        {
+          "id": "d",
+          "text": "The Spark session timeout in the workspace's Jobs settings"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The Jobs settings include a Spark session timeout for all interactive notebook sessions, which defaults to 20 minutes. Node size, runtime and OneLake retention don't control session expiry.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.1-q9",
+      "type": "single",
+      "stem": "A team runs only small Spark workloads and wants the cheapest custom pool where the driver and executor share one node. How do you configure the pool?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set the minimum number of nodes to one"
+        },
+        {
+          "id": "b",
+          "text": "Turn on dynamic allocation with a maximum of zero executors"
+        },
+        {
+          "id": "c",
+          "text": "Choose the XX-Large node size and turn off autoscale"
+        },
+        {
+          "id": "d",
+          "text": "Turn on high concurrency mode and keep the starter pool"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Setting the minimum node count to one creates a single node pool in which the driver and executor run on one node. The other options don't create a single node pool.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-compute",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.1-q10",
+      "type": "single",
+      "stem": "An environment uses Quick mode to install PyPI libraries. A Spark job definition that uses the environment can't import them, but notebooks can. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Quick mode installs only R libraries"
+        },
+        {
+          "id": "b",
+          "text": "Quick mode libraries apply only after the capacity restarts"
+        },
+        {
+          "id": "c",
+          "text": "Quick mode works only with notebooks, not Spark job definitions"
+        },
+        {
+          "id": "d",
+          "text": "Quick mode requires the starter pool to be turned off"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Quick mode installs libraries at session start for notebooks only. Spark job definitions need the libraries in Full mode.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/environment-manage-library",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

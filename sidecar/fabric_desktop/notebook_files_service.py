@@ -72,10 +72,12 @@ class NotebookFilesMixin:
         full = os.path.abspath(path)
         if not full.lower().endswith(".ipynb"):
             return {"name": None}
+        why = None
         for _place, folder in self.notebooks._folders():  # type: ignore[attr-defined]
             top = os.path.abspath(folder)
             if not os.path.normcase(full).startswith(os.path.normcase(top).rstrip("\\/") + os.sep):
                 continue
+            why = why or _long_path_problem(full)  # by its length alone: no file system call
             name = Path(os.path.relpath(full, top)).with_suffix("").as_posix()
             if not _no_link_below(top, full):
                 continue
@@ -85,7 +87,7 @@ class NotebookFilesMixin:
                     return {"name": name}
             except (OSError, ValueError):
                 pass
-        return {"name": None}
+        return {"name": None, "why": why} if why else {"name": None}
 
     def notebook_listing(self) -> list[dict[str, Any]]:
         """Every notebook (as list_notebooks), with the Fabric workspace it was last published to."""
@@ -156,7 +158,7 @@ class NotebookFilesMixin:
             try:
                 self.set_pc_schedule_enabled(sid, True)  # type: ignore[attr-defined]
                 on.append(sid)
-            except (KeyError, ValueError):
+            except (LookupError, ValueError):  # LookupError: local_schedules' "no such schedule"
                 pass  # the schedule was deleted meanwhile
         return out | {"schedules_on": on, "schedules_left_off": left_off}
 
@@ -204,6 +206,22 @@ class NotebookFilesMixin:
         except Exception as exc:  # noqa: BLE001 - the notebook is saved; Publish finds the item by name
             _log.warning("Couldn't record notebook %r's Fabric item: %s", out["name"], describe(exc))
         return out
+
+
+# Windows' limit on a path, unless long paths are turned on for the PC (LongPathsEnabled).
+WINDOWS_PATH_LIMIT = 260
+WINDOWS_LONG_PATH_LIMIT = 32_767  # with long paths turned on; nothing longer can be a file
+
+
+def _long_path_problem(full: str) -> str | None:
+    """Words for the person when a notebook inside a known folder couldn't be opened and its path is
+    past Windows' usual limit, which is what happens on a PC where long paths aren't turned on. By
+    the path's length alone: it never looks at the file system."""
+    if not WINDOWS_PATH_LIMIT <= len(full) <= WINDOWS_LONG_PATH_LIMIT:
+        return None
+    return (f"KratosForge couldn't open it. Its path is {len(full)} characters, past the {WINDOWS_PATH_LIMIT} Windows "
+            "allows unless long paths are turned on: move it to a folder with a shorter path, or ask IT to turn on "
+            "long paths.")
 
 
 def _no_link_below(top: str, full: str) -> bool:

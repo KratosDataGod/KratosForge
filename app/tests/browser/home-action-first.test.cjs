@@ -29,12 +29,12 @@ const order = (p) => p.evaluate(() => [...(document.querySelector(".page.home .h
 test("Start something and Recent notebooks come first, with Continue opening the notebook changed last", { skip }, async () => {
   const p = await home();
   assert.deepStrictEqual((await order(p)).slice(0, 4), ["start", "get-started", "recent", "ready"]);
-  const cont = p.locator(".home-start button.primary");
+  const cont = p.locator(".home-start button.primary, .home-hero-actions button.primary");
   assert.strictEqual(await cont.count(), 1);
   assert.strictEqual((await cont.textContent()).trim(), "Continue: Customers");
   // Every way to start stays.
   for (const label of ["New notebook", "Import from Fabric or Databricks", "New lakehouse", "OneLake catalog"]) {
-    assert.ok(await p.$(`.home-start button:has-text("${label}")`), label);
+    assert.ok(await p.$(`.home-start button:has-text("${label}"), .home-hero-actions button:has-text("${label}")`), label);
   }
   await cont.click();
   await p.waitForFunction(() => state.view === "notebook");
@@ -61,6 +61,6 @@ test("with no notebooks there is no Continue, and New notebook is still there", 
   app = await openApp({ mocks: { list_notebooks: () => [], readiness_check: () => readiness } });
   const p = app.page;
   await p.waitForFunction(() => state.view === "home" && homeCache.done, null, { timeout: 20000 });
-  assert.strictEqual(await p.locator(".home-start button.primary").count(), 0);
-  assert.ok(await p.$('.home-start button:has-text("New notebook")'));
+  assert.strictEqual(await p.locator(".home-start button.primary, .home-hero-actions button.primary").count(), 0);
+  assert.ok(await p.$('.home-start button:has-text("New notebook"), .home-hero-actions button:has-text("New notebook")'));
 });

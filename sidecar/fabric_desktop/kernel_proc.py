@@ -249,8 +249,7 @@ class ProcessKernel:
         code = proc.wait()
         self._close_pipes(proc)
         if proc is self._proc:
-            self._gone(f"The notebook's Python process stopped (exit code {code}), so variables were cleared. "
-                       "The next cell starts a fresh one." if not self._ended else self._ended)
+            self._gone(stopped_text(code) if not self._ended else self._ended)
         for slot in list(self._waiting.values()):
             slot.setdefault("error", {"type": "KernelGone", "message": "The notebook's Python process stopped."})
             slot["done"].set()
@@ -742,7 +741,7 @@ def _parents() -> list[tuple[int, int]]:
                     continue  # it ended while being read
         return pairs
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, errors="replace", timeout=10, check=False).stdout
+        out = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, errors="replace", timeout=10, check=False).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     return [(int(a), int(b)) for a, b in (line.split() for line in out.splitlines() if len(line.split()) == 2)]
@@ -837,6 +836,23 @@ def win_kernel32() -> Any:
     k.CloseHandle.restype = wintypes.BOOL
     k.CloseHandle.argtypes = [wintypes.HANDLE]
     return k
+
+
+# Exit codes a process ends with when this PC runs out of memory: Windows' STATUS_NO_MEMORY and
+# STATUS_COMMITMENT_LIMIT; STATUS_STACK_BUFFER_OVERRUN, the fail fast Rust's abort raises there when
+# an allocation in Polars or delta-rs fails; and SIGABRT (the same abort) and SIGKILL (the OS's
+# out-of-memory killer) elsewhere. Measured: local-performance/out-of-memory.
+_OUT_OF_MEMORY_CODES = {0xC0000017, 0xC000012D, 0xC0000409, -6, -9}
+
+
+def stopped_text(code: int | None) -> str:
+    """What a cell says when the notebook's process ended on its own, with exit code ``code``."""
+    shown = f"0x{code & 0xFFFFFFFF:08X}" if code is not None and (code > 0xFFFF or code < -0xFFFF) else str(code)
+    text = f"The notebook's Python process stopped (exit code {shown}), so variables were cleared."
+    if code is not None and (code in _OUT_OF_MEMORY_CODES or code & 0xFFFFFFFF in _OUT_OF_MEMORY_CODES):
+        text += (" This exit code is what running out of memory gives, so this PC most likely ran out of memory. A "
+                 "Delta table it was writing is left at its last version. Close other apps, or work on less data at once.")
+    return text + " The next cell starts a fresh one."
 
 
 def memory_used(pid: int) -> int | None:

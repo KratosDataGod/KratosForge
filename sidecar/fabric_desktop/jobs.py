@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import runpy
 import tomllib
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,7 +81,7 @@ class Job:
 
 
 @contextmanager
-def _cwd(path: Path):
+def _cwd(path: Path) -> Iterator[None]:
     old = Path.cwd()
     os.chdir(path)
     try:

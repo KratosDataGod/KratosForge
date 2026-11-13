@@ -25,7 +25,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
+| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Optimize (Preview), Monitor, and at the bottom Academy (Preview), Source control (Preview) and Settings. In a window under 640 px tall the rail shows icons only, so every page fits; each one's name shows as a tooltip. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
 | **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). The arrows appear once you have opened a second page, so there is somewhere to go back to. Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
@@ -110,6 +110,8 @@ Home shows **Getting started with KratosForge** under **Start something**: one s
 ## Home
 
 Home answers "what happened since I was last here".
+
+**Living Experience on Home (Preview).** With Preview features on and an **Experience mode** other than **Professional**, Home starts with a hero band: the welcome, with **Continue** and **New notebook**, on the sky of the Kratos and wolf art at left. In a window under 640 px tall the band is one strip with the welcome and its buttons, without the art. In a Windows contrast theme the art is hidden. **Start something** keeps the rest of its buttons. Beside the sections is a **Your progress** panel showing your rank, level, XP to the next level, the checks for the next rank, your latest achievement with its evidence, and your measured Forge stats. Capacity shows **Not measured**. The panel's hide button puts it away, and the link at the top of Home shows it again. With **Settings > Developer progression** off, the panel isn't shown. In Professional mode, or with Preview features off, Home is the plain page described below.
 
 Home shows as soon as the app opens. While KratosForge checks its components and looks for a newer build, Home reads "Starting the local engine..." with placeholders, and the **Start something** buttons wait. When the check is done, each section fills in. If the check takes more than a moment, or something needs updating or fixing, the **Checking components** window opens on top.
 
@@ -491,6 +493,18 @@ Click a pipeline run to see its activities underneath: each one's status, its ty
 
 **Runs** also lists pipeline, copy job and dataflow runs in Fabric, from the run history of those items in the workspaces Monitor > Fabric > Schedules lists: pinned workspaces, your environments' workspaces and your notebooks' workspaces. They say **Pipeline run in Fabric**, how they were started (scheduled, by hand, or by another pipeline) and the workspace under **Ran on**. A run this app started is listed once. Copy job and dataflow runs say **Copy job run in Fabric** and **Dataflow refresh in Fabric**, and clicking one opens it in Fabric. Reading that history runs in the background, so Runs first says **Reading pipeline, copy job and dataflow runs in Fabric...** and fills in when it's done; after that it shows what it read until you press **Refresh**, and each row says **as of** when it was read. A run that was still going when it was read more than 10 minutes ago shows **Stale** instead of **Running**; with **Problems first**, Stale and Unknown rows come after real failures. Click a Fabric pipeline run to see its activities, read from Fabric when you open it and again only after **Refresh**: each one's status, type, start, how long it took and its error, with **Input** and **Output** to open. Secrets are removed from them, and a very long one is cut short. If your account can't read a run's activities, the row says **Not authorized to read activities**. **Open in Fabric** opens the pipeline in Fabric. All of this only reads: it starts no Fabric job and uses no capacity.
 
+### Run progress in Monitor (Preview)
+
+**Runs** shows today's counts in the page header: **Running now**, **Succeeded today**, **Failed today**, and **Ran on this PC (24 h)**, how many of the runs in the last day ran here rather than in Fabric. Succeeded and failed count by when a run ended, so one that ran past midnight counts today. They are counted from the runs the page read, whatever the filters, so they cover the same runs as the table.
+
+Above the table, a panel has a lane for each of the three most recent running runs. Untick **Run progress** on the view row to hide it; your choice lasts for the session. A lane says what the run is doing in words, and only real progress moves:
+
+- **Run all** in a notebook on this PC shows **Running, cell N of M** with a bar.
+- A run in Fabric shows a still ring and **Waiting on Fabric**, with the time since it started. Fabric doesn't report how far along it is, so there is no bar.
+- Any other run shows **Running, total not known yet** and the elapsed time only.
+
+More than three running runs adds **N more running, see the table below**. When nothing is running, the panel shows the last run that finished in the past ten minutes (**Last run succeeded** or **Last run failed**); otherwise it says **Nothing running**. The table stays the full record.
+
 ### Pop-out windows (Preview)
 
 **Pop out runs** (top right on the KratosForge tab) and **Pop out hub** (top right on the Fabric tab) open that section in a window of its own, to keep on another screen while you build a notebook or work elsewhere in the app. Monitor then shows a band for it, with **Show window** (brings the window forward) and **Dock back**.
@@ -649,7 +663,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
-| **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
+| **Usage data** (Preview) | Hidden for now: usage data is off and this build sends nothing. It shows only while usage data is on, such as when your organization's policy turns it on, with **See what's sent**. When the policy sets it, only your organization can turn it off. See [Usage data](telemetry.md). |
 | **Notifications** | **Incident alerts**: send new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, a Power Automate flow (`flow:https://...`) or email (`mailto:a@x;b@y`, through the company mail server), unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels, Power Automate flows or email for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, **Save support bundle** (a zip with the engine's log and where each setting comes from, with the same details taken out, saved to a folder you choose and never sent from the app), the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 | **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
@@ -790,7 +804,9 @@ Each line says:
 | --- | --- |
 | `at`, `seconds` | When it started (UTC) and how long it took |
 | `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
-| `reason` | Only when an action ended without an error message but didn't do what was asked: `refused`, `busy`, `policy`, `preview`, `invalid`, `partial` (some of it failed) or `failed`. A metadata run reads the same whether the app, a schedule on this PC or the agent started it |
+| `started` lines | Actions given a confirmation, an approval, a typed name, a risk-check acknowledgement or an override, actions aimed at the Prod environment, and Prod changes such as promote, rollback, restore, vacuum and accepting a shortcut risk, get a line with `outcome` `started` before they run, then their usual line after. If that first line can't be written (a full disk, a locked file), the action doesn't run and says why. Everything else still runs when its line can't be written |
+| `reason` | Only when an action ended without an error message but didn't do what was asked: `refused`, `busy`, `policy`, `preview`, `invalid`, `partial` (some of it failed), `failed` or `cancelled`. A metadata run that fails gets an `error` outcome whether the app, a schedule on this PC or the agent started it (the reason can differ: a schedule records `failed`) |
+| `pipeline_run_finished`, `fabric_run_finished` | A pipeline run on this PC, and a Fabric job this app started, get a second line when they end, with `ok`, or `error` with reason `failed`, `cancelled` or `refused` (Fabric didn't run a duplicate submission), the run's id and final state, and how long it took, so the trail says how they ended and not only that they started. A Fabric job's line is written when the app next checks the job's status and sees it ended, so a job that ends while the app is closed gets its line later. Notebook cells have no finished line |
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
@@ -808,5 +824,15 @@ fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 ```
 
 Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too. Each audited action writes `head.json` to disk (a small extra write and flush next to the line itself). Once you've looked into a reported gap (for example, the files were restored from an older backup on purpose), clear it by deleting `head.json`: the next write starts a new one from the trail as it is, and `--verify` stops reporting the gap.
+
+To hand the trail to IT or an auditor as a copy they can check without this PC:
+
+```powershell
+fabric-desktop audit --export D:\handover\audit.jsonl --since 2026-10-01   # from 1 October on; all of it without --since
+fabric-desktop audit --verify-export D:\handover\audit.jsonl               # exit code 1 if anything in it changed
+fabric-desktop audit --verify-export D:\handover\audit.jsonl --folder "%LOCALAPPDATA%\FabricDesktop\audit"
+```
+
+`--export` copies the lines as they are, with no gaps, so the copy is a chain of its own, and writes `audit.jsonl.manifest.json` next to it: the line count, the first line's `prev`, the last line's `hash`, the file's SHA-256 and `trail_head` (the trail's `head.json` at the time). `--verify-export` checks the file against the manifest and every line against the one before, so a changed, deleted, reordered or added line fails, and so does a file cut short. The two files prove the copy wasn't changed after export, not where it came from: anyone could build a new file and a manifest that agree. Give `--folder` (the trail it came from) to check that its lines are that trail's own, or keep the manifest's `last_hash` somewhere the copy's holder can't change: lines cut from the end of a copy, with its manifest rebuilt to match, look like an earlier export even against the trail. `--export` refuses to save inside the audit folder it copies, where the copy would replace a month's file or be read as part of the trail, and won't replace an earlier export unless you add `--replace`. `--since` takes a date (`YYYY-MM-DD`) or an ISO time, in UTC unless it has an offset; anything else is refused. Exporting this PC's trail (with or without `--folder`) adds an `audit_export` line to it (after the copy, so not in it) with `since`, the line count and the copy's SHA-256. The integrations trail exports the same way with its own `--folder`, and an agent's with `--agent-home` ([The agent's audit trail](agent.md#the-agents-audit-trail)).
 
 The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

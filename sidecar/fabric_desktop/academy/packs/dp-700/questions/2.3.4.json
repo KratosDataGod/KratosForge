@@ -71,11 +71,11 @@
       "options": [
         {
           "id": "a",
-          "text": "project Payload.temperature AS FLOAT"
+          "text": "extend Temperature = Payload.temperature | project Temperature = Temperature AS FLOAT"
         },
         {
           "id": "b",
-          "text": "summarize Temperature = Payload"
+          "text": "summarize Temperature = Payload | extend Temperature = toreal(Temperature)"
         },
         {
           "id": "c",
@@ -83,7 +83,7 @@
         },
         {
           "id": "d",
-          "text": "where Payload contains temperature"
+          "text": "where Payload contains \"temperature\" | project Temperature = Payload"
         }
       ],
       "answer": [
@@ -91,9 +91,9 @@
       ],
       "explanation": "parse_json turns JSON text into a dynamic value whose properties can be read, and toreal converts the property to a number.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/parse-json-function",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.4-q4",
@@ -181,11 +181,11 @@
       "options": [
         {
           "id": "a",
-          "text": "summarize count() by bin(Timestamp, 1m)"
+          "text": "summarize count() by bin(Timestamp, 1m), DeviceId | order by Timestamp"
         },
         {
           "id": "b",
-          "text": "extend Minute = bin(Timestamp, 1m)"
+          "text": "extend Minute = bin(Timestamp, 1m) | summarize count() by Minute"
         },
         {
           "id": "c",
@@ -201,9 +201,9 @@
       ],
       "explanation": "make-series produces a value for every step in the range and fills missing steps with the default. summarize returns only the bins that have rows.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/make-series-operator",
-      "version": 1,
+      "version": 2,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.4-q7",
@@ -212,7 +212,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Add distinct * to every dashboard query"
+          "text": "Add a distinct * operator to the start of every dashboard query that reads the table"
         },
         {
           "id": "b",
@@ -224,17 +224,17 @@
         },
         {
           "id": "d",
-          "text": "Delete duplicates with a scheduled .purge command"
+          "text": "Delete duplicates every hour with a scheduled .purge command on the table"
         }
       ],
       "answer": [
         "b"
       ],
       "explanation": "A deduplicating materialized view is computed once and kept current, so every query can read it. Repeating distinct in each query repeats the work, and purge is a costly removal meant for compliance.",
-      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
-      "version": 1,
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-use-cases",
+      "version": 3,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
     },
     {
       "id": "2.3.4-q8",
@@ -243,11 +243,11 @@
       "options": [
         {
           "id": "a",
-          "text": "| project-away TempDc"
+          "text": "| project-away TempDc | where isnotempty(TempC)"
         },
         {
           "id": "b",
-          "text": "| where isnotnull(TempC)"
+          "text": "| where isnotnull(TempC) | extend Temp = todouble(TempC)"
         },
         {
           "id": "c",
@@ -255,7 +255,7 @@
         },
         {
           "id": "d",
-          "text": "| extend Temp = TempDc"
+          "text": "| extend Temp = iff(isnull(TempC), todouble(TempDc), TempC)"
         }
       ],
       "answer": [
@@ -263,9 +263,200 @@
       ],
       "explanation": "coalesce takes the first non-empty value, and the new column is converted back to degrees. Filtering hides the devices, and using TempDc as-is shows ten times the temperature.",
       "source": "https://learn.microsoft.com/en-us/kusto/query/coalesce-function",
+      "version": 2,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q9",
+      "type": "single",
+      "stem": "An update policy parses a raw KQL table into a clean table. In production, a transient failure of the policy must never leave the clean table missing rows that reached the raw table. How should you set the policy?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set PropagateIngestionProperties to true"
+        },
+        {
+          "id": "b",
+          "text": "Define a second update policy with the same query"
+        },
+        {
+          "id": "c",
+          "text": "Set IsTransactional to true"
+        },
+        {
+          "id": "d",
+          "text": "Set IsEnabled to false and run the query on a schedule"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "With IsTransactional true, a failed policy means data is ingested into neither table, so the two stay consistent. With the default false, data can land only in the source table.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
       "version": 1,
       "status": "live",
-      "reviewed": "2026-11-03"
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q10",
+      "type": "single",
+      "stem": "Raw JSON lands in a staging KQL table, and an update policy writes the parsed rows to a target table. The raw rows aren't needed after parsing. What should you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A materialized view over the source table with take_any"
+        },
+        {
+          "id": "b",
+          "text": "A `.set-or-replace` command that empties the source after each ingestion"
+        },
+        {
+          "id": "c",
+          "text": "A soft-delete period of 0 seconds on the target table, with a non-transactional policy"
+        },
+        {
+          "id": "d",
+          "text": "A soft-delete period of 0 seconds on the source table, with a transactional update policy"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Set the source table's soft-delete period to 0 seconds; when you do, any update policy that references it must be transactional.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q11",
+      "type": "single",
+      "stem": "You need an update policy that moves parsed rows from RawEvents into CleanEvents. On which table do you define the policy?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Both tables, with matching policies"
+        },
+        {
+          "id": "b",
+          "text": "CleanEvents, the target table"
+        },
+        {
+          "id": "c",
+          "text": "RawEvents, the source table"
+        },
+        {
+          "id": "d",
+          "text": "The database, as a database-level policy"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The update policy is defined on the target table and names the source table in its Source property.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q12",
+      "type": "single",
+      "stem": "A dashboard queries a materialized view of the latest reading per device. It can tolerate results a few minutes old and needs the fastest queries. How should it query the view?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`external_table(\"LatestReadings\")`"
+        },
+        {
+          "id": "b",
+          "text": "`LatestReadings | union SourceReadings`"
+        },
+        {
+          "id": "c",
+          "text": "`materialized_view(\"LatestReadings\")`"
+        },
+        {
+          "id": "d",
+          "text": "`LatestReadings`"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "materialized_view() queries only the materialized part, which is always faster but might miss the newest records. Querying by name also processes the delta.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q13",
+      "type": "single",
+      "stem": "An update policy calls a function that uses the join operator, and the eventhouse has default settings. What must you change for the policy to work?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Move the source table into a different database"
+        },
+        {
+          "id": "b",
+          "text": "Replace the function with a materialized view"
+        },
+        {
+          "id": "c",
+          "text": "Set IsTransactional to false"
+        },
+        {
+          "id": "d",
+          "text": "Disable the streaming ingestion policy on the table"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Streaming ingestion is enabled by default on eventhouse tables, and an update policy that uses join requires it to be disabled. Source and target must also be in the same database.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q14",
+      "type": "multiple",
+      "stem": "Which two statements about KQL update policies are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The target table must have exactly the same schema as the source table"
+        },
+        {
+          "id": "b",
+          "text": "The policy runs on a schedule, independently of ingestion"
+        },
+        {
+          "id": "c",
+          "text": "Only one update policy can be defined on a table"
+        },
+        {
+          "id": "d",
+          "text": "The source and target tables must be in the same database"
+        },
+        {
+          "id": "e",
+          "text": "The policy query can't make callouts by using a plugin"
+        }
+      ],
+      "answer": [
+        "d",
+        "e"
+      ],
+      "explanation": "Source and target must share a database, and the query can't call plugins. Targets can have a different schema, policies run when data is ingested into the source, and several policies can be defined on a table.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-07"
     }
   ]
 }

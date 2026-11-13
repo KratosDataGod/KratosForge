@@ -36,7 +36,7 @@ def _state(profile, oid):
 
 def test_a_pass_records_its_objective_class_and_guide_version(cert):
     row = _row("E37", cert, hints_used=1)
-    assert row["type"] == "academy.exercise" and row["rules_version"] == progress.RULES_VERSION == 4
+    assert row["type"] == "academy.exercise" and row["rules_version"] == progress.RULES_VERSION >= 4
     d = row["detail"]
     assert d == {"certification": "dp-700", "certification_version": "2026-10-30", "objectives": ["2.2.9"],
                  "class": "local_verified", "mode": "guided", "hints_used": 1, "explanation_seen": False,

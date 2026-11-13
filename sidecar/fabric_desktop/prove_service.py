@@ -18,6 +18,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -274,7 +275,19 @@ class ProveMixin:
         info = self.notebooks.extra(name, "replay")  # type: ignore[attr-defined]
         if not info:
             raise LookupError(f"{name} isn't a replay notebook.")
-        return info, replay.read(self.root / "replays" / f"{info['bundle']}.zip")
+        return info, replay.read(self._replay_copy(info, name))
+
+    def _replay_copy(self, info: dict[str, Any], name: str = "") -> Path:
+        """The app's copy of a replay's bundle, marked as used: the retention sweep (retention.py) keeps a
+        copy used within its days. One the sweep already removed is a LookupError saying what to do."""
+        path = self.root / "replays" / f"{info['bundle']}.zip"
+        try:
+            os.utime(path)
+        except FileNotFoundError:
+            raise LookupError(f"The app's copy of this replay's bundle is gone: copies unused for a while are "
+                              f"deleted from this PC. Open the bundle again ({info.get('notebook') or name}) "
+                              f"to replay it.") from None
+        return path
 
     def _replay_live(self) -> dict[str, Any] | None:
         """The replay holding the kernel, while its process (with the runtime bound) still runs."""
@@ -441,7 +454,7 @@ class ProveMixin:
 
         import pyarrow.parquet as pq
         from deltalake import write_deltalake
-        path = self.root / "replays" / f"{info['bundle']}.zip"
+        path = self._replay_copy(info)
         bundle = replay.read(path)
         with zipfile.ZipFile(path) as z:
             for s in bundle.get("samples") or []:
@@ -685,7 +698,7 @@ class ProveMixin:
             f = record["fabric"]
             try:
                 self.fabric_jobs.cancel_job(f["workspace_id"], f["item_id"], f["job_id"])  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a cancel that fails is recorded on the run
                 record["message"] = f"Couldn't cancel the Fabric run: {exc}"
         return {"cancelled": True}
 
@@ -875,7 +888,7 @@ class ProveMixin:
         data = None
         try:
             data = self._proof_read_file(lakehouse_ref, f"{PROOF_ROOT}/{record['id']}/fabric/log.json")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a log that can't be read is recorded on the finding
             f["log_problem"] = f"The Fabric run's log couldn't be read: {exc}"
         if not data:
             f.setdefault("log_problem", "The Fabric run didn't save its log (it stops at a failing cell).")

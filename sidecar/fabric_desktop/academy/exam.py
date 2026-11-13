@@ -274,10 +274,13 @@ def _parse(stamp: str | None) -> dt.datetime | None:
 
 def build(bank: dict[str, Any], *, cert_version: str, objectives: list[str] | None = None,
           count: int | None = None, minutes: int | None = None, seed: int | None = None,
-          kind: str = "practice", now: dt.datetime | None = None) -> dict[str, Any]:
+          kind: str = "practice", now: dt.datetime | None = None,
+          history: dict[str, str] | None = None) -> dict[str, Any]:
     """A new, paused session. Questions are spread evenly over ``objectives`` (all the bank's when None),
     up to ``count`` (all of them when None). Questions sharing a case study sit together. ``minutes`` None
-    is untimed. The same bank and seed give the same questions, order and option orders."""
+    is untimed. ``history`` (from ``history()``) makes a retake draw, within each objective, questions the
+    learner hasn't seen first, then ones they got wrong, then ones they got right. The same bank, seed and
+    history give the same questions, order and option orders."""
     if kind not in KINDS:
         raise ExamError(f"An exam is one of {', '.join(KINDS)}")
     if minutes is not None and (not isinstance(minutes, int) or not 1 <= minutes <= MAX_MINUTES):
@@ -291,7 +294,12 @@ def build(bank: dict[str, Any], *, cert_version: str, objectives: list[str] | No
             by_objective.setdefault(q["objective"], []).append(qid)
     if not by_objective:
         raise ExamError("There are no questions for those objectives yet")
-    pools = {o: rng.sample(ids, len(ids)) for o, ids in sorted(by_objective.items())}
+    rank = {"wrong": 1, "right": 2}
+    seen = history or {}
+    # Each pool is popped from the end, so the questions to ask first go last: a stable sort keeps the
+    # random order within each group.
+    pools = {o: sorted(rng.sample(ids, len(ids)), key=lambda q: -rank.get(seen.get(q, ""), 0))
+             for o, ids in sorted(by_objective.items())}
     order = list(pools)
     rng.shuffle(order)
     total = sum(len(v) for v in pools.values())
@@ -528,6 +536,18 @@ def review(session: dict[str, Any], bank: dict[str, Any]) -> list[dict[str, Any]
     return out
 
 
+def history(sessions: list[dict[str, Any]]) -> dict[str, str]:
+    """What a learner has done with each question in their finished exams: ``"wrong"`` when any attempt
+    got it wrong (until a later attempt gets it right), else ``"right"``. Questions never asked aren't listed."""
+    out: dict[str, str] = {}
+    done = [s for s in sessions if s.get("status") == "finished" and isinstance(s.get("result"), dict)]
+    for s in sorted(done, key=lambda s: str(s.get("finished_at"))):
+        for r in s["result"].get("items") or []:
+            if isinstance(r, dict) and isinstance(r.get("q"), str):
+                out[r["q"]] = "right" if r.get("correct") else "wrong"
+    return out
+
+
 def evidence_row(session: dict[str, Any]) -> dict[str, Any]:
     """The ``academy.assessment`` evidence row for a finished exam: certification and version, correct and
     total by objective, the question ids and versions, and the time taken. Never the answers."""
@@ -567,6 +587,20 @@ class ExamStore:
             raise ExamError("That exam file isn't one KratosForge can open")
         session["running"] = False   # the clock restarts only when the screen resumes it
         return session
+
+    def finished(self, pack: str) -> list[dict[str, Any]]:
+        """Every finished exam for ``pack`` on this PC, in full. Unreadable files are skipped."""
+        out = []
+        for f in self.root.glob("*.json") if self.root.is_dir() else []:
+            if not _SESSION.match(f.stem):
+                continue
+            try:
+                s = _read_json(f)
+            except ValueError:
+                continue
+            if isinstance(s, dict) and s.get("pack") == pack and s.get("status") == "finished":
+                out.append(s)
+        return out
 
     def list(self) -> list[dict[str, Any]]:
         """Summaries of saved exams, newest first."""

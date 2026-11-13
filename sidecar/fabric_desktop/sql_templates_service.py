@@ -137,7 +137,8 @@ class SqlTemplatesMixin:
             raise ValueError(f"That {what} file is a link to somewhere else, so it isn't used.")
         return path
 
-    def _sql_files(self, folder: str = FOLDER, mine: str = "My templates", what: str = "templates"):
+    def _sql_files(self, folder: str = FOLDER, mine: str = "My templates", what: str = "templates"
+                   ) -> tuple[list[dict[str, Any]], list[tuple[dict[str, Any], Path]], list[str]]:
         """(places, [(place, file)], notes): the .sql files in every place, links and all but the
         first MAX_PER_PLACE by name left out, with a note for each place that was skipped or cut."""
         places, found, notes = self._template_places(folder, mine), [], []

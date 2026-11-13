@@ -30,22 +30,22 @@ def role_problems(workspace: str, assignments: list[dict[str, Any]] | None, me: 
     error. A role through a group, or a guest whose id differs in this tenant, can't be seen here,
     so those are notes."""
     if error is not None or assignments is None:
-        return [], [f"Couldn't read who has access to {workspace} ({error}); Fabric refuses the promote "
-                    "if you can't write there."]
+        return [], [(f"Couldn't read who has access to {workspace} ({error}); Fabric refuses the promote "
+                    "if you can't write there.")]
     people = [principal(a.get("principal") or {}) | {"role": a.get("role")} for a in assignments]
     mine = [p["role"] for p in people if {str(p["id"] or "").lower(), p["email"].lower()} & me]
     if any(r in WRITE_ROLES for r in mine):
         return [], []
     if not mine:
-        return [], [f"Couldn't find you in {workspace}'s access list; if your role there comes through a group "
-                    "it isn't listed. Fabric refuses the promote if you can't write there."]
+        return [], [(f"Couldn't find you in {workspace}'s access list; if your role there comes through a group "
+                    "it isn't listed. Fabric refuses the promote if you can't write there.")]
     if any(p["type"] == "Group" for p in people):
-        return [], [f"You're a {mine[0]} in {workspace}; promoting needs Contributor or higher, unless a group "
-                    "you're in gives you that."]
+        return [], [(f"You're a {mine[0]} in {workspace}; promoting needs Contributor or higher, unless a group "
+                    "you're in gives you that.")]
     admins = sorted(p["name"] for p in people if p["role"] == "Admin" and p["type"] == "User")
     ask = f" Ask one of its Admins ({', '.join(admins[:3])}) to make you a Contributor." if admins else ""
-    return [f"You're a {mine[0]} in {workspace}; promoting writes tables there, which needs Contributor or "
-            f"higher.{ask}"], []
+    return [(f"You're a {mine[0]} in {workspace}; promoting writes tables there, which needs Contributor or "
+            f"higher.{ask}")], []
 
 
 def separation_problem(source_env: str, target_env: str, version: Any, promoted_by: str | None,

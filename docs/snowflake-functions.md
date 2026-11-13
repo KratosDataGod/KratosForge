@@ -21,10 +21,10 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 161 |
-| Differs | 21 |
+| Runs | 167 |
+| Differs | 20 |
 | Refused | 81 |
-| Fails | 5 |
+| Fails | 0 |
 | Not checked | 227 |
 | **All** | **495** |
 
@@ -439,11 +439,11 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CONDITIONAL_CHANGE_EVENT` | Fails | DuckDB has no CONDITIONAL_CHANGE_EVENT, and the rules don't rewrite it |
-| `CONDITIONAL_TRUE_EVENT` | Fails | DuckDB has no CONDITIONAL_TRUE_EVENT, and the rules don't rewrite it |
-| `INTERPOLATE_BFILL` | Fails | DuckDB has no INTERPOLATE_BFILL, and the rules don't rewrite it |
-| `INTERPOLATE_FFILL` | Fails | DuckDB has no INTERPOLATE_FFILL, and the rules don't rewrite it |
-| `INTERPOLATE_LINEAR` | Fails | DuckDB has no INTERPOLATE_LINEAR, and the rules don't rewrite it |
+| `CONDITIONAL_CHANGE_EVENT` | Runs | 3 value checks |
+| `CONDITIONAL_TRUE_EVENT` | Runs | 3 value checks |
+| `INTERPOLATE_BFILL` | Runs | 1 value check |
+| `INTERPOLATE_FFILL` | Runs | 1 value check |
+| `INTERPOLATE_LINEAR` | Runs | 1 value check; labelled SFD-011 INTERPOLATE_LINEAR gives a DOUBLE |
 | `RATIO_TO_REPORT` | Runs | 5 value checks |
 | `CUME_DIST` | Not checked |  |
 | `DENSE_RANK` | Not checked |  |
@@ -551,7 +551,7 @@ the known differences in more detail.
 | `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
 | `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
 | `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |
-| `LATERAL FLATTEN` | Differs | `SELECT f.value FROM t, LATERAL FLATTEN(input => PARSE_JSON('[1, 2]')) f` | SFD-005 FLATTEN rows and keys |
+| `LATERAL FLATTEN` | Runs |  | 5 value checks |
 | `SAMPLE` | Not checked | `SELECT * FROM t SAMPLE (50)` |  |
 | `MATCH_RECOGNIZE` | Refused | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | MATCH_RECOGNIZE. DuckDB has no row pattern matching. |
 | `GENERATOR` | Not checked | `SELECT SEQ4() FROM TABLE(GENERATOR(ROWCOUNT => 3))` |  |

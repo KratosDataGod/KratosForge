@@ -36,7 +36,8 @@ Keys:
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     ui_skin          the platform skin's id (skins.py): "kratosforge" (default) or another built-in or
                      saved skin. A skin is appearance and page arrangement only
-    ui_color_mode    "skin" (default), "light" or "dark": saved, not applied yet (the app uses the skin's light colors)
+    ui_color_mode    "skin" (default), "light" or "dark": the app's color mode (skins.js colorMode); a policy value
+                     applies even with Preview features hidden
     learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
                      findings, About and Dismiss; "professional" (default) adds a line on why and
                      Explain and Show example on request; "guided" opens Explain, adds the lesson

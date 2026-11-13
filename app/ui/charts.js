@@ -195,7 +195,7 @@ function chartSvg(d, cfg) {
     const y = axis(Math.min(0, ...ys), Math.max(0, ...ys));
     const order = [...new Set(d.points.map((p) => p[2]))];
     d.points.forEach(([px, py, s]) => svg.append(tip(el("circle", { cx: L + (plotW * (px - xMin)) / xSpan, cy: y(py), r: 4,
-      fill: chartColor(s, Math.max(0, order.indexOf(s))), stroke: "#fff", "stroke-width": 1 }), `${s !== null ? `${s}: ` : ""}${fmt(px)}, ${fmt(py)}`)));
+      fill: chartColor(s, Math.max(0, order.indexOf(s))), class: "chart-edge", stroke: "#fff", "stroke-width": 1 }), `${s !== null ? `${s}: ` : ""}${fmt(px)}, ${fmt(py)}`)));
     svg.append(el("text", { x: L, y: H - 8, class: "chart-label" }, fmt(xMin)),
       el("text", { x: W - R, y: H - 8, "text-anchor": "end", class: "chart-label" }, fmt(xMin + xSpan)));
     return svg;
@@ -208,8 +208,8 @@ function chartSvg(d, cfg) {
       const cx = L + step * (i + 0.5);
       const g = tip(el("g", {}), `${b.x}: min ${fmt(b.min)}, Q1 ${fmt(b.q1)}, median ${fmt(b.median)}, Q3 ${fmt(b.q3)}, max ${fmt(b.max)} (${b.n.toLocaleString()} rows)`);
       g.append(el("line", { x1: cx, x2: cx, y1: y(b.max), y2: y(b.min), stroke: CHART_COLORS[0], "stroke-width": 2 }),
-        el("rect", { x: cx - bw / 2, y: y(b.q3), width: bw, height: Math.max(1, y(b.q1) - y(b.q3)), rx: 2, fill: "#e9eef7", stroke: CHART_COLORS[0], "stroke-width": 2 }),
-        el("line", { x1: cx - bw / 2, x2: cx + bw / 2, y1: y(b.median), y2: y(b.median), stroke: "#12264a", "stroke-width": 2 }));
+        el("rect", { x: cx - bw / 2, y: y(b.q3), width: bw, height: Math.max(1, y(b.q1) - y(b.q3)), rx: 2, class: "chart-box", fill: "#e9eef7", stroke: CHART_COLORS[0], "stroke-width": 2 }),
+        el("line", { x1: cx - bw / 2, x2: cx + bw / 2, y1: y(b.median), y2: y(b.median), class: "chart-median", stroke: "#12264a", "stroke-width": 2 }));
       svg.append(g);
     });
     xLabels(d.boxes.map((b) => b.x), step);
@@ -230,7 +230,7 @@ function chartSvg(d, cfg) {
       const p = (a) => `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
       const path = slices.length === 1 ? `M${cx - r},${cy}a${r},${r} 0 1,0 ${2 * r},0a${r},${r} 0 1,0 ${-2 * r},0`
         : `M${cx},${cy}L${p(a0)}A${r},${r} 0 ${large} 1 ${p(a1)}Z`;
-      svg.append(tip(el("path", { d: path, fill: chartColor(String(c), i), stroke: "#fff", "stroke-width": 2 }),
+      svg.append(tip(el("path", { d: path, fill: chartColor(String(c), i), class: "chart-edge", stroke: "#fff", "stroke-width": 2 }),
         `${c ?? "null"}: ${fmt(v)} (${((100 * v) / total).toFixed(1)}%)`));
       a0 = a1;
     });
@@ -272,7 +272,7 @@ function chartSvg(d, cfg) {
         svg.append(el("path", { d: `${line}L${last[0]},${y(0)}L${first[0]},${y(0)}Z`, fill: color, "fill-opacity": 0.18 }));
       }
       if (line) svg.append(el("path", { d: line, fill: "none", stroke: color, "stroke-width": 2 }));
-      pts.forEach((p, i) => { if (p) svg.append(tip(el("circle", { cx: p[0], cy: y(p[1]), r: 4, fill: color, stroke: "#fff", "stroke-width": 2 }), label(cats[i], s, s.values[i]))); });
+      pts.forEach((p, i) => { if (p) svg.append(tip(el("circle", { cx: p[0], cy: y(p[1]), r: 4, fill: color, class: "chart-edge", stroke: "#fff", "stroke-width": 2 }), label(cats[i], s, s.values[i]))); });
     });
   }
   xLabels(cats, step);

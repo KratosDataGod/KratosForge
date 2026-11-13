@@ -1410,7 +1410,8 @@ class Kernel:
             self._emit(run, {"type": "stream", "text": text})
             return "ok"
         try:
-            from . import spark_local
+            from . import spark_local, spark_sql_params
+            query = spark_sql_params.bind_widgets(query, getattr(namespace.get("dbutils"), "widgets", None))
             result = spark_local.session().sql(query)
             if result is not None and result.columns:
                 if magics.returns_rows(query):  # DDL comes back as an empty frame; that isn't a result
@@ -1430,7 +1431,9 @@ class Kernel:
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
-            return self._sql_value(line)
+            from . import spark_sql_params
+            return self._sql_value(spark_sql_params.bind_widgets(
+                line, getattr(self.namespace.get("dbutils"), "widgets", None)))
         if name in ("system", "sx", "sh"):
             from . import shell
             code, lines = shell.system(shell.expand(line, self.namespace),

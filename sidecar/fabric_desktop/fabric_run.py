@@ -313,8 +313,6 @@ _FABRIC_ONLY = [
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 # MERGE INTO, UPDATE and DELETE run on this PC (spark_local.py, PB-015), into the attached lakehouse.
 _SQL_CHANGE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
-# A MERGE, by SQL or by DeltaTable's merge builder: what turning on autoMerge changes.
-_MERGE = re.compile(r"\bMERGE\s+INTO\b|\.merge\(", re.I)
 # A spark.sql call on a plain string literal (an f-string's text isn't known until it runs).
 _SPARK_SQL_LITERAL = re.compile(r"""\bspark\.sql\(\s*(?P<lit>[rRuU]?(?P<q>\"\"\"|'''|"|')(?:\\.|(?!(?P=q)).)*(?P=q))""", re.S)
 
@@ -840,8 +838,6 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     sessions = _sessions(values)
     from . import spark_local
     refused_code = _FABRIC_ONLY + spark_local.REFUSED_CODE
-    if any(_MERGE.search(c.get("source", "")) for c in cells if c.get("type") != "markdown"):
-        refused_code = [*refused_code, (spark_local.AUTO_MERGE_CODE, spark_local.AUTO_MERGE_TEXT)]
     for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():

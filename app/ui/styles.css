@@ -3414,7 +3414,6 @@ body[data-skin-header="brand"] .topbar .search input { color: var(--on-accent); 
 body[data-skin-header="brand"] .topbar .search input::placeholder { color: var(--on-accent); opacity: .85; }
 body[data-skin-header="brand"] .topbar .search kbd { background: transparent; border-color: var(--on-accent); color: var(--on-accent); }
 body[data-skin-header="brand"] .topbar .avatar { background: var(--surface); color: var(--accent-dark); }
-/* The lettering is navy and orange: on the accent bar it draws in one light color so it stays legible. */
 /* The brand lettering is never recolored: on a brand bar the name shows as text instead. */
 body[data-skin-header="brand"] .topbar .brand-name { display: none; }
 body[data-skin-header="brand"] .topbar .brand-text { display: inline; color: var(--on-accent); }

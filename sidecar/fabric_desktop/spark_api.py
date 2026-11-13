@@ -537,6 +537,8 @@ def coverage() -> list[dict[str, str]]:
     install()
     spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
     spark_df_extras.install()  # persist, storageLevel, sameSemantics, observe
+    from . import spark_df_more
+    spark_df_more.install()  # freqItems, inputFiles, to, withMetadata, writeTo
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

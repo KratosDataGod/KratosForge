@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 117 |
+| Runs | 118 |
 | Differs | 3 |
 | Refused | 15 |
-| Fails | 28 |
+| Fails | 27 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -132,7 +132,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `withColumnRenamed` | Runs |  |
 | `withColumns` | Runs |  |
 | `withColumnsRenamed` | Runs |  |
-| `withMetadata` | Fails | `df_meta = df.withMetadata('age', {'foo': 'bar'})`: AttributeError: 'DataFrame' object has no attribute 'withMetadata' |
+| `withMetadata` | Runs |  |
 | `withWatermark` | Not checked |  |
 | `write` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tab2")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
 | `writeStream` | Not checked |  |

@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlglot.tokens import TokenType
 
+from ..git.secrets import scan_text
 from .analyzer import Stmt, _line_starts, _pos, split
 from .profiles import profile
 from .rules import _calls, _close, _is_name, _name_at, _verbs
@@ -59,6 +60,23 @@ RULES: tuple[Rule, ...] = (
     Rule("SQ010", "Warning", "Reliability", "INSERT ... SELECT *",
          "Columns are matched by position, so a column added to either table puts values in the wrong place. "
          "List the columns on both sides."),
+    Rule("SQ012", "Warning", "Reliability", "NOT IN with a subquery",
+         "If the subquery returns one NULL, NOT IN is never true and the query returns no rows, without an error. "
+         "Write NOT EXISTS, or filter the NULLs out in the subquery."),
+    Rule("SQ015", "Info", "Performance", "Correlated subquery in the SELECT list",
+         "The subquery may run once for every row. A JOIN, or a window function, may read the table once."),
+    Rule("SQ016", "Info", "Performance", "LIKE with a leading wildcard in WHERE",
+         "LIKE '%text' can't use the column's ordering or statistics to skip data, so every row is read. "
+         "Match the start of the value when you can, or keep a column made for the search."),
+    Rule("DM002", "Warning", "Reliability", "Surrogate key renumbered on every load",
+         "ROW_NUMBER() gives each row a new number every time the load runs, so the facts that point at the old "
+         "numbers point at the wrong rows. Keep keys in a key table and assign new numbers only to new business keys."),
+    Rule("WH001", "Info", "Performance", "TRUNCATE and full reload",
+         "The whole table is emptied and loaded again on every run. If the source has a modified date or an "
+         "increasing id, loading only the rows after the last one loaded may move much less data."),
+    Rule("SE001", "Error", "Security", "Password or connection string in a SQL script",
+         "A secret in a script ends up in Git, history and logs. Use Microsoft Entra sign-in, or read it from "
+         "Key Vault when the script runs."),
 )
 _BY_ID = {r.id: r for r in RULES}
 
@@ -104,6 +122,25 @@ def check(query: str, target: str = "warehouse", settings: dict[str, Any] | None
             f = _finding(rule_id, at, s.index + 1, lines, settings)
             if f:
                 rows.append(f)
+    for rule_id, at, statement in _reloads(stmts):
+        if (rule_id, at) not in seen:
+            seen.add((rule_id, at))
+            f = _finding(rule_id, at, statement, lines, settings)
+            if f:
+                rows.append(f)
+    # scan_text counts lines with splitlines(), which also breaks at \r and Unicode separators: map its line
+    # numbers to offsets the same way, so the finding points at the secret's own place.
+    starts = [0]
+    for piece in query.splitlines(keepends=True):
+        starts.append(starts[-1] + len(piece))
+    for hit in scan_text(query):
+        at = starts[hit["line"] - 1] if hit["line"] - 1 < len(starts) else 0
+        statement = next((s.index + 1 for s in stmts if s.start <= at < s.end), 0)
+        if ("SE001", at) not in seen:
+            seen.add(("SE001", at))
+            f = _finding("SE001", at, statement, lines, settings)
+            if f:
+                rows.append(f)
     rows.sort(key=lambda f: (SEVERITIES.index(f["severity"]), f["line"], f["col"], f["rule_id"]))
     return {"target": target, "statements": len(stmts),
             "counts": {s: sum(1 for f in rows if f["severity"] == s) for s in SEVERITIES}, "findings": rows}
@@ -118,7 +155,7 @@ def _finding(rule_id: str, at: int, statement: int, lines: list[int], settings: 
     severity = own.get("severity") if own.get("severity") in SEVERITIES else rule.severity
     line, col = _pos(lines, at)
     return {"rule_id": rule_id, "severity": severity, "rule": rule.name, "category": rule.category,
-            "object_type": "Statement", "object": f"statement {statement}, line {line}", "statement": statement,
+            "object_type": "Statement", "object": f"statement {statement}, line {line}" if statement else f"line {line}", "statement": statement,
             "line": line, "col": col, "description": rule.description, "url": url(rule_id)}
 
 
@@ -158,6 +195,18 @@ def _statement(s: Stmt) -> Iterator[tuple[str, int]]:
     for i, verb in _verbs(s):
         if verb == "SELECT" and _select_into(s, i):
             yield "SQ004", toks[i].start
+    for i, t in enumerate(toks):
+        if t.kw == "NOT" and i + 3 < len(toks) and toks[i + 1].kw == "IN" and toks[i + 2].type == TokenType.L_PAREN \
+                and toks[i + 3].kw == "SELECT" and not _drops_nulls(s, i + 2):
+            yield "SQ012", t.start
+        if t.kw == "SELECT" and i and toks[i - 1].type == TokenType.L_PAREN and _in_select_list(s, i - 1) \
+                and _correlated(s, i - 1):
+            yield "SQ015", t.start
+        if t.kw == "ROW_NUMBER" and _writes(s) and _numbers_a_key(s, i):
+            yield "DM002", t.start
+        if t.kw == "LIKE" and i + 1 < len(toks) and toks[i + 1].type in {TokenType.STRING, TokenType.NATIONAL_STRING} \
+                and toks[i + 1].text.startswith("%") and _clause_of(s, i) == "WHERE":
+            yield "SQ016", t.start
     depth0 = [i for i, t in enumerate(toks) if t.depth == toks[0].depth]
     order_by = [i for i in depth0 if toks[i].kw == "ORDER" and i + 1 < len(toks) and toks[i + 1].kw == "BY"]
     if is_view and order_by:
@@ -266,3 +315,122 @@ def _select_into(s: Stmt, i: int) -> bool:
         if t.depth == d and t.kw in {"FROM", "WHERE"} | _CLAUSE_END:
             return False
     return False
+
+
+def _drops_nulls(s: Stmt, paren: int) -> bool:
+    """The NOT IN subquery filters NULLs out of the column it selects (SELECT b ... WHERE b IS NOT NULL), so it
+    can't return one. An IS NOT NULL on another column doesn't count."""
+    toks = s.toks
+    close = _close(s, paren)
+    selected, after = _name_at(s, paren + 2)  # paren + 1 is the SELECT
+    if not selected or after >= close or toks[after].kw != "FROM":
+        return False  # an expression, or more than one column: can't tell
+    column = selected[-1].text.upper()
+    for j in range(after, close - 3):
+        if toks[j + 1].kw == "IS" and toks[j + 2].kw == "NOT" and toks[j + 3].kw == "NULL" \
+                and _is_name(toks[j]) and toks[j].text.upper() == column:
+            return True
+    return False
+
+
+def _clause_of(s: Stmt, i: int) -> str:
+    """The clause keyword (WHERE, ON, SELECT, ...) that token ``i`` belongs to, looking out through brackets
+    that only group conditions: WHERE (a LIKE '%x' OR b = 1) is still in WHERE."""
+    toks = s.toks
+    depth = toks[i].depth
+    for j in range(i - 1, -1, -1):
+        t = toks[j]
+        if t.depth > depth:
+            continue
+        if t.depth < depth:
+            if t.type == TokenType.L_PAREN and j and toks[j - 1].kw in _CALLS_BEFORE_PAREN:
+                return ""  # inside IIF(...), EXISTS(...) or a subquery: decided by what's inside
+            depth = t.depth
+        if t.kw in {"WHERE", "ON", "HAVING", "SELECT", "FROM", "SET", "WHEN", "CASE", "THEN", "ELSE", "BY"}:
+            return t.kw
+    return ""
+
+
+_CALLS_BEFORE_PAREN = {"IIF", "EXISTS", "IN", "CHOOSE", "COALESCE", "ISNULL", "NULLIF", "CAST", "CONVERT"}
+
+
+def _in_select_list(s: Stmt, paren: int) -> bool:
+    """Whether the ( at ``paren`` starts an item of a SELECT list: SELECT a, (SELECT ...) AS b FROM ..."""
+    toks = s.toks
+    d = toks[paren].depth
+    for j in range(paren - 1, -1, -1):
+        t = toks[j]
+        if t.depth < d:
+            return False
+        if t.depth == d and t.kw == "SELECT":
+            return True
+        if t.depth == d and t.kw in {"FROM", "WHERE", "ON", "HAVING", "SET", "JOIN", "IN", "EXISTS", "VALUES"} | _CLAUSE_END:
+            return False
+    return False
+
+
+def _correlated(s: Stmt, paren: int) -> bool:
+    """A subquery that names a table or alias from the outer query (o.customer_id) where it doesn't define it."""
+    toks = s.toks
+    close = _close(s, paren)
+    inner = range(paren + 1, close)
+    defined: set[str] = set()
+    table_names: set[int] = set()  # dbo.orders after FROM is a table, not a column of one
+    for j in inner:
+        if toks[j].kw in {"FROM", "JOIN"}:
+            parts, after = _name_at(s, j + 1)
+            table_names.update(range(j + 1, after))
+            if parts:
+                defined.add(parts[-1].text.upper())
+                if after < close and toks[after].kw == "AS":
+                    after += 1
+                if after < close and _is_name(toks[after]) and toks[after].kw not in _ALIAS_STOP:
+                    defined.add(toks[after].text.upper())
+    for j in inner:
+        if j + 2 < close and toks[j + 1].type == TokenType.DOT and _is_name(toks[j]) and _is_name(toks[j + 2]) \
+                and (j == paren + 1 or toks[j - 1].type != TokenType.DOT) \
+                and (j + 3 >= close or toks[j + 3].type not in {TokenType.DOT, TokenType.L_PAREN}) \
+                and j not in table_names and toks[j].text.upper() not in defined:
+            return True
+    return False
+
+
+_ALIAS_STOP = {"WHERE", "ON", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "GROUP", "ORDER", "HAVING",
+               "UNION", "WITH", "OPTION"}
+
+
+def _writes(s: Stmt) -> bool:
+    """INSERT, MERGE, SELECT ... INTO or CREATE TABLE ... AS: the statement stores what it selects."""
+    return s.has("INSERT") or s.has("MERGE") or s.has("INTO") or (s.has("CREATE", "TABLE") and s.has("AS"))
+
+
+def _numbers_a_key(s: Stmt, i: int) -> bool:
+    """ROW_NUMBER() OVER (...) [AS] name, where the name ends _key or _sk."""
+    toks = s.toks
+    if i + 1 >= len(toks) or toks[i + 1].type != TokenType.L_PAREN:
+        return False
+    j = _close(s, i + 1) + 1
+    if j < len(toks) and toks[j].kw == "OVER" and j + 1 < len(toks) and toks[j + 1].type == TokenType.L_PAREN:
+        j = _close(s, j + 1) + 1
+    if j < len(toks) and toks[j].kw == "AS":
+        j += 1
+    return j < len(toks) and _is_name(toks[j]) and toks[j].text.lower().endswith(("_key", "_sk"))
+
+
+def _reloads(stmts: list[Stmt]) -> Iterator[tuple[str, int, int]]:
+    """TRUNCATE TABLE t followed later in the script by INSERT INTO t: a full reload (WH001)."""
+    truncated: dict[str, tuple[int, int]] = {}
+    for s in stmts:
+        toks = s.toks
+        for i, t in enumerate(toks):
+            if t.kw == "TRUNCATE" and i + 1 < len(toks) and toks[i + 1].kw == "TABLE":
+                parts, _after = _name_at(s, i + 2)
+                if parts:
+                    truncated.setdefault(".".join(p.text.lower() for p in parts), (t.start, s.index + 1))
+            if t.kw == "INSERT" and truncated:
+                j = i + 1 + (i + 1 < len(toks) and toks[i + 1].kw == "INTO")
+                parts, _after = _name_at(s, j)
+                name = ".".join(p.text.lower() for p in parts)
+                if name in truncated:
+                    at, statement = truncated.pop(name)
+                    yield "WH001", at, statement

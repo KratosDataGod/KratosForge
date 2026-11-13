@@ -13,6 +13,9 @@ It also includes third-party software under its own licenses:
   app/ui/vendor/vega, listed with their licenses in THIRD-PARTY-NOTICES.md there.
 - CodeMirror, in app/ui/vendor/codemirror, under the MIT License (LICENSE in
   that folder).
+- The Inter and DM Sans typefaces (latin files from Fontsource), in
+  app/ui/vendor/fonts, under the SIL Open Font License 1.1 (LICENSE-inter and
+  LICENSE-dm-sans in that folder).
 - The Windows to IANA time zone map from Unicode CLDR, in
   sidecar/fabric_desktop/orchestration/windows_zones.py, under the Unicode
   License v3 (its text is at the top of that file).

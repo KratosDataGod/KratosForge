@@ -69,7 +69,8 @@ def test_an_rpc_call_that_starts_a_blocked_program_gets_the_line(monkeypatch, tm
     assert "blocked by group policy" in reply["error"]  # Windows' own words stay for IT, after the line
 
 
-def test_an_unsigned_or_changed_file_says_to_get_a_fresh_copy_before_asking_it():
+def test_an_unsigned_or_changed_file_says_to_get_a_fresh_copy_before_asking_it(monkeypatch, tmp_path):
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))  # no policy: the person's own engine
     # 577 also means a file that changed after it was signed: allowing it by hash would allow the change.
     # A restart alone runs the same files, so the line says to delete the engine folder first.
     for exc in (_winerror(577, "refused"),
@@ -82,3 +83,22 @@ def test_an_unsigned_or_changed_file_says_to_get_a_fresh_copy_before_asking_it()
         assert app_control.explain(OSError(text)) is None  # said once
     for code in (1260, 4551):
         assert "may have been changed" not in (app_control.explain(_winerror(code, "refused")) or "")
+
+
+def test_an_engine_it_keeps_in_its_own_folder_asks_it_for_a_fresh_copy(monkeypatch, tmp_path):
+    # With engine_folder the person can't delete or repair the engine, so IT copies it there again.
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    it = tmp_path / "Program Files" / "KratosForge" / "engine"
+    (tmp_path / "pd" / "FabricDesktop").mkdir(parents=True)
+    (tmp_path / "pd" / "FabricDesktop" / "policy.json").write_text(json.dumps({"engine_folder": str(it)}))
+    monkeypatch.setattr(app_control.sys, "prefix", str(it / "python"))
+    text = app_control.explain(_winerror(577, "refused")) or ""
+    assert "ask IT to copy this build's engine into your organization's engine folder again" in text
+    assert "delete the engine folder" not in text
+    # A Python of the person's own, outside IT's folder, is theirs to replace.
+    monkeypatch.setattr(app_control.sys, "prefix", str(tmp_path / "dev" / "venv"))
+    assert "delete the engine folder" in (app_control.explain(_winerror(577, "refused")) or "")
+    # No engine_folder policy: always the person's own, wherever it runs from.
+    (tmp_path / "pd" / "FabricDesktop" / "policy.json").write_text("{}")
+    monkeypatch.setattr(app_control.sys, "prefix", str(it / "python"))
+    assert "delete the engine folder" in (app_control.explain(_winerror(577, "refused")) or "")

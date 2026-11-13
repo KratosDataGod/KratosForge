@@ -138,3 +138,19 @@ test("each skin marks the page with its look, part by part, and KratosForge keep
   assert.deepStrictEqual(await look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered", "regular"]);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a skin's typeface loads from the app's own fonts and its corners change, under the app's CSP", { skip }, async () => {
+  const drawn = (skin, family) => page().evaluate(async ({ skin, family }) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    if (family) await document.fonts.load(`600 14px "${family}"`);
+    const cs = getComputedStyle(document.body);
+    return { font: cs.fontFamily.split(",")[0].replace(/"/g, "").trim(), loaded: family ? document.fonts.check(`600 14px "${family}"`) : true,
+      corner: cs.getPropertyValue("--r-sm").trim() };
+  }, { skin, family });
+  assert.deepStrictEqual(await drawn("databricks", "DM Sans"), { font: "DM Sans", loaded: true, corner: "2px" });
+  assert.deepStrictEqual(await drawn("snowflake", "Inter"), { font: "Inter", loaded: true, corner: "6px" });
+  assert.deepStrictEqual(await drawn("fabric"), { font: "Segoe UI", loaded: true, corner: "4px" });
+  assert.deepStrictEqual(await drawn("kratosforge"), { font: "Segoe UI Variable Text", loaded: true, corner: "4px" });
+  assert.deepStrictEqual(app.errors, []);
+});
